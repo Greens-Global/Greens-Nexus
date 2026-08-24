@@ -20,18 +20,18 @@ const MODES = {
   bod: {
     title: 'Beginning of Day', Icon: Sunrise, color: '#f59e0b', tag: 'BOD',
     sub: "First punch-in today - tell the team what's on your plate.",
-    msgLabel: 'Message', msgPlaceholder: 'Good morning! Starting my day…',
+    msgLabel: 'Message (Optional)', msgPlaceholder: 'Good morning! Starting my day…',
     tasksLabel: "Today's tasks (one per line)", tasksHead: 'Tasks',
     tasksPlaceholder: 'Finish the Lakeline report\nCall the Riverside vendor\nReview Q2 numbers',
-    cta: 'Send & start the day', ackLabel: 'I already sent my login (BOD) message',
+    cta: 'Send & start the day', ackLabel: 'I already sent my login (BOD) message', optionalMessage: true,
   },
   eod: {
     title: 'End of Day', Icon: Sunset, color: '#7c3aed', tag: 'EOD',
     sub: 'Wrapping up - post your summary and the tasks you worked on.',
-    msgLabel: 'Summary', msgPlaceholder: 'Wrapping up - good progress today.',
+    msgLabel: 'Summary (Optional)', msgPlaceholder: 'Wrapping up - good progress today.',
     tasksLabel: 'Tasks (one per line)', tasksHead: 'Tasks (Completed)',
     tasksPlaceholder: 'Lakeline report\nRiverside vendor call\nQ2 numbers review',
-    cta: 'Send & clock out', ackLabel: 'I already sent my logout (EOD) message',
+    cta: 'Send & clock out', ackLabel: 'I already sent my logout (EOD) message', optionalMessage: true,
   },
   break: {
     title: 'Going on break', Icon: Coffee, color: '#b45309', tag: 'BREAK', reasonOnly: true,
@@ -58,6 +58,11 @@ const ordinal = (n) => {
 };
 const fmtWorked = (min) => `${Math.floor(min / 60)}hrs:${String(min % 60).padStart(2, '0')}mins`;
 const todayLocalKey = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
+// Phones skip the BOD/EOD message far more than desktop users do, so on a
+// mobile viewport the "Skip" escape hatch (and the ack-to-skip checkbox that
+// only exists to gate it) is hidden entirely - the message must be sent.
+const isMobileViewport = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
 
 export default function BodModal({ mode = 'bod', required = false, onSent, onSkip, onClose, toastOk, toastErr }) {
   const M = MODES[mode] || MODES.bod;
@@ -89,6 +94,14 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
   const [workedMin, setWorkedMin] = useState(0);      // EOD only - total worked today, for the Line 3 tally
+  const [isMobile, setIsMobile] = useState(isMobileViewport);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)');
+    const onChange = () => setIsMobile(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   // Persist the draft on every keystroke so a recovery reload can't lose it.
   useEffect(() => {
@@ -314,14 +327,14 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
         </div>
 
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, alignItems: 'center' }}>
-          {required && M.ackLabel && !M.noSkip && (
+          {required && M.ackLabel && !M.noSkip && !isMobile && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', flex: 1 }}>
               <input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} />
               {M.ackLabel}
             </label>
           )}
-          <div style={{ flex: required && M.ackLabel && !M.noSkip ? 'none' : 1 }} />
-          {!M.noSkip && (
+          <div style={{ flex: required && M.ackLabel && !M.noSkip && !isMobile ? 'none' : 1 }} />
+          {!M.noSkip && !isMobile && (
             <button className="secondary-btn" onClick={skip} disabled={required && !ack}
               title={required && !ack ? 'Tick the box if you already sent it' : ''}>Skip</button>
           )}

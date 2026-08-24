@@ -1738,6 +1738,10 @@ class PayrollRate(Base):
     monthly_salary    = Column(Float,  default=0)          # fixed pay: gross per month
     weekend_ot_amount = Column(Float,  default=0)          # fixed pay: flat per weekend day worked
     full_day_hours    = Column(Float,  default=8)          # fixed pay: half-day threshold = this / 2
+    # Salaried/exempt people (leadership, principals) are not time-tracked at all:
+    # no punch card, no "hours this week" widgets (Charmi, Aug 21). Distinct from
+    # pay_type='fixed' - fixed-salary staff still punch (attendance drives pay).
+    time_tracking_exempt = Column(Integer, default=0)      # 1 = hide/skip time tracking
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
 
@@ -1788,6 +1792,11 @@ class TimeOffRequest(Base):
     decide_note    = Column(String, default="")
     created_at     = Column(String, default="")
     requested_by   = Column(String, default="")         # who FILED it, when not the employee (manager+ on-behalf, Neil Aug 11)
+    # Partial-day time off (Charmi, Aug 21: "two hours off for a doctor's
+    # appointment"). HH:MM (24h) local times; both empty = full day(s). Times are
+    # only valid on a single-day request (start_date == end_date).
+    start_time     = Column(String, default="")
+    end_time       = Column(String, default="")
 
 
 class DashboardView(Base):
@@ -3400,3 +3409,21 @@ class EgnyteOAuthState(Base):
     id         = Column(String, primary_key=True)
     email      = Column(String, nullable=False)
     created_at = Column(String, default="")
+
+
+class NexusDailyBriefingLog(Base):
+    """One row per employee per (employee-local) calendar day a daily briefing
+    was generated - the dedupe check AND the 'since last briefing' cursor for
+    daily_briefing.py. New table - create_all builds it, no migration line
+    needed (see NexusSetting's docstring for the same convention)."""
+    __tablename__ = "nexus_daily_briefing_log"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    briefing_date  = Column(String, index=True, nullable=False)  # employee-local YYYY-MM-DD
+    sent_at        = Column(String, default="")          # UTC iso; '' if mode=off (scan ran, nothing mailed)
+    mode           = Column(String, default="test")      # off|test|live - which config this run used
+    red_count      = Column(Integer, default=0)
+    amber_count    = Column(Integer, default=0)
+    green_count    = Column(Integer, default=0)
+    blue_count     = Column(Integer, default=0)
+    created_at     = Column(String, default="")

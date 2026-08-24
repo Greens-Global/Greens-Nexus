@@ -165,9 +165,18 @@ export default function TimeclockWidget() {
         // browser share (no picker, no double capture). Re-check FRESH at click
         // time (not the 25s-poll cache) so a PC assigned an owner moments ago is
         // honored immediately - the employee never has to reload the page.
+        // BOUNDED: getDisplayMedia only works inside the click's transient
+        // activation (~5s in Chrome). An unbounded /status await here ate that
+        // whole window whenever the API was slow - the picker then threw
+        // NotAllowedError without ever appearing, and anyone WITHOUT a desktop
+        // agent simply could not share or clock in (Visesh, Aug 24). Race the
+        // re-check against a short timeout and fall back to the cached value.
         let covered = agentActiveRef.current;
         try {
-          const s = await api.timeStatus();
+          const s = await Promise.race([
+            api.timeStatus(),
+            new Promise(res => setTimeout(() => res(null), 1500)),
+          ]);
           if (s?.monitoring) { covered = !!s.monitoring.agentActive; agentActiveRef.current = covered; }
         } catch { /* server unreachable - fall back to the last known value */ }
         if (covered) return true;
@@ -285,6 +294,9 @@ export default function TimeclockWidget() {
     setBusy(false);
   }
 
+  // Salaried/exempt people are never time-tracked - no floating timer for them
+  // (Charmi, Aug 21).
+  if (status?.timeTrackingExempt) return null;
   // Keep rendering while the EOD modal is up, even though the shift just ended.
   if (!clockedIn) {
     return eodOpen ? <BodModal mode="eod" onClose={() => setEodOpen(false)}

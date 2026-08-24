@@ -10,9 +10,9 @@ import {
   // The subtask/comment/attachment icons moved with their badges into
   // components.TaskCountBadges, which My Tasks renders too.
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
-  Lock, Users, ListChecks, CornerDownRight,
+  Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown,
 } from 'lucide-react';
-import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, rootParent, effectiveProjectId } from '../lib';
+import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, rootParent, effectiveProjectId, cfKey } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { Avatar, useClickOutside, DateField, TaskCountBadges } from '../components';
 import { emailToName, rootZoom } from '../../lib/utils';
@@ -33,6 +33,15 @@ const BASE_COLS = [
 ];
 // Columns that can be hidden via the eye menu (task itself always shows).
 const HIDEABLE = ['actions', 'assignee', 'project', 'due', 'estimate', 'actual', 'priority', 'status', 'team', 'timeline'];
+// Column key -> the sort key its header drives. Anything absent (checkbox,
+// actions) has no meaningful order and stays a plain label. These are the same
+// keys the toolbar's Sort menu writes, so a header click and a Sort pick are
+// one state, not two competing ones.
+const COL_SORT_KEY = {
+  task: 'title', assignee: 'assignee', project: 'project', due: 'dueOn',
+  estimate: 'estimate', actual: 'actual', priority: 'priority', status: 'status',
+  team: 'team', timeline: 'timeline',
+};
 const HIDDEN_KEY = 'nexus.richlist.hiddenCols';
 
 // Type picker for "+ Column" - matches the export's AddColumnMenu grid exactly
@@ -790,7 +799,7 @@ export function ListColumnControls({ hidden, setHidden, customFields, createCust
   );
 }
 
-export default function RichListView({ visible, group, sort, ctx, store, people, selected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
+export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
   const [collapsed, setCollapsed] = useState(new Set());
   const effGroup = group === 'none' ? 'status' : group;
   // Inside a project every row has the same project, so the column is noise. It has
@@ -968,6 +977,41 @@ export default function RichListView({ visible, group, sort, ctx, store, people,
 
   // monday repeats the column header inside every group block - this renders one.
   const headCell = { position: 'relative', display: 'flex', alignItems: 'center', minWidth: 0, minHeight: 34, padding: '2px 8px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
+
+  // Click a header to sort by it: unsorted -> ascending -> descending -> back
+  // to Manual. Returning to Manual matters rather than being tidy - row
+  // drag-reorder only works under Manual (see manualSort above), so a column
+  // sort has to be undoable from the same control that applied it.
+  const sortKeyFor = (key) => COL_SORT_KEY[key] || (customFields.some((f) => f.id === key) ? cfKey(key) : '');
+  const cycleSort = (key) => {
+    const sk = sortKeyFor(key);
+    if (!sk || !setSort) return;
+    setSort((prev) => {
+      if (prev?.key !== sk) return { key: sk, dir: 'asc' };
+      if (prev.dir === 'asc') return { key: sk, dir: 'desc' };
+      return { key: 'manual', dir: 'asc' };
+    });
+  };
+  const SortHead = ({ colKey, label, align = 'center', width = 150 }) => {
+    const sk = sortKeyFor(colKey);
+    const active = sk && sort?.key === sk;
+    const Arrow = sort?.dir === 'desc' ? ArrowDown : ArrowUp;
+    return (
+      <div onClick={sk ? () => cycleSort(colKey) : undefined}
+        title={sk ? `Sort by ${label}` : undefined}
+        style={{
+          ...headCell, justifyContent: align, gap: 4,
+          cursor: sk ? 'pointer' : 'default',
+          color: active ? NX.ink : NX.dim,
+          fontWeight: active ? 600 : 400,
+          userSelect: 'none',
+        }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        {active && <Arrow size={12} strokeWidth={2.5} style={{ flexShrink: 0, color: NX.primary }} />}
+        <ColResizer onMouseDown={startResize(colKey, widths[colKey] ?? width)} />
+      </div>
+    );
+  };
   const groupHeader = (
     <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', borderBottom: `1px solid ${NX.border2}`, background: NX.surface, fontSize: 13, fontWeight: 400, color: NX.dim }}>
       <div style={{ ...headCell, justifyContent: 'center', padding: '2px 4px' }}>
@@ -976,16 +1020,10 @@ export default function RichListView({ visible, group, sort, ctx, store, people,
         </button>
       </div>
       {cols.slice(1).map((c) => (
-        <div key={c.key} style={{ ...headCell, justifyContent: c.key === 'task' ? 'flex-start' : 'center' }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.label}</span>
-          <ColResizer onMouseDown={startResize(c.key, widths[c.key] ?? c.width)} />
-        </div>
+        <SortHead key={c.key} colKey={c.key} label={c.label} width={c.width} align={c.key === 'task' ? 'flex-start' : 'center'} />
       ))}
       {customFields.map((f) => (
-        <div key={f.id} style={{ ...headCell, justifyContent: 'center' }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-          <ColResizer onMouseDown={startResize(f.id, widths[f.id] ?? 150)} />
-        </div>
+        <SortHead key={f.id} colKey={f.id} label={f.name} />
       ))}
       {/* Trailing spacer. Hide / + Column used to live here - inside the header
           row, and therefore repeated in every group block and sitting flush

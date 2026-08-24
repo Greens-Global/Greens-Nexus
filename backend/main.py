@@ -33,6 +33,7 @@ from routers import investor_relations  # Investor Relations platform (Jul 2026)
 from routers import stepup  # Step-up MFA for sensitive data (vault/payroll/HR) (Jul 2026)
 import act_as  # Act As: Manager/IT Admin/Global Admin can impersonate a lower-role employee (Jul 2026)
 from routers import branding  # Branding settings: login-screen accent color (Jul 2026)
+from routers import daily_briefing as daily_briefing_router  # Daily Briefing admin config (Aug 2026) - see daily_briefing.py
 from routers import egnyte  # Egnyte module: browse/upload at the right folder level (Jul 2026)
 from routers import external_links  # External Links directory rebuild (Aug 2026) - own file, see its docstring
 from routers import link_layouts  # Per-user Links Module personalization overlay (Aug 13) - own file, see its docstring
@@ -531,6 +532,11 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN project_ids JSON DEFAULT '[]'",
             # Manual drag-order (Aug 2026): see models.Task.position.
             "ALTER TABLE tasks ADD COLUMN position FLOAT DEFAULT 0",
+            # Time Clock batch (Charmi call, Aug 21): partial-day time off +
+            # salaried time-tracking exemption.
+            "ALTER TABLE time_off_requests ADD COLUMN start_time VARCHAR DEFAULT ''",
+            "ALTER TABLE time_off_requests ADD COLUMN end_time VARCHAR DEFAULT ''",
+            "ALTER TABLE payroll_rates ADD COLUMN time_tracking_exempt INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1117,6 +1123,11 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_ids JSONB DEFAULT '[]'::jsonb",
         # Manual drag-order (Aug 2026): see models.Task.position.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS position DOUBLE PRECISION DEFAULT 0",
+        # Time Clock batch (Charmi call, Aug 21): partial-day time off +
+        # salaried time-tracking exemption.
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS start_time VARCHAR DEFAULT ''",
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS end_time VARCHAR DEFAULT ''",
+        "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS time_tracking_exempt INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -1290,6 +1301,11 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(teams_post_loop()))
         except Exception as e:
             print(f"[startup] teams post queue skipped: {e}")
+        try:
+            from daily_briefing import daily_briefing_loop
+            _tasks.append(_a.create_task(daily_briefing_loop()))
+        except Exception as e:
+            print(f"[startup] daily briefing loop skipped: {e}")
         # These two keep their own is_sync_worker() gate INSIDE the leader's job
         # set, and the two gates answer different questions. Leader election stops
         # several web instances doing the same work twice; is_sync_worker stops a
@@ -1463,6 +1479,14 @@ app.add_middleware(
     allow_origins=_CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
+    # The API is a different origin from the SPA on every environment, and a
+    # cross-origin response only hands JS the handful of CORS-safelisted
+    # headers unless they are named here. Without this, every download built on
+    # api.js's reqBlob (task/QA/requisition exports, Egnyte files, e-sign and
+    # construction PDFs, timeclock CSV) read a null Content-Disposition and
+    # saved as "download.xlsx" / "download" with the server's real filename
+    # thrown away.
+    expose_headers=["Content-Disposition"],
 )
 
 
@@ -1610,6 +1634,7 @@ app.include_router(investor_relations.router)  # Investor Relations: funds/inves
 app.include_router(stepup.router)         # Step-up MFA for sensitive data (vault reveals / payroll / confidential HR)
 app.include_router(act_as.router)         # Act As: impersonate a lower-role employee's account
 app.include_router(branding.router)       # Branding settings: login-screen accent color
+app.include_router(daily_briefing_router.router)  # Daily Briefing admin config (mode/test recipients)
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
 from routers import client_errors          # noqa: E402
 app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs

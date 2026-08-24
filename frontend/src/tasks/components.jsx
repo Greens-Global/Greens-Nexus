@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
-  ListTree, MessageSquare, Paperclip, Download } from 'lucide-react';
+  ListTree, MessageSquare, Paperclip, Download, CalendarDays } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
@@ -182,6 +182,10 @@ export function useIsMobile(query = '(max-width: 640px)') {
 // ── Nexus calendar picker (replaces the native OS date popup) ────────────────
 const CAL_WEEK = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
 const CAL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const CAL_MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// Years shown per page in the zoomed-out year grid - 12 keeps the same 3x4
+// shape as the month grid, so the two levels feel like one control.
+const CAL_YEAR_PAGE = 12;
 const pad2 = (n) => String(n).padStart(2, '0');
 const dateToISO = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const isoToDate = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, (m || 1) - 1, d || 1); };
@@ -193,6 +197,11 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
   const selected = value ? isoToDate(value) : null;
   const today = new Date();
   const [cursor, setCursor] = useState(() => { const b = selected || today; return new Date(b.getFullYear(), b.getMonth(), 1); });
+  // Zoom level, iOS-style: days -> months -> years. Clicking the month in the
+  // title zooms out to that year's months, clicking the year zooms out to a
+  // page of years, and picking one zooms straight back in. Lets you cross
+  // years in two clicks instead of paging a month at a time.
+  const [zoom, setZoom] = useState('days');
   const ref = useRef(null);
   useEffect(() => {
     const onDoc = (e) => {
@@ -220,6 +229,26 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
     : { top: (anchorRect.bottom + 6) / z };
   const navBtn = { ...btn('ghost'), padding: 5, color: NX.dim };
   const linkBtn = { background: 'transparent', border: 'none', cursor: 'pointer', color: NX.blue, fontWeight: 600, fontSize: 13, fontFamily: FONT, padding: '4px 6px' };
+  // The title reads as text until hovered - it is a zoom-out control, but a
+  // calendar header that looks like a button is noisier than one that behaves
+  // like one only when reached for.
+  const titleBtn = { background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: FONT, fontSize: 14, fontWeight: 700, color: NX.ink, padding: '3px 6px', borderRadius: 7, whiteSpace: 'nowrap' };
+  const cellBtn = { height: 46, borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: FONT };
+
+  // Year pages are aligned to fixed blocks so paging is stable - the same year
+  // always sits in the same page rather than the grid re-centering on cursor.
+  const yearStart = Math.floor(cursor.getFullYear() / CAL_YEAR_PAGE) * CAL_YEAR_PAGE;
+  // The arrows step whatever the current zoom shows: a month, a year, or a
+  // whole page of years.
+  const step = (dir) => setCursor((c) => (
+    zoom === 'days' ? new Date(c.getFullYear(), c.getMonth() + dir, 1)
+      : zoom === 'months' ? new Date(c.getFullYear() + dir, c.getMonth(), 1)
+      : new Date(c.getFullYear() + dir * CAL_YEAR_PAGE, c.getMonth(), 1)
+  ));
+  const stepLabel = (dir) => {
+    const unit = zoom === 'days' ? 'month' : zoom === 'months' ? 'year' : 'years';
+    return `${dir < 0 ? 'Previous' : 'Next'} ${unit}`;
+  };
 
   return createPortal(
     <div ref={ref} style={{
@@ -227,31 +256,72 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
       borderRadius: 14, boxShadow: '0 16px 44px rgba(0,0,0,0.22)', zIndex: 5000, padding: 14, fontFamily: FONT,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>{CAL_MONTHS[cursor.getMonth()]} {cursor.getFullYear()}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          {zoom === 'days' && (
+            <button onClick={() => setZoom('months')} style={titleBtn} title="Pick a month">{CAL_MONTHS[cursor.getMonth()]}</button>
+          )}
+          <button onClick={() => setZoom(zoom === 'years' ? 'days' : 'years')} style={titleBtn}
+            title={zoom === 'years' ? 'Back to days' : 'Pick a year'}>
+            {zoom === 'years' ? `${yearStart} - ${yearStart + CAL_YEAR_PAGE - 1}` : cursor.getFullYear()}
+          </button>
+        </div>
         <div style={{ display: 'flex', gap: 2 }}>
-          <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} style={navBtn} aria-label="Previous month"><ChevronLeft size={18} /></button>
-          <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} style={navBtn} aria-label="Next month"><ChevronRight size={18} /></button>
+          <button onClick={() => step(-1)} style={navBtn} aria-label={stepLabel(-1)}><ChevronLeft size={18} /></button>
+          <button onClick={() => step(1)} style={navBtn} aria-label={stepLabel(1)}><ChevronRight size={18} /></button>
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', marginBottom: 4 }}>
-        {CAL_WEEK.map((w) => <div key={w} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: NX.faint, padding: '4px 0' }}>{w}</div>)}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
-        {days.map((d, i) => {
-          const inMonth = d.getMonth() === cursor.getMonth();
-          const isToday = sameYMD(d, today);
-          const isSel = sameYMD(d, selected);
-          return (
-            <button key={i} onClick={() => { onChange(dateToISO(d)); onClose(); }} style={{
-              height: 36, borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13,
-              fontWeight: (isSel || isToday) ? 700 : 500, fontFamily: FONT,
-              background: isSel ? NX.primary : 'transparent',
-              color: isSel ? '#fff' : (inMonth ? NX.ink : NX.faint),
-              boxShadow: isToday && !isSel ? `inset 0 0 0 1.5px ${NX.blue}` : 'none',
-            }}>{d.getDate()}</button>
-          );
-        })}
-      </div>
+
+      {zoom === 'days' && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', marginBottom: 4 }}>
+            {CAL_WEEK.map((w) => <div key={w} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: NX.faint, padding: '4px 0' }}>{w}</div>)}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
+            {days.map((d, i) => {
+              const inMonth = d.getMonth() === cursor.getMonth();
+              const isToday = sameYMD(d, today);
+              const isSel = sameYMD(d, selected);
+              return (
+                <button key={i} onClick={() => { onChange(dateToISO(d)); onClose(); }} style={{
+                  height: 36, borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13,
+                  fontWeight: (isSel || isToday) ? 700 : 500, fontFamily: FONT,
+                  background: isSel ? NX.primary : 'transparent',
+                  color: isSel ? '#fff' : (inMonth ? NX.ink : NX.faint),
+                  boxShadow: isToday && !isSel ? `inset 0 0 0 1.5px ${NX.blue}` : 'none',
+                }}>{d.getDate()}</button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {zoom === 'months' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
+          {CAL_MONTHS_SHORT.map((label, i) => {
+            const isNow = today.getFullYear() === cursor.getFullYear() && today.getMonth() === i;
+            const isSel = !!selected && selected.getFullYear() === cursor.getFullYear() && selected.getMonth() === i;
+            return (
+              <button key={label} onClick={() => { setCursor(new Date(cursor.getFullYear(), i, 1)); setZoom('days'); }}
+                style={{ ...cellBtn, background: isSel ? NX.primary : 'transparent', color: isSel ? '#fff' : NX.ink,
+                  boxShadow: isNow && !isSel ? `inset 0 0 0 1.5px ${NX.blue}` : 'none' }}>{label}</button>
+            );
+          })}
+        </div>
+      )}
+
+      {zoom === 'years' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
+          {Array.from({ length: CAL_YEAR_PAGE }, (_, i) => yearStart + i).map((y) => {
+            const isNow = today.getFullYear() === y;
+            const isSel = !!selected && selected.getFullYear() === y;
+            return (
+              <button key={y} onClick={() => { setCursor(new Date(y, cursor.getMonth(), 1)); setZoom('months'); }}
+                style={{ ...cellBtn, background: isSel ? NX.primary : 'transparent', color: isSel ? '#fff' : NX.ink,
+                  boxShadow: isNow && !isSel ? `inset 0 0 0 1.5px ${NX.blue}` : 'none' }}>{y}</button>
+            );
+          })}
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, borderTop: `1px solid ${NX.border2}`, paddingTop: 8 }}>
         <button onClick={() => { onChange(null); onClose(); }} style={linkBtn}>Clear</button>
         <button onClick={() => { onChange(dateToISO(today)); onClose(); }} style={linkBtn}>Today</button>
@@ -271,16 +341,21 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
     if (r) { setRect(r); setOpen(true); }
   };
   return (
-    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', ...style }}>
+    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, ...style }}>
       <button
         ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled}
         onClick={(e) => { e.stopPropagation(); open ? setOpen(false) : openCal(); }}
         style={{
-          border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
+          flex: 1, textAlign: 'left', border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
           fontFamily: FONT, fontSize: 'inherit', fontWeight: 'inherit', whiteSpace: 'nowrap',
           color: color || (value ? NX.ink : NX.faint),
         }}
       >{value ? fmtDate(value) : placeholder}</button>
+      <CalendarDays
+        size={15} strokeWidth={2} color={NX.faint}
+        style={{ flexShrink: 0, cursor: disabled ? 'default' : 'pointer' }}
+        onClick={(e) => { if (disabled) return; e.stopPropagation(); open ? setOpen(false) : openCal(); }}
+      />
       {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} />}
     </span>
   );

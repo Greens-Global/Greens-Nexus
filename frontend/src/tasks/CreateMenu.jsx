@@ -125,7 +125,8 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
             <label style={label}>Project (optional)</label>
             <select value={deptProjectId} onChange={(e) => setDeptProjectId(e.target.value)} style={inputStyle}>
               <option value="">No project</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {/* No archived projects: this creates work, and archived is where work rests. */}
+              {(projects || []).filter((p) => !p.archived).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
         </Modal>

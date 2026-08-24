@@ -755,17 +755,24 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           )}
           {timeoff.slice(0, 150).map(r => {
             const days = Math.round((new Date(r.endDate) - new Date(r.startDate)) / 86400000) + 1;
+            // Partial-day request (Charmi, Aug 21): show its hour window and count
+            // the fraction of an 8-hour day instead of a full day.
+            const hm12 = (v) => { const [h, m] = (v || '').split(':').map(Number); return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
+            const partial = r.startTime && r.endTime;
+            const partMin = partial
+              ? Math.max(0, (Number(r.endTime.split(':')[0]) * 60 + Number(r.endTime.split(':')[1])) - (Number(r.startTime.split(':')[0]) * 60 + Number(r.startTime.split(':')[1])))
+              : 0;
             return (
               <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}</span>
                 <span style={{ fontSize: 12, textTransform: 'capitalize' }}>{r.type}</span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note}>
-                  {r.startDate} → {r.endDate}{r.note ? ' · “' + r.note + '”' : ''}
+                  {r.startDate} → {r.endDate}{partial ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : ''}{r.note ? ' · “' + r.note + '”' : ''}
                   {r.requestedBy && r.requestedBy !== r.email && (
                     <span style={{ fontStyle: 'italic' }}> · filed by {r.requestedByName || r.requestedBy.split('@')[0].replace(/\./g, ' ')}</span>
                   )}
                 </span>
-                <span style={{ fontSize: 12, fontWeight: 700 }}>{isNaN(days) ? '-' : days}</span>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>{partial ? `${Math.round((partMin / 480) * 100) / 100}` : (isNaN(days) ? '-' : days)}</span>
                 <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.approver || '-'}</span>
                 <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
                   {r.status === 'pending' ? (<>

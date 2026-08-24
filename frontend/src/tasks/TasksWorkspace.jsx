@@ -2,10 +2,10 @@
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
 import { useMemo, useState } from 'react';
-import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft, Copy } from 'lucide-react';
+import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft, Copy, Pencil } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm} from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton } from './components';
 import CreateTaskModal from './CreateTaskModal';
@@ -54,6 +54,20 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [filters, setFilters] = useState(initialFilters || EMPTY_FILTER);
   const [sort, setSort] = useState({ key: 'manual', dir: 'asc' });
   const [selected, setSelected] = useState(new Set());
+  // Edit Project from inside the project, so settings do not mean navigating
+  // back out to the Projects grid first. ProjectsView imports THIS module to
+  // render the workspace, so importing its modal statically would be a cycle -
+  // it is pulled in on click, which also keeps it out of the initial bundle.
+  const [projMod, setProjMod] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const openProjectEdit = async () => {
+    if (!lockedProject) return;
+    try {
+      const m = projMod || await import('./ProjectsView');
+      setProjMod(m);
+      setEditForm(projectToForm(lockedProject));
+    } catch { /* chunk failed to load - the Projects grid still has the editor */ }
+  };
   const [openId, setOpenId] = useState(taskIdFromUrl);
   const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
   const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
@@ -76,8 +90,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   // reached through their parent. Project scope resolves through the parent
   // chain so a subtask still counts as being in its parent's project.
   const visible = useMemo(
-    () => sortTasks(personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById)), sort, activeFields),
-    [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields, store.taskById],
+    () => sortTasks(personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById)), sort, activeFields, { nameOf, projectName, teamName }),
+    [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields, store.taskById, nameOf, projectName, teamName],
   );
 
   const applyView = (v) => {
@@ -137,6 +151,12 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         {!isMobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
             {lockedProject && <ProjectAccessButton project={lockedProject} teams={teams} people={people} />}
+            {lockedProject && (
+              <button onClick={openProjectEdit} title="Edit Project"
+                style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: NX.dim }}>
+                <Pencil size={14} />{!isMobile && 'Edit'}
+              </button>
+            )}
             <button style={btn('primary')} onClick={() => openCreate({ projectId: lockedProjectId || '' })}><Plus size={15} />New Task</button>
           </div>
         )}
@@ -182,7 +202,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       {/* Body */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'list' ? (
-          <RichListView visible={visible} group={group} sort={sort} ctx={ctx} store={store} people={people} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} />
+          <RichListView visible={visible} group={group} sort={sort} setSort={setSort} ctx={ctx} store={store} people={people} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} />
         ) : visible.length === 0 ? (
           <EmptyState icon={CheckCircle2} title="No Tasks Yet" hint="Create your first task to get going." />
         ) : view === 'board' ? (
@@ -234,12 +254,33 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             <option value="-" style={{ color: NX.ink }}>Unassigned</option>
             {people.map((p) => <option key={p.email} value={p.email} style={{ color: NX.ink }}>{p.name}</option>)}
           </select>
+          {/* Move to another project. The server drops the old project's
+              section and team on the way (see bulk_update) - both are
+              project-scoped, so carrying them over would file the task under a
+              group the destination does not have. Archived projects are left
+              out: moving work INTO one is nobody's intent. */}
+          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { projectId: e.target.value === '-' ? '' : e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
+            <option value="" disabled>Move To…</option>
+            <option value="-" style={{ color: NX.ink }}>No project</option>
+            {(store.projects || []).filter((p) => !p.archived && p.id !== lockedProjectId)
+              .slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+              .map((p) => <option key={p.id} value={p.id} style={{ color: NX.ink }}>{p.name}</option>)}
+          </select>
           <button onClick={duplicate} title="Duplicate the selected tasks" style={{ ...btn('ghost'), color: '#fff' }}><Copy size={14} />Duplicate</button>
           <button onClick={() => { if (confirm(`Delete ${selected.size} task(s)?`)) { [...selected].forEach(deleteTask); clearSel(); } }} style={{ ...btn('ghost'), color: '#fff' }}><Trash2 size={15} />Delete</button>
           <button onClick={clearSel} style={{ ...btn('ghost'), color: '#fff', padding: 5 }}><X size={16} /></button>
         </div>
         );
       })()}
+
+      {editForm && projMod && (
+        <projMod.ProjectModal
+          form={editForm} setForm={setEditForm}
+          people={people} portfolios={store.portfolios || []}
+          onClose={() => setEditForm(null)}
+          onSaved={() => setEditForm(null)}
+        />
+      )}
 
       {isMobile && (
         <MobileTaskBar

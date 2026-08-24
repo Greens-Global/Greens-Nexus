@@ -250,15 +250,19 @@ export default function HomeView({ onNavigate }) {
       <>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Projects</h2>
+          {/* Create lives in the header, not as a tile in the grid. As a tile it
+              took a full card slot on every screen - the whole first row on a
+              phone - to hold one button, and it read as a project that was not
+              one. */}
+          <button onClick={() => setCreatingProject(true)} title="Create Project" aria-label="Create Project"
+            style={{ ...btn('ghost'), padding: 6, color: NX.dim, flexShrink: 0, marginTop: -2 }}>
+            <Plus size={20} />
+          </button>
           {moreBtn(() => onNavigate('projects'))}
         </div>
         {/* Kit "Recently Visit" anatomy - colored cover band (the project's real
             color; no fabricated screenshots), then name, tally, progress. */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
-          <button onClick={() => setCreatingProject(true)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, minWidth: 0, minHeight: 128, border: `1px dashed ${NX.border}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: 'transparent', fontFamily: FONT }}>
-            <span style={{ display: 'flex', width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 10, border: `1px dashed ${NX.border}`, color: NX.faint }}><Plus size={17} /></span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim, whiteSpace: 'nowrap' }}>Create Project</span>
-          </button>
           {recentProjects.map((p) => {
             const pc = p.color || NX.purple;
             const st = projStats[p.id] || { total: 0, done: 0 };

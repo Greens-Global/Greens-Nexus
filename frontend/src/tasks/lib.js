@@ -1,6 +1,6 @@
 // Task Module - pure helpers (ported from nexus/lib/filters.ts + stats.ts).
 // Operates on the runtime task shape (email used as person id).
-import { PRIORITY_ORDER, PRIORITY_META, STATUS_ORDER, STATUS_META } from './theme';
+import { NX, PRIORITY_ORDER, PRIORITY_META, STATUS_ORDER, STATUS_META } from './theme';
 import { api } from '../api';
 import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
@@ -171,6 +171,20 @@ export const fieldsForProjectEntity = (customFields) =>
 export const fieldOption = (field, value) =>
   (field?.options || []).find((o) => (o?.id ?? o) === value || (o?.label ?? o) === value) || null;
 
+// A project row -> the shape the Edit Project form holds. Lives here rather than
+// in ProjectsView so both that screen and the project workspace's own Edit
+// button build the identical form - and so ProjectsView keeps exporting only
+// components (a non-component export there disables Fast Refresh for the file).
+export const projectToForm = (p) => ({
+  id: p.id, name: p.name || '', description: p.description || '', color: p.color || NX.blue,
+  ownerId: p.ownerId || null,
+  hrDepartmentId: p.hrDepartmentId || '', hrDepartmentName: p.hrDepartmentName || '',
+  portfolioId: p.portfolioId || '',
+  accessLevel: p.accessLevel || 'restricted',
+  status: p.status || 'not_started', startOn: p.startOn || '', dueOn: p.dueOn || '', archived: !!p.archived,
+  customFieldValues: p.customFieldValues || {},
+});
+
 export const isSection = (t) => t.type === 'section';
 export const isSubtask = (t) => !!t.parentTaskId;
 
@@ -179,6 +193,26 @@ export function topLevel(tasks) {
   const list = Array.isArray(tasks) ? tasks : Object.values(tasks || {});
   return list.filter((t) => !isSubtask(t) && !isSection(t));
 }
+
+// Blank-valued tasks sort LAST ascending (and so first descending, which is
+// what `dir: 'desc'` reversing the whole list means) - the same place the
+// dueOn '9999' trick has always put them.
+const byText = (get) => (a, b) => {
+  const x = String(get(a) ?? '').trim();
+  const y = String(get(b) ?? '').trim();
+  if (!x && !y) return 0;
+  if (!x) return 1;
+  if (!y) return -1;
+  return x.localeCompare(y, 'en', { sensitivity: 'base' });
+};
+const byNum = (get) => (a, b) => {
+  const raw = (t) => { const v = get(t); return v === '' || v === null || v === undefined ? null : Number(v); };
+  const x = raw(a); const y = raw(b);
+  if (x === null && y === null) return 0;
+  if (x === null) return 1;
+  if (y === null) return -1;
+  return x - y;
+};
 
 const SORTERS = {
   // Drag order (position - see backend models.Task.position). Untouched tasks
@@ -189,7 +223,29 @@ const SORTERS = {
   dueOn: (a, b) => (a.dueOn || '9999').localeCompare(b.dueOn || '9999'),
   priority: (a, b) => PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority),
   status: (a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status),
-  assignee: (a, b) => (a.assigneeId || '').localeCompare(b.assigneeId || ''),
+  estimate: byNum((t) => t.estimateHours),
+  actual: byNum((t) => t.actualHours),
+  // The Timeline column draws a bar from start to due, so it reads as start
+  // date, falling back to due for a task that only has one end.
+  timeline: byText((t) => t.startOn || t.dueOn || ''),
+};
+
+// Sorters that need an id resolved to the name actually on screen. Sorting the
+// Person / Project / Team columns by their raw id would order rows by
+// something invisible - an email's local part or a uuid. ctx comes from the
+// view (nameOf/projectName/teamName); without it these degrade to the id,
+// which is exactly what they did before.
+const CTX_SORTERS = {
+  assignee: (ctx) => byText((t) => (t.assigneeId ? (ctx.nameOf?.(t.assigneeId) || t.assigneeId) : '')),
+  project: (ctx) => byText((t) => (t.projectId ? (ctx.projectName?.(t.projectId) || t.projectId) : '')),
+  team: (ctx) => byText((t) => (t.teamId ? (ctx.teamName?.(t.teamId) || t.teamId) : '')),
+  // A task has SEVERAL collaborators, so it sorts by the alphabetically first
+  // of them - which groups a list by who is on each task, the question the
+  // column's avatar stack is actually answering. Counting them instead would
+  // order by a number nothing on screen shows.
+  collaborators: (ctx) => byText((t) => (t.followerIds || [])
+    .map((e) => ctx.nameOf?.(e) || e)
+    .sort((a, b) => String(a).localeCompare(String(b), 'en', { sensitivity: 'base' }))[0] || ''),
 };
 
 // A custom field sorts by its OWN order where it has one - a select by the order
@@ -214,10 +270,12 @@ function customFieldSorter(field) {
   };
 }
 
-export function sortTasks(list, sort = { key: 'manual', dir: 'asc' }, customFields = []) {
+export function sortTasks(list, sort = { key: 'manual', dir: 'asc' }, customFields = [], ctx = {}) {
   const fieldId = cfFieldId(sort.key);
   const field = fieldId ? (customFields || []).find((f) => f.id === fieldId) : null;
-  const fn = field ? customFieldSorter(field) : (SORTERS[sort.key] || SORTERS.manual);
+  const fn = field ? customFieldSorter(field)
+    : CTX_SORTERS[sort.key] ? CTX_SORTERS[sort.key](ctx)
+    : (SORTERS[sort.key] || SORTERS.manual);
   const out = [...list].sort(fn);
   return sort.dir === 'desc' ? out.reverse() : out;
 }
