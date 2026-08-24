@@ -341,6 +341,27 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           </div>
         </div>
 
+        {/* Custom fields, straight after Estimated Time - the last of the
+            built-in properties - so a project's own columns read as part of the
+            same block rather than as an afterthought below Labels, where they
+            used to sit under the fold and were routinely missed (Sagar, Aug
+            2026). Which fields appear follows the chosen project, exactly as
+            Status does: fieldsForProject returns the workspace-wide ones plus
+            the ones scoped to this project, and nothing renders when a project
+            has none. Same two-column grid and label styling as the properties
+            above, so they look native rather than bolted on. */}
+        {activeFields.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+            {activeFields.map((f) => (
+              <div key={f.id} style={field}>
+                <label style={label}>{f.name} {!isEdit && f.required && req}</label>
+                <CustomFieldInput field={f} value={form.customFieldValues[f.id]} onChange={(v) => set('customFieldValues', { ...form.customFieldValues, [f.id]: v })} />
+                {f.description && <span style={{ fontSize: 11, color: NX.faint, marginTop: 3 }}>{f.description}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div style={field}>
           <label style={label}>Labels</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
@@ -352,22 +373,6 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             <input value={labelInput} onChange={(e) => setLabelInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addLabel(); } }} placeholder="Add label + Enter" style={{ ...input, width: 160, padding: '5px 9px', fontSize: 13 }} />
           </div>
         </div>
-
-        {activeFields.length > 0 && (
-          <div style={field}>
-            <label style={label}>Custom Fields</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {activeFields.map((f) => (
-                <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ width: 120, flexShrink: 0, fontSize: 13, color: NX.dim }}>
-                    {f.name} {!isEdit && f.required && req}
-                  </span>
-                  <CustomFieldInput field={f} value={form.customFieldValues[f.id]} onChange={(v) => set('customFieldValues', { ...form.customFieldValues, [f.id]: v })} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         <div style={field}>
           <label style={label}>Subtasks</label>

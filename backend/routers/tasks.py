@@ -23,7 +23,7 @@ import models
 from database import get_db
 from auth import get_current_user, require_manager, require_any_module_grant
 from routers.task_util import (
-    now_iso, gen_id, fire_task_event, task_notify, log_activity,
+    now_iso, gen_id, fire_task_event, task_notify, log_activity, email_list,
     is_manager, visible_project_ids, task_is_visible,
     project_for_task, require_project_role, require_task_role, create_comment,
 )
@@ -1040,7 +1040,7 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
     def on_it(t, who):
         """Everyone a task visibly involves - its assignee and its followers."""
         return who and (who == (t.assignee_email or "").lower()
-                        or who in [f.lower() for f in (t.follower_emails or [])])
+                        or who in email_list(t.follower_emails))
 
     assigned = [t for t in rows if (t.assignee_email or "").lower() == email]
     assigned_by_you = [t for t in assigned if (t.created_by or "").lower() == me]
@@ -1055,11 +1055,11 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
     open_assigned = [t for t in assigned if not t.completed]
     projects = [p for p in db.query(models.TaskProject).all()
                 if (manager or p.id in visible) and not p.archived
-                and (email in [m.lower() for m in (p.member_emails or [])]
+                and (email in email_list(p.member_emails)
                      or (p.owner_email or "").lower() == email
                      or p.id in {t.project_id for t in assigned if t.project_id})]
     teams = [t for t in db.query(models.TaskTeam).all()
-             if email in [m.lower() for m in (t.member_emails or [])]]
+             if email in email_list(t.member_emails)]
 
     return {
         "person": {

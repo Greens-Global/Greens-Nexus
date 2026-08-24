@@ -18,7 +18,19 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // to 8501 KB, tripping the old cap and silently failing the dev Cloudflare
 // Pages build (same postbuild check runs there). A deliberate, small bump
 // for a genuinely needed feature, not a pressure valve.
-const TOTAL_KB     = 8600;   // all JS today: ~7.2 MB pre-gzip
+//
+// Raised 8600 -> 8700 (Aug 25, 2026): Task-module project templates added
+// 31 KB (8594 -> 8625 measured with real env, see below), and dev was already
+// sitting 6 KB under the cap - so a modest feature tipped it. Same failure
+// shape as the Aug 18 bump: it passed CI and then failed the Cloudflare Pages
+// build AND archive-assets on the merge commit, leaving dev serving the
+// PREVIOUS frontend while its backend had already moved on.
+//
+// A number to watch, not to keep nudging. Headroom is now ~75 KB; the next
+// thing that wants a bump should shrink something first - the Tasks chunk
+// carries every sub-view statically (see the INEFFECTIVE_DYNAMIC_IMPORT
+// warnings at build time) and is the obvious place to start.
+const TOTAL_KB     = 8700;   // all JS today: ~7.2 MB pre-gzip
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

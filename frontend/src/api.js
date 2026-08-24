@@ -513,6 +513,20 @@ export const api = {
   getTaskTemplates: () => req("/task-templates"),
   createTaskTemplate: (data) => req("/task-templates", { method: "POST", body: JSON.stringify(data) }),
   deleteTaskTemplate: (id) => req(`/task-templates/${id}`, { method: "DELETE" }),
+  // Project templates - a whole project saved as a reusable blueprint. Distinct
+  // from the single-task templates above (see models.TaskProjectTemplate).
+  // Building a project can mint a hundred rows, so use/duplicate get a longer
+  // timeout than the default.
+  getTaskProjectTemplates: () => req("/task-project-templates"),
+  createTaskProjectTemplate: (data) => req("/task-project-templates", { method: "POST", body: JSON.stringify(data), timeoutMs: 120000 }),
+  updateTaskProjectTemplate: (id, data) => req(`/task-project-templates/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteTaskProjectTemplate: (id) => req(`/task-project-templates/${id}`, { method: "DELETE" }),
+  useTaskProjectTemplate: (id, data) => req(`/task-project-templates/${id}/use`, { method: "POST", body: JSON.stringify(data || {}), timeoutMs: 120000 }),
+  // Refresh a saved template's payload from its source project, in place -
+  // keeps the template's name, category, sharing and use count.
+  recaptureTaskProjectTemplate: (id, data) => req(`/task-project-templates/${id}/recapture`, { method: "POST", body: JSON.stringify(data || {}), timeoutMs: 120000 }),
+  duplicateTaskProject: (id, data) => req(`/task-projects/${id}/duplicate`, { method: "POST", body: JSON.stringify(data || {}), timeoutMs: 120000 }),
+  getTaskProjectTemplatePreview: (id, params = {}) => req(`/task-projects/${id}/template-preview?${new URLSearchParams(params)}`),
   getTaskIntakeForms: () => req("/task-intake-forms"),
   createTaskIntakeForm: (data) => req("/task-intake-forms", { method: "POST", body: JSON.stringify(data) }),
   deleteTaskIntakeForm: (id) => req(`/task-intake-forms/${id}`, { method: "DELETE" }),

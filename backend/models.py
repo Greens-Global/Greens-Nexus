@@ -3427,3 +3427,66 @@ class NexusDailyBriefingLog(Base):
     green_count    = Column(Integer, default=0)
     blue_count     = Column(Integer, default=0)
     created_at     = Column(String, default="")
+
+
+class TaskProjectTemplate(Base):
+    """A reusable blueprint of a whole PROJECT - its settings plus a snapshot of
+    its sections and tasks - so a repeating body of work (an onboarding, a
+    property turnover, a quarterly audit) is set up once and stamped out again.
+
+    Not to be confused with TaskTemplate, which is a single-TASK template
+    (a Partial<Task> patch plus subtask titles) applied to one new task. The two
+    are deliberately separate tables: nothing about a project blueprint fits in
+    `patch`/`subtask_titles`, and folding them together would have made every
+    existing task-template row ambiguous.
+
+    `payload` holds the entire snapshot, versioned by `payload["version"]`:
+        {"version": 1,
+         "project":  {name, description, color, accessLevel, portfolioId, ...},
+         "sections": [{key, name, position}],
+         "tasks":    [{key, parentKey, sectionKey, title, description, type,
+                       status, priority, tags, assigneeEmail, followerEmails,
+                       estimateHours, isMilestone, customFieldValues,
+                       startOffset, dueOffset, blockedByKeys, dependencyTypes}]}
+    It is a SNAPSHOT, not a live link: editing the source project afterwards
+    never changes the template, and deleting the source project leaves the
+    template perfectly usable. That is the whole point - a template outlives
+    the project it was captured from.
+
+    Dates are stored as INTEGER DAY OFFSETS (`startOffset`/`dueOffset`) from the
+    template's anchor day, never as absolute dates. An absolute due date is
+    meaningless a quarter later; an offset re-anchors to whatever start date the
+    person picks when they use the template.
+
+    Cross-task references (parent/subtask nesting, sections, dependencies) are
+    carried by the per-task `key` - a stable index within the payload - rather
+    than by real row ids, because the rows those ids point at may be long gone
+    by the time the template is used.
+
+    New table - create_all builds it; the Postgres migration list carries only
+    its ENABLE ROW LEVEL SECURITY line (see main.py).
+    """
+    __tablename__ = "task_project_templates"
+    id          = Column(String, primary_key=True)
+    name        = Column(String, nullable=False)
+    description = Column(String, default="")
+    color       = Column(String, default="")
+    category    = Column(String, default="")            # free-text grouping shown on the Templates screen
+    # The project this was captured from, kept for provenance only ("Saved from
+    # Q3 Turnover"). Never dereferenced when the template is used, and a dangling
+    # id after that project is deleted is expected rather than an error.
+    source_project_id   = Column(String, default="", index=True)
+    source_project_name = Column(String, default="")
+    payload     = Column(JSON, default=dict)            # see the docstring
+    # Visibility, mirroring TaskProject.access_level's vocabulary:
+    #   org        - anyone in the Task module can use it (the default: a
+    #                blueprint nobody can find helps nobody)
+    #   restricted - only its owner and managers see it
+    access_level = Column(String, default="org")
+    owner_email = Column(String, default="", index=True)
+    archived    = Column(Boolean, default=False)
+    use_count   = Column(Integer, default=0)            # how many projects have been built from it
+    last_used_at = Column(String, default="")
+    created_at  = Column(String, default="")
+    modified_at = Column(String, default="")
+    created_by  = Column(String, default="")

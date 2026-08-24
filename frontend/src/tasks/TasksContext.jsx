@@ -55,6 +55,12 @@ const CAMEL_TO_SNAKE = {
   companyId: 'company_id', hrDepartmentId: 'hr_department_id', hrDepartmentName: 'hr_department_name',
   watcherIds: 'watcher_emails', csatRating: 'csat_rating', csatComment: 'csat_comment',
   taskIds: 'task_ids', subtaskTitles: 'subtask_titles',
+  // Project-template options (save-as-template / use / duplicate) - see
+  // backend ProjectTemplateBody, UseTemplateBody and DuplicateProjectBody.
+  includeTasks: 'include_tasks', includeSubtasks: 'include_subtasks',
+  includeCompleted: 'include_completed', includeAssignees: 'include_assignees',
+  includeMembers: 'include_members', includeTeams: 'include_teams',
+  includeDates: 'include_dates', resetStatus: 'reset_status',
 };
 function toBody(patch) {
   const out = {};
@@ -80,6 +86,7 @@ export function TasksProvider({ children }) {
   const [ticketViews, setTicketViews] = useState(seed?.ticketViews || []);
   const [rules, setRules] = useState(seed?.rules || []);
   const [templates, setTemplates] = useState(seed?.templates || []);
+  const [projectTemplates, setProjectTemplates] = useState(seed?.projectTemplates || []);
   const [customFields, setCustomFields] = useState(seed?.customFields || []);
   const [customStatuses, setCustomStatuses] = useState(seed?.customStatuses || []);
   const [notifications, setNotifications] = useState([]);
@@ -102,7 +109,8 @@ export function TasksProvider({ children }) {
       projects: setProjects, portfolios: setPortfolios, teams: setTeams,
       tickets: setTickets, ticketComponents: setTicketComponents,
       savedViews: setSavedViews, ticketViews: setTicketViews, rules: setRules,
-      templates: setTemplates, customFields: setCustomFields, customStatuses: setCustomStatuses,
+      templates: setTemplates, projectTemplates: setProjectTemplates,
+      customFields: setCustomFields, customStatuses: setCustomStatuses,
       memberRequests: setMemberRequests, intakeForms: setIntakeForms, changelog: setChangelog,
     };
   }
@@ -132,10 +140,10 @@ export function TasksProvider({ children }) {
     rememberTaskData({
       tasks: { tasks, serverTime: sinceRef.current },
       projects, portfolios, teams, tickets, ticketComponents, savedViews, ticketViews,
-      rules, templates, customFields, customStatuses, memberRequests, intakeForms, changelog,
+      rules, templates, projectTemplates, customFields, customStatuses, memberRequests, intakeForms, changelog,
     });
   }, [tasks, projects, portfolios, teams, tickets, ticketComponents, savedViews, ticketViews,
-    rules, templates, customFields, customStatuses, memberRequests, intakeForms, changelog]);
+    rules, templates, projectTemplates, customFields, customStatuses, memberRequests, intakeForms, changelog]);
 
   // Realtime: refetch tasks (+notifications) on a task_events ping; 45s poll
   // fallback. Incremental (GET /tasks/delta) rather than a full replace - the
@@ -348,6 +356,30 @@ export function TasksProvider({ children }) {
     deleteRule: mkDel(api.deleteTaskAutomationRule, setRules),
     createTemplate: mk(api.createTaskTemplate, setTemplates),
     deleteTemplate: mkDel(api.deleteTaskTemplate, setTemplates),
+    // Project templates. Saving one is a pure read of the project, so nothing
+    // else on screen changes; USING one mints a project plus its sections and
+    // tasks, so the core is reloaded rather than patched - the same reason
+    // deleteProject reloads instead of splicing one row out.
+    createProjectTemplate: mk(api.createTaskProjectTemplate, setProjectTemplates),
+    updateProjectTemplate: mkUpd(api.updateTaskProjectTemplate, setProjectTemplates),
+    deleteProjectTemplate: mkDel(api.deleteTaskProjectTemplate, setProjectTemplates),
+    recaptureProjectTemplate: mkUpd(api.recaptureTaskProjectTemplate, setProjectTemplates),
+    // Named createProjectFrom..., not use...: a `useX` identifier reads as a
+    // React hook to the rules-of-hooks lint (and to anyone skimming a call
+    // site), and this is an ordinary async action.
+    createProjectFromTemplate: async (id, data) => {
+      const project = await api.useTaskProjectTemplate(id, toBody(data || {}));
+      setProjects((p) => [project, ...p]);
+      loadCore();
+      return project;
+    },
+    duplicateProject: async (id, data) => {
+      const project = await api.duplicateTaskProject(id, toBody(data || {}));
+      setProjects((p) => [project, ...p]);
+      loadCore();
+      return project;
+    },
+    previewProjectTemplate: (id, params) => api.getTaskProjectTemplatePreview(id, params),
     createCustomField: mk(api.createTaskCustomField, setCustomFields),
     // Editing was never wired up, so fixing a field's name meant deleting and
     // recreating it - and task values are keyed by field id, so every value
@@ -399,6 +431,7 @@ export function TasksProvider({ children }) {
   const value = {
     loading, myEmail, nameOf,
     tasks, projects, portfolios, teams, tickets, ticketComponents, savedViews, ticketViews, rules, templates,
+    projectTemplates,
     customFields, customStatuses, statusMeta, statusOrder, statusOrderFor, notifications, memberRequests, intakeForms, changelog,
     taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
