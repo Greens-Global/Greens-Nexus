@@ -6857,6 +6857,107 @@
     }
     window.unlockPdfTool = unlockPdfTool;
 
+    // ── Standalone Lock / Unlock: pick a file directly, no need to open it in
+    //    the editor first (Pranshu). One entry point handles both:
+    //      • a password-protected file  → asks the password, removes it
+    //      • an unprotected file        → offers to ADD a password (lock)
+    //    Fully local: pdf.js decrypts (it takes the password), pdf-lib re-saves.
+    function _pickPdfFile() {
+        return new Promise((resolve) => {
+            const inp = document.createElement('input');
+            inp.type = 'file';
+            inp.accept = 'application/pdf,.pdf';
+            inp.style.display = 'none';
+            inp.addEventListener('change', () => {
+                const f = inp.files && inp.files[0];
+                inp.remove();
+                resolve(f || null);
+            });
+            // If the picker is dismissed the change event may never fire; a
+            // focus-back heuristic resolves null so we don't hang forever.
+            document.body.appendChild(inp);
+            inp.click();
+        });
+    }
+
+    async function lockUnlockPdfFile() {
+        const file = await _pickPdfFile();
+        if (!file) return;
+        setStatus('Reading PDF...');
+        try {
+            const buf = await file.arrayBuffer();
+
+            // Detect encryption by trying to open with pdf.js. If it throws a
+            // PasswordException, ask for the password (up to 3 tries).
+            let pdf = null, password = null, wasEncrypted = false;
+            for (let attempt = 0; ; attempt++) {
+                try {
+                    pdf = await pdfjsLib.getDocument({
+                        data: buf.slice(0),
+                        ...(password ? { password } : {}),
+                    }).promise;
+                    break;
+                } catch (err) {
+                    if (err && err.name === 'PasswordException' && attempt < 3) {
+                        wasEncrypted = true;
+                        password = await customPrompt(
+                            attempt === 0 ? 'This PDF is locked. Enter its password to unlock:'
+                                          : 'Wrong password - try again:', 'Password');
+                        if (!password) { setStatus('Cancelled'); return; }
+                        continue;
+                    }
+                    throw err;
+                }
+            }
+
+            const baseName = file.name.replace(/\.pdf$/i, '');
+            const L = await encLib();
+
+            if (wasEncrypted) {
+                // UNLOCK: get the decrypted bytes from pdf.js and re-save with no
+                // encryption -> a clean copy that opens with no password.
+                setStatus('Removing password...');
+                const dec = pdf.saveDocument ? await pdf.saveDocument() : new Uint8Array(buf);
+                const doc = await L.PDFDocument.load(dec, { ignoreEncryption: true });
+                const bytes = await doc.save();
+                _downloadBytes(bytes, baseName + '_unlocked.pdf');
+                setStatus('Saved unlocked PDF');
+                showToast('Password removed - saved an unlocked copy');
+            } else {
+                // Not encrypted: offer to LOCK it (add a password).
+                const v = await _toolModal('Lock this PDF', `
+                    <label class="modal-label">Password to OPEN the file:</label>
+                    <input type="password" class="modal-input" data-k="user" placeholder="choose a password">
+                    <label class="modal-label" style="margin-top:8px;">Confirm password:</label>
+                    <input type="password" class="modal-input" data-k="confirm" placeholder="re-type it">
+                    <p class="modal-hint" style="margin-top:8px;color:#e07300;">If the password is lost, NO app can open the file - not even this one. Store it safely.</p>`,
+                    'Lock & Save');
+                if (!v) { setStatus('Ready'); return; }
+                if (!v.user) { showToast('Enter a password to lock the file'); return; }
+                if (v.user !== v.confirm) { showToast('Passwords do not match'); return; }
+                setStatus('Locking...');
+                const doc = await L.PDFDocument.load(new Uint8Array(buf), { ignoreEncryption: true });
+                doc.encrypt({ userPassword: v.user, ownerPassword: v.user });
+                const bytes = await doc.save();
+                _downloadBytes(bytes, baseName + '_locked.pdf');
+                setStatus('Saved locked PDF');
+                showToast('Password added - saved a locked copy');
+            }
+        } catch (err) {
+            console.error(err);
+            showToast('Could not process: ' + (err && err.message || 'unknown error'));
+            setStatus('Failed');
+        }
+    }
+    function _downloadBytes(bytes, name) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(a.href);
+    }
+    window.lockUnlockPdfFile = lockUnlockPdfFile;
+
     // ── PDF → Markdown: extract text as a .md file, using layout heuristics ──
     // Fully local (pdf.js text extraction). Headings inferred from font size,
     // paragraphs from vertical gaps, bullets kept. Not a perfect converter, but
@@ -7132,13 +7233,10 @@
                 }
             }
             const bytes = await out.save();
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-            a.download = state.fileName.replace(/\.pdf$/i, '') + '_' + n + 'up.pdf';
-            a.click();
-            URL.revokeObjectURL(a.href);
-            setStatus('Saved ' + n + '-up PDF');
-            showToast('Saved ' + n + ' pages-per-sheet PDF');
+            // Apply IN the editor (Pranshu) - don't force a download. The user
+            // can keep editing and download when ready via Save/Download.
+            await _reloadFromBytes(bytes, n + '-up layout applied - keep editing, then Save when ready');
+            showToast('Created a ' + n + ' pages-per-sheet layout - download it with Save when ready');
         } catch (err) { console.error(err); showToast('N-up failed: ' + err.message); }
     }
     window.nUpTool = nUpTool;

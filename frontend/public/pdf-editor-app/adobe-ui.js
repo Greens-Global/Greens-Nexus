@@ -855,7 +855,7 @@
         ['Compress PDF',  'Reduce the file size',          '#5c9e57', IC.compress,  () => pickPdfThen(() => revealTool('optimize', '#compressBtn'))],
         ['Repair PDF',    'Fix a damaged or corrupt PDF',  '#6b7280', IC.sanitize,  () => pickPdfThen(() => revealTool('optimize', '#sanitizeBtn'))],
         ['OCR (scanned)', 'Make scans searchable',         '#7dc243', IC.ocr,       () => pickPdfThen(() => revealTool('optimize', '#ocrBtn'))],
-        ['Unlock PDF',    'Remove a password',             '#d4506e', IC.unlock,    () => pickPdfThen(() => window.unlockPdfTool && window.unlockPdfTool())],
+        ['Unlock/Lock PDF', 'Remove or add a password',    '#d4506e', IC.unlock,    () => window.lockUnlockPdfFile && window.lockUnlockPdfFile()],
       ]},
     ];
 

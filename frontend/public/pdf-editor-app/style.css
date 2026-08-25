@@ -1354,8 +1354,12 @@ header.toolbar {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    width: 380px;
-    max-width: 90vw;
+    /* Pop-ups cover ~60% of the screen (Pranshu), clamped so they stay usable:
+       never narrower than 340px, never wider than 720px on large monitors. */
+    width: clamp(340px, 60vw, 720px);
+    max-width: 92vw;
+    max-height: 88vh;
+    overflow-y: auto;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
 }
 
