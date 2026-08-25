@@ -345,6 +345,12 @@ export default function TimeClock() {
 
   async function doPunch(kind) {
     if (busy) return;
+    // Role-flagged people (Neil, Aug 25: field workers who cannot type) skip
+    // every message prompt - the punch goes straight through.
+    if (status?.bodExempt) {
+      await actualPunch(kind);
+      return;
+    }
     // Login/break prompts come FIRST - the punch happens only after the message
     // is sent or explicitly acknowledged (see BodModal's ack-to-skip).
     // Every punch prompts for its message; the "already sent" checkbox lets a

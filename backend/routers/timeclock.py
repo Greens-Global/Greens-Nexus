@@ -378,13 +378,17 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
                       TimePunch.local_date == local_today, TimePunch.voided == 0).first())
     pol = _get_policy(db)
     _rr = db.query(PayrollRate).filter(PayrollRate.employee_email == email).first()
+    _bod_ex = _is_bod_exempt(db, email)
     return {
         "lastPunch": _serialize(last) if last else None,
         "allowed": _allowed_kinds(last.kind if last else None),
         "days": summaries,
         "todayUtc": today,
         "geofencedSites": sites,
-        "bodRequired": has_bod is None and has_in is None,
+        "bodRequired": (has_bod is None and has_in is None) and not _bod_ex,
+        # Role-flagged people skip EVERY message prompt (BOD, EOD, break start/
+        # end) - punches go straight through (Neil, Aug 25).
+        "bodExempt": _bod_ex,
         # Salaried/exempt people (Charmi, Aug 21): the client hides the punch
         # card and every "hours this week" surface. The flag lives on the pay
         # record (HR sets it in the wage editor).
@@ -1354,6 +1358,18 @@ def _is_monitoring_exempt(db: Session, email: str) -> bool:
         return False
     return db.query(NexusGroup.id).filter(
         NexusGroup.id.in_(gids), NexusGroup.monitoring_exempt == 1).first() is not None
+
+
+def _is_bod_exempt(db: Session, email: str) -> bool:
+    """True when the person belongs to any group/role flagged bod_exempt - they
+    skip the Beginning/End-of-day and break message prompts entirely (Neil,
+    Aug 25: field workers who cannot type were blocked from clocking in)."""
+    gids = [m.group_id for m in db.query(NexusGroupMember.group_id)
+            .filter(NexusGroupMember.email == email).all()]
+    if not gids:
+        return False
+    return db.query(NexusGroup.id).filter(
+        NexusGroup.id.in_(gids), NexusGroup.bod_exempt == 1).first() is not None
 
 
 _AGENT_FRESH_SEC = 180   # heartbeat is 60s; tolerate ~2 missed beats
