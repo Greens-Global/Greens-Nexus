@@ -1187,6 +1187,7 @@ export const api = {
   timeFinalize:      (data)      => req('/timeclock/finalize', { method: 'POST', body: JSON.stringify(data) }),
   timeUnfinalize:    (data)      => req('/timeclock/unfinalize', { method: 'POST', body: JSON.stringify(data) }),
   timeTeamExceptions:(start, end) => req(`/timeclock/team-exceptions?start=${start || ''}&end=${end || ''}`),
+  timeBillableByLocation:(start, end) => req(`/timeclock/billable-by-location?start=${start || ''}&end=${end || ''}`),
   // Insights dashboard (Top Apps / Top Websites / activity), from the desktop agent
   timeInsights:      (email, start, end) => req(`/timeclock/insights?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}&tz=${new Date().getTimezoneOffset()}`),
   timeRatings:       ()          => req('/timeclock/ratings'),

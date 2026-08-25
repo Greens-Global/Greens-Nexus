@@ -162,8 +162,18 @@ def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "") -> dict:
                         "work_site_name": emp.geofence_label or "Assigned work location",
                         "distance_m": int(round(d))}
                 return _soft_gate(d, radius, accuracy_m, base)
+    return _geofence_site(db, plat, plng, accuracy_m)
+
+
+def _geofence_site(db: Session, plat: float, plng: float, accuracy_m: int, sites=None) -> dict:
+    """Soft-gate against the nearest geofenced HrWorkSite ONLY - never a personal
+    geofence. This is the attribution used for billable-time-per-location, where
+    a worker who moves between rental properties must resolve to the actual
+    property site, not their personal 'assigned work location'. Pass a preloaded
+    `sites` list to avoid a per-ping query. Desktops have no GPS: _soft_gate caps
+    the accuracy credit at 150 m; past ±500 m the fix is low_accuracy."""
     best = None
-    for s in db.query(HrWorkSite).all():
+    for s in (sites if sites is not None else db.query(HrWorkSite).all()):
         try:
             slat, slng = float(s.latitude), float(s.longitude)
         except (TypeError, ValueError):
@@ -172,15 +182,10 @@ def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "") -> dict:
         if best is None or d < best[0]:
             best = (d, s)
     if best is None:
-        # No geofenced sites configured at all - location recorded, nothing to judge
         return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     d, site = best
     radius = max(25, int(site.radius_m or 150))
     base = {"work_site_id": site.id, "work_site_name": site.name or "", "distance_m": int(round(d))}
-    # Desktops have no GPS: browsers triangulate from Wi-Fi/IP and can be
-    # kilometres off with a huge reported accuracy. _soft_gate caps the credit at
-    # 150 m, and past ±500 m the fix can't be judged at all → low_accuracy
-    # (recorded, neutral - phones give GPS fixes and judge normally).
     return _soft_gate(d, radius, accuracy_m, base)
 
 
@@ -629,12 +634,32 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None) -> list:
     # Break policy per employee (the paid rest-break credit is CA-rule only) -
     # bulk-load rules so this stays one query, not one per person.
     _bp = _breakpolicy_cfg(db)
-    _rules = {r.employee_email: (getattr(r, "overtime_rule", None) or "ca")
-              for r in db.query(PayrollRate).all()}
+    _rates = {r.employee_email: r for r in db.query(PayrollRate).all()}
+    _rules = {em: (getattr(r, "overtime_rule", None) or "ca") for em, r in _rates.items()}
+
+    # Show EVERY hourly employee in scope, not only those who happen to have
+    # punches this period (Charmi, Aug 25 - "I don't even see Vicky; when I run
+    # payroll how do I get everyone's hours?"). Without this, a person with a
+    # clean period or who never clocked in simply vanishes from the timesheet,
+    # the sidebar, and search. No-punch people get a zero row (days={}), which
+    # renders as N.A. Salaried leadership with time_tracking_exempt, and fixed
+    # (non-hourly) pay types, stay out - they are not on the hourly timesheet.
+    def _is_hourly(em: str) -> bool:
+        r = _rates.get(em)
+        if r is None:
+            return True   # no rate row yet = treated as hourly (default)
+        return (getattr(r, "pay_type", None) or "hourly") != "fixed" and not getattr(r, "time_tracking_exempt", 0)
+
+    roster = {(e.work_email or "").lower() for e in db.query(NexusEmployee).all()
+              if e.work_email and _is_hourly((e.work_email or "").lower())}
+    if only_emails is not None:
+        roster &= set(only_emails)
+
     rows = []
-    for email, plist in sorted(by_emp.items()):
+    for email in sorted(set(by_emp) | roster):
+        plist = by_emp.get(email, [])
         days = _day_summaries(plist, rmin,
-                              break_cfg={**_bp, "enabled": _bp["enabled"] and _rules.get(email, "ca") == "ca"})
+                              break_cfg={**_bp, "enabled": _bp["enabled"] and _rules.get(email, "ca") == "ca"}) if plist else {}
         rows.append({
             "email": email,
             "name": names.get(email) or email.split("@")[0].replace(".", " ").title(),
@@ -694,6 +719,77 @@ def team_timesheet(start: str = "", end: str = "",
                                        for (em, _d), v in last_change.items() if em == r["email"])}
                          if a else None)
     return {"rows": rows}
+
+
+@router.get("/billable-by-location")
+def billable_by_location(start: str = "", end: str = "",
+                         user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Billable time BY LOCATION for the visible team over [start,end] (Neil,
+    Aug 25 - a worker splits a shift across rental properties; extract the time
+    per property so maintenance is billable). Per employee:
+      - byLocation: priced worked-minutes per work site from the timecard
+        segments (each in->out segment bills to the site it was clocked in
+        from - so clocking out at A and in at B splits correctly);
+      - pingByLocation: GPS-verified minutes per site from the mobile tracking
+        trail, which catches an A->B move WITHIN a single clock-in (present only
+        when the field app was running). Both ignore personal geofences
+        (_geofence_site) so each point resolves to the actual property site."""
+    scope = _visible_emails(db, user)
+    roster = _team_rows(db, start, end, only_emails=scope)   # hourly people in scope, with names
+    names = {r["email"]: r["name"] for r in roster}
+    emails = list(names.keys())
+
+    # Segment-based, priced, per location (the reliable billing baseline).
+    seg_by_email = {}
+    for em in emails:
+        card = _compute_timecard(db, em, start, end)
+        bl = [x for x in (card.get("byLocation") or []) if x.get("workedMin", 0) > 0]
+        if bl:
+            seg_by_email[em] = bl
+
+    # Ping-based minutes per site (GPS trail). Re-attribute each ping to the
+    # nearest ACTUAL work site (site-only), independent of what was stamped at
+    # ingest, so personal geofences don't collapse a multi-property day.
+    sites = db.query(HrWorkSite).all()
+    cap_sec = _TRACK_INTERVAL_SEC * 2       # never credit a gap longer than two intervals
+    ping_min = {}                            # email -> {(siteId, siteName): minutes}
+    if emails:
+        pings = (db.query(TrackPing)
+                 .filter(TrackPing.employee_email.in_(emails),
+                         TrackPing.local_date >= (start or "0"),
+                         TrackPing.local_date <= (end or "9"),
+                         TrackPing.lat != "", TrackPing.lng != "")
+                 .order_by(TrackPing.employee_email, TrackPing.session_id, TrackPing.at).all())
+        # group by (email, session) so we only credit intervals within one shift
+        from itertools import groupby
+        for (em, _sid), grp in groupby(pings, key=lambda p: (p.employee_email, p.session_id)):
+            seq = list(grp)
+            for i, p in enumerate(seq):
+                nxt = seq[i + 1] if i + 1 < len(seq) else None
+                t0, t1 = _parse_iso(p.at), (_parse_iso(nxt.at) if nxt else None)
+                secs = min(cap_sec, (t1 - t0).total_seconds()) if (t0 and t1) else 0
+                if secs <= 0:
+                    continue
+                try:
+                    g = _geofence_site(db, float(p.lat), float(p.lng), int(p.accuracy_m or 0), sites=sites)
+                except (TypeError, ValueError):
+                    continue
+                if not g.get("work_site_id"):
+                    continue   # no site resolvable near this point
+                key = (g["work_site_id"], g["work_site_name"])
+                ping_min.setdefault(em, {})[key] = ping_min.setdefault(em, {}).get(key, 0.0) + secs / 60.0
+
+    out = []
+    for em in emails:
+        pbl = [{"workSiteId": sid, "workSite": nm, "minutes": int(round(m))}
+               for (sid, nm), m in sorted((ping_min.get(em) or {}).items(), key=lambda kv: -kv[1])]
+        bl = seg_by_email.get(em, [])
+        if not bl and not pbl:
+            continue   # nothing to bill for this person in the range
+        out.append({"email": em, "name": names.get(em, em),
+                    "byLocation": bl, "pingByLocation": pbl})
+    out.sort(key=lambda r: -sum(x["workedMin"] for x in r["byLocation"]))
+    return {"start": start, "end": end, "rows": out}
 
 
 def _finalized_row(db: Session, email: str, d_start: str, d_end: str = ""):
@@ -1331,12 +1427,21 @@ def export_iif(start: str = "", end: str = "",
         card = _compute_timecard(db, r["email"], start, end)
         name = _clean(r["name"])
         for d in card["days"]:
+            # Billing dimension (Neil, Aug 25): if the whole day was worked at ONE
+            # work site, put it in the JOB column (QuickBooks Customer:Job) and
+            # mark the time billable. Split-site days stay blank in the IIF (the
+            # payroll numbers are unchanged) - those are read off the By-location
+            # report instead, since one day-total row can't be cleanly divided
+            # across jobs without splitting the OT/DT computation.
+            day_sites = {(s.get("workSite") or "").strip() for s in d.get("segments", []) if (s.get("workSite") or "").strip()}
+            job = _clean(next(iter(day_sites))) if len(day_sites) == 1 else ""
+            billing = "1" if job else "0"
             for mins, pitem in ((d.get("regMin", 0), "Regular Pay"),
                                 (d.get("otMin", 0), "Overtime Pay"),
                                 (d.get("dtMin", 0), "Double-time Pay")):
                 if mins <= 0:
                     continue
-                lines.append(f"TIMEACT\t{_mdy(d['date'])}\t\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t0")
+                lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job}\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t{billing}")
     body = "\r\n".join(lines) + "\r\n"
     fname = f"timeclock-{start or 'all'}-to-{end or 'now'}.iif"
     return PlainTextResponse(body, media_type="application/octet-stream",
@@ -4640,6 +4745,24 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             a["pay"] = round(a["pay"] + (s.get("amount") or 0), 2)
     by_category = sorted(cat_agg.values(), key=lambda x: -x["workedMin"])
 
+    # Billable time BY LOCATION (Neil, Aug 25 - split shifts across rental
+    # properties). Each segment is already attributed to the work site it was
+    # clocked in from; roll worked-minutes + wage up per site so maintenance
+    # time at each property is quantified for billing. A worker who clocks out
+    # at property A and in at property B produces two segments and bills each
+    # correctly; the mobile ping trail (see /billable-by-location) captures an
+    # A->B move within a single clock-in.
+    loc_agg = {}
+    for d in days_out:
+        for s in d["segments"]:
+            wid = (s.get("workSiteId") or "").strip()
+            wname = (s.get("workSite") or "").strip() or ("No location" if not wid else wid)
+            key = wid or wname
+            a = loc_agg.setdefault(key, {"workSiteId": wid, "workSite": wname, "workedMin": 0, "pay": 0.0})
+            a["workedMin"] += s.get("workedMin", 0)
+            a["pay"] = round(a["pay"] + (s.get("amount") or 0), 2)
+    by_location = sorted(loc_agg.values(), key=lambda x: -x["workedMin"])
+
     # Pending add/remove punch requests in this window - surfaced ON the timecard
     # (grouped by their local date) so HR can approve/reject in-context, not only
     # from the separate Punch requests tab. Inline time EDITS already ride on their
@@ -4659,7 +4782,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
             "breakPolicy": _bp,
             "autoClockout": _auto_out_cfg(db),
-            "byCategory": by_category, "pendingRequests": pending_requests,
+            "byCategory": by_category, "byLocation": by_location,
+            "pendingRequests": pending_requests,
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
                        "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
                        "totalPay": round(reg_pay + ot_pay + dt_pay, 2),
