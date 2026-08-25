@@ -263,6 +263,9 @@ def enroll_external_user(body: ExternalUserCreate,
         invited_by=user["email"],
         expires_at=(body.expires_at or "").strip(),
         phone=_clean_phone(body.phone or ""),
+        # Admin-entered at invite time = attested; SMS codes work from day one
+        # (see the matching update-path note). Empty phone = no stamp.
+        phone_verified_at=now if _clean_phone(body.phone or "") else "",
         created_by=user["email"],
         created_at=now,
         updated_at=now,
@@ -339,7 +342,15 @@ def update_external_user(email: str, body: ExternalUserUpdate,
         new_phone = _clean_phone(body.phone)
         if new_phone != (row.phone or ""):
             row.phone = new_phone
-            row.phone_verified_at = ""   # a changed number is unverified again
+            # An ADMIN typing the number here IS the attestation - stamp it
+            # verified so login codes go by SMS immediately. The old reset left
+            # every admin-entered number unverified forever, silently routing
+            # codes to email - which stranded people who have no real inbox
+            # (Neil's housekeeper, Aug 25: "sent dm not working at all" was
+            # really "SMS never attempted"). Self-entered numbers during
+            # activation still verify by code (external_auth resets the stamp
+            # there); clearing the number clears the stamp too.
+            row.phone_verified_at = _now() if new_phone else ""
 
     row.updated_at = _now()
     db.commit()

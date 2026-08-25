@@ -578,6 +578,11 @@ class NexusGroup(Base):
     # monitoring: no capture is offered and clock-in is not gated on sharing a
     # screen (used for leadership). A person is exempt if ANY of their groups sets it.
     monitoring_exempt = Column(Integer, default=0)
+    # Members of a group flagged bod_exempt=1 skip the Beginning/End-of-day and
+    # break message prompts entirely - punches go straight through (Neil,
+    # Aug 25: field workers "that cannot type" were blocked from clocking in by
+    # the required BOD message). A person is exempt if ANY of their groups sets it.
+    bod_exempt        = Column(Integer, default=0)
     # Job roles only: the role's default manager/timesheet approver. Assigning the
     # role to someone with NO manager set copies this onto their People card -
     # per-person Manager stays the source of truth and can always be overridden.

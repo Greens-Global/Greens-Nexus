@@ -1214,17 +1214,19 @@ function RoleEditor({ role, jobRoles = [], onClose, onSaved, onErr }) {
     return initial;
   });
   const [monExempt, setMonExempt] = useState(!!role?.monitoring_exempt);
+  const [bodExempt, setBodExempt] = useState(!!role?.bod_exempt);
   const [busy, setBusy] = useState(false);
   const deptOptions = [...new Set((jobRoles || []).map(r => r.department).filter(Boolean))].sort();
   const initialBundle = useMemo(() => Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level])), [role]);
   const dirty = name !== (role?.name || '') || tier !== (role?.tier || 'employee') || dept !== (role?.department || '')
     || desc !== (role?.description || '') || monExempt !== !!role?.monitoring_exempt
+    || bodExempt !== !!role?.bod_exempt
     || JSON.stringify(bundle) !== JSON.stringify(initialBundle);
 
   async function save() {
     if (!name.trim()) return onErr('Name is required.');
     setBusy(true);
-    const body = { name: name.trim(), tier, department: dept.trim(), description: desc.trim(), monitoring_exempt: monExempt, allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })) };
+    const body = { name: name.trim(), tier, department: dept.trim(), description: desc.trim(), monitoring_exempt: monExempt, bod_exempt: bodExempt, allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })) };
     try {
       // A seed object with no id (from Duplicate) creates a new role rather than editing the original.
       const saved = role?.id ? await api.updateJobRole(role.id, body) : await api.createJobRole(body);
@@ -1274,6 +1276,20 @@ function RoleEditor({ role, jobRoles = [], onClose, onSaved, onErr }) {
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Exempt from screen-share monitoring</span>
             <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
               People in this role clock in without sharing a screen, and no screenshots are captured for them. Everyone else must share a screen to clock in. Use for leadership.
+            </span>
+          </span>
+        </button>
+        <button type="button" onClick={() => setBodExempt(v => !v)}
+          style={{ display: 'flex', alignItems: 'flex-start', gap: 11, textAlign: 'left', width: '100%', padding: '11px 13px',
+            border: `1.5px solid ${bodExempt ? 'var(--ink)' : 'var(--line)'}`, borderRadius: 10,
+            background: bodExempt ? 'var(--mist)' : 'transparent', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+          <span style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, marginTop: 1, display: 'grid', placeItems: 'center',
+            border: `1.5px solid ${bodExempt ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: bodExempt ? 'var(--ink)' : 'transparent', color: 'var(--card)' }}>
+            {bodExempt && <Check size={13} />}</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Skip day and break messages</span>
+            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
+              People in this role are never asked for the beginning/end-of-day or break messages - punches go straight through. Use for field workers who cannot type these out.
             </span>
           </span>
         </button>

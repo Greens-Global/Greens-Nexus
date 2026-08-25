@@ -1176,6 +1176,9 @@ export const api = {
   // Break policy: CA paid rest breaks + long/unended-break flags (Charmi, Aug 21)
   timeBreakPolicyGet: ()         => req('/timeclock/payroll/breakpolicy'),
   timeBreakPolicySet: (data)     => req('/timeclock/payroll/breakpolicy', { method: 'PUT', body: JSON.stringify(data) }),
+  // End-of-day auto clock-out: warns + 11:59 PM auto-close (Neil, Aug 24)
+  timeAutoClockoutGet: ()        => req('/timeclock/payroll/autoclockout'),
+  timeAutoClockoutSet: (data)    => req('/timeclock/payroll/autoclockout', { method: 'PUT', body: JSON.stringify(data) }),
   timeFinalize:      (data)      => req('/timeclock/finalize', { method: 'POST', body: JSON.stringify(data) }),
   timeUnfinalize:    (data)      => req('/timeclock/unfinalize', { method: 'POST', body: JSON.stringify(data) }),
   timeTeamExceptions:(start, end) => req(`/timeclock/team-exceptions?start=${start || ''}&end=${end || ''}`),

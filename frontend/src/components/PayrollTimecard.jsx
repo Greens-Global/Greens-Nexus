@@ -344,6 +344,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       // as its own out/in pair, so Nexus shows every Start/End Break window).
       const brks = segs.flatMap(s => s.breaks || []);
       if (brks.length) rows.push({ type: 'brk', ds, breaks: brks });
+      // A shift Nexus auto-closed at end of day (no clock-out was recorded):
+      // one loud line under the day - the segment above pays 0 until fixed.
+      if (segs.some(s => (s.flags || []).includes('auto_clock_out'))) rows.push({ type: 'auto', ds });
       // Same reasons/notes the fixed card shows: employee edit reasons + HR adjust
       // notes + punch notes, visible in the card (not only on the hover Info dot).
       // Internal markers like "payroll edit" are filtered out (segReasons).
@@ -490,6 +493,17 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             CA paid breaks
           </label>
         )}
+        {isAdmin && data?.autoClockout && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
+            title={`Forgotten clock-outs get escalating "still clocked in?" reminders, then the shift is auto-closed at ${data.autoClockout.outLocal || '23:59'} (employee-local). An auto-closed day pays 0 hours and blocks sign-off until the real end time is set.`}>
+            <input type="checkbox" checked={!!data.autoClockout.enabled}
+              onChange={async e => {
+                try { await api.timeAutoClockoutSet({ ...data.autoClockout, enabled: e.target.checked }); toastOk?.(`Auto clock-out ${e.target.checked ? 'on' : 'off'}.`); load(); }
+                catch (err) { toastErr?.(err?.message || 'Could not update auto clock-out.'); }
+              }} />
+            Auto clock-out
+          </label>
+        )}
         {!self && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>OT rule</span>
@@ -590,6 +604,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     })}
                   </td>
                 </tr>
+              ) : r.type === 'auto' ? (
+                <tr key={i}>
+                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                    <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
+                    Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours and blocks sign-off; {self ? 'tap the Out time to propose the real end of your shift.' : 'set the real Out time to release it for pay.'}
+                  </td>
+                </tr>
               ) : r.type === 'note' ? (
                 <tr key={i}>
                   <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
@@ -609,7 +630,15 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                       : '-'}</td>
                   <td style={{ ...td, textAlign: 'left' }}>
                     {r.seg ? (r.seg.out
-                      ? <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} />
+                      ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} />
+                          {(r.seg.flags || []).includes('auto_clock_out') && (
+                            <span title="Nexus closed this shift automatically - no clock-out was recorded. 0 paid hours until the real end time is set."
+                              style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '2px 7px', borderRadius: 6 }}>
+                              auto
+                            </span>
+                          )}
+                        </span>
                       : (self && fin)
                         ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
                         : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-out - goes to your approver' : 'Add the missing clock-out'}
@@ -972,7 +1001,15 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const locateEmail = (!self || isAdmin) ? (data.email || '') : '';
               const inCell = (seg) => <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} />;
               const outCell = (seg) => seg.out
-                ? <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} />
+                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} />
+                    {(seg.flags || []).includes('auto_clock_out') && (
+                      <span title="Nexus closed this shift automatically - no clock-out was recorded. 0 paid hours until the real end time is set."
+                        style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '2px 7px', borderRadius: 6 }}>
+                        auto
+                      </span>
+                    )}
+                  </span>
                 : (self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
                     : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : 'Add the missing clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>;
               const addBtn = <button onClick={() => setEditDay({ date: fd.date, seg: null })} title={self ? 'Add a missing punch for this day - goes to your approver' : 'Add a punch for this day'} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.85 }}>+ add</button>;
@@ -1030,6 +1067,17 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   <td style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   {breakCell}
                   <td style={{ ...td, textAlign: 'right' }}>{effect(fd)}</td>
+                </tr>
+              );
+
+              // ── Auto-closed day (no clock-out was recorded): same loud line the
+              //    hourly card gets, so 'Absent'/0 hours never reads as unexplained ──
+              if (segs.some(s => (s.flags || []).includes('auto_clock_out'))) rows.push(
+                <tr key={fd.date + '-auto'} style={{ background: rowBg }}>
+                  <td colSpan={8} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                    <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
+                    Auto-closed at end of day - no clock-out was recorded. The day is held until the real Out time is set{self ? ' - tap the Out time to propose the real end of your shift.' : '.'}
+                  </td>
                 </tr>
               );
 
