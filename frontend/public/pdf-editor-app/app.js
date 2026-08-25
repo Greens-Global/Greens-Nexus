@@ -503,11 +503,32 @@
         dom.zoomFit.addEventListener('click', fitToWidth);
         document.getElementById('zoomFitPage')?.addEventListener('click', fitToPage);
         document.getElementById('scrollModeBtn')?.addEventListener('click', () => setScrollMode(!window.isScrollMode()));
+
+        // Toolbar hide/show (Pranshu): collapse the tool rows to give the
+        // document more vertical room. The main toolbar (Open/Save + tools) stays
+        // as a slim bar; a second click restores everything.
+        document.getElementById('toolbarToggle')?.addEventListener('click', () => {
+            const collapsed = document.body.classList.toggle('toolbar-collapsed');
+            const btn = document.getElementById('toolbarToggle');
+            if (btn) {
+                btn.title = collapsed ? 'Show toolbar' : 'Hide toolbar (more viewing space)';
+                btn.setAttribute('aria-label', collapsed ? 'Show toolbar' : 'Hide toolbar');
+            }
+        });
         document.getElementById('printBtn')?.addEventListener('click', printPdf);
 
         // Tools
         document.querySelectorAll('[data-tool]').forEach((btn) => {
-            btn.addEventListener('click', () => setActiveTool(btn.dataset.tool));
+            btn.addEventListener('click', () => {
+                // Any tool the user clicks needs the single-page editable Fabric
+                // canvas; in continuous-scroll mode that canvas is frozen, so
+                // Select (and the others) did nothing on the default scroll view
+                // (Pranshu). Leave scroll mode on an explicit tool click - not on
+                // the internal setActiveTool('select') resets, which must not
+                // yank the user out of scrolling.
+                if (window.isScrollMode && window.isScrollMode()) _exitScrollForOp();
+                setActiveTool(btn.dataset.tool);
+            });
         });
 
         // Tool options - size slider
@@ -890,6 +911,12 @@
                 if (b) b.disabled = false;
             }
             dom.searchToggle.disabled = false;
+            // Show the search bar by default so users can search without knowing
+            // Ctrl+F (Pranshu). It stays docked top-right; the x still closes it.
+            if (dom.searchBar) {
+                dom.searchBar.style.display = 'flex';
+                if (dom.searchInfo) dom.searchInfo.textContent = '0/0';
+            }
             dom.aiToggleBtn.disabled = false;
             dom.totalPages.textContent = state.totalPages;
             dom.pageInput.max = state.totalPages;

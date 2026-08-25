@@ -86,6 +86,26 @@ header.toolbar {
     display: none;
 }
 
+/* Toolbar hide/show (Pranshu): collapse the tool rows for more viewing space.
+   The main toolbar's left + center tools hide; the right section keeps the
+   toggle so the user can bring it back. The Adobe-style context bar (grouped
+   tool options) collapses too. The chevron flips to point down when hidden. */
+.toolbar-toggle {
+    margin-left: 4px;
+}
+body.toolbar-collapsed .toolbar-left,
+body.toolbar-collapsed .toolbar-center,
+body.toolbar-collapsed #toolOptions,
+body.toolbar-collapsed .adobe-ctx-bar {
+    display: none !important;
+}
+body.toolbar-collapsed .toolbar {
+    border-bottom-color: transparent;
+}
+body.toolbar-collapsed .toolbar-toggle svg {
+    transform: rotate(180deg);
+}
+
 .toolbar-left,
 .toolbar-center,
 .toolbar-right {
@@ -894,7 +914,10 @@ header.toolbar {
     overflow: auto;
     display: flex;
     justify-content: center;
-    align-items: flex-start;
+    /* Center a short page so it doesn't leave a dead white band below it
+       (Pranshu). safe-start keeps a tall/scrolling document pinned to the top
+       so its first page is never clipped above the scroll area. */
+    align-items: safe center;
     padding: 20px;
 }
 
