@@ -10,7 +10,8 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { api } from '../api';
-import { formatDate } from '../lib/datetime';
+import { geocode } from '../asset/lib/geo';
+import { formatDate, formatDateTime } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
@@ -577,6 +578,154 @@ function AssetsSection({ employee }) {
             <History size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />,
             c.itemName, [c.itemType, c.status === 'pending_receipt' ? 'awaiting receipt' : 'checked out', c.days && `${c.days}d`].filter(Boolean).join(' · '), `c-${c.id}`))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Per-person geofence (Aug 25): assign a work location + radius to this person,
+// so their punches are judged against it instead of the shared work sites. Two
+// ways to pick the point without typing coordinates: "use last punch location"
+// (reads their most recent located punch) and an address search (geocoded via
+// the shared Nominatim helper). A Google Maps link lets the admin eyeball the
+// pin before saving.
+function GeofenceSection({ employee, toastOk, toastErr }) {
+  const { canAccessModule } = useRole();
+  const canEdit = canAccessModule('hr', 'manager', 'editor');
+  const [data, setData] = useState(null);        // { geofence, lastPunchLocation }
+  const [radius, setRadius] = useState(150);
+  const [pending, setPending] = useState(null);  // staged {lat,lng,label,source} not yet saved
+  const [addr, setAddr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [searching, setSearching] = useState(false);
+
+  const load = () => api.getGeofence(employee.id)
+    .then(d => { setData(d); if (d.geofence?.radiusM) setRadius(d.geofence.radiusM); })
+    .catch(() => setData({ geofence: {}, lastPunchLocation: null }));
+  useEffect(() => { setPending(null); setAddr(''); load(); }, [employee.id]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const gf = data?.geofence || {};
+  const hasGeofence = (gf.radiusM || 0) > 0;
+  const lp = data?.lastPunchLocation || null;
+  const mapsLink = (lat, lng) => `https://www.google.com/maps?q=${lat},${lng}`;
+
+  const useLastPunch = () => {
+    if (!lp) return;
+    setPending({ lat: lp.lat, lng: lp.lng, source: 'last_punch',
+      label: `From last punch - ${formatDateTime(lp.at)}${lp.workSiteName ? ` (${lp.workSiteName})` : ''}` });
+  };
+  const searchAddress = async () => {
+    if (!addr.trim() || searching) return;
+    setSearching(true);
+    try {
+      const coord = await geocode(addr.trim());
+      if (!coord) toastErr('No match for that address - try adding the city and state.');
+      else setPending({ lat: String(coord[0]), lng: String(coord[1]), source: 'address', label: addr.trim() });
+    } catch { toastErr('Address lookup failed - try again in a moment.'); }
+    finally { setSearching(false); }
+  };
+  const save = async () => {
+    const loc = pending || (hasGeofence ? { lat: gf.lat, lng: gf.lng, label: gf.label, source: gf.source } : null);
+    if (!loc || busy) return;
+    setBusy(true);
+    try {
+      const r = await api.setGeofence(employee.id, { lat: loc.lat, lng: loc.lng, radius_m: radius, label: loc.label, source: loc.source });
+      setData(d => ({ ...(d || {}), geofence: r })); setPending(null); toastOk('Work location saved.');
+    } catch (e) { toastErr(e?.message || 'Could not save the work location.'); }
+    finally { setBusy(false); }
+  };
+  const clear = async () => {
+    if (busy) return;
+    if (!await dialog.confirm('Remove this personal geofence? Their punches will fall back to the shared work sites.', { title: 'Remove geofence', confirmText: 'Remove' })) return;
+    setBusy(true);
+    try {
+      const r = await api.setGeofence(employee.id, { radius_m: 0 });
+      setData(d => ({ ...(d || {}), geofence: r })); setPending(null); setRadius(150);
+      toastOk('Personal geofence removed.');
+    } catch (e) { toastErr(e?.message || 'Could not remove.'); }
+    finally { setBusy(false); }
+  };
+
+  const RADII = [50, 100, 150, 250, 500, 1000];
+  const preview = pending || (hasGeofence ? { lat: gf.lat, lng: gf.lng, label: gf.label, source: gf.source } : null);
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 10 }}>
+        <MapPinned size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Work location & geofence
+      </div>
+
+      {!data ? <SkeletonBlocks count={3} height={40} /> : (
+        <>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
+            When set, this person's clock-ins are judged against this spot and radius instead of the shared work sites - for home-based, field or single-site staff. With none set, they use the nearest work site as before.
+          </div>
+
+          {/* Current / staged location */}
+          <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'var(--mist)', marginBottom: 14 }}>
+            {preview ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <MapPin size={15} style={{ color: 'hsl(var(--color-green))' }} />
+                  <span style={{ fontSize: 13.5, fontWeight: 700 }}>{preview.label || 'Assigned work location'}</span>
+                  {pending && <span style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.12)', padding: '2px 8px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: '.05em' }}>Unsaved</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                  {(+preview.lat).toFixed(5)}, {(+preview.lng).toFixed(5)}
+                  {' · '}<a href={mapsLink(preview.lat, preview.lng)} target="_blank" rel="noreferrer" style={{ color: 'var(--pine)', fontWeight: 600 }}>View on map <ArrowUpRight size={11} style={{ verticalAlign: 'middle' }} /></a>
+                  {!pending && gf.setBy && <span> · set by {gf.setBy}{gf.setAt ? ` on ${formatDate(gf.setAt)}` : ''}</span>}
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--muted)' }}>No personal geofence - punches use the shared work sites.</div>
+            )}
+          </div>
+
+          {canEdit && (
+            <>
+              {/* Two ways to pick the point */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }} className="acc-grid">
+                <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Use last punch location</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10, minHeight: 30 }}>
+                    {lp ? `Their most recent located punch - ${formatDateTime(lp.at)}.` : 'No located punch on record yet. They need to clock in with location once, or use address search.'}
+                  </div>
+                  <button className="secondary-btn" disabled={!lp} onClick={useLastPunch}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: lp ? 1 : 0.55 }}>
+                    <MapPin size={13} /> Use last punch
+                  </button>
+                </div>
+                <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Search an address</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input className="form-input" style={{ flex: 1, fontSize: 12.5 }} placeholder="Street, city, state" value={addr}
+                      onChange={e => setAddr(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') searchAddress(); }} />
+                    <button className="secondary-btn" onClick={searchAddress} disabled={!addr.trim() || searching}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, opacity: addr.trim() ? 1 : 0.55 }}>
+                      {searching ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={13} />}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>Finds the coordinates for you - no typing lat/long.</div>
+                </div>
+              </div>
+
+              {/* Radius + save */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <label style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--muted)' }}>Radius</label>
+                <select className="form-input" style={{ width: 140 }} value={radius} onChange={e => setRadius(+e.target.value)}>
+                  {RADII.map(r => <option key={r} value={r}>{r < 1000 ? `${r} m` : `${r / 1000} km`}</option>)}
+                </select>
+                <div style={{ flex: 1 }} />
+                {hasGeofence && <button className="secondary-btn" onClick={clear} disabled={busy} style={{ color: 'hsl(var(--color-red))' }}>Remove geofence</button>}
+                <button className="primary-btn" onClick={save} disabled={busy || !preview}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: preview ? 1 : 0.55 }}>
+                  {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save location
+                </button>
+              </div>
+            </>
+          )}
+          <style>{`@media (max-width:640px){.acc-grid{grid-template-columns:1fr !important}}`}</style>
+        </>
       )}
     </div>
   );
@@ -1367,6 +1516,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     canSeeComp && ['pay', 'Pay & Benefits', Wallet],
     ['compliance', 'Compliance', ShieldCheck],
     ['assets', 'Assets', Briefcase],
+    ['location', 'Location', MapPinned],
     ['documents', 'Documents', FileText],
     isAdmin && ['access', 'Access', Shield],
     ['bod', 'Work Logs', Clock],
@@ -1582,6 +1732,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         )}
 
         {tab === 'assets' && <AssetsSection employee={e} />}
+
+        {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
         {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
 

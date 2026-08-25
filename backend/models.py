@@ -753,6 +753,19 @@ class NexusEmployee(Base):
     # code delivered to `phone` (sent.dm SMS), this is stamped and future login
     # codes go to the phone first. Empty = phone unverified, codes go to email.
     phone_verified_at = Column(String, default="")
+    # Per-person geofence (Aug 25): a work location + radius assigned to THIS
+    # person, distinct from the shared HrWorkSite fences. When set (radius > 0),
+    # their punches are judged against this instead of the nearest work site -
+    # for home-based / field / single-location staff. Set from the People
+    # profile: "use last punch location" (reads their most recent located
+    # punch) or an address search (geocoded). '' lat/lng or radius 0 = unset.
+    geofence_lat      = Column(String, default="")
+    geofence_lng      = Column(String, default="")
+    geofence_radius_m = Column(Integer, default=0)             # 0 = no personal geofence (fall back to work sites)
+    geofence_label    = Column(String, default="")            # human label (address, or "From last punch MM/DD")
+    geofence_source   = Column(String, default="")            # last_punch | address | manual
+    geofence_set_by   = Column(String, default="")
+    geofence_set_at   = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):

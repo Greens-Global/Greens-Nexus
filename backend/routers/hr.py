@@ -101,7 +101,11 @@ def _in_scope(emp: Optional[NexusEmployee], scope) -> bool:
 
 
 def _assert_scope(emp: Optional[NexusEmployee], scope) -> NexusEmployee:
-    if emp is not None and scope is not None and (emp.company or "") not in scope:
+    # Fail CLOSED for scoped admins: a None emp (soft-deleted and hidden by the
+    # session filter, or an orphaned id whose employee row is gone) must 404 for
+    # a scoped admin, never fall through unchecked. Unrestricted admins (scope
+    # is None) keep the caller's own None handling.
+    if scope is not None and not _in_scope(emp, scope):
         raise HTTPException(404, "Employee not found")
     return emp
 
@@ -1691,6 +1695,7 @@ def sync_m365_two_way(background_tasks: BackgroundTasks,
 @router.get("/employees/sync-m365-two-way/status")
 def sync_m365_two_way_status(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     from models import M365SyncRun
+    _require_unrestricted(user, db)   # the run summary spans every company
     run = db.query(M365SyncRun).order_by(M365SyncRun.started_at.desc()).first()
     return _serialize_sync_run(run) if run else {"phase": "none"}
 
@@ -1917,6 +1922,13 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Entity not found")
+    # Email domains drive _assign_company_by_domain, which re-tags every UNTAGGED
+    # (company=='') employee on that domain into this company - a re-tag escape
+    # that would pull people the scoped admin must not see into their scope. Only
+    # a company-wide admin may touch domains, and only their edits run the
+    # domain-based auto-assignment.
+    if scope is not None and body.domains is not None:
+        raise HTTPException(403, "Only a company-wide admin can change a company's email domains")
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
     for key, value in body.model_dump(exclude_unset=True).items():
@@ -1929,7 +1941,8 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
         setattr(row, {"legal_name": "legal_name", "tax_id": "tax_id", "registered_address": "registered_address"}.get(key, key),
                 value.strip() if isinstance(value, str) and key != "notes" else value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
-    _assign_company_by_domain(db, row)
+    if scope is None:
+        _assign_company_by_domain(db, row)
     db.commit(); db.refresh(row)
     return _serialize_entity(row)
 
@@ -2413,6 +2426,83 @@ def employee_bod_log(eid: str, start: str = "", end: str = "",
         "message": r.message or "", "tasks": r.tasks or "", "at": r.created_at,
         "punchAt": (punch_in_at if r.kind == "bod" else punch_out_at).get(r.local_date, ""),
     } for r in rows]}
+
+
+# ---------------------------------------------------------------------------
+# Per-person geofence (Aug 25): assign a work location + radius to one person,
+# so their punches are judged against it instead of the shared work sites.
+# Two ways to set it: "use last punch location" (reads their most recent located
+# punch) or an address the admin geocodes on the client. Scope-enforced like
+# every other {eid} endpoint (out-of-company people 404).
+# ---------------------------------------------------------------------------
+
+def _geofence_payload(emp: NexusEmployee) -> dict:
+    return {
+        "lat": emp.geofence_lat or "", "lng": emp.geofence_lng or "",
+        "radiusM": int(emp.geofence_radius_m or 0), "label": emp.geofence_label or "",
+        "source": emp.geofence_source or "", "setBy": emp.geofence_set_by or "",
+        "setAt": emp.geofence_set_at or "",
+    }
+
+
+@router.get("/employees/{eid}/geofence")
+def get_geofence(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """The person's assigned geofence, plus their most recent LOCATED punch so
+    the UI can offer a one-click 'use last punch location' button."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
+    last = None
+    email = (emp.work_email or "").strip().lower()
+    if email:
+        last = (db.query(TimePunch)
+                .filter(TimePunch.employee_email == email, TimePunch.voided == 0,
+                        TimePunch.lat != "", TimePunch.lng != "")
+                .order_by(TimePunch.at.desc()).first())
+    last_loc = None
+    if last:
+        last_loc = {"lat": last.lat, "lng": last.lng, "accuracyM": int(last.accuracy_m or 0),
+                    "at": last.at, "workSiteName": last.work_site_name or ""}
+    return {"geofence": _geofence_payload(emp), "lastPunchLocation": last_loc}
+
+
+class GeofenceIn(BaseModel):
+    lat:      Optional[str] = None
+    lng:      Optional[str] = None
+    radius_m: Optional[int] = None      # 0 clears the personal geofence
+    label:    Optional[str] = None
+    source:   Optional[str] = None      # last_punch | address | manual
+
+
+@router.put("/employees/{eid}/geofence")
+def set_geofence(eid: str, body: GeofenceIn, user: dict = Depends(require_hr_write),
+                 db: Session = Depends(get_db)):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
+    radius = int(body.radius_m or 0)
+    if radius <= 0:
+        # Clear the personal geofence - punches fall back to the work sites.
+        emp.geofence_lat = ""; emp.geofence_lng = ""; emp.geofence_radius_m = 0
+        emp.geofence_label = ""; emp.geofence_source = ""
+    else:
+        try:
+            lat = float(body.lat); lng = float(body.lng)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "A valid location is required - use last punch or search an address")
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            raise HTTPException(400, "Location is out of range")
+        emp.geofence_lat = f"{lat:.6f}"; emp.geofence_lng = f"{lng:.6f}"
+        emp.geofence_radius_m = max(25, min(5000, radius))   # 25 m floor, 5 km ceiling
+        emp.geofence_label = (body.label or "").strip()[:200]
+        emp.geofence_source = body.source if body.source in ("last_punch", "address", "manual") else "manual"
+    emp.geofence_set_by = user["email"]
+    emp.geofence_set_at = datetime.now(timezone.utc).isoformat()
+    emp.updated_at = emp.geofence_set_at
+    db.commit(); db.refresh(emp)
+    return _geofence_payload(emp)
 
 
 # ---------------------------------------------------------------------------
