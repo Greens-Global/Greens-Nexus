@@ -5150,6 +5150,21 @@
             ...(exactFontName ? { _pdfFontName: exactFontName } : {}),
         });
 
+        // Force a UNIFORM weight/style across the whole edit box. Without this,
+        // Fabric can carry per-character style overrides so newly typed text
+        // (and neighbouring characters) rendered with mixed bold/normal within
+        // the same word - the "bold in the middle" jumble. Clearing styles makes
+        // every character follow the object's single fontWeight/fontFamily, and
+        // re-clearing on each change keeps typed text uniform too.
+        editText.styles = {};
+        const _keepUniform = () => {
+            if (editText.styles && Object.keys(editText.styles).length) {
+                editText.styles = {};
+                editText.set({ fontWeight: editText.fontWeight, fontFamily: editText.fontFamily });
+            }
+        };
+        editText.on('changed', _keepUniform);
+
         // Once the user starts typing → cover becomes fully opaque
         editText.on('editing:entered', () => {
             coverRect.set({ opacity: 1 });
