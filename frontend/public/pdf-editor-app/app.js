@@ -7106,6 +7106,11 @@
                 setStatus('Removing lock...');
                 const dec = (wasEncrypted && pdf.saveDocument) ? await pdf.saveDocument() : new Uint8Array(buf);
                 const doc = await L.PDFDocument.load(dec, { ignoreEncryption: true });
+                // Just re-saving does NOT drop the encryption - pdf-lib keeps the
+                // Encrypt dict from a doc loaded with ignoreEncryption. Delete it
+                // from the trailer so the output is truly unencrypted (verified:
+                // isEncrypted goes false and the file reopens with no prompt).
+                try { if (doc.context && doc.context.trailerInfo) delete doc.context.trailerInfo.Encrypt; } catch (_) {}
                 const bytes = await doc.save();
 
                 // Ask what to do with the unlocked file (Pranshu): open it in the
