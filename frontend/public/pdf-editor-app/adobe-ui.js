@@ -322,8 +322,8 @@
     });
   }
 
-  // Paint-bar custom colour: the rainbow swatch opens the OS colour picker
-  // (gradient + eyedropper + RGB), mirroring into the app's colour state.
+  // Paint-bar custom color: the rainbow swatch opens the OS color picker
+  // (gradient + eyedropper + RGB), mirroring into the app's color state.
   const pbCustom = el('#pbCustomColor');
   const mainColor = el('#colorPicker');
   if (pbCustom && mainColor) {
@@ -331,7 +331,7 @@
     const showCur = () => { if (cur) cur.style.background = mainColor.value; };
     pbCustom.addEventListener('input', () => {
       mainColor.value = pbCustom.value;
-      // Fire the same pipeline a swatch click uses (brush colour + actives).
+      // Fire the same pipeline a swatch click uses (brush color + actives).
       mainColor.dispatchEvent(new Event('input', { bubbles: true }));
       mainColor.dispatchEvent(new Event('change', { bubbles: true }));
       showCur();
@@ -399,12 +399,12 @@
     for (const l of window.pdfLayers.list()) {
       const row = document.createElement('div');
       row.className = 'layer-row' + (l.active ? ' active' : '');
-      // colour dot
+      // color dot
       const dot = document.createElement('input');
       dot.type = 'color';
       dot.className = 'layer-dot';
       dot.value = l.color || '#888888';
-      dot.title = 'Layer colour (used as the pen colour when this layer is active)';
+      dot.title = 'Layer color (used as the pen color when this layer is active)';
       dot.addEventListener('input', () => window.pdfLayers.setColor(l.id, dot.value));
       dot.addEventListener('click', (e) => e.stopPropagation());
       // name
@@ -758,8 +758,8 @@
     // the signature corner-arrow accent. Recreated in their visual language
     // (not their copyrighted files) for the landing tool grid. `_a` is the arrow
     // color slot the card fills from the tile tint.
-    // iLovePDF signature: white marks on the coloured tile, plus a small
-    // corner-arrow badge in a darker shade of the same colour (--icf-d). The
+    // iLovePDF signature: white marks on the colored tile, plus a small
+    // corner-arrow badge in a darker shade of the same color (--icf-d). The
     // arrow sits in the lower-right, exactly like their icons.
     const ARROW = '<g transform="translate(15.5 15.5)"><rect x="-1" y="-1" width="8" height="8" rx="2" fill="var(--icf-d)"/><path d="M1.4 3.5h3.2m0 0-1.3-1.3M4.6 3.5 3.3 4.8" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>';
     const ICF = {
@@ -909,7 +909,7 @@
         const key = IC_KEY[path];
         const rich = key && ICF[key];
         const iconSvg = rich
-          // iLovePDF-style: white 2-tone marks on the coloured tile. --icf-a is
+          // iLovePDF-style: white 2-tone marks on the colored tile. --icf-a is
           // the tile tint (for glyphs sitting ON white); --icf-d is a darker
           // shade for the corner-arrow badge.
           ? `<svg width="24" height="24" viewBox="0 0 24 24" style="--icf-a:${tint};--icf-d:color-mix(in srgb, ${tint} 78%, #000)">${rich}</svg>`

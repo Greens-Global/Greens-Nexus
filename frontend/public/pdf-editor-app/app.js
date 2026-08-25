@@ -493,7 +493,14 @@
         dom.prevPage.addEventListener('click', () => goToPage(state.currentPage - 1));
         dom.nextPage.addEventListener('click', () => goToPage(state.currentPage + 1));
         dom.pageInput.addEventListener('change', () => {
-            goToPage(parseInt(dom.pageInput.value, 10));
+            const n = parseInt(dom.pageInput.value, 10);
+            // Invalid or out-of-range input: snap the box back to the current
+            // page instead of leaving stale/bad text sitting in it.
+            if (!Number.isFinite(n) || n < 1 || n > state.totalPages) {
+                dom.pageInput.value = state.currentPage;
+                return;
+            }
+            goToPage(n);
         });
 
         // Zoom
@@ -574,7 +581,7 @@
         // Color swatches
         document.querySelectorAll('.swatch').forEach((swatch) => {
             swatch.addEventListener('click', () => {
-                if (!swatch.dataset.color) return; // custom-picker swatch has no preset colour
+                if (!swatch.dataset.color) return; // custom-picker swatch has no preset color
                 dom.colorPicker.value = swatch.dataset.color;
                 updateSwatchActive();
                 applyBrushColor();
@@ -824,9 +831,13 @@
         const file = e.target.files[0];
         e.target.value = ''; // allow re-picking the same file later
         if (!file) return;
+        await _openOrMergeFile(file);
+    }
 
-        // If a document is already open, ask whether to REPLACE it (open as a
-        // new PDF) or MERGE the picked file into the current one (Pranshu).
+    // Shared by the Open button AND drag-and-drop: if a document is already
+    // open, ask whether to REPLACE it (open as new) or MERGE the picked file in,
+    // so a drop never silently discards unsaved edits.
+    async function _openOrMergeFile(file) {
         const hasDoc = !!(state.pdfDoc && state.pdfBytes);
         if (hasDoc) {
             const choice = await _choiceModal('Open PDF', 'A document is already open. What would you like to do?', [
@@ -851,7 +862,7 @@
         dom.dropZone.classList.remove('drag-over');
         const file = e.dataTransfer.files[0];
         if (file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
-            loadPDF(file);
+            _openOrMergeFile(file);   // same open-as-new / merge prompt as the Open button
         } else if (file) {
             showToast('Please drop a valid PDF file');
         }
@@ -859,6 +870,10 @@
 
     async function loadPDF(file) {
         setStatus('Loading PDF...');
+        // Snapshot the currently-open document so a failed open doesn't leave
+        // state.pdfBytes (new, bad) disagreeing with state.pdfDoc (old) - which
+        // would make a later save/merge use the wrong bytes.
+        const _prevBytes = state.pdfBytes, _prevName = state.fileName;
         state.fileName = file.name;
 
         try {
@@ -977,6 +992,10 @@
                 setStatus('Opened a repaired copy of a damaged PDF');
                 return await loadPDF(new File([fixed], (file && file.name) || 'repaired.pdf', { type: 'application/pdf' }));
             } catch (err2) {
+                // Total failure: restore the previous document's bytes so state
+                // stays consistent (state.pdfDoc still points at the old doc).
+                state.pdfBytes = _prevBytes;
+                state.fileName = _prevName;
                 setStatus('Error loading PDF: ' + err.message);
                 showToast('This PDF could not be opened (damaged beyond repair)');
             }
@@ -1536,7 +1555,7 @@
         const eraserOptions = document.getElementById('eraserOptions');
         if (eraserOptions) eraserOptions.style.display = state.activeTool === 'eraser' ? 'flex' : 'none';
 
-        // The colour/size/font strip is retired: the TEXT formatting bar
+        // The color/size/font strip is retired: the TEXT formatting bar
         // (shown when text is selected/edited) carries all those controls.
         const toolOptions = document.getElementById('toolOptions');
         if (toolOptions) toolOptions.style.display = 'none';
@@ -1636,7 +1655,7 @@
                 fabricCanvas.forEachObject((obj) => { obj.selectable = false; obj.evented = false; });
 
                 if (_eraserWhiteout) {
-                    // Whiteout mode: paint the sampled background colour over content
+                    // Whiteout mode: paint the sampled background color over content
                     // (covers original PDF text / images — like a redaction/whiteout).
                     fabricCanvas.isDrawingMode = true;
                     fabricCanvas.freeDrawingBrush = new fabric.PencilBrush(fabricCanvas);
@@ -2045,7 +2064,7 @@
         return p;
     }
 
-    // Puffy callout cloud (white fill, coloured outline) — normalized path.
+    // Puffy callout cloud (white fill, colored outline) — normalized path.
     const CLOUD_PATH = 'M 168 96 C 190 96 200 82 198 68 C 210 58 206 38 192 34 C 192 18 176 8 162 12 ' +
         'C 154 0 134 -2 124 8 C 112 -4 90 -2 82 10 C 66 2 46 8 42 24 C 24 22 10 34 12 50 ' +
         'C 0 56 0 76 12 82 C 12 96 28 106 44 102 C 52 114 74 118 86 108 C 98 120 122 120 132 108 ' +
@@ -2184,7 +2203,7 @@
             }
         } else if (dragKind === 'cloud') {
             // Swap the dashed ghost rect for the puffy callout cloud: white
-            // body, coloured outline — scaled to the dragged box.
+            // body, colored outline — scaled to the dragged box.
             const { left, top, width, height } = currentShape;
             fabricCanvas.remove(currentShape);
             const w = Math.max(width, 40), h = Math.max(height, 26);
@@ -2371,7 +2390,7 @@
             fabricCanvas.renderAll();
             return;
         }
-        // Commit in the picked colour. Untouched black defaults to marker
+        // Commit in the picked color. Untouched black defaults to marker
         // yellow for HIGHLIGHTS only — a black underline/strike is legitimate.
         const chosen = (highlightMode === 'text' && dom.colorPicker.value === '#000000')
             ? '#FFEB3B' : dom.colorPicker.value;
@@ -2746,7 +2765,7 @@
             const l = layerById(id); if (!l) return;
             state.activeLayer = id;
             if (!l.visible) { l.visible = true; applyLayerVisibility(); } // marking on a hidden layer makes no sense
-            if (l.color) dom.colorPicker.value = l.color; // layer colour = default ink
+            if (l.color) dom.colorPicker.value = l.color; // layer color = default ink
             setStatus('Drawing on layer: ' + l.name + ' — everything you add now belongs to it');
         },
         assignSelected: (id) => {
@@ -2956,7 +2975,7 @@
     // ── Eraser Tool ──
     // Two modes on one tool (toggled via the "Whiteout" checkbox in eraser options):
     //   * default  → remove ONLY your annotations (drag over them to delete). Safe: never touches PDF text.
-    //   * whiteout → paint the sampled background colour over content (hide original text/images).
+    //   * whiteout → paint the sampled background color over content (hide original text/images).
     let _eraserBgColor = '#ffffff'; // sampled at mousedown, used as whiteout brush color
     let _eraserWhiteout = false;    // set by the Whiteout toggle
     let _eraserDragging = false;
@@ -2991,7 +3010,7 @@
     function handleEraserDown(opt) {
         if (state.activeTool !== 'eraser') return;
         if (_eraserWhiteout) {
-            // Sample the background colour so the whiteout stroke blends in
+            // Sample the background color so the whiteout stroke blends in
             const p = fabricCanvas.getPointer(opt.e);
             applyEraserBrushColor(p.x, p.y);
             return;
@@ -3648,13 +3667,38 @@
             let cursor = insertAt;
             for (const file of files) {
                 const fileBytes = await file.arrayBuffer();
-                const srcDoc = await PDFLib.PDFDocument.load(fileBytes);
+                const srcDoc = await PDFLib.PDFDocument.load(fileBytes, { ignoreEncryption: true });
                 const pageIndices = srcDoc.getPageIndices();
                 const copiedPages = await mainDoc.copyPages(srcDoc, pageIndices);
                 copiedPages.forEach((page) => {
                     mainDoc.insertPage(cursor, page);
                     cursor++;
                 });
+            }
+            const insertedCount = cursor - insertAt;
+
+            // Shift existing page-keyed state (annotations, comments, undo/redo)
+            // for pages at or after the insertion point, so markups stay on their
+            // original pages instead of drifting. Mirrors the blank-page insert
+            // remap. insertAt is 0-based; page keys are 1-based, so any page
+            // number > insertAt moves up by insertedCount.
+            if (insertAt < state.totalPages && insertedCount > 0) {
+                const shiftMap = (obj) => {
+                    if (!obj) return obj;
+                    const out = {};
+                    for (const k of Object.keys(obj)) {
+                        const pn = parseInt(k, 10);
+                        out[pn > insertAt ? pn + insertedCount : pn] = obj[k];
+                    }
+                    return out;
+                };
+                state.annotations = shiftMap(state.annotations);
+                state.comments    = shiftMap(state.comments);
+                state.undoStacks  = shiftMap(state.undoStacks);
+                state.redoStacks  = shiftMap(state.redoStacks);
+                // Keep the user on the SAME content they were viewing: if pages
+                // were inserted before the current page, advance past them.
+                if (state.currentPage > insertAt) state.currentPage += insertedCount;
             }
 
             // Save merged PDF
@@ -3676,9 +3720,11 @@
             await generateThumbnails();
             renderPage(state.currentPage);
 
-            const names = files.map((f) => f.name).join(', ');
-            setStatus('Merged successfully: ' + names);
-            showToast(files.length + ' PDF(s) merged');
+            const where = insertAt === 0 ? 'at the start'
+                        : insertAt >= (state.totalPages - insertedCount) ? 'at the end'
+                        : 'after page ' + insertAt;
+            setStatus('Merged ' + where + ' - now ' + state.totalPages + ' pages');
+            showToast(files.length + ' PDF(s) merged ' + where + ' - ' + state.totalPages + ' pages total');
         } catch (err) {
             console.error(err);
             setStatus('Merge failed: ' + err.message);
@@ -4589,7 +4635,8 @@
             a.href = url;
             a.download = state.fileName.replace(/\.pdf$/i, '') + '_edited.pdf';
             a.click();
-            URL.revokeObjectURL(url);
+            // Defer revoke so the browser finishes reading the blob first.
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
 
             markDirty(false); // saved — the working copy is now safe on disk
             setStatus('PDF downloaded successfully');
@@ -5820,7 +5867,7 @@
         dom.stampMenu.classList.toggle('open');
     }
 
-    // Custom stamp dialog: stamp text + optional date, colour, an "Approval
+    // Custom stamp dialog: stamp text + optional date, color, an "Approval
     // stamp" quick-fill (name + date), and "apply to all pages".
     const STAMP_NAME_KEY = 'pdfEditorStampName';
     function customStampDialog(defaultColor = '#d32f2f') {
@@ -5845,7 +5892,7 @@
                             <input type="date" id="csDateVal" value="${today}">
                         </label>
                         <label class="stamp-date-row" style="padding:8px 0 0;">
-                            <span>Stamp colour</span>
+                            <span>Stamp color</span>
                             <input type="color" id="csColor" value="${defaultColor}">
                         </label>
                         <label class="stamp-date-row" style="padding:10px 0 0;">
@@ -5865,7 +5912,7 @@
             const done = (val) => { overlay.remove(); resolve(val); };
 
             // "Approval stamp": fill the text with APPROVED — <name>, tick the
-            // date, and set the colour green. Remembers the name for next time.
+            // date, and set the color green. Remembers the name for next time.
             overlay.querySelector('#csApproval').addEventListener('click', () => {
                 const nm = nameInput.value.trim();
                 if (!nm) { nameInput.focus(); showToast('Enter your name first'); return; }
@@ -5940,7 +5987,7 @@
     async function addStamp(stampText) {
         if (!fabricCanvas) return;
 
-        // Per-preset default colours (green = approved, red = warning, grey = draft).
+        // Per-preset default colors (green = approved, red = warning, grey = draft).
         const PRESET_COLORS = {
             APPROVED: '#1a7a3f', DRAFT: '#6b7280', COPY: '#6b7280',
             FINAL: '#1d4ed8', VOID: '#d32f2f', CONFIDENTIAL: '#d32f2f',
@@ -6556,7 +6603,7 @@
                 <option value="range">Specific pages...</option>
             </select>
             <input type="text" class="modal-input" data-k="range" placeholder="e.g. 1-3, 5, 8" style="margin-top:6px;display:none;">
-            <label class="stamp-date-row" style="padding:10px 0 0;"><span>Colour</span>
+            <label class="stamp-date-row" style="padding:10px 0 0;"><span>Color</span>
                 <input type="color" data-k="color" value="#9e9e9e"></label>
             <label class="stamp-date-row" style="padding:8px 0 0;"><span>Strength</span>
                 <input type="range" data-k="op" min="5" max="60" value="18" style="flex:1;"></label>
@@ -6587,7 +6634,7 @@
         pushDocSnapshot('Watermark');
         setStatus('Adding watermark...');
         try {
-            const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes));
+            const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             const font = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
             const c = hexToRgb(v.color);
             const text = _winAnsi(v.text.trim());
@@ -6597,8 +6644,7 @@
                 const page = pages[pi];
                 const { width, height } = page.getSize();
                 const target = (v.diag ? Math.hypot(width, height) : width) * 0.62;
-                let size = 60;
-                size = Math.max(18, Math.min(160, target / Math.max(1, font.widthOfTextAtSize(text, 100) / 100)));
+                const size = Math.max(18, Math.min(160, target / Math.max(1, font.widthOfTextAtSize(text, 100) / 100)));
                 const tw = font.widthOfTextAtSize(text, size);
                 const ang = v.diag ? Math.atan2(height, width) : 0;
                 const cx = width / 2, cy = height / 2;
@@ -6644,7 +6690,7 @@
         const v = await _toolModal('Add page numbers', `
             <label class="modal-label">Position:</label>
             <select class="modal-input" data-k="pos">
-                <option value="bc">Bottom centre</option>
+                <option value="bc">Bottom center</option>
                 <option value="br">Bottom right</option>
                 <option value="tr">Top right</option>
             </select>
@@ -6660,7 +6706,7 @@
         pushDocSnapshot('Page numbers');
         setStatus('Adding page numbers...');
         try {
-            const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes));
+            const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             const font = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
             const pages = doc.getPages();
             const start = parseInt(v.start, 10) || 1;
@@ -6695,7 +6741,7 @@
         try {
             let outBytes;
             if (v.level === 'light') {
-                const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes));
+                const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
                 outBytes = await doc.save({ useObjectStreams: true });
             } else {
                 const scale = v.level === 'extreme' ? 1.0 : 1.5;
@@ -6737,7 +6783,7 @@
         if (!state.pdfBytes) return;
         let doc, fields;
         try {
-            doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes));
+            doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             fields = doc.getForm().getFields();
         } catch (_) { fields = []; }
         if (!fields.length) { showToast('This PDF has no fillable form fields'); return; }
@@ -7058,15 +7104,19 @@
             inp.type = 'file';
             inp.accept = 'application/pdf,.pdf';
             inp.style.display = 'none';
-            inp.addEventListener('change', () => {
-                const f = inp.files && inp.files[0];
-                inp.remove();
-                resolve(f || null);
-            });
-            // If the picker is dismissed the change event may never fire; a
-            // focus-back heuristic resolves null so we don't hang forever.
+            let settled = false;
+            const done = (f) => { if (settled) return; settled = true; inp.remove(); resolve(f || null); };
+            inp.addEventListener('change', () => done(inp.files && inp.files[0]));
+            // If the picker is dismissed (Cancel), the change event never fires.
+            // When focus returns to the window, resolve null on the next tick so
+            // the await never hangs and the input element doesn't leak.
+            const onFocus = () => {
+                window.removeEventListener('focus', onFocus);
+                setTimeout(() => done(null), 300); // give a real 'change' time to win
+            };
             document.body.appendChild(inp);
             inp.click();
+            window.addEventListener('focus', onFocus);
         });
     }
 
@@ -7200,10 +7250,14 @@
     }
     function _downloadBytes(bytes, name) {
         const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        a.href = url;
         a.download = name;
         a.click();
-        URL.revokeObjectURL(a.href);
+        // Defer revocation - a.click() starts the download asynchronously, so
+        // revoking synchronously can race the browser's blob read (empty/failed
+        // download for large files).
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
     window.lockUnlockPdfFile = lockUnlockPdfFile;
 
@@ -7563,7 +7617,7 @@
             if (!settling && centeredPage !== state.currentPage) {
                 state.currentPage = centeredPage;
                 dom.pageInput.value = centeredPage;
-                if (typeof updateActiveThumbnail === 'function') updateActiveThumbnail(centeredPage);
+                if (typeof updateThumbnailActive === 'function') updateThumbnailActive();
             }
         };
         // While we're programmatically jumping to the target page, ignore the

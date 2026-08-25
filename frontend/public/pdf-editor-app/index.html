@@ -21,7 +21,7 @@
         base-uri 'self';
         form-action 'none';">
     <title>PDF Tools</title>
-    <link rel="stylesheet" href="style.css?v=20260826l">
+    <link rel="stylesheet" href="style.css?v=20260826m">
     <!-- PDF.js for rendering PDFs -->
     <script defer src="libs/pdf.min.js"></script>
     <!-- pdf-lib for modifying/exporting PDFs -->
@@ -153,8 +153,8 @@
                     <button class="dropdown-item" data-stamp="VOID">VOID</button>
                     <button class="dropdown-item" data-stamp="custom">Custom...</button>
                     <div class="dropdown-divider"></div>
-                    <label class="stamp-date-row" title="Colour of the stamp">
-                        <span>Stamp colour</span>
+                    <label class="stamp-date-row" title="Color of the stamp">
+                        <span>Stamp color</span>
                         <input type="color" id="stampColor" value="#d32f2f">
                     </label>
                 </div>
@@ -256,7 +256,7 @@
                 </select>
             </div>
             <div class="eraser-options" id="eraserOptions" style="display:none;">
-                <label class="eraser-toggle" title="OFF: the eraser removes only your annotations (highlights, drawings, shapes) and never touches the PDF text. ON: it covers original PDF text/images with the background colour (whiteout / redact).">
+                <label class="eraser-toggle" title="OFF: the eraser removes only your annotations (highlights, drawings, shapes) and never touches the PDF text. ON: it covers original PDF text/images with the background color (whiteout / redact).">
                     <input type="checkbox" id="eraserWhiteout">
                     <span>Whiteout (cover original text)</span>
                 </label>
@@ -277,10 +277,10 @@
         <div class="paint-section">
             <span class="paint-label">Color</span>
             <div class="color-swatches">
-                <label class="swatch swatch-custom" title="Choose any colour — full picker with eyedropper">
+                <label class="swatch swatch-custom" title="Choose any color — full picker with eyedropper">
                     <input type="color" id="pbCustomColor" value="#000000">
                 </label>
-                <span class="pb-color-current" id="pbColorCurrent" title="Current colour"></span>
+                <span class="pb-color-current" id="pbColorCurrent" title="Current color"></span>
             </div>
         </div>
         <div class="paint-sep"></div>
@@ -565,8 +565,8 @@
             </div>
             <div class="comment-input-area">
                 <div class="stamp-date-row" style="padding:0 0 4px;">
-                    <span>Highlight colour</span>
-                    <input type="color" id="commentColor" value="#e53935" title="Colour used to mark the commented text">
+                    <span>Highlight color</span>
+                    <input type="color" id="commentColor" value="#e53935" title="Color used to mark the commented text">
                 </div>
                 <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">
                     Drag across words on the page — your comment attaches to that text.
@@ -631,10 +631,10 @@
                 <label style="margin-top:12px;">Choose a signature style:</label>
                 <div id="signatureStyleList" class="signature-style-list"></div>
 
-                <label style="margin-top:12px;">Signature colour:</label>
+                <label style="margin-top:12px;">Signature color:</label>
                 <div class="signature-color-row">
-                    <input type="color" id="signatureColor" value="#0a2a66" title="Choose the signature colour — full picker with RGB values">
-                    <span class="modal-hint">Click to pick any colour (RGB / eyedropper).</span>
+                    <input type="color" id="signatureColor" value="#0a2a66" title="Choose the signature color — full picker with RGB values">
+                    <span class="modal-hint">Click to pick any color (RGB / eyedropper).</span>
                     <span class="modal-hint">The signature is inserted onto the page and can be moved &amp; resized.</span>
                 </div>
             </div>
@@ -703,7 +703,7 @@
 
     </div><!-- end .page-wrapper -->
 
-    <script defer src="app.js?v=20260826l"></script>
-    <script defer src="adobe-ui.js?v=20260826l"></script>
+    <script defer src="app.js?v=20260826m"></script>
+    <script defer src="adobe-ui.js?v=20260826m"></script>
 </body>
 </html>
