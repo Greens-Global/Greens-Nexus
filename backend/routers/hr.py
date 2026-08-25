@@ -101,7 +101,11 @@ def _in_scope(emp: Optional[NexusEmployee], scope) -> bool:
 
 
 def _assert_scope(emp: Optional[NexusEmployee], scope) -> NexusEmployee:
-    if emp is not None and scope is not None and (emp.company or "") not in scope:
+    # Fail CLOSED for scoped admins: a None emp (soft-deleted and hidden by the
+    # session filter, or an orphaned id whose employee row is gone) must 404 for
+    # a scoped admin, never fall through unchecked. Unrestricted admins (scope
+    # is None) keep the caller's own None handling.
+    if scope is not None and not _in_scope(emp, scope):
         raise HTTPException(404, "Employee not found")
     return emp
 
@@ -1691,6 +1695,7 @@ def sync_m365_two_way(background_tasks: BackgroundTasks,
 @router.get("/employees/sync-m365-two-way/status")
 def sync_m365_two_way_status(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     from models import M365SyncRun
+    _require_unrestricted(user, db)   # the run summary spans every company
     run = db.query(M365SyncRun).order_by(M365SyncRun.started_at.desc()).first()
     return _serialize_sync_run(run) if run else {"phase": "none"}
 
@@ -1917,6 +1922,13 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Entity not found")
+    # Email domains drive _assign_company_by_domain, which re-tags every UNTAGGED
+    # (company=='') employee on that domain into this company - a re-tag escape
+    # that would pull people the scoped admin must not see into their scope. Only
+    # a company-wide admin may touch domains, and only their edits run the
+    # domain-based auto-assignment.
+    if scope is not None and body.domains is not None:
+        raise HTTPException(403, "Only a company-wide admin can change a company's email domains")
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
     for key, value in body.model_dump(exclude_unset=True).items():
@@ -1929,7 +1941,8 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
         setattr(row, {"legal_name": "legal_name", "tax_id": "tax_id", "registered_address": "registered_address"}.get(key, key),
                 value.strip() if isinstance(value, str) and key != "notes" else value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
-    _assign_company_by_domain(db, row)
+    if scope is None:
+        _assign_company_by_domain(db, row)
     db.commit(); db.refresh(row)
     return _serialize_entity(row)
 

@@ -876,6 +876,13 @@ def revoke_approval(approval_id: str, user: dict = Depends(require_team_write),
     row = db.query(TimeApproval).filter(TimeApproval.id == approval_id).first()
     if not row:
         raise HTTPException(404, "Approval not found")
+    # Scope: a company-scoped admin may only revoke approvals for their own
+    # people (matches approve_timecard). 404 (not 403) so out-of-scope approval
+    # ids don't leak - and this keeps a scoped admin from unlocking another
+    # company's finalized pay period by revoking its 'final' row.
+    scope = _visible_emails(db, user)
+    if scope is not None and (row.employee_email or "").lower() not in scope:
+        raise HTTPException(404, "Approval not found")
     row.revoked = 1
     row.revoked_by = user["email"]
     db.commit()
@@ -3502,11 +3509,22 @@ def delete_shift(shift_id: str, user: dict = Depends(require_team_write), db: Se
     return {"ok": True}
 
 
+def _require_unscoped_team(user: dict, db: Session) -> None:
+    """Shift groups + their Teams-chat bindings are a cross-company scheduling
+    construct (a group can hold people from several companies, and its chat
+    routes their BOD/EOD). A company-scoped People admin must not remap them or
+    reroute another company's work-log delivery - that stays whole-team."""
+    if _visible_emails(db, user) is not None:
+        raise HTTPException(403, "Managing shift groups needs company-wide team access")
+
+
 @router.get("/shift-groups")
 def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    scope = _visible_emails(db, user)
     members = {}
     for m in db.query(ShiftGroupMember).all():
-        members.setdefault(m.group_id, []).append(m.employee_email)
+        if scope is None or (m.employee_email or "").lower() in scope:
+            members.setdefault(m.group_id, []).append(m.employee_email)
     return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                         "chatId": g.teams_chat_id or "", "chatName": g.teams_chat_name or ""}
                        for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]}
@@ -3521,6 +3539,7 @@ class GroupIn(BaseModel):
 
 @router.post("/shift-groups")
 def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    _require_unscoped_team(user, db)
     if not body.name.strip():
         raise HTTPException(400, "Name is required")
     g = ShiftGroup(id=str(uuid.uuid4()), name=body.name.strip()[:80],
@@ -3536,6 +3555,7 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), 
 
 @router.patch("/shift-groups/{group_id}")
 def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    _require_unscoped_team(user, db)
     g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
     if not g:
         raise HTTPException(404, "Group not found")
@@ -3577,6 +3597,7 @@ def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(
 
 @router.delete("/shift-groups/{group_id}")
 def delete_shift_group(group_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    _require_unscoped_team(user, db)
     db.query(ShiftGroup).filter(ShiftGroup.id == group_id).delete()
     db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
     db.commit()
@@ -3593,8 +3614,11 @@ def assign_shift(body: AssignIn, user: dict = Depends(require_team_write), db: S
     """Bulk-assign a shift to a set of employees (typically a group's members).
     An empty shift_id clears the assignment."""
     now = _now_iso()
+    scope = _visible_emails(db, user)   # scoped admins may only touch their own people
     n = 0
     for em in dict.fromkeys(e.strip().lower() for e in body.emails if e.strip()):
+        if scope is not None and em not in scope:
+            continue
         row = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == em).first()
         if not row:
             row = ShiftAssignment(id=str(uuid.uuid4()), employee_email=em)
@@ -3609,8 +3633,10 @@ def assign_shift(body: AssignIn, user: dict = Depends(require_team_write), db: S
 
 @router.get("/shift-assignments")
 def shift_assignments(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    scope = _visible_emails(db, user)
     return {"assignments": {a.employee_email: a.shift_id
-                            for a in db.query(ShiftAssignment).all() if a.shift_id}}
+                            for a in db.query(ShiftAssignment).all()
+                            if a.shift_id and (scope is None or (a.employee_email or "").lower() in scope)}}
 
 
 # ── Weekly schedule grid (Teams-Shifts style) ────────────────────────────────
@@ -3640,7 +3666,8 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
     presets = {s.id: s for s in db.query(Shift).all()}
     members = {}
     for m in db.query(ShiftGroupMember).all():
-        members.setdefault(m.group_id, []).append(m.employee_email)
+        if scope is None or (m.employee_email or "").lower() in scope:
+            members.setdefault(m.group_id, []).append(m.employee_email)
     groups = [{"id": g.id, "name": g.name, "members": members.get(g.id, [])}
               for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]
 
