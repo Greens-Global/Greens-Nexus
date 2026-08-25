@@ -539,6 +539,8 @@ def _run_migrations():
             "ALTER TABLE payroll_rates ADD COLUMN time_tracking_exempt INTEGER DEFAULT 0",
             # BOD/EOD prompt exemption per role (Neil, Aug 25)
             "ALTER TABLE nexus_groups ADD COLUMN bod_exempt INTEGER DEFAULT 0",
+            # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
+            "ALTER TABLE hr_candidates ADD COLUMN company TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1137,6 +1139,8 @@ def _run_migrations():
         "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS time_tracking_exempt INTEGER DEFAULT 0",
         # BOD/EOD prompt exemption per role (Neil, Aug 25)
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_exempt INTEGER DEFAULT 0",
+        # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS company TEXT DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

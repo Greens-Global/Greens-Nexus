@@ -1148,6 +1148,7 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
   const [scopes, setScopes] = useState([]);       // company sandbox for external/guest users
   const [entities, setEntities] = useState([]);
   const [addCo, setAddCo] = useState('');
+  const [addHrCo, setAddHrCo] = useState('');   // company-scoped People admin picker (internal users)
   const load = () => api.getEffectiveAccess(email).then(setData).catch(() => setData({ tier: 'employee', job_role: null, extra_groups: [], modules: [] }));
   const loadScopes = () => api.getAccessScopes(email).then(setScopes).catch(() => setScopes([]));
   useEffect(() => { if (email) { setData(null); load(); loadScopes(); } }, [email]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -1165,9 +1166,12 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
   const removeGroup = async g => { try { await api.removeGroupMember(g.id, email); toastOk(`Removed “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not remove.'); } };
   const held = new Set((data.extra_groups || []).map(g => g.id));
   const entityName = id => entities.find(en => en.id === id)?.name || id;
-  const companyScopes = scopes.filter(s => s.scopeType === 'entity');
+  const companyScopes = scopes.filter(s => s.scopeType === 'entity' && s.moduleId !== 'hr');
+  const hrScopes = scopes.filter(s => s.scopeType === 'entity' && s.moduleId === 'hr');
   const scopedCoIds = new Set(companyScopes.map(s => s.scopeId));
+  const hrCoIds = new Set(hrScopes.map(s => s.scopeId));
   const addScope = async () => { if (!addCo) return; try { setScopes(await api.addAccessScope(email, { module_id: 'company', scope_type: 'entity', scope_id: addCo })); setAddCo(''); toastOk(`Limited to ${entityName(addCo)}.`); } catch (err) { toastErr(err?.message || 'Could not add scope.'); } };
+  const addHrScope = async () => { if (!addHrCo) return; try { setScopes(await api.addAccessScope(email, { module_id: 'hr', scope_type: 'entity', scope_id: addHrCo })); setAddHrCo(''); toastOk(`People access limited to ${entityName(addHrCo)}.`); } catch (err) { toastErr(err?.message || 'Could not add scope.'); } };
   const removeScope = async s => { try { setScopes(await api.deleteAccessScope(email, s.id)); toastOk(`Removed ${entityName(s.scopeId)} limit.`); } catch (err) { toastErr(err?.message || 'Could not remove scope.'); } };
 
   return (
@@ -1219,6 +1223,35 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
         </div>
       )}
       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Access = job-role bundle + any groups, taking the highest level per module.</div>
+
+      {!isExternal && (
+        <div style={{ ..._accBox, marginTop: 22 }}>
+          <div style={_accLabel}><span>People admin companies</span><span>{hrScopes.length || 'all'}</span></div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 12px' }}>
+            With none set, an HR grant covers <b>every</b> company. Add companies to limit this person's People, Time and Leave administration to just those - they won't see or change anyone else's records. Directory and task assignment stay company-wide.
+          </div>
+          {hrScopes.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              {hrScopes.map(s => (
+                <span key={s.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 6px 5px 12px', borderRadius: 20, background: 'var(--card)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                  {entityName(s.scopeId)}
+                  <button onClick={() => removeScope(s)} title="Remove limit" aria-label={`Remove ${entityName(s.scopeId)}`}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}>
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <select className="form-input" style={{ flex: 1 }} value={addHrCo} onChange={e => setAddHrCo(e.target.value)}>
+              <option value="">- add a company -</option>
+              {entities.filter(en => !hrCoIds.has(en.id)).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+            </select>
+            <button className="secondary-btn" onClick={addHrScope} disabled={!addHrCo} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: addHrCo ? 1 : 0.6 }}><Plus size={13} /> Limit</button>
+          </div>
+        </div>
+      )}
 
       {isExternal && (
         <div style={{ ..._accBox, marginTop: 22, background: 'hsla(var(--color-orange),0.05)', borderColor: 'hsla(var(--color-orange),0.25)' }}>
@@ -1609,8 +1642,12 @@ const candName = c => [c.firstName, c.lastName].filter(Boolean).join(' ');
 const daysSince = iso => Math.max(0, Math.floor((Date.now() - new Date(iso)) / 86400000));
 
 function CandidateFormModal({ onClose, onSaved, toastErr }) {
-  const [f, setF] = useState({ first_name: '', last_name: '', email: '', phone: '', role_title: '', department: '', expected_start: '', source: '', notes: '' });
+  const [f, setF] = useState({ first_name: '', last_name: '', email: '', phone: '', role_title: '', department: '', expected_start: '', source: '', company: '', notes: '' });
   const [busy, setBusy] = useState(false);
+  // Companies come server-filtered: a company-scoped admin only sees (and can
+  // only pick) their own, and the backend refuses anything else anyway.
+  const [entities, setEntities] = useState([]);
+  useEffect(() => { api.getEntities().then(setEntities).catch(() => {}); }, []);
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   async function save() {
     if (!f.first_name.trim() || busy) return;
@@ -1639,6 +1676,11 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
           {input('DEPARTMENT', 'department', { placeholder: 'target area - set for real on hire' })}
           {input('EXPECTED START', 'expected_start', { type: 'date' })}
           {input('SOURCE', 'source', { placeholder: 'Referral, LinkedIn…' })}
+          <div><label style={FL}>HIRING COMPANY</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
+              <option value="">- pick a company -</option>
+              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+            </select></div>
           <div style={{ gridColumn: '1 / -1' }}><label style={FL}>NOTES</label>
             <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} /></div>
         </div>
@@ -3074,7 +3116,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   );
 }
 
-function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, toastErr }) {
+function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, toastErr, scoped = false }) {
   const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '', domains: '', manager_email: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [f, setF] = useState(blank);
@@ -3214,13 +3256,15 @@ function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, 
                   </div>
                   <button className="secondary-btn" onClick={() => setMode('dept:' + en.id)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Building2 size={13} /> Departments</button>
                   <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
-                  <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
+                  {!scoped && <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>}
                 </div>
               ))}
             </div>
+            {!scoped && (
             <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
               <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Company</button>
             </div>
+            )}
           </>
         )}
       </div>
@@ -4255,9 +4299,14 @@ export default function HR({ activeSub, onSubChange }) {
   const [sites,     setSites]     = useState([]);
   const [sitesOpen, setSitesOpen] = useState(false);
   const [toast,     setToast]     = useState(null);
-  const { canAccessModule, can } = useRole();
+  const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = canAccessModule('hr_comp', 'owner', 'viewer');
   const isAdmin = can('administrator');   // Roles & Access tab is admin-only
+  // Company-scoped People admin (Neil, Aug 25): hrScope = list of HrEntity ids
+  // this admin is limited to (server-enforced; the lists that arrive are
+  // already filtered). Non-null hides company-wide actions and shows a chip.
+  const isScoped = Array.isArray(hrScope) && hrScope.length > 0;
+  const scopeNames = isScoped ? hrScope.map(id => entities.find(en => en.id === id)?.name || null).filter(Boolean) : [];
 
   const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
@@ -4474,12 +4523,20 @@ export default function HR({ activeSub, onSubChange }) {
           </div>
         </div>
         {sub === 'hr-people' && (
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+            {isScoped && (
+              <span title="Your People access is limited to these companies - people, time and leave outside them are not shown."
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontSize: 12, fontWeight: 700 }}>
+                <Building2 size={13} /> Showing: {scopeNames.length ? scopeNames.join(', ') : 'your companies'}
+              </span>
+            )}
+            {!isScoped && (
             <button className="secondary-btn" disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               title="Two-way sync: pulls the M365 directory in (new people added, profiles linked, empty fields + photos backfilled), then pushes every linked profile back to Entra - Nexus values win, job titles go out without level markers."
               onClick={runSync}>
               {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} {syncBusy && syncLabel ? syncLabel : 'Sync M365'}
             </button>
+            )}
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               title="Manage companies & their departments"
               onClick={() => setEntitiesOpen(true)}>
@@ -4765,7 +4822,7 @@ export default function HR({ activeSub, onSubChange }) {
       )}
       {entitiesOpen && (
         <EntitiesModal entities={entities} employees={employees} onClose={() => setEntitiesOpen(false)}
-          onChanged={() => { load(); return loadEntities(); }} toastOk={toastOk} toastErr={toastErr} />
+          onChanged={() => { load(); return loadEntities(); }} toastOk={toastOk} toastErr={toastErr} scoped={isScoped} />
       )}
       {sitesOpen && (
         <WorkSitesModal sites={sites} entities={entities} onClose={() => setSitesOpen(false)}

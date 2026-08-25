@@ -768,6 +768,7 @@ class HrCandidate(Base):
     expected_start = Column(String, default="")               # ISO date
     interview_at   = Column(String, default="")               # ISO datetime of the next interview
     source         = Column(String, default="")               # referral, LinkedIn, ...
+    company        = Column(String, default="")               # HrEntity.id hiring for ('' = untagged; company-scoped admins see only their companies' pipeline)
     resume_url     = Column(String, default="")               # hr-docs storage path (private; signed URL to view)
     notes          = Column(String, default="")
     employee_id    = Column(String, default="")               # set when hired

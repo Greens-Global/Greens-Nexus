@@ -92,6 +92,11 @@ export function RoleProvider({ children }) {
   // Sidebar and ProtectedView narrow on this flag (server enforces the same
   // boundary in auth.apply_external_policy; this is just matching UI).
   const [isExternal, setIsExternal] = useState(false);
+  // Company-scoped People access (Neil, Aug 25): a list of HrEntity ids when
+  // this admin's HR grant is limited to specific companies, else null
+  // (unrestricted). Server-enforced in auth.hr_scope; HR.jsx uses this to hide
+  // company-wide actions (Sync M365, Company setup) and show the scope chip.
+  const [hrScope, setHrScope] = useState(null);
 
   // ── Act As (Jul 2026) ──────────────────────────────────────────────────────
   // { sessionId, targetEmail, targetName, expiresAt } while impersonating, else
@@ -144,6 +149,7 @@ export function RoleProvider({ children }) {
           if (!cancelled) {
             setMyRole(data.role ?? 'employee');
             setIsExternal(!!data.is_external);
+            setHrScope(Array.isArray(data.hr_scope) ? data.hr_scope : null);
             setLoading(false);
           }
         })
@@ -336,7 +342,7 @@ export function RoleProvider({ children }) {
 
   return (
     <RoleCtx.Provider value={{
-      myRole, myEmail, realEmail, loading, isExternal,
+      myRole, myEmail, realEmail, loading, isExternal, hrScope,
       allRoles, getRole, refreshAllRoles,
       can, assignRole, ROLES,
       groups, refreshGroups, createGroup, updateGroup, deleteGroup,
