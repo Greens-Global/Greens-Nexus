@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
-from auth import require_module_grant
+from auth import require_module_grant, hr_scope
 from routers.stepup import require_stepup
 from models import NexusEmployee, PayrollRate, HrRemovedIdentity
 
@@ -90,6 +90,36 @@ def _validate(employment_type: Optional[str], status: Optional[str], identity_ty
         raise HTTPException(400, f"identity_type must be one of {_IDENTITY_TYPES}")
 
 
+# --- Company scoping (Neil, Aug 25) -----------------------------------------
+# hr_scope(user, db) -> None (unrestricted) or a set of HrEntity ids. Every
+# People-admin read/write funnels through these three helpers. Out-of-scope
+# people answer 404 (not 403) so existence doesn't leak; company=='' (untagged)
+# people are visible only to unrestricted admins.
+
+def _in_scope(emp: Optional[NexusEmployee], scope) -> bool:
+    return emp is not None and (scope is None or (emp.company or "") in scope)
+
+
+def _assert_scope(emp: Optional[NexusEmployee], scope) -> NexusEmployee:
+    if emp is not None and scope is not None and (emp.company or "") not in scope:
+        raise HTTPException(404, "Employee not found")
+    return emp
+
+
+def _scoped(q, scope):
+    """Apply a company scope to a NexusEmployee query."""
+    if scope is not None:
+        q = q.filter(NexusEmployee.company.in_(scope))
+    return q
+
+
+def _require_unrestricted(user: dict, db: Session) -> None:
+    """For whole-tenant operations (M365 sync, company setup) that can't be
+    meaningfully limited to a company subset."""
+    if hr_scope(user, db) is not None:
+        raise HTTPException(403, "Your People access is limited to specific companies - this action needs company-wide access")
+
+
 def _next_code(db: Session) -> str:
     """GG-001, GG-002, … - next number after the highest existing code."""
     best = 0
@@ -141,7 +171,7 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
     """`deleted=true` returns the removed people INSTEAD of the live ones - the
     Deleted filter in the directory. Live listings need no filtering of their
     own: the session hides removed rows globally (database.py)."""
-    q = db.query(NexusEmployee)
+    q = _scoped(db.query(NexusEmployee), hr_scope(user, db))
     if deleted:
         q = (q.execution_options(include_deleted=True)
               .filter(NexusEmployee.deleted_at != "", NexusEmployee.deleted_at.isnot(None)))
@@ -154,6 +184,9 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
     if not body.first_name.strip():
         raise HTTPException(400, "first_name is required")
     _validate(body.employment_type, body.status, body.identity_type)
+    scope = hr_scope(user, db)
+    if scope is not None and (body.company or "").strip() not in scope:
+        raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
     now = datetime.now(timezone.utc).isoformat()
     row = NexusEmployee(
         id=str(uuid.uuid4()),
@@ -197,6 +230,12 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not row:
         raise HTTPException(404, "Employee not found")
+    scope = hr_scope(user, db)
+    _assert_scope(row, scope)
+    # Block the re-tag escape: a scoped admin can neither pull someone into
+    # their scope nor push someone out of it via the company field.
+    if scope is not None and body.company is not None and body.company.strip() not in scope:
+        raise HTTPException(403, "You can't move someone to a company outside your People access")
     _validate(body.employment_type, body.status, body.identity_type)
     if body.first_name is not None and not body.first_name.strip():
         raise HTTPException(400, "first_name cannot be empty")
@@ -244,6 +283,7 @@ def delete_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sessi
              .filter(NexusEmployee.id == eid).first())
     if not row:
         return {"ok": True}
+    _assert_scope(row, hr_scope(user, db))
     if row.deleted_at:
         return {"ok": True, "alreadyRemoved": True}
 
@@ -278,6 +318,7 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
              .filter(NexusEmployee.id == eid).first())
     if not row:
         raise HTTPException(404, "That person no longer exists in Nexus")
+    _assert_scope(row, hr_scope(user, db))
     if not row.deleted_at:
         return {"ok": True, **_serialize(row)}
 
@@ -329,6 +370,7 @@ class CandidateIn(BaseModel):
     department:     Optional[str] = ""
     expected_start: Optional[str] = ""
     source:         Optional[str] = ""
+    company:        Optional[str] = ""
     notes:          Optional[str] = ""
 
 
@@ -341,6 +383,7 @@ class CandidateUpdate(BaseModel):
     department:     Optional[str] = None
     expected_start: Optional[str] = None
     source:         Optional[str] = None
+    company:        Optional[str] = None
     notes:          Optional[str] = None
     stage:          Optional[str] = None
     stage_note:     Optional[str] = None
@@ -353,15 +396,26 @@ def _ser_candidate(c: HrCandidate) -> dict:
         "email": c.email, "phone": c.phone, "roleTitle": c.role_title,
         "department": c.department, "stage": c.stage,
         "expectedStart": c.expected_start, "source": c.source,
+        "company": c.company or "",
         "interviewAt": c.interview_at or "",
         "resumeUrl": c.resume_url, "notes": c.notes, "employeeId": c.employee_id,
         "createdAt": c.created_at, "updatedAt": c.updated_at,
     }
 
 
+def _cand_in_scope(c: Optional[HrCandidate], scope) -> HrCandidate:
+    if c is not None and scope is not None and (c.company or "") not in scope:
+        raise HTTPException(404, "Candidate not found")
+    return c
+
+
 @router.get("/candidates")
 def list_candidates(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    rows = db.query(HrCandidate).order_by(HrCandidate.created_at.desc()).all()
+    scope = hr_scope(user, db)
+    q = db.query(HrCandidate)
+    if scope is not None:
+        q = q.filter(HrCandidate.company.in_(scope))
+    rows = q.order_by(HrCandidate.created_at.desc()).all()
     # Best calibrated interview score per candidate (chip on the kanban card)
     from models import HrInterview
     best: dict = {}
@@ -378,6 +432,7 @@ def list_candidates(user: dict = Depends(require_hr_read), db: Session = Depends
 
 @router.get("/candidates/{cid}/history")
 def candidate_history(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    _cand_in_scope(db.query(HrCandidate).filter(HrCandidate.id == cid).first(), hr_scope(user, db))
     rows = (db.query(HrStageEvent).filter(HrStageEvent.candidate_id == cid)
             .order_by(HrStageEvent.created_at).all())
     return [{"fromStage": e.from_stage, "toStage": e.to_stage, "note": e.note,
@@ -388,6 +443,9 @@ def candidate_history(cid: str, user: dict = Depends(require_hr_read), db: Sessi
 def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     if not body.first_name.strip():
         raise HTTPException(400, "first_name is required")
+    scope = hr_scope(user, db)
+    if scope is not None and (body.company or "").strip() not in scope:
+        raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
     now = datetime.now(timezone.utc).isoformat()
     row = HrCandidate(
         id=str(uuid.uuid4()),
@@ -395,6 +453,7 @@ def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), 
         email=(body.email or "").strip().lower(), phone=(body.phone or "").strip(),
         role_title=(body.role_title or "").strip(), department=(body.department or "").strip(),
         expected_start=(body.expected_start or "").strip(), source=(body.source or "").strip(),
+        company=(body.company or "").strip(),
         notes=body.notes or "", created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
@@ -410,6 +469,10 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not row:
         raise HTTPException(404, "Candidate not found")
+    scope = hr_scope(user, db)
+    _cand_in_scope(row, scope)
+    if scope is not None and body.company is not None and body.company.strip() not in scope:
+        raise HTTPException(403, "You can't move a candidate to a company outside your People access")
     now = datetime.now(timezone.utc).isoformat()
     created_employee = None
 
@@ -427,6 +490,7 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
                 first_name=row.first_name, last_name=row.last_name,
                 personal_email=row.email, phone=row.phone,
                 job_title=row.role_title, department=row.department,
+                company=(row.company or "").strip(),
                 start_date=row.expected_start, status="onboarding",
                 created_by=user["email"], created_at=now, updated_at=now,
             )
@@ -461,7 +525,7 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
                        action={"view": "hr", "sub": "hr-hiring"})
 
     for key in ("first_name", "last_name", "email", "phone", "role_title",
-                "department", "expected_start", "source", "notes"):
+                "department", "expected_start", "source", "company", "notes"):
         value = getattr(body, key)
         if value is not None:
             setattr(row, key, value.strip().lower() if key == "email" else (value if key == "notes" else value.strip()))
@@ -477,6 +541,7 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
 
 @router.delete("/candidates/{cid}")
 def delete_candidate(cid: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+    _cand_in_scope(db.query(HrCandidate).filter(HrCandidate.id == cid).first(), hr_scope(user, db))
     db.query(HrStageEvent).filter(HrStageEvent.candidate_id == cid).delete()
     db.query(HrCandidate).filter(HrCandidate.id == cid).delete()
     db.commit()
@@ -490,6 +555,7 @@ async def upload_resume(cid: str, file: UploadFile = File(...),
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not row:
         raise HTTPException(404, "Candidate not found")
+    _cand_in_scope(row, hr_scope(user, db))
     data = await file.read()
     if len(data) > _MAX_DOC_BYTES:
         raise HTTPException(400, "File too large (max 15 MB)")
@@ -511,6 +577,7 @@ def candidate_resume_url(cid: str, user: dict = Depends(require_hr_read), db: Se
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not row or not row.resume_url:
         raise HTTPException(404, "No resume on file")
+    _cand_in_scope(row, hr_scope(user, db))
     # Legacy rows may hold a full external URL rather than a storage path.
     if row.resume_url.startswith("http"):
         return {"url": row.resume_url, "expiresIn": 0}
@@ -560,7 +627,12 @@ def _ser_leave(r: HrLeaveRequest) -> dict:
 
 @router.get("/leave")
 def list_leave(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    rows = db.query(HrLeaveRequest).order_by(HrLeaveRequest.created_at.desc()).all()
+    scope = hr_scope(user, db)
+    q = db.query(HrLeaveRequest)
+    if scope is not None:
+        q = (q.join(NexusEmployee, NexusEmployee.id == HrLeaveRequest.employee_id)
+              .filter(NexusEmployee.company.in_(scope)))
+    rows = q.order_by(HrLeaveRequest.created_at.desc()).all()
     return [_ser_leave(r) for r in rows]
 
 
@@ -568,6 +640,7 @@ def list_leave(user: dict = Depends(require_hr_read), db: Session = Depends(get_
 def leave_balances(employee_id: str, year: int, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """Allocated comes from balance rows (defaults if absent); used is computed
     from approved requests in that year so the two can never disagree."""
+    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == employee_id).first(), hr_scope(user, db))
     alloc = dict(_DEFAULT_ALLOCATION)
     for b in db.query(HrLeaveBalance).filter(HrLeaveBalance.employee_id == employee_id,
                                              HrLeaveBalance.year == year).all():
@@ -584,6 +657,7 @@ def leave_balances(employee_id: str, year: int, user: dict = Depends(require_hr_
 def set_balance(body: BalanceIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     if body.leave_type not in _LEAVE_TYPES:
         raise HTTPException(400, f"leave_type must be one of {_LEAVE_TYPES}")
+    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == body.employee_id).first(), hr_scope(user, db))
     row = db.query(HrLeaveBalance).filter(HrLeaveBalance.employee_id == body.employee_id,
                                           HrLeaveBalance.year == body.year,
                                           HrLeaveBalance.leave_type == body.leave_type).first()
@@ -605,6 +679,7 @@ def create_leave(body: LeaveIn, user: dict = Depends(require_hr_write), db: Sess
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == body.employee_id).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
     now = datetime.now(timezone.utc).isoformat()
     row = HrLeaveRequest(
         id=str(uuid.uuid4()), employee_id=body.employee_id, leave_type=body.leave_type,
@@ -632,6 +707,7 @@ def decide_leave(lid: str, body: LeaveDecision, user: dict = Depends(require_hr_
     row = db.query(HrLeaveRequest).filter(HrLeaveRequest.id == lid).with_for_update().first()
     if not row:
         raise HTTPException(404, "Leave request not found")
+    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first(), hr_scope(user, db))
     if row.status != "pending":
         raise HTTPException(400, "Request already decided")
     now = datetime.now(timezone.utc).isoformat()
@@ -692,6 +768,7 @@ def _has_comp(user: dict, db: Session) -> bool:
 
 @router.get("/employees/{eid}/documents")
 def list_documents(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == eid).first(), hr_scope(user, db))
     rows = (db.query(HrDocument).filter(HrDocument.employee_id == eid)
             .order_by(HrDocument.created_at.desc()).all())
     # Paystubs are comp-restricted - hidden from plain hr viewers/editors.
@@ -707,6 +784,7 @@ async def upload_document(eid: str, file: UploadFile = File(...), kind: str = Fo
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
     if kind not in _DOC_KINDS:
         raise HTTPException(400, f"kind must be one of {_DOC_KINDS}")
     data = await file.read()
@@ -736,6 +814,7 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
     row = db.query(HrDocument).filter(HrDocument.id == did).first()
     if not row:
         raise HTTPException(404, "Document not found")
+    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first(), hr_scope(user, db))
     if row.kind == "paystub" and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
     resp = httpx.post(
@@ -752,6 +831,7 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
     row = db.query(HrDocument).filter(HrDocument.id == did).first()
     if not row:
         return {"ok": True}
+    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first(), hr_scope(user, db))
     if row.kind == "paystub" and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
     httpx.request("DELETE", f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{row.storage_path}",
@@ -767,6 +847,7 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
 @router.get("/employees/{eid}/paystubs")
 def list_paystubs(eid: str, user: dict = Depends(require_hr_comp_read),
                   _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == eid).first(), hr_scope(user, db))
     rows = (db.query(HrDocument)
             .filter(HrDocument.employee_id == eid, HrDocument.kind == "paystub")
             .order_by(HrDocument.created_at.desc()).all())
@@ -781,6 +862,7 @@ async def upload_paystub(eid: str, file: UploadFile = File(...), period: str = F
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
     data = await file.read()
     if len(data) > _MAX_DOC_BYTES:
         raise HTTPException(400, "File too large (max 15 MB)")
@@ -807,9 +889,26 @@ async def upload_paystub(eid: str, file: UploadFile = File(...), period: str = F
 from models import HrSelfRequest
 
 
+def _req_in_scope(db: Session, r: HrSelfRequest, scope) -> HrSelfRequest:
+    """Ask-HR requests carry only the requester's email - resolve it to their
+    employee row for the company check. No employee row = unrestricted-only."""
+    if scope is None:
+        return r
+    emp = (db.query(NexusEmployee)
+           .filter(func.lower(NexusEmployee.work_email) == (r.employee_email or "").lower()).first())
+    if not _in_scope(emp, scope):
+        raise HTTPException(404, "Request not found")
+    return r
+
+
 @router.get("/requests")
 def list_self_requests(status: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    scope = hr_scope(user, db)
     q = db.query(HrSelfRequest)
+    if scope is not None:
+        q = (q.join(NexusEmployee,
+                    func.lower(NexusEmployee.work_email) == func.lower(HrSelfRequest.employee_email))
+              .filter(NexusEmployee.company.in_(scope)))
     if status:
         q = q.filter(HrSelfRequest.status == status)
     rows = q.order_by(HrSelfRequest.created_at.desc()).limit(200).all()
@@ -825,6 +924,7 @@ def self_request_attachment_url(rid: str, user: dict = Depends(require_hr_read),
     r = db.query(HrSelfRequest).filter(HrSelfRequest.id == rid).first()
     if not r or not r.attachment_path:
         raise HTTPException(404, "No attachment")
+    _req_in_scope(db, r, hr_scope(user, db))
     resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{r.attachment_path}",
                       headers=_storage_headers(), json={"expiresIn": 300}, timeout=15)
     if not resp.is_success:
@@ -848,6 +948,7 @@ def attach_request_to_employee(rid: str, body: AttachToEmployeeIn,
            .filter(func.lower(NexusEmployee.work_email) == r.employee_email.lower()).first())
     if not emp:
         raise HTTPException(404, "No employee record for this request")
+    _assert_scope(emp, hr_scope(user, db))
     kind = body.kind if body.kind in _DOC_KINDS else "other"
     fname = r.attachment_name or "document"
     dest = f"{emp.id}/{uuid.uuid4()}-{re.sub(r'[^a-zA-Z0-9._-]', '_', fname)}"
@@ -875,6 +976,7 @@ def resolve_self_request(rid: str, body: ResolveRequestIn,
     r = db.query(HrSelfRequest).filter(HrSelfRequest.id == rid).first()
     if not r:
         raise HTTPException(404, "Request not found")
+    _req_in_scope(db, r, hr_scope(user, db))
     r.status = "resolved"
     r.response = (body.response or "").strip()[:2000]
     r.resolved_by = user["email"]
@@ -1053,6 +1155,7 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
     if emp.m365_id:
         raise HTTPException(400, "Employee already has an M365 account - provisioning is one-time")
     upn = body.work_email.strip().lower()
@@ -1186,6 +1289,7 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
 
 @router.get("/employees/{eid}/provision/runs")
 def provision_runs(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == eid).first(), hr_scope(user, db))
     runs = (db.query(HrProvisionRun).filter(HrProvisionRun.employee_id == eid)
             .order_by(HrProvisionRun.started_at.desc()).all())
     out = []
@@ -1206,6 +1310,7 @@ def push_to_entra(eid: str, user: dict = Depends(require_hr_write), db: Session 
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
     if not emp.m365_id:
         raise HTTPException(400, "This person has no linked M365 account to push to.")
     # A Graph/token failure must surface as a clean error, not an unhandled 500 -
@@ -1240,6 +1345,7 @@ async def upload_photo(eid: str, file: UploadFile = File(...),
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
     ext = _IMAGE_TYPES.get(file.content_type or "")
     if not ext:
         raise HTTPException(400, "Photo must be JPEG, PNG, WebP or GIF")
@@ -1384,6 +1490,7 @@ def _graph_directory(token: str) -> list:
 @router.post("/employees/sync-m365")
 def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """Pull the M365 directory into HR (see _pull_from_m365)."""
+    _require_unrestricted(user, db)   # whole-tenant by nature
     return _pull_from_m365(db, user["email"])
 
 
@@ -1563,6 +1670,7 @@ def sync_m365_two_way(background_tasks: BackgroundTasks,
     titles level-stripped, Nexus values winning wherever Nexus has one. Returns
     immediately; poll .../status for progress. One run at a time."""
     from models import M365SyncRun
+    _require_unrestricted(user, db)   # whole-tenant by nature
     latest = db.query(M365SyncRun).order_by(M365SyncRun.started_at.desc()).first()
     if latest and latest.phase in ("pull", "push"):
         try:
@@ -1593,6 +1701,7 @@ def sync_photos(user: dict = Depends(require_hr_write), db: Session = Depends(ge
     point their profile at it. Only touches M365-linked rows (need a Graph id);
     accounts with no photo in Entra are left as-is. Graph returns the largest
     available render at /users/{id}/photo/$value (404 = no photo set)."""
+    _require_unrestricted(user, db)   # whole-tenant by nature
     token = _graph_token()
     headers = {"Authorization": f"Bearer {token}"}
     emps = db.query(NexusEmployee).filter(NexusEmployee.m365_id != "").all()
@@ -1716,6 +1825,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
     if not emp.work_email:
         raise HTTPException(400, "Employee has no work email yet - provision first")
     if not emp.personal_email:
@@ -1770,12 +1880,17 @@ def _serialize_entity(e: HrEntity) -> dict:
 
 @router.get("/entities")
 def list_entities(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    rows = db.query(HrEntity).order_by(HrEntity.name).all()
+    scope = hr_scope(user, db)
+    q = db.query(HrEntity)
+    if scope is not None:
+        q = q.filter(HrEntity.id.in_(scope))
+    rows = q.order_by(HrEntity.name).all()
     return [_serialize_entity(e) for e in rows]
 
 
 @router.post("/entities")
 def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    _require_unrestricted(user, db)
     if not body.name.strip():
         raise HTTPException(400, "name is required")
     now = datetime.now(timezone.utc).isoformat()
@@ -1799,6 +1914,9 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
     row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
     if not row:
         raise HTTPException(404, "Entity not found")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Entity not found")
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
     for key, value in body.model_dump(exclude_unset=True).items():
@@ -1818,6 +1936,7 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
 
 @router.delete("/entities/{entity_id}")
 def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+    _require_unrestricted(user, db)
     row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
     if row:
         db.delete(row); db.commit()
@@ -1842,6 +1961,7 @@ def get_group_manager(user: dict = Depends(require_hr_read), db: Session = Depen
 
 @router.put("/group-manager")
 def set_group_manager(body: GroupManagerIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    _require_unrestricted(user, db)   # oversees ALL companies by definition
     row = db.query(NexusSetting).filter(NexusSetting.key == _GROUP_MANAGER_KEY).first()
     if not row:
         row = NexusSetting(key=_GROUP_MANAGER_KEY)
@@ -1912,6 +2032,9 @@ def list_departments(entity_id: str, user: dict = Depends(require_hr_read), db: 
     entity = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
     if not entity:
         raise HTTPException(404, "Company not found")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
     _ensure_departments(db, entity)
     rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
     return [_serialize_dept(d) for d in rows]
@@ -1925,6 +2048,9 @@ class DepartmentIn(BaseModel):
 def add_department(entity_id: str, body: DepartmentIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     entity = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
     if not entity:
+        raise HTTPException(404, "Company not found")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Company not found")
     name = (body.name or "").strip()
     if not name:
@@ -1959,6 +2085,9 @@ def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
     row = db.query(HrDepartment).filter(HrDepartment.id == dept_id, HrDepartment.company_id == entity_id).first()
     if not row:
         raise HTTPException(404, "Department not found")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Department not found")
     if body.name is not None:
         new_name = (body.name or "").strip()
         if not new_name:
@@ -1989,6 +2118,9 @@ def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
 @router.delete("/entities/{entity_id}/departments/{dept_id}")
 def delete_department(entity_id: str, dept_id: str, reassign_to: Optional[str] = None,
                       user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Department not found")
     row = db.query(HrDepartment).filter(HrDepartment.id == dept_id, HrDepartment.company_id == entity_id).first()
     if row:
         # Move (or clear) anyone still tagged with this department FIRST - otherwise
@@ -2036,7 +2168,13 @@ def _serialize_site(s: HrWorkSite) -> dict:
 
 @router.get("/work-sites")
 def list_work_sites(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    rows = db.query(HrWorkSite).order_by(HrWorkSite.name).all()
+    scope = hr_scope(user, db)
+    q = db.query(HrWorkSite)
+    if scope is not None:
+        # Company-less sites stay readable (shared geofences); tagged sites
+        # only within scope.
+        q = q.filter(or_(HrWorkSite.company == "", HrWorkSite.company.in_(scope)))
+    rows = q.order_by(HrWorkSite.name).all()
     return [_serialize_site(s) for s in rows]
 
 
@@ -2044,6 +2182,9 @@ def list_work_sites(user: dict = Depends(require_hr_read), db: Session = Depends
 def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     if not body.name.strip():
         raise HTTPException(400, "name is required")
+    scope = hr_scope(user, db)
+    if scope is not None and (body.company or "").strip() not in scope:
+        raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
     now = datetime.now(timezone.utc).isoformat()
     row = HrWorkSite(
         id=str(uuid.uuid4()), name=body.name.strip(), address=(body.address or "").strip(),
@@ -2061,6 +2202,11 @@ def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(re
     row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
     if not row:
         raise HTTPException(404, "Work site not found")
+    scope = hr_scope(user, db)
+    if scope is not None and (row.company or "") not in scope:
+        raise HTTPException(404, "Work site not found")
+    if scope is not None and body.company is not None and body.company.strip() not in scope:
+        raise HTTPException(403, "You can't move a work site to a company outside your People access")
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
     for key, value in body.model_dump(exclude_unset=True).items():
@@ -2075,6 +2221,9 @@ def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(re
 @router.delete("/work-sites/{site_id}")
 def delete_work_site(site_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
     row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
+    scope = hr_scope(user, db)
+    if row and scope is not None and (row.company or "") not in scope:
+        raise HTTPException(404, "Work site not found")
     if row:
         db.delete(row); db.commit()
     return {"ok": True}
@@ -2094,6 +2243,7 @@ def get_compensation(eid: str, user: dict = Depends(require_hr_comp_read),
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not row:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(row, hr_scope(user, db))
     return {"compensation": row.compensation or {}, "bank": row.bank or []}
 
 
@@ -2151,6 +2301,7 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not row:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(row, hr_scope(user, db))
     if body.compensation is not None:
         incoming = dict(body.compensation or {})
         current = dict(row.compensation or {})
@@ -2187,6 +2338,7 @@ def employee_assets(eid: str, user: dict = Depends(require_hr_read), db: Session
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
     email = (emp.work_email or "").strip().lower()
     if not email:
         return {"assignments": [], "checkouts": []}
@@ -2226,6 +2378,7 @@ def employee_bod_log(eid: str, start: str = "", end: str = "",
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
     email = (emp.work_email or "").strip().lower()
     if not email:
         return {"start": start, "end": end, "logs": []}
@@ -2319,6 +2472,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not row:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(row, hr_scope(user, db))
     if body.status not in _STATUSES:
         raise HTTPException(400, f"status must be one of {_STATUSES}")
     now = datetime.now(timezone.utc).isoformat()
@@ -2548,6 +2702,7 @@ def start_mailbox_export(eid: str, user: dict = Depends(require_hr_write), db: S
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
     if not emp.m365_id:
         raise HTTPException(400, "No linked M365 account to export from")
     now = datetime.now(timezone.utc).isoformat()
@@ -2560,6 +2715,7 @@ def start_mailbox_export(eid: str, user: dict = Depends(require_hr_write), db: S
 
 @router.get("/employees/{eid}/mailbox-export")
 def latest_mailbox_export(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == eid).first(), hr_scope(user, db))
     job = (db.query(HrMailboxExport).filter(HrMailboxExport.employee_id == eid)
            .order_by(HrMailboxExport.created_at.desc()).first())
     return _ser_export(job) if job else None
@@ -2570,6 +2726,7 @@ def mailbox_export_status(job_id: str, user: dict = Depends(require_hr_read), db
     job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
     if not job:
         raise HTTPException(404, "Export not found")
+    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == job.employee_id).first(), hr_scope(user, db))
     return _ser_export(job)
 
 
@@ -2578,6 +2735,7 @@ def mailbox_export_url(job_id: str, user: dict = Depends(require_hr_read), db: S
     job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
     if not job or not job.storage_path:
         raise HTTPException(404, "No export file yet")
+    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == job.employee_id).first(), hr_scope(user, db))
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/sign/{_EXPORT_BUCKET}/{job.storage_path}",
         headers=_storage_headers(), json={"expiresIn": 300}, timeout=15,

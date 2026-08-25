@@ -349,8 +349,11 @@ class TestAdminCrud(_ExternalBase):
         self.assertEqual(r.status_code, 400)
 
     def test_deactivate_shuts_the_door(self):
+        # send_invite=True: this test exercises the RELEASED lifecycle (a staged
+        # row refuses status flips by design - Release/Remove are its only exits).
         self._as_admin()
-        self.client.post("/external-users", json={"email": GUEST, "first_name": "Jane"})
+        self.client.post("/external-users", json={"email": GUEST, "first_name": "Jane",
+                                                  "send_invite": True})
         r = self.client.patch(f"/external-users/{GUEST}", json={"status": "inactive"})
         self.assertEqual(r.status_code, 200, r.text)
         self._as(GUEST)
@@ -509,9 +512,11 @@ class TestInviteFlow(_ExternalBase):
         super().tearDown()
 
     def _enroll(self):
+        # send_invite=True keeps these tests on the legacy one-step contract;
+        # the staged-by-default path is covered in test_external_auth.
         return self.client.post("/external-users", json={
             "email": GUEST, "first_name": "Jane", "last_name": "Doe",
-            "company": "Acme Construction"})
+            "company": "Acme Construction", "send_invite": True})
 
     def _with_graph(self, fake_post):
         return (mock.patch.object(graph_mail, "graph_configured", return_value=True),

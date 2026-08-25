@@ -76,14 +76,25 @@ require_tracking_read_write = require_level_or_modules(3, [("hr", "editor"), ("e
 
 def _visible_emails(db: Session, user: dict):
     """Team-data scope. None = whole company (administrators, or anyone holding
-    an HR-module grant). A plain level-3/4 manager sees only their DIRECT
-    reports (manager_email == them) plus themself - the Manager Dashboard view."""
-    from auth import _module_level
-    if user.get("level", 0) >= 4 or _module_level(user["email"], "hr", db) >= 1:
+    an UNRESTRICTED HR-module grant). An HR grant limited by company scopes
+    (Neil, Aug 25 - hr_scope) yields the emails of those companies' people
+    instead, which flows through every team surface built on this function
+    (timesheet, payroll, exceptions, screenshots, monitoring, time off). A
+    plain level-3 manager sees only their DIRECT reports (manager_email ==
+    them) plus themself - the Manager Dashboard view."""
+    from auth import _module_level, hr_scope
+    if user.get("level", 0) >= 4:
         return None
     directs = {(e.work_email or "").lower() for e in db.query(NexusEmployee)
                .filter(NexusEmployee.manager_email == user["email"]).all() if e.work_email}
     directs.add(user["email"])
+    if _module_level(user["email"], "hr", db) >= 1:
+        scope = hr_scope(user, db)
+        if scope is None:
+            return None
+        company = {(e.work_email or "").lower() for e in db.query(NexusEmployee)
+                   .filter(NexusEmployee.company.in_(scope)).all() if e.work_email}
+        return company | directs   # a scoped admin is still a manager of their directs
     return directs
 
 KINDS = ("in", "out", "break_start", "break_end")
