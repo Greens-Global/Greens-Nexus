@@ -721,6 +721,14 @@ body.toolbar-collapsed .toolbar-toggle svg {
     image-rendering: -webkit-optimize-contrast;
 }
 
+.thumb-loading {
+    padding: 16px 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-align: center;
+    opacity: 0.75;
+}
+
 .thumbnail-label {
     position: absolute;
     bottom: 0;

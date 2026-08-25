@@ -4252,8 +4252,16 @@
         dom.thumbnailList.classList.remove('view-preview', 'view-tiles', 'view-list', 'view-icons');
         dom.thumbnailList.classList.add('view-' + state.viewMode);
 
+        // Loading hint while pages render (removed once the first thumbnail lands),
+        // so the sidebar isn't a blank void on large documents.
+        const _loading = document.createElement('div');
+        _loading.className = 'thumb-loading';
+        _loading.textContent = 'Rendering pages...';
+        dom.thumbnailList.appendChild(_loading);
+
         for (let i = 1; i <= state.totalPages; i++) {
             if (gen !== _thumbGen) return; // superseded (slider drag / resize)
+            if (i === 1 && _loading.parentNode) _loading.remove();
             // Yield to the UI every 5 pages to keep the app responsive on large PDFs
             if (i > 1 && (i - 1) % 5 === 0) {
                 await new Promise((resolve) => setTimeout(resolve, 0));
@@ -5048,8 +5056,9 @@
                     left: r.left - 2, top: r.top - 2, width: (r.right - r.left) + 4, height: (r.bottom - r.top) + 4,
                     fill: 'rgba(120,140,240,0.035)', stroke: 'rgba(120,145,235,0.5)', strokeWidth: 1,
                     strokeDashArray: [4, 3], rx: 3, ry: 3,
+                    // evented:false means Fabric never routes hover here, so a
+                    // hoverCursor would never fire - the tool-level cursor handles it.
                     selectable: false, evented: false, excludeFromExport: true, _editTextGuide: true,
-                    hoverCursor: 'text',
                 });
                 _isRestoring = true;
                 fabricCanvas.add(box);
@@ -6187,6 +6196,7 @@
         // (pdfDoc.numPages) rather than state.totalPages, which can lag behind
         // the loaded document and would silently limit the scan to fewer pages.
         const pageCount = (state.pdfDoc && state.pdfDoc.numPages) || state.totalPages;
+        let jumped = false;
         for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
             const page = await state.pdfDoc.getPage(pageNum);
             const textContent = await page.getTextContent();
@@ -6206,12 +6216,19 @@
                     startIdx += query.length;
                 }
             });
+            // Live feedback on long documents: update the counter as pages scan,
+            // and jump to the first hit the moment it's found (don't wait for the
+            // whole document). Trailing '+' shows the scan is still running.
+            if (searchResults.length) {
+                if (!jumped) { searchCurrentIdx = 0; await goToSearchResult(0); jumped = true; }
+                if (pageNum < pageCount) dom.searchInfo.textContent = (searchCurrentIdx + 1) + '/' + searchResults.length + '+';
+            }
         }
 
         if (searchResults.length > 0) {
-            searchCurrentIdx = 0;
-            dom.searchInfo.textContent = '1/' + searchResults.length;
-            await goToSearchResult(0);
+            // Final count (drop the trailing '+' now the whole doc is scanned).
+            dom.searchInfo.textContent = (searchCurrentIdx + 1) + '/' + searchResults.length;
+            if (!jumped) { searchCurrentIdx = 0; await goToSearchResult(0); }
         } else {
             dom.searchInfo.textContent = '0/0';
             // Distinguish "no match" from "no text at all" (scanned pages)
@@ -6780,15 +6797,10 @@
                 outBytes = await out.save();
             }
             const afterMB = (outBytes.length / 1048576).toFixed(1);
-            const blob = new Blob([outBytes], { type: 'application/pdf' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = state.fileName.replace(/\.pdf$/i, '') + '_compressed.pdf';
-            a.click();
-            URL.revokeObjectURL(url);
-            setStatus('Compressed: ' + beforeMB + ' MB → ' + afterMB + ' MB');
-            showToast('Compressed ' + beforeMB + ' MB → ' + afterMB + ' MB');
+            // Apply in the editor (like the other tools) so the user can review
+            // the result and Save when ready, instead of a forced download.
+            await _reloadFromBytes(outBytes, 'Compressed ' + beforeMB + ' MB -> ' + afterMB + ' MB - Save when ready');
+            showToast('Compressed ' + beforeMB + ' MB -> ' + afterMB + ' MB');
         } catch (err) { console.error(err); showToast('Compression failed'); }
     }
 
