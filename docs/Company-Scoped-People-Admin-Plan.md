@@ -1,5 +1,12 @@
 # Company-Scoped People Admins - Plan (Neil, Aug 25)
 
+> STATUS: BUILT + SHIPPED Aug 25 (dev 8369fe1). Enforcement is live exactly as
+> planned below; test_hr_scope.py carries the 11-case matrix. Deviations from
+> the plan: the timeoff name map stays unrestricted (names are company-wide by
+> the visibility decision anyway), and access_scopes needed no invalidation
+> (scopes are read live everywhere). The module_id='company' false-assurance
+> rows and the scoped_ids 'guest' fail-closed gap remain separate follow-ups.
+
 > Neil (Teams, 08/25 19:50): "another layer of access / company admin where
 > you can be a people admin but company specific. Can't make or see changes
 > on certain people. I wouldn't want Sacred Natural admin making changes to
