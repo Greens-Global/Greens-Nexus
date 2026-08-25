@@ -7556,7 +7556,16 @@
         // state.currentPage (often to page 1 at the top) mid-jump, which yanked
         // the user back to the first page when re-entering scroll mode.
         let settling = true;
-        const guardedOnScroll = () => { if (settling) return; onScroll(); };
+        // Throttle to one run per animation frame. The raw scroll event fires
+        // many times per frame and onScroll does per-page getBoundingClientRect +
+        // render work, which made scrolling laggy/janky. rAF-coalescing keeps the
+        // handler off the critical scroll path so scrolling stays smooth.
+        let _scrollRaf = 0;
+        const guardedOnScroll = () => {
+            if (settling) return;
+            if (_scrollRaf) return;
+            _scrollRaf = requestAnimationFrame(() => { _scrollRaf = 0; onScroll(); });
+        };
         _scrollOnScroll = guardedOnScroll;
         scroller.addEventListener('scroll', guardedOnScroll, { passive: true });
 

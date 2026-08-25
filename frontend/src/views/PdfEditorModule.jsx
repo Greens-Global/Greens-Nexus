@@ -26,7 +26,12 @@ const nexusTheme = () =>
 // Nexus - computed once at module scope, which is fine because later changes go
 // over postMessage (see below); putting live theme in src would remount the
 // iframe and discard the open document.
-const EDITOR_SRC = `/pdf-editor-app/index.html?v=${import.meta.env.VITE_BUILD_ID || 'dev'}`
+// Cache-bust the iframe. In production use the stable build id (so the editor
+// caches well); in dev fall back to a per-load timestamp so a hard refresh
+// always pulls the latest editor code instead of a stale cached index.html
+// (which was serving old app.js/style.css even after bumping their ?v=).
+const EDITOR_BUILD = import.meta.env.VITE_BUILD_ID || `dev-${Date.now()}`;
+const EDITOR_SRC = `/pdf-editor-app/index.html?v=${EDITOR_BUILD}`
   + `&theme=${nexusTheme()}`;
 
 export default function PdfEditorModule() {
