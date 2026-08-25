@@ -32,7 +32,14 @@ models.Base.metadata.create_all(bind=database.engine)
 from sqlalchemy import text as _text
 with database.engine.connect() as _conn:
     for _stmt in ("ALTER TABLE hr_candidates ADD COLUMN company TEXT DEFAULT ''",
-                  "ALTER TABLE nexus_groups ADD COLUMN bod_exempt INTEGER DEFAULT 0"):
+                  "ALTER TABLE nexus_groups ADD COLUMN bod_exempt INTEGER DEFAULT 0",
+                  "ALTER TABLE nexus_employees ADD COLUMN geofence_lat TEXT DEFAULT ''",
+                  "ALTER TABLE nexus_employees ADD COLUMN geofence_lng TEXT DEFAULT ''",
+                  "ALTER TABLE nexus_employees ADD COLUMN geofence_radius_m INTEGER DEFAULT 0",
+                  "ALTER TABLE nexus_employees ADD COLUMN geofence_label TEXT DEFAULT ''",
+                  "ALTER TABLE nexus_employees ADD COLUMN geofence_source TEXT DEFAULT ''",
+                  "ALTER TABLE nexus_employees ADD COLUMN geofence_set_by TEXT DEFAULT ''",
+                  "ALTER TABLE nexus_employees ADD COLUMN geofence_set_at TEXT DEFAULT ''"):
         try:
             _conn.execute(_text(_stmt))
             _conn.commit()
@@ -264,6 +271,38 @@ class HrScopeTests(unittest.TestCase):
     def test_out_of_scope_candidate_interviews_404(self):
         _as(SCOPED)
         self.assertEqual(self.client.get(f"/hr/candidates/{CAND_B}/interviews").status_code, 404)
+
+    # ── per-person geofence (Aug 25) ─────────────────────────────────────────
+    def test_geofence_set_get_and_scope(self):
+        from routers.timeclock import _geofence
+        _as(UNRESTRICTED)
+        # set a personal geofence on the in-scope employee
+        r = self.client.put(f"/hr/employees/{EMP_A}/geofence",
+                            json={"lat": "33.6846", "lng": "-117.8265", "radius_m": 150,
+                                  "label": "Irvine warehouse", "source": "address"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["radiusM"], 150)
+        got = self.client.get(f"/hr/employees/{EMP_A}/geofence").json()
+        self.assertEqual(got["geofence"]["label"], "Irvine warehouse")
+        # a punch AT the geofence is in_fence; far away is out_of_fence
+        db = database.SessionLocal()
+        try:
+            near = _geofence(db, "33.6847", "-117.8266", 10, email="ava.alpha.hrscope@greensglobal.com")
+            far = _geofence(db, "34.0522", "-118.2437", 10, email="ava.alpha.hrscope@greensglobal.com")
+            self.assertEqual(near["geo_status"], "in_fence")
+            self.assertEqual(near["work_site_id"], "personal")
+            self.assertEqual(far["geo_status"], "out_of_fence")
+        finally:
+            db.close()
+        # clearing it (radius 0) removes the personal geofence
+        self.client.put(f"/hr/employees/{EMP_A}/geofence", json={"radius_m": 0})
+        self.assertEqual(self.client.get(f"/hr/employees/{EMP_A}/geofence").json()["geofence"]["radiusM"], 0)
+
+    def test_geofence_out_of_scope_404(self):
+        _as(SCOPED)
+        self.assertEqual(self.client.get(f"/hr/employees/{EMP_B}/geofence").status_code, 404)
+        self.assertEqual(self.client.put(f"/hr/employees/{EMP_B}/geofence",
+                                         json={"lat": "1", "lng": "1", "radius_m": 100}).status_code, 404)
 
     # ── the Time-surface root ────────────────────────────────────────────────
     def test_visible_emails_scoped_set(self):

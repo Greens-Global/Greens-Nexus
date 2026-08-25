@@ -548,6 +548,14 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN bod_exempt INTEGER DEFAULT 0",
             # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
             "ALTER TABLE hr_candidates ADD COLUMN company TEXT DEFAULT ''",
+            # Per-person geofence (Aug 25)
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_lat TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_lng TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_radius_m INTEGER DEFAULT 0",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_label TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_source TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_set_by TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_set_at TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1154,6 +1162,14 @@ def _run_migrations():
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_exempt INTEGER DEFAULT 0",
         # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS company TEXT DEFAULT ''",
+        # Per-person geofence (Aug 25)
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_lat TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_lng TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_radius_m INTEGER DEFAULT 0",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_label TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_source TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_by TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_at TEXT DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

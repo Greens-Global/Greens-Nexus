@@ -33,6 +33,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from database import get_db
 from auth import (get_current_user, require_level_or_module, require_administrator,
@@ -126,12 +127,41 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
-def _geofence(db: Session, lat, lng, accuracy_m: int) -> dict:
-    """Nearest geofenced work site + soft-gate verdict with accuracy credit."""
+def _soft_gate(d: float, radius: int, accuracy_m: int, base: dict) -> dict:
+    """Shared soft-gate verdict: in_fence / out_of_fence / low_accuracy, with the
+    same GPS-accuracy credit (capped at 150 m) used for work sites and personal
+    geofences alike."""
+    acc = max(0, int(accuracy_m or 0))
+    if acc > 500:
+        return {**base, "geo_status": "low_accuracy"}
+    effective = max(0.0, d - min(acc, 150))
+    return {**base, "geo_status": "in_fence" if effective <= radius else "out_of_fence"}
+
+
+def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "") -> dict:
+    """Soft-gate verdict for a punch. A person with a PERSONAL geofence assigned
+    (geofence_radius_m > 0) is judged against that location - it is their work
+    area. Everyone else is judged against the nearest geofenced work site."""
     try:
         plat, plng = float(lat), float(lng)
     except (TypeError, ValueError):
         return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
+    # Personal geofence wins when set.
+    if email:
+        emp = (db.query(NexusEmployee)
+               .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
+        if emp and (emp.geofence_radius_m or 0) > 0:
+            try:
+                glat, glng = float(emp.geofence_lat), float(emp.geofence_lng)
+            except (TypeError, ValueError):
+                glat = glng = None
+            if glat is not None:
+                d = _haversine_m(plat, plng, glat, glng)
+                radius = max(25, int(emp.geofence_radius_m or 150))
+                base = {"work_site_id": "personal",
+                        "work_site_name": emp.geofence_label or "Assigned work location",
+                        "distance_m": int(round(d))}
+                return _soft_gate(d, radius, accuracy_m, base)
     best = None
     for s in db.query(HrWorkSite).all():
         try:
@@ -146,17 +176,12 @@ def _geofence(db: Session, lat, lng, accuracy_m: int) -> dict:
         return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     d, site = best
     radius = max(25, int(site.radius_m or 150))
-    acc = max(0, int(accuracy_m or 0))
     base = {"work_site_id": site.id, "work_site_name": site.name or "", "distance_m": int(round(d))}
     # Desktops have no GPS: browsers triangulate from Wi-Fi/IP and can be
-    # kilometres off with a huge reported accuracy. Crediting that in full
-    # would let a coarse fix "pass" any fence, so the credit is capped at
+    # kilometres off with a huge reported accuracy. _soft_gate caps the credit at
     # 150 m, and past ±500 m the fix can't be judged at all → low_accuracy
     # (recorded, neutral - phones give GPS fixes and judge normally).
-    if acc > 500:
-        return {**base, "geo_status": "low_accuracy"}
-    effective = max(0.0, d - min(acc, 150))
-    return {**base, "geo_status": "in_fence" if effective <= radius else "out_of_fence"}
+    return _soft_gate(d, radius, accuracy_m, base)
 
 
 def _unconfirmed_auto_out(p) -> bool:
@@ -484,7 +509,7 @@ def punch(body: PunchIn, request: Request,
         prev = _parse_iso(last.at)
         if prev and (datetime.now(timezone.utc) - prev).total_seconds() < 60:
             raise HTTPException(409, "Duplicate punch - you just did that.")
-    geo = _geofence(db, body.lat, body.lng, body.accuracy_m or 0)
+    geo = _geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
     if not (body.lat or "").strip():
         geo = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     ip, ua = _client_meta(request)
@@ -3255,7 +3280,7 @@ def track_ping(body: PingBatch, dev: AgentDevice = Depends(get_agent_device),
         if not (p.lat or "").strip() or not (p.lng or "").strip():
             continue
         at = (p.at or "").strip()[:19] or _now_iso()
-        geo = _geofence(db, p.lat, p.lng, p.accuracy_m or 0)
+        geo = _geofence(db, p.lat, p.lng, p.accuracy_m or 0, email=email)
         db.add(TrackPing(
             id=str(uuid.uuid4()), session_id=sess.id, employee_email=email,
             at=at, received_at=_now_iso(), local_date=_local_date(at, p.tz_offset_min or 0),
@@ -3299,7 +3324,7 @@ def track_clock(body: TrackClockIn, dev: AgentDevice = Depends(get_agent_device)
     if body.kind not in _allowed_kinds(last.kind if last else None):
         raise HTTPException(409, f"Can't clock '{body.kind}' right now.")
     now = _now_iso()
-    geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0)
+    geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
            if (body.lat or "").strip() else
            {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0})
     db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
