@@ -6,7 +6,7 @@ import { useRef, useState } from 'react';
 import { CalendarDays, User, X, Image as ImageIcon, Paperclip, ScanText, Camera, ImagePlus, FolderKanban } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { usePeople, PersonSelect, DateField } from './components';
+import { usePeople, PersonMultiSelect, DateField } from './components';
 import { BottomSheet } from './MobileTaskBar';
 import { filesFromPaste, uploadTaskAttachment } from './lib';
 import { NX, FONT, btn, input as inputStyle } from './theme';
@@ -22,7 +22,8 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   const people = usePeople();
   const [title, setTitle] = useState(defaults.title || '');
   const [dueOn, setDueOn] = useState(defaults.dueOn || '');
-  const [assigneeId, setAssigneeId] = useState(defaults.assigneeId ?? myEmail ?? '');
+  const [assigneeIds, setAssigneeIds] = useState(
+    defaults.assigneeIds || (defaults.assigneeId ? [defaults.assigneeId] : (myEmail ? [myEmail] : [])));
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState([]); // { file, url, image }
   const [ocrBusy, setOcrBusy] = useState(false);
@@ -60,8 +61,8 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   const [projectId, setProjectId] = useState(defaults.projectId || '');
   const lockedProject = !!defaults.projectId;
 
-  const draft = () => ({ title: title.trim(), dueOn, assigneeId });
-  const canCreate = !!(title.trim() && assigneeId && dueOn && (lockedProject || projectId)) && !busy;
+  const draft = () => ({ title: title.trim(), dueOn, assigneeIds });
+  const canCreate = !!(title.trim() && assigneeIds.length && dueOn && (lockedProject || projectId)) && !busy;
 
   const submit = async () => {
     if (!canCreate) return;
@@ -69,7 +70,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
     try {
       const t = await createTask({
         title: title.trim(), type: 'task', status: defaults.status || 'not_started',
-        priority: defaults.priority || 'medium', assigneeId: assigneeId || '', ownerId: defaults.ownerId ?? myEmail ?? '', projectId, teamId: defaults.teamId || '', dueOn: dueOn || '',
+        priority: defaults.priority || 'medium', assigneeIds, ownerId: defaults.ownerId ?? myEmail ?? '', projectId, teamId: defaults.teamId || '', dueOn: dueOn || '',
       });
       for (const it of files) await uploadAttachment(t.id, it.file);
       onClose();
@@ -93,7 +94,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
           </div>
           <div>
             <span style={fieldLabel}><User size={13} /> Assignee <span style={{ color: NX.red }}>*</span></span>
-            <PersonSelect value={assigneeId} onChange={setAssigneeId} people={people} />
+            <PersonMultiSelect value={assigneeIds} onChange={setAssigneeIds} people={people} placeholder="Assign to…" />
           </div>
         </div>
 

@@ -135,6 +135,42 @@ def email_list(raw) -> list[str]:
     return [x.lower() for x in (raw or []) if isinstance(x, str)]
 
 
+def task_assignees(t) -> list[str]:
+    """Everyone assigned to `t`, lowercased.
+
+    Reads `assignee_emails` and falls back to the legacy single column, so a row
+    written before multi-assignee (or by any code path still setting only the
+    mirror - the Asana sync does) answers correctly without a migration having
+    to have run first. This is the ONLY correct way to ask "is this person on
+    this task"; a bare `t.assignee_email` check silently ignores everyone after
+    the first."""
+    ids = email_list(getattr(t, "assignee_emails", None))
+    if ids:
+        return ids
+    one = (getattr(t, "assignee_email", "") or "").strip().lower()
+    return [one] if one else []
+
+
+def set_task_assignees(t, emails) -> list[str]:
+    """Assign `t` to `emails` (order-preserving, de-duplicated, lowercased) and
+    keep the legacy single column pointing at the first of them.
+
+    Both columns are written here and nowhere else, so the mirror cannot drift
+    from the list - the failure TaskTeam._set_team_projects exists to prevent
+    for its own legacy mirror."""
+    seen, clean = set(), []
+    for e in (emails or []):
+        if not isinstance(e, str):
+            continue
+        e = e.strip().lower()
+        if e and e not in seen:
+            seen.add(e)
+            clean.append(e)
+    t.assignee_emails = clean
+    t.assignee_email = clean[0] if clean else ""
+    return clean
+
+
 def _email_and_external(user_or_email) -> tuple[str, bool]:
     """Both visibility helpers accept either the plain email (legacy call
     sites) or the full user dict from get_current_user. Passing the dict is
@@ -168,7 +204,9 @@ def visible_project_ids(db: Session, user_or_email) -> set[str]:
         if email in email_list(t.member_emails):
             ids.update(team_project_ids(t))
     for t in db.query(Task).filter(Task.project_id != "").all():
-        if (t.assignee_email or "").lower() == email:
+        # Every assignee, not just the first - being given the work is what
+        # grants the sight of the project it lives in.
+        if email in task_assignees(t):
             ids.add(t.project_id)
             ids.update(p for p in (t.project_ids or []) if p)
     return ids
@@ -195,7 +233,9 @@ def task_is_visible(t: Task, user_or_email, visible_proj_ids: set[str]) -> bool:
     email, external = _email_and_external(user_or_email)
     if (t.access_level or "org") == "org" and not external:
         return True
-    if email in ((t.assignee_email or "").lower(), (t.owner_email or "").lower(), (t.created_by or "").lower()):
+    if email in task_assignees(t):
+        return True
+    if email in ((t.owner_email or "").lower(), (t.created_by or "").lower()):
         return True
     if email in email_list(t.follower_emails):
         return True
@@ -286,8 +326,13 @@ def require_project_role(db: Session, user: dict, project, min_role: str) -> Non
 
 
 def require_task_role(db: Session, user: dict, task, min_role: str) -> None:
-    """require_project_role for a check about ONE task, where the person the
-    task is assigned to always counts.
+    """require_project_role for a check about ONE task, where anyone the task
+    is assigned to always counts.
+
+    A task can carry several assignees (see models.Task). Each of them holds
+    this grant independently, which is what makes "whoever gets to it first
+    closes it" work: there is one row and one completed flag, so the first to
+    tick it finishes it for all of them.
 
     visible_project_ids already lets an assignee SEE a project through the work
     they hold in it, but project_role_for gave them no role - so somebody handed
@@ -308,7 +353,7 @@ def require_task_role(db: Session, user: dict, task, min_role: str) -> None:
         return
     email = (user.get("email") or "").lower()
     if (task is not None and email
-            and (task.assignee_email or "").lower() == email
+            and email in task_assignees(task)
             and PROJECT_ROLE_RANK[min_role] <= PROJECT_ROLE_RANK["editor"]):
         return
     require_project_role(db, user, project_for_task(db, task) if task is not None else None, min_role)
@@ -409,10 +454,13 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
     aid = log_activity(db, type="commented", actor_email=actor, entity_id=task.id,
                        entity_code=task.code, entity_title=task.title, detail="added a comment")
     task.activity_ids = list(task.activity_ids or []) + [aid]
-    # notify assignee + followers (except author)
+    # notify every assignee + followers (except author). All the assignees, not
+    # just the primary: the comment EMAIL already goes to each of them
+    # (task_notify._recipients_for), so pinging only the first here made the
+    # bell and the inbox disagree about who is on the task.
     if notify:
-        for who in set([(task.assignee_email or "").lower(),
-                        *[(e or "").lower() for e in (task.follower_emails or [])]]):
+        for who in set([*task_assignees(task),
+                        *email_list(task.follower_emails)]):
             if who and who != actor:
                 task_notify(db, kind="task_activity", for_email=who,
                             title="New comment on a task", body=f"{task.title}", task_id=task.id,

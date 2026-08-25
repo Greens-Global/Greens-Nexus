@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, CheckCircle2, Users, LayoutGrid, Plus, Circle, CalendarDays, FolderKanban, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { fmtDate, taskIdFromUrl } from './lib';
+import { fmtDate, taskIdFromUrl, taskAssignees } from './lib';
 import { NX, FONT, btn, card, PRIORITY_ORDER } from './theme';
 import { Avatar, useClickOutside, useIsMobile } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
@@ -106,7 +106,8 @@ export default function HomeView({ onNavigate }) {
 
   // Subtasks assigned to me count as mine (Asana's My Tasks rule) - the old
   // top-level-only filter under-reported people's open work by up to a third.
-  const myTasks = useMemo(() => tasks.filter((t) => t.type !== 'section' && t.assigneeId === myEmail), [tasks, myEmail]);
+  // Anything assigned to me, including tasks I share with somebody else.
+  const myTasks = useMemo(() => tasks.filter((t) => t.type !== 'section' && taskAssignees(t).includes(myEmail)), [tasks, myEmail]);
   const rangeDef = RANGES.find((r) => r.key === range);
   const rangeEnd = addDays(todayISO(), rangeDef.days);
   const overdue = myTasks.filter((t) => !t.completed && t.dueOn && t.dueOn < todayISO());
@@ -181,7 +182,7 @@ export default function HomeView({ onNavigate }) {
   const commitCreate = async (openDetails) => {
     const title = newTitle.trim();
     if (!title) { if (!openDetails) cancelCreate(); return; }
-    const t = await createTask({ title, assigneeId: myEmail, dueOn: newDue || '', status: 'not_started', priority: 'medium', type: 'task' }).catch(() => null);
+    const t = await createTask({ title, assigneeIds: myEmail ? [myEmail] : [], dueOn: newDue || '', status: 'not_started', priority: 'medium', type: 'task' }).catch(() => null);
     setNewTitle(''); setNewDue(null);
     if (openDetails && t) { setCreating(false); setOpenId(t.id); }
   };

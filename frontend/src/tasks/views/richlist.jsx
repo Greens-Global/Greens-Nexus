@@ -12,7 +12,7 @@ import {
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
   Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown,
 } from 'lucide-react';
-import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, rootParent, effectiveProjectId, cfKey } from '../lib';
+import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, rootParent, effectiveProjectId, cfKey, taskAssignees } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { Avatar, useClickOutside, DateField, TaskCountBadges } from '../components';
 import { emailToName, rootZoom } from '../../lib/utils';
@@ -272,7 +272,10 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
   const estM = t.estimateHours && t.estimateHours % 1 ? Math.round((t.estimateHours % 1) * 60) : '';
   const setEst = (h, m) => store.updateTask(t.id, { estimateHours: (h || m) ? (Number(h || 0) + Number(m || 0) / 60) : null });
   const show = (k) => !hidden.has(k);
-  const followers = (t.followerIds || []).filter((f) => f && f !== t.assigneeId);
+  const assignees = taskAssignees(t);
+  // A collaborator who is also assigned is shown once, as an assignee -
+  // the same person twice in one stack reads as two people.
+  const followers = (t.followerIds || []).filter((f) => f && !assignees.includes(f));
   return (
     <div onClick={() => onOpen(t.id)} data-task-row draggable
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
@@ -321,9 +324,28 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
         {show('assignee') && (
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
-            <span style={{ display: 'inline-flex', borderRadius: '50%', boxShadow: `0 0 0 2px ${NX.surface}`, zIndex: 2 }}>
-              <AssigneeCell compact value={t.assigneeId || null} people={people} onSelect={(em) => store.updateTask(t.id, { assigneeId: em || '' })} />
+            {/* The dropdown re-points the PRIMARY assignee and keeps the
+                others - inline reassign should not silently drop the people
+                sharing the task. Adding or removing the rest is done in the
+                drawer, where there is room for a real multi-picker. */}
+            <span style={{ display: 'inline-flex', borderRadius: '50%', boxShadow: `0 0 0 2px ${NX.surface}`, zIndex: 3 }}>
+              <AssigneeCell compact value={assignees[0] || null} people={people}
+                onSelect={(em) => {
+                  const rest = assignees.slice(1).filter((x) => x !== em);
+                  store.updateTask(t.id, { assigneeIds: em ? [em, ...rest] : rest });
+                }} />
             </span>
+            {assignees.slice(1, 3).map((a) => (
+              <span key={a} title={`Also assigned: ${a}`}
+                style={{ display: 'inline-flex', marginLeft: -8, borderRadius: '50%', boxShadow: `0 0 0 2px ${NX.surface}`, zIndex: 2 }}>
+                <Avatar email={a} size={24} />
+              </span>
+            ))}
+            {assignees.length > 3 && (
+              <span title={assignees.slice(3).join(', ')} style={{ marginLeft: -8, zIndex: 2, width: 24, height: 24, borderRadius: '50%', background: NX.border2, color: NX.dim, fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 0 2px ${NX.surface}` }}>
+                +{assignees.length - 3}
+              </span>
+            )}
             {followers.slice(0, 2).map((f) => (
               <span key={f} style={{ display: 'inline-flex', marginLeft: -8, borderRadius: '50%', boxShadow: `0 0 0 2px ${NX.surface}`, zIndex: 1 }}>
                 <Avatar email={f} size={24} />
@@ -764,7 +786,7 @@ function AddTaskInline({ store, defaults, lockedProjectId }) {
       status: defaults.status || 'not_started', priority: defaults.priority || 'medium',
       projectId: defaults.projectId || lockedProjectId || '',
       teamId: defaults.teamId || soleTeamId(store, defaults.projectId || lockedProjectId || ''),
-      dueOn: defaults.dueOn || '', assigneeId: defaults.assigneeId || '',
+      dueOn: defaults.dueOn || '', assigneeIds: defaults.assigneeIds || (defaults.assigneeId ? [defaults.assigneeId] : []),
     }).catch(() => {});
     setTitle('');
   };
@@ -819,7 +841,8 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   const [dragId, setDragId] = useState(null);
   const [dropKey, setDropKey] = useState(null);
   const dropPatch = (key) => {
-    if (effGroup === 'assignee') return { assigneeId: key === '-' ? '' : key };
+    // Creating inside an assignee group assigns to that one person.
+    if (effGroup === 'assignee') return { assigneeIds: key === '-' ? [] : [key] };
     const d = groupAddDefaults(effGroup, key);
     return Object.keys(d).length ? d : null;
   };

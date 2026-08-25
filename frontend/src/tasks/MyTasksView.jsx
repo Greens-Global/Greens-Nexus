@@ -266,7 +266,7 @@ export default function MyTasksView() {
   const boardTasks = useMemo(() => sortTasks(allMine, sort, [], sortCtx), [allMine, sort, sortCtx]);
 
   const addTask = ({ title, dueOn, followerIds, projectId, status, priority, teamId }) =>
-    createTask({ title, assigneeId: myEmail, status: status || 'not_started', priority: priority || 'medium', type: 'task', dueOn: dueOn || '', followerIds, projectId: projectId || '', teamId: teamId || '' }).catch(() => {});
+    createTask({ title, assigneeIds: myEmail ? [myEmail] : [], status: status || 'not_started', priority: priority || 'medium', type: 'task', dueOn: dueOn || '', followerIds, projectId: projectId || '', teamId: teamId || '' }).catch(() => {});
 
 
   return (

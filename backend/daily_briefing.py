@@ -38,6 +38,7 @@ import models
 from database import SessionLocal
 import graph_mail
 from app_url import app_url
+from routers.task_util import task_assignees
 from routers.timeclock import _shift_start_for, _employee_now
 
 _SETTINGS_KEY = "daily_briefing_config"
@@ -131,16 +132,19 @@ def _collaborator_emails(t: "models.Task") -> set:
     # Same guard as task_util.email_list: a null in follower_emails would raise
     # here too, and this runs inside the briefing loop where the failure is
     # silent rather than a visible 500.
-    return {(t.assignee_email or "").lower(), (t.owner_email or "").lower()} | \
+    return set(task_assignees(t)) | {(t.owner_email or "").lower()} | \
            {f.lower() for f in (t.follower_emails or []) if isinstance(f, str)}
 
 
 def _red_rows(db: Session, email: str) -> list:
     rows = []
-    for t in (db.query(models.Task)
+    # Filtered in Python rather than SQL: assignee_emails is a JSON list and
+    # there is no containment predicate that works on both SQLite and Postgres.
+    # The pre-filter keeps the scan to pending approvals only.
+    for t in [x for x in db.query(models.Task)
               .filter(models.Task.type == "approval",
-                      models.Task.approval_status == "pending",
-                      models.Task.assignee_email == email).all()):
+                      models.Task.approval_status == "pending").all()
+              if email in task_assignees(x)]:
         rows.append({
             "title": f"Approve: {t.title}",
             "detail": "Waiting on your decision",
