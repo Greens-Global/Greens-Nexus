@@ -9,6 +9,8 @@ import DocumentBuilder from '../components/DocumentBuilder';
 import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
 import { formatDateLong } from '../lib/datetime';
 import { useNameResolver } from '../lib/useNameResolver';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
@@ -1243,6 +1245,13 @@ export default function SOP({ activeSub, onSubChange }) {
     try { await api.removeKbAssignment(aid); setAssign(a => (a ? { ...a, roster: (a.roster || []).filter(r => r.id !== aid) } : a)); }
     catch (e) { setErr(e.message || 'Failed to remove'); }
   };
+  // Picks/due-date chosen but not yet Assigned are lost on an accidental
+  // close - doAssign doesn't close the modal itself (roster stays open for
+  // more picks), so there's no clean single "save" action to offer here;
+  // the guard only offers Keep Editing / Discard.
+  const assignDirty = !!(assign && (assign.picks.length || assign.due));
+  const closeAssign = () => setAssign(null);
+  const assignGuard = useUnsavedGuard(assignDirty, closeAssign, undefined);
   const openCourseEditor = async (id) => {
     setCoursePreview(false); setCdStep(0);
     if (!id) { setCourseDraft(blankCourse()); setLmsMode('editor'); return; }
@@ -3311,12 +3320,12 @@ export default function SOP({ activeSub, onSubChange }) {
                   return <span style={{ fontSize: '0.7rem', fontWeight: 700, color: m.c, background: m.b, borderRadius: 999, padding: '3px 10px' }}>{m.t}</span>;
                 };
                 return (
-                  <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setAssign(null); }}>
-                    <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 760, height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+                  <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) assignGuard.requestClose(); }}>
+                    <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 'clamp(600px, 60vw, 900px)', height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
                         <Send size={18} style={{ flex: '0 0 auto' }} />
                         <div style={{ flex: 1, minWidth: 0 }}><h3 style={{ margin: 0 }}>Assign · {assign.course.title}</h3><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Assign this course to people, with an optional due date.</div></div>
-                        <button className="close-btn" onClick={() => setAssign(null)}><X size={18} /></button>
+                        <button className="close-btn" onClick={assignGuard.requestClose}><X size={18} /></button>
                       </div>
                       <div style={{ flex: 1, overflow: 'auto', padding: '16px 22px' }}>
                         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
@@ -3348,6 +3357,9 @@ export default function SOP({ activeSub, onSubChange }) {
                               </div>}
                       </div>
                     </div>
+                    {assignGuard.confirming && (
+                      <UnsavedChangesPrompt onKeepEditing={assignGuard.keepEditing} onDiscard={closeAssign} onSave={undefined} />
+                    )}
                   </div>
                 );
               })()}

@@ -161,16 +161,19 @@ function FieldsPanel({ recipients, activeIdx, onPick, activeType, setActiveType,
 
 // Options editor for dropdown / radio fields (shared by both field placers).
 function FieldOptionsModal({ field, onSave, onClose }) {
-  const [opts, setOpts] = useState(field.options?.length ? [...field.options] : ['', '']);
+  const initial = field.options?.length ? [...field.options] : ['', ''];
+  const [opts, setOpts] = useState(initial);
   // Deduped - twin values make radio selection ambiguous (both rows tick) and
   // the sealed PDF would fill both circles.
   const clean = [...new Set(opts.map(o => o.trim()).filter(Boolean))];
+  const dirty = JSON.stringify(opts) !== JSON.stringify(initial);
+  const guard = useUnsavedGuard(dirty, onClose, clean.length >= 2 ? () => { onSave(clean); onClose(); } : undefined);
   return (
-    <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={cardStyle(400)}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>{FIELD_META[field.type]?.label} options</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
         </div>
         <div style={{ padding: '14px 20px', overflowY: 'auto' }}>
           <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>The values the signer can choose from - at least two.</p>
@@ -191,6 +194,13 @@ function FieldOptionsModal({ field, onSave, onClose }) {
             style={{ opacity: clean.length < 2 ? 0.5 : 1 }}>Save Options</button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt
+          onKeepEditing={guard.keepEditing}
+          onDiscard={onClose}
+          onSave={clean.length >= 2 ? guard.saveAndClose : undefined}
+        />
+      )}
     </div>
   );
 }
@@ -286,8 +296,14 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
     </button>
   );
 
+  // A drawn stroke or a typed name beyond the pre-filled default would
+  // otherwise be silently lost on an outside click - a legally meaningful
+  // loss for a signature specifically.
+  const dirty = tab === 'draw' ? hasInk : typed.trim() !== (name || '').trim();
+  const guard = useUnsavedGuard(dirty, onClose, (tab === 'draw' ? hasInk : typed.trim()) ? adopt : undefined);
+
   return (
-    <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={cardStyle(600)}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <PenTool size={17} style={{ color: 'var(--pine)' }} />
@@ -295,7 +311,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
             <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Adopt Your Signature</h3>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>This becomes your legal signature on this document.</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '18px 24px' }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>{seg('type', 'Type', Type)}{seg('draw', 'Draw', PenTool)}</div>
@@ -338,6 +354,13 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
           </div>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt
+          onKeepEditing={guard.keepEditing}
+          onDiscard={onClose}
+          onSave={(tab === 'draw' ? hasInk : typed.trim()) ? guard.saveAndClose : undefined}
+        />
+      )}
     </div>
   );
 }
@@ -396,6 +419,10 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
   const [values, setValues] = useState({});
   const [declineOpen, setDeclineOpen] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
+  // Declining is itself a consequential, one-way action - Save Changes isn't
+  // offered on this guard (only Keep Editing / Discard); the modal's own
+  // primary "Decline" button is the deliberate way to actually submit it.
+  const declineGuard = useUnsavedGuard(!!declineReason.trim(), () => setDeclineOpen(false), undefined);
   const fieldRefs = useRef({});
   const myRole = payload.myRole;
   const isTemplate = payload.source === 'template';
@@ -655,7 +682,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
         onAdopt={(s) => { setSig(s); setPadOpen(false); }} />}
 
       {declineOpen && (
-        <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && setDeclineOpen(false)}>
+        <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && declineGuard.requestClose()}>
           <div style={cardStyle(440)}>
             <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)' }}>
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Decline to Sign</h3>
@@ -673,6 +700,12 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
               </button>
             </div>
           </div>
+          {declineGuard.confirming && (
+            <UnsavedChangesPrompt
+              onKeepEditing={declineGuard.keepEditing}
+              onDiscard={() => { setDeclineReason(''); setDeclineOpen(false); }}
+            />
+          )}
         </div>
       )}
     </div>

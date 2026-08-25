@@ -142,7 +142,7 @@ export default function InvestorsTab() {
       )}
 
       {modal && (
-        <Modal title={modal.id ? 'Edit Investor' : 'Add Investor'} onClose={() => setModal(null)} width={600} isDirty={dirty} onSave={() => save({ preventDefault() {} })}>
+        <Modal title={modal.id ? 'Edit Investor' : 'Add Investor'} onClose={() => setModal(null)} isDirty={dirty} onSave={() => save({ preventDefault() {} })}>
           <form onSubmit={save}>
             <div className="form-grid">
               <FG label="Display Name" full>

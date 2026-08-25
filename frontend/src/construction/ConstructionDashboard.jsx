@@ -16,6 +16,8 @@ import { api } from '../api';
 // Shared rather than local copies: AsyncState is the codebase's one loading /
 // error idiom, and a fourth hand-rolled banner is a fourth thing to restyle.
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 // Shared with SiteActivity, which draws the same cards and status chips.
 import { CARD, ROW } from './ui';
 import Empty from './Empty';
@@ -119,9 +121,12 @@ function NewProjectModal({ onClose, onCreated }) {
     }
   };
 
+  const dirty = !!(form.name.trim() || form.address.trim() || form.phase.trim() || form.general_contractor.trim());
+  const guard = useUnsavedGuard(dirty, onClose, form.name.trim() ? () => save({ preventDefault() {} }) : undefined);
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
+    <div className="modal-overlay" onClick={guard.requestClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 'clamp(520px, 60vw, 900px)' }}>
         <form onSubmit={save}>
           <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>New Project</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>
@@ -154,6 +159,9 @@ function NewProjectModal({ onClose, onCreated }) {
           </div>
         </form>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={form.name.trim() ? guard.saveAndClose : undefined} saving={saving} />
+      )}
     </div>
   );
 }

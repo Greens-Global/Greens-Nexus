@@ -2,7 +2,12 @@ import { useState, useEffect } from 'react';
 import { X, Plus, Check } from 'lucide-react';
 import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS } from './widgets.jsx';
 import { api } from '../api';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 
+// `onClose` here is expected to already be the guarded `requestClose` when
+// the caller has editable state to protect (see ConfigModal / the picking
+// step below) - Overlay itself just needs one place to hang the backdrop click.
 const Overlay = ({ children, onClose }) => (
   <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -111,7 +116,7 @@ function ConfigFields({ type, config, onChange }) {
 }
 
 export function WidgetGallery({ target, can, onAdd, onClose, layout = [] }) {
-  const [picking, setPicking] = useState(null);   // { type, config }
+  const [picking, setPicking] = useState(null);   // { type, config, initial }
 
   const entries = Object.entries(WIDGETS).filter(([, def]) => {
     if (def.target && def.target !== target) return false;
@@ -125,21 +130,33 @@ export function WidgetGallery({ target, can, onAdd, onClose, layout = [] }) {
   // legitimate); the badge just makes it a choice instead of a surprise.
   const onView = new Set(layout.map(it => it.type));
 
+  // Dirty once the picker's config drifts from what it opened with - an
+  // unintentional exit (backdrop click) shouldn't silently drop a folder/metric
+  // someone already picked before hitting "Add Widget".
+  const pickDirty = !!picking && JSON.stringify(picking.config) !== JSON.stringify(picking.initial);
+  const addWidget = () => { onAdd(picking.type, picking.config); onClose(); };
+  const pickGuard = useUnsavedGuard(pickDirty, onClose, addWidget);
+
   if (picking) {
     const def = WIDGETS[picking.type];
     return (
-      <Overlay onClose={onClose}>
-        <Shell title={`Add ${def.title}`} sub="Choose what it shows" onClose={onClose}>
-          <ConfigFields type={picking.type} config={picking.config} onChange={patch => setPicking(p => ({ ...p, config: { ...p.config, ...patch } }))} />
-          <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
-            <button className="secondary-btn" onClick={() => setPicking(null)}>Back</button>
-            <button className="primary-btn" disabled={picking.type === 'links-folder' && !picking.config.folderId}
-              onClick={() => { onAdd(picking.type, picking.config); onClose(); }}>
-              <Plus size={14} /> Add Widget
-            </button>
-          </div>
-        </Shell>
-      </Overlay>
+      <>
+        <Overlay onClose={pickGuard.requestClose}>
+          <Shell title={`Add ${def.title}`} sub="Choose what it shows" onClose={pickGuard.requestClose}>
+            <ConfigFields type={picking.type} config={picking.config} onChange={patch => setPicking(p => ({ ...p, config: { ...p.config, ...patch } }))} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
+              <button className="secondary-btn" onClick={() => setPicking(null)}>Back</button>
+              <button className="primary-btn" disabled={picking.type === 'links-folder' && !picking.config.folderId}
+                onClick={addWidget}>
+                <Plus size={14} /> Add Widget
+              </button>
+            </div>
+          </Shell>
+        </Overlay>
+        {pickGuard.confirming && (
+          <UnsavedChangesPrompt onKeepEditing={pickGuard.keepEditing} onDiscard={onClose} onSave={pickGuard.saveAndClose} saving={pickGuard.saving} />
+        )}
+      </>
     );
   }
 
@@ -159,7 +176,7 @@ export function WidgetGallery({ target, can, onAdd, onClose, layout = [] }) {
                         const initial = def.configurable === 'kpi' ? { metric: 'open_tasks' }
                           : def.configurable === 'links-folder' ? {}
                           : { ...SHORTCUT_TARGETS[0] };
-                        setPicking({ type, config: initial });
+                        setPicking({ type, config: initial, initial });
                       } else { onAdd(type); onClose(); }
                     }}
                     title={added ? 'Already on this view - click to add another copy' : undefined}
@@ -187,15 +204,23 @@ export function WidgetGallery({ target, can, onAdd, onClose, layout = [] }) {
 export function ConfigModal({ item, onSave, onClose }) {
   const def = WIDGETS[item.type];
   const [config, setConfig] = useState(item.config || {});
+  const dirty = JSON.stringify(config) !== JSON.stringify(item.config || {});
+  const doSave = () => { onSave(config); onClose(); };
+  const guard = useUnsavedGuard(dirty, onClose, doSave);
   return (
-    <Overlay onClose={onClose}>
-      <Shell title={`Configure ${def?.title || 'widget'}`} onClose={onClose}>
-        <ConfigFields type={item.type} config={config} onChange={patch => setConfig(c => ({ ...c, ...patch }))} />
-        <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" onClick={() => { onSave(config); onClose(); }}><Check size={14} /> Save</button>
-        </div>
-      </Shell>
-    </Overlay>
+    <>
+      <Overlay onClose={guard.requestClose}>
+        <Shell title={`Configure ${def?.title || 'widget'}`} onClose={guard.requestClose}>
+          <ConfigFields type={item.type} config={config} onChange={patch => setConfig(c => ({ ...c, ...patch }))} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
+            <button className="secondary-btn" onClick={onClose}>Cancel</button>
+            <button className="primary-btn" onClick={doSave}><Check size={14} /> Save</button>
+          </div>
+        </Shell>
+      </Overlay>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={guard.saving} />
+      )}
+    </>
   );
 }

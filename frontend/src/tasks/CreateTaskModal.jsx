@@ -164,7 +164,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
 
   const sel = { ...input, cursor: 'pointer' };
   return (
-    <Modal title={isEdit ? 'Edit Task' : 'Create a Task'} width={640} onClose={() => onClose(false)}
+    <Modal title={isEdit ? 'Edit Task' : 'Create a Task'} onClose={() => onClose(false)}
       isDirty={dirty} onSave={canSubmit ? submit : undefined} footer={
       <>
         {/* Phone only - desktop already has the Attachments field in view without

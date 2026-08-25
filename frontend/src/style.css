@@ -789,7 +789,12 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
   background: var(--card);
   border-radius: 14px;
   width: 100%;
-  max-width: 520px;
+  /* Content forms (add/edit/details) default to ~60% of the viewport;
+     min() keeps it from overflowing narrow laptop windows and clamps a
+     sane floor so it never shrinks below the old fixed size. A caller
+     that sets its own inline maxWidth (small confirms/alerts) overrides
+     this, since inline style always wins over the class. */
+  max-width: clamp(520px, 60vw, 980px);
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 24px 80px rgba(0,0,0,0.2), 0 4px 16px rgba(0,0,0,0.1);

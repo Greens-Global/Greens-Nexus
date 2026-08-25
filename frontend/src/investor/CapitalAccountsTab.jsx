@@ -216,7 +216,7 @@ export default function CapitalAccountsTab() {
       )}
 
       {detail && (
-        <Modal title="Capital Account Statement" onClose={() => setDetail(null)} width={780}>
+        <Modal title="Capital Account Statement" onClose={() => setDetail(null)}>
           {detail.loading ? <div style={{ padding: '8px 24px 24px' }}><LoadingState label="Building statement…" /></div>
             : detail.error ? <div style={{ padding: '8px 24px 24px' }}><ErrorState message={detail.error} onRetry={() => openDetail(detail.row)} /></div>
             : det && (

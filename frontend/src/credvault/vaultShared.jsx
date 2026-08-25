@@ -119,7 +119,7 @@ export function Dropdown({ open, onToggle, trigger, children, width = 240 }) {
 // to discard an in-progress form with no warning - with isDirty set, those
 // three now confirm first. A form's own Cancel button still discards straight
 // away, since that's a deliberate choice.
-export function Modal({ children, onClose, wide, isDirty = false, onSave }) {
+export function Modal({ children, onClose, wide, maxWidth, isDirty = false, onSave }) {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const requestClose = () => { if (isDirty) setConfirming(true); else onClose(); };
@@ -136,7 +136,11 @@ export function Modal({ children, onClose, wide, isDirty = false, onSave }) {
   return (
     <div className="cv-modal-overlay">
       <div className="cv-modal-backdrop" onClick={requestClose} />
-      <div className={`cv-modal cv-root${wide ? " cv-modal-wide" : ""}`}>
+      {/* maxWidth: an explicit override for the genuine content forms (Add/Edit/
+          Import/Request Access) to size to ~60% of the viewport - left unset for
+          the small confirm/OTP/lock-gate steps, which stay at the compact
+          430px/660px CSS defaults on purpose. */}
+      <div className={`cv-modal cv-root${wide ? " cv-modal-wide" : ""}`} style={maxWidth ? { maxWidth } : undefined}>
         <button onClick={requestClose} className="cv-modal-close"><X size={19} /></button>
         {children}
       </div>
@@ -499,7 +503,7 @@ export function AddModal({ onClose, onSave, depts, userName, userEmail, people }
   const save = () => { if (form.name && form.secret) onSave(form); };
   const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   return (
-    <Modal onClose={onClose} isDirty={dirty} onSave={form.name && form.secret ? save : undefined}>
+    <Modal onClose={onClose} isDirty={dirty} onSave={form.name && form.secret ? save : undefined} maxWidth="clamp(480px, 60vw, 820px)">
       <h3 style={{ fontWeight: 600, fontSize: 17, margin: 0 }}>Add Credential</h3>
       <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "3px 0 0" }}>Stored encrypted. Saving notifies managers + IT.</p>
       <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -548,7 +552,7 @@ export function EditModal({ cred, onClose, onSave, depts, ownerName, people }) {
   const save = () => onSave(cred.id, form);
   const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   return (
-    <Modal onClose={onClose} isDirty={dirty} onSave={save}>
+    <Modal onClose={onClose} isDirty={dirty} onSave={save} maxWidth="clamp(480px, 60vw, 820px)">
       <h3 style={{ fontWeight: 600, fontSize: 17, margin: 0 }}>Edit Credential</h3>
       <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "3px 0 0" }}>Changes are logged and managers + IT will be notified.</p>
       <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -609,7 +613,7 @@ export function ImportModal({ onClose, onImport, depts }) {
   const doImport = () => onImport(valid.map((r) => r.data));
 
   return (
-    <Modal onClose={onClose} wide isDirty={!!raw.trim()} onSave={valid.length > 0 ? doImport : undefined}>
+    <Modal onClose={onClose} wide isDirty={!!raw.trim()} onSave={valid.length > 0 ? doImport : undefined} maxWidth="clamp(600px, 65vw, 1000px)">
       <h3 style={{ fontWeight: 600, fontSize: 17, margin: 0, display: "flex", alignItems: "center", gap: 8 }}><Upload size={19} /> Batch Import</h3>
       <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "4px 0 0" }}>Bulk-load your existing credentials from a CSV. Download the template first so the columns line up correctly.</p>
       <div style={{ marginTop: 16, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
@@ -880,7 +884,7 @@ export function PersonalAddModal({ onClose, onSave }) {
   const save = () => { if (form.name && form.secret) onSave(form); };
   const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   return (
-    <Modal onClose={onClose} isDirty={dirty} onSave={form.name && form.secret ? save : undefined}>
+    <Modal onClose={onClose} isDirty={dirty} onSave={form.name && form.secret ? save : undefined} maxWidth="clamp(480px, 60vw, 820px)">
       <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Add Personal Credential" subtitle="Encrypted and private. No one else can see this." />
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <Field label="Name" required><input value={form.name} onChange={(e) => set("name", e.target.value)} className="cv-ipt" placeholder="e.g. Personal Gmail, Home WiFi" /></Field>
