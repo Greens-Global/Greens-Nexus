@@ -2872,11 +2872,16 @@ html[data-theme="light"] {
     font-size: 12.5px;
     color: var(--text-secondary);
     opacity: 0.7;
-    /* Let the long hint wrap into a tidy centered block instead of one nowrap
-       line that overflowed the dashed card on narrow screens (audit finding). */
-    max-width: 44ch;
+    /* Keep the hint on one line (no wasted second row). It only wraps if the
+       viewport is genuinely too narrow to fit it. */
+    max-width: 100%;
     text-align: center;
     line-height: 1.4;
+    white-space: nowrap;
+}
+/* Allow wrapping only on truly narrow screens so it never overflows the card. */
+@media (max-width: 640px) {
+    .welcome-drop-hint { white-space: normal; }
 }
 
 /* Keyboard focus rings - the landing buttons had only the near-invisible UA
