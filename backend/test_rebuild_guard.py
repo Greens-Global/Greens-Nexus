@@ -98,5 +98,61 @@ class TestRebuildGuards(unittest.TestCase):
         self.assertIn("count(*)", joined, "row counts must be compared before the swap")
 
 
+class TestFiresOnAnAlreadyBrokenTable(unittest.TestCase):
+    """The automatic path: no env var, no human. It may only fire on a table
+    that is BOTH slot-exhausted AND missing model columns - i.e. one that
+    already answers nothing, where a rebuild is the only thing that can help."""
+
+    def _run(self, gaps, pressure, env=""):
+        conn = _Conn(live=38, slots=1600)
+        with mock.patch.dict(os.environ, {"NEXUS_REBUILD_TABLES": env}, clear=False), \
+             mock.patch.object(main, "DATABASE_URL", "postgresql://x/y"), \
+             mock.patch.object(main, "SCHEMA_GAPS", gaps), \
+             mock.patch.object(main, "SLOT_PRESSURE", pressure):
+            main._rebuild_slot_exhausted_tables(conn)
+        return conn
+
+    FULL = {"tasks": {"live": 38, "used": 1600, "limit": 1600}}
+
+    def test_rebuilds_a_full_table_that_is_missing_columns(self):
+        conn = self._run(["tasks.assignee_emails", "tasks.position"], self.FULL)
+        ddl = " ".join(conn.ddl())
+        self.assertIn("CREATE TABLE", ddl)
+        self.assertIn("RENAME TO", ddl)
+        self.assertNotIn("DROP TABLE", ddl)
+
+    def test_leaves_a_full_table_alone_while_it_still_works(self):
+        # THE safety property. A table can sit at 1600 slots and serve every
+        # query perfectly well - it just cannot take a NEW column. Rewriting
+        # that is a judgment call somebody should make, not something to do
+        # unasked. Only the missing columns make it already-broken.
+        conn = self._run([], self.FULL)
+        self.assertEqual(conn.ddl(), [],
+                         "a full but working table must not be rebuilt automatically")
+
+    def test_leaves_a_broken_table_alone_if_it_is_not_slot_exhausted(self):
+        # Missing columns with slots to spare is a different problem - the ADD
+        # simply failed for some other reason, and _verify_model_columns will
+        # keep retrying it. A rebuild would not be the fix.
+        roomy = {"tasks": {"live": 38, "used": 60, "limit": 1600}}
+        conn = self._run(["tasks.assignee_emails"], roomy)
+        self.assertEqual(conn.ddl(), [])
+
+    def test_a_full_broken_table_is_not_queued_twice_when_also_named(self):
+        conn = self._run(["tasks.assignee_emails"], self.FULL, env="tasks")
+        self.assertEqual(len([s for s in conn.ddl() if "CREATE TABLE" in s]), 1)
+
+    def test_only_the_broken_table_is_touched(self):
+        pressure = {
+            "tasks": {"live": 38, "used": 1600, "limit": 1600},
+            "task_projects": {"live": 20, "used": 1595, "limit": 1600},   # full, but fine
+        }
+        conn = self._run(["tasks.assignee_emails"], pressure)
+        ddl = " ".join(conn.ddl())
+        self.assertIn('"tasks"', ddl)
+        self.assertNotIn("task_projects", ddl,
+                         "a neighbouring full-but-working table must be left alone")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1208,8 +1208,13 @@ def _run_migrations():
                 conn.rollback()
                 print(f"[migration] skipped: {e}")
         _measure_slot_pressure(conn)
-        _rebuild_slot_exhausted_tables(conn)
+        # Order matters. The first pass finds columns the database is missing and
+        # tries to add them; on a slot-exhausted table those adds fail, which is
+        # exactly the signal the rebuild needs. The rebuild then frees the table,
+        # and the second pass puts the columns onto it. One boot, whole again.
         _verify_model_columns(conn)
+        if _rebuild_slot_exhausted_tables(conn):
+            _verify_model_columns(conn)
         _enable_rls_everywhere(conn)
 
 
@@ -1267,7 +1272,7 @@ def _measure_slot_pressure(conn):
 
 def _rebuild_slot_exhausted_tables(conn):
     """Reclaim attribute slots on a table that has hit Postgres's 1600-column
-    limit, by rewriting it. OFF unless NEXUS_REBUILD_TABLES names the table.
+    limit, by rewriting it. Returns True if anything was rebuilt.
 
     Postgres never reuses a dropped column's attnum. VACUUM does not reclaim
     it; VACUUM FULL does not either. A table that has accumulated 1600 of them
@@ -1275,13 +1280,11 @@ def _rebuild_slot_exhausted_tables(conn):
     twice - refuses EVERY new column from then on, permanently. The only cure
     is to build a new table and move the rows, which gives fresh attnums.
 
-    That is a data-bearing operation, so it is deliberately opt-in and built so
-    the bad outcomes cannot happen:
+    This runs ON ITS OWN for a table that is already broken, and is built so the
+    bad outcomes cannot happen:
 
-      * OFF by default. Set NEXUS_REBUILD_TABLES=tasks on the app, restart once,
-        then remove it. Nothing happens on any deployment that has not asked.
       * It refuses to run on a healthy table. The slot count must be over 1000
-        (a normal table here has under 60), so a typo cannot rewrite something
+        (a normal table here has under 60), so this cannot rewrite something
         that was fine.
       * NOTHING IS DROPPED. The old table is RENAMED aside and kept, so the
         original rows survive even after a successful run. Drop it by hand
@@ -1290,12 +1293,42 @@ def _rebuild_slot_exhausted_tables(conn):
         DDL is transactional, so any failure - a mismatch, a dependent view, a
         permission - rolls the whole thing back and leaves the table untouched.
 
-    Runs before _verify_model_columns, so the columns that could not be added
-    are added to the rebuilt table in this same boot.
+    NEXUS_REBUILD_TABLES additionally names tables to rebuild that have NOT
+    broken yet - the case the automatic rule deliberately stays out of.
     """
+    if DATABASE_URL.startswith("sqlite"):
+        return False
     wanted = [t.strip() for t in os.getenv("NEXUS_REBUILD_TABLES", "").split(",") if t.strip()]
-    if not wanted or DATABASE_URL.startswith("sqlite"):
-        return
+
+    # Automatic for a table that is ALREADY BROKEN, with no env var and nobody
+    # in the loop. Both conditions must hold:
+    #
+    #   * it has burned essentially every attribute slot (>= 1590 of 1600), and
+    #   * the model declares columns it does not have - which the pass just
+    #     before this one failed to add.
+    #
+    # A table in that state cannot answer a single query: SQLAlchemy selects the
+    # missing column, Postgres refuses, and every read and write against it
+    # 500s. There is nothing to preserve and nothing to weigh up - it is already
+    # completely unusable, and a rebuild is the only thing that can change that.
+    #
+    # This is a deliberate loosening of where this started (strictly opt-in). I
+    # kept it opt-in on the grounds that rewriting a table holding real data
+    # deserves a human decision - right in general, but it left the Task module
+    # down for days waiting on a step nobody was going to take, while the
+    # "safe" option was a table that answered nothing. The guard is what makes
+    # it defensible: it cannot fire on a table that still works, and nothing is
+    # dropped either way.
+    broken = {g.split(".")[0] for g in SCHEMA_GAPS}
+    for name, info in SLOT_PRESSURE.items():
+        if name in broken and info.get("used", 0) >= 1590 and name not in wanted:
+            print(f"[rebuild] {name}: {info['used']}/1600 slots used AND missing model "
+                  f"columns - every query on it fails, rebuilding without waiting to be asked")
+            wanted.append(name)
+
+    if not wanted:
+        return False
+    did_any = False
     for table in wanted:
         if not re.fullmatch(r"[a-z_][a-z0-9_]*", table):
             print(f"[rebuild] refusing suspicious table name {table!r}")
@@ -1328,12 +1361,13 @@ def _rebuild_slot_exhausted_tables(conn):
             conn.execute(text(f'ALTER TABLE "{table}" RENAME TO "{kept}"'))
             conn.execute(text(f'ALTER TABLE "{new}" RENAME TO "{table}"'))
             conn.commit()
+            did_any = True
             print(f"[rebuild] {table}: rebuilt with {after} row(s); the previous table is kept "
-                  f"as {kept} - drop it by hand once you have checked it, and remove "
-                  f"NEXUS_REBUILD_TABLES so this does not run again")
+                  f"as {kept} - drop it by hand once you have checked it")
         except Exception as e:                       # noqa: BLE001
             conn.rollback()
             print(f"[rebuild] {table}: FAILED, nothing changed: {e}")
+    return did_any
 
 
 def _verify_model_columns(conn):
@@ -1358,6 +1392,12 @@ def _verify_model_columns(conn):
     SCHEMA_GAP_REASONS.clear()
     try:
         insp = sa_inspect(conn)
+        # This runs twice on a boot that rebuilds a table - the second pass must
+        # see the NEW table, not the reflection cached during the first.
+        try:
+            insp.clear_cache()
+        except AttributeError:
+            pass
         present = {t: {c["name"] for c in insp.get_columns(t)} for t in insp.get_table_names()}
     except Exception as e:                       # noqa: BLE001 - never block boot
         print(f"[schema] column check skipped: {e}")
