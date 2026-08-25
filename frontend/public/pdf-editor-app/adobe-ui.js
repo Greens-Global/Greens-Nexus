@@ -951,7 +951,7 @@
   const printBtn = document.createElement('button');
   printBtn.id = 'printBtn';
   printBtn.className = 'tool-btn';
-  printBtn.title = 'Print with your markups (Cmd/Ctrl+P)';
+  printBtn.title = 'Print with your markups (Cmd/Ctrl+P)'; printBtn.setAttribute('aria-label', 'Print');
   printBtn.innerHTML = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>';
   printBtn.addEventListener('click', () => window.printPdf && window.printPdf());
   right.appendChild(printBtn);
@@ -1046,7 +1046,7 @@
 
   const histBtn = document.createElement('button');
   histBtn.className = 'tool-btn';
-  histBtn.title = 'Recent files';
+  histBtn.title = 'Recent files'; histBtn.setAttribute('aria-label', 'Recent files');
   histBtn.innerHTML =
     '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
   const histMenu = document.createElement('div');
@@ -1100,7 +1100,7 @@
   // Document Info (i) button
   const infoBtn = document.createElement('button');
   infoBtn.className = 'tool-btn';
-  infoBtn.title = 'Document information (title, author, keywords)';
+  infoBtn.title = 'Document information (title, author, keywords)'; infoBtn.setAttribute('aria-label', 'Document information');
   infoBtn.innerHTML = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>';
   infoBtn.addEventListener('click', () => window.documentInfoDialog && window.documentInfoDialog());
   histBtn.after(infoBtn);

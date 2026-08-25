@@ -508,6 +508,13 @@
         dom.zoomOut.addEventListener('click', () => setZoom(state.zoom - 0.15));
         dom.zoomFit.addEventListener('click', fitToWidth);
         document.getElementById('zoomFitPage')?.addEventListener('click', fitToPage);
+        // Ctrl/Cmd + mouse wheel zooms the document (like every desktop viewer),
+        // instead of the browser zooming the whole page.
+        dom.canvasScrollWrapper?.addEventListener('wheel', (e) => {
+            if (!(e.ctrlKey || e.metaKey) || !state.pdfDoc) return;
+            e.preventDefault();
+            setZoom(state.zoom + (e.deltaY < 0 ? 0.1 : -0.1));
+        }, { passive: false });
         document.getElementById('scrollModeBtn')?.addEventListener('click', () => setScrollMode(!window.isScrollMode()));
 
         // Toolbar hide/show (Pranshu): collapse the tool rows to give the
@@ -3287,11 +3294,18 @@
                 // sizes crop proportionally (typical scans are uniform anyway).
                 const fx = pdfLeft / pageWidth, fy = pdfBottom / pageHeight;
                 const fw = (pdfRight - pdfLeft) / pageWidth, fh = (pdfTop - pdfBottom) / pageHeight;
+                // The crop rectangle was drawn against the CURRENT page's
+                // orientation (already checked upright above). Pages with a
+                // different rotation would map the rectangle to the wrong axis,
+                // so skip them rather than crop them incorrectly.
+                let skipped = 0;
                 for (const pg of pdfLibDoc.getPages()) {
+                    if (((pg.getRotation().angle % 360) + 360) % 360 !== 0) { skipped++; continue; }
                     const sz = pg.getSize();
                     pg.setCropBox(fx * sz.width, fy * sz.height, fw * sz.width, fh * sz.height);
                     pg.setMediaBox(fx * sz.width, fy * sz.height, fw * sz.width, fh * sz.height);
                 }
+                if (skipped) showToast('Cropped - skipped ' + skipped + ' rotated page(s)');
                 const allBytes = await pdfLibDoc.save();
                 state.pdfBytes = allBytes.slice().buffer;
                 // Every page's coordinate origin changed — markups are invalid
@@ -6592,7 +6606,7 @@
     // ── Watermark: text across every page ──
     async function addWatermarkTool() {
         _exitScrollForOp();
-        if (!state.pdfBytes) return;
+        if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
         const v = await _toolModal('Add watermark', `
             <label class="modal-label">Watermark text:</label>
             <input type="text" class="modal-input" data-k="text" value="CONFIDENTIAL" maxlength="60">
@@ -6686,7 +6700,7 @@
     // ── Page numbers ──
     async function addPageNumbersTool() {
         _exitScrollForOp();
-        if (!state.pdfBytes) return;
+        if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
         const v = await _toolModal('Add page numbers', `
             <label class="modal-label">Position:</label>
             <select class="modal-input" data-k="pos">
@@ -6726,7 +6740,7 @@
 
     // ── Compress ──
     async function compressPdfTool() {
-        if (!state.pdfBytes) return;
+        if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
         const beforeMB = ((state.pdfBytes.byteLength || state.pdfBytes.length) / 1048576).toFixed(1);
         const v = await _toolModal('Compress PDF', `
             <p class="modal-hint" style="margin:0 0 10px;">Current size: <b>${beforeMB} MB</b>. Save your markups first — compression works on the saved document content.</p>
@@ -6780,7 +6794,7 @@
 
     // ── Form filling (AcroForm) ──
     async function fillFormsTool() {
-        if (!state.pdfBytes) return;
+        if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
         let doc, fields;
         try {
             doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
@@ -7424,6 +7438,13 @@
                     if (names.has(PDFName.of(key))) { names.delete(PDFName.of(key)); removed++; }
                 }
             }
+            // AcroForm XFA (an XML forms layer that can carry its own scripts).
+            try {
+                const acro = cat.lookup(PDFName.of('AcroForm'));
+                if (acro instanceof PDFDict && acro.has(PDFName.of('XFA'))) {
+                    acro.delete(PDFName.of('XFA')); removed++;
+                }
+            } catch (_) {}
             // Per-page auto-actions
             for (const pg of doc.getPages()) {
                 if (pg.node.has(PDFName.of('AA'))) { pg.node.delete(PDFName.of('AA')); removed++; }
