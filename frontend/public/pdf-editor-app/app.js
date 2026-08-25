@@ -207,7 +207,6 @@
         setupTooltips();
         setupSignature();
         setupTheme();
-        setStatus('Ready - Open a PDF to get started');
     }
 
     // ── Instant custom tooltips (replace slow native title tooltips) ──
