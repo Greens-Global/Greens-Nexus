@@ -96,6 +96,22 @@ export function rootParent(task, taskById) {
 // tasks (and 13 of Sahil's) vanish from her My Tasks the week Asana was
 // switched off - "tasks are missing" when they were in the database all along.
 // Sections are never rows. Callers without a person scope keep topLevel().
+/** Everyone assigned to a task, lowercased.
+ *
+ *  A task can carry several assignees (see backend models.Task). `assigneeIds`
+ *  is the real answer; `assigneeId` is the PRIMARY mirror kept so existing
+ *  readers - avatars, exports, charts - keep working unchanged. Falling back to
+ *  it here means a row the server hasn't re-serialised yet, or an optimistic
+ *  local edit that only set the single field, still resolves correctly.
+ *
+ *  Anything asking "is this person on this task" must come through here; a bare
+ *  `t.assigneeId` comparison silently ignores everyone after the first. */
+export const taskAssignees = (t) => {
+  const many = (t?.assigneeIds || []).filter((e) => typeof e === 'string' && e);
+  if (many.length) return many;
+  return t?.assigneeId ? [t.assigneeId] : [];
+};
+
 export function personScoped(tasks, f) {
   // A typed search is also a hunt for one specific task, wherever it hangs -
   // 92 same-titled "Finish all Books" subtasks must be findable by title.
@@ -104,7 +120,10 @@ export function personScoped(tasks, f) {
 }
 
 export function matchesFilter(task, f = EMPTY_FILTER, taskById = null) {
-  if (f.assigneeIds?.length && !f.assigneeIds.includes(task.assigneeId)) return false;
+  // Matches if the task is assigned to ANY of the filtered people - that is
+  // what "show me Ana's work" means once a task can have several assignees,
+  // and it is what makes My Tasks list work you share rather than only lead.
+  if (f.assigneeIds?.length && !taskAssignees(task).some((e) => f.assigneeIds.includes(e))) return false;
   if (f.collaboratorIds?.length && !f.collaboratorIds.some((em) => (task.followerIds || []).includes(em))) return false;
   if (f.statuses?.length && !f.statuses.includes(task.status)) return false;
   if (f.priorities?.length && !f.priorities.includes(task.priority)) return false;
@@ -236,7 +255,7 @@ const SORTERS = {
 // view (nameOf/projectName/teamName); without it these degrade to the id,
 // which is exactly what they did before.
 const CTX_SORTERS = {
-  assignee: (ctx) => byText((t) => (t.assigneeId ? (ctx.nameOf?.(t.assigneeId) || t.assigneeId) : '')),
+  assignee: (ctx) => byText((t) => taskAssignees(t).map((e) => ctx.nameOf?.(e) || e).join(', ')),
   project: (ctx) => byText((t) => (t.projectId ? (ctx.projectName?.(t.projectId) || t.projectId) : '')),
   team: (ctx) => byText((t) => (t.teamId ? (ctx.teamName?.(t.teamId) || t.teamId) : '')),
   // A task has SEVERAL collaborators, so it sorts by the alphabetically first
@@ -354,7 +373,21 @@ export function groupTasks(list, group, ctx = {}) {
   for (const t of list) {
     if (group === 'status') push(t.status || 'not_started', statusMeta[t.status]?.label || t.status, t);
     else if (group === 'priority') push(t.priority || 'low', (t.priority || 'low').replace(/^\w/, (c) => c.toUpperCase()), t);
-    else if (group === 'assignee') push(t.assigneeId || '-', ctx.nameOf ? ctx.nameOf(t.assigneeId) : (t.assigneeId || 'Unassigned'), t);
+    else if (group === 'assignee') {
+      // A shared task appears under EVERY person assigned to it, not just the
+      // first. Grouping by assignee answers "what is on each person's plate",
+      // and a task two people share is genuinely on both - showing it only
+      // under the primary made it look like the second person had nothing
+      // (reported on the board's Assignee swimlanes, Aug 2026).
+      //
+      // The consequence is deliberate: the per-group counts add up to more than
+      // the number of rows in the list, because the same task is counted for
+      // each person carrying it. That is the same reading the Workload view
+      // already uses.
+      const people = taskAssignees(t);
+      if (!people.length) push('-', 'Unassigned', t);
+      else for (const who of people) push(who, ctx.nameOf ? ctx.nameOf(who) : who, t);
+    }
     else if (group === 'project') { const pid = ctx.taskById ? effectiveProjectId(t, ctx.taskById) : t.projectId; push(pid || '-', ctx.projectName?.(pid) || 'No Project', t); }
     else if (group === 'team') push(t.teamId || '-', ctx.teamName?.(t.teamId) || 'No Team', t);
     else if (group === 'date') push(t.dueOn || '-', t.dueOn || 'No Due Date', t);

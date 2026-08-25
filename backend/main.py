@@ -140,6 +140,13 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN description VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN type VARCHAR DEFAULT 'task'",
             "ALTER TABLE tasks ADD COLUMN assignee_email VARCHAR DEFAULT ''",
+            # Multi-assignee (Aug 2026). Backfilled from the single column so
+            # existing tasks keep exactly the one assignee they already have;
+            # the guard makes it idempotent, since this list runs every boot.
+            "ALTER TABLE tasks ADD COLUMN assignee_emails JSON DEFAULT '[]'",
+            "UPDATE tasks SET assignee_emails = json_array(assignee_email) "
+            "WHERE COALESCE(assignee_email, '') <> '' "
+            "AND (assignee_emails IS NULL OR assignee_emails = '[]')",
             "ALTER TABLE tasks ADD COLUMN owner_email VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN follower_emails JSON DEFAULT '[]'",
             "ALTER TABLE tasks ADD COLUMN liked_by_emails JSON DEFAULT '[]'",
@@ -541,6 +548,14 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN bod_exempt INTEGER DEFAULT 0",
             # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
             "ALTER TABLE hr_candidates ADD COLUMN company TEXT DEFAULT ''",
+            # Per-person geofence (Aug 25)
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_lat TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_lng TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_radius_m INTEGER DEFAULT 0",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_label TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_source TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_set_by TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_set_at TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -762,6 +777,12 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'task'",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_email TEXT DEFAULT ''",
+        # Multi-assignee (Aug 2026) - see the matching sqlite lines above for why
+        # the backfill is guarded rather than unconditional.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_emails JSONB DEFAULT '[]'::jsonb",
+        "UPDATE tasks SET assignee_emails = to_jsonb(ARRAY[assignee_email]) "
+        "WHERE COALESCE(assignee_email, '') <> '' "
+        "AND (assignee_emails IS NULL OR assignee_emails = '[]'::jsonb)",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner_email TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS follower_emails JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS liked_by_emails JSONB DEFAULT '[]'::jsonb",
@@ -1141,6 +1162,14 @@ def _run_migrations():
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_exempt INTEGER DEFAULT 0",
         # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS company TEXT DEFAULT ''",
+        # Per-person geofence (Aug 25)
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_lat TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_lng TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_radius_m INTEGER DEFAULT 0",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_label TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_source TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_by TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_at TEXT DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 import cache
 import models
 from database import get_db
+from routers.task_util import task_assignees
 from auth import get_current_user
 
 router = APIRouter(prefix="/dashboards", tags=["Dashboards"], dependencies=[Depends(get_current_user)])
@@ -218,8 +219,13 @@ def kpis(scope: str = "self", user: dict = Depends(get_current_user), db: Sessio
         # everyone, forever, while the same person's My Tasks listed plenty.
         # A KPI that silently degrades to zero is worse than one that errors:
         # zero is a believable answer.
-        safe("my_open_tasks", lambda: db.query(M.Task).filter(
-            M.Task.assignee_email == email, M.Task.completed == False).count())  # noqa: E712
+        # Counted in Python because a task can now be assigned to several
+        # people and assignee_emails is a JSON list - see the daily-briefing
+        # note for why there is no portable SQL containment predicate here. The
+        # completed filter keeps the row set to open work only.
+        safe("my_open_tasks", lambda: sum(
+            1 for t in db.query(M.Task).filter(M.Task.completed == False).all()  # noqa: E712
+            if email in task_assignees(t)))
         safe("unread_notifications", lambda: db.query(M.NexusNotification).filter(
             M.NexusNotification.recipient == email).count())
 

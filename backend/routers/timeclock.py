@@ -33,6 +33,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from database import get_db
 from auth import (get_current_user, require_level_or_module, require_administrator,
@@ -126,12 +127,41 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
-def _geofence(db: Session, lat, lng, accuracy_m: int) -> dict:
-    """Nearest geofenced work site + soft-gate verdict with accuracy credit."""
+def _soft_gate(d: float, radius: int, accuracy_m: int, base: dict) -> dict:
+    """Shared soft-gate verdict: in_fence / out_of_fence / low_accuracy, with the
+    same GPS-accuracy credit (capped at 150 m) used for work sites and personal
+    geofences alike."""
+    acc = max(0, int(accuracy_m or 0))
+    if acc > 500:
+        return {**base, "geo_status": "low_accuracy"}
+    effective = max(0.0, d - min(acc, 150))
+    return {**base, "geo_status": "in_fence" if effective <= radius else "out_of_fence"}
+
+
+def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "") -> dict:
+    """Soft-gate verdict for a punch. A person with a PERSONAL geofence assigned
+    (geofence_radius_m > 0) is judged against that location - it is their work
+    area. Everyone else is judged against the nearest geofenced work site."""
     try:
         plat, plng = float(lat), float(lng)
     except (TypeError, ValueError):
         return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
+    # Personal geofence wins when set.
+    if email:
+        emp = (db.query(NexusEmployee)
+               .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
+        if emp and (emp.geofence_radius_m or 0) > 0:
+            try:
+                glat, glng = float(emp.geofence_lat), float(emp.geofence_lng)
+            except (TypeError, ValueError):
+                glat = glng = None
+            if glat is not None:
+                d = _haversine_m(plat, plng, glat, glng)
+                radius = max(25, int(emp.geofence_radius_m or 150))
+                base = {"work_site_id": "personal",
+                        "work_site_name": emp.geofence_label or "Assigned work location",
+                        "distance_m": int(round(d))}
+                return _soft_gate(d, radius, accuracy_m, base)
     best = None
     for s in db.query(HrWorkSite).all():
         try:
@@ -146,17 +176,12 @@ def _geofence(db: Session, lat, lng, accuracy_m: int) -> dict:
         return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     d, site = best
     radius = max(25, int(site.radius_m or 150))
-    acc = max(0, int(accuracy_m or 0))
     base = {"work_site_id": site.id, "work_site_name": site.name or "", "distance_m": int(round(d))}
     # Desktops have no GPS: browsers triangulate from Wi-Fi/IP and can be
-    # kilometres off with a huge reported accuracy. Crediting that in full
-    # would let a coarse fix "pass" any fence, so the credit is capped at
+    # kilometres off with a huge reported accuracy. _soft_gate caps the credit at
     # 150 m, and past ±500 m the fix can't be judged at all → low_accuracy
     # (recorded, neutral - phones give GPS fixes and judge normally).
-    if acc > 500:
-        return {**base, "geo_status": "low_accuracy"}
-    effective = max(0.0, d - min(acc, 150))
-    return {**base, "geo_status": "in_fence" if effective <= radius else "out_of_fence"}
+    return _soft_gate(d, radius, accuracy_m, base)
 
 
 def _unconfirmed_auto_out(p) -> bool:
@@ -484,7 +509,7 @@ def punch(body: PunchIn, request: Request,
         prev = _parse_iso(last.at)
         if prev and (datetime.now(timezone.utc) - prev).total_seconds() < 60:
             raise HTTPException(409, "Duplicate punch - you just did that.")
-    geo = _geofence(db, body.lat, body.lng, body.accuracy_m or 0)
+    geo = _geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
     if not (body.lat or "").strip():
         geo = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     ip, ua = _client_meta(request)
@@ -875,6 +900,13 @@ def revoke_approval(approval_id: str, user: dict = Depends(require_team_write),
                     db: Session = Depends(get_db)):
     row = db.query(TimeApproval).filter(TimeApproval.id == approval_id).first()
     if not row:
+        raise HTTPException(404, "Approval not found")
+    # Scope: a company-scoped admin may only revoke approvals for their own
+    # people (matches approve_timecard). 404 (not 403) so out-of-scope approval
+    # ids don't leak - and this keeps a scoped admin from unlocking another
+    # company's finalized pay period by revoking its 'final' row.
+    scope = _visible_emails(db, user)
+    if scope is not None and (row.employee_email or "").lower() not in scope:
         raise HTTPException(404, "Approval not found")
     row.revoked = 1
     row.revoked_by = user["email"]
@@ -3248,7 +3280,7 @@ def track_ping(body: PingBatch, dev: AgentDevice = Depends(get_agent_device),
         if not (p.lat or "").strip() or not (p.lng or "").strip():
             continue
         at = (p.at or "").strip()[:19] or _now_iso()
-        geo = _geofence(db, p.lat, p.lng, p.accuracy_m or 0)
+        geo = _geofence(db, p.lat, p.lng, p.accuracy_m or 0, email=email)
         db.add(TrackPing(
             id=str(uuid.uuid4()), session_id=sess.id, employee_email=email,
             at=at, received_at=_now_iso(), local_date=_local_date(at, p.tz_offset_min or 0),
@@ -3292,7 +3324,7 @@ def track_clock(body: TrackClockIn, dev: AgentDevice = Depends(get_agent_device)
     if body.kind not in _allowed_kinds(last.kind if last else None):
         raise HTTPException(409, f"Can't clock '{body.kind}' right now.")
     now = _now_iso()
-    geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0)
+    geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
            if (body.lat or "").strip() else
            {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0})
     db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
@@ -3502,11 +3534,22 @@ def delete_shift(shift_id: str, user: dict = Depends(require_team_write), db: Se
     return {"ok": True}
 
 
+def _require_unscoped_team(user: dict, db: Session) -> None:
+    """Shift groups + their Teams-chat bindings are a cross-company scheduling
+    construct (a group can hold people from several companies, and its chat
+    routes their BOD/EOD). A company-scoped People admin must not remap them or
+    reroute another company's work-log delivery - that stays whole-team."""
+    if _visible_emails(db, user) is not None:
+        raise HTTPException(403, "Managing shift groups needs company-wide team access")
+
+
 @router.get("/shift-groups")
 def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    scope = _visible_emails(db, user)
     members = {}
     for m in db.query(ShiftGroupMember).all():
-        members.setdefault(m.group_id, []).append(m.employee_email)
+        if scope is None or (m.employee_email or "").lower() in scope:
+            members.setdefault(m.group_id, []).append(m.employee_email)
     return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                         "chatId": g.teams_chat_id or "", "chatName": g.teams_chat_name or ""}
                        for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]}
@@ -3521,6 +3564,7 @@ class GroupIn(BaseModel):
 
 @router.post("/shift-groups")
 def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    _require_unscoped_team(user, db)
     if not body.name.strip():
         raise HTTPException(400, "Name is required")
     g = ShiftGroup(id=str(uuid.uuid4()), name=body.name.strip()[:80],
@@ -3536,6 +3580,7 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), 
 
 @router.patch("/shift-groups/{group_id}")
 def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    _require_unscoped_team(user, db)
     g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
     if not g:
         raise HTTPException(404, "Group not found")
@@ -3577,6 +3622,7 @@ def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(
 
 @router.delete("/shift-groups/{group_id}")
 def delete_shift_group(group_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    _require_unscoped_team(user, db)
     db.query(ShiftGroup).filter(ShiftGroup.id == group_id).delete()
     db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
     db.commit()
@@ -3593,8 +3639,11 @@ def assign_shift(body: AssignIn, user: dict = Depends(require_team_write), db: S
     """Bulk-assign a shift to a set of employees (typically a group's members).
     An empty shift_id clears the assignment."""
     now = _now_iso()
+    scope = _visible_emails(db, user)   # scoped admins may only touch their own people
     n = 0
     for em in dict.fromkeys(e.strip().lower() for e in body.emails if e.strip()):
+        if scope is not None and em not in scope:
+            continue
         row = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == em).first()
         if not row:
             row = ShiftAssignment(id=str(uuid.uuid4()), employee_email=em)
@@ -3609,8 +3658,10 @@ def assign_shift(body: AssignIn, user: dict = Depends(require_team_write), db: S
 
 @router.get("/shift-assignments")
 def shift_assignments(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    scope = _visible_emails(db, user)
     return {"assignments": {a.employee_email: a.shift_id
-                            for a in db.query(ShiftAssignment).all() if a.shift_id}}
+                            for a in db.query(ShiftAssignment).all()
+                            if a.shift_id and (scope is None or (a.employee_email or "").lower() in scope)}}
 
 
 # ── Weekly schedule grid (Teams-Shifts style) ────────────────────────────────
@@ -3640,7 +3691,8 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
     presets = {s.id: s for s in db.query(Shift).all()}
     members = {}
     for m in db.query(ShiftGroupMember).all():
-        members.setdefault(m.group_id, []).append(m.employee_email)
+        if scope is None or (m.employee_email or "").lower() in scope:
+            members.setdefault(m.group_id, []).append(m.employee_email)
     groups = [{"id": g.id, "name": g.name, "members": members.get(g.id, [])}
               for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]
 

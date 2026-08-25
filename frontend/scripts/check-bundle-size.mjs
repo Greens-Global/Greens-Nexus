@@ -30,7 +30,15 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // thing that wants a bump should shrink something first - the Tasks chunk
 // carries every sub-view statically (see the INEFFECTIVE_DYNAMIC_IMPORT
 // warnings at build time) and is the obvious place to start.
-const TOTAL_KB     = 8700;   // all JS today: ~7.2 MB pre-gzip
+//
+// LOCAL WIP (Tailwind + shadcn migration, uncommitted): 8700 -> 8800. The
+// radix-ui primitives (~140 KB, dialog/dropdown/select/etc.) are a one-time
+// cost - every converted screen reuses them and sheds inline-style JSX. This
+// bump ships WITH the migration commit (growth is a decision, not an
+// accident); do not land it separately.
+// Aug 25: 8800 -> 8850. Per-person geofence UI on the People profile (address
+// search reuses the existing geocode helper; net add ~4 KB). Deliberate.
+const TOTAL_KB     = 8850;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

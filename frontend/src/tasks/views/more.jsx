@@ -6,7 +6,7 @@ import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, D
 import { api } from '../../api';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
 import { Avatar, EmptyState, AttachmentViewer } from '../components';
-import { fmtDate } from '../lib';
+import { fmtDate, taskAssignees } from '../lib';
 
 const DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -110,7 +110,8 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
               if (t.isMilestone) {
                 return <button key={t.id} onClick={() => onOpen(t.id)} title={t.title} style={{ position: 'absolute', left: g.left, top: i * ROW_H + 10, height: 24, border: 'none', background: 'transparent', cursor: 'pointer', zIndex: 1 }}><Diamond size={18} fill={meta.color} style={{ color: meta.color }} /></button>;
               }
-              const ini = t.assigneeId ? initialsOf(nameOf ? nameOf(t.assigneeId) : t.assigneeId) : '';
+              const [primary = ''] = taskAssignees(t);
+              const ini = primary ? initialsOf(nameOf ? nameOf(primary) : primary) : '';
               return (
                 <button key={t.id} onClick={() => onOpen(t.id)} title={`${t.title} (${meta.label})`} style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: 'pointer', background: meta.color, overflow: 'hidden', zIndex: 1 }}>
                   {ini && <span style={{ flexShrink: 0, fontWeight: 700, opacity: 0.9 }}>{ini}</span>}
@@ -201,12 +202,18 @@ export function FilesView({ tasks, onOpen, nameOf }) {
 const CAPACITY = 40; // default weekly capacity (Nexus has no per-user capacity field)
 export function WorkloadView({ tasks, nameOf }) {
   const rows = useMemo(() => {
-    const open = tasks.filter((t) => !t.completed && t.assigneeId);
+    // Counted per ASSIGNEE, not per task: a task two people share is real work
+    // on both their plates, and a workload view that credited only the primary
+    // would under-report the second person's load - the exact thing this screen
+    // exists to show.
+    const open = tasks.filter((t) => !t.completed && taskAssignees(t).length);
     const byPerson = new Map();
     for (const t of open) {
-      const e = byPerson.get(t.assigneeId) || { email: t.assigneeId, tasks: 0, hours: 0 };
-      e.tasks += 1; e.hours += t.estimateHours || 0;
-      byPerson.set(t.assigneeId, e);
+      for (const who of taskAssignees(t)) {
+        const e = byPerson.get(who) || { email: who, tasks: 0, hours: 0 };
+        e.tasks += 1; e.hours += t.estimateHours || 0;
+        byPerson.set(who, e);
+      }
     }
     return [...byPerson.values()].sort((a, b) => b.hours - a.hours);
   }, [tasks]);

@@ -9,7 +9,7 @@ import {
   MoreHorizontal, Gauge, Rows3, ChevronDown,
 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
-import { cfKey, cfFieldId, taskFieldValue, fieldsForProject } from '../lib';
+import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees } from '../lib';
 import { statusesForProject } from '../TasksContext';
 import { Avatar, PriorityChip, useClickOutside } from '../components';
 import { fmtDate } from '../lib';
@@ -48,6 +48,10 @@ function MoreCards({ n }) {
 
 export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId, defaultAssigneeId = '' }) {
   const [dragId, setDragId] = useState(null);
+  // Which lane the card was picked up FROM. With a task able to sit in
+  // several assignee lanes at once, the destination alone no longer says
+  // what the drag meant - see drop().
+  const [dragFrom, setDragFrom] = useState(null);
   const [dragOver, setDragOver] = useState(null);
   const [addIn, setAddIn] = useState(null);
   const [commentOpenId, setCommentOpenId] = useState(null);
@@ -137,9 +141,24 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     }
     if (swimlane === 'assignee') {
       const seen = new Map();
-      for (const t of visible) if (t.assigneeId && !seen.has(t.assigneeId)) seen.set(t.assigneeId, ctx.nameOf?.(t.assigneeId) || t.assigneeId);
-      const out = [...seen.entries()].map(([id, label]) => ({ key: id, label, match: (t) => t.assigneeId === id }));
-      if (visible.some((t) => !t.assigneeId)) out.push({ key: '__none', label: 'Unassigned', match: (t) => !t.assigneeId });
+      // A shared task appears in EVERY assignee's lane. Keying lanes on the
+      // primary put a task assigned to two people in only the first one's lane,
+      // so the second person's row looked empty even though the card's own
+      // avatars showed them on it (reported Aug 2026).
+      //
+      // The counts therefore add up to more than the board holds - the same
+      // task is counted for each person carrying it. That is the honest answer
+      // to "what is on each person's plate", and matches both the list view's
+      // grouping and the Workload view.
+      for (const t of visible) {
+        for (const a of taskAssignees(t)) if (!seen.has(a)) seen.set(a, ctx.nameOf?.(a) || a);
+      }
+      const out = [...seen.entries()].map(([id, label]) => ({
+        key: id, label, match: (t) => taskAssignees(t).includes(id),
+      }));
+      if (visible.some((t) => !taskAssignees(t).length)) {
+        out.push({ key: '__none', label: 'Unassigned', match: (t) => !taskAssignees(t).length });
+      }
       return out;
     }
     // project
@@ -154,27 +173,51 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     if (!dragId) { setDragOver(null); return; }
     store.setStatus(dragId, status);
     if (lane && swimlane !== 'none' && lane.key !== 'all') {
-      if (swimlane === 'assignee') store.updateTask(dragId, { assigneeId: lane.key === '__none' ? '' : lane.key });
+      if (swimlane === 'assignee') {
+        // Dragging a card between assignee lanes HANDS IT OVER: the person
+        // whose lane it came from is swapped for the person whose lane it
+        // landed in, and anyone else on the task stays. Adding it to a second
+        // person's lane without removing the first would make the drag a no-op
+        // in every lane you can see, which is not what dragging looks like.
+        //
+        // Dropped on Unassigned it means "take me off this" - only the source
+        // person is removed, so a task still held by somebody else stays on the
+        // board in their lane rather than vanishing.
+        const dragged = (store.tasks || []).find((x) => x.id === dragId);
+        const current = taskAssignees(dragged);
+        const from = dragFrom && dragFrom !== '__none' ? dragFrom : null;
+        let next;
+        if (lane.key === '__none') {
+          next = from ? current.filter((x) => x !== from) : [];
+        } else {
+          next = from
+            ? current.map((x) => (x === from ? lane.key : x))
+            : [...current, lane.key];
+        }
+        store.updateTask(dragId, { assigneeIds: [...new Set(next)].filter(Boolean) });
+      }
       else if (swimlane === 'priority') store.updateTask(dragId, { priority: lane.key });
       else if (swimlane === 'project') store.updateTask(dragId, { projectId: lane.key === '__none' ? '' : lane.key });
     }
-    setDragId(null); setDragOver(null);
+    setDragId(null); setDragOver(null); setDragFrom(null);
   };
 
   const addTask = (status, title) => {
     const t = title.trim(); if (!t) return;
-    store.createTask({ title: t, type: 'task', status, priority: 'medium', projectId: lockedProjectId || '', assigneeId: defaultAssigneeId || '' }).catch(() => {});
+    store.createTask({ title: t, type: 'task', status, priority: 'medium', projectId: lockedProjectId || '', assigneeIds: defaultAssigneeId ? [defaultAssigneeId] : [] }).catch(() => {});
     setAddIn(null);
   };
 
-  const renderCard = (t) => {
+  const renderCard = (t, laneKey = null) => {
     const dc = dueColor(t.dueOn, t.completed);
     // Kit card signature: a colored project tag pill leads the card (hidden
     // when the whole board is already locked to one project).
     const proj = !lockedProjectId && t.projectId ? store.projects.find((p) => p.id === t.projectId) : null;
     const projColor = proj?.color || NX.purple;
     return (
-      <div key={t.id} draggable data-task-row onDragStart={() => setDragId(t.id)} onDragEnd={() => setDragId(null)} onClick={() => onOpen(t.id)}
+      <div key={t.id} draggable data-task-row
+        onDragStart={() => { setDragId(t.id); setDragFrom(laneKey); }}
+        onDragEnd={() => { setDragId(null); setDragFrom(null); }} onClick={() => onOpen(t.id)}
         onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.09)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)'; }}
         style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1, transition: 'box-shadow .15s' }}>
@@ -197,7 +240,14 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
               <MessageSquare size={11} />{t.commentIds?.length > 0 ? t.commentIds.length : ''}
             </button>
             {t.dueOn && <span style={{ fontSize: 11, color: dc }}>{fmtDue(t.dueOn)}</span>}
-            {t.assigneeId && <Avatar email={t.assigneeId} name={ctx.nameOf?.(t.assigneeId)} size={20} />}
+            {taskAssignees(t).slice(0, 3).map((a, i) => (
+              <span key={a} style={{ display: 'inline-flex', marginLeft: i ? -7 : 0, borderRadius: '50%', boxShadow: `0 0 0 2px ${NX.surface}` }}>
+                <Avatar email={a} name={ctx.nameOf?.(a)} size={20} />
+              </span>
+            ))}
+            {taskAssignees(t).length > 3 && (
+              <span title={taskAssignees(t).slice(3).join(', ')} style={{ fontSize: 10.5, color: NX.faint, marginLeft: 3 }}>+{taskAssignees(t).length - 3}</span>
+            )}
           </div>
         </div>
         {commentOpenId === t.id && (
@@ -289,7 +339,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
                 {over && <div style={{ marginBottom: 8, borderRadius: 8, background: 'rgba(220,38,38,0.14)', color: NX.red, padding: '4px 8px', fontSize: 11, fontWeight: 700 }}>Over WIP limit ({tasks.length}/{limit})</div>}
                 <div className="nx-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 2 }}>
                   {addIn === status && <AddCard onAdd={(title) => addTask(status, title)} onCancel={() => setAddIn(null)} />}
-                  {tasks.slice(0, MAX_BOARD_CARDS).map(renderCard)}
+                  {tasks.slice(0, MAX_BOARD_CARDS).map((t) => renderCard(t))}
                   {tasks.length > MAX_BOARD_CARDS && <MoreCards n={tasks.length - MAX_BOARD_CARDS} />}
                 </div>
               </div>
@@ -322,7 +372,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
                       <div key={status}
                         onDragOver={(e) => { e.preventDefault(); setDragOver(zoneKey); }} onDragLeave={() => setDragOver((d) => (d === zoneKey ? null : d))} onDrop={() => drop(status, lane)}
                         style={{ display: 'flex', flexDirection: 'column', gap: 12, width: 300, flexShrink: 0, minHeight: 80, borderRadius: 12, border: `1px solid ${dragOver === zoneKey ? NX.blue : 'transparent'}`, background: dragOver === zoneKey ? NX.hover : 'transparent', padding: 8 }}>
-                        {tasks.slice(0, MAX_BOARD_CARDS).map(renderCard)}
+                        {tasks.slice(0, MAX_BOARD_CARDS).map((t) => renderCard(t, lane.key))}
                         {tasks.length > MAX_BOARD_CARDS && <MoreCards n={tasks.length - MAX_BOARD_CARDS} />}
                         <button onClick={() => setAddIn(status)} style={{ ...btn('ghost'), justifyContent: 'center', border: `1px dashed ${NX.border}`, fontSize: 11, color: NX.faint, padding: '6px 0' }}><Plus size={12} />Add</button>
                       </div>

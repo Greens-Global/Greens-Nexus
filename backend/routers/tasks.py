@@ -26,6 +26,7 @@ from routers.task_util import (
     now_iso, gen_id, fire_task_event, task_notify, log_activity, email_list,
     is_manager, visible_project_ids, task_is_visible,
     project_for_task, require_project_role, require_task_role, create_comment,
+    task_assignees, set_task_assignees,
 )
 from task_notify import notify_task_event
 from task_files import data_url_to_storage
@@ -52,7 +53,10 @@ def task_to_dict(t: models.Task) -> dict:
         "status":           t.status or "not_started",
         "priority":         t.priority or "medium",
         "position":         t.position if t.position is not None else 0.0,
+        # assigneeId stays the PRIMARY assignee so every existing reader keeps
+        # working unchanged; assigneeIds is the real answer (see models.Task).
         "assigneeId":       _nz(t.assignee_email),
+        "assigneeIds":      task_assignees(t),
         "ownerId":          _nz(t.owner_email),
         "followerIds":      t.follower_emails or [],
         "likedByIds":       t.liked_by_emails or [],
@@ -132,7 +136,8 @@ class TaskCreate(BaseModel):
     status:           Optional[str] = "not_started"
     priority:         Optional[str] = "medium"
     position:         Optional[float] = None   # manual drag-order - see models.Task.position
-    assignee_email:   Optional[str] = ""
+    assignee_email:   Optional[str] = ""     # legacy single; folded into the list
+    assignee_emails:  Optional[list] = None
     owner_email:      Optional[str] = ""
     follower_emails:  Optional[list] = None
     liked_by_emails:  Optional[list] = None
@@ -168,7 +173,8 @@ class TaskUpdate(BaseModel):
     status:           Optional[str] = None
     priority:         Optional[str] = None
     position:         Optional[float] = None   # manual drag-order - see models.Task.position
-    assignee_email:   Optional[str] = None
+    assignee_email:   Optional[str] = None   # legacy single; folded into the list
+    assignee_emails:  Optional[list] = None
     owner_email:      Optional[str] = None
     follower_emails:  Optional[list] = None
     liked_by_emails:  Optional[list] = None
@@ -209,6 +215,24 @@ def _extra_project_ids(project_ids: Optional[list], project_id: str) -> list:
             seen.add(p)
             out.append(p)
     return out
+
+
+def _assignees_from(data: dict, current: list) -> Optional[list]:
+    """What a payload means for assignment, or None if it says nothing.
+
+    Accepts both shapes so nothing has to migrate at once:
+      • `assignee_emails` - the real field, wins when present.
+      • `assignee_email`  - the legacy single. Treated as "this task is assigned
+        to exactly this one person" (or to nobody, when blank), which is what it
+        has always meant. It must NOT be merged into the existing list, or
+        clearing an assignment the old way would silently leave the others on.
+    """
+    if "assignee_emails" in data and data.get("assignee_emails") is not None:
+        return list(data.get("assignee_emails") or [])
+    if "assignee_email" in data and data.get("assignee_email") is not None:
+        one = (data.get("assignee_email") or "").strip().lower()
+        return [one] if one else []
+    return None
 
 
 def _get_task(db: Session, task_id: str) -> models.Task:
@@ -319,7 +343,10 @@ def validate_task_payload(db: Session, data: dict, task_id: str = "") -> dict:
                 out.append(v)
         data["tags"] = out
 
-    for field in ("follower_emails", "liked_by_emails"):
+    # assignee_emails rides the same normaliser as the collaborator lists: an
+    # assignee is a person too, and a non-address there is worse than a bad
+    # follower - it is work nobody can be notified about or find in My Tasks.
+    for field in ("assignee_emails", "follower_emails", "liked_by_emails"):
         if field in data and isinstance(data[field], list):
             seen, out = set(), []
             for em in data[field]:
@@ -622,6 +649,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
         status="recurring",
         priority=t.priority or "medium",
         assignee_email=t.assignee_email or "",
+        assignee_emails=list(task_assignees(t)),
         owner_email=t.owner_email or "",
         follower_emails=list(t.follower_emails or []),
         liked_by_emails=[],
@@ -650,8 +678,10 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
                        entity_code=nxt.code, entity_title=nxt.title,
                        detail=f"recurring occurrence generated from {t.title}")
     nxt.activity_ids = [aid]
-    if nxt.assignee_email and nxt.assignee_email != user["email"].lower():
-        task_notify(db, kind="task_assigned", for_email=nxt.assignee_email,
+    for _who in task_assignees(nxt):
+        if _who == user["email"].lower():
+            continue
+        task_notify(db, kind="task_assigned", for_email=_who,
                     title="Recurring task due",
                     body=f"{nxt.title} (due {next_due})", task_id=nid,
                     nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
@@ -735,7 +765,7 @@ def export_tasks_excel(
     if want_priorities:
         rows = [t for t in rows if (t.priority or "medium") in want_priorities]
     if want_assignees:
-        rows = [t for t in rows if (t.assignee_email or "").lower() in want_assignees]
+        rows = [t for t in rows if want_assignees & set(task_assignees(t))]
     if due_from:
         rows = [t for t in rows if t.due_on and t.due_on >= due_from]
     if due_to:
@@ -816,8 +846,8 @@ def export_tasks_excel(
             t.title or "",
             titles.get(t.parent_task_id or "", ""),
             project_cell,
-            person(t.assignee_email) or "Unassigned",
-            t.assignee_email or "",
+            ", ".join(person(a) or a for a in task_assignees(t)) or "Unassigned",
+            ", ".join(task_assignees(t)),
             ", ".join(person(e) for e in collaborators),
             ", ".join(collaborators),
             us_date(t.start_on),
@@ -1039,13 +1069,13 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
 
     def on_it(t, who):
         """Everyone a task visibly involves - its assignee and its followers."""
-        return who and (who == (t.assignee_email or "").lower()
+        return who and (who in task_assignees(t)
                         or who in email_list(t.follower_emails))
 
-    assigned = [t for t in rows if (t.assignee_email or "").lower() == email]
+    assigned = [t for t in rows if email in task_assignees(t)]
     assigned_by_you = [t for t in assigned if (t.created_by or "").lower() == me]
     created = [t for t in rows if (t.created_by or "").lower() == email
-               and (t.assignee_email or "").lower() != email]
+               and email not in task_assignees(t)]
     # Both of you on the same task. Empty on your OWN page, where "collaborating
     # with you" would otherwise match every task you touch and mean nothing.
     collaborating = ([] if me == email else
@@ -1144,7 +1174,8 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
         # task lands at the END of manual order, after everything dragged
         # before it - not shuffled to the front of every group.
         position=body.position if body.position is not None else time.time(),
-        assignee_email=(body.assignee_email or "").strip().lower(),
+        # Set below via set_task_assignees, which writes both columns.
+        assignee_email="",
         owner_email=(body.owner_email or "").strip().lower(),
         follower_emails=body.follower_emails or [],
         liked_by_emails=body.liked_by_emails or [],
@@ -1177,6 +1208,7 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
         comment_ids=[], attachment_ids=[], activity_ids=[],
         created_at=now, modified_at=now, created_by=user["email"],
     )
+    set_task_assignees(t, _assignees_from(body.__dict__, []) or [])
     db.add(t)
     # link into parent
     if t.parent_task_id:
@@ -1187,11 +1219,14 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     aid = log_activity(db, type="created", actor_email=user["email"], entity_id=tid,
                        entity_code=t.code, entity_title=t.title, detail="created this task")
     t.activity_ids = [aid]
-    if t.assignee_email and t.assignee_email != user["email"].lower():
-        task_notify(db, kind="task_assigned", for_email=t.assignee_email,
-                    title="You were assigned a task",
-                    body=f"{t.title}", task_id=tid,
-                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+    # Everyone assigned gets told, not just the first - the others would
+    # otherwise carry work they were never notified about.
+    for who in task_assignees(t):
+        if who != user["email"].lower():
+            task_notify(db, kind="task_assigned", for_email=who,
+                        title="You were assigned a task",
+                        body=f"{t.title}", task_id=tid,
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()
     db.refresh(t)
     fire_task_event(tid, "created")
@@ -1215,7 +1250,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     validate_task_payload(db, data, task_id=task_id)
     if "custom_field_values" in data:
         data["custom_field_values"] = coerce_custom_field_values(db, data["custom_field_values"])
-    prev_assignee = (t.assignee_email or "").lower()
+    prev_assignees = set(task_assignees(t))
     prev_status = t.status
     prev_completed = bool(t.completed)
     prev_followers = set((t.follower_emails or []))
@@ -1231,12 +1266,20 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     for field, val in data.items():
         if field == "completed":
             continue  # handled below
-        if field in ("assignee_email", "owner_email"):
+        if field in ("assignee_email", "assignee_emails"):
+            continue  # both are applied together, below
+        if field == "owner_email":
             # strip() as well as lower(): a padded address is stored verbatim and
             # then never equals the same person anywhere else, so the task is
             # assigned to somebody who never sees it in My Tasks.
             val = (val or "").strip().lower()
         setattr(t, field, val)
+
+    # Assignment goes through the setter so the legacy mirror can never drift
+    # from the list, whichever field the caller sent.
+    wanted = _assignees_from(data, list(prev_assignees))
+    if wanted is not None:
+        set_task_assignees(t, wanted)
 
     # Re-clean the extra list whenever either side of the project pair moved -
     # a caller can PATCH project_id alone (e.g. the primary Project picker) or
@@ -1259,16 +1302,20 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         acts.append(log_activity(db, type="status_changed", actor_email=user["email"],
                                  entity_id=t.id, entity_code=t.code, entity_title=t.title,
                                  detail=f"changed status to {data['status']}"))
-    new_assignee = (t.assignee_email or "").lower()
-    if "assignee_email" in data and new_assignee != prev_assignee:
+    now_assignees = set(task_assignees(t))
+    if wanted is not None and now_assignees != prev_assignees:
         acts.append(log_activity(db, type="assignee_changed", actor_email=user["email"],
                                  entity_id=t.id, entity_code=t.code, entity_title=t.title,
                                  detail="reassigned this task"))
-        if new_assignee and new_assignee != user["email"].lower():
-            task_notify(db, kind="task_assigned", for_email=new_assignee,
-                        title="You were assigned a task",
-                        body=f"{t.title}", task_id=t.id,
-                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+        # Only people newly ADDED are notified. Re-notifying everyone whenever a
+        # third assignee joins would mail the original two about a task they
+        # already hold.
+        for who in (now_assignees - prev_assignees):
+            if who != user["email"].lower():
+                task_notify(db, kind="task_assigned", for_email=who,
+                            title="You were assigned a task",
+                            body=f"{t.title}", task_id=t.id,
+                            nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     if t.completed and not prev_completed:
         acts.append(log_activity(db, type="completed", actor_email=user["email"],
                                  entity_id=t.id, entity_code=t.code, entity_title=t.title,
@@ -1286,8 +1333,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         fire_task_event(spawned.id, "created")
         _asana_push(spawned.id, user["email"])
 
-    new_assignee = (t.assignee_email or "").lower()
-    if "assignee_email" in data and new_assignee and new_assignee != prev_assignee:
+    if wanted is not None and (set(task_assignees(t)) - prev_assignees):
         background_tasks.add_task(notify_task_event, t.id, "assigned", user["email"])
     if t.completed and not prev_completed:
         background_tasks.add_task(notify_task_event, t.id, "completed", user["email"])
@@ -1312,7 +1358,8 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
     # has already removed it, so there'd be nothing left to look up.
     deleted_snapshot = {
         "code": t.code, "title": t.title, "status": t.status, "priority": t.priority,
-        "assignee_email": t.assignee_email or "", "follower_emails": list(t.follower_emails or []),
+        "assignee_email": t.assignee_email or "", "assignee_emails": task_assignees(t),
+        "follower_emails": list(t.follower_emails or []),
         "created_by": t.created_by or "", "project_id": t.project_id or "", "due_on": t.due_on or "",
     }
     # detach from parent
@@ -1372,7 +1419,7 @@ class BulkUpdate(BaseModel):
     patch: dict[str, Any]
 
 
-_BULK_ALLOWED = {"status", "priority", "assignee_email", "team_id", "project_id",
+_BULK_ALLOWED = {"status", "priority", "assignee_email", "assignee_emails", "team_id", "project_id",
                  "completed", "tags", "due_on", "start_on", "is_milestone"}
 
 
@@ -1399,7 +1446,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             _check_dependency_gate(db, t, prev_status, prev_completed, new_status, new_completed)
     # Captured before the patch lands so the activity entries below can say what
     # actually changed rather than restating the new value for every row.
-    before = {t.id: (t.status, bool(t.completed), (t.assignee_email or "").lower()) for t in rows}
+    before = {t.id: (t.status, bool(t.completed), tuple(task_assignees(t))) for t in rows}
     for t in rows:
         prev_status, prev_completed, _ = before[t.id]
         # Decided BEFORE the loop writes anything, from the payload and the
@@ -1412,9 +1459,12 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         for k, v in patch.items():
             if k == "completed":
                 continue    # handled by _apply_completion below
-            if k == "assignee_email":
-                v = (v or "").lower()
+            if k in ("assignee_email", "assignee_emails"):
+                continue    # applied together, below
             setattr(t, k, v)
+        bulk_assignees = _assignees_from(patch, list(before[t.id][2]))
+        if bulk_assignees is not None:
+            set_task_assignees(t, bulk_assignees)
         # A section and a team both belong to ONE project, so carrying either
         # across a move leaves the task pointing at a section the destination
         # does not have - it then renders under a phantom group that no board
@@ -1444,19 +1494,22 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     actor = (user["email"] or "").lower()
     newly_assigned: dict[str, list] = {}
     for t in rows:
-        prev_status, prev_completed, prev_assignee = before[t.id]
+        prev_status, prev_completed, prev_assignees = before[t.id]
         acts = list(t.activity_ids or [])
         if "status" in patch and t.status != prev_status:
             acts.append(log_activity(db, type="status_changed", actor_email=user["email"],
                                      entity_id=t.id, entity_code=t.code, entity_title=t.title,
                                      detail=f"changed status to {t.status}"))
-        now_assignee = (t.assignee_email or "").lower()
-        if "assignee_email" in patch and now_assignee != prev_assignee:
+        now_assignees = set(task_assignees(t))
+        if now_assignees != set(prev_assignees):
             acts.append(log_activity(db, type="assignee_changed", actor_email=user["email"],
                                      entity_id=t.id, entity_code=t.code, entity_title=t.title,
                                      detail="reassigned this task"))
-            if now_assignee and now_assignee != actor:
-                newly_assigned.setdefault(now_assignee, []).append(t)
+            # Only the people newly added, and still aggregated per person, so a
+            # fifty-task reassignment is one ping each rather than fifty.
+            for who in (now_assignees - set(prev_assignees)):
+                if who != actor:
+                    newly_assigned.setdefault(who, []).append(t)
         if t.completed and not prev_completed:
             acts.append(log_activity(db, type="completed", actor_email=user["email"],
                                      entity_id=t.id, entity_code=t.code, entity_title=t.title,

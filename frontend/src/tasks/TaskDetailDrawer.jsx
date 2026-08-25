@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours, teamInProject, fieldsForProject, fieldOption, richBodyHtml, uploadTaskAttachment } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours, teamInProject, fieldsForProject, fieldOption, richBodyHtml, uploadTaskAttachment, taskAssignees } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
@@ -561,7 +561,12 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
     <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
       <Row label="Assignee">
         <div style={{ minWidth: 220 }}>
-          <PersonSelect value={task.assigneeId || null} people={people} onChange={(email) => patch({ assigneeId: email || '' })} />
+          {/* Several people can hold one task; any of them completing it
+              completes it for all (one row, one flag). Subtask rows below
+              keep the single picker - a subtask is a unit of one person's
+              work, and the multi picker does not fit an 18px inline row. */}
+          <PersonMultiSelect value={taskAssignees(task)} people={people}
+            onChange={(list) => patch({ assigneeIds: list })} placeholder="Unassigned" />
         </div>
       </Row>
 
@@ -1420,7 +1425,15 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
   const rows = [
     ['Status', <Chip color={sm.color} tint={sm.tint}>{sm.label}</Chip>],
     ['Priority', <Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip>],
-    ['Assignee', task.assigneeId ? <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar email={task.assigneeId} name={nameOf(task.assigneeId)} size={18} /> {nameOf(task.assigneeId)}</span> : 'Unassigned'],
+    ['Assignee', taskAssignees(task).length
+      ? <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {taskAssignees(task).map((e) => (
+            <span key={e} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Avatar email={e} name={nameOf(e)} size={18} /> {nameOf(e)}
+            </span>
+          ))}
+        </span>
+      : 'Unassigned'],
     ['Project', task.projectId ? projectName(task.projectId) : '-'],
     ['Also In', (task.projectIds || []).length ? task.projectIds.map((id) => projectName(id) || id).join(', ') : '-'],
     ['Team', task.teamId ? teamName(task.teamId) : '-'],
