@@ -3544,8 +3544,15 @@ button, [role="button"], select { touch-action: manipulation; }
 /* A document is open → App.jsx hides the top header → take the whole viewport.
    dvh, not vh: on iOS Safari 100vh exceeds the visible viewport (the dynamic
    toolbar is excluded), which pushed the editor's own status bar off-screen. */
+/* Once a PDF is open, the editor takes over the whole screen: break out of the
+   app layout (Nexus top header + sidebar) with fixed positioning so nothing
+   crops the editor chrome. It sits above the app but below toasts/modals. */
 .pdf-editor-module.has-doc {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
   height: 100dvh;
+  z-index: 900;
 }
 .pdf-editor-module iframe {
   width: 100%;
