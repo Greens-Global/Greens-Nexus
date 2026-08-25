@@ -7635,13 +7635,14 @@
             const midY = sRect.top + vh / 2;
             for (const el of _scrollEls) {
                 const r = el.wrap.getBoundingClientRect();
-                const near = (r.bottom >= sRect.top - margin && r.top <= sRect.bottom + margin);
+                // Render pages within ~2 screens so they're ready before you
+                // reach them. Do NOT free here: freeing mid-scroll blanked pages
+                // right at the edge, then re-rendered them - a visible FLICKER.
+                // Freeing is deferred to freeFarPages() which runs only once
+                // scrolling has stopped (see below).
+                const near = (r.bottom >= sRect.top - margin * 2 && r.top <= sRect.bottom + margin * 2);
                 if (near) {
                     renderScrollPage(el.page - 1);
-                } else if (el.rendered && (r.bottom < sRect.top - margin * 2.5 || r.top > sRect.bottom + margin * 2.5)) {
-                    // B2: far from viewport → free the bitmap, re-render on return
-                    el.canvas.width = 0; el.canvas.height = 0;
-                    el.rendered = false;
                 }
                 const c = r.top + r.height / 2;
                 const d = Math.abs(c - midY);
@@ -7663,8 +7664,26 @@
         // render work, which made scrolling laggy/janky. rAF-coalescing keeps the
         // handler off the critical scroll path so scrolling stays smooth.
         let _scrollRaf = 0;
+        // Free far-away page bitmaps to cap memory - but ONLY when scrolling has
+        // stopped, so it never blanks a page you're scrolling past (that was the
+        // flicker). Runs ~250ms after the last scroll event.
+        let _freeTimer = 0;
+        const freeFarPages = () => {
+            const sRect = scroller.getBoundingClientRect();
+            const margin = sRect.height || window.innerHeight;
+            for (const el of _scrollEls) {
+                if (!el.rendered) continue;
+                const r = el.wrap.getBoundingClientRect();
+                if (r.bottom < sRect.top - margin * 4 || r.top > sRect.bottom + margin * 4) {
+                    el.canvas.width = 0; el.canvas.height = 0;
+                    el.rendered = false;
+                }
+            }
+        };
         const guardedOnScroll = () => {
             if (settling) return;
+            clearTimeout(_freeTimer);
+            _freeTimer = setTimeout(freeFarPages, 250); // free only after scroll idle
             if (_scrollRaf) return;
             _scrollRaf = requestAnimationFrame(() => { _scrollRaf = 0; onScroll(); });
         };
@@ -7698,21 +7717,25 @@
 
     async function renderScrollPage(idx) {
         const el = _scrollEls[idx];
-        if (!el || el.rendered) return;
+        if (!el) return;
+        // Re-render if not yet drawn OR if the bitmap was freed (canvas zeroed
+        // when the page scrolled far away). Relying only on `rendered` left a
+        // freed page blank when you scrolled back to it - e.g. page 2 -> page 1.
+        if (el.rendered && el.canvas.width > 0) return;
         el.rendered = true; // claim early to avoid double-render
         try {
             const page = await state.pdfDoc.getPage(el.page);
             const base = page.getViewport({ scale: 1 });
             // This page's true display width at the current zoom (matches Page
-            // mode). Correct the estimated placeholder to the real size once, so
-            // mixed-size documents lay out accurately.
+            // mode). Always assert the wrapper to this page's REAL size (not just
+            // once): mixed-size documents were left at page 1's estimated size,
+            // so jumping back rendered into a wrong-sized box.
             const dispW = base.width * state.zoom;
+            const dispH = dispW * (base.height / base.width);
             el.dispW = dispW;
-            if (!el.sized) {
-                el.sized = true;
-                el.wrap.style.width = dispW + 'px';
-                el.wrap.style.height = (dispW * (base.height / base.width)) + 'px';
-            }
+            el.sized = true;
+            el.wrap.style.width = dispW + 'px';
+            el.wrap.style.height = dispH + 'px';
             const scale = (dispW / base.width) * 1.5; // 1.5 = retina sharpness
             const vp = page.getViewport({ scale });
             el.canvas.width = vp.width;
@@ -7774,8 +7797,12 @@
         const el = _scrollEls[n - 1];
         if (!el) return false;
         state.currentPage = n;
+        // Draw the target BEFORE scrolling so it isn't blank on arrival, then
+        // scroll to it, then re-run the scroll handler so pages that scrolled
+        // into view along the way (and any freed ones) get (re)rendered.
+        renderScrollPage(n - 1);
         el.wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        renderScrollPage(n - 1); // make sure the target is drawn, not just estimated
+        if (_scrollOnScroll) setTimeout(_scrollOnScroll, 350);
         updateThumbnailActive();
         return true;
     };
