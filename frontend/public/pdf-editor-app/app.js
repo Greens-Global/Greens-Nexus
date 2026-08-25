@@ -846,6 +846,10 @@
                     throw err;
                 }
             }
+            // Remember the password that unlocked this file (if any). state.pdfBytes
+            // still holds the ENCRYPTED original, so any tool that re-loads it with
+            // pdf-lib (Unlock, save, merge...) needs this to actually decrypt.
+            state.pdfPassword = pdfPassword || null;
             if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
             state.pdfDoc = pdf;
             state.totalPages = pdf.numPages;
@@ -5023,12 +5027,25 @@
             _isTextCover: true,
         });
 
+        // ── Font family + fallback chain ──
+        // The embedded PDF font is usually SUBSETTED - it only carries the
+        // glyphs already on the page. If the original text was lowercase, the
+        // subset often has NO uppercase glyphs, so typing capitals fell back to
+        // the browser default (wrong shape AND size). Give the canvas a fallback
+        // family (the closest standard font from detectPdfFont) after the exact
+        // face, so any glyph the subset lacks renders in a matching font instead
+        // of a random default. Fabric draws via ctx.font, which honors a
+        // comma-separated CSS stack for per-glyph fallback.
+        const editFamily = exactFaceFamily
+            ? `${exactFaceFamily}, "${detected.fontFamily}", sans-serif`
+            : detected.fontFamily;
+
         // ── Editable IText — exact font size, no scaling ──
         const editText = new fabric.IText(item.str, {
             left:        fabricLeft,
             top:         fabricTop,
             fontSize:    fontSizePx,       // exact size from PDF transform matrix
-            fontFamily:  exactFaceFamily || detected.fontFamily, // real font when available
+            fontFamily:  editFamily,       // exact face first, matching fallback after
             // Embedded programs bake weight/style into the face; a system
             // family needs the PDF's bold/italic applied as CSS styles.
             fontWeight:  exactFontName ? 'normal' : detected.fontWeight,
@@ -6797,11 +6814,34 @@
         if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
         setStatus('Removing password...');
         try {
-            const L = await encLib();
-            // ignoreEncryption lets pdf-lib load an encrypted file; saving without
-            // encrypt() strips the protection.
-            const doc = await L.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
-            const bytes = await doc.save();
+            let bytes;
+
+            // The original bytes in state.pdfBytes are STILL ENCRYPTED - pdf.js
+            // decrypted them in memory using the password the user typed on open,
+            // but never wrote a plaintext copy back. pdf-lib's ignoreEncryption
+            // only SKIPS the error; it cannot read encrypted streams, so
+            // re-saving the encrypted original produced a broken/still-locked
+            // file. That was the bug.
+            //
+            // For a file that WAS password-protected, get the real DECRYPTED
+            // bytes from pdf.js (which holds the opened, unlocked document) via
+            // saveDocument(). Saving those with no encryption yields a clean,
+            // openable PDF with the password removed.
+            if (state.pdfPassword && state.pdfDoc && state.pdfDoc.saveDocument) {
+                const dec = await state.pdfDoc.saveDocument();
+                // Re-save through pdf-lib so the output is a plain, unencrypted
+                // PDF (and normalized), never re-applying encryption.
+                const L = await encLib();
+                const doc = await L.PDFDocument.load(dec, { ignoreEncryption: true });
+                bytes = await doc.save();
+            } else {
+                // Not password-protected (or no pdf.js save available): a plain
+                // pdf-lib round-trip strips any permissions/owner-password flags.
+                const L = await encLib();
+                const doc = await L.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
+                bytes = await doc.save();
+            }
+
             const a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
             a.download = state.fileName.replace(/\.pdf$/i, '') + '_unlocked.pdf';

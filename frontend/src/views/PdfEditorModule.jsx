@@ -87,7 +87,7 @@ export default function PdfEditorModule() {
       <iframe
         ref={frameRef}
         src={EDITOR_SRC}
-        title="Nexus PDF Editor"
+        title="PDF Tools"
         allow="clipboard-write"
         onLoad={() => {
           // Re-assert on load: the mount-time push can land before the engine
