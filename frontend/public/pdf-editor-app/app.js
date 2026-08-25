@@ -6406,7 +6406,7 @@
         if (msg) { setStatus(msg); showToast(msg); }
     }
 
-    function _toolModal(title, bodyHtml, applyLabel) {
+    function _toolModal(title, bodyHtml, applyLabel, onRender) {
         return new Promise((resolve) => {
             const overlay = document.createElement('div');
             overlay.className = 'modal-overlay';
@@ -6421,6 +6421,11 @@
                     </div>
                 </div>`;
             document.body.appendChild(overlay);
+            // Optional hook to wire up dynamic fields (e.g. show a range input
+            // only when a certain option is picked). Runs after the DOM exists.
+            if (typeof onRender === 'function') {
+                try { onRender(overlay); } catch (_) {}
+            }
             const done = (ok) => { const vals = {}; overlay.querySelectorAll('[data-k]').forEach(el2 => {
                 vals[el2.dataset.k] = el2.type === 'checkbox' ? el2.checked : el2.value; });
                 overlay.remove(); resolve(ok ? vals : null); };
@@ -6444,13 +6449,41 @@
         const v = await _toolModal('Add watermark', `
             <label class="modal-label">Watermark text:</label>
             <input type="text" class="modal-input" data-k="text" value="CONFIDENTIAL" maxlength="60">
+            <label class="modal-label" style="margin-top:10px;">Apply to:</label>
+            <select class="modal-input" data-k="scope">
+                <option value="all">All pages</option>
+                <option value="current">Current page only (page ${state.currentPage})</option>
+                <option value="range">Specific pages...</option>
+            </select>
+            <input type="text" class="modal-input" data-k="range" placeholder="e.g. 1-3, 5, 8" style="margin-top:6px;display:none;">
             <label class="stamp-date-row" style="padding:10px 0 0;"><span>Colour</span>
                 <input type="color" data-k="color" value="#9e9e9e"></label>
             <label class="stamp-date-row" style="padding:8px 0 0;"><span>Strength</span>
                 <input type="range" data-k="op" min="5" max="60" value="18" style="flex:1;"></label>
             <label class="stamp-date-row" style="padding:8px 0 0;">
-                <input type="checkbox" data-k="diag" checked><span>Diagonal</span></label>`, 'Add Watermark');
+                <input type="checkbox" data-k="diag" checked><span>Diagonal</span></label>`, 'Add Watermark',
+            // Show the range input only when "Specific pages" is chosen.
+            (root) => {
+                const sc = root.querySelector('[data-k="scope"]');
+                const rg = root.querySelector('[data-k="range"]');
+                if (sc && rg) sc.addEventListener('change', () => {
+                    rg.style.display = sc.value === 'range' ? 'block' : 'none';
+                });
+            });
         if (!v || !v.text.trim()) return;
+
+        // Resolve which page indexes (0-based) get the watermark.
+        const pageCount = state.totalPages;
+        let targetIdx;
+        if (v.scope === 'current') {
+            targetIdx = new Set([state.currentPage - 1]);
+        } else if (v.scope === 'range') {
+            targetIdx = _parsePageRange(v.range, pageCount);
+            if (!targetIdx.size) { showToast('Enter valid page numbers (e.g. 1-3, 5)'); return; }
+        } else {
+            targetIdx = new Set(Array.from({ length: pageCount }, (_, i) => i));
+        }
+
         pushDocSnapshot('Watermark');
         setStatus('Adding watermark...');
         try {
@@ -6458,7 +6491,10 @@
             const font = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
             const c = hexToRgb(v.color);
             const text = _winAnsi(v.text.trim());
-            for (const page of doc.getPages()) {
+            const pages = doc.getPages();
+            for (let pi = 0; pi < pages.length; pi++) {
+                if (!targetIdx.has(pi)) continue;
+                const page = pages[pi];
                 const { width, height } = page.getSize();
                 const target = (v.diag ? Math.hypot(width, height) : width) * 0.62;
                 let size = 60;
@@ -6474,8 +6510,31 @@
                     rotate: PDFLib.degrees(ang * 180 / Math.PI),
                 });
             }
-            await _reloadFromBytes(await doc.save(), 'Watermark added to all pages');
+            const n = targetIdx.size;
+            const where = v.scope === 'all' ? 'all pages'
+                        : n === 1 ? '1 page' : n + ' pages';
+            await _reloadFromBytes(await doc.save(), 'Watermark added to ' + where);
         } catch (err) { console.error(err); showToast('Watermark failed'); }
+    }
+
+    // Parse a page-range string like "1-3, 5, 8" into a Set of 0-based indexes,
+    // clamped to [0, count). Ignores junk; returns an empty set if nothing valid.
+    function _parsePageRange(str, count) {
+        const out = new Set();
+        for (const part of String(str || '').split(',')) {
+            const s = part.trim();
+            if (!s) continue;
+            const m = s.match(/^(\d+)\s*-\s*(\d+)$/);
+            if (m) {
+                let a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+                if (a > b) [a, b] = [b, a];
+                for (let p = a; p <= b; p++) if (p >= 1 && p <= count) out.add(p - 1);
+            } else if (/^\d+$/.test(s)) {
+                const p = parseInt(s, 10);
+                if (p >= 1 && p <= count) out.add(p - 1);
+            }
+        }
+        return out;
     }
 
     // ── Page numbers ──
