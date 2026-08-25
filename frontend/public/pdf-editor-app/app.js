@@ -7095,9 +7095,25 @@
                 const dec = pdf.saveDocument ? await pdf.saveDocument() : new Uint8Array(buf);
                 const doc = await L.PDFDocument.load(dec, { ignoreEncryption: true });
                 const bytes = await doc.save();
-                _downloadBytes(bytes, baseName + '_unlocked.pdf');
-                setStatus('Saved unlocked PDF');
-                showToast('Password removed - saved an unlocked copy');
+
+                // Ask what to do with the unlocked file (Pranshu): open it in the
+                // editor to work on it, or just download the unlocked copy.
+                const choice = await _choiceModal('PDF unlocked',
+                    'The password has been removed. What would you like to do?', [
+                        { key: 'edit',     label: 'Open in editor' },
+                        { key: 'download', label: 'Download unlocked copy' },
+                    ]);
+                if (choice === 'edit') {
+                    state.fileName = baseName + '_unlocked.pdf';
+                    await loadPDF(new File([bytes], state.fileName, { type: 'application/pdf' }));
+                    setStatus('Opened the unlocked PDF');
+                } else if (choice === 'download') {
+                    _downloadBytes(bytes, baseName + '_unlocked.pdf');
+                    setStatus('Saved unlocked PDF');
+                    showToast('Password removed - saved an unlocked copy');
+                } else {
+                    setStatus('Ready'); // cancelled
+                }
             } else {
                 // Not encrypted: offer to LOCK it (add a password).
                 const v = await _toolModal('Lock this PDF', `
