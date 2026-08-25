@@ -1207,6 +1207,7 @@ def _run_migrations():
             except Exception as e:
                 conn.rollback()
                 print(f"[migration] skipped: {e}")
+        _measure_slot_pressure(conn)
         _rebuild_slot_exhausted_tables(conn)
         _verify_model_columns(conn)
         _enable_rls_everywhere(conn)
@@ -1221,6 +1222,47 @@ SCHEMA_GAPS: list[str] = []
 # 1600-attribute limit, a type the dialect will not render) is what actually
 # tells you where to look.
 SCHEMA_GAP_REASONS: dict[str, str] = {}
+# {table: {"live": n, "used": n, "limit": 1600}} for tables burning through
+# Postgres's per-table attribute slots. A table only ever gets closer to that
+# ceiling, and hitting it breaks every query against it at once, so the useful
+# time to see the number is long before it matters.
+SLOT_PRESSURE: dict[str, dict] = {}
+
+
+def _measure_slot_pressure(conn):
+    """Attribute-slot usage per table, for anything past a quarter of the limit.
+
+    Postgres allows 1600 attributes per table and counts DROPPED columns
+    forever - no VACUUM reclaims them. A table that churns columns therefore
+    creeps toward a hard ceiling, and the failure when it arrives is total and
+    silent: every query on it 500s while the app stays healthy everywhere else.
+
+    `tasks` reached it (Aug 2026) and took the whole Task module down. This
+    exists so the next one is a number somebody can look at rather than an
+    outage. Cheap - one grouped scan of pg_attribute at boot."""
+    SLOT_PRESSURE.clear()
+    if DATABASE_URL.startswith("sqlite"):
+        return                                   # no such limit, and no pg_attribute
+    try:
+        rows = conn.execute(text(
+            "SELECT c.relname, "
+            "       count(*) FILTER (WHERE NOT a.attisdropped) AS live, "
+            "       count(*) AS used "
+            "FROM pg_class c "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 "
+            "WHERE n.nspname = 'public' AND c.relkind = 'r' "
+            "GROUP BY c.relname HAVING count(*) > 400 "
+            "ORDER BY count(*) DESC"
+        )).fetchall()
+    except Exception as e:                       # noqa: BLE001 - never block boot
+        conn.rollback()
+        print(f"[schema] slot-pressure scan skipped: {e}")
+        return
+    for name, live, used in rows:
+        SLOT_PRESSURE[name] = {"live": live, "used": used, "limit": 1600}
+        print(f"[schema] *** {name}: {used}/1600 attribute slots used ({live} live columns). "
+              f"At 1600 it will refuse every new column and break every query on it.")
 
 
 def _rebuild_slot_exhausted_tables(conn):
@@ -1769,7 +1811,11 @@ def health_schema():
     module being broken. This reports; a human decides.
     """
     return {"ok": not SCHEMA_GAPS, "missingColumns": list(SCHEMA_GAPS),
-            "reasons": dict(SCHEMA_GAP_REASONS)}
+            "reasons": dict(SCHEMA_GAP_REASONS),
+            # Tables past a quarter of Postgres's 1600-attribute ceiling. Empty
+            # is the healthy answer; anything listed is on its way to the same
+            # total outage `tasks` hit.
+            "slotPressure": dict(SLOT_PRESSURE)}
 
 
 @app.get("/health/leader")
