@@ -3599,6 +3599,37 @@
         if (!files.length) return;
         e.target.value = '';
 
+        // Ask WHERE to merge (Pranshu): at the start, after the last page
+        // (default), or after a specific page of the current document.
+        const total = state.totalPages || 1;
+        const w = await _toolModal('Merge PDF - where?', `
+            <label class="modal-label">Insert the merged pages:</label>
+            <select class="modal-input" data-k="pos">
+                <option value="end">After the last page (append)</option>
+                <option value="start">At the very start</option>
+                <option value="after">After a specific page...</option>
+            </select>
+            <input type="number" class="modal-input" data-k="afterPage" min="1" max="${total}" value="${total}"
+                   placeholder="page number" style="margin-top:6px;display:none;">
+            <p class="modal-hint" style="margin-top:8px;">The current document has ${total} page(s).</p>`,
+            'Merge',
+            (root) => {
+                const sel = root.querySelector('[data-k="pos"]');
+                const inp = root.querySelector('[data-k="afterPage"]');
+                if (sel && inp) sel.addEventListener('change', () => {
+                    inp.style.display = sel.value === 'after' ? 'block' : 'none';
+                });
+            });
+        if (!w) return;
+
+        // Resolve the 0-based insertion index for the FIRST merged page.
+        let insertAt;
+        if (w.pos === 'start') insertAt = 0;
+        else if (w.pos === 'after') {
+            const p = Math.min(Math.max(parseInt(w.afterPage, 10) || total, 1), total);
+            insertAt = p; // after page p => before index p (0-based)
+        } else insertAt = total; // end
+
         pushDocSnapshot('Merge');
         setStatus('Merging PDFs...');
 
@@ -3612,13 +3643,18 @@
                 : state.pdfBytes;
             const mainDoc = await PDFLib.PDFDocument.load(bytesToLoad, { ignoreEncryption: true });
 
-            // Merge each selected file
+            // Merge each selected file, inserting at the chosen position. Pages
+            // are inserted in order so the merged document keeps its sequence.
+            let cursor = insertAt;
             for (const file of files) {
                 const fileBytes = await file.arrayBuffer();
                 const srcDoc = await PDFLib.PDFDocument.load(fileBytes);
                 const pageIndices = srcDoc.getPageIndices();
                 const copiedPages = await mainDoc.copyPages(srcDoc, pageIndices);
-                copiedPages.forEach((page) => mainDoc.addPage(page));
+                copiedPages.forEach((page) => {
+                    mainDoc.insertPage(cursor, page);
+                    cursor++;
+                });
             }
 
             // Save merged PDF
