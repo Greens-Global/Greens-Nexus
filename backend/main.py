@@ -1232,6 +1232,11 @@ SCHEMA_GAP_REASONS: dict[str, str] = {}
 # ceiling, and hitting it breaks every query against it at once, so the useful
 # time to see the number is long before it matters.
 SLOT_PRESSURE: dict[str, dict] = {}
+# {table: (outcome, detail)} from the last rebuild pass - "rebuilt", "failed",
+# "skipped" or "probe-failed". Served by /health/schema because the reason a
+# rebuild did not happen is only otherwise visible in a deploy log, and two
+# deploys were spent guessing at it.
+REBUILD_LOG: dict[str, tuple] = {}
 
 
 def _measure_slot_pressure(conn):
@@ -1296,6 +1301,7 @@ def _rebuild_slot_exhausted_tables(conn):
     NEXUS_REBUILD_TABLES additionally names tables to rebuild that have NOT
     broken yet - the case the automatic rule deliberately stays out of.
     """
+    REBUILD_LOG.clear()
     if DATABASE_URL.startswith("sqlite"):
         return False
     wanted = [t.strip() for t in os.getenv("NEXUS_REBUILD_TABLES", "").split(",") if t.strip()]
@@ -1327,6 +1333,9 @@ def _rebuild_slot_exhausted_tables(conn):
             wanted.append(name)
 
     if not wanted:
+        REBUILD_LOG["_"] = ("skipped", "no table qualified: needs >=1590 slots used AND "
+                            f"missing model columns (gaps={sorted(broken)}, "
+                            f"pressure={ {k: v.get('used') for k, v in SLOT_PRESSURE.items()} })")
         return False
     did_any = False
     for table in wanted:
@@ -1340,11 +1349,13 @@ def _rebuild_slot_exhausted_tables(conn):
             ), {"t": table}).fetchone()
         except Exception as e:                       # noqa: BLE001
             conn.rollback()
+            REBUILD_LOG[table] = ("probe-failed", str(e).strip().splitlines()[0][:200])
             print(f"[rebuild] {table}: cannot read attribute slots: {e}")
             continue
 
         print(f"[rebuild] {table}: {live} live column(s), {slots} attribute slot(s) used of 1600")
         if slots <= 1000:
+            REBUILD_LOG[table] = ("skipped", f"only {slots} slots used, not exhausted")
             print(f"[rebuild] {table}: not slot-exhausted, nothing to do")
             continue
 
@@ -1362,10 +1373,14 @@ def _rebuild_slot_exhausted_tables(conn):
             conn.execute(text(f'ALTER TABLE "{new}" RENAME TO "{table}"'))
             conn.commit()
             did_any = True
+            REBUILD_LOG[table] = ("rebuilt", f"{after} row(s); previous table kept as {kept}")
             print(f"[rebuild] {table}: rebuilt with {after} row(s); the previous table is kept "
                   f"as {kept} - drop it by hand once you have checked it")
         except Exception as e:                       # noqa: BLE001
             conn.rollback()
+            # The whole point. Two deploys were spent guessing why this did not
+            # happen, because the answer was only ever in a log I could not read.
+            REBUILD_LOG[table] = ("failed", str(e).strip().splitlines()[0][:300])
             print(f"[rebuild] {table}: FAILED, nothing changed: {e}")
     return did_any
 
@@ -1855,7 +1870,9 @@ def health_schema():
             # Tables past a quarter of Postgres's 1600-attribute ceiling. Empty
             # is the healthy answer; anything listed is on its way to the same
             # total outage `tasks` hit.
-            "slotPressure": dict(SLOT_PRESSURE)}
+            "slotPressure": dict(SLOT_PRESSURE),
+            # What the rebuild pass did, or why it did not - see REBUILD_LOG.
+            "rebuild": {k: {"outcome": v[0], "detail": v[1]} for k, v in REBUILD_LOG.items()}}
 
 
 @app.get("/health/leader")
