@@ -820,9 +820,29 @@
     }
 
     // ── File Handling ──
-    function handleFileSelect(e) {
+    async function handleFileSelect(e) {
         const file = e.target.files[0];
-        if (file) loadPDF(file);
+        e.target.value = ''; // allow re-picking the same file later
+        if (!file) return;
+
+        // If a document is already open, ask whether to REPLACE it (open as a
+        // new PDF) or MERGE the picked file into the current one (Pranshu).
+        const hasDoc = !!(state.pdfDoc && state.pdfBytes);
+        if (hasDoc) {
+            const choice = await _choiceModal('Open PDF', 'A document is already open. What would you like to do?', [
+                { key: 'new',   label: 'Open as new PDF' },
+                { key: 'merge', label: 'Merge into current PDF' },
+            ]);
+            if (!choice) return;                       // cancelled
+            if (choice === 'merge') { await mergeFilesIntoDoc([file]); return; }
+        }
+        loadPDF(file);
+    }
+
+    // Merge one or more picked files into the currently open document, reusing
+    // the same engine as the Merge button (so Open→Merge and Merge stay in sync).
+    async function mergeFilesIntoDoc(files) {
+        await handleMergeSelect({ target: { files, value: '' } });
     }
 
     function handleFileDrop(e) {
@@ -6439,6 +6459,35 @@
             });
             const first = overlay.querySelector('input, select, textarea');
             if (first) first.focus();
+        });
+    }
+
+    // A simple choice modal: a prompt + N buttons. Resolves the chosen button's
+    // `key`, or null if cancelled (x / Escape / backdrop). The first option is
+    // styled as the primary action.
+    function _choiceModal(title, message, options) {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.style.display = 'flex';
+            const btns = options.map((o, i) =>
+                `<button class="crop-btn ${i === 0 ? 'apply' : ''}" data-choice="${o.key}">${o.label}</button>`
+            ).join('');
+            overlay.innerHTML = `
+                <div class="modal">
+                    <div class="modal-header"><span>${title}</span></div>
+                    <div class="modal-body"><p style="margin:0;font-size:13.5px;line-height:1.5;">${message}</p></div>
+                    <div class="modal-footer">
+                        ${btns}
+                        <button class="crop-btn cancel" data-choice="">Cancel</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+            const done = (key) => { overlay.remove(); resolve(key || null); };
+            overlay.querySelectorAll('[data-choice]').forEach(b =>
+                b.addEventListener('click', () => done(b.dataset.choice)));
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) done(''); });
+            overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); done(''); } });
         });
     }
 
