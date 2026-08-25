@@ -138,7 +138,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
 
 .separator {
     width: 1px;
-    height: 28px;
+    height: 32px;
     background: var(--border);
     margin: 0 6px;
     flex-shrink: 0;
@@ -273,7 +273,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
     width: 18px;
     height: 18px;
     border-radius: 3px;
-    border: 1.5px solid var(--border);
+    border: 1px solid var(--border);
     cursor: pointer;
     transition: transform 0.1s, border-color 0.15s;
     flex-shrink: 0;
@@ -351,15 +351,17 @@ body.toolbar-collapsed .toolbar-toggle svg {
     display: none;
     align-items: center;
     gap: 8px;
-    padding: 4px 12px;
+    padding: 6px 14px;
     background: var(--bg-tertiary);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
     overflow-x: auto;
     scrollbar-width: none;
-    height: 36px;
-    min-height: 36px;
+    height: 40px;
+    min-height: 40px;
 }
+/* Match every other slider in the app (was default native width + accent). */
+.paint-bar input[type="range"] { width: 90px; accent-color: var(--accent); }
 
 .paint-bar.visible {
     display: flex;
@@ -382,7 +384,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
 
 .paint-sep {
     width: 1px;
-    height: 24px;
+    height: 20px;
     background: var(--border);
     flex-shrink: 0;
 }
@@ -580,7 +582,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
     flex-direction: row;
     align-items: center;
     gap: 8px;
-    padding: 4px 6px;
+    padding: 5px 8px;
     border-radius: 4px;
     background: var(--bg-tertiary);
     overflow: visible;
@@ -704,6 +706,8 @@ body.toolbar-collapsed .toolbar-toggle svg {
 .thumbnail-item canvas {
     width: 100%;
     display: block;
+    /* Sharpen scaled-down page thumbnails instead of a soft blur. */
+    image-rendering: -webkit-optimize-contrast;
 }
 
 .thumbnail-label {
@@ -713,7 +717,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
     right: 0;
     text-align: center;
     font-size: 10px;
-    padding: 2px;
+    padding: 3px 6px;
     background: rgba(0, 0, 0, 0.6);
     color: #fff;
 }
@@ -819,7 +823,11 @@ body.toolbar-collapsed .toolbar-toggle svg {
 }
 
 .nav-btn {
-    padding: 4px 12px;
+    height: 28px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border: 1px solid var(--border);
@@ -877,7 +885,9 @@ body.toolbar-collapsed .toolbar-toggle svg {
 
 #pdfCanvas {
     display: block;
-    box-shadow: var(--shadow);
+    /* Crisp 1px edge line + softer depth shadow so the white page reads sharply
+       against the dark canvas background instead of a soft blur. */
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.35), 0 4px 16px rgba(0,0,0,0.45);
     border-radius: 2px;
 }
 
@@ -933,6 +943,9 @@ body.toolbar-collapsed .toolbar-toggle svg {
 .canvas-scroll-wrapper::-webkit-scrollbar-thumb {
     background: var(--bg-hover);
     border-radius: 4px;
+    /* Inset the thumb from the track edges for a cleaner, less heavy scrollbar. */
+    border: 2px solid var(--bg-primary);
+    background-clip: padding-box;
 }
 
 /* ============================
@@ -1394,7 +1407,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px;
+    padding: 14px 16px;
     border-bottom: 1px solid var(--border);
     font-weight: 600;
     font-size: 14px;
@@ -1424,6 +1437,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
 
 .modal-input:focus {
     border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .modal-hint {
@@ -1436,7 +1450,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
     display: flex;
     gap: 8px;
     justify-content: flex-end;
-    padding: 12px 16px;
+    padding: 14px 16px;
     border-top: 1px solid var(--border);
 }
 
@@ -2365,7 +2379,7 @@ html[data-theme="light"] {
 }
 .adobe-ctx-close:hover { background: var(--bg-hover); color: var(--text-primary); }
 .adobe-ctx-title { font-size: 13px; font-weight: 800; letter-spacing: 0.2px; }
-.adobe-ctx-groups { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.adobe-ctx-groups { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .adobe-ctx-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 .adobe-tools-panel {
@@ -2382,7 +2396,7 @@ html[data-theme="light"] {
     text-transform: uppercase;
     letter-spacing: 0.8px;
     color: var(--text-secondary);
-    padding: 0 10px 10px;
+    padding: 2px 10px 12px;
 }
 .adobe-tool-item {
     display: flex;
@@ -2402,7 +2416,7 @@ html[data-theme="light"] {
 .adobe-tool-item:hover { background: var(--bg-hover); }
 /* Inset ring follows the 10px radius and stays inside the box, unlike a square
    outline that clipped the corners and could touch the panel edge. */
-.adobe-tool-item.active { background: var(--bg-tertiary); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.adobe-tool-item.active { background: var(--bg-tertiary); box-shadow: inset 0 0 0 1px var(--accent); }
 .adobe-tool-ic {
     display: inline-flex;
     align-items: center;
@@ -2413,7 +2427,7 @@ html[data-theme="light"] {
     flex-shrink: 0;
 }
 .adobe-tool-tx { min-width: 0; display: block; }
-.adobe-tool-tx b { display: block; font-size: 12.5px; font-weight: 700; line-height: 1.3; }
+.adobe-tool-tx b { display: block; font-size: 12.5px; font-weight: 700; line-height: 1.3; margin-bottom: 1px; }
 .adobe-tool-tx small {
     display: block;
     font-size: 10.5px;
@@ -2585,6 +2599,8 @@ html[data-theme="light"] {
     background: var(--bg-tertiary);
     border-radius: 8px;
     padding: 6px 11px;
+    min-height: 28px;
+    line-height: 1;
 }
 .adobe-ctx-group .tool-btn span { display: inline; }
 .adobe-ctx-group .tool-btn:hover:not(:disabled) {
@@ -2621,9 +2637,9 @@ html[data-theme="light"] {
 .welcome-btn.primary:hover { background: var(--accent-hover); }
 
 /* ── Contextual bar: tinted title chip + smoother look ──────────────────── */
-.adobe-ctx-bar { box-shadow: 0 2px 8px rgba(0,0,0,0.18); }
+.adobe-ctx-bar { box-shadow: 0 1px 3px rgba(0,0,0,0.10); }
 .adobe-ctx-title {
-    padding: 4px 12px;
+    padding: 6px 12px;
     border-radius: 999px;
     background: color-mix(in srgb, currentColor 14%, transparent);
     font-size: 12.5px;
@@ -2642,7 +2658,9 @@ html[data-theme="light"] {
     min-height: 52px;
     padding: 0 14px;
     background: linear-gradient(180deg, var(--bg-secondary), color-mix(in srgb, var(--bg-secondary) 92%, #000));
-    box-shadow: 0 1px 0 var(--border), 0 3px 10px rgba(0,0,0,0.22);
+    /* Only the depth shadow - the solid border-bottom is the single crisp edge
+       (the old 0 1px 0 layer painted a doubled hairline). */
+    box-shadow: 0 3px 10px rgba(0,0,0,0.22);
     align-items: center;
 }
 /* Open + Close show their labels — primary document actions read as buttons */
@@ -2704,7 +2722,7 @@ html[data-theme="light"] {
 .toolbar-right .tool-btn:not(.save-pdf-btn) {
     border: 1px solid transparent;
     border-radius: 8px;
-    width: 34px;
+    width: 32px;
     height: 32px;
     display: inline-flex;
     align-items: center;
@@ -2733,8 +2751,8 @@ html[data-theme="light"] {
     cursor: pointer;
     padding: 0;
 }
-.ctx-history-btn:first-child { border-radius: 7px 0 0 7px; border-right: none; }
-.ctx-history-btn:last-child { border-radius: 0 7px 7px 0; }
+.ctx-history-btn:first-child { border-radius: 8px 0 0 8px; border-right: none; }
+.ctx-history-btn:last-child { border-radius: 0 8px 8px 0; }
 .ctx-history-btn:hover:not(:disabled) { background: var(--bg-hover); }
 .ctx-history-btn:disabled { opacity: 0.35; cursor: default; }
 
@@ -3123,7 +3141,8 @@ html[data-theme="light"] {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 12px;
+    padding: 6px 12px;
+    min-height: 28px;
     border-radius: 8px;
     border: 1px solid var(--border);
     background: var(--bg-tertiary);
@@ -3245,7 +3264,7 @@ html[data-theme="light"] {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    border: 1.5px solid var(--border);
+    border: 1px solid var(--border);
     display: inline-block;
     background: #000;
 }
