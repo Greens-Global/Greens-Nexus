@@ -771,7 +771,15 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_email TEXT DEFAULT ''",
         # Multi-assignee (Aug 2026) - see the matching sqlite lines above for why
         # the backfill is guarded rather than unconditional.
-        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_emails JSONB DEFAULT '[]'::jsonb",
+        #
+        # Deliberately the plainest DDL there is: no DEFAULT, no cast. The
+        # version with `DEFAULT '[]'::jsonb` matched follower_emails below it
+        # exactly and still left dev serving 500s on every tasks query, so the
+        # column was not there afterwards. Whatever swallowed it, a bare ADD has
+        # the fewest ways to fail - and _verify_model_columns below now checks
+        # that it actually landed instead of trusting the log.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_emails JSONB",
+        "UPDATE tasks SET assignee_emails = '[]'::jsonb WHERE assignee_emails IS NULL",
         "UPDATE tasks SET assignee_emails = to_jsonb(ARRAY[assignee_email]) "
         "WHERE COALESCE(assignee_email, '') <> '' "
         "AND (assignee_emails IS NULL OR assignee_emails = '[]'::jsonb)",
@@ -1169,7 +1177,71 @@ def _run_migrations():
             except Exception as e:
                 conn.rollback()
                 print(f"[migration] skipped: {e}")
+        _verify_model_columns(conn)
         _enable_rls_everywhere(conn)
+
+
+# Model columns that are STILL missing from the live database after migrations
+# and the repair pass below. Read by /health/schema so this is diagnosable from
+# outside the box, with no DB credentials and no log access.
+SCHEMA_GAPS: list[str] = []
+
+
+def _verify_model_columns(conn):
+    """Check every model column actually exists in the database, and add any
+    that do not.
+
+    Migrations above are swallowed on failure by design - one bad ALTER must not
+    stop the rest - but that makes the WORST failure the quietest: a column the
+    model declares and the table lacks turns every SELECT on that table into a
+    500 (CLAUDE.md records this recurring; it took out tasks on dev in Aug 2026
+    after the multi-assignee release, and time_punches.category before that).
+    The app then boots healthy, passes /health and /health/ready, and serves
+    errors for one module while everything else looks fine.
+
+    So: compare the models against information_schema, try to add whatever is
+    missing with the plainest possible DDL, and record anything still missing
+    where it can be read without credentials. Only ever ADDs - never drops,
+    never retypes - so it cannot destroy data even if a model is wrong.
+    """
+    from sqlalchemy import inspect as sa_inspect
+    SCHEMA_GAPS.clear()
+    try:
+        insp = sa_inspect(conn)
+        present = {t: {c["name"] for c in insp.get_columns(t)} for t in insp.get_table_names()}
+    except Exception as e:                       # noqa: BLE001 - never block boot
+        print(f"[schema] column check skipped: {e}")
+        return
+
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    for table in models.Base.metadata.sorted_tables:
+        have = present.get(table.name)
+        if have is None:
+            continue                             # create_all makes it, or it is not ours
+        for col in table.columns:
+            if col.name in have:
+                continue
+            try:
+                coltype = col.type.compile(engine.dialect)
+            except Exception:                    # noqa: BLE001 - unrenderable type
+                coltype = "TEXT"
+            # SQLite has no IF NOT EXISTS on ADD COLUMN; we only get here when
+            # the column is genuinely absent, so a bare ADD is right on both.
+            ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {coltype}' if is_sqlite else \
+                  f'ALTER TABLE "{table.name}" ADD COLUMN IF NOT EXISTS "{col.name}" {coltype}'
+            try:
+                conn.execute(text(ddl))
+                conn.commit()
+                print(f"[schema] repaired missing column {table.name}.{col.name} ({coltype})")
+            except Exception as e:               # noqa: BLE001
+                conn.rollback()
+                SCHEMA_GAPS.append(f"{table.name}.{col.name}")
+                # LOUD on purpose - this is the line that would have named the
+                # tasks outage in one look instead of a day of guessing.
+                print(f"[schema] *** MISSING COLUMN {table.name}.{col.name} - "
+                      f"every query on {table.name} will fail. Repair failed: {e}")
+    if SCHEMA_GAPS:
+        print(f"[schema] *** {len(SCHEMA_GAPS)} column(s) missing: {', '.join(SCHEMA_GAPS)}")
 
 
 def _enable_rls_everywhere(conn):
@@ -1566,6 +1638,23 @@ def health_ready():
         return JSONResponse(status_code=503, content={"status": "not_ready", "detail": str(e)[:160]})
     finally:
         db.close()
+
+
+@app.get("/health/schema")
+def health_schema():
+    """No-auth readout of model columns the live database is missing.
+
+    A missing column breaks every query on its table with a 500 while /health
+    and /health/ready both stay green - the app is alive and the DB is
+    reachable, one module just cannot be read. That combination cost a day on
+    the tasks table (Aug 2026), because the only evidence was a swallowed
+    `[migration] skipped:` line in a log nobody had open.
+
+    Deliberately NOT part of readiness: a 503 here would drain the instance and
+    take the whole site down over one broken module, which is worse than the
+    module being broken. This reports; a human decides.
+    """
+    return {"ok": not SCHEMA_GAPS, "missingColumns": list(SCHEMA_GAPS)}
 
 
 @app.get("/health/leader")
