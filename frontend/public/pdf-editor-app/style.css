@@ -91,7 +91,7 @@ header.toolbar {
    toggle so the user can bring it back. The Adobe-style context bar (grouped
    tool options) collapses too. The chevron flips to point down when hidden. */
 .toolbar-toggle {
-    margin-left: 4px;
+    margin-left: 2px;
 }
 body.toolbar-collapsed .toolbar-left,
 body.toolbar-collapsed .toolbar-center,
@@ -131,16 +131,16 @@ body.toolbar-collapsed .toolbar-toggle svg {
     font-weight: 700;
     font-size: 13px;
     color: var(--accent);
-    margin-right: 6px;
+    margin: 0 10px 0 2px;
     white-space: nowrap;
     flex-shrink: 0;
 }
 
 .separator {
     width: 1px;
-    height: 24px;
+    height: 28px;
     background: var(--border);
-    margin: 0 3px;
+    margin: 0 6px;
     flex-shrink: 0;
 }
 
@@ -486,6 +486,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 4px;
     padding: 8px 10px;
     font-size: 13px;
     font-weight: 600;
@@ -493,12 +494,15 @@ body.toolbar-collapsed .toolbar-toggle svg {
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
 }
+/* The title absorbs the free space so the two icon buttons group at the right
+   edge instead of the bookmarks icon drifting toward the middle. */
+.sidebar-header > span { flex: 1; }
 
 /* View Mode Switcher */
 .view-mode-bar {
     display: flex;
     gap: 2px;
-    padding: 4px 8px;
+    padding: 4px 10px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
 }
@@ -531,7 +535,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
 .thumbnail-list {
     flex: 1;
     overflow-y: auto;
-    padding: 8px;
+    padding: 10px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -686,11 +690,11 @@ body.toolbar-collapsed .toolbar-toggle svg {
 }
 
 .thumbnail-item.drag-over-top {
-    border-top: 3px solid var(--accent);
+    border-top: 2px solid var(--accent);
 }
 
 .thumbnail-item.drag-over-bottom {
-    border-bottom: 3px solid var(--accent);
+    border-bottom: 2px solid var(--accent);
 }
 
 .thumbnail-item:active {
@@ -1340,7 +1344,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
     background: var(--bg-primary);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: calc(var(--radius) - 3px);
     padding: 5px 8px;
     font-size: 13px;
     outline: none;
@@ -1412,7 +1416,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
     background: var(--bg-primary);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius);
     padding: 8px 10px;
     font-size: 14px;
     outline: none;
@@ -1886,6 +1890,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
    ============================ */
 .dropdown-group-label {
     padding: 4px 14px 2px;
+    margin-top: 4px;
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -2024,7 +2029,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin-bottom: 4px;
+    margin-bottom: 8px;
 }
 
 .ai-edit-preview {
@@ -2312,7 +2317,6 @@ html[data-theme="light"] {
 /* Status bar: subtle top divider + muted gradient */
 .status-bar {
     background: linear-gradient(180deg, var(--bg-primary), var(--bg-secondary));
-    border-top: 1px solid var(--border);
 }
 
 /* Sidebar depth */
@@ -2343,7 +2347,7 @@ html[data-theme="light"] {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 6px 14px;
+    padding: 8px 14px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
@@ -2378,7 +2382,7 @@ html[data-theme="light"] {
     text-transform: uppercase;
     letter-spacing: 0.8px;
     color: var(--text-secondary);
-    padding: 0 8px 10px;
+    padding: 0 10px 10px;
 }
 .adobe-tool-item {
     display: flex;
@@ -2386,7 +2390,7 @@ html[data-theme="light"] {
     gap: 10px;
     width: 100%;
     padding: 9px 10px;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
     border: none;
     border-radius: 10px;
     background: transparent;
@@ -2396,7 +2400,9 @@ html[data-theme="light"] {
     font-family: inherit;
 }
 .adobe-tool-item:hover { background: var(--bg-hover); }
-.adobe-tool-item.active { background: var(--bg-tertiary); outline: 1.5px solid var(--accent); }
+/* Inset ring follows the 10px radius and stays inside the box, unlike a square
+   outline that clipped the corners and could touch the panel edge. */
+.adobe-tool-item.active { background: var(--bg-tertiary); box-shadow: inset 0 0 0 1.5px var(--accent); }
 .adobe-tool-ic {
     display: inline-flex;
     align-items: center;
@@ -2407,10 +2413,11 @@ html[data-theme="light"] {
     flex-shrink: 0;
 }
 .adobe-tool-tx { min-width: 0; display: block; }
-.adobe-tool-tx b { display: block; font-size: 12.5px; font-weight: 700; }
+.adobe-tool-tx b { display: block; font-size: 12.5px; font-weight: 700; line-height: 1.3; }
 .adobe-tool-tx small {
     display: block;
     font-size: 10.5px;
+    line-height: 1.3;
     color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
@@ -2420,6 +2427,8 @@ html[data-theme="light"] {
     .adobe-tools-panel { width: 64px; }
     .adobe-tool-tx { display: none; }
     .adobe-tools-head { display: none; }
+    /* Center the icon in the collapsed rail (no text beside it). */
+    .adobe-tool-item { justify-content: center; padding: 9px; }
 }
 
 /* ── Floating page bar (Acrobat-style pill over the document) ───────────── */
@@ -2436,7 +2445,6 @@ html[data-theme="light"] {
     border-radius: 999px;
     background: var(--bg-secondary);
     box-shadow: 0 6px 24px rgba(0,0,0,0.45);
-    border-bottom: 1px solid var(--border);
 }
 .page-nav .nav-btn {
     border: none;
@@ -2455,7 +2463,7 @@ html[data-theme="light"] {
 .page-nav .nav-btn:hover { background: var(--bg-hover); }
 .page-nav .page-info { gap: 5px; padding: 0 6px; }
 .page-nav .page-info .page-sep { color: var(--text-secondary); font-size: 12px; }
-.page-nav #pageInput { border: 1px solid transparent; background: var(--bg-tertiary); border-radius: 7px; }
+.page-nav #pageInput { border: 1px solid transparent; background: var(--bg-tertiary); border-radius: 7px; height: 30px; padding: 0 4px; }
 .page-nav .zoom-controls {
     margin-left: 0;
     gap: 2px;
@@ -2517,7 +2525,7 @@ html[data-theme="light"] {
 .thumbnail-list.view-icons {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    gap: 10px;
     padding: 10px;
     align-content: start;
 }
@@ -2628,6 +2636,9 @@ html[data-theme="light"] {
 
 /* ── Professional top bar ────────────────────────────────────────────────── */
 .toolbar {
+    /* height:auto lets min-height:52px take effect - the base rule sets a fixed
+       46px height that otherwise squeezes the buttons against the edges. */
+    height: auto;
     min-height: 52px;
     padding: 0 14px;
     background: linear-gradient(180deg, var(--bg-secondary), color-mix(in srgb, var(--bg-secondary) 92%, #000));
@@ -2653,7 +2664,7 @@ html[data-theme="light"] {
     border: 1px solid var(--border);
     background: var(--bg-tertiary);
     width: 32px;
-    height: 30px;
+    height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2694,7 +2705,7 @@ html[data-theme="light"] {
     border: 1px solid transparent;
     border-radius: 8px;
     width: 34px;
-    height: 30px;
+    height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2935,16 +2946,17 @@ html[data-theme="light"] {
     box-shadow: 0 4px 12px rgba(0,0,0,0.12);
     transition: transform 0.18s cubic-bezier(.2,.7,.3,1), box-shadow 0.18s;
 }
-.welcome-card-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.welcome-card-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .welcome-card-tx { font-size: 14px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; line-height: 1.2; }
 .welcome-card-desc { font-size: 11.5px; color: var(--text-secondary); line-height: 1.3; }
 .welcome-card-caret { font-size: 10px; opacity: 0.5; }
 
 /* Stack the two panels on narrow widths (phones, split editor) */
 @media (max-width: 860px) {
-    .welcome-shell { grid-template-columns: 1fr; }
-    .welcome-drop { padding: 26px 18px; }
-    .welcome-drop-ic { width: 64px; height: 64px; }
+    /* .welcome-shell is already a flex column, so grid-template-columns was a
+       no-op - removed. Keep the drop/icon sizes in step with the tightened base. */
+    .welcome-drop { padding: 14px 18px; }
+    .welcome-drop-ic { width: 52px; height: 52px; }
 }
 /* When the whole landing is cramped (narrow iframe / phone), one card per row. */
 @media (max-width: 560px) {
@@ -3040,8 +3052,8 @@ html[data-theme="light"] {
 .stamp-date-row {
     display: flex;
     align-items: center;
-    gap: 7px;
-    padding: 7px 14px;
+    gap: 8px;
+    padding: 8px 14px;
     font-size: 12px;
     color: var(--text-primary);
     cursor: pointer;
