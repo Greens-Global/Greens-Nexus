@@ -955,7 +955,12 @@
   const left = $('.toolbar-left'), center = $('.toolbar-center'), right = $('.toolbar-right');
   // Undo/Redo live on the RIGHT, next to Save — that's where the user's eyes
   // are while editing (they were easy to miss tucked in the far-left corner).
-  const keepRight = [el('#selectTool'), el('#searchToggle'),
+  // Select is NOT surfaced on the right (Pranshu) - it stays available via the
+  // main tool row / keyboard, but the top-right cursor button is hidden. The
+  // element remains in the DOM so app.js's listeners and setActiveTool('select')
+  // resets keep working.
+  const selBtn = el('#selectTool'); if (selBtn) selBtn.style.display = 'none';
+  const keepRight = [el('#searchToggle'),
                      ...(IN_PORTAL ? [] : [el('#themeToggle')]), el('#undoBtn'), el('#redoBtn')];
   if (IN_PORTAL) { const tt = el('#themeToggle'); if (tt) tt.style.display = 'none'; }
   for (const b of keepRight) if (b) right.appendChild(b);
@@ -1211,7 +1216,9 @@
       if (sbh) sbh.style.display = name ? '' : 'none';
       // Top bar on the landing page: only Recent files + Theme are meaningful.
       // Open duplicates the "Open PDF" card; the rest need a document.
-      for (const s of ['#openFileBtn', '#selectTool', '#searchToggle', '#undoBtn', '#redoBtn', '#downloadBtn', '#printBtn']) {
+      // Note: #selectTool is intentionally omitted - it stays hidden (Pranshu);
+      // its listeners still work, it's just never surfaced in the top bar.
+      for (const s of ['#openFileBtn', '#searchToggle', '#undoBtn', '#redoBtn', '#downloadBtn', '#printBtn']) {
         const n = el(s); if (n) n.style.display = name ? 'inline-flex' : 'none';
       }
       // In the portal, hide the whole top bar on the landing state (the tool
