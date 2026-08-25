@@ -25,7 +25,23 @@ class Task(Base):
     # creation order, the same order they've always shown in.
     position          = Column(Float, default=0.0, index=True)
     priority          = Column(String, default="medium")   # low|medium|high|urgent
-    assignee_email    = Column(String, default="", index=True)
+    # A task can be assigned to SEVERAL people (Sagar, Aug 2026). There is one
+    # task row and one `completed` flag, so whoever finishes it finishes it for
+    # everyone - that was always true, and is why this is a list on the task
+    # rather than a copy of the task per person.
+    #
+    # `assignee_emails` is the source of truth. `assignee_email` is kept as a
+    # PRIMARY MIRROR of assignee_emails[0] - the same shape TaskTeam.project_id
+    # already mirrors project_ids[0], and for the same reason: dozens of call
+    # sites (exports, dashboards, the daily briefing, the Asana sync) read the
+    # single column, and every one keeps working against the primary instead of
+    # all having to be found and rewritten at once.
+    #
+    # Anything asking "is this person on this task" must go through
+    # task_util.task_assignees(); every write must go through
+    # task_util.set_task_assignees() so the two can never drift.
+    assignee_email    = Column(String, default="", index=True)   # mirror of assignee_emails[0]
+    assignee_emails   = Column(JSON, default=list)
     owner_email       = Column(String, default="", index=True)
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)

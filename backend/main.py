@@ -140,6 +140,13 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN description VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN type VARCHAR DEFAULT 'task'",
             "ALTER TABLE tasks ADD COLUMN assignee_email VARCHAR DEFAULT ''",
+            # Multi-assignee (Aug 2026). Backfilled from the single column so
+            # existing tasks keep exactly the one assignee they already have;
+            # the guard makes it idempotent, since this list runs every boot.
+            "ALTER TABLE tasks ADD COLUMN assignee_emails JSON DEFAULT '[]'",
+            "UPDATE tasks SET assignee_emails = json_array(assignee_email) "
+            "WHERE COALESCE(assignee_email, '') <> '' "
+            "AND (assignee_emails IS NULL OR assignee_emails = '[]')",
             "ALTER TABLE tasks ADD COLUMN owner_email VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN follower_emails JSON DEFAULT '[]'",
             "ALTER TABLE tasks ADD COLUMN liked_by_emails JSON DEFAULT '[]'",
@@ -758,6 +765,12 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'task'",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_email TEXT DEFAULT ''",
+        # Multi-assignee (Aug 2026) - see the matching sqlite lines above for why
+        # the backfill is guarded rather than unconditional.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_emails JSONB DEFAULT '[]'::jsonb",
+        "UPDATE tasks SET assignee_emails = to_jsonb(ARRAY[assignee_email]) "
+        "WHERE COALESCE(assignee_email, '') <> '' "
+        "AND (assignee_emails IS NULL OR assignee_emails = '[]'::jsonb)",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner_email TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS follower_emails JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS liked_by_emails JSONB DEFAULT '[]'::jsonb",
