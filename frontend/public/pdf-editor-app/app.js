@@ -7088,18 +7088,32 @@
             const baseName = file.name.replace(/\.pdf$/i, '');
             const L = await encLib();
 
-            if (wasEncrypted) {
-                // UNLOCK: get the decrypted bytes from pdf.js and re-save with no
-                // encryption -> a clean copy that opens with no password.
-                setStatus('Removing password...');
-                const dec = pdf.saveDocument ? await pdf.saveDocument() : new Uint8Array(buf);
+            // A restriction-locked PDF (owner password + permissions, no open-
+            // password) OPENS without a prompt, so wasEncrypted stays false - but
+            // it IS encrypted and should be UNLOCKED, not offered a lock. Detect
+            // that: load with pdf-lib and check isEncrypted.
+            let restrictionLocked = false;
+            if (!wasEncrypted) {
+                try {
+                    const probe = await L.PDFDocument.load(new Uint8Array(buf), { ignoreEncryption: true });
+                    restrictionLocked = !!probe.isEncrypted;
+                } catch (_) { restrictionLocked = false; }
+            }
+
+            if (wasEncrypted || restrictionLocked) {
+                // UNLOCK: get the decrypted/unrestricted bytes and re-save with no
+                // encryption -> a clean copy with the password/restrictions gone.
+                setStatus('Removing lock...');
+                const dec = (wasEncrypted && pdf.saveDocument) ? await pdf.saveDocument() : new Uint8Array(buf);
                 const doc = await L.PDFDocument.load(dec, { ignoreEncryption: true });
                 const bytes = await doc.save();
 
                 // Ask what to do with the unlocked file (Pranshu): open it in the
                 // editor to work on it, or just download the unlocked copy.
+                const removedWhat = wasEncrypted ? 'The password has been removed.'
+                                                 : 'The restrictions have been removed.';
                 const choice = await _choiceModal('PDF unlocked',
-                    'The password has been removed. What would you like to do?', [
+                    removedWhat + ' What would you like to do?', [
                         { key: 'edit',     label: 'Open in editor' },
                         { key: 'download', label: 'Download unlocked copy' },
                     ]);
@@ -7110,29 +7124,47 @@
                 } else if (choice === 'download') {
                     _downloadBytes(bytes, baseName + '_unlocked.pdf');
                     setStatus('Saved unlocked PDF');
-                    showToast('Password removed - saved an unlocked copy');
+                    showToast(wasEncrypted ? 'Password removed - saved an unlocked copy'
+                                           : 'Restrictions removed - saved an unlocked copy');
                 } else {
                     setStatus('Ready'); // cancelled
                 }
             } else {
-                // Not encrypted: offer to LOCK it (add a password).
+                // Not encrypted: LOCK it with RESTRICTIONS only (owner password +
+                // permissions), NOT an open-password. The file still OPENS for
+                // anyone to view, but printing/copying/editing are blocked - and
+                // crucially, Unlock can strip that WITHOUT needing any password
+                // (unlike a userPassword, which truly encrypts the content and
+                // could never be removed without it).
                 const v = await _toolModal('Lock this PDF', `
-                    <label class="modal-label">Password to OPEN the file:</label>
-                    <input type="password" class="modal-input" data-k="user" placeholder="choose a password">
-                    <label class="modal-label" style="margin-top:8px;">Confirm password:</label>
-                    <input type="password" class="modal-input" data-k="confirm" placeholder="re-type it">
-                    <p class="modal-hint" style="margin-top:8px;color:#e07300;">If the password is lost, NO app can open the file - not even this one. Store it safely.</p>`,
+                    <p class="modal-hint" style="margin:0 0 10px;">Restrict what people can do with this PDF. The file still opens for viewing - no password needed to open it - but the chosen actions are blocked. You can remove these restrictions later with Unlock (no password required).</p>
+                    <label class="modal-label">Restrict:</label>
+                    <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noPrint" checked><span>No printing</span></label>
+                    <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noCopy" checked><span>No copying text</span></label>
+                    <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noModify" checked><span>No editing</span></label>`,
                     'Lock & Save');
                 if (!v) { setStatus('Ready'); return; }
-                if (!v.user) { showToast('Enter a password to lock the file'); return; }
-                if (v.user !== v.confirm) { showToast('Passwords do not match'); return; }
+                if (!v.noPrint && !v.noCopy && !v.noModify) { showToast('Pick at least one restriction'); return; }
                 setStatus('Locking...');
                 const doc = await L.PDFDocument.load(new Uint8Array(buf), { ignoreEncryption: true });
-                doc.encrypt({ userPassword: v.user, ownerPassword: v.user });
+                // Owner password is internal-only (never shown) - it just backs the
+                // permission flags. No userPassword => the file opens freely.
+                doc.encrypt({
+                    ownerPassword: 'greens-nexus-lock',
+                    permissions: {
+                        printing: v.noPrint ? false : 'highResolution',
+                        copying: v.noCopy ? false : true,
+                        modifying: v.noModify ? false : true,
+                        annotating: v.noModify ? false : true,
+                        fillingForms: v.noModify ? false : true,
+                        contentAccessibility: true,
+                        documentAssembly: v.noModify ? false : true,
+                    },
+                });
                 const bytes = await doc.save();
                 _downloadBytes(bytes, baseName + '_locked.pdf');
-                setStatus('Saved locked PDF');
-                showToast('Password added - saved a locked copy');
+                setStatus('Saved restricted PDF');
+                showToast('Restrictions added - the file still opens for viewing');
             }
         } catch (err) {
             console.error(err);
