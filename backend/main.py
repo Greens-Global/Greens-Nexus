@@ -1,4 +1,6 @@
 import os
+import re
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 # Must run before any router import: routers/tasks.py (imported below) pulls in
 # auth.py, whose SKIP_AUTH is read once at module-import time via os.getenv().
@@ -1205,6 +1207,8 @@ def _run_migrations():
             except Exception as e:
                 conn.rollback()
                 print(f"[migration] skipped: {e}")
+        _measure_slot_pressure(conn)
+        _rebuild_slot_exhausted_tables(conn)
         _verify_model_columns(conn)
         _enable_rls_everywhere(conn)
 
@@ -1218,6 +1222,118 @@ SCHEMA_GAPS: list[str] = []
 # 1600-attribute limit, a type the dialect will not render) is what actually
 # tells you where to look.
 SCHEMA_GAP_REASONS: dict[str, str] = {}
+# {table: {"live": n, "used": n, "limit": 1600}} for tables burning through
+# Postgres's per-table attribute slots. A table only ever gets closer to that
+# ceiling, and hitting it breaks every query against it at once, so the useful
+# time to see the number is long before it matters.
+SLOT_PRESSURE: dict[str, dict] = {}
+
+
+def _measure_slot_pressure(conn):
+    """Attribute-slot usage per table, for anything past a quarter of the limit.
+
+    Postgres allows 1600 attributes per table and counts DROPPED columns
+    forever - no VACUUM reclaims them. A table that churns columns therefore
+    creeps toward a hard ceiling, and the failure when it arrives is total and
+    silent: every query on it 500s while the app stays healthy everywhere else.
+
+    `tasks` reached it (Aug 2026) and took the whole Task module down. This
+    exists so the next one is a number somebody can look at rather than an
+    outage. Cheap - one grouped scan of pg_attribute at boot."""
+    SLOT_PRESSURE.clear()
+    if DATABASE_URL.startswith("sqlite"):
+        return                                   # no such limit, and no pg_attribute
+    try:
+        rows = conn.execute(text(
+            "SELECT c.relname, "
+            "       count(*) FILTER (WHERE NOT a.attisdropped) AS live, "
+            "       count(*) AS used "
+            "FROM pg_class c "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 "
+            "WHERE n.nspname = 'public' AND c.relkind = 'r' "
+            "GROUP BY c.relname HAVING count(*) > 400 "
+            "ORDER BY count(*) DESC"
+        )).fetchall()
+    except Exception as e:                       # noqa: BLE001 - never block boot
+        conn.rollback()
+        print(f"[schema] slot-pressure scan skipped: {e}")
+        return
+    for name, live, used in rows:
+        SLOT_PRESSURE[name] = {"live": live, "used": used, "limit": 1600}
+        print(f"[schema] *** {name}: {used}/1600 attribute slots used ({live} live columns). "
+              f"At 1600 it will refuse every new column and break every query on it.")
+
+
+def _rebuild_slot_exhausted_tables(conn):
+    """Reclaim attribute slots on a table that has hit Postgres's 1600-column
+    limit, by rewriting it. OFF unless NEXUS_REBUILD_TABLES names the table.
+
+    Postgres never reuses a dropped column's attnum. VACUUM does not reclaim
+    it; VACUUM FULL does not either. A table that has accumulated 1600 of them
+    - see the tasks.department_id add/drop-every-boot bug this codebase hit
+    twice - refuses EVERY new column from then on, permanently. The only cure
+    is to build a new table and move the rows, which gives fresh attnums.
+
+    That is a data-bearing operation, so it is deliberately opt-in and built so
+    the bad outcomes cannot happen:
+
+      * OFF by default. Set NEXUS_REBUILD_TABLES=tasks on the app, restart once,
+        then remove it. Nothing happens on any deployment that has not asked.
+      * It refuses to run on a healthy table. The slot count must be over 1000
+        (a normal table here has under 60), so a typo cannot rewrite something
+        that was fine.
+      * NOTHING IS DROPPED. The old table is RENAMED aside and kept, so the
+        original rows survive even after a successful run. Drop it by hand
+        once you are satisfied.
+      * One transaction, with the row counts compared before the swap. Postgres
+        DDL is transactional, so any failure - a mismatch, a dependent view, a
+        permission - rolls the whole thing back and leaves the table untouched.
+
+    Runs before _verify_model_columns, so the columns that could not be added
+    are added to the rebuilt table in this same boot.
+    """
+    wanted = [t.strip() for t in os.getenv("NEXUS_REBUILD_TABLES", "").split(",") if t.strip()]
+    if not wanted or DATABASE_URL.startswith("sqlite"):
+        return
+    for table in wanted:
+        if not re.fullmatch(r"[a-z_][a-z0-9_]*", table):
+            print(f"[rebuild] refusing suspicious table name {table!r}")
+            continue
+        try:
+            live, slots = conn.execute(text(
+                "SELECT count(*) FILTER (WHERE NOT attisdropped), count(*) "
+                "FROM pg_attribute WHERE attrelid = :t::regclass AND attnum > 0"
+            ), {"t": table}).fetchone()
+        except Exception as e:                       # noqa: BLE001
+            conn.rollback()
+            print(f"[rebuild] {table}: cannot read attribute slots: {e}")
+            continue
+
+        print(f"[rebuild] {table}: {live} live column(s), {slots} attribute slot(s) used of 1600")
+        if slots <= 1000:
+            print(f"[rebuild] {table}: not slot-exhausted, nothing to do")
+            continue
+
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        new, kept = f"{table}__rebuild_{stamp}", f"{table}__slotfull_{stamp}"
+        try:
+            conn.execute(text(f'CREATE TABLE "{new}" (LIKE "{table}" INCLUDING ALL)'))
+            conn.execute(text(f'INSERT INTO "{new}" SELECT * FROM "{table}"'))
+            before = conn.execute(text(f'SELECT count(*) FROM "{table}"')).scalar()
+            after = conn.execute(text(f'SELECT count(*) FROM "{new}"')).scalar()
+            if before != after:
+                raise RuntimeError(f"row count mismatch: {table}={before}, rebuilt={after}")
+            # Rename, never drop - the original rows stay on disk under `kept`.
+            conn.execute(text(f'ALTER TABLE "{table}" RENAME TO "{kept}"'))
+            conn.execute(text(f'ALTER TABLE "{new}" RENAME TO "{table}"'))
+            conn.commit()
+            print(f"[rebuild] {table}: rebuilt with {after} row(s); the previous table is kept "
+                  f"as {kept} - drop it by hand once you have checked it, and remove "
+                  f"NEXUS_REBUILD_TABLES so this does not run again")
+        except Exception as e:                       # noqa: BLE001
+            conn.rollback()
+            print(f"[rebuild] {table}: FAILED, nothing changed: {e}")
 
 
 def _verify_model_columns(conn):
@@ -1695,7 +1811,11 @@ def health_schema():
     module being broken. This reports; a human decides.
     """
     return {"ok": not SCHEMA_GAPS, "missingColumns": list(SCHEMA_GAPS),
-            "reasons": dict(SCHEMA_GAP_REASONS)}
+            "reasons": dict(SCHEMA_GAP_REASONS),
+            # Tables past a quarter of Postgres's 1600-attribute ceiling. Empty
+            # is the healthy answer; anything listed is on its way to the same
+            # total outage `tasks` hit.
+            "slotPressure": dict(SLOT_PRESSURE)}
 
 
 @app.get("/health/leader")
