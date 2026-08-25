@@ -7056,51 +7056,50 @@
     }
 
     async function lockUnlockPdfFile() {
+        // Ask UPFRONT what the user wants - Lock or Unlock - one button, like
+        // Word<->PDF (Pranshu). No silent auto-detection guesswork.
+        const mode = await _choiceModal('Unlock / Lock PDF',
+            'What would you like to do?', [
+                { key: 'unlock', label: 'Unlock a PDF (remove lock/restrictions)' },
+                { key: 'lock',   label: 'Lock a PDF (restrict actions)' },
+            ]);
+        if (!mode) return;
+
         const file = await _pickPdfFile();
-        if (!file) return;
+        if (!file) { setStatus('Ready'); return; }
         setStatus('Reading PDF...');
         try {
             const buf = await file.arrayBuffer();
-
-            // Detect encryption by trying to open with pdf.js. If it throws a
-            // PasswordException, ask for the password (up to 3 tries).
-            let pdf = null, password = null, wasEncrypted = false;
-            for (let attempt = 0; ; attempt++) {
-                try {
-                    pdf = await pdfjsLib.getDocument({
-                        data: buf.slice(0),
-                        ...(password ? { password } : {}),
-                    }).promise;
-                    break;
-                } catch (err) {
-                    if (err && err.name === 'PasswordException' && attempt < 3) {
-                        wasEncrypted = true;
-                        password = await customPrompt(
-                            attempt === 0 ? 'This PDF is locked. Enter its password to unlock:'
-                                          : 'Wrong password - try again:', 'Password');
-                        if (!password) { setStatus('Cancelled'); return; }
-                        continue;
-                    }
-                    throw err;
-                }
-            }
-
             const baseName = file.name.replace(/\.pdf$/i, '');
             const L = await encLib();
 
-            // A restriction-locked PDF (owner password + permissions, no open-
-            // password) OPENS without a prompt, so wasEncrypted stays false - but
-            // it IS encrypted and should be UNLOCKED, not offered a lock. Detect
-            // that: load with pdf-lib and check isEncrypted.
-            let restrictionLocked = false;
-            if (!wasEncrypted) {
-                try {
-                    const probe = await L.PDFDocument.load(new Uint8Array(buf), { ignoreEncryption: true });
-                    restrictionLocked = !!probe.isEncrypted;
-                } catch (_) { restrictionLocked = false; }
+            // Was the file protected with an open-password? Only relevant when
+            // unlocking - try to open with pdf.js; a PasswordException means a
+            // real open-password we must ask for.
+            let pdf = null, password = null, wasEncrypted = false;
+            if (mode === 'unlock') {
+                for (let attempt = 0; ; attempt++) {
+                    try {
+                        pdf = await pdfjsLib.getDocument({
+                            data: buf.slice(0),
+                            ...(password ? { password } : {}),
+                        }).promise;
+                        break;
+                    } catch (err) {
+                        if (err && err.name === 'PasswordException' && attempt < 3) {
+                            wasEncrypted = true;
+                            password = await customPrompt(
+                                attempt === 0 ? 'This PDF has an open-password. Enter it to unlock:'
+                                              : 'Wrong password - try again:', 'Password');
+                            if (!password) { setStatus('Cancelled'); return; }
+                            continue;
+                        }
+                        throw err;
+                    }
+                }
             }
 
-            if (wasEncrypted || restrictionLocked) {
+            if (mode === 'unlock') {
                 // UNLOCK: get the decrypted/unrestricted bytes and re-save with no
                 // encryption -> a clean copy with the password/restrictions gone.
                 setStatus('Removing lock...');
@@ -7134,13 +7133,13 @@
                 } else {
                     setStatus('Ready'); // cancelled
                 }
-            } else {
-                // Not encrypted: LOCK it with RESTRICTIONS only (owner password +
-                // permissions), NOT an open-password. The file still OPENS for
-                // anyone to view, but printing/copying/editing are blocked - and
-                // crucially, Unlock can strip that WITHOUT needing any password
-                // (unlike a userPassword, which truly encrypts the content and
-                // could never be removed without it).
+            } else {  // mode === 'lock'
+                // LOCK with RESTRICTIONS only (owner password + permissions), NOT
+                // an open-password. The file still OPENS for anyone to view, but
+                // printing/copying/editing are blocked - and crucially, Unlock can
+                // strip that WITHOUT needing any password (unlike a userPassword,
+                // which truly encrypts the content and could never be removed
+                // without it).
                 const v = await _toolModal('Lock this PDF', `
                     <p class="modal-hint" style="margin:0 0 10px;">Restrict what people can do with this PDF. The file still opens for viewing - no password needed to open it - but the chosen actions are blocked. You can remove these restrictions later with Unlock (no password required).</p>
                     <label class="modal-label">Restrict:</label>
