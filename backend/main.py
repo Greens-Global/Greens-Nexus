@@ -1201,6 +1201,11 @@ def _run_migrations():
 # and the repair pass below. Read by /health/schema so this is diagnosable from
 # outside the box, with no DB credentials and no log access.
 SCHEMA_GAPS: list[str] = []
+# {column: why the repair was refused} - the reason is the whole point. Knowing
+# a column is missing narrows it to a table; knowing WHY (no privilege, the
+# 1600-attribute limit, a type the dialect will not render) is what actually
+# tells you where to look.
+SCHEMA_GAP_REASONS: dict[str, str] = {}
 
 
 def _verify_model_columns(conn):
@@ -1222,6 +1227,7 @@ def _verify_model_columns(conn):
     """
     from sqlalchemy import inspect as sa_inspect
     SCHEMA_GAPS.clear()
+    SCHEMA_GAP_REASONS.clear()
     try:
         insp = sa_inspect(conn)
         present = {t: {c["name"] for c in insp.get_columns(t)} for t in insp.get_table_names()}
@@ -1251,7 +1257,13 @@ def _verify_model_columns(conn):
                 print(f"[schema] repaired missing column {table.name}.{col.name} ({coltype})")
             except Exception as e:               # noqa: BLE001
                 conn.rollback()
-                SCHEMA_GAPS.append(f"{table.name}.{col.name}")
+                key = f"{table.name}.{col.name}"
+                SCHEMA_GAPS.append(key)
+                # First line only, capped: a DDL refusal ("must be owner",
+                # "at most 1600 columns") is operational, not secret - but the
+                # readout is unauthenticated, so it never carries more than the
+                # sentence that names the cause.
+                SCHEMA_GAP_REASONS[key] = str(e).strip().splitlines()[0][:200]
                 # LOUD on purpose - this is the line that would have named the
                 # tasks outage in one look instead of a day of guessing.
                 print(f"[schema] *** MISSING COLUMN {table.name}.{col.name} - "
@@ -1670,7 +1682,8 @@ def health_schema():
     take the whole site down over one broken module, which is worse than the
     module being broken. This reports; a human decides.
     """
-    return {"ok": not SCHEMA_GAPS, "missingColumns": list(SCHEMA_GAPS)}
+    return {"ok": not SCHEMA_GAPS, "missingColumns": list(SCHEMA_GAPS),
+            "reasons": dict(SCHEMA_GAP_REASONS)}
 
 
 @app.get("/health/leader")
