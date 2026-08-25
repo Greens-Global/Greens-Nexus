@@ -871,22 +871,6 @@
     const leftCol = document.createElement('div');
     leftCol.className = 'welcome-left';
 
-    // "Edit" button ABOVE the dropzone card (Neil, Aug 2026): editing is started
-    // right from the drop area, so there's no separate Edit PDF tile. Sits
-    // outside the dashed card, aligned to its top-left.
-    const editBtn = document.createElement('button');
-    editBtn.type = 'button';
-    editBtn.className = 'welcome-edit-btn';
-    editBtn.title = 'Open a PDF and start editing';
-    editBtn.innerHTML =
-      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="M15 5l4 4"/></svg>' +
-      '<span>Assemble</span>';
-    editBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      pickPdfThen(() => revealTool('edit', '#textTool'));
-    });
-    leftCol.appendChild(editBtn);
-
     const drop = document.createElement('button');
     drop.className = 'welcome-drop';
     drop.type = 'button';
