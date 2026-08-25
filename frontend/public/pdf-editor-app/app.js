@@ -1205,11 +1205,16 @@
                     const tx = item.transform;
                     const [vx, vy] = viewport.convertToViewportPoint(tx[4], tx[5]);
 
-                    // tx[3] is the font size in PDF user-space units.
-                    // Multiplied by zoom → exact font size in display pixels.
-                    // Keep it fractional (no rounding) so the edited text matches the
-                    // original size precisely and exports back at the exact point size.
-                    const fontSizePx = Math.max(Math.abs(tx[3]) * state.zoom, 6);
+                    // Font size in PDF user-space units. Use the full vertical
+                    // scale of the text matrix - hypot(tx[1], tx[3]) - NOT tx[3]
+                    // alone: when the matrix carries any skew/scale (common), tx[3]
+                    // under-reports and the edit box came up SMALLER than the
+                    // original glyphs, so double-click appeared to shrink the word
+                    // (Pranshu). This matches how search highlights measure size.
+                    // Multiplied by zoom -> exact size in display pixels, kept
+                    // fractional so the edit matches and exports at the true size.
+                    const fontUnits = Math.hypot(tx[1] || 0, tx[3] || 0) || Math.abs(tx[3]);
+                    const fontSizePx = Math.max(fontUnits * state.zoom, 6);
 
                     // Hit-detection box: use item.height (line height) when available for
                     // a generous clickable area, but fall back to fontSizePx.

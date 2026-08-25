@@ -1481,20 +1481,21 @@ body.toolbar-collapsed .toolbar-toggle svg {
    ============================ */
 .search-highlight {
     position: absolute;
-    /* Faint fill so the text stays fully readable, with a clear thin border
-       so the match is still easy to spot. */
-    background: rgba(255, 235, 59, 0.22);
-    border: 1px solid rgba(255, 193, 7, 0.7);
+    /* Clear yellow fill so matches are obvious at a glance (Pranshu: matches
+       were barely visible). mix-blend keeps the underlying text readable. */
+    background: rgba(255, 214, 0, 0.5);
+    border: 1px solid rgba(240, 170, 0, 0.85);
     border-radius: 3px;
+    mix-blend-mode: multiply;
     pointer-events: none;
     z-index: 50;
 }
 
 .search-highlight.active {
-    /* Current match: a touch stronger + orange border so it stands out from
-       the other matches, but still light enough to read through. */
-    background: rgba(255, 152, 0, 0.28);
-    border-color: rgba(255, 138, 0, 0.9);
+    /* Current match: strong orange so it clearly stands out from the rest. */
+    background: rgba(255, 145, 0, 0.6);
+    border-color: rgba(230, 110, 0, 1);
+    box-shadow: 0 0 0 2px rgba(255, 145, 0, 0.35);
 }
 
 /* ============================
@@ -2854,12 +2855,25 @@ html[data-theme="light"] {
 }
 
 .welcome-drop-hint {
-    margin: 12px 0 0;
+    margin: 12px auto 0;
     font-size: 12.5px;
     color: var(--text-secondary);
     opacity: 0.7;
-    max-width: none;
-    white-space: nowrap;
+    /* Let the long hint wrap into a tidy centered block instead of one nowrap
+       line that overflowed the dashed card on narrow screens (audit finding). */
+    max-width: 44ch;
+    text-align: center;
+    line-height: 1.4;
+}
+
+/* Keyboard focus rings - the landing buttons had only the near-invisible UA
+   default against their tinted backgrounds (audit finding). Purely additive. */
+.welcome-card:focus-visible,
+.welcome-drop:focus-visible,
+.welcome-edit-btn:focus-visible,
+.welcome-dir-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
 }
 
 .welcome-drop:hover,
