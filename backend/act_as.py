@@ -136,7 +136,13 @@ def eligible_targets(user: dict = Depends(_act_as_gate), db: Session = Depends(g
         role = role_row.role if role_row else "employee"
         if _LEVELS.get(role, 1) >= user["level"]:
             continue
-        out.append({"email": email, "name": _display_name(email, e.display_name or "")})
+        # display_name is only ever populated for internal accounts (refreshed
+        # by sync-m365); external/guest users never get one, so fall back to
+        # their HR-record first/last name before deriving anything from the
+        # email - matches external_users.py's _serialize so the same person
+        # reads with the same name everywhere.
+        fallback = f"{e.first_name} {e.last_name}".strip()
+        out.append({"email": email, "name": _display_name(email, e.display_name or fallback)})
     return out
 
 
@@ -168,10 +174,18 @@ def start_session(body: StartIn, request: Request,
     db.add(row)
     db.commit()
 
+    # target_row (nexus_roles) only ever gets display_name from Microsoft
+    # Graph, so it's empty for external/guest users - fall back to the HR
+    # record's first/last name (same fallback as eligible_targets and
+    # external_users.py's _serialize) instead of deriving from the email.
+    target_emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == target_email).first()
+    emp_fallback = f"{target_emp.first_name} {target_emp.last_name}".strip() if target_emp else ""
+    target_display = (target_row.display_name if target_row else "") or emp_fallback
+
     return {
         "session_id": row.id,
         "target_email": target_email,
-        "target_name": _display_name(target_email, target_row.display_name if target_row else ""),
+        "target_name": _display_name(target_email, target_display),
         "expires_at": row.expires_at,
     }
 
