@@ -764,6 +764,9 @@ export const api = {
   updateExternalUser:   (email, data) => req(`/external-users/${encodeURIComponent(email)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   resendExternalInvite: (email)       => req(`/external-users/${encodeURIComponent(email)}/invite`, { method: 'POST' }),
   removeExternalUser:   (email)       => req(`/external-users/${encodeURIComponent(email)}`, { method: 'DELETE' }),
+  // Staged release (Neil, Aug 25): test-first external accounts
+  externalTestCode:     (email)       => req(`/external-users/${encodeURIComponent(email)}/test-code`, { method: 'POST' }),
+  releaseExternalUser:  (email)       => req(`/external-users/${encodeURIComponent(email)}/release`, { method: 'POST' }),
 
   // Job Roles (Roles & Access redesign) - a job role is a group template with a tier
   getJobRoles:       ()                  => req('/jobroles'),

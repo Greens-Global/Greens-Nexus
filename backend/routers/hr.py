@@ -29,7 +29,10 @@ require_hr_comp_write = require_module_grant("hr_comp", "editor", bypass_level="
 router = APIRouter(prefix="/hr", tags=["hr"])
 
 _EMPLOYMENT_TYPES = ("full_time", "part_time", "contractor", "intern")
-_STATUSES         = ("onboarding", "active", "inactive", "offboarded")
+# 'staged' = an external/guest created for testing, not yet released (Neil,
+# Aug 25) - set/cleared only by the external-users staging flow, accepted here
+# so HR edits to a staged person's profile don't bounce on validation.
+_STATUSES         = ("onboarding", "active", "inactive", "offboarded", "staged")
 _IDENTITY_TYPES   = ("internal", "guest", "external")
 
 
