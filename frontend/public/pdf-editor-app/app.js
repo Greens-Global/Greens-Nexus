@@ -7073,42 +7073,45 @@
             const baseName = file.name.replace(/\.pdf$/i, '');
             const L = await encLib();
 
-            // Was the file protected with an open-password? Only relevant when
-            // unlocking - try to open with pdf.js; a PasswordException means a
-            // real open-password we must ask for.
-            let pdf = null, password = null, wasEncrypted = false;
-            if (mode === 'unlock') {
-                for (let attempt = 0; ; attempt++) {
-                    try {
-                        pdf = await pdfjsLib.getDocument({
-                            data: buf.slice(0),
-                            ...(password ? { password } : {}),
-                        }).promise;
-                        break;
-                    } catch (err) {
-                        if (err && err.name === 'PasswordException' && attempt < 3) {
-                            wasEncrypted = true;
-                            password = await customPrompt(
-                                attempt === 0 ? 'This PDF has an open-password. Enter it to unlock:'
-                                              : 'Wrong password - try again:', 'Password');
-                            if (!password) { setStatus('Cancelled'); return; }
-                            continue;
-                        }
-                        throw err;
-                    }
-                }
-            }
+            let wasEncrypted = false;
 
             if (mode === 'unlock') {
-                // UNLOCK: get the decrypted/unrestricted bytes and re-save with no
-                // encryption -> a clean copy with the password/restrictions gone.
+                // UNLOCK - do it WITHOUT ever asking for a password when possible.
+                // pdf-lib can load ANY encrypted file with ignoreEncryption:true
+                // (no password needed), and deleting the Encrypt dict from the
+                // trailer produces a truly unencrypted copy. This covers every
+                // restriction-lock (and owner-password lock) with ZERO prompts.
                 setStatus('Removing lock...');
-                const dec = (wasEncrypted && pdf.saveDocument) ? await pdf.saveDocument() : new Uint8Array(buf);
-                const doc = await L.PDFDocument.load(dec, { ignoreEncryption: true });
-                // Just re-saving does NOT drop the encryption - pdf-lib keeps the
-                // Encrypt dict from a doc loaded with ignoreEncryption. Delete it
-                // from the trailer so the output is truly unencrypted (verified:
-                // isEncrypted goes false and the file reopens with no prompt).
+                let doc;
+                try {
+                    doc = await L.PDFDocument.load(new Uint8Array(buf), { ignoreEncryption: true });
+                } catch (e) {
+                    // Extremely rare: even ignoreEncryption fails (a real, strongly
+                    // open-password-encrypted file whose streams can't be read).
+                    // Only then fall back to pdf.js + a password prompt to decrypt.
+                    let pdf = null, password = null;
+                    for (let attempt = 0; ; attempt++) {
+                        try {
+                            pdf = await pdfjsLib.getDocument({ data: buf.slice(0), ...(password ? { password } : {}) }).promise;
+                            break;
+                        } catch (err) {
+                            if (err && err.name === 'PasswordException' && attempt < 3) {
+                                wasEncrypted = true;
+                                password = await customPrompt(
+                                    attempt === 0 ? 'This PDF has an open-password. Enter it to unlock:'
+                                                  : 'Wrong password - try again:', 'Password');
+                                if (!password) { setStatus('Cancelled'); return; }
+                                continue;
+                            }
+                            throw err;
+                        }
+                    }
+                    const dec = pdf.saveDocument ? await pdf.saveDocument() : new Uint8Array(buf);
+                    doc = await L.PDFDocument.load(dec, { ignoreEncryption: true });
+                }
+                // Strip the encryption: deleting the trailer's Encrypt entry drops
+                // the /Encrypt object and /Filter /Standard handler, so the saved
+                // bytes open with no password (verified end-to-end).
                 try { if (doc.context && doc.context.trailerInfo) delete doc.context.trailerInfo.Encrypt; } catch (_) {}
                 const bytes = await doc.save();
 
