@@ -345,6 +345,12 @@ export default function TimeClock() {
 
   async function doPunch(kind) {
     if (busy) return;
+    // Role-flagged people (Neil, Aug 25: field workers who cannot type) skip
+    // every message prompt - the punch goes straight through.
+    if (status?.bodExempt) {
+      await actualPunch(kind);
+      return;
+    }
     // Login/break prompts come FIRST - the punch happens only after the message
     // is sent or explicitly acknowledged (see BodModal's ack-to-skip).
     // Every punch prompts for its message; the "already sent" checkbox lets a
@@ -469,6 +475,10 @@ export default function TimeClock() {
   const BREAK_ALLOWANCE_MIN = 60;
   const breakUsedMin = (breakData?.breakMin || 0) + gapBreakFromPunches(breakData?.punches) + (onBreak ? Math.floor(sinceSec / 60) : 0);
   const breakLeftMin = BREAK_ALLOWANCE_MIN - breakUsedMin;
+  // The 60-minute countdown framing is an India-policy concept. US hourly staff
+  // never see it (Neil, Aug 24: it reads as an entitlement and invites OT) -
+  // they get plain elapsed break time instead. Server decides via the OT rule.
+  const showAllowance = !!status?.breakCountdown;
 
   // ── Current pay period (the Clock tab's mini summary). The Time Sheet tab is the
   //    PayrollTimecard, which loads and paginates periods on its own. ────────────
@@ -568,10 +578,10 @@ export default function TimeClock() {
               /* Working: stopwatch dial, one sweep per hour of this session.
                  On break: arc = the 60m allowance draining (red once over). */
               <SessionRing seconds={sinceSec}
-                pct={onBreak ? breakUsedMin / BREAK_ALLOWANCE_MIN : (sinceSec % 3600) / 3600}
-                color={onBreak ? (breakLeftMin < 0 ? '#b91c1c' : '#b45309') : 'var(--wk-brand)'}
+                pct={onBreak && showAllowance ? breakUsedMin / BREAK_ALLOWANCE_MIN : (sinceSec % 3600) / 3600}
+                color={onBreak ? (showAllowance && breakLeftMin < 0 ? '#b91c1c' : '#b45309') : 'var(--wk-brand)'}
                 label={onBreak ? 'On Break' : 'This Session'}
-                sub={onBreak ? (breakLeftMin >= 0 ? `${breakLeftMin}m of 60m left` : `${-breakLeftMin}m over 60m`) : undefined} />
+                sub={onBreak && showAllowance ? (breakLeftMin >= 0 ? `${breakLeftMin}m of 60m left` : `${-breakLeftMin}m over 60m`) : undefined} />
             )}
             <div style={{ flex: 1, minWidth: 250, display: 'flex', flexDirection: 'column', gap: 11 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'wrap' }}>
@@ -590,12 +600,14 @@ export default function TimeClock() {
             {last && <div><GeoChip p={last} /></div>}
             {onBreak && (
               <div style={{ display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 10,
-                background: breakLeftMin < 0 ? 'hsla(var(--color-red),0.1)' : 'rgba(180,83,9,0.09)',
-                color: breakLeftMin < 0 ? 'hsl(var(--color-red))' : '#b45309', fontSize: 13, fontWeight: 700 }}>
+                background: showAllowance && breakLeftMin < 0 ? 'hsla(var(--color-red),0.1)' : 'rgba(180,83,9,0.09)',
+                color: showAllowance && breakLeftMin < 0 ? 'hsl(var(--color-red))' : '#b45309', fontSize: 13, fontWeight: 700 }}>
                 <Coffee size={14} />
-                {breakLeftMin >= 0
-                  ? `${breakLeftMin} min left of your 1h daily break`
-                  : `Break over by ${-breakLeftMin} min - over your 1h daily allowance`}
+                {!showAllowance
+                  ? `On break for ${breakUsedMin} min today`
+                  : breakLeftMin >= 0
+                    ? `${breakLeftMin} min left of your 1h daily break`
+                    : `Break over by ${-breakLeftMin} min - over your 1h daily allowance`}
               </div>
             )}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 3 }}>
@@ -641,7 +653,8 @@ export default function TimeClock() {
             <DayTimeline punches={todayData.punches} date={todayKey} />
             <div style={{ display: 'flex', gap: 26, marginTop: 18, flexWrap: 'wrap' }}>
               {[['Worked Today', fmtMin(todayData.workedMin), 'var(--ink)'],
-                ['Breaks', `${breakUsedMin} / 60m`, breakUsedMin > 60 ? 'hsl(var(--color-red))' : 'var(--ink)'],
+                ['Breaks', showAllowance ? `${breakUsedMin} / 60m` : `${breakUsedMin}m`,
+                  showAllowance && breakUsedMin > 60 ? 'hsl(var(--color-red))' : 'var(--ink)'],
                 ['Last 7 Days', fmtMin(weekTotal), 'var(--ink)']].map(([l, v, c]) => (
                 <div key={l}>
                   <div style={STAT_L}>{l}</div>
@@ -735,11 +748,14 @@ export default function TimeClock() {
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, gap: 8 }}>
                   <span style={STAT_L}>Break Today</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{breakUsedMin}m <span style={{ color: 'var(--muted)', fontWeight: 500 }}>of 60m</span></span>
+                  <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{breakUsedMin}m{showAllowance && <span style={{ color: 'var(--muted)', fontWeight: 500 }}> of 60m</span>}</span>
                 </div>
-                <div style={{ height: 8, borderRadius: 99, background: 'var(--mist)', overflow: 'hidden' }}>
-                  <div style={{ width: `${bPct}%`, height: '100%', borderRadius: 99, background: breakUsedMin > BREAK_ALLOWANCE_MIN ? '#b91c1c' : '#248f4b' }} />
-                </div>
+                {/* The draining allowance bar is India-policy framing only. */}
+                {showAllowance && (
+                  <div style={{ height: 8, borderRadius: 99, background: 'var(--mist)', overflow: 'hidden' }}>
+                    <div style={{ width: `${bPct}%`, height: '100%', borderRadius: 99, background: breakUsedMin > BREAK_ALLOWANCE_MIN ? '#b91c1c' : '#248f4b' }} />
+                  </div>
+                )}
               </div>
               {clockPeriod?.rateSet && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid var(--line)', paddingTop: 10 }}>

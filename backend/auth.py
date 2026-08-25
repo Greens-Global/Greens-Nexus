@@ -312,7 +312,12 @@ def apply_external_policy(request: Request, user: dict) -> dict:
     if not rec["external"]:
         return user
 
-    if (rec["status"] or "active") != "active":
+    # 'staged' (Neil, Aug 25: test accounts fully before releasing) is treated
+    # like active for AUTHORIZATION - so Act As overlays and admin test-code
+    # sessions resolve grants exactly as the released user will - while every
+    # AUTHENTICATION entry point (invite send, activation, request-code)
+    # refuses staged rows in external_auth/external_users.
+    if (rec["status"] or "active") not in ("active", "staged"):
         raise HTTPException(
             status_code=403,
             detail="Your external access has been deactivated. Contact your Greens Global contact.")
@@ -565,3 +570,27 @@ def scoped_ids(email: str, module_id: str, db: Session):
     if emp and (emp.identity_type or "internal") == "external":
         return set()   # fail-closed: external with no explicit scope sees nothing
     return None
+
+
+def hr_scope(user: dict, db: Session):
+    """Company scope for People-ADMIN surfaces (Neil, Aug 25: a Sacred Natural
+    admin must not see or touch SC Medi Center people). Returns:
+      - None   → unrestricted (no 'hr' scope rows, or IT Admin+)
+      - {ids}  → the HrEntity ids this admin's HR grant is limited to
+
+    This NARROWS an existing hr/hr_comp grant; it never grants anything. Rows
+    live in nexus_access_scopes with module_id='hr' (assigned per person on
+    their Access tab). Level >= 4 is always unrestricted - the whole-company
+    bypass those roles already have would make a scope row misleading.
+    Deliberately NOT applied to the general directory / people pickers / task
+    assignment - the family office collaborates across companies daily; scope
+    covers the HR-admin surfaces (People, Time, Leave, payroll, monitoring).
+    Callers hide company=='' (untagged) people from scoped admins and answer
+    404 (not 403) for out-of-scope ids so existence doesn't leak."""
+    if user.get("level", 0) >= 4:
+        return None
+    from models import NexusAccessScope
+    rows = (db.query(NexusAccessScope.scope_id)
+            .filter(NexusAccessScope.email == user["email"].lower(),
+                    NexusAccessScope.module_id == "hr").all())
+    return {r.scope_id for r in rows} or None

@@ -594,6 +594,11 @@ class NexusGroup(Base):
     # monitoring: no capture is offered and clock-in is not gated on sharing a
     # screen (used for leadership). A person is exempt if ANY of their groups sets it.
     monitoring_exempt = Column(Integer, default=0)
+    # Members of a group flagged bod_exempt=1 skip the Beginning/End-of-day and
+    # break message prompts entirely - punches go straight through (Neil,
+    # Aug 25: field workers "that cannot type" were blocked from clocking in by
+    # the required BOD message). A person is exempt if ANY of their groups sets it.
+    bod_exempt        = Column(Integer, default=0)
     # Job roles only: the role's default manager/timesheet approver. Assigning the
     # role to someone with NO manager set copies this onto their People card -
     # per-person Manager stays the source of truth and can always be overridden.
@@ -779,6 +784,7 @@ class HrCandidate(Base):
     expected_start = Column(String, default="")               # ISO date
     interview_at   = Column(String, default="")               # ISO datetime of the next interview
     source         = Column(String, default="")               # referral, LinkedIn, ...
+    company        = Column(String, default="")               # HrEntity.id hiring for ('' = untagged; company-scoped admins see only their companies' pipeline)
     resume_url     = Column(String, default="")               # hr-docs storage path (private; signed URL to view)
     notes          = Column(String, default="")
     employee_id    = Column(String, default="")               # set when hired

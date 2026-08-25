@@ -70,6 +70,11 @@ KNOWN_PUBLIC = {
     "/external-auth/activate/verify",
     "/external-auth/request-code",
     "/external-auth/login-verify",
+    # Forced phone verification at activation (Neil, Aug 25): stage 2 of the
+    # same pre-login flow - the emailed activation token + SMS'd activate2
+    # code are the credentials, with the same hashing/rate-limit machinery.
+    "/external-auth/activate/verify-phone",
+    "/external-auth/activate/send-phone-code",
 }
 
 _AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device")

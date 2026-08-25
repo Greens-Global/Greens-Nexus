@@ -83,6 +83,7 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
         "member_count": len(members),
         "members": members,
         "monitoring_exempt": bool(getattr(jr, "monitoring_exempt", False)),
+        "bod_exempt": bool(getattr(jr, "bod_exempt", False)),
         "default_manager_email": (getattr(jr, "default_manager_email", "") or ""),
         "created_by": jr.created_by,
         "created_at": jr.created_at,
@@ -98,6 +99,7 @@ class JobRoleBody(BaseModel):
     description: Optional[str] = ""
     allowed_modules: Optional[list[ModuleGrant]] = []
     monitoring_exempt: Optional[bool] = False
+    bod_exempt: Optional[bool] = False
     default_manager_email: Optional[str] = ""
 
 class JobRoleUpdate(BaseModel):
@@ -107,6 +109,7 @@ class JobRoleUpdate(BaseModel):
     description: Optional[str] = None
     allowed_modules: Optional[list[ModuleGrant]] = None
     monitoring_exempt: Optional[bool] = None
+    bod_exempt: Optional[bool] = None
     default_manager_email: Optional[str] = None
 
 class AssignBody(BaseModel):
@@ -157,6 +160,7 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
         description=(body.description or "").strip(),
         allowed_modules=_modules_csv(body.allowed_modules),
         monitoring_exempt=1 if body.monitoring_exempt else 0,
+        bod_exempt=1 if body.bod_exempt else 0,
         default_manager_email=(body.default_manager_email or "").lower().strip(),
         created_by=user["email"],
         created_at=now,
@@ -185,6 +189,8 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
         jr.allowed_modules = _modules_csv(body.allowed_modules)
     if body.monitoring_exempt is not None:
         jr.monitoring_exempt = 1 if body.monitoring_exempt else 0
+    if body.bod_exempt is not None:
+        jr.bod_exempt = 1 if body.bod_exempt else 0
     if body.default_manager_email is not None:
         jr.default_manager_email = body.default_manager_email.lower().strip()
 

@@ -46,12 +46,38 @@ describe('InviteExternalModal', () => {
     // order in the modal has changed before and silently broke inputs[N].
     const firstNameInput = screen.getByText('First name').parentElement.querySelector('input');
     fireEvent.change(firstNameInput, { target: { value: 'Jane' } });
-    fireEvent.click(screen.getByText('Send Invite'));
+    // Staged-by-default (Neil, Aug 25): the primary action creates WITHOUT
+    // sending anything; flipping the radio restores the one-step invite.
+    fireEvent.click(screen.getByText('Create for Testing'));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(createExternalUser).toHaveBeenCalledWith(expect.objectContaining({
-      email: 'jane.doe@acmeconstruction.com', first_name: 'Jane',
+      email: 'jane.doe@acmeconstruction.com', first_name: 'Jane', send_invite: false,
     }));
     expect(createExternalUser.mock.calls[0][0].modules).toBeUndefined();
+  });
+
+  it('flipping to send-now submits send_invite true via the Send Invite button', async () => {
+    const onSaved = vi.fn();
+    render(<InviteExternalModal initial={null} onClose={() => {}} onSaved={onSaved} />);
+    fireEvent.change(screen.getByPlaceholderText('name@partnercompany.com'), { target: { value: 'jane.doe@acmeconstruction.com' } });
+    const firstNameInput = screen.getByText('First name').parentElement.querySelector('input');
+    fireEvent.change(firstNameInput, { target: { value: 'Jane' } });
+    fireEvent.click(screen.getByText('Create and send the invite now'));
+    fireEvent.click(screen.getByText('Send Invite'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(createExternalUser).toHaveBeenLastCalledWith(expect.objectContaining({ send_invite: true }));
+  });
+});
+
+describe('Staged lifecycle', () => {
+  it('a staged person shows Release + Test Sign-In Code instead of Resend/Deactivate', () => {
+    render(<ExternalPersonSection ext={{ ...ext, status: 'staged' }} />);
+    expect(screen.getByText('Staged - Not Released')).toBeTruthy();
+    expect(screen.getByText('Release & Send Invite')).toBeTruthy();
+    expect(screen.getByText('Test Sign-In Code')).toBeTruthy();
+    expect(screen.queryByText('Resend Invite')).toBeNull();
+    expect(screen.queryByText('Deactivate')).toBeNull();
+    expect(screen.getByText('Remove')).toBeTruthy();
   });
 });
 

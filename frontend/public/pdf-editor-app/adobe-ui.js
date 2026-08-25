@@ -146,6 +146,20 @@
   // ── Export & Convert toolbar: clear named actions instead of one dropdown ──
   // Existing export menu items keep their app.js listeners; the named buttons
   // simply click them. Word→PDF / exact-look Word use window hooks from app.js.
+  // A single "Unlock PDF" tool button (strips an open-password). Unlock has no
+  // toolbar element of its own - it runs via window.unlockPdfTool() - so the
+  // Optimize group gets this lightweight button instead of an el('#...').
+  function buildUnlockBtn() {
+    const b = document.createElement('button');
+    b.className = 'tool-btn';
+    b.id = 'unlockBtn';
+    b.title = 'Remove a password from a PDF';
+    b.dataset.reveal = 'unlock';
+    b.innerHTML = '<span style="display:inline">Unlock</span>';
+    b.addEventListener('click', () => { if (window.unlockPdfTool) window.unlockPdfTool(); });
+    return b;
+  }
+
   function buildExportBar() {
     const box = document.createElement('div');
     box.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
@@ -507,7 +521,7 @@
   }
 
   const GROUPS = [
-    { id: 'edit',     label: 'Edit PDF',        tint: '#b06ee8',
+    { id: 'edit',     label: 'Assemble',        tint: '#b06ee8',
       desc: 'Text, draw, highlight, stamps, images',
       members: [el('#textTool'), el('[data-tool="edittext"]'), el('#drawTool'), el('#highlightTool'), el('#shapeTool'), wrapOf('#stampBtn'), el('#imageTool'), el('#cropTool'), el('#toolOptions')] },
     { id: 'organize', label: 'Organize Pages',  tint: '#4caf7d',
@@ -518,13 +532,15 @@
       // A clear "signing" icon: a fountain pen writing on a signature line.
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
            '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/><path d="M3 22h18" opacity="0.6"/></svg>',
-      members: [el('#signatureBtn'), el('#formsBtn'), el('#protectBtn'), el('#sanitizeBtn'), el('#compareBtn')] },
+      members: [el('#signatureBtn'), el('#formsBtn'), el('#protectBtn'), el('#compareBtn')] },
     { id: 'export',   label: 'Export & Convert', tint: '#3ab5a0',
       desc: 'PDF to Word/Excel/images, Word to PDF',
-      members: [buildExportBar(), el('#compressBtn')] },
-    { id: 'ocr',      label: 'Scan & OCR',      tint: '#7dc243',
-      desc: 'Make scanned pages searchable',
-      members: [el('#ocrBtn')] },
+      members: [buildExportBar()] },
+    { id: 'optimize', label: 'Optimize',        tint: '#5c9e57',
+      desc: 'Compress, repair, OCR, unlock',
+      // Down-arrow into a tray: shrink / clean up the file.
+      svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
+      members: [el('#compressBtn'), el('#sanitizeBtn'), el('#ocrBtn'), buildUnlockBtn()] },
     { id: 'layers',   label: 'Layers',          tint: '#e8734a',
       desc: 'Versions of markups — show or hide',
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>',
@@ -576,6 +592,7 @@
     sign: 'Click Sign to create your signature, then place it anywhere on the page.',
     export: 'Choose a format to export the current page or the whole document.',
     ocr: 'Run OCR to make scanned pages searchable and selectable.',
+    optimize: 'Compress the file, repair a damaged PDF, run OCR, or remove a password.',
   };
   const setHint = (t) => { const s = el('#statusText'); if (s && t) s.textContent = t; };
 
@@ -835,9 +852,9 @@
         ['PDF → Markdown','Export text as a .md file',     '#3b6ea5', IC.markdown,  () => pickPdfThen(() => window.exportMarkdownTool && window.exportMarkdownTool())],
       ]},
       { title: 'Optimize', cards: [
-        ['Compress PDF',  'Reduce the file size',          '#5c9e57', IC.compress,  () => pickPdfThen(() => revealTool('export', '#compressBtn'))],
-        ['Repair PDF',    'Fix a damaged or corrupt PDF',  '#6b7280', IC.sanitize,  () => pickPdfThen(() => revealTool('sign', '#sanitizeBtn'))],
-        ['OCR (scanned)', 'Make scans searchable',         '#7dc243', IC.ocr,       () => pickPdfThen(() => revealTool('ocr', '#ocrBtn'))],
+        ['Compress PDF',  'Reduce the file size',          '#5c9e57', IC.compress,  () => pickPdfThen(() => revealTool('optimize', '#compressBtn'))],
+        ['Repair PDF',    'Fix a damaged or corrupt PDF',  '#6b7280', IC.sanitize,  () => pickPdfThen(() => revealTool('optimize', '#sanitizeBtn'))],
+        ['OCR (scanned)', 'Make scans searchable',         '#7dc243', IC.ocr,       () => pickPdfThen(() => revealTool('optimize', '#ocrBtn'))],
         ['Unlock PDF',    'Remove a password',             '#d4506e', IC.unlock,    () => pickPdfThen(() => window.unlockPdfTool && window.unlockPdfTool())],
       ]},
     ];
@@ -863,7 +880,7 @@
     editBtn.title = 'Open a PDF and start editing';
     editBtn.innerHTML =
       '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="M15 5l4 4"/></svg>' +
-      '<span>Edit</span>';
+      '<span>Assemble</span>';
     editBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       pickPdfThen(() => revealTool('edit', '#textTool'));
@@ -1156,7 +1173,7 @@
     const headerBrand = document.createElement('span');
     headerBrand.className = 'header-brand';
     headerBrand.innerHTML = `<span class="brand-mark brand-mark-sm">${BRAND_MARK}</span><span class="header-brand-tx">Nexus</span>`;
-    headerBrand.title = 'Nexus PDF Editor';
+    headerBrand.title = 'PDF Tools';
     left.insertBefore(headerBrand, left.firstChild ? left.firstChild.nextSibling : null);
   }
 
@@ -1208,7 +1225,7 @@
         header.style.display = (name || _everHadDoc) ? '' : 'none';
       }
       // Window/tab title mirrors the open document, like every desktop app.
-      document.title = name ? `${name} — Nexus PDF Editor` : 'Nexus PDF Editor';
+      document.title = name ? `${name} — PDF Tools` : 'PDF Tools';
       // Landing-page card flow: the PDF just finished loading — run the tool
       // the user picked (buttons need a beat to enable first).
       if (name && pendingAction) { const fn = pendingAction; pendingAction = null; setTimeout(fn, 400); }
