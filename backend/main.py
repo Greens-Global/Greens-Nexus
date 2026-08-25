@@ -153,7 +153,10 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN access_level VARCHAR DEFAULT 'org'",
             "ALTER TABLE tasks ADD COLUMN project_id VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN section_id VARCHAR DEFAULT ''",
-            "ALTER TABLE tasks ADD COLUMN department_id VARCHAR DEFAULT ''",
+            # tasks.department_id ADD removed - see the Postgres list. SQLite
+            # has no 1600-attribute limit, but the same add/drop-every-boot
+            # churn is pointless and the two lists must not disagree about
+            # whether this column exists.
             "ALTER TABLE tasks ADD COLUMN parent_task_id VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN subtask_ids JSON DEFAULT '[]'",
             "ALTER TABLE tasks ADD COLUMN blocked_by_ids JSON DEFAULT '[]'",
@@ -797,7 +800,16 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS access_level TEXT DEFAULT 'org'",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_id TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS section_id TEXT DEFAULT ''",
-        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS department_id TEXT DEFAULT ''",
+        # tasks.department_id ADD removed (Aug 2026) - same fix as
+        # task_projects.department_ids below, which had the identical bug and
+        # was fixed alone. This list runs on EVERY boot, and the DROP further
+        # down is in the same list: ADD created a fresh attnum, DROP left it
+        # dead, one slot burned per restart. Postgres never reclaims a dropped
+        # column's attnum (no VACUUM does), so dev's tasks table reached the
+        # hard 1600-attribute limit and then refused EVERY new column - which
+        # is why tasks.position, tasks.project_ids and tasks.assignee_emails
+        # were all silently missing and every tasks query 500'd.
+        # The DROP stays: a database that still has the column needs it gone.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_task_id TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS subtask_ids JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS blocked_by_ids JSONB DEFAULT '[]'::jsonb",
