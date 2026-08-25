@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Loader2, Send, Pencil, ShieldOff, ShieldCheck, Trash2, Globe, MailPlus } from 'lucide-react';
+import { X, Loader2, Send, Pencil, ShieldOff, ShieldCheck, Trash2, Globe, MailPlus, KeyRound, Rocket, Copy, Check } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDate } from '../lib/datetime';
@@ -59,6 +59,9 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
   const initialPhone = splitPhone(initial?.phone);
   const [phoneDial, setPhoneDial] = useState(initialPhone.dial);
   const [phoneRest, setPhoneRest] = useState(initialPhone.rest);
+  // Staged-by-default (Neil, Aug 25): test the account fully - Act As, a real
+  // login with a test code - then Release, which is what sends the invite.
+  const [sendInvite, setSendInvite] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -73,7 +76,7 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
     try {
       const result = editing
         ? await api.updateExternalUser(initial.email || initial.id, { first_name: firstName, last_name: lastName, email: email.trim(), company, expires_at: expiresAt, phone })
-        : await api.createExternalUser({ email: email.trim(), first_name: firstName, last_name: lastName, company, expires_at: expiresAt, phone });
+        : await api.createExternalUser({ email: email.trim(), first_name: firstName, last_name: lastName, company, expires_at: expiresAt, phone, send_invite: sendInvite });
       onSaved(result);
     } catch (e) {
       setError(e?.message || 'Could not save - try again.');
@@ -133,8 +136,30 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
             </div>
           </div>
 
+          {!editing && (
+            <div style={{ display: 'grid', gap: 8 }}>
+              <span style={label}>How should this account start?</span>
+              {[[false, 'Create for testing (release later)', 'Nothing is sent. Verify their access with Act As or a test sign-in code, then Release & Send Invite from their profile.'],
+                [true, 'Create and send the invite now', 'The activation email goes out immediately - the old one-step flow.']].map(([v, t, d]) => (
+                <button key={String(v)} type="button" onClick={() => setSendInvite(v)}
+                  style={{ display: 'flex', gap: 10, textAlign: 'left', alignItems: 'flex-start', padding: '10px 12px', borderRadius: 10, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                    border: `1.5px solid ${sendInvite === v ? 'var(--ink)' : 'var(--line)'}`, background: sendInvite === v ? 'var(--mist)' : 'transparent' }}>
+                  <span style={{ width: 16, height: 16, borderRadius: '50%', flexShrink: 0, marginTop: 2, border: `1.5px solid ${sendInvite === v ? 'var(--ink)' : 'var(--line)'}`, display: 'grid', placeItems: 'center' }}>
+                    {sendInvite === v && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--ink)' }} />}
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{t}</span>
+                    <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>{d}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-            Saving emails them a branded Nexus invitation with a one-time activation link - no Microsoft account needed. They start with no access - assign a job role or groups on their People card, exactly like an employee. Whatever you grant, they still never appear in people pickers, never receive company-wide notifications, and in Tasks and Tickets only see items they are assigned to, following, or raised themselves.
+            {editing || sendInvite
+              ? 'Saving emails them a branded Nexus invitation with a one-time activation link - no Microsoft account needed. '
+              : ''}They start with no access - assign a job role or groups on their People card, exactly like an employee. Whatever you grant, they still never appear in people pickers, never receive company-wide notifications, and in Tasks and Tickets only see items they are assigned to, following, or raised themselves.
           </div>
 
           {error && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', fontWeight: 600 }}>{error}</div>}
@@ -143,7 +168,7 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
             <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 9, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Cancel</button>
             <button className="primary-btn" onClick={save} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
               {saving && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
-              {editing ? 'Save Changes' : 'Send Invite'}
+              {editing ? 'Save Changes' : sendInvite ? 'Send Invite' : 'Create for Testing'}
             </button>
           </div>
         </div>
@@ -203,7 +228,64 @@ export function useExternalActions({ onChanged, onRemoved, toastOk, toastErr }) 
     } catch (e) { toastErr?.(e?.message || 'Could not remove'); }
   });
 
-  return { busyEmail, resend, setStatus, remove };
+  // Staged lifecycle (Neil, Aug 25). release sends the invitation; testCode
+  // returns {code, expiresAt} for the caller's show-once dialog.
+  const release = (ext) => run(keyOf(ext), async () => {
+    const ok = await dialog.confirm(
+      `Release ${ext.name}? Any test sign-in codes and test sessions are revoked, and the invitation email goes to ${ext.email}. They activate it themselves - verifying their email and phone.`,
+      { title: 'Release & Send Invite', confirmText: 'Release & Send Invite' });
+    if (!ok) return;
+    try {
+      const r = await api.releaseExternalUser(keyOf(ext));
+      inviteOutcomeToast(r, toastOk, toastErr);
+      onChanged?.();
+    } catch (e) { toastErr?.(e?.message || 'Could not release'); }
+  });
+
+  const testCode = async (ext) => {
+    setBusyEmail(keyOf(ext));
+    try {
+      return await api.externalTestCode(keyOf(ext));
+    } catch (e) {
+      toastErr?.(e?.message || 'Could not create a test code');
+      return null;
+    } finally { setBusyEmail(''); }
+  };
+
+  return { busyEmail, resend, setStatus, remove, release, testCode };
+}
+
+
+// Show-once dialog for a staged account's test sign-in code (it is hashed at
+// rest - closing this is the last time anyone can read it).
+export function TestCodeDialog({ ext, result, onClose }) {
+  const [copied, setCopied] = useState(false);
+  if (!result) return null;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(result.code); setCopied(true); setTimeout(() => setCopied(false), 1600); }
+    catch { /* clipboard unavailable - the code is on screen */ }
+  };
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1450, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }} onClick={onClose}>
+      <div style={{ width: 420, maxWidth: '100%', background: 'var(--card)', borderRadius: 16, border: '1px solid var(--line)', padding: 24, fontFamily: 'Inter,sans-serif' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>Test Sign-In Code</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}><X size={17} /></button>
+        </div>
+        <p style={{ margin: '0 0 14px', fontSize: 12.5, lineHeight: 1.55, color: 'var(--muted)' }}>
+          Sign in at the login page's <b>Partner Sign-In</b> as <b>{ext?.email}</b> with this code to walk their exact
+          experience. Shown once - it can't be read back later. Expires in 24 hours and dies at release.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, border: '1px dashed var(--line)', background: 'var(--mist)', marginBottom: 14 }}>
+          <span style={{ flex: 1, fontSize: 24, fontWeight: 800, letterSpacing: 6, color: 'var(--ink)', fontFamily: 'ui-monospace,monospace' }}>{result.code}</span>
+          <button onClick={copy} title="Copy code" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: copied ? 'hsl(var(--color-green))' : 'var(--ink)', fontFamily: 'Inter,sans-serif' }}>
+            {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+        <button className="primary-btn" onClick={onClose} style={{ width: '100%' }}>Done</button>
+      </div>
+    </div>
+  );
 }
 
 
@@ -213,20 +295,28 @@ export function useExternalActions({ onChanged, onRemoved, toastOk, toastErr }) 
 // groups) is the same machinery every employee gets.
 export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toastErr }) {
   const [editOpen, setEditOpen] = useState(false);
+  const [codeResult, setCodeResult] = useState(null);
   const expired = ext.expiresAt && ext.expiresAt.slice(0, 10) < new Date().toISOString().slice(0, 10);
-  const { busyEmail, resend: doResend, setStatus: doSetStatus, remove: doRemove } =
+  const { busyEmail, resend: doResend, setStatus: doSetStatus, remove: doRemove,
+          release: doRelease, testCode: doTestCode } =
     useExternalActions({ onChanged, onRemoved, toastOk, toastErr });
   const busy = busyEmail === keyOf(ext);
+  const staged = ext.status === 'staged';
   const resend = () => doResend(ext);
   const setStatus = (status) => doSetStatus(ext, status);
   const remove = () => doRemove(ext);
+  const release = () => doRelease(ext);
+  const mintCode = async () => { const r = await doTestCode(ext); if (r) setCodeResult(r); };
 
   return (
     <div style={{ border: '1px solid hsla(var(--color-blue),0.35)', background: 'hsla(var(--color-blue),0.05)', borderRadius: 12, padding: '12px 14px', margin: '12px 0 4px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <ExternalBadge />
-        <InvitePill status={ext.inviteStatus} />
-        {ext.status !== 'active' && (
+        {!staged && <InvitePill status={ext.inviteStatus} />}
+        {staged && (
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.12)', padding: '2px 10px', borderRadius: 20 }}>Staged - Not Released</span>
+        )}
+        {!staged && ext.status !== 'active' && (
           <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', background: 'color-mix(in srgb, var(--muted) 12%, transparent)', padding: '2px 10px', borderRadius: 20 }}>Deactivated</span>
         )}
         {expired && (
@@ -239,23 +329,45 @@ export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toas
         {ext.expiresAt ? ` · access expires ${formatDate(ext.expiresAt)}` : ''}
       </div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>
-        Partner guest account. Grant access below with a job role or groups, like any employee. They never appear in people pickers and only see tasks and tickets they take part in.
+        {staged
+          ? 'Staged for testing - nothing has been sent to them and they cannot sign in on their own. Verify their grants below (or Act As them), walk the real login with a test code, then release.'
+          : 'Partner guest account. Grant access below with a job role or groups, like any employee. They never appear in people pickers and only see tasks and tickets they take part in.'}
       </div>
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 10 }}>
-        <button onClick={resend} disabled={busy} title="Send the Microsoft invitation email again" style={actionBtn()}>
-          <Send size={13} /> Resend Invite
-        </button>
-        <button onClick={() => setEditOpen(true)} disabled={busy} title="Edit name, company, or expiry" style={actionBtn()}>
-          <Pencil size={13} /> Edit
-        </button>
-        {ext.status === 'active' ? (
-          <button onClick={() => setStatus('inactive')} disabled={busy} style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
-            <ShieldOff size={13} /> Deactivate
-          </button>
+        {staged ? (
+          <>
+            <button onClick={release} disabled={busy}
+              title="Flip the account live and email the invitation - test codes and test sessions are revoked"
+              style={{ ...actionBtn('#fff'), background: 'var(--pine, #0f3d2e)', border: 'none' }}>
+              <Rocket size={13} /> Release &amp; Send Invite
+            </button>
+            <button onClick={mintCode} disabled={busy}
+              title="An 8-character code that signs in as them at Partner Sign-In - shown once, expires in 24h"
+              style={actionBtn()}>
+              <KeyRound size={13} /> Test Sign-In Code
+            </button>
+            <button onClick={() => setEditOpen(true)} disabled={busy} title="Edit name, company, or expiry" style={actionBtn()}>
+              <Pencil size={13} /> Edit
+            </button>
+          </>
         ) : (
-          <button onClick={() => setStatus('active')} disabled={busy} style={actionBtn('hsl(var(--color-green))', 'hsla(var(--color-green),0.4)')}>
-            <ShieldCheck size={13} /> Reactivate
-          </button>
+          <>
+            <button onClick={resend} disabled={busy} title="Send the Microsoft invitation email again" style={actionBtn()}>
+              <Send size={13} /> Resend Invite
+            </button>
+            <button onClick={() => setEditOpen(true)} disabled={busy} title="Edit name, company, or expiry" style={actionBtn()}>
+              <Pencil size={13} /> Edit
+            </button>
+            {ext.status === 'active' ? (
+              <button onClick={() => setStatus('inactive')} disabled={busy} style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
+                <ShieldOff size={13} /> Deactivate
+              </button>
+            ) : (
+              <button onClick={() => setStatus('active')} disabled={busy} style={actionBtn('hsl(var(--color-green))', 'hsla(var(--color-green),0.4)')}>
+                <ShieldCheck size={13} /> Reactivate
+              </button>
+            )}
+          </>
         )}
         <button onClick={remove} disabled={busy} title="Erase them from Nexus entirely - cannot be undone" style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
           <Trash2 size={13} /> Remove
@@ -266,6 +378,7 @@ export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toas
           onClose={() => setEditOpen(false)}
           onSaved={() => { setEditOpen(false); toastOk?.('Saved'); onChanged?.(); }} />
       )}
+      {codeResult && <TestCodeDialog ext={ext} result={codeResult} onClose={() => setCodeResult(null)} />}
     </div>
   );
 }
@@ -273,7 +386,8 @@ export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toas
 
 function StatusBadge({ user }) {
   const expired = user.expiresAt && user.expiresAt.slice(0, 10) < new Date().toISOString().slice(0, 10);
-  const s = user.status !== 'active' ? { text: 'Inactive', color: 'var(--muted)', bg: 'color-mix(in srgb, var(--muted) 12%, transparent)' }
+  const s = user.status === 'staged' ? { text: 'Staged - Not Released', color: '#b45309', bg: 'rgba(180,83,9,0.12)' }
+    : user.status !== 'active' ? { text: 'Inactive', color: 'var(--muted)', bg: 'color-mix(in srgb, var(--muted) 12%, transparent)' }
     : expired ? { text: 'Expired', color: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.10)' }
       : { text: 'Active', color: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' };
   return (
@@ -292,6 +406,7 @@ function StatusBadge({ user }) {
 export default function ExternalUsersPanel({ toastOk, toastErr, onChanged }) {
   const [users, setUsers] = useState(null);
   const [editing, setEditing] = useState(undefined);   // undefined=closed, null=new, obj=edit
+  const [codeFor, setCodeFor] = useState(null);        // { ext, result } - show-once test code
   const [error, setError] = useState('');
 
   const load = useCallback(() => {
@@ -301,9 +416,10 @@ export default function ExternalUsersPanel({ toastOk, toastErr, onChanged }) {
   }, [onChanged]);
   useEffect(() => { load(); }, [load]);
 
-  const { busyEmail, resend, setStatus, remove } = useExternalActions({
+  const { busyEmail, resend, setStatus, remove, release, testCode } = useExternalActions({
     onChanged: load, onRemoved: load, toastOk, toastErr,
   });
+  const mintCode = async (u) => { const r = await testCode(u); if (r) setCodeFor({ ext: u, result: r }); };
 
   if (error) return <div style={{ padding: 24, fontSize: 13.5, color: 'var(--muted)' }}>{error}</div>;
   if (!users) return <SkeletonBlocks count={3} height={64} />;
@@ -345,20 +461,39 @@ export default function ExternalUsersPanel({ toastOk, toastErr, onChanged }) {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 7, flexShrink: 0, flexWrap: 'wrap' }}>
-                <button onClick={() => resend(u)} disabled={busyEmail === keyOf(u)} title="Send a fresh activation email" style={actionBtn()}>
-                  <Send size={13} /> Resend Invite
-                </button>
-                <button onClick={() => setEditing(u)} disabled={busyEmail === keyOf(u)} title="Edit name, company, phone, or expiry" style={actionBtn()}>
-                  <Pencil size={13} /> Edit
-                </button>
-                {u.status === 'active' ? (
-                  <button onClick={() => setStatus(u, 'inactive')} disabled={busyEmail === keyOf(u)} style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
-                    <ShieldOff size={13} /> Deactivate
-                  </button>
+                {u.status === 'staged' ? (
+                  <>
+                    <button onClick={() => release(u)} disabled={busyEmail === keyOf(u)}
+                      title="Flip the account live and email the invitation"
+                      style={{ ...actionBtn('#fff'), background: 'var(--pine, #0f3d2e)', border: 'none' }}>
+                      <Rocket size={13} /> Release &amp; Send Invite
+                    </button>
+                    <button onClick={() => mintCode(u)} disabled={busyEmail === keyOf(u)}
+                      title="8-character sign-in code for testing - shown once, expires in 24h" style={actionBtn()}>
+                      <KeyRound size={13} /> Test Sign-In Code
+                    </button>
+                    <button onClick={() => setEditing(u)} disabled={busyEmail === keyOf(u)} title="Edit name, company, phone, or expiry" style={actionBtn()}>
+                      <Pencil size={13} /> Edit
+                    </button>
+                  </>
                 ) : (
-                  <button onClick={() => setStatus(u, 'active')} disabled={busyEmail === keyOf(u)} style={actionBtn('hsl(var(--color-green))', 'hsla(var(--color-green),0.4)')}>
-                    <ShieldCheck size={13} /> Reactivate
-                  </button>
+                  <>
+                    <button onClick={() => resend(u)} disabled={busyEmail === keyOf(u)} title="Send a fresh activation email" style={actionBtn()}>
+                      <Send size={13} /> Resend Invite
+                    </button>
+                    <button onClick={() => setEditing(u)} disabled={busyEmail === keyOf(u)} title="Edit name, company, phone, or expiry" style={actionBtn()}>
+                      <Pencil size={13} /> Edit
+                    </button>
+                    {u.status === 'active' ? (
+                      <button onClick={() => setStatus(u, 'inactive')} disabled={busyEmail === keyOf(u)} style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
+                        <ShieldOff size={13} /> Deactivate
+                      </button>
+                    ) : (
+                      <button onClick={() => setStatus(u, 'active')} disabled={busyEmail === keyOf(u)} style={actionBtn('hsl(var(--color-green))', 'hsla(var(--color-green),0.4)')}>
+                        <ShieldCheck size={13} /> Reactivate
+                      </button>
+                    )}
+                  </>
                 )}
                 <button onClick={() => remove(u)} disabled={busyEmail === keyOf(u)} title="Erase them from Nexus entirely - cannot be undone" style={actionBtn('hsl(var(--color-red))', 'hsla(var(--color-red),0.4)')}>
                   <Trash2 size={13} /> Remove
@@ -378,6 +513,7 @@ export default function ExternalUsersPanel({ toastOk, toastErr, onChanged }) {
             load();
           }} />
       )}
+      {codeFor && <TestCodeDialog ext={codeFor.ext} result={codeFor.result} onClose={() => setCodeFor(null)} />}
     </div>
   );
 }

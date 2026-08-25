@@ -205,6 +205,10 @@ class ExternalUserCreate(BaseModel):
     company:    Optional[str] = ""
     expires_at: Optional[str] = ""      # ISO date; empty = no expiry
     phone:      Optional[str] = ""      # optional; enables SMS codes once verified
+    # Staged-by-default (Neil, Aug 25): test the account fully - grants, Act
+    # As, a real login with an admin test code - and only THEN release, which
+    # is what sends the invitation. True = old behavior (invite immediately).
+    send_invite: Optional[bool] = False
 
 class ExternalUserUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -258,7 +262,7 @@ def enroll_external_user(body: ExternalUserCreate,
         last_name=(body.last_name or "").strip(),
         work_email=email,
         identity_type="guest",       # external partner login (Tier B in the July plan)
-        status="active",
+        status="active" if body.send_invite else "staged",
         external_company=(body.company or "").strip(),
         invited_by=user["email"],
         expires_at=(body.expires_at or "").strip(),
@@ -276,6 +280,14 @@ def enroll_external_user(body: ExternalUserCreate,
 
     # No access is granted here: assign a job role / groups in Roles & Access
     # like any employee. Until then the guest is fail-closed to the app shell.
+
+    if not body.send_invite:
+        # Staged: nothing user-facing happens. Test with Act As / a test
+        # sign-in code, then Release & Send Invite from their profile.
+        out = _serialize(row)
+        out["inviteMessage"] = ("Created for testing - no invitation sent. "
+                                "Release the account when it's verified.")
+        return out
 
     status, message = _send_invite(db, row, user)
     row.invite_status = status
@@ -327,6 +339,11 @@ def update_external_user(email: str, body: ExternalUserUpdate,
     if body.status is not None:
         if body.status not in ("active", "inactive"):
             raise HTTPException(400, "status must be 'active' or 'inactive'")
+        if (row.status or "active") == "staged":
+            # A staged account leaves staging through exactly one door -
+            # Release (which sends the invite) - or Remove. A PATCH to
+            # 'active' would silently release without ever inviting.
+            raise HTTPException(409, "This account is staged for testing - use Release & Send Invite (or Remove it).")
         row.status = body.status
     if body.first_name is not None:
         if not body.first_name.strip():
@@ -372,11 +389,63 @@ def resend_invite(email: str, user: dict = Depends(require_administrator),
     Updates the stored invite status either way."""
     row = _find_external(db, email)
     email = (row.work_email or "").lower().strip()
+    if (row.status or "active") == "staged":
+        raise HTTPException(409, "This account is staged for testing - Release & Send Invite is what sends the invitation.")
 
     status, message = _send_invite(db, row, user)
     row.invite_status = status
     row.updated_at = _now()
     db.commit()
+
+    out = _serialize(row)
+    out["inviteMessage"] = message
+    return out
+
+
+@router.post("/{email}/test-code")
+def mint_test_code(email: str, user: dict = Depends(require_administrator),
+                   db: Session = Depends(get_db)):
+    """Neil's "temporary password" (Aug 25): an 8-character sign-in code for a
+    STAGED account, shown to the admin exactly once. It works at the normal
+    Partner Sign-In in place of the emailed/SMS code, so the admin can walk
+    the genuine end-to-end login as this user before releasing them. Hashed
+    at rest, 24h expiry, and every outstanding code dies at release."""
+    row = _find_external(db, email)
+    if (row.status or "active") != "staged":
+        raise HTTPException(409, "Test sign-in codes are only for staged accounts - this one is already released.")
+    if not (row.work_email or "").strip():
+        raise HTTPException(400, "This row has no email to sign in with.")
+    from routers.external_auth import issue_staged_test_code
+    code, expires_at = issue_staged_test_code(db, row, user["email"])
+    return {"code": code, "expiresAt": expires_at, "email": (row.work_email or "").lower()}
+
+
+@router.post("/{email}/release")
+def release_external_user(email: str, user: dict = Depends(require_administrator),
+                          db: Session = Depends(get_db)):
+    """Release a STAGED account (Neil, Aug 25: act as, verify access, confirm
+    all is on, and release): flips it active, kills every test code and any
+    session an admin walk-through left behind, and sends the invitation email.
+    The user then activates on their own - email proof via the invite link's
+    code, plus their phone verified by SMS."""
+    row = _find_external(db, email)
+    email = (row.work_email or "").lower().strip()
+    if (row.status or "active") != "staged":
+        raise HTTPException(409, "This account is already released.")
+
+    from routers.external_auth import revoke_credentials
+    revoke_credentials(db, email)          # test codes + any walk-through session die here
+    row.status = "active"
+    row.updated_at = _now()
+    db.commit()
+    _invalidate(email)
+
+    status, message = _send_invite(db, row, user)
+    row.invite_status = status
+    db.commit()
+
+    from routers.external_auth import _audit
+    _audit(db, email, "external_released", f"released by {user['email']} - invitation {status}", "")
 
     out = _serialize(row)
     out["inviteMessage"] = message

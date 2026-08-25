@@ -312,7 +312,12 @@ def apply_external_policy(request: Request, user: dict) -> dict:
     if not rec["external"]:
         return user
 
-    if (rec["status"] or "active") != "active":
+    # 'staged' (Neil, Aug 25: test accounts fully before releasing) is treated
+    # like active for AUTHORIZATION - so Act As overlays and admin test-code
+    # sessions resolve grants exactly as the released user will - while every
+    # AUTHENTICATION entry point (invite send, activation, request-code)
+    # refuses staged rows in external_auth/external_users.
+    if (rec["status"] or "active") not in ("active", "staged"):
         raise HTTPException(
             status_code=403,
             detail="Your external access has been deactivated. Contact your Greens Global contact.")
