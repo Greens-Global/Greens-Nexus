@@ -7076,13 +7076,15 @@
             let wasEncrypted = false;
 
             if (mode === 'unlock') {
-                // UNLOCK via pdf.js - the RENDERER, which actually DECRYPTS the
-                // content to display it. saveDocument() then exports those
-                // decrypted bytes as a clean, unencrypted PDF. (Just stripping the
-                // Encrypt dict with pdf-lib left the content streams scrambled ->
-                // blank pages.) An owner-restriction lock opens with the empty
-                // password automatically, so there's no prompt; only a real
-                // open-password throws PasswordException and we ask for it.
+                // UNLOCK by RE-RENDERING each page. pdf.js decrypts the content to
+                // display it; we render every page to a canvas and rebuild a fresh,
+                // unencrypted PDF from those images. This is the only method that
+                // reliably works with these bundled libs - stripping the Encrypt
+                // dict (pdf-lib) OR saveDocument()/getData() (pdf.js) both left the
+                // content streams still encrypted, so pages came out BLANK. Verified
+                // in a real browser: this renders the actual content, no password.
+                // Trade-off: the unlocked page becomes an image (not selectable
+                // text), which is the accepted cost of guaranteed-correct unlock.
                 setStatus('Removing lock...');
                 let pdf = null, password = null;
                 for (let attempt = 0; ; attempt++) {
@@ -7101,18 +7103,21 @@
                         throw err;
                     }
                 }
-                if (!pdf.saveDocument) { showToast('Cannot unlock this PDF (unsupported)'); setStatus('Failed'); return; }
-                // saveDocument() exports the document with its content DECRYPTED
-                // (pdf.js had to decrypt it to render). Run the result through
-                // pdf-lib and drop any residual Encrypt wrapper so the file is
-                // fully unencrypted - safe now because the streams are already
-                // plaintext, so no blank-page problem.
-                let bytes = await pdf.saveDocument();
-                try {
-                    const clean = await L.PDFDocument.load(bytes, { ignoreEncryption: true });
-                    if (clean.context && clean.context.trailerInfo) delete clean.context.trailerInfo.Encrypt;
-                    bytes = await clean.save();
-                } catch (_) { /* keep pdf.js output if pdf-lib can't reprocess */ }
+                const outDoc = await L.PDFDocument.create();
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    setStatus('Removing lock... page ' + i + '/' + pdf.numPages);
+                    const pg = await pdf.getPage(i);
+                    const vp = pg.getViewport({ scale: 2 });   // 2x for crisp output
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.ceil(vp.width);
+                    canvas.height = Math.ceil(vp.height);
+                    await pg.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+                    const png = await outDoc.embedPng(canvas.toDataURL('image/png'));
+                    const base = pg.getViewport({ scale: 1 });
+                    const np = outDoc.addPage([base.width, base.height]);
+                    np.drawImage(png, { x: 0, y: 0, width: base.width, height: base.height });
+                }
+                const bytes = await outDoc.save();
 
                 // Ask what to do with the unlocked file (Pranshu): open it in the
                 // editor to work on it, or just download the unlocked copy.
