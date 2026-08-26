@@ -45,9 +45,6 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
-# Safe one-way import: timeclock_watch only imports THIS module lazily inside
-# functions, so no cycle at import time. Shares the auto clock-out config.
-from timeclock_watch import AUTO_OUT_KEY as _AUTO_OUT_KEY, _auto_out_cfg
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
 
@@ -4583,52 +4580,6 @@ def get_breakpolicy(user: dict = Depends(require_team_read), db: Session = Depen
     return _breakpolicy_cfg(db)
 
 
-# ── End-of-day auto clock-out config (the sweep lives in timeclock_watch.py) ──
-
-@router.get("/payroll/autoclockout")
-def get_autoclockout(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    return _auto_out_cfg(db)
-
-
-class AutoClockoutIn(BaseModel):
-    enabled: Optional[bool] = None           # None = leave unchanged (like every other field)
-    warnLocal: Optional[List[str]] = None    # up to 3 'HH:MM' local warn moments ([] = no warns)
-    outLocal: Optional[str] = None           # 'HH:MM' local auto-close moment
-    minSessionMin: Optional[int] = None      # never insta-close a session younger than this
-
-
-def _norm_hhmm(v: str) -> str:
-    """Strict 'HH:MM' (24-hour) or a 422 - stored config, the sweep's parse and
-    the admin tooltip must never diverge on what time this is."""
-    try:
-        t = datetime.strptime(str(v).strip(), "%H:%M")
-        return f"{t.hour:02d}:{t.minute:02d}"
-    except (ValueError, TypeError):
-        raise HTTPException(422, "Times must be HH:MM (24-hour), e.g. 21:30 or 23:59.")
-
-
-@router.put("/payroll/autoclockout")
-def set_autoclockout(body: AutoClockoutIn, user: dict = Depends(require_administrator),
-                     db: Session = Depends(get_db)):
-    cfg = _auto_out_cfg(db)
-    if body.enabled is not None:
-        cfg["enabled"] = bool(body.enabled)
-    if body.warnLocal is not None:
-        cfg["warnLocal"] = [_norm_hhmm(v) for v in body.warnLocal][:3]
-    if body.outLocal is not None:
-        cfg["outLocal"] = _norm_hhmm(body.outLocal)
-    if body.minSessionMin is not None:
-        cfg["minSessionMin"] = max(0, int(body.minSessionMin))
-    row = db.query(NexusSetting).filter(NexusSetting.key == _AUTO_OUT_KEY).first()
-    if not row:
-        row = NexusSetting(key=_AUTO_OUT_KEY)
-        db.add(row)
-    row.value = json.dumps(cfg)
-    row.updated_by = user["email"]
-    db.commit()
-    return cfg
-
-
 class BreakPolicyIn(BaseModel):
     enabled: bool = False
     paidBreakMin: int = 10
@@ -5000,7 +4951,6 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
             "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
             "breakPolicy": _bp,
-            "autoClockout": _auto_out_cfg(db),
             "byCategory": by_category, "byLocation": by_location,
             "pendingRequests": pending_requests,
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
