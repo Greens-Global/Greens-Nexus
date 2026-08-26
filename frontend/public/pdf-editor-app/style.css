@@ -3654,5 +3654,22 @@ html[data-theme="light"] {
 .measure-row-page { color: var(--text-secondary); font-size: 11px; }
 .measure-row-val { font-variant-numeric: tabular-nums; }
 .measure-totals-head { margin: 8px 10px 4px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-secondary); }
-.measure-total-row { display: flex; justify-content: space-between; padding: 4px 10px; font-size: 12.5px; }
-.measure-total-row b { font-variant-numeric: tabular-nums; }
+.measure-total-row { display: flex; justify-content: space-between; padding: 4px 10px; font-size: 12.5px; gap: 8px; }
+.measure-total-row b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Measurement list tools (filter + sort) */
+.measure-list-tools { display: flex; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.measure-filter-input { flex: 1; min-width: 0; padding: 4px 8px; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input, #fff); color: inherit; }
+.measure-sort-select { padding: 4px 6px; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input, #fff); color: inherit; }
+.measure-row-head { font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: .5px; color: var(--text-secondary); cursor: default; }
+.measure-row-head:hover { background: none; }
+.measure-subtotal { padding: 6px 10px 2px; font-size: 10.5px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .4px; }
+.measure-flag { color: #e8590c; font-weight: 700; font-size: 11px; }
+/* Right-click context menu on a measurement row */
+.measure-ctx { background: var(--bg-panel, #fff); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 4px; min-width: 150px; }
+.measure-ctx button { display: block; width: 100%; text-align: left; padding: 7px 10px; font-size: 13px; border: none; background: none; border-radius: 5px; cursor: pointer; color: inherit; }
+.measure-ctx button:hover { background: var(--bg-hover); }
+.measure-ctx button.danger { color: #e03131; }
+/* Live scale chip in the status bar (M6) */
+.scale-chip { display: inline-flex; align-items: center; gap: 6px; margin: 0 10px; padding: 2px 10px; font-size: 11.5px; font-weight: 600; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-hover, #eef); color: inherit; cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.scale-chip:hover { border-color: #1971c2; }
+.scale-chip-unset { color: #e8590c; border-color: #e8590c; }

@@ -760,6 +760,13 @@
         document.getElementById('nupBtn')?.addEventListener('click', nUpTool);
         document.getElementById('measureListClose')?.addEventListener('click', () => window.toggleMeasureList());
         document.getElementById('measureExportBtn')?.addEventListener('click', () => window.exportMeasurements());
+        document.getElementById('measureFilter')?.addEventListener('input', (e) => {
+            window._measureFilter = e.target.value; if (window.renderMeasureList) window.renderMeasureList();
+        });
+        document.getElementById('measureSort')?.addEventListener('change', (e) => {
+            window._measureSort = e.target.value; if (window.renderMeasureList) window.renderMeasureList();
+        });
+        document.getElementById('scaleChip')?.addEventListener('click', () => window.openSetScaleDialog && window.openSetScaleDialog());
 
         // Keyboard shortcuts
         document.addEventListener('keydown', handleKeyboard);
@@ -815,10 +822,15 @@
             if (fabricCanvas) {
                 const active = fabricCanvas.getActiveObjects();
                 if (active.length > 0) {
-                    active.forEach((obj) => fabricCanvas.remove(obj));
+                    let hadMeasure = false;
+                    active.forEach((obj) => {
+                        if (obj._measure) { hadMeasure = true; _removeMeasureExtras(obj._measure._mid); }
+                        fabricCanvas.remove(obj);
+                    });
                     fabricCanvas.discardActiveObject();
                     fabricCanvas.renderAll();
                     saveAnnotationState();
+                    if (hadMeasure && window.renderMeasureList) window.renderMeasureList();
                 }
             }
         } else if (!ctrl && !e.altKey) {
@@ -1029,6 +1041,10 @@
         // Save state on object modifications
         fabricCanvas.on('object:modified', (e) => {
             if (e && e.target && e.target.excludeFromExport) return; // crop box etc.
+            // Reshaping/moving a measurement must recompute its value (M3).
+            if (e && e.target && e.target._measure && typeof _remeasureShape === 'function') {
+                _remeasureShape(e.target);
+            }
             saveAnnotationState();
         });
         fabricCanvas.on('object:added', (e) => {
@@ -1913,10 +1929,32 @@
     // Page" saves here so each sheet keeps its own calibration across page
     // switches, save, and reload.
     const _pageScales = {};
+    // Live-scale chip updater; reassigned to the real implementation below. A
+    // let-with-stub avoids a temporal-dead-zone error from callers that run
+    // during the first page render.
+    let _updateScaleChip = function () {};
     function _applyStoredScaleForPage(pg) {
         const s = _pageScales[pg];
         if (s) { measureScale = s.scale; measureUnit = s.unit; }
+        else { measureScale = null; }   // each sheet is independent (M2)
+        if (typeof _updateScaleChip === 'function') _updateScaleChip();
     }
+    // Express the live scale as a readable "1 in = X ft" plus unit + precision +
+    // lock, for the toolbar chip (M6). measureScale is real-units per page-pixel;
+    // page-pixels are PDF points, so 1 inch = 72 px.
+    function _scaleChipText() {
+        if (!measureScale) return 'No scale - click to set';
+        const perInch = measureScale * 72;   // real units represented by 1 inch on the page
+        const shown = perInch >= 100 ? perInch.toFixed(0) : perInch.toFixed(2);
+        return '1 in = ' + shown + ' ' + measureUnit + '  ·  ' + measureUnit + '  ·  ' + _mPrecision() + 'dp' + (_scaleLocked ? '  🔒' : '');
+    }
+    _updateScaleChip = function () {
+        const chip = document.getElementById('scaleChip');
+        if (!chip) return;
+        chip.style.display = (state && state.pdfDoc) ? 'inline-flex' : 'none';
+        chip.textContent = _scaleChipText();
+        chip.classList.toggle('scale-chip-unset', !measureScale);
+    };
     // Guard the two scale-setting entry points against an accidental change.
     function _scaleChangeAllowed() {
         if (_scaleLocked) {
@@ -1930,6 +1968,7 @@
         _scaleLocked = !_scaleLocked;
         showToast(_scaleLocked ? 'Scale locked - it will not change accidentally' : 'Scale unlocked');
         setStatus(_scaleLocked ? 'Scale: LOCKED' : 'Scale: unlocked');
+        _updateScaleChip();
         return _scaleLocked;
     };
     window.storeScaleInPage = function () {
@@ -1937,6 +1976,7 @@
         _pageScales[state.currentPage] = { scale: measureScale, unit: measureUnit };
         showToast('Scale stored on page ' + state.currentPage + ' - it will reload with this sheet');
         setStatus('Scale stored in page ' + state.currentPage);
+        _updateScaleChip();
     };
     // ISO 32000 defines a page /VP viewport with a /Measure dict (the "embedded
     // scale"). Read it via pdf-lib if present so a drawing that already carries a
@@ -1984,6 +2024,16 @@
     let measureKind = null;    // 'mlength' | 'mperim' | 'marea' while collecting
     let pendingCalib = null;   // {p1, p2} awaiting the real-length prompt
     let _cutoutTarget = null;  // the area shape a cutout is being subtracted from
+    // Measurements keep their OWN color, independent of the last drawing tool
+    // (M16). Defaults to a blueprint blue; the Edit dialog and a measure color
+    // control update it.
+    let _measureColorState = '#1971c2';
+    function _measureColor() { return _measureColorState; }
+    window.setMeasureColor = function (c) { if (c) _measureColorState = c; };
+    // Display precision (decimal places) for measurement values. 2 by default.
+    let _measurePrecision = 2;
+    function _mPrecision() { return _measurePrecision; }
+    window.setMeasurePrecision = function (n) { _measurePrecision = Math.max(0, Math.min(6, n | 0)); if (window.renderMeasureList) window.renderMeasureList(); };
 
     // Canvas px -> page px (undo the zoom) so measurements are zoom-independent.
     const toPagePx = (d) => d / (state.zoom || 1);
@@ -2124,15 +2174,13 @@
     // Set the scale DIRECTLY (no drawing): "pageVal pageUnit on the page = realVal
     // realUnit in the real world" - e.g. 1 in = 10 ft. Computes measureScale
     // (real-units-per-page-pixel) so all readouts come out in realUnit.
-    function setScaleDirect(pageVal, pageUnit, realVal, realUnit) {
+    async function setScaleDirect(pageVal, pageUnit, realVal, realUnit) {
         const pagePerPx = 1 / PT_PER_MM / UNIT_MM[pageUnit];  // pageUnits represented by 1 page px
         const realPerPage = (realVal / pageVal);              // realUnits per 1 pageUnit
-        measureScale = pagePerPx * realPerPage;               // realUnits per page px
-        measureUnit = realUnit;
-        _pageScales[state.currentPage] = { scale: measureScale, unit: measureUnit };
-        setStatus('Scale set: ' + pageVal + ' ' + pageUnit + ' = ' + realVal + ' ' + realUnit
-                  + ' - measurements show in ' + realUnit);
-        showToast('Scale set - measurements will show in ' + realUnit);
+        const newScale = pagePerPx * realPerPage;             // realUnits per page px
+        await _applyScaleChange(newScale, realUnit,
+            'Scale set: ' + pageVal + ' ' + pageUnit + ' = ' + realVal + ' ' + realUnit);
+        return;
     }
     window.setMeasureScaleDirect = setScaleDirect;
 
@@ -2140,15 +2188,16 @@
         if (!measureScale) return '(set scale first)';
         if (kind === 'area') {
             const val = pagePixels * measureScale * measureScale; // px^2 -> unit^2
-            return val.toFixed(2) + ' ' + measureUnit + '²';
+            return val.toFixed(_mPrecision()) + ' ' + measureUnit + '²';
         }
         const val = pagePixels * measureScale;
-        return val.toFixed(2) + ' ' + measureUnit;
+        return val.toFixed(_mPrecision()) + ' ' + measureUnit;
     }
 
     function measureStyleBase() {
         const sw = parseInt(dom.sizePicker.value, 10) || 2;
-        return { stroke: dom.colorPicker.value, strokeWidth: sw, fill: 'transparent',
+        // Measurements use their own color state, NOT the last drawing tool's (M16).
+        return { stroke: _measureColor(), strokeWidth: sw, fill: 'transparent',
                  selectable: false, objectCaching: false };
     }
 
@@ -2175,6 +2224,36 @@
             originX: 'center', originY: 'center', selectable: false });
     }
 
+    // Decorative angle arc + short extension marks at the vertex (M25). Tagged
+    // _measureDecor so it is cleaned up with its parent measurement.
+    function drawAngleArc(pts, color, mid) {
+        const [a, b, c] = pts;
+        const r = Math.min(28, Math.hypot(a.x - b.x, a.y - b.y) * 0.4, Math.hypot(c.x - b.x, c.y - b.y) * 0.4) || 20;
+        let a1 = Math.atan2(a.y - b.y, a.x - b.x);
+        let a2 = Math.atan2(c.y - b.y, c.x - b.x);
+        // Sweep the short way between the rays.
+        let d = a2 - a1; while (d <= -Math.PI) d += 2 * Math.PI; while (d > Math.PI) d -= 2 * Math.PI;
+        const steps = Math.max(6, Math.round(Math.abs(d) / (Math.PI / 24)));
+        const path = [];
+        for (let i = 0; i <= steps; i++) {
+            const ang = a1 + d * (i / steps);
+            path.push({ x: b.x + Math.cos(ang) * r, y: b.y + Math.sin(ang) * r });
+        }
+        const arc = new fabric.Polyline(path, { stroke: color, strokeWidth: 1.5, fill: '', selectable: false, evented: false, objectCaching: false });
+        arc._measureDecor = true; arc._decorFor = mid;
+        _isRestoring = true; fabricCanvas.add(arc); _isRestoring = false;
+    }
+
+    // Decorative circle for a radius measurement (M26). center in canvas px,
+    // radiusPx the drawn radius in canvas px.
+    function drawRadiusCircle(center, radiusPx, color, mid) {
+        const circ = new fabric.Circle({ left: center.x, top: center.y, radius: radiusPx,
+            originX: 'center', originY: 'center', stroke: color, strokeWidth: 1.2,
+            fill: '', strokeDashArray: [4, 3], selectable: false, evented: false, objectCaching: false });
+        circ._measureDecor = true; circ._decorFor = mid;
+        _isRestoring = true; fabricCanvas.add(circ); _isRestoring = false;
+    }
+
     function measureRedraw(livePt) {
         if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
         const pts = livePt ? [...measurePts, livePt] : [...measurePts];
@@ -2197,17 +2276,107 @@
     let _midSeq = 0;
     function _newMid() { _midSeq += 1; return 'm' + _midSeq + '_' + (state.currentPage || 1); }
     // Stamp id + editable-property defaults onto a freshly created _measure.
-    function _tagMeasure(shape, m) {
+    // geomPx is the scale-INDEPENDENT raw measure in page-pixels (length px,
+    // area px^2, or a fixed value like degrees) so the real value can always be
+    // recomputed as geomPx * scale^power. scaleAt records the calibration the
+    // measurement was taken under, so we can detect/flag mixed-scale totals.
+    function _tagMeasure(shape, m, geomPx) {
         m._mid = _newMid();
         if (m.subject === undefined) m.subject = m.type;   // Bluebeam "Subject"
-        m.color = shape.stroke || (dom.colorPicker.value || '#4c6ef5');
+        m.color = shape.stroke || _measureColor();
         m.thickness = shape.strokeWidth || 2;
+        if (geomPx !== undefined) m.geomPx = geomPx;
+        m.scaleAt = (m.kind === 'mangle' || m.kind === 'mcount') ? null : measureScale;
+        m.scaleUnitAt = measureUnit;
         return m;
+    }
+    // The exponent scale is raised to for a given measurement kind.
+    function _scalePow(m) { return m.cubic ? 3 : m.area ? 2 : 1; }
+    // Recompute a measurement's real value from its stored raw geometry and the
+    // CURRENT scale. Angle/count don't depend on scale. Volume keeps its depth.
+    function _recomputeMeasure(m) {
+        if (!m || m.geomPx == null) return;
+        if (m.kind === 'mangle' || m.kind === 'mcount') return;   // scale-free
+        if (!measureScale) return;
+        if (m.kind === 'mvolume') {
+            const areaNow = m.geomPx * measureScale * measureScale;   // geomPx here = area px^2
+            m.baseArea = areaNow;
+            m.value = areaNow * (m.depth || 1);
+        } else {
+            m.value = m.geomPx * Math.pow(measureScale, _scalePow(m));
+            if (m.kind === 'mradius') m.diameter = m.value * 2;
+        }
+        m.unit = measureUnit;
+        m.scaleAt = measureScale; m.scaleUnitAt = measureUnit;   // now current
+    }
+    // Recompute a measurement's raw geometry (geomPx) from the shape's CURRENT
+    // vertices after the user drags/reshapes it, then its value + label (M3).
+    // Accounts for any post-creation scale/move via the transform matrix.
+    function _remeasureShape(shape) {
+        const m = shape._measure; if (!m) return;
+        if (m.kind === 'mangle') {
+            // Recompute the angle from the polyline's 3 absolute vertices.
+            const v = _absVerts(shape);
+            if (v.length >= 3) { m.value = angleDeg([v[0], v[1], v[2]]); _relabelMeasure(m, shape); }
+            return;
+        }
+        if (m.kind === 'mcount') return;
+        if (shape.type === 'line') {
+            // Endpoints in absolute canvas space via the transform matrix.
+            const mtx = shape.calcTransformMatrix();
+            const c = shape.calcLinePoints();   // local coords relative to center
+            const a = fabric.util.transformPoint({ x: c.x1, y: c.y1 }, mtx);
+            const b = fabric.util.transformPoint({ x: c.x2, y: c.y2 }, mtx);
+            m.geomPx = toPagePx(Math.hypot(b.x - a.x, b.y - a.y));
+        } else if (shape.points) {
+            const v = _absVerts(shape);
+            if (m.area || m.cubic) m.geomPx = toPagePx(toPagePx(polyAreaPx(v)));
+            else m.geomPx = toPagePx(polyLenPx(v, m.kind === 'mperim'));
+        }
+        _recomputeMeasure(m);
+        _relabelMeasure(m, shape);
+        if (window.renderMeasureList) window.renderMeasureList();
+    }
+
+    // Refresh the on-plan caption text of a measurement to match its value.
+    function _relabelMeasure(m, shape) {
+        const lbl = fabricCanvas && fabricCanvas.getObjects().find(o => o._midLink === m._mid && o.type === 'text');
+        if (!lbl) return;
+        if (m.label) { lbl.set({ text: m.label }); return; }   // custom label wins
+        lbl.set({ text: _autoLabelText(m) });
+    }
+    // The default on-plan caption for a measurement (² / ³ / ° rendered right).
+    function _autoLabelText(m) {
+        if (m.kind === 'mcount') return String(m.value);
+        if (m.kind === 'mangle') return m.value.toFixed(_mPrecision()) + '°';
+        if (m.kind === 'mradius') return 'R ' + m.value.toFixed(_mPrecision()) + ' ' + m.unit
+            + '  (Ø ' + (m.diameter || m.value * 2).toFixed(_mPrecision()) + ' ' + m.unit + ')';
+        if (m.cubic) return m.value.toFixed(_mPrecision()) + ' ' + m.unit + '³'
+            + (m.depth ? '  (d ' + m.depth + ' ' + m.unit + ')' : '');
+        const suf = m.area ? '²' : '';
+        const pre = m.kind === 'mperim' ? 'Perimeter: ' : m.kind === 'marea' ? 'Area: ' : '';
+        return pre + m.value.toFixed(_mPrecision()) + ' ' + m.unit + suf;
+    }
+    // Recompute every measurement on the current page against the live scale and
+    // refresh labels + the list. Returns how many were changed.
+    function _recomputeAllOnPage() {
+        if (!fabricCanvas) return 0;
+        let n = 0;
+        fabricCanvas.forEachObject((o) => {
+            if (o._measure && o._measure.geomPx != null && o._measure.kind !== 'mangle' && o._measure.kind !== 'mcount') {
+                _recomputeMeasure(o._measure); _relabelMeasure(o._measure, o); n++;
+            }
+        });
+        if (n) { fabricCanvas.requestRenderAll(); saveAnnotationState(); saveCurrentAnnotations(); }
+        if (window.renderMeasureList) window.renderMeasureList();
+        return n;
     }
 
     let _countSeq = 0;
+    let _countGroup = 'Count';   // the subject the current count session drops into (M27)
+    window.setCountGroup = function (name) { _countGroup = (name || 'Count').trim() || 'Count'; };
     function placeCountMarker(p) {
-        const color = dom.colorPicker.value || '#e8590c';
+        const color = _measureColor();
         const dot = new fabric.Circle({ left: p.x, top: p.y, radius: 6, fill: color,
             stroke: '#fff', strokeWidth: 1.5, originX: 'center', originY: 'center', selectable: true });
         _countSeq += 1;
@@ -2216,13 +2385,14 @@
             originX: 'center', originY: 'center', selectable: false });
         dot._measurePt = true;   // so endpoint-snap can see it
         dot._measure = _tagMeasure(dot, { kind: 'mcount', type: 'Count', value: 1, unit: '', area: false,
-                         page: state.currentPage, label: '' });
+                         page: state.currentPage, label: '', subject: _countGroup });
+        dot._measure.color = color;   // fill color, so the list swatch isn't empty (M27)
         num._measureLabelFor = dot._measure;
         num._midLink = dot._measure._mid;
         fabricCanvas.add(dot); fabricCanvas.add(num);
         saveAnnotationState(); saveCurrentAnnotations();
         if (window.renderMeasureList) window.renderMeasureList();
-        setStatus('Count: ' + _countSeq + ' - click to add more, switch tools when done');
+        setStatus('Count "' + _countGroup + '": ' + _countSeq + ' - click to add more, switch tools when done');
     }
 
     // Set Scale dialog (Bluebeam-style): type the scale directly, e.g. 1 in =
@@ -2232,21 +2402,73 @@
         _exitScrollForOp();
         const unitOpts = (sel) => ['mm','cm','m','in','ft','yd']
             .map(u => `<option value="${u}"${u===sel?' selected':''}>${u}</option>`).join('');
+        // Preload the CURRENT scale so the dialog reflects reality (M6). Derive a
+        // clean "1 pageUnit = realVal realUnit" from measureScale if one is set.
+        let curPageUnit = 'in', curRealUnit = measureUnit || 'ft', curRealVal = 10;
+        if (measureScale) {
+            curRealVal = +(measureScale * 72).toFixed(4);   // real units per inch
+        }
+        const presets = [
+            ['', 'Presets...'],
+            ['1|in|10|ft', '1 in = 10 ft'],
+            ['0.125|in|1|ft', '1/8" = 1\'-0"'],
+            ['0.25|in|1|ft', '1/4" = 1\'-0"'],
+            ['0.5|in|1|ft', '1/2" = 1\'-0"'],
+            ['1|in|20|ft', '1 in = 20 ft'],
+            ['1|mm|20|mm', '1:20'],
+            ['1|mm|50|mm', '1:50'],
+            ['1|mm|100|mm', '1:100'],
+        ].map(([v2, l]) => `<option value="${v2}">${l}</option>`).join('');
+        const precOpts = [0,1,2,3,4].map(n => `<option value="${n}"${n===_mPrecision()?' selected':''}>${n} dp</option>`).join('');
         const v = await _toolModal('Set Scale', `
-            <p class="modal-hint" style="margin:0 0 12px;">Enter the drawing scale directly. Example: 1 in = 10 ft means one inch on the page equals ten feet in real life.</p>
+            <p class="modal-hint" style="margin:0 0 10px;">Enter the drawing scale directly, or pick a preset. Example: 1 in = 10 ft means one inch on the page equals ten feet in real life.</p>
+            <select class="modal-input" data-k="preset" style="width:100%;margin-bottom:10px;">${presets}</select>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <input type="number" class="modal-input" data-k="pageVal" value="1" step="any" style="width:70px;">
-                <select class="modal-input" data-k="pageUnit" style="width:70px;">${unitOpts('in')}</select>
+                <select class="modal-input" data-k="pageUnit" style="width:70px;">${unitOpts(curPageUnit)}</select>
                 <span style="font-weight:700;">=</span>
-                <input type="number" class="modal-input" data-k="realVal" value="10" step="any" style="width:80px;">
-                <select class="modal-input" data-k="realUnit" style="width:70px;">${unitOpts('ft')}</select>
+                <input type="number" class="modal-input" data-k="realVal" value="${curRealVal}" step="any" style="width:90px;">
+                <select class="modal-input" data-k="realUnit" style="width:70px;">${unitOpts(curRealUnit)}</select>
+            </div>
+            <div style="display:flex;gap:14px;align-items:flex-end;margin-top:12px;flex-wrap:wrap;">
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Precision
+                  <select class="modal-input" data-k="precision" style="width:90px;">${precOpts}</select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Apply to
+                  <select class="modal-input" data-k="scope" style="width:150px;">
+                    <option value="page">This page</option>
+                    <option value="all">All pages</option>
+                  </select>
+                </label>
             </div>
             <p class="modal-hint" style="margin:12px 0 0;">Prefer to measure a known distance instead? Use "Calibrate scale".</p>`,
-            'Set Scale');
+            'Set Scale', (overlay) => {
+                // Preset dropdown fills the four fields.
+                const presetSel = overlay.querySelector('[data-k="preset"]');
+                presetSel && presetSel.addEventListener('change', () => {
+                    if (!presetSel.value) return;
+                    const [pv, pu, rv, ru] = presetSel.value.split('|');
+                    overlay.querySelector('[data-k="pageVal"]').value = pv;
+                    overlay.querySelector('[data-k="pageUnit"]').value = pu;
+                    overlay.querySelector('[data-k="realVal"]').value = rv;
+                    overlay.querySelector('[data-k="realUnit"]').value = ru;
+                });
+            });
         if (!v) return;
         const pv = parseFloat(v.pageVal), rv = parseFloat(v.realVal);
         if (!(pv > 0) || !(rv > 0)) { showToast('Enter valid numbers on both sides'); return; }
-        setScaleDirect(pv, v.pageUnit, rv, v.realUnit);
+        if (v.precision !== undefined) _measurePrecision = Math.max(0, Math.min(6, parseInt(v.precision, 10) || 2));
+        if (v.scope === 'all') {
+            // Set the same scale on every page (M6 "apply to all").
+            const pagePerPx = 1 / PT_PER_MM / UNIT_MM[v.pageUnit];
+            const sc = pagePerPx * (rv / pv);
+            for (let i = 1; i <= (state.totalPages || 1); i++) _pageScales[i] = { scale: sc, unit: v.realUnit };
+            measureScale = sc; measureUnit = v.realUnit;
+            _recomputeAllOnPage(); _updateScaleChip();
+            showToast('Scale applied to all ' + (state.totalPages || 1) + ' pages');
+        } else {
+            await setScaleDirect(pv, v.pageUnit, rv, v.realUnit);
+        }
     }
     window.openSetScaleDialog = openSetScaleDialog;
 
@@ -2254,18 +2476,50 @@
     // the scale. Kept separate so handleMeasureClick stays sync.
     async function _finishCalibration(px) {
         if (!_scaleChangeAllowed()) return;
-        const ans = await customPrompt(
-            'Enter the real length of the line you drew (number + unit), e.g. 10 ft, 5 m, 24 in:',
-            'e.g. 10 ft', '10 ft');
-        if (!ans) { setStatus('Calibration cancelled'); return; }
-        const m = ans.trim().match(/^([\d.]+)\s*([a-zA-Z"']+)?$/);
-        if (!m) { showToast('Could not read that - try like "10 ft"'); return; }
-        const realLen = parseFloat(m[1]);
-        measureUnit = m[2] || measureUnit;
-        measureScale = realLen / toPagePx(px);   // units per page-pixel
+        // Loop until valid or cancelled, so bad input doesn't strand a half-state
+        // with the calibration line already gone (M17).
+        let realLen = null, unit = measureUnit;
+        for (;;) {
+            const ans = await customPrompt(
+                'Enter the real length of the line you drew (number + unit), e.g. 10 ft, 5 m, 24 in:',
+                'e.g. 10 ft', realLen == null ? '10 ft' : '');
+            if (!ans) { setStatus('Calibration cancelled - scale unchanged'); return; }
+            const m = ans.trim().match(/^([\d.]+)\s*([a-zA-Z"']+)?$/);
+            if (m && parseFloat(m[1]) > 0) { realLen = parseFloat(m[1]); unit = m[2] || measureUnit; break; }
+            showToast('Could not read that - try like "10 ft". Enter again or Cancel.');
+        }
+        const newScale = realLen / toPagePx(px);   // units per page-pixel
+        await _applyScaleChange(newScale, unit, 'Calibrated: ' + realLen + ' ' + unit);
+    }
+
+    // Central scale-change path (M1/M12). Sets the scale, stores it on the page,
+    // and - if measurements already exist on this page - offers to recompute them
+    // so the totals never silently mix scales.
+    async function _applyScaleChange(newScale, newUnit, desc) {
+        const existing = fabricCanvas ? fabricCanvas.getObjects().filter(o =>
+            o._measure && o._measure.geomPx != null &&
+            o._measure.kind !== 'mangle' && o._measure.kind !== 'mcount') : [];
+        measureScale = newScale; measureUnit = newUnit;
         _pageScales[state.currentPage] = { scale: measureScale, unit: measureUnit };
-        setStatus('Scale set: measurements now show in ' + measureUnit + '. Use Measure length / perimeter / area.');
-        showToast('Scale calibrated - measurements will show in ' + measureUnit);
+        if (existing.length) {
+            const choice = await _choiceModal('Scale changed',
+                'You changed the scale with ' + existing.length + ' measurement' +
+                (existing.length > 1 ? 's' : '') + ' already on this page. Recalculate ' +
+                (existing.length > 1 ? 'them' : 'it') + ' to the new scale, or keep the values as originally taken?',
+                [{ key: 'recalc', label: 'Recalculate' }, { key: 'keep', label: 'Keep as taken' }]);
+            if (choice === 'recalc') {
+                const n = _recomputeAllOnPage();
+                showToast('Scale set (' + newUnit + ') - recalculated ' + n + ' measurement' + (n > 1 ? 's' : ''));
+            } else {
+                // Leave old values but mark them so mixed-scale totals can be flagged.
+                if (window.renderMeasureList) window.renderMeasureList();
+                showToast('Scale set (' + newUnit + ') - existing measurements kept as taken');
+            }
+        } else {
+            showToast('Scale set - measurements will show in ' + newUnit);
+        }
+        setStatus(desc + ' - measurements in ' + newUnit);
+        _updateScaleChip();
     }
 
     const _MEASURE_KINDS = ['mlength', 'mpolylen', 'mperim', 'marea', 'mcutout', 'mcalibrate', 'mangle', 'mradius', 'mvolume', 'mcount'];
@@ -2365,8 +2619,9 @@
                 fabricCanvas.add(shape);
                 const deg = angleDeg(pts);
                 shape._measure = _tagMeasure(shape, { kind: 'mangle', type: 'Angle', value: deg, unit: '°',
-                                   area: false, page: state.currentPage, label: '' });
-                const lbl = measureLabel(deg.toFixed(1) + '°', pts[1].x + 14, pts[1].y - 14);
+                                   area: false, page: state.currentPage, label: '' }, null);
+                drawAngleArc(pts, shape._measure.color, shape._measure._mid);   // arc (M25)
+                const lbl = measureLabel(deg.toFixed(_mPrecision()) + '°', pts[1].x + 14, pts[1].y - 14);
                 lbl.selectable = true; lbl._measureLabelFor = shape._measure; lbl._midLink = shape._measure._mid;
                 fabricCanvas.add(lbl);
                 saveAnnotationState(); saveCurrentAnnotations();
@@ -2382,13 +2637,15 @@
                 const base = measureStyleBase(); base.selectable = true;
                 const shape = new fabric.Line([pts[0].x, pts[0].y, pts[1].x, pts[1].y], base);
                 fabricCanvas.add(shape);
-                const dist = toPagePx(polyLenPx(pts, false)) * measureScale;   // real radius
+                const radiusPx = toPagePx(polyLenPx(pts, false));   // page-px, scale-free
+                const dist = radiusPx * measureScale;               // real radius
                 shape._measure = _tagMeasure(shape, { kind: 'mradius', type: 'Radius', value: dist, unit: measureUnit,
                                    area: false, page: state.currentPage, label: '',
-                                   diameter: dist * 2 });
+                                   diameter: dist * 2 }, radiusPx);
+                // Draw the actual circle (center = pts[0], through pts[1]) - M26.
+                drawRadiusCircle(pts[0], polyLenPx(pts, false), shape._measure.color, shape._measure._mid);
                 const cx = (pts[0].x + pts[1].x) / 2, cy = (pts[0].y + pts[1].y) / 2 - 12;
-                const lbl = measureLabel('R ' + dist.toFixed(2) + ' ' + measureUnit
-                    + '  (Ø ' + (dist * 2).toFixed(2) + ')', cx, cy);
+                const lbl = measureLabel(_autoLabelText(shape._measure), cx, cy);
                 lbl.selectable = true; lbl._measureLabelFor = shape._measure; lbl._midLink = shape._measure._mid;
                 fabricCanvas.add(lbl);
                 saveAnnotationState(); saveCurrentAnnotations();
@@ -2410,20 +2667,22 @@
         // value, draw the void outline, and record it on the target for export.
         if (measureKind === 'mcutout') {
             if (pts.length >= 3 && _cutoutTarget && _cutoutTarget._measure) {
-                const voidArea = toPagePx(toPagePx(polyAreaPx(pts))) * measureScale * measureScale;
+                const voidAreaPx = toPagePx(toPagePx(polyAreaPx(pts)));   // page-px^2, scale-free
                 const tm = _cutoutTarget._measure;
-                tm.value = Math.max(0, tm.value - voidArea);
-                tm.cutouts = (tm.cutouts || 0) + voidArea;
+                // Track cutout area in page-px^2 so it survives scale changes, and
+                // reduce the stored geomPx so recompute stays correct.
+                tm.cutoutPx = (tm.cutoutPx || 0) + voidAreaPx;
+                tm.geomPx = Math.max(0, (tm.geomPx || 0) - voidAreaPx);
+                _recomputeMeasure(tm);
                 const base = measureStyleBase(); base.selectable = true;
-                const voidShape = new fabric.Polygon(pts, { ...base, fill: 'rgba(245,76,76,0.16)', stroke: '#e03131' });
-                voidShape._cutoutFor = tm._mid;   // bookkeeping only
+                // Diagonal hatch fill so a cutout reads as a void (M13).
+                const voidShape = new fabric.Polygon(pts, { ...base, fill: 'rgba(224,49,49,0.18)', stroke: '#e03131', strokeDashArray: [5, 3] });
+                voidShape._cutoutFor = tm._mid;
                 fabricCanvas.add(voidShape);
-                // Refresh the target's on-plan label if it has one.
-                const lbl = fabricCanvas.getObjects().find(o => o._midLink === tm._mid && o.type === 'text');
-                if (lbl && !tm.label) lbl.set({ text: 'Area: ' + tm.value.toFixed(2) + ' ' + tm.unit + '²' });
+                _relabelMeasure(tm);   // renders ² correctly on the plan (M13)
                 saveAnnotationState(); saveCurrentAnnotations();
                 if (window.renderMeasureList) window.renderMeasureList();
-                setStatus('Cutout subtracted - area is now ' + tm.value.toFixed(2) + ' ' + tm.unit + '²');
+                setStatus('Cutout subtracted - area is now ' + tm.value.toFixed(_mPrecision()) + ' ' + tm.unit + '²');
             } else if (!_cutoutTarget) {
                 showToast('Pick an area to cut from first');
             }
@@ -2433,51 +2692,47 @@
 
         if (pts.length >= need) {
             const base = measureStyleBase(); base.selectable = true;
-            let label, cx, cy;
-            let shape, mValue, mKindLabel;   // for the Markups List metadata
+            let cx, cy, geomPx, mKindLabel, isArea = false;
+            let shape;
             if (measureKind === 'mlength') {
                 shape = new fabric.Line([pts[0].x, pts[0].y, pts[1].x, pts[1].y], base);
                 fabricCanvas.add(shape);
-                mValue = toPagePx(polyLenPx(pts, false)) * measureScale;   // real length
-                label = fmtMeasure(toPagePx(polyLenPx(pts, false)), 'len');
+                geomPx = toPagePx(polyLenPx(pts, false));   // length in page-px
                 mKindLabel = 'Length';
                 cx = (pts[0].x + pts[1].x) / 2; cy = (pts[0].y + pts[1].y) / 2 - 12;
             } else if (measureKind === 'mpolylen') {
                 shape = new fabric.Polyline(pts, { ...base, fill: '' });
                 fabricCanvas.add(shape);
-                mValue = toPagePx(polyLenPx(pts, false)) * measureScale;   // open path
-                label = fmtMeasure(toPagePx(polyLenPx(pts, false)), 'len');
+                geomPx = toPagePx(polyLenPx(pts, false));   // open path
                 mKindLabel = 'Polyline';
                 cx = pts[0].x; cy = pts[0].y - 14;
             } else if (measureKind === 'mperim') {
-                shape = new fabric.Polyline(pts, { ...base, fill: '' });
+                // Close the outline so the counted closing side is actually drawn (M24).
+                shape = new fabric.Polygon(pts, { ...base, fill: '' });
                 fabricCanvas.add(shape);
-                mValue = toPagePx(polyLenPx(pts, true)) * measureScale;
-                label = 'Perimeter: ' + fmtMeasure(toPagePx(polyLenPx(pts, true)), 'len');
+                geomPx = toPagePx(polyLenPx(pts, true));
                 mKindLabel = 'Perimeter';
                 cx = pts[0].x; cy = pts[0].y - 14;
             } else { // marea
-                shape = new fabric.Polygon(pts, { ...base, fill: 'rgba(76,110,245,0.12)' });
+                shape = new fabric.Polygon(pts, { ...base, fill: 'rgba(25,113,194,0.12)' });
                 fabricCanvas.add(shape);
-                const areaUnit2 = toPagePx(toPagePx(polyAreaPx(pts))); // px^2 -> page px^2
-                mValue = areaUnit2 * measureScale * measureScale;
-                label = 'Area: ' + fmtMeasure(areaUnit2, 'area');
-                mKindLabel = 'Area';
+                geomPx = toPagePx(toPagePx(polyAreaPx(pts))); // area in page-px^2
+                mKindLabel = 'Area'; isArea = true;
                 cx = pts.reduce((s,p)=>s+p.x,0)/pts.length; cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
             }
-            // Tag the shape so the Markups List / Totals panel can enumerate it.
+            const val = geomPx * Math.pow(measureScale, isArea ? 2 : 1);
             shape._measure = _tagMeasure(shape, {
-                kind: measureKind,           // 'mlength' | 'mperim' | 'marea'
-                type: mKindLabel,            // display name
-                value: mValue,               // real-world number
-                unit: measureUnit,           // ft / m / ...
-                area: measureKind === 'marea',
+                kind: measureKind,
+                type: mKindLabel,
+                value: val,
+                unit: measureUnit,
+                area: isArea,
                 page: state.currentPage,
-                label: '',                   // user-editable custom label
-            });
-            const lbl = measureLabel(label, cx, cy);
+                label: '',
+            }, geomPx);
+            const lbl = measureLabel(_autoLabelText(shape._measure), cx, cy);
             lbl.selectable = true;
-            lbl._measureLabelFor = shape._measure;   // link so we can retitle
+            lbl._measureLabelFor = shape._measure;
             lbl._midLink = shape._measure._mid;
             fabricCanvas.add(lbl);
             saveAnnotationState(); saveCurrentAnnotations();
@@ -2497,9 +2752,9 @@
     // the current measure unit (e.g. ft³). Depth is entered in the same unit.
     async function finishVolume(pts) {
         const base = measureStyleBase(); base.selectable = true;
-        const shape = new fabric.Polygon(pts, { ...base, fill: 'rgba(76,110,245,0.12)' });
+        const shape = new fabric.Polygon(pts, { ...base, fill: 'rgba(25,113,194,0.12)' });
         fabricCanvas.add(shape); fabricCanvas.renderAll();
-        const areaPagePx = toPagePx(toPagePx(polyAreaPx(pts)));
+        const areaPagePx = toPagePx(toPagePx(polyAreaPx(pts)));      // page-px^2, scale-free
         const area = areaPagePx * measureScale * measureScale;      // real area
         const ans = await customPrompt(
             'Enter the depth / thickness in ' + measureUnit + ' (e.g. 0.5):',
@@ -2510,14 +2765,15 @@
         const vol = area * depth;
         shape._measure = _tagMeasure(shape, { kind: 'mvolume', type: 'Volume', value: vol, unit: measureUnit,
                            area: false, cubic: true, page: state.currentPage, label: '',
-                           baseArea: area, depth: depth });
+                           baseArea: area, depth: depth }, areaPagePx);
         const cx = pts.reduce((s,p)=>s+p.x,0)/pts.length, cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
-        const lbl = measureLabel(vol.toFixed(2) + ' ' + measureUnit + '³', cx, cy);
+        // Label shows the depth so it's not hidden (M23).
+        const lbl = measureLabel(vol.toFixed(_mPrecision()) + ' ' + measureUnit + '³  (d ' + depth + ' ' + measureUnit + ')', cx, cy);
         lbl.selectable = true; lbl._measureLabelFor = shape._measure; lbl._midLink = shape._measure._mid;
         fabricCanvas.add(lbl);
         saveAnnotationState(); saveCurrentAnnotations();
         if (window.renderMeasureList) window.renderMeasureList();
-        setStatus('Volume: ' + vol.toFixed(2) + ' ' + measureUnit + '³');
+        setStatus('Volume: ' + vol.toFixed(_mPrecision()) + ' ' + measureUnit + '³');
     }
 
     // ── Markups List + Totals (Bluebeam-style takeoff panel) ────────────────────
@@ -2545,9 +2801,12 @@
         return '';
     }
     function _fmtVal(m) {
+        const P = _mPrecision();
         if (m.kind === 'mcount') return String(m.value);           // plain integer
-        if (m.kind === 'mangle') return m.value.toFixed(1) + '°';  // unit already '°'
-        return m.value.toFixed(2) + ' ' + m.unit + _unitSuffix(m);
+        if (m.kind === 'mangle') return m.value.toFixed(P) + '°';  // unit already '°'
+        if (m.kind === 'mradius') return 'R ' + m.value.toFixed(P) + ' ' + m.unit
+            + ' / Ø ' + (m.diameter || m.value * 2).toFixed(P) + ' ' + m.unit;   // M14: unit on Ø
+        return m.value.toFixed(P) + ' ' + m.unit + _unitSuffix(m);
     }
 
     window.renderMeasureList = function renderMeasureList() {
@@ -2559,35 +2818,67 @@
             body.innerHTML = '<div class="measure-empty">No measurements yet. Use the Measure tool for length, perimeter, area, angle, radius, volume or count.</div>';
             return;
         }
-        // Totals grouped by Subject + unit (Bluebeam groups by Subject, so a
-        // renamed subject rolls up separately). Falls back to the type name.
+        // Groups keyed by Subject + TYPE + unit, so the same Subject on different
+        // measurement types stays distinguishable (M15). Angles/radii are never
+        // summed - we show count and min/max/avg instead (M11).
         const totals = {};
         rows.forEach((m) => {
             const grp = (m.subject || m.type);
             const uSuf = m.unit + _unitSuffix(m);
-            const key = grp + '|' + uSuf;
-            totals[key] = totals[key] || { type: grp, unit: uSuf, sum: 0, count: 0, kind: m.kind };
-            totals[key].sum += m.value; totals[key].count++;
+            const key = grp + '|' + m.type + '|' + uSuf;
+            totals[key] = totals[key] || { subject: grp, type: m.type, unit: uSuf, sum: 0, count: 0,
+                                           kind: m.kind, min: Infinity, max: -Infinity, scales: new Set() };
+            const t = totals[key];
+            t.sum += m.value; t.count++;
+            t.min = Math.min(t.min, m.value); t.max = Math.max(t.max, m.value);
+            if (m.scaleAt != null) t.scales.add(+m.scaleAt.toFixed(6));
         });
         const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => (
             { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-        let html = '';
-        rows.forEach((m, i) => {
+        const P = _mPrecision();
+        // Per-page subtotals + sortable rows. Sort key from the panel (default page).
+        const sortMode = window._measureSort || 'page';
+        const filt = (window._measureFilter || '').toLowerCase();
+        let shown = rows.map((m, i) => ({ m, i })).filter(({ m }) =>
+            !filt || (m.type + ' ' + (m.subject || '') + ' ' + (m.label || '') + ' p' + m.page).toLowerCase().includes(filt));
+        shown.sort((A, B) => {
+            if (sortMode === 'type') return A.m.type.localeCompare(B.m.type) || A.m.page - B.m.page;
+            if (sortMode === 'subject') return (A.m.subject || '').localeCompare(B.m.subject || '') || A.m.page - B.m.page;
+            if (sortMode === 'value') return (B.m.value || 0) - (A.m.value || 0);
+            return A.m.page - B.m.page;
+        });
+        let html = '<div class="measure-row measure-row-head"><span></span><span class="measure-row-type">Item</span><span class="measure-row-page">Pg</span><span class="measure-row-val">Value</span></div>';
+        let lastPage = null;
+        shown.forEach(({ m, i }) => {
+            if (sortMode === 'page' && m.page !== lastPage) {
+                const pageRows = rows.filter(r => r.page === m.page);
+                html += `<div class="measure-subtotal">Sheet ${m.page} - ${pageRows.length} item${pageRows.length > 1 ? 's' : ''}</div>`;
+                lastPage = m.page;
+            }
             const name = m.label ? escH(m.label) : escH(m.subject || m.type);
-            const dot = m.color ? `<span class="measure-swatch" style="background:${escH(m.color)}"></span>` : '';
-            html += `<div class="measure-row" data-mid="${escH(m._mid || '')}" data-i="${i}" title="Click to edit label, subject, color, thickness">
-                ${dot}<span class="measure-row-type">${name}</span>
+            const swColor = m.color || (m.kind === 'mcount' ? '#e8590c' : '#1971c2');
+            const dot = `<span class="measure-swatch" style="background:${escH(swColor)}"></span>`;
+            const mixed = (m.scaleAt != null && measureScale != null && Math.abs(m.scaleAt - measureScale) > 1e-6)
+                ? ' <span class="measure-flag" title="Captured under a different scale than the current one">⚠</span>' : '';
+            html += `<div class="measure-row" data-mid="${escH(m._mid || '')}" data-i="${i}" title="Click to edit; right-click for more">
+                ${dot}<span class="measure-row-type">${name}${mixed}</span>
                 <span class="measure-row-page">p${m.page}</span>
                 <span class="measure-row-val">${_fmtVal(m)}</span>
             </div>`;
         });
         html += '<div class="measure-totals-head">Totals</div>';
         Object.values(totals).forEach((t) => {
-            // Count sums to a plain integer; angle keeps one decimal + degree sign.
-            const val = t.kind === 'mcount' ? String(t.count)
-                      : t.kind === 'mangle' ? t.sum.toFixed(1) + '°'
-                      : t.sum.toFixed(2) + ' ' + t.unit;
-            html += `<div class="measure-total-row"><span>${t.type} (${t.count})</span><b>${val}</b></div>`;
+            const mixed = t.scales.size > 1 ? ' <span class="measure-flag" title="This total mixes measurements taken at different scales">⚠ mixed scale</span>' : '';
+            const label = t.subject === t.type ? t.type : t.subject + ' - ' + t.type;
+            let val;
+            if (t.kind === 'mcount') val = String(t.count);
+            else if (t.kind === 'mangle' || t.kind === 'mradius') {
+                // Never sum angles/radii - show the range instead (M11).
+                const u = t.kind === 'mangle' ? '°' : ' ' + t.unit;
+                val = t.count === 1 ? t.min.toFixed(P) + u
+                    : `min ${t.min.toFixed(P)} / max ${t.max.toFixed(P)} / avg ${(t.sum / t.count).toFixed(P)}${u}`;
+            } else val = t.sum.toFixed(P) + ' ' + t.unit;
+            html += `<div class="measure-total-row"><span>${escH(label)} (${t.count})${mixed}</span><b>${val}</b></div>`;
         });
         body.innerHTML = html;
         body.querySelectorAll('.measure-row[data-mid]').forEach((row) => {
@@ -2595,8 +2886,35 @@
                 const mid = row.getAttribute('data-mid');
                 if (mid) editMeasurement(mid);
             });
+            row.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                const mid = row.getAttribute('data-mid');
+                if (mid) _measureRowMenu(e, mid);
+            });
         });
     };
+
+    // Right-click context menu on a measurement row (M7): Edit / Duplicate /
+    // Delete / Copy value.
+    function _measureRowMenu(e, mid) {
+        document.querySelectorAll('.measure-ctx').forEach(n => n.remove());
+        const menu = document.createElement('div');
+        menu.className = 'measure-ctx';
+        menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:99999;`;
+        const items = [['Edit', 'edit'], ['Duplicate', 'dup'], ['Copy value', 'copy'], ['Delete', 'del']];
+        menu.innerHTML = items.map(([lbl, act]) =>
+            `<button data-act="${act}"${act === 'del' ? ' class="danger"' : ''}>${lbl}</button>`).join('');
+        document.body.appendChild(menu);
+        const close = () => menu.remove();
+        menu.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+            const act = b.dataset.act; close();
+            if (act === 'edit') editMeasurement(mid);
+            else if (act === 'del') deleteMeasurement(mid);
+            else if (act === 'dup') duplicateMeasurement(mid);
+            else if (act === 'copy') { const s = _findMeasureShape(mid); if (s) navigator.clipboard?.writeText(_fmtVal(s._measure)).then(() => showToast('Value copied')); }
+        }));
+        setTimeout(() => document.addEventListener('click', close, { once: true }), 0);
+    }
 
     // Find the live fabric shape carrying a given measurement id on the CURRENT
     // page (measurements on other pages must be opened by navigating there).
@@ -2631,32 +2949,100 @@
               <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Subject (groups totals in the list)
                 <input type="text" class="modal-input" data-k="subject" value="${(m.subject||m.type||'').replace(/"/g,'&quot;')}">
               </label>
-              <div style="display:flex;gap:14px;align-items:flex-end;">
+              <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;">
                 <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Color
-                  <input type="color" class="modal-input" data-k="color" value="${m.color||'#4c6ef5'}" style="width:52px;height:34px;padding:2px;">
+                  <input type="color" class="modal-input" data-k="color" value="${m.color||'#1971c2'}" style="width:52px;height:34px;padding:2px;">
                 </label>
                 <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Thickness
                   <input type="number" class="modal-input" data-k="thickness" value="${m.thickness||2}" min="1" max="20" step="1" style="width:70px;">
                 </label>
+                ${m.kind === 'mvolume' ? `<label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Depth (${m.unit})
+                  <input type="number" class="modal-input" data-k="depth" value="${m.depth||1}" min="0" step="any" style="width:80px;">
+                </label>` : ''}
               </div>
-            </div>`, 'Save');
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="checkbox" data-k="hideLabel"${m.hideLabel ? ' checked' : ''}> Hide the label on the plan</label>
+            </div>`, 'Save', (overlay) => {
+              // Add a Delete button into the footer.
+              const footer = overlay.querySelector('.modal-footer');
+              if (footer) {
+                const del = document.createElement('button');
+                del.className = 'crop-btn cancel'; del.textContent = 'Delete'; del.dataset.act = 'delete';
+                del.style.marginRight = 'auto'; del.style.color = '#e03131';
+                footer.insertBefore(del, footer.firstChild);
+                del.addEventListener('click', () => { overlay.remove(); deleteMeasurement(mid); });
+              }
+            });
         if (!v) return;
         // Apply to the model.
         m.label = (v.label || '').trim();
         m.subject = (v.subject || m.type).trim();
         m.color = v.color || m.color;
         m.thickness = Math.max(1, parseInt(v.thickness, 10) || m.thickness);
-        // Apply to the shape.
+        m.hideLabel = !!v.hideLabel;
+        if (m.kind === 'mvolume' && v.depth !== undefined) {
+            const d = parseFloat(v.depth);
+            if (d > 0) { m.depth = d; _recomputeMeasure(m); }
+        }
         shape.set({ stroke: m.color, strokeWidth: m.thickness });
-        // Update the linked label text/color if there is one.
         const lbl = fabricCanvas.getObjects().find(o => o._midLink === mid && o.type === 'text');
-        if (lbl && m.label) lbl.set({ text: m.label });
+        if (lbl) {
+            lbl.set({ visible: !m.hideLabel });
+            _relabelMeasure(m, shape);
+        }
         fabricCanvas.requestRenderAll();
         saveAnnotationState(); saveCurrentAnnotations();
         if (window.renderMeasureList) window.renderMeasureList();
         setStatus('Measurement updated');
     }
     window.editMeasurement = editMeasurement;
+
+    // Remove a measurement's label + decor (arc/circle) + cutouts, given its id.
+    // Used by every delete path so nothing is left orphaned on the sheet (M5/M8).
+    function _removeMeasureExtras(mid) {
+        if (!mid || !fabricCanvas) return;
+        const kill = [];
+        fabricCanvas.forEachObject((o) => {
+            if (o._midLink === mid) kill.push(o);
+            if (o._cutoutFor === mid) kill.push(o);
+            if (o._measureDecor && o._decorFor === mid) kill.push(o);
+        });
+        _isRestoring = true; kill.forEach(o => fabricCanvas.remove(o)); _isRestoring = false;
+    }
+
+    // Delete a measurement AND its linked label + any decor (arc/circle) so no
+    // orphaned caption is left painted on the sheet (M5).
+    function deleteMeasurement(mid) {
+        const shape = _findMeasureShape(mid);
+        if (!shape) { showToast('Open the page that measurement is on to delete it'); return; }
+        _removeMeasureExtras(mid);
+        _isRestoring = true; fabricCanvas.remove(shape); _isRestoring = false;
+        fabricCanvas.requestRenderAll();
+        saveAnnotationState(); saveCurrentAnnotations();
+        if (window.renderMeasureList) window.renderMeasureList();
+        setStatus('Measurement deleted');
+    }
+    window.deleteMeasurement = deleteMeasurement;
+
+    // Duplicate a measurement, offset slightly, as a fresh independent markup.
+    function duplicateMeasurement(mid) {
+        const shape = _findMeasureShape(mid);
+        if (!shape) return;
+        shape.clone((clone) => {
+            clone.set({ left: (shape.left || 0) + 16, top: (shape.top || 0) + 16 });
+            const nm = { ...shape._measure }; nm._mid = _newMid();
+            clone._measure = nm;
+            fabricCanvas.add(clone);
+            const cx = clone.left, cy = (clone.top || 0) - 12;
+            const lbl = measureLabel(_autoLabelText(nm), cx, cy);
+            lbl.selectable = true; lbl._midLink = nm._mid; lbl._measureLabelFor = nm;
+            fabricCanvas.add(lbl);
+            fabricCanvas.requestRenderAll();
+            saveAnnotationState(); saveCurrentAnnotations();
+            if (window.renderMeasureList) window.renderMeasureList();
+            setStatus('Measurement duplicated');
+        }, ['_measure']);
+    }
+    window.duplicateMeasurement = duplicateMeasurement;
 
     // Export all measurements to a CSV the user can open in Excel (Quantity Link
     // equivalent) - type, page, value, unit, plus the per-type totals.
@@ -3721,9 +4107,15 @@
             eraserTouches(o, p, r)
         );
         if (hit.length) {
-            hit.forEach((o) => fabricCanvas.remove(o));
+            let hadMeasure = false;
+            hit.forEach((o) => {
+                if (o._measure) { hadMeasure = true; _removeMeasureExtras(o._measure._mid); }
+                fabricCanvas.remove(o);
+            });
             fabricCanvas.renderAll();
             _eraserDidErase = true;
+            // Keep the Measurements list in sync when a measurement is erased (M8).
+            if (hadMeasure && window.renderMeasureList) window.renderMeasureList();
         }
     }
 
@@ -5404,7 +5796,8 @@
         const orig = fabric.Object.prototype.toObject;
         fabric.Object.prototype.toObject = function (props) {
             return orig.call(this, ['_pdfFontName', '_pdfWeight', '_pdfStyle', '_isTextCover', '_isCommentMark', '_isEraserPath',
-                                    '_isSignature', '_isRedact', '_layerId', '_measure', '_measurePt', '_midLink', 'selectable', 'evented'].concat(props || []));
+                                    '_isSignature', '_isRedact', '_layerId', '_measure', '_measurePt', '_midLink',
+                                    '_measureDecor', '_decorFor', '_cutoutFor', 'selectable', 'evented'].concat(props || []));
         };
     })();
 

@@ -21,7 +21,7 @@
         base-uri 'self';
         form-action 'none';">
     <title>PDF Tools</title>
-    <link rel="stylesheet" href="style.css?v=20260827o">
+    <link rel="stylesheet" href="style.css?v=20260827p">
     <!-- PDF.js for rendering PDFs -->
     <script defer src="libs/pdf.min.js"></script>
     <!-- pdf-lib for modifying/exporting PDFs -->
@@ -589,9 +589,18 @@
         <div class="measure-list-head">
             <span>Measurements</span>
             <div class="measure-list-actions">
-                <button id="measureExportBtn" class="icon-btn" title="Export to CSV (Excel)">CSV</button>
+                <button id="measureExportBtn" class="icon-btn" title="Export to Excel (.xlsx)">Excel</button>
                 <button id="measureListClose" class="icon-btn" title="Close">✕</button>
             </div>
+        </div>
+        <div class="measure-list-tools">
+            <input id="measureFilter" type="text" placeholder="Filter..." class="measure-filter-input">
+            <select id="measureSort" class="measure-sort-select" title="Sort by">
+                <option value="page">Sort: Page</option>
+                <option value="type">Sort: Type</option>
+                <option value="subject">Sort: Subject</option>
+                <option value="value">Sort: Value</option>
+            </select>
         </div>
         <div class="measure-list-body"></div>
     </div>
@@ -599,6 +608,7 @@
     <!-- Status Bar -->
     <footer class="status-bar">
         <span id="statusText"></span>
+        <button id="scaleChip" class="scale-chip" style="display:none;" title="Click to set the drawing scale"></button>
         <span id="fileInfo"></span>
     </footer>
 
@@ -722,7 +732,7 @@
 
     </div><!-- end .page-wrapper -->
 
-    <script defer src="app.js?v=20260827o"></script>
-    <script defer src="adobe-ui.js?v=20260827o"></script>
+    <script defer src="app.js?v=20260827p"></script>
+    <script defer src="adobe-ui.js?v=20260827p"></script>
 </body>
 </html>
