@@ -1759,6 +1759,10 @@
     let shapeStyle = 'solid'; // solid | dashed | dotted
     // Exposed so the UI layer's Shape dropdown can pick the shape type/style.
     window.setShapeKind = (k) => {
+        // Switching tools (or re-picking one) must abandon any half-drawn
+        // measurement - otherwise the leftover points + preview leak into the
+        // next tool and it finishes a bogus shape from the old anchor.
+        if (k !== shapeKind) { try { measureCancel(); } catch (_) {} }
         shapeKind = k;
         // One-line hint per measure tool so the click sequence + snapping is discoverable.
         const hints = {
