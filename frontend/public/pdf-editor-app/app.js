@@ -7617,7 +7617,11 @@
             num.className = 'cv-page-num';
             num.textContent = p;
             wrap.appendChild(num);
-            wrap.addEventListener('click', () => { setScrollMode(false); goToPage(p); });
+            // Clicking a page in the continuous view just tracks it as current -
+            // it does NOT drop out of scroll mode (that jarring auto-switch was
+            // the confusing part). Editing tools switch to single-page on their
+            // own when you actually pick a tool.
+            wrap.addEventListener('click', () => { state.currentPage = p; dom.pageInput.value = p; updateThumbnailActive(); });
             cont.appendChild(wrap);
             _scrollEls.push({ wrap, canvas, rendered: false, page: p, dispW: estDispW, sized: false });
         }
@@ -7806,7 +7810,7 @@
             saveCurrentAnnotations();
             if (cw) cw.style.display = 'none';       // hide the single-page editor canvas
             buildScrollView();  // async; observers attach as pages are added
-            setStatus('Continuous scroll — click a page to edit it');
+            setStatus('Scroll through all pages - pick a tool to edit the current page');
         } else {
             destroyScrollView();
             if (cw) cw.style.display = '';
