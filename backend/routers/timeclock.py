@@ -2476,11 +2476,40 @@ def agent_devices(user: dict = Depends(require_tracking), db: Session = Depends(
         secs = int((now - _ts).total_seconds()) if _ts else None
         online = bool(d.last_seen_at and d.last_seen_at >= online_cutoff)
         subject = (d.active_email or d.employee_email or "").strip()
-        capturing = False
-        if online and cap_on and subject:
-            _clocked, _brk = _punch_state(db, subject)
-            capturing = bool(_clocked and not _brk)
+
+        # Clock state of the bound user and of the enroll owner (only worth a
+        # query while the agent is online).
+        def _clk(em):
+            return _punch_state(db, em) if (online and em) else (False, False)
+        active_clk = _clk(d.active_email)
+        owner_clk = _clk(d.employee_email)
+        subj_clk = active_clk if d.active_email else owner_clk
+        capturing = bool(online and cap_on and subject and subj_clk[0] and not subj_clk[1])
+
+        # Pairing status - the shared-PC health signal (Visesh, Aug 26). Is the
+        # agent capturing the person actually clocked in on THIS machine (a
+        # successful localhost pairing), or has it silently fallen back to the
+        # enroll owner because the browser could not reach the local agent to
+        # bind (127.0.0.1 blocked)?
+        #   bound          - the clocked-in user is bound to this PC (pairing worked)
+        #   owner_fallback - nobody bound but the OWNER is clocked in, so the agent
+        #                    is capturing the owner as a fallback: pairing is NOT
+        #                    binding here, and a different person on this PC would
+        #                    be mis-attributed to the owner
+        #   stale_binding  - someone is bound but is NOT clocked in (a clock-out
+        #                    that failed to release the PC)
+        #   idle           - online, nobody working on it
+        #   offline        - agent not reporting
+        if not online:
+            pairing = "offline"
+        elif d.active_email:
+            pairing = "bound" if active_clk[0] else "stale_binding"
+        elif d.employee_email and owner_clk[0]:
+            pairing = "owner_fallback"
+        else:
+            pairing = "idle"
         out.append({
+            "pairingStatus": pairing,
             "id": d.id,
             # Assigned owner: which Nexus person this PC belongs to (admin-set).
             "email": d.employee_email, "name": _nm(d.employee_email),

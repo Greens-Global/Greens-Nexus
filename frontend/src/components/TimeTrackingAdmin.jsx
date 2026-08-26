@@ -36,6 +36,34 @@ function StatusDot({ online, capturing, secs }) {
   return <Dot color={online ? 'hsl(var(--color-green))' : 'var(--muted)'} pulse={online} dim={!online} title={title} />;
 }
 
+// Shared-PC pairing health chip (Visesh, Aug 26). Surfaces whether the desktop
+// agent is capturing the person actually clocked in on this machine (a working
+// localhost pairing) or has silently fallen back to the enroll owner because the
+// browser couldn't reach the local agent to bind - the case where a different
+// person on a shared PC gets mis-attributed to the owner. Only the states worth
+// an admin's eye render a chip; bound/idle/offline are already told by the dot.
+function PairingChip({ d }) {
+  const ps = d.pairingStatus;
+  const chip = (bg, fg, text, title) => (
+    <span title={title} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 5,
+      fontSize: 10.5, fontWeight: 800, letterSpacing: '.02em', padding: '2px 9px', borderRadius: 20,
+      background: bg, color: fg }}>{text}</span>
+  );
+  if (ps === 'owner_fallback')
+    return chip('hsla(var(--color-orange),0.13)', 'hsl(var(--color-orange))',
+      'Capturing owner - pairing not binding',
+      "The browser on this PC can't reach the local agent to bind whoever is clocked in, so the agent is capturing the assigned owner. Anyone else who uses this PC would be mis-attributed to the owner. Allow the browser to reach 127.0.0.1:47615 (localhost / private-network access) on this machine.");
+  if (ps === 'stale_binding')
+    return chip('hsla(var(--color-orange),0.13)', 'hsl(var(--color-orange))',
+      `Bound to ${d.activeName || 'someone'} - not clocked in`,
+      'This PC is still bound to a session that never clocked out. It frees on the next clock-out or the nightly auto clock-out.');
+  if (ps === 'bound')
+    return chip('hsla(var(--color-green),0.13)', 'hsl(var(--color-green))',
+      `Paired: ${d.activeName || d.activeEmail}`,
+      'The person clocked in on this PC is correctly bound - the agent is capturing them, not the enroll owner.');
+  return null;
+}
+
 // ── Monitoring policy (admin) ─────────────────────────────────────────────────
 // Central control of what Nexus records while people are clocked in. Capture
 // runs in the browser (Chrome screen sharing) - there is no desktop agent - so
@@ -233,6 +261,10 @@ function AgentInstall() {
                 {' · '}{[d.platform, d.deviceUser, d.agentVersion ? `Agent v${d.agentVersion}` : null].filter(Boolean).join(' · ') || 'company PC'}
                 {d.activeName && !d.capturing && <> · <span style={{ fontWeight: 700 }}>{d.activeName}</span></>}
               </div>
+              {/* Shared-PC pairing health (Visesh, Aug 26): is the agent capturing
+                  the person actually clocked in here, or silently the enroll owner
+                  because the browser couldn't reach the local agent to bind? */}
+              <PairingChip d={d} />
             </div>
             {/* Assign this PC to a Nexus person (its owner). Owner picker + Revoke +
                 Remove need a full grant; a view-only grant sees the owner read-only. */}
