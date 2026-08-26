@@ -461,6 +461,37 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     }
 
 
+def _handover_shared_pc(db: Session, dev, tz_offset_min: int) -> None:
+    """A new employee is taking over a shared PC still bound to someone who left
+    without clocking out. Close that person's forgotten shift with a pay-safe,
+    flagged auto clock-out (source='auto_eod' - the pay engine holds its segment
+    at 0 minutes and blocks sign-off until a human confirms the real end time,
+    exactly like the nightly EOD sweep, so nobody is paid for a shift they walked
+    away from) and free the device. If the previous person's session is already
+    closed (a stale binding), just release the device."""
+    prev = (dev.active_email or "").strip()
+    dev.active_email = ""
+    dev.active_session_id = ""
+    if not prev:
+        return
+    last = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == prev, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc()).first())
+    if not last or last.kind == "out":
+        return   # not clocked in (stale binding) - nothing to close
+    now = _now_iso()
+    at = now
+    _lt = _parse_iso(last.at)
+    _nt = _parse_iso(now)
+    if _lt and _nt and _nt <= _lt:            # keep the out strictly after the last punch
+        at = (_lt + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%S")
+    db.add(TimePunch(id=str(uuid.uuid4()), employee_email=prev, kind="out", at=at,
+                     local_date=_local_date(at, tz_offset_min), tz_offset_min=tz_offset_min,
+                     geo_status="", source="auto_eod",
+                     note="Auto clock-out - another employee started a shift on this shared PC",
+                     created_by="system", created_at=now))
+
+
 @router.post("/punch")
 def punch(body: PunchIn, request: Request,
           user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -473,18 +504,20 @@ def punch(body: PunchIn, request: Request,
     allowed = _allowed_kinds(last.kind if last else None)
     if body.kind not in allowed:
         raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
-    # Shared-PC: resolve the device the local agent claimed (via /agent/pair) and
-    # gate it BEFORE recording an 'in', so a device already in use blocks cleanly
-    # without leaving a stray punch. One active employee per device.
+    # Shared-PC: resolve the device the local agent claimed (via /agent/pair).
+    # A successful pairing means THIS employee is physically at that PC's agent,
+    # so if it is still bound to someone else, that person LEFT the shared PC
+    # without clocking out (logged out / walked away). Don't block the next
+    # person behind a 409 - hand the PC over: close the previous person's
+    # forgotten shift with a pay-safe, flagged auto clock-out and free the
+    # binding, so this employee can start their shift (Visesh, Aug 26).
     pending_bind = None
     if body.kind == "in" and (body.pair_nonce or "").strip():
         pending_bind = _resolve_pairing(db, body.pair_nonce.strip(), email)
         if pending_bind:
             _pairing, _dev = pending_bind
             if _dev.active_email and _dev.active_email != email:
-                _e2 = db.query(NexusEmployee).filter(NexusEmployee.work_email == _dev.active_email).first()
-                _nm = (f"{_e2.first_name} {_e2.last_name}".strip() if _e2 else _dev.active_email.split("@")[0])
-                raise HTTPException(409, f"This PC is already clocked in for {_nm}. They need to clock out before you can start a shift on this computer.")
+                _handover_shared_pc(db, _dev, body.tz_offset_min or 0)
     now = _now_iso()
     # The BOD/EOD message gate opens BEFORE the punch is sent, so the minutes
     # spent writing the day message used to fall outside the recorded time

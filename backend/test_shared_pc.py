@@ -106,29 +106,43 @@ class SharedPcTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         return self.client.post("/timeclock/punch", json={"kind": "in", "pair_nonce": nonce})
 
-    def test_binding_lifecycle_and_coverage(self):
-        # Alice pairs + clocks in on the shared PC -> she is bound, not the owner.
-        r = self._pair_and_clock_in(A)
-        self.assertEqual(r.status_code, 200, r.text)
+    def _auto_out_count(self, email):
+        db = database.SessionLocal()
+        try:
+            return (db.query(models.TimePunch)
+                    .filter(models.TimePunch.employee_email == email,
+                            models.TimePunch.kind == "out", models.TimePunch.source == "auto_eod")
+                    .count())
+        finally:
+            db.close()
+
+    def test_clean_handoff_via_clockout(self):
+        # Alice pairs + clocks in -> bound to her, not the enroll owner.
+        self.assertEqual(self._pair_and_clock_in(A).status_code, 200)
         self.assertEqual(self._device().active_email, A)
-        self.assertTrue(_agent_active_for(database.SessionLocal(), A))   # agent covers Alice
-        self.assertFalse(_agent_active_for(database.SessionLocal(), OWNER))  # NOT the enroll owner
-
-        # Bob tries to clock in on the SAME PC while Alice is on it -> blocked.
-        r = self._pair_and_clock_in(B)
-        self.assertEqual(r.status_code, 409, r.text)
-        self.assertIn("already clocked in", r.json()["detail"].lower())
-        self.assertEqual(self._device().active_email, A)   # still Alice
-
-        # Alice clocks out -> the PC is freed.
+        self.assertTrue(_agent_active_for(database.SessionLocal(), A))
+        self.assertFalse(_agent_active_for(database.SessionLocal(), OWNER))
+        # Alice clocks out -> the PC is freed; Bob then binds it cleanly.
         self._as(A)
         self.assertEqual(self.client.post("/timeclock/punch", json={"kind": "out"}).status_code, 200)
         self.assertEqual(self._device().active_email, "")
+        self.assertEqual(self._pair_and_clock_in(B).status_code, 200)
+        self.assertEqual(self._device().active_email, B)
 
-        # Now Bob can bind the same PC.
+    def test_takeover_when_previous_forgot_to_clock_out(self):
+        # Alice clocks in on the shared PC, then walks away / logs out WITHOUT
+        # clocking out (still bound, still on an open shift).
+        self.assertEqual(self._pair_and_clock_in(A).status_code, 200)
+        self.assertEqual(self._device().active_email, A)
+        self.assertEqual(self._auto_out_count(A), 0)
+
+        # Bob sits down and clocks in on the SAME PC. He is NOT blocked - he takes
+        # the PC over, and Alice's forgotten shift is closed with a pay-safe
+        # flagged auto clock-out.
         r = self._pair_and_clock_in(B)
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(self._device().active_email, B)
+        self.assertEqual(self._device().active_email, B)          # Bob now bound
+        self.assertEqual(self._auto_out_count(A), 1)              # Alice auto-clocked-out
         self.assertTrue(_agent_active_for(database.SessionLocal(), B))
         self.assertFalse(_agent_active_for(database.SessionLocal(), A))
 
