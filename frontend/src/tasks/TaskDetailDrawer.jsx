@@ -565,7 +565,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
               completes it for all (one row, one flag). Subtask rows below
               keep the single picker - a subtask is a unit of one person's
               work, and the multi picker does not fit an 18px inline row. */}
-          <PersonMultiSelect value={taskAssignees(task)} people={people}
+          <PersonMultiSelect value={taskAssignees(task)} people={people} addTitle="Add assignee"
             onChange={(list) => patch({ assigneeIds: list })} placeholder="Unassigned" />
         </div>
       </Row>

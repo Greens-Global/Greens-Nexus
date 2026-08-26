@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Plus, ListChecks, FolderKanban, Briefcase, LayoutTemplate } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { NX, FONT, btn, input as inputStyle } from './theme';
-import { Modal, useIsMobile } from './components';
+import { Modal, useIsMobile, SearchSelect } from './components';
 import CreateTaskModal from './CreateTaskModal';
 import { ProjectCreateModal } from './ProjectsView';
 import { PortfolioCreateModal } from './PortfoliosView';
@@ -126,11 +126,15 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
           </div>
           <div style={field}>
             <label style={label}>Project (optional)</label>
-            <select value={deptProjectId} onChange={(e) => setDeptProjectId(e.target.value)} style={inputStyle}>
-              <option value="">No project</option>
-              {/* No archived projects: this creates work, and archived is where work rests. */}
-              {(projects || []).filter((p) => !p.archived).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            {/* No archived projects: this creates work, and archived is where work rests. */}
+            <SearchSelect value={deptProjectId} placeholder="No project" searchPlaceholder="Search projects…"
+              buttonStyle={{ ...inputStyle, cursor: 'pointer', justifyContent: 'space-between' }}
+              emptyText="No projects yet."
+              options={[{ id: '', label: 'No project' },
+                        ...(projects || []).filter((p) => !p.archived)
+                          .slice().sort((x, y) => String(x.name || '').localeCompare(String(y.name || ''), 'en', { sensitivity: 'base' }))
+                          .map((p) => ({ id: p.id, label: p.name }))]}
+              onPick={setDeptProjectId} />
           </div>
         </Modal>
       )}

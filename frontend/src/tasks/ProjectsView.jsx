@@ -8,8 +8,9 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject, projectToForm} from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab, SearchSelect } from './components';
 import TasksWorkspace from './TasksWorkspace';
+import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import { CustomFieldInput } from './TaskDetailDrawer';
 // The two reuse flows live with the Templates screen so all three entry points
 // (Templates tab, this grid, and a project's own header) open the same dialogs.
@@ -40,6 +41,12 @@ const PROJECT_STATUS_META = {
   in_progress: { label: 'In Progress', color: '#b26a00', tint: 'rgba(253,171,61,0.18)' },
   completed:   { label: 'Completed',   color: '#0a7d4b', tint: 'rgba(0,200,117,0.16)' },
 };
+// Sorting Status by this order, not alphabetically - "Completed, In Progress,
+// Not Started" is alphabetical and reads as noise; lifecycle order is what
+// someone sorting by status is actually asking for.
+const PROJECT_STATUS_ORDER = ['not_started', 'in_progress', 'completed'];
+// Stable identity: a fresh object each render would re-run consumers' memos.
+const PROJECTS_DEFAULT_SORT = { key: 'name', dir: 'asc' };
 
 /** Derive a project's status from its task rollup (see taskStats).
  *  `inProgress` counts too, not just `completed`: a project whose tasks are all
@@ -63,7 +70,20 @@ const VIEW_TABS = [
 // Teams and Owner are the first to go on a narrow screen - the name, how far
 // along it is, and its status are what the row is for.
 const LIST_COLS = '1fr auto';   // mobile: name + actions on one line, rollup beneath
-const LIST_COLS_WIDE = 'minmax(0,2.4fr) minmax(0,1.3fr) 190px 150px 118px 64px';
+// Desktop columns in grid order, with the sort key each header drives. Name and
+// Teams are elastic; the rest are fixed until someone drags them.
+const LIST_COLS_WIDE = [
+  { key: 'name',     label: 'Project',  sort: 'name',     template: 'minmax(0,2.4fr)' },
+  { key: 'teams',    label: 'Teams',    sort: 'teams',    template: 'minmax(0,1.3fr)' },
+  { key: 'progress', label: 'Progress', sort: 'progress', width: 190 },
+  { key: 'owner',    label: 'Owner',    sort: 'owner',    width: 150 },
+  { key: 'status',   label: 'Status',   sort: 'status',   width: 118 },
+  // 104px, not 64: on desktop this cell holds four 23px icon buttons plus their
+  // gaps (~98px). At 64 the row's icons overflowed their track to the LEFT
+  // (justifyContent: flex-end), spilling across the Status divider so they no
+  // longer lined up with any header (Sagar, Aug 27).
+  { key: 'actions',  label: '',                           width: 104, fixed: true },
+];
 
 export default function ProjectsView({ onNavigate }) {
   const isMobile = useIsMobile();
@@ -93,13 +113,20 @@ export default function ProjectsView({ onNavigate }) {
   const [deleting, setDeleting] = useState(null);  // { project, mapped, alsoAsana, busy, err } | null
   const [duplicating, setDuplicating] = useState(null);  // project being copied | null
   const [templating, setTemplating] = useState(null);    // project being saved as a template | null
-  const [view, setView] = useState(() => {
-    try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid'; } catch { return 'grid'; }
-  });
-  const switchView = (v) => {
-    setView(v);
-    try { localStorage.setItem(VIEW_KEY, v); } catch { /* private mode - the choice just doesn't stick */ }
-  };
+  // Grid or list, in the user's profile with everything else they set here -
+  // it used to be a per-browser choice, so the same person got the grid on one
+  // machine and the list on another.
+  const [view, setView] = useTableValue('projects', 'view', 'grid');
+  const switchView = (v) => setView(v);
+  // One-time migration of the old per-browser choice, so nobody's preference is
+  // silently reset by the move. Runs once, then the local copy is retired.
+  useEffect(() => {
+    let local = null;
+    try { local = localStorage.getItem(VIEW_KEY); } catch { return; }
+    if (local !== 'list' && local !== 'grid') return;
+    setView(local);
+    try { localStorage.removeItem(VIEW_KEY); } catch { /* private mode */ }
+  }, [setView]);
 
   // Rollups per project: count / done / progress / overdue, from live tasks.
   const cards = useMemo(() => {
@@ -212,9 +239,11 @@ export default function ProjectsView({ onNavigate }) {
               {(f.options || []).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           ))}
+          {/* List view only - the grid has no columns to restore. */}
+          {!isMobile && view === 'list' && <ResetColumnsButton style={{ marginLeft: 'auto' }} />}
           {/* Same segmented control the task views use, so the two screens do
               not each invent their own switcher. */}
-          <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, marginLeft: 'auto', flexShrink: 0 }}>
+          <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, marginLeft: view === 'list' && !isMobile ? 0 : 'auto', flexShrink: 0 }}>
             {VIEW_TABS.map((tb) => (
               <button key={tb.key} onClick={() => switchView(tb.key)} title={`${tb.label} View`}
                 aria-pressed={view === tb.key}
@@ -378,24 +407,77 @@ export default function ProjectsView({ onNavigate }) {
  *  inherited from `cards` (archived last, then by name), matching the grid. */
 export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, onEdit, onDelete,
                              onDuplicate, onSaveTemplate }) {
-  const cols = isMobile ? LIST_COLS : LIST_COLS_WIDE;
   const cell = { minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 };
+  // Header sort. `null` is the unsorted state - the order `cards` arrives in
+  // (archived last, then by name) - which is where a third click returns to.
+  // Alphabetical A-Z by default, so the header shows what the list is actually
+  // doing rather than leaving the order implicit.
+  const [sort, setSort] = useTableValue('projects', 'sort', PROJECTS_DEFAULT_SORT);
+  const { cols: listCols, template, startResize, resetWidth, widths, wrapRef, dragProps } =
+    useTableColumns({ table: 'projects', cols: LIST_COLS_WIDE });
+  const cols = isMobile ? LIST_COLS : 'var(--nx-grid)';
+  const rows = useMemo(() => {
+    if (isMobile || !sort?.key) return cards;
+    const val = ({ project: p, stats }) => {
+      switch (sort.key) {
+        case 'teams':    return (p.teams || []).length;
+        case 'progress': return stats.pct;
+        case 'owner':    return (p.ownerId ? nameOf(p.ownerId) : '').toLowerCase();
+        case 'status':   return PROJECT_STATUS_ORDER.indexOf(projectStatusFor(stats));
+        default:         return (p.name || '').toLowerCase();
+      }
+    };
+    const dir = sort.dir === 'desc' ? -1 : 1;
+    return cards.slice().sort((a, b) => {
+      // Archived stays at the bottom whatever the sort - it is a different
+      // class of row, and interleaving it alphabetically buries live projects.
+      if (!!a.project.archived !== !!b.project.archived) return a.project.archived ? 1 : -1;
+      const x = val(a), y = val(b);
+      if (typeof x === 'number' && typeof y === 'number') return (x - y) * dir;
+      return String(x).localeCompare(String(y), 'en', { sensitivity: 'base' }) * dir;
+    });
+  }, [cards, sort, isMobile, nameOf]);
   return (
     <div className="nx-gutter" style={{ padding: isMobile ? 12 : 16 }}>
-      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+      <div ref={wrapRef} style={{ ...card, padding: 0, overflow: 'hidden', '--nx-grid': template }}>
         {!isMobile && (
           <div style={{
             display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center',
             padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2,
             fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.faint,
           }}>
-            <div>Project</div><div>Teams</div><div>Progress</div><div>Owner</div><div>Status</div><div />
+            {listCols.map((c) => (
+              <TableHead key={c.key} label={c.label} sortKey={c.sort} sort={sort} setSort={setSort}
+                drag={dragProps(c.key, !c.fixed)}
+                onResizeStart={startResize(c.key, widths[c.key] ?? c.width ?? 190)}
+                onResizeReset={() => resetWidth(c.key)} />
+            ))}
           </div>
         )}
-        {cards.map(({ project: p, stats }) => {
+        {rows.map(({ project: p, stats }) => {
           const pf = p.portfolioId ? portfolioById(p.portfolioId) : null;
           const dcolor = p.color || NX.blue;
           const meta = PROJECT_STATUS_META[projectStatusFor(stats)];
+          const actionsCell = (
+            <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end',
+              // Pinned beside the name on mobile; without this the rollup's
+              // full-width span pushes it onto a third row of its own.
+              ...(isMobile ? { gridRow: 1, gridColumn: 2 } : null) }}
+              onClick={(e) => e.stopPropagation()}>
+              {/* Template/Duplicate are desktop-only here: the mobile row already
+                  pins its actions beside the name in a two-column grid, and four
+                  icon buttons there crowd out the project name itself. Both are
+                  still reachable on mobile from the grid view's cards. */}
+              {!isMobile && onSaveTemplate && (
+                <button title="Save as Template" onClick={() => onSaveTemplate(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><LayoutTemplate size={13} /></button>
+              )}
+              {!isMobile && onDuplicate && (
+                <button title="Duplicate Project" onClick={() => onDuplicate(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Copy size={13} /></button>
+              )}
+              <button title="Edit Project" onClick={() => onEdit(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Pencil size={13} /></button>
+              <button title="Delete Project" onClick={() => onDelete(p)} style={{ ...btn('ghost'), padding: 5, color: NX.red, borderRadius: 7 }}><Trash2 size={13} /></button>
+            </div>
+          );
           return (
             <div key={p.id} onClick={() => onOpen(p.id)} className="stack-table-row"
               style={{
@@ -406,7 +488,14 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
               onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)}
               onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
 
-              {/* Name - the color rides the icon tile exactly as on the card */}
+              {/* Cells are keyed and rendered in the header's order, not in
+                  source order - once columns can be dragged, a row that renders
+                  them in a fixed sequence puts every value under the wrong
+                  heading. Mobile has no header to follow: it renders the name
+                  cell alone (plus the rollup and actions below), so it takes
+                  the same entry straight out of the map. */}
+              {(isMobile ? listCols.filter((c) => c.key === 'name') : listCols).map((c) => <Fragment key={c.key}>{({
+                name: (
               <div style={cell}>
                 <span style={{
                   width: 26, height: 26, borderRadius: 8, flexShrink: 0,
@@ -417,11 +506,8 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
                 {p.archived && <span style={{ ...chip(NX.faint, NX.border2), flexShrink: 0 }}><Archive size={11} />Archived</span>}
                 {pf && !isMobile && <span style={{ ...chip(NX.purple, `${NX.purple}1a`), flexShrink: 0 }}>{pf.name}</span>}
               </div>
-
-              {/* Everything below collapses into the name column on mobile, where
-                  a six-column grid would be six columns of ellipsis. */}
-              {!isMobile && (
-                <>
+                ),
+                teams: (
                   <div style={{ ...cell, gap: 5, flexWrap: 'nowrap', overflow: 'hidden' }}>
                     {p.teams.length > 0
                       ? p.teams.slice(0, 2).map((t) => (
@@ -434,7 +520,8 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
                       <span title={p.teams.map((t) => t.name).join(', ')} style={{ ...chip(NX.dim, NX.border2), flexShrink: 0 }}>+{p.teams.length - 2}</span>
                     )}
                   </div>
-
+                ),
+                progress: (
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11.5, color: NX.dim, marginBottom: 4 }}>
                       <span>{stats.completed}/{stats.total} done</span>
@@ -447,7 +534,8 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
                       <div style={{ height: '100%', width: `${stats.pct}%`, borderRadius: 999, background: NX.green }} />
                     </div>
                   </div>
-
+                ),
+                owner: (
                   <div style={cell}>
                     {p.ownerId ? (
                       <>
@@ -456,10 +544,12 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
                       </>
                     ) : <span style={{ fontSize: 12, color: NX.faint }}>No owner</span>}
                   </div>
-
+                ),
+                status: (
                   <div style={cell}><span style={chip(meta.color, meta.tint)}>{meta.label}</span></div>
-                </>
-              )}
+                ),
+                actions: actionsCell,
+              })[c.key]}</Fragment>)}
 
               {/* Mobile keeps a compact rollup + status under the name instead of
                   dropping them entirely - they are why the row is being read. */}
@@ -479,24 +569,7 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end',
-                // Pinned beside the name on mobile; without this the rollup's
-                // full-width span pushes it onto a third row of its own.
-                ...(isMobile ? { gridRow: 1, gridColumn: 2 } : null) }}
-                onClick={(e) => e.stopPropagation()}>
-                {/* Template/Duplicate are desktop-only here: the mobile row already
-                    pins its actions beside the name in a two-column grid, and four
-                    icon buttons there crowd out the project name itself. Both are
-                    still reachable on mobile from the grid view's cards. */}
-                {!isMobile && onSaveTemplate && (
-                  <button title="Save as Template" onClick={() => onSaveTemplate(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><LayoutTemplate size={13} /></button>
-                )}
-                {!isMobile && onDuplicate && (
-                  <button title="Duplicate Project" onClick={() => onDuplicate(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Copy size={13} /></button>
-                )}
-                <button title="Edit Project" onClick={() => onEdit(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Pencil size={13} /></button>
-                <button title="Delete Project" onClick={() => onDelete(p)} style={{ ...btn('ghost'), padding: 5, color: NX.red, borderRadius: 7 }}><Trash2 size={13} /></button>
-              </div>
+              {isMobile && actionsCell}
             </div>
           );
         })}
@@ -758,19 +831,20 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
                  and a project raised by IT for Accounting belongs to Accounting.
                  Departments are company-scoped, so the label carries the company
                  when more than one is in play. */
-              <select value={form.hrDepartmentId || ''} onChange={(e) => set({ hrDepartmentId: e.target.value })}
-                style={{ ...inputStyle, cursor: 'pointer' }}>
-                <option value="">None</option>
-                {/* A department deleted from People leaves the project's stored
-                    name behind - keep it selectable rather than silently
-                    switching the project to None on the next save. */}
-                {form.hrDepartmentId && !departments.some((d) => d.id === form.hrDepartmentId) && (
-                  <option value={form.hrDepartmentId}>{form.hrDepartmentName || 'Current department'}</option>
-                )}
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>{multiCompany && d.companyName ? `${d.companyName} - ${d.name}` : d.name}</option>
-                ))}
-              </select>
+              <SearchSelect value={form.hrDepartmentId || ''} placeholder="None" searchPlaceholder="Search departments…"
+                emptyText="No departments yet." onPick={(id) => set({ hrDepartmentId: id })}
+                buttonStyle={{ ...inputStyle, cursor: 'pointer', justifyContent: 'space-between' }}
+                options={[{ id: '', label: 'None' },
+                          /* A department deleted from People leaves the project's stored
+                             name behind - keep it selectable rather than silently
+                             switching the project to None on the next save. */
+                          ...(form.hrDepartmentId && !departments.some((d) => d.id === form.hrDepartmentId)
+                            ? [{ id: form.hrDepartmentId, label: form.hrDepartmentName || 'Current department' }] : []),
+                          ...departments.map((d) => ({
+                            id: d.id,
+                            label: multiCompany && d.companyName ? `${d.companyName} - ${d.name}` : d.name,
+                            keywords: d.companyName || '',
+                          }))]} />
             ) : (
               <div style={{ fontSize: 12.5, color: NX.faint, padding: '8px 0' }}>
                 Auto-populated from your own People-module profile once created.
@@ -779,10 +853,13 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
           </div>
           <div>
             <label style={label}>Portfolio</label>
-            <select value={form.portfolioId} onChange={(e) => set({ portfolioId: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
-              <option value="">None</option>
-              {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <SearchSelect value={form.portfolioId || ''} placeholder="None" searchPlaceholder="Search portfolios…"
+              buttonStyle={{ ...inputStyle, cursor: 'pointer', justifyContent: 'space-between' }}
+              emptyText="No portfolios yet."
+              options={[{ id: '', label: 'None' },
+                        ...portfolios.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
+                          .map((pf) => ({ id: pf.id, label: pf.name }))]}
+              onPick={(id) => set({ portfolioId: id })} />
           </div>
         </div>
 
@@ -874,6 +951,7 @@ export function ProjectCreateModal({ onClose, onCreated, defaults }) {
   const [mode, setMode] = useState(null);          // null = the three-choice list
   const [template, setTemplate] = useState(null);  // picked template
   const [copyFrom, setCopyFrom] = useState(null);  // picked project
+  const [pickQ, setPickQ] = useState('');          // filters the step-two list
   const [form, setForm] = useState(() => ({ ...EMPTY_FORM, ...(defaults || {}) }));
   const done = (p) => { onCreated && onCreated(p); onClose(); };
 
@@ -914,9 +992,18 @@ export function ProjectCreateModal({ onClose, onCreated, defaults }) {
   // Step two is a browse list rather than a dropdown: choosing a blueprint is a
   // "which one of these?" decision, and a select would hide the counts that
   // make one of them the right answer.
-  const picker = (title, rows, empty, onPick, renderRow) => (
+  const picker = (title, rows, empty, onPick, renderRow) => {
+    // The list stays a browse list - the counts under each name are what make
+    // one of them the right answer, and a dropdown would hide them - but it
+    // gets a filter, because scrolling ~90 projects to find one is not
+    // browsing.
+    const needle = pickQ.trim().toLowerCase();
+    const shown = needle
+      ? rows.filter((r) => `${r.name || ''} ${r.description || ''} ${r.category || ''}`.toLowerCase().includes(needle))
+      : rows;
+    return (
     <div>
-      <button onClick={() => setMode(null)}
+      <button onClick={() => { setMode(null); setPickQ(''); }}
         style={{ ...btn('ghost'), padding: '4px 6px', marginLeft: -6, marginBottom: 10, fontSize: 12.5, color: NX.dim }}>
         <ArrowLeft size={14} />Back
       </button>
@@ -924,8 +1011,17 @@ export function ProjectCreateModal({ onClose, onCreated, defaults }) {
       {rows.length === 0 ? (
         <div style={{ fontSize: 12.5, color: NX.faint, padding: '14px 2px' }}>{empty}</div>
       ) : (
+        <>
+        <div style={{ position: 'relative', marginBottom: 8 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
+          <input autoFocus value={pickQ} onChange={(e) => setPickQ(e.target.value)} placeholder="Search…"
+            style={{ ...inputStyle, paddingLeft: 30 }} />
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '48vh', overflowY: 'auto' }}>
-          {rows.map((r) => (
+          {shown.length === 0 && (
+            <div style={{ fontSize: 12.5, color: NX.faint, padding: '12px 2px' }}>No matches for &ldquo;{pickQ.trim()}&rdquo;.</div>
+          )}
+          {shown.map((r) => (
             <button key={r.id} type="button" onClick={() => onPick(r)}
               style={{
                 display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', width: '100%',
@@ -938,9 +1034,11 @@ export function ProjectCreateModal({ onClose, onCreated, defaults }) {
             </button>
           ))}
         </div>
+        </>
       )}
     </div>
-  );
+    );
+  };
 
   const tile = (color) => ({
     width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: 'inline-flex',
