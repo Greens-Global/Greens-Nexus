@@ -5,7 +5,29 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'public/pdf-editor-app/libs']),
+  {
+    // PDF editor engine (vanilla JS served from public/, brought under lint
+    // Aug 26). Its libraries load as <script> globals, and `catch (_) {}` is
+    // the file's deliberate best-effort idiom.
+    files: ['public/pdf-editor-app/**/*.js'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        pdfjsLib: 'readonly',
+        PDFLib: 'readonly',
+        fabric: 'readonly',
+        JSZip: 'readonly',
+        docx: 'readonly',
+        XLSX: 'readonly',
+        Tesseract: 'readonly',
+      },
+    },
+    rules: {
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+    },
+  },
   {
     files: ['**/*.{js,jsx}'],
     extends: [
