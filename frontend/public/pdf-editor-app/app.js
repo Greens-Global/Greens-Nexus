@@ -40,14 +40,27 @@
     // ── Dirty tracking: orange Save + guard against losing unsaved work ──
     let _isDirty = false;
     function markDirty(d = true) {
+        const changed = _isDirty !== d;
         _isDirty = d;
         const btn = document.getElementById('downloadBtn');
         if (btn) btn.classList.toggle('dirty', d);
         // Keep the Nexus shell informed: in-app navigation unmounts the iframe
         // WITHOUT firing beforeunload, so the shell needs the dirty state to
-        // warn before it silently destroys unsaved markups.
-        try { window.parent && window.parent.postMessage({ type: 'pdf-editor:doc-state', hasDoc: !!state.pdfDoc, dirty: _isDirty }, '*'); } catch (_) {}
+        // warn before it silently destroys unsaved markups. Post only on
+        // TRANSITIONS — markDirty runs on every stroke, and re-broadcasting an
+        // unchanged flag did a cross-frame message per stroke for nothing.
+        // (hasDoc transitions are posted explicitly by load/close.)
+        if (changed) {
+            try { window.parent && window.parent.postMessage({ type: 'pdf-editor:doc-state', hasDoc: !!state.pdfDoc, dirty: _isDirty }, '*'); } catch (_) {}
+        }
     }
+    // Inter, loaded non-blockingly after startup (see index.html head comment).
+    try {
+        const interLink = document.createElement('link');
+        interLink.rel = 'stylesheet';
+        interLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap';
+        document.head.appendChild(interLink);
+    } catch (_) { /* offline — Segoe UI fallback stays */ }
     window.addEventListener('beforeunload', (e) => {
         if (_isDirty) { e.preventDefault(); e.returnValue = ''; }
     });
@@ -819,8 +832,20 @@
     function routeNonPdfFiles(files) {
         const file = files[0];
         if (!file) return false;
-        if (/\.docx?$/i.test(file.name) && typeof convertWordToPdf === 'function') {
+        if (/\.docx$/i.test(file.name) && typeof convertWordToPdf === 'function') {
+            // Conversion ends in loadPDF, which replaces the open document —
+            // a mis-dropped .docx must not silently destroy unsaved markups.
+            if (state.pdfDoc && _isDirty) {
+                showToast('Save your changes first - converting a Word file replaces the open document');
+                return true;
+            }
             convertWordToPdf(file);
+            return true;
+        }
+        if (/\.doc$/i.test(file.name)) {
+            // mammoth reads only the .docx (zip) format — a legacy binary .doc
+            // routed into it throws or produces garbage. Say so instead.
+            showToast('Legacy .doc files are not supported - save it as .docx in Word first');
             return true;
         }
         const imgs = [...files].filter(f => /^image\/(png|jpe?g)$/i.test(f.type));
@@ -1276,23 +1301,34 @@
         };
     }
 
-    // Generation counter: loadFromJSON enlivens objects ASYNCHRONOUSLY (images,
-    // signatures), so on fast page flips page A's callback can land after page
-    // B started loading — mixing A's objects onto B's canvas and then saving
-    // them into B's stored annotations. A superseded restore must bow out and
-    // re-run for the page that is actually current.
-    let _restoreSeq = 0;
+    // loadFromJSON enlivens objects ASYNCHRONOUSLY (images, signatures), so on
+    // fast page flips two overlapping loads interleave and mix pages' objects
+    // onto one canvas — which then get SAVED into the wrong page. Restores are
+    // therefore SERIALIZED: a request arriving while one is in flight is
+    // queued (last one wins) and runs when the current callback lands. No
+    // overlap means no mixing, no cleanup pass, and no retry loop.
+    let _restoreInFlight = false;
+    let _restoreQueued = null;
     function restoreAnnotations(pageNum) {
         if (!fabricCanvas) return;
-        const seq = ++_restoreSeq;
+        if (_restoreInFlight) { _restoreQueued = pageNum; return; }
         _isRestoring = true;
         fabricCanvas.clear();
         const entry = state.annotations[pageNum];
         if (entry) {
             // Support both the new { fabricData, zoom } format and old plain-JSON format
             const data = entry.fabricData || entry;
+            _restoreInFlight = true;
             fabricCanvas.loadFromJSON(data, () => {
-                if (seq !== _restoreSeq) { restoreAnnotations(state.currentPage); return; } // superseded — reload the right page
+                _restoreInFlight = false;
+                if (_restoreQueued !== null) {
+                    // Superseded while loading — run the newest request instead
+                    // of applying this page's objects.
+                    const q = _restoreQueued;
+                    _restoreQueued = null;
+                    restoreAnnotations(q);
+                    return;
+                }
                 // The entry was captured at entry.zoom; if the zoom changed while
                 // another page was showing, rescale to the current zoom (mirrors
                 // undo/redo) — otherwise the marks render, and later export, at
@@ -1355,11 +1391,17 @@
         const stack = state.undoStacks[page];
         if (!stack || stack.length <= 1) {
             const snap = _docUndoStack[_docUndoStack.length - 1];
-            if (snap && snap.annotSeq === _annotSeq) {
-                undoDocChange(); // e.g. undo a crop — nothing page-level happened since
+            // Fall through to the doc-level undo when nothing page-level
+            // happened since the snapshot, OR when every page's newer markups
+            // have themselves been undone (no stack has undoable entries left)
+            // — a strict counter-equality permanently stranded the crop after
+            // a single later stroke, even one already undone.
+            const pageWorkRemains = Object.values(state.undoStacks).some(s => s && s.length > 1);
+            if (snap && (snap.annotSeq === _annotSeq || !pageWorkRemains)) {
+                undoDocChange(); // e.g. undo a crop
             } else if (snap) {
-                // A doc snapshot exists but markups were made after it (possibly
-                // on another page) — undoing it would destroy that newer work.
+                // Newer markups exist (possibly on another page) — undoing the
+                // doc snapshot would destroy them. Undo those first.
                 showToast('Nothing to undo on this page');
             }
             return;
@@ -3080,8 +3122,12 @@
     // (double-clicked delete buttons, a drag during a delete) corrupt the page
     // mapping. Acquire before mutating; release in the operation's finally.
     let _docOpBusy = false;
+    let _lastThumbDelete = 0; // double-click cooldown for the thumbnail delete button
     function _acquireDocOp() {
-        if (_docOpBusy) { showToast('Please wait - another page operation is still running'); return false; }
+        // Also refuse while a long operation (merge/compress/export) holds the
+        // OTHER mutex — both classes rebuild state.pdfBytes and must never
+        // interleave (the two flags were previously blind to each other).
+        if (_docOpBusy || _opRunning) { showToast('Please wait - another operation is still running'); return false; }
         _docOpBusy = true;
         return true;
     }
@@ -3893,7 +3939,7 @@
             const helv = await pdfLibDoc.embedFont(PDFLib.StandardFonts.Helvetica);
             const helvBold = await pdfLibDoc.embedFont(PDFLib.StandardFonts.HelveticaBold);
             const green = PDFLib.rgb(0.05, 0.32, 0.15);
-            const grey = PDFLib.rgb(0.42, 0.42, 0.42);
+            const gray = PDFLib.rgb(0.42, 0.42, 0.42);
             const margin = 40;
 
             // Header
@@ -3909,12 +3955,12 @@
             // Footer
             newPage.drawLine({
                 start: { x: margin, y: 46 }, end: { x: width - margin, y: 46 },
-                thickness: 0.8, color: grey, opacity: 0.5,
+                thickness: 0.8, color: gray, opacity: 0.5,
             });
-            newPage.drawText(footerText, { x: margin, y: 32, size: 9, font: helv, color: grey });
+            newPage.drawText(footerText, { x: margin, y: 32, size: 9, font: helv, color: gray });
             const rightFooter = `Page ${insertIndex + 1}  |  ${new Date().toLocaleDateString()}`;
             const rfW = helv.widthOfTextAtSize(rightFooter, 9);
-            newPage.drawText(rightFooter, { x: width - margin - rfW, y: 32, size: 9, font: helv, color: grey });
+            newPage.drawText(rightFooter, { x: width - margin - rfW, y: 32, size: 9, font: helv, color: gray });
 
             // Diagonal CONFIDENTIAL watermark, scaled to span the page and centered
             const wm = TEMPLATE_WATERMARK;
@@ -4141,8 +4187,11 @@
             // the toast is up, the button must not undo that instead.
             const delSnap = _docUndoStack[_docUndoStack.length - 1];
             showToast('Page ' + pageNum + ' deleted', 'Undo', () => {
-                if (_docUndoStack[_docUndoStack.length - 1] === delSnap) undoDocChange();
-                else showToast('Cannot undo - the document changed since');
+                // delSnap can be undefined if the snapshot itself failed
+                // (huge doc, allocation error) — undefined === undefined must
+                // not "pass" and pop an unrelated older snapshot.
+                if (delSnap && _docUndoStack[_docUndoStack.length - 1] === delSnap) undoDocChange();
+                else showToast('Cannot undo - no snapshot of the deleted page exists');
             });
         } catch (err) {
             console.error(err);
@@ -4402,6 +4451,11 @@
                 // No confirm dialog: deletePage snapshots the document first,
                 // so the toast offers Undo instead — safer and lower friction
                 // than confirm-every-time (and no iframe-freezing native popup).
+                // Cooldown: the second click of a double-click can land on the
+                // REBUILT button at the same position after the first delete
+                // finishes, taking a second page nobody asked for.
+                if (Date.now() - _lastThumbDelete < 600) return;
+                _lastThumbDelete = Date.now();
                 deletePage(i);
             });
             actions.appendChild(delBtn);
@@ -4539,7 +4593,10 @@
                     tmp.setZoom(vp2.width / displayWidth); // annot coords are at annotZoom
                     insts.forEach(o => { if (o) { o.visible = true; tmp.add(o); } });
                     tmp.renderAll();
-                    const png = await pdfLibDoc.embedPng(tmp.toDataURL({ format: 'png' }));
+                    // toBlob, not toDataURL: a full-page 2x PNG as a base64
+                    // string is multi-MB of pure encode/decode churn per page.
+                    const blob = await new Promise(r => tmp.lowerCanvasEl.toBlob(r, 'image/png'));
+                    const png = await pdfLibDoc.embedPng(new Uint8Array(await blob.arrayBuffer()));
                     // Counter-rotate about the drawImage anchor (bottom-left of
                     // the image) so the overlay fills the unrotated MediaBox.
                     // pdf-lib rotates CCW-positive; /Rotate is CW when displayed.
@@ -4844,7 +4901,11 @@
                 try {
                     const sc = hexToRgb(obj.stroke);
                     opts.borderColor = PDFLib.rgb(sc.r / 255, sc.g / 255, sc.b / 255);
-                    opts.borderWidth = (obj.strokeWidth || 1) * scaleX;
+                    // Fabric renders stroke as strokeWidth * object scale, so
+                    // the export must include it too — after a zoom round trip
+                    // scaleX/scaleY carry the size and strokeWidth stays put.
+                    const objScale = ((obj.scaleX || 1) + (obj.scaleY || 1)) / 2;
+                    opts.borderWidth = (obj.strokeWidth || 1) * objScale * scaleX;
                     if (Array.isArray(obj.strokeDashArray) && obj.strokeDashArray.length)
                         opts.borderDashArray = obj.strokeDashArray.map(v => v * scaleX);
                 } catch { /* bad stroke color */ }
@@ -5238,15 +5299,20 @@
 
         // Leaving the edit with the text UNCHANGED removes the pair — otherwise
         // a curiosity double-click leaves a half-transparent cover box plus a
-        // duplicate line that export into the saved PDF.
+        // duplicate line that export into the saved PDF. The removal only runs
+        // while the add-snapshot is still top-of-stack: if the user moved or
+        // styled the pair since, they meant to keep it, and popping would
+        // discard THAT action's snapshot instead (Ctrl+Z then resurrected the
+        // pair from the older entry).
         editText.on('editing:exited', () => {
             if ((editText.text || '') !== item.str) return;
+            const st = state.undoStacks[state.currentPage];
+            if (!st || !st.length || st[st.length - 1] !== _addSnapshot) return;
             _isRestoring = true;
             fabricCanvas.remove(editText);
             fabricCanvas.remove(coverRect);
             _isRestoring = false;
-            const st = state.undoStacks[state.currentPage];
-            if (st && st.length > 1) st.pop(); // drop the add-snapshot for the pair
+            if (st.length > 1) st.pop(); // drop the add-snapshot for the pair
             updateUndoRedoButtons();
             fabricCanvas.discardActiveObject();
             fabricCanvas.renderAll();
@@ -5258,6 +5324,9 @@
         _isRestoring = false;
 
         fabricCanvas.add(editText);
+        // Snapshot just pushed by the add() above — the exit cleanup keys on it.
+        const _stNow = state.undoStacks[state.currentPage];
+        const _addSnapshot = _stNow && _stNow[_stNow.length - 1];
         fabricCanvas.setActiveObject(editText);
         editText.enterEditing();
         editText.selectAll();
@@ -5404,13 +5473,19 @@
         const ctx = canvas.getContext('2d');
         await page.render({ canvasContext: ctx, viewport }).promise;
 
-        // Include the annotation layer — what you see is what exports. Uses the
-        // STORED entry, not the live fabric canvas: in continuous-scroll mode
-        // that canvas is frozen on the last-edited page, which stamped the
-        // wrong page's markups onto the exported image.
+        // Include the annotation layer — what you see is what exports. In edit
+        // mode the live fabric canvas IS this page: one cheap drawImage. Only
+        // continuous-scroll mode (live canvas frozen on the last-edited page)
+        // needs the stored-entry serialize/enliven round trip.
         saveCurrentAnnotations();
-        try { await drawAnnotationsOnExportCanvas(ctx, page, state.currentPage, canvas.width, canvas.height); }
-        catch (_) { /* no annotations */ }
+        try {
+            const fc = document.getElementById('fabricCanvas');
+            if (!(window.isScrollMode && window.isScrollMode()) && fc && fc.width > 0) {
+                ctx.drawImage(fc, 0, 0, canvas.width, canvas.height);
+            } else {
+                await drawAnnotationsOnExportCanvas(ctx, page, state.currentPage, canvas.width, canvas.height);
+            }
+        } catch (_) { /* no annotations */ }
 
         const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
         const quality = format === 'jpeg' ? 0.95 : undefined;
@@ -5443,13 +5518,19 @@
         const ctx = canvas.getContext('2d');
         await page.render({ canvasContext: ctx, viewport }).promise;
 
-        // Include the annotation layer — what you see is what exports. Uses the
-        // STORED entry, not the live fabric canvas: in continuous-scroll mode
-        // that canvas is frozen on the last-edited page, which stamped the
-        // wrong page's markups onto the exported image.
+        // Include the annotation layer — what you see is what exports. In edit
+        // mode the live fabric canvas IS this page: one cheap drawImage. Only
+        // continuous-scroll mode (live canvas frozen on the last-edited page)
+        // needs the stored-entry serialize/enliven round trip.
         saveCurrentAnnotations();
-        try { await drawAnnotationsOnExportCanvas(ctx, page, state.currentPage, canvas.width, canvas.height); }
-        catch (_) { /* no annotations */ }
+        try {
+            const fc = document.getElementById('fabricCanvas');
+            if (!(window.isScrollMode && window.isScrollMode()) && fc && fc.width > 0) {
+                ctx.drawImage(fc, 0, 0, canvas.width, canvas.height);
+            } else {
+                await drawAnnotationsOnExportCanvas(ctx, page, state.currentPage, canvas.width, canvas.height);
+            }
+        } catch (_) { /* no annotations */ }
 
         const blob = canvasToTiffBlob(canvas);
         const url = URL.createObjectURL(blob);
@@ -5550,7 +5631,9 @@
     let _opRunning = false;
     let _opCancelled = false;
     function opStart(label) {
-        if (_opRunning) { showToast('Another operation is already running'); return false; }
+        // _docOpBusy is the structural-op mutex (delete/rotate/crop/...) — the
+        // two must see each other or a merge can interleave with a page delete.
+        if (_opRunning || _docOpBusy) { showToast('Another operation is already running'); return false; }
         _opRunning = true;
         _opCancelled = false;
         dom.exportAllProgress.style.display = 'flex';
@@ -6092,7 +6175,7 @@
         _exitScrollForOp();
         if (!fabricCanvas) return;
 
-        // Per-preset default colors (green = approved, red = warning, grey = draft).
+        // Per-preset default colors (green = approved, red = warning, gray = draft).
         const PRESET_COLORS = {
             APPROVED: '#1a7a3f', DRAFT: '#6b7280', COPY: '#6b7280',
             FINAL: '#1d4ed8', VOID: '#d32f2f', CONFIDENTIAL: '#d32f2f',
@@ -6677,7 +6760,7 @@
         const v = await _toolModal('Add watermark', `
             <label class="modal-label">Watermark text:</label>
             <input type="text" class="modal-input" data-k="text" value="CONFIDENTIAL" maxlength="60">
-            <label class="stamp-date-row" style="padding:10px 0 0;"><span>Colour</span>
+            <label class="stamp-date-row" style="padding:10px 0 0;"><span>Color</span>
                 <input type="color" data-k="color" value="#9e9e9e"></label>
             <label class="stamp-date-row" style="padding:8px 0 0;"><span>Strength</span>
                 <input type="range" data-k="op" min="5" max="60" value="18" style="flex:1;"></label>
@@ -7495,23 +7578,40 @@
         // OWN input ends the settle immediately — re-asserting after they had
         // already started scrolling yanked the view back to the target page.
         const targetPage = state.currentPage;
+        // offsetTop is measured from the positioned .editor-area, not from the
+        // scroller itself — subtract the scroller's own offset or every jump
+        // (and the anchoring math) is biased by that constant.
+        let _progScrolls = 0; // scrolls WE caused; the settle watcher skips them
         const jumpToTarget = () => {
             const cur = _scrollEls[targetPage - 1];
-            if (cur) scroller.scrollTop = cur.wrap.offsetTop;
+            if (cur) { _progScrolls++; scroller.scrollTop = cur.wrap.offsetTop - scroller.offsetTop; }
         };
         // Jump NOW, synchronously — the wrappers already exist with estimated
-        // sizes. If the user's next wheel tick ends the settle early (below),
-        // they must already be AT the target page, not still at the top.
+        // sizes. If the user's next input ends the settle early (below), they
+        // must already be AT the target page, not still at the top.
         jumpToTarget();
         let reassert = null;
-        const endSettle = () => {
+        const endSettle = (silent) => {
             if (reassert) { clearInterval(reassert); reassert = null; }
             scroller.removeEventListener('wheel', endSettle);
             scroller.removeEventListener('touchstart', endSettle);
-            if (settling) { settling = false; onScroll(); }
+            scroller.removeEventListener('scroll', settleScrollWatch);
+            if (settling) { settling = false; if (silent !== true) onScroll(); }
+        };
+        // destroyScrollView must be able to tear the settle machinery down —
+        // otherwise the interval and listeners leaked when scroll mode exited
+        // during the settle window (and a dead closure could later fire).
+        _scrollSettleCleanup = () => endSettle(true);
+        // Any scroll we did not cause ourselves is user input (scrollbar drag,
+        // PageDown, trackpad) — wheel/touchstart alone missed those and the
+        // reassert loop kept yanking the view back.
+        const settleScrollWatch = () => {
+            if (_progScrolls > 0) { _progScrolls--; return; }
+            endSettle();
         };
         scroller.addEventListener('wheel', endSettle, { passive: true });
         scroller.addEventListener('touchstart', endSettle, { passive: true });
+        scroller.addEventListener('scroll', settleScrollWatch, { passive: true });
         setTimeout(() => {
             if (!settling) return; // the user already took over
             jumpToTarget();
@@ -7527,6 +7627,7 @@
         onScroll();
     }
     let _scrollOnScroll = null;
+    let _scrollSettleCleanup = null;
 
     async function renderScrollPage(idx) {
         const el = _scrollEls[idx];
@@ -7543,16 +7644,20 @@
             if (!el.sized) {
                 el.sized = true;
                 const scroller = dom.canvasScrollWrapper;
-                const before = el.wrap.offsetHeight;
+                const before = parseFloat(el.wrap.style.height) || 0; // the estimate set at build time
+                const newH = dispW * (base.height / base.width);
                 el.wrap.style.width = dispW + 'px';
-                el.wrap.style.height = (dispW * (base.height / base.width)) + 'px';
+                el.wrap.style.height = newH + 'px';
                 // Scroll anchoring: correcting an ESTIMATED height on a page
                 // above the current position shifts everything below it — the
-                // view visibly jumped while scrolling upward. Compensate by
-                // the exact delta (native browser anchoring is disabled on the
-                // container so the two never double-correct).
-                const delta = el.wrap.offsetHeight - before;
-                if (delta && el.wrap.offsetTop < scroller.scrollTop) {
+                // view visibly jumped while scrolling upward. Compensate by the
+                // exact delta (native anchoring is disabled on the container so
+                // the two never double-correct). Heights come from the style
+                // values we set — no forced layout in the scroll hot path —
+                // and the comparison runs in SCROLLER coordinates (offsetTop
+                // is measured from .editor-area, hence the offset subtraction).
+                const delta = newH - before;
+                if (delta && (el.wrap.offsetTop - scroller.offsetTop) < scroller.scrollTop) {
                     scroller.scrollTop += delta;
                 }
             }
@@ -7581,6 +7686,7 @@
     }
 
     function destroyScrollView() {
+        if (_scrollSettleCleanup) { try { _scrollSettleCleanup(); } catch (_) {} _scrollSettleCleanup = null; }
         if (_scrollOnScroll) { dom.canvasScrollWrapper.removeEventListener('scroll', _scrollOnScroll); _scrollOnScroll = null; }
         const cont = document.getElementById('continuousView');
         if (cont) cont.remove();

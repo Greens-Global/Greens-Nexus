@@ -21,10 +21,10 @@
         base-uri 'self';
         form-action 'none';">
     <title>Nexus PDF Editor</title>
-    <!-- Inter: the Nexus body font (legacy modules). Falls back to Segoe UI
-         offline (Electron) - the stack in style.css handles it. -->
+    <!-- Inter (the Nexus body font) is injected by app.js AFTER startup so a
+         blocked/offline fonts.googleapis.com can never delay first paint;
+         the stack in style.css falls back to Segoe UI meanwhile. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=20260818g">
     <!-- PDF.js for rendering PDFs -->
     <script defer src="libs/pdf.min.js"></script>
@@ -157,7 +157,7 @@
                     <button class="dropdown-item" data-stamp="VOID">VOID</button>
                     <button class="dropdown-item" data-stamp="custom">Custom...</button>
                     <div class="dropdown-divider"></div>
-                    <label class="stamp-date-row" title="Colour of the stamp">
+                    <label class="stamp-date-row" title="Color of the stamp">
                         <span>Stamp color</span>
                         <input type="color" id="stampColor" value="#d32f2f">
                     </label>
@@ -569,7 +569,7 @@
             <div class="comment-input-area">
                 <div class="stamp-date-row" style="padding:0 0 4px;">
                     <span>Highlight color</span>
-                    <input type="color" id="commentColor" value="#e53935" title="Colour used to mark the commented text">
+                    <input type="color" id="commentColor" value="#e53935" title="Color used to mark the commented text">
                 </div>
                 <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">
                     Drag across words on the page - your comment attaches to that text.
@@ -663,8 +663,9 @@
     </div>
 
     <!-- Hidden file inputs -->
-    <!-- Accepts what the landing copy promises: PDFs, plus Word/images to convert -->
-    <input type="file" id="fileInput" accept=".pdf,.doc,.docx,image/png,image/jpeg" style="display:none">
+    <!-- Accepts what the landing copy promises: PDFs, plus Word/images to convert
+         (.docx only - the converter cannot read legacy binary .doc) -->
+    <input type="file" id="fileInput" accept=".pdf,.docx,image/png,image/jpeg" style="display:none">
     <input type="file" id="mergeInput" accept=".pdf" multiple style="display:none">
     <input type="file" id="imageInput" accept="image/*" style="display:none">
 

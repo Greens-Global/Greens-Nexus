@@ -929,7 +929,7 @@
       '<span class="welcome-drop-s">or click the button below to browse your files</span>' +
       '</span>' +
       '<span class="welcome-drop-btn">Choose File</span>' +
-      '<span class="welcome-drop-hint">Upload a PDF up to 750 MB, or a Word (.docx, .doc) or image (PNG, JPG) file to convert into a PDF.</span>';
+      '<span class="welcome-drop-hint">Upload a PDF up to 750 MB, or a Word (.docx) or image (PNG, JPG) file to convert into a PDF.</span>';
     drop.addEventListener('click', (e) => { e.stopPropagation(); el('#fileInput')?.click(); });
     leftCol.appendChild(drop);
     wrap.appendChild(leftCol);
@@ -987,7 +987,13 @@
       // instead of the card's tool) → the armed action no longer applies.
       if (!f || !/\.pdf$/i.test(f.name)) pendingAction = null;
     });
-    document.addEventListener('drop', () => { pendingAction = null; }, true);
+    // A drop onto the LANDING screen is a legitimate continuation of the card
+    // flow (click "Split PDF", then drag the file in instead of picking) — keep
+    // the action armed there. Only a drop that REPLACES an already-open
+    // document is an unrelated open that must disarm.
+    document.addEventListener('drop', () => {
+      if ((el('#fileInfo')?.textContent || '').trim()) pendingAction = null;
+    }, true);
     el('#openFileBtn')?.addEventListener('click', () => { pendingAction = null; }, true);
   }
 

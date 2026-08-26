@@ -3528,11 +3528,12 @@ html[data-theme="light"] {
 
 /* Right-edge fade cue when a bar has horizontally clipped buttons — the
    scrollbars are hidden, so without this clipped tools are undiscoverable.
-   The class is toggled by adobe-ui.js when scrollWidth > clientWidth. */
+   The class is toggled by adobe-ui.js when scrollWidth > clientWidth.
+   Inset shadow, NOT mask-image: a mask also clipped the dropdown menus that
+   are DOM children of the bar (stamp/export), rendering them invisible. */
 .toolbar.has-overflow,
 .adobe-ctx-bar.has-overflow {
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent);
-    mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent);
+    box-shadow: inset -28px 0 18px -18px rgba(0, 0, 0, 0.28);
 }
 
 @media (prefers-reduced-motion: reduce) {
