@@ -1489,6 +1489,22 @@
     }
 
     function _maybeScrollZoom() { if (window.isScrollMode && window.isScrollMode()) { window.rerenderScrollForZoom(); return true; } return false; }
+    // Apply a freshly computed zoom to whichever view is active. In continuous
+    // scroll the single-page canvas is frozen, so renderPage() would do nothing
+    // (that was the "Fit does nothing" bug) - re-render the scroll view instead.
+    function _applyFitZoom(newZoom) {
+        const oldZoom = state.zoom;
+        state.zoom = Math.max(0.25, Math.min(4, newZoom));
+        dom.zoomLevel.textContent = Math.round(state.zoom * 100) + '%';
+        rescaleCanvasObjects(state.zoom / oldZoom);
+        saveCurrentAnnotations();
+        if (window.isScrollMode && window.isScrollMode()) {
+            window.rerenderScrollForZoom();   // resize every scroll page to the new zoom
+        } else {
+            renderPage(state.currentPage);
+        }
+    }
+
     function fitToPage() {
         if (!state.pdfDoc) return;
         requestAnimationFrame(() => {
@@ -1497,13 +1513,7 @@
                 const availW = dom.editorArea.clientWidth - 60;
                 const availH = dom.canvasScrollWrapper.clientHeight - 30;
                 if (availW <= 0 || availH <= 0) return;
-                const newZoom = Math.min(availW / viewport.width, availH / viewport.height);
-                const oldZoom = state.zoom;
-                state.zoom = Math.max(0.25, Math.min(4, newZoom));
-                dom.zoomLevel.textContent = Math.round(state.zoom * 100) + '%';
-                rescaleCanvasObjects(state.zoom / oldZoom);
-                saveCurrentAnnotations();
-                renderPage(state.currentPage);
+                _applyFitZoom(Math.min(availW / viewport.width, availH / viewport.height));
             });
         });
     }
@@ -1517,13 +1527,7 @@
                 const viewport = page.getViewport({ scale: 1 });
                 const containerWidth = dom.editorArea.clientWidth - 60; // padding
                 if (containerWidth <= 0) return; // layout not ready, skip
-                const newZoom = containerWidth / viewport.width;
-                const oldZoom = state.zoom;
-                state.zoom = Math.max(0.25, Math.min(4, newZoom));
-                dom.zoomLevel.textContent = Math.round(state.zoom * 100) + '%';
-                rescaleCanvasObjects(state.zoom / oldZoom);
-                saveCurrentAnnotations();
-                renderPage(state.currentPage);
+                _applyFitZoom(containerWidth / viewport.width);
             });
         });
     }
@@ -7868,7 +7872,21 @@
     window.setScrollMode = setScrollMode;
     window.isScrollMode = () => _scrollOn;
     // Re-render scroll pages when zoom changes while scrolling
-    window.rerenderScrollForZoom = () => { if (_scrollOn) { destroyScrollView(); buildScrollView(); } };
+    window.rerenderScrollForZoom = () => {
+        if (!_scrollOn || !_scrollEls.length) return;
+        // Resize every page wrapper to the new zoom and re-render in place -
+        // no destroy/rebuild, so zoom/Fit is smooth with no flicker. Keep the
+        // user roughly on the same page by preserving the scroll ratio.
+        const sc = dom.canvasScrollWrapper;
+        const prevRatio = sc && sc.scrollHeight > 0 ? sc.scrollTop / sc.scrollHeight : 0;
+        for (const el of _scrollEls) {
+            el.sized = false;                 // force re-size to the new zoom
+            el.rendered = false;              // force re-render
+            el.canvas.width = 0; el.canvas.height = 0;
+            renderScrollPage(el.page - 1);
+        }
+        if (sc) requestAnimationFrame(() => { sc.scrollTop = prevRatio * sc.scrollHeight; });
+    };
     // Scroll the continuous view to a given page (1-based), staying in scroll
     // mode. Used by thumbnail clicks / page-number jumps so navigating doesn't
     // yank the user out of continuous scroll. Returns false if not applicable.
