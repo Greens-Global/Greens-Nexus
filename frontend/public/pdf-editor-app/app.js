@@ -43,6 +43,10 @@
         _isDirty = d;
         const btn = document.getElementById('downloadBtn');
         if (btn) btn.classList.toggle('dirty', d);
+        // Keep the Nexus shell informed: in-app navigation unmounts the iframe
+        // WITHOUT firing beforeunload, so the shell needs the dirty state to
+        // warn before it silently destroys unsaved markups.
+        try { window.parent && window.parent.postMessage({ type: 'pdf-editor:doc-state', hasDoc: !!state.pdfDoc, dirty: _isDirty }, '*'); } catch (_) {}
     }
     window.addEventListener('beforeunload', (e) => {
         if (_isDirty) { e.preventDefault(); e.returnValue = ''; }
@@ -462,8 +466,9 @@
             fabricCanvas.setActiveObject(img);
             fabricCanvas.renderAll();
             setActiveTool('select');
-            saveAnnotationState();
-            showToast('Signature added — drag to position, corners to resize');
+            // add() already snapshotted via object:added — a second explicit
+            // snapshot made the first Ctrl+Z a visible no-op.
+            showToast('Signature added - drag to position, corners to resize');
         });
     }
 
@@ -554,7 +559,7 @@
         // Color swatches
         document.querySelectorAll('.swatch').forEach((swatch) => {
             swatch.addEventListener('click', () => {
-                if (!swatch.dataset.color) return; // custom-picker swatch has no preset colour
+                if (!swatch.dataset.color) return; // custom-picker swatch has no preset color
                 dom.colorPicker.value = swatch.dataset.color;
                 updateSwatchActive();
                 applyBrushColor();
@@ -583,6 +588,12 @@
             dom.sidebar.classList.remove('collapsed');
             syncSidebarReopen();
         });
+        // Phones: the sidebar is an overlay drawer (style.css) — start it
+        // closed so it doesn't cover the document; the reopen tab restores it.
+        if (window.matchMedia && window.matchMedia('(max-width: 600px)').matches) {
+            dom.sidebar.classList.add('collapsed');
+            syncSidebarReopen();
+        }
 
         // Sidebar resize
         setupSidebarResize();
@@ -599,7 +610,7 @@
                 _eraserWhiteout = eraserWhiteoutCb.checked;
                 if (state.activeTool === 'eraser') applyToolMode();
                 showToast(_eraserWhiteout
-                    ? 'Whiteout ON — covers original PDF text/images'
+                    ? 'Whiteout ON - covers original PDF text/images'
                     : 'Eraser removes your annotations only');
             });
         }
@@ -743,14 +754,16 @@
         const ctrl = e.ctrlKey || e.metaKey;
 
         // Polyline/polygon: Enter finishes, Escape cancels the in-progress shape.
+        // stopPropagation on Escape: adobe-ui's window listener otherwise ALSO
+        // fires, closes the whole tool tab and re-arms Select mid-drawing.
         if (polyKind) {
             if (e.key === 'Enter') { e.preventDefault(); polyFinish(); return; }
-            if (e.key === 'Escape') { e.preventDefault(); polyCancel(); return; }
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); polyCancel(); return; }
         }
         // Measurement: Enter finishes, Escape cancels the in-progress measurement.
         if (measureKind) {
             if (e.key === 'Enter') { e.preventDefault(); measureFinish(); return; }
-            if (e.key === 'Escape') { e.preventDefault(); measureCancel(); return; }
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); measureCancel(); return; }
         }
 
         if (e.key === 'F1' || (ctrl && e.key === '/')) {
@@ -800,9 +813,31 @@
     }
 
     // ── File Handling ──
+    // The landing screen promises "a Word (.docx, .doc) or image (PNG, JPG)
+    // file to convert" — honor that on BOTH the picker and the drop, instead
+    // of flatly rejecting everything that isn't a PDF.
+    function routeNonPdfFiles(files) {
+        const file = files[0];
+        if (!file) return false;
+        if (/\.docx?$/i.test(file.name) && typeof convertWordToPdf === 'function') {
+            convertWordToPdf(file);
+            return true;
+        }
+        const imgs = [...files].filter(f => /^image\/(png|jpe?g)$/i.test(f.type));
+        if (imgs.length) {
+            // With a document open, images mean "add these as pages"; on the
+            // landing screen they mean "build a PDF from these images".
+            if (state.pdfDoc) appendImagesAsPages(imgs); else convertImagesToPdf(imgs);
+            return true;
+        }
+        return false;
+    }
+
     function handleFileSelect(e) {
         const file = e.target.files[0];
-        if (file) loadPDF(file);
+        if (!file) return;
+        if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) loadPDF(file);
+        else if (!routeNonPdfFiles(e.target.files)) showToast('Choose a PDF, Word (.docx), or PNG/JPG file');
     }
 
     function handleFileDrop(e) {
@@ -812,12 +847,17 @@
         const file = e.dataTransfer.files[0];
         if (file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
             loadPDF(file);
-        } else if (file) {
-            showToast('Please drop a valid PDF file');
+        } else if (file && !routeNonPdfFiles(e.dataTransfer.files)) {
+            showToast('Drop a PDF, Word (.docx), or PNG/JPG file');
         }
     }
 
     async function loadPDF(file) {
+        // Leave continuous scroll BEFORE swapping documents: the new doc renders
+        // into the hidden single-page canvas while the old doc's stacked pages
+        // stay on screen, and scrolling then hits the destroyed old pdfDoc.
+        // (The post-load timeout below re-enters scroll mode for the new doc.)
+        _exitScrollForOp();
         setStatus('Loading PDF...');
         state.fileName = file.name;
 
@@ -839,8 +879,8 @@
                     if (err && err.name === 'PasswordException' && attempt < 3) {
                         pdfPassword = await customPrompt(
                             attempt === 0 ? 'This PDF is password-protected. Enter the password:'
-                                          : 'Wrong password — try again:', 'Password');
-                        if (!pdfPassword) { setStatus('Open cancelled — password required'); return; }
+                                          : 'Wrong password - try again:', 'Password');
+                        if (!pdfPassword) { setStatus('Open canceled - password required'); return; }
                         continue;
                     }
                     throw err;
@@ -858,6 +898,7 @@
             state.activeLayer = 1;
             state.nextLayerId = 2;
             _docUndoStack.length = 0; // C1: never undo across documents
+            measureScale = null; measureUnit = 'ft'; // calibration belongs to the OLD document
             markDirty(false);
             if (window.renderLayersPanel) window.renderLayersPanel();
             if (COMMENTS_ENABLED) importPdfComments(); // comment feature parked
@@ -912,18 +953,18 @@
             setStatus('PDF loaded successfully');
             // Tell the Nexus shell a document is open, so it can hide the top bar
             // for full-bleed editing (the landing screen keeps the bar).
-            try { window.parent && window.parent.postMessage({ type: 'pdf-editor:doc-state', hasDoc: true }, '*'); } catch (_) {}
+            try { window.parent && window.parent.postMessage({ type: 'pdf-editor:doc-state', hasDoc: true, dirty: _isDirty }, '*'); } catch (_) {}
         } catch (err) {
             console.error(err);
             // A malformed/damaged PDF: try to REPAIR it with pdf-lib (which is
             // far more tolerant) before giving up, like a real viewer.
             try {
-                setStatus('File looks damaged — attempting repair...');
+                setStatus('File looks damaged - attempting repair...');
                 const repaired = await PDFLib.PDFDocument.load(
                     file ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array(state.pdfBytes),
                     { ignoreEncryption: true, throwOnInvalidObject: false });
                 const fixed = await repaired.save();
-                showToast('PDF was damaged — opened a repaired copy');
+                showToast('PDF was damaged - opened a repaired copy');
                 setStatus('Opened a repaired copy of a damaged PDF');
                 return await loadPDF(new File([fixed], (file && file.name) || 'repaired.pdf', { type: 'application/pdf' }));
             } catch (err2) {
@@ -1096,9 +1137,14 @@
 
         try {
             // Cancel any in-flight render — two renders on one canvas throw
-            // and leave the page blank until the next successful pass.
+            // and leave the page blank until the next successful pass. The
+            // cancel() alone has a race window: a render still awaiting
+            // getPage() has no task to cancel yet, so a generation counter
+            // makes the superseded call bow out at every await boundary.
+            const seq = (state._renderSeq = (state._renderSeq || 0) + 1);
             if (state._renderTask) { try { state._renderTask.cancel(); } catch (_) {} }
             const page = await state.pdfDoc.getPage(pageNum);
+            if (seq !== state._renderSeq) return; // a newer renderPage superseded this one
             const viewport = page.getViewport({ scale: state.zoom * 1.5 }); // 1.5 for retina
 
             // Resize PDF canvas
@@ -1113,6 +1159,7 @@
             state._renderTask = page.render({ canvasContext: ctx, viewport });
             try { await state._renderTask.promise; } catch (e) { if (e && e.name === 'RenderingCancelledException') return; throw e; }
             state._renderTask = null;
+            if (seq !== state._renderSeq) return; // superseded while rendering
 
             // Resize Fabric canvas to match display size
             const displayWidth = viewport.width / 1.5;
@@ -1238,16 +1285,27 @@
             // Support both the new { fabricData, zoom } format and old plain-JSON format
             const data = entry.fabricData || entry;
             fabricCanvas.loadFromJSON(data, () => {
+                // The entry was captured at entry.zoom; if the zoom changed while
+                // another page was showing, rescale to the current zoom (mirrors
+                // undo/redo) — otherwise the marks render, and later export, at
+                // stale coordinates.
+                const entryZoom = entry.zoom || state.zoom;
+                if (Math.abs(entryZoom - state.zoom) > 0.001) rescaleCanvasObjects(state.zoom / entryZoom);
                 // Drop orphans of deleted layers, then apply layer visibility.
+                // (Collect first: removing inside forEachObject mutates the
+                // array being iterated and skips adjacent orphans.)
                 const ids = new Set(state.layers.map(l => l.id));
+                const orphans = [];
                 fabricCanvas.forEachObject((o) => {
-                    if (o._layerId !== undefined && !ids.has(o._layerId)) fabricCanvas.remove(o);
+                    if (o._layerId !== undefined && !ids.has(o._layerId)) orphans.push(o);
                 });
+                orphans.forEach((o) => fabricCanvas.remove(o));
                 applyLayerVisibility();
                 _isRestoring = false;
                 fabricCanvas.renderAll();
                 applyToolMode();
                 renderImportedCommentMarks(pageNum);
+                if (Math.abs(entryZoom - state.zoom) > 0.001) saveCurrentAnnotations(); // re-stamp at the current zoom
             });
         } else {
             _isRestoring = false;
@@ -1303,9 +1361,11 @@
             // The snapshot was taken at snapZoom — rescale to the current zoom.
             if (Math.abs(snapZoom - state.zoom) > 0.001) rescaleCanvasObjects(state.zoom / snapZoom);
             const liveIds = new Set(state.layers.map(l => l.id));
+            const orphans = []; // collect first — removing mid-iteration skips neighbors
             fabricCanvas.forEachObject((o) => {
-                if (o._layerId !== undefined && !liveIds.has(o._layerId)) fabricCanvas.remove(o);
+                if (o._layerId !== undefined && !liveIds.has(o._layerId)) orphans.push(o);
             });
+            orphans.forEach((o) => fabricCanvas.remove(o));
             applyLayerVisibility();
             _isRestoring = false;
             fabricCanvas.renderAll();
@@ -1330,9 +1390,11 @@
         fabricCanvas.loadFromJSON(fabricData, () => {
             if (Math.abs(snapZoom - state.zoom) > 0.001) rescaleCanvasObjects(state.zoom / snapZoom);
             const liveIds = new Set(state.layers.map(l => l.id));
+            const orphans = []; // collect first — removing mid-iteration skips neighbors
             fabricCanvas.forEachObject((o) => {
-                if (o._layerId !== undefined && !liveIds.has(o._layerId)) fabricCanvas.remove(o);
+                if (o._layerId !== undefined && !liveIds.has(o._layerId)) orphans.push(o);
             });
+            orphans.forEach((o) => fabricCanvas.remove(o));
             applyLayerVisibility();
             _isRestoring = false;
             fabricCanvas.renderAll();
@@ -1355,6 +1417,9 @@
     function _exitScrollForOp() { if (window.isScrollMode && window.isScrollMode()) setScrollMode(false); }
 
     function goToPage(num) {
+        // NaN passes both range checks (NaN<1 and NaN>total are false) and then
+        // poisons state.currentPage for every later keyed lookup.
+        if (!Number.isFinite(num)) { dom.pageInput.value = state.currentPage; return; }
         if (num < 1 || num > state.totalPages) return;
         // In continuous-scroll mode, scroll to the page and stay in scroll mode
         // (what a user expects from clicking a thumbnail). Only fall back to the
@@ -1373,14 +1438,19 @@
         fabricCanvas.getObjects().forEach((o) => {
             o.left = (o.left || 0) * ratio;
             o.top = (o.top || 0) * ratio;
-            if (o.type === 'i-text' || o.type === 'text' || o.type === 'textbox') {
+            const isTextType = o.type === 'i-text' || o.type === 'text' || o.type === 'textbox';
+            if (isTextType) {
                 // Scale font size (keeps text crisp) rather than object scale
                 o.fontSize = (o.fontSize || 16) * ratio;
             } else {
                 o.scaleX = (o.scaleX || 1) * ratio;
                 o.scaleY = (o.scaleY || 1) * ratio;
             }
-            if (o.strokeWidth) o.strokeWidth = o.strokeWidth * ratio;
+            // Fabric renders stroke as strokeWidth * objectScale, so objects we
+            // just scaled must NOT also get strokeWidth scaled (ink got 4x
+            // thicker per 2x zoom and drifted every round trip). Only objects
+            // whose scale we left alone need the manual adjustment.
+            if (o.strokeWidth && (isTextType || o.strokeUniform)) o.strokeWidth = o.strokeWidth * ratio;
             o.setCoords();
         });
         fabricCanvas.renderAll();
@@ -1447,9 +1517,12 @@
     function setActiveTool(tool) {
         state.activeTool = tool;
 
-        // Update button states
+        // Update button states (aria-pressed keeps the toggle state readable
+        // to assistive tech, not just visually)
         document.querySelectorAll('[data-tool]').forEach((btn) => {
-            btn.classList.toggle('active', btn.dataset.tool === tool);
+            const on = btn.dataset.tool === tool;
+            btn.classList.toggle('active', on);
+            btn.setAttribute('aria-pressed', String(on));
         });
 
         // Clean up crop if switching away from crop tool
@@ -1481,7 +1554,7 @@
         const eraserOptions = document.getElementById('eraserOptions');
         if (eraserOptions) eraserOptions.style.display = state.activeTool === 'eraser' ? 'flex' : 'none';
 
-        // The colour/size/font strip is retired: the TEXT formatting bar
+        // The color/size/font strip is retired: the TEXT formatting bar
         // (shown when text is selected/edited) carries all those controls.
         const toolOptions = document.getElementById('toolOptions');
         if (toolOptions) toolOptions.style.display = 'none';
@@ -1581,7 +1654,7 @@
                 fabricCanvas.forEachObject((obj) => { obj.selectable = false; obj.evented = false; });
 
                 if (_eraserWhiteout) {
-                    // Whiteout mode: paint the sampled background colour over content
+                    // Whiteout mode: paint the sampled background color over content
                     // (covers original PDF text / images — like a redaction/whiteout).
                     fabricCanvas.isDrawingMode = true;
                     fabricCanvas.freeDrawingBrush = new fabric.PencilBrush(fabricCanvas);
@@ -1741,7 +1814,8 @@
                 : new fabric.Polyline(polyPts, { ...base, fill: '' });
             fabricCanvas.add(final);
             final.setCoords();
-            saveAnnotationState();
+            // add() already snapshotted via object:added — a second explicit
+            // saveAnnotationState() made the first Ctrl+Z a visible no-op.
             saveCurrentAnnotations();
         }
         polyPts = []; polyKind = null;
@@ -1781,7 +1855,7 @@
         grp._countMark = true; grp._countNum = n;
         fabricCanvas.add(grp);
         grp.setCoords();
-        saveAnnotationState();
+        // add() already snapshotted via object:added — no explicit snapshot
         saveCurrentAnnotations();
         setStatus('Count: ' + n + ' marked - click to add the next, or switch tools to stop');
     }
@@ -1906,6 +1980,11 @@
         const need = measureKind === 'marea' ? 3 : 2;
         if (pts.length >= need) {
             const base = measureStyleBase(); base.selectable = true;
+            // Suppress per-add snapshots so shape + label form ONE undo step
+            // (three snapshots made the first Ctrl+Z remove just the label).
+            // _isRestoring also skips layer tagging, so tag explicitly.
+            base._layerId = state.activeLayer;
+            _isRestoring = true;
             let label, cx, cy;
             if (measureKind === 'mlength') {
                 const shape = new fabric.Line([pts[0].x, pts[0].y, pts[1].x, pts[1].y], base);
@@ -1926,7 +2005,9 @@
             }
             const lbl = measureLabel(label, cx, cy);
             lbl.selectable = true;
+            lbl._layerId = state.activeLayer;
             fabricCanvas.add(lbl);
+            _isRestoring = false;
             saveAnnotationState(); saveCurrentAnnotations();
         }
         measurePts = []; measureKind = null;
@@ -1990,7 +2071,7 @@
         return p;
     }
 
-    // Puffy callout cloud (white fill, coloured outline) — normalized path.
+    // Puffy callout cloud (white fill, colored outline) — normalized path.
     const CLOUD_PATH = 'M 168 96 C 190 96 200 82 198 68 C 210 58 206 38 192 34 C 192 18 176 8 162 12 ' +
         'C 154 0 134 -2 124 8 C 112 -4 90 -2 82 10 C 66 2 46 8 42 24 C 24 22 10 34 12 50 ' +
         'C 0 56 0 76 12 82 C 12 96 28 106 44 102 C 52 114 74 118 86 108 C 98 120 122 120 132 108 ' +
@@ -2129,7 +2210,7 @@
             }
         } else if (dragKind === 'cloud') {
             // Swap the dashed ghost rect for the puffy callout cloud: white
-            // body, coloured outline — scaled to the dragged box.
+            // body, colored outline — scaled to the dragged box.
             const { left, top, width, height } = currentShape;
             fabricCanvas.remove(currentShape);
             const w = Math.max(width, 40), h = Math.max(height, 26);
@@ -2312,11 +2393,11 @@
         _isRestoring = false;
         const entries = _hlClipped(start.x, start.y, p.x, p.y);
         if (!entries.length) {
-            showToast('No text there — switch Highlight to Freehand for drawings');
+            showToast('No text there - switch Highlight to Freehand for drawings');
             fabricCanvas.renderAll();
             return;
         }
-        // Commit in the picked colour. Untouched black defaults to marker
+        // Commit in the picked color. Untouched black defaults to marker
         // yellow for HIGHLIGHTS only — a black underline/strike is legitimate.
         const chosen = (highlightMode === 'text' && dom.colorPicker.value === '#000000')
             ? '#FFEB3B' : dom.colorPicker.value;
@@ -2446,7 +2527,7 @@
                 });
                 refreshCommentPanel();
                 updateThumbnailBadges();
-                showToast('Comment added — view all in Comments');
+                showToast('Comment added - view all in Comments');
             });
         }
         _cmPopup._entries = entries;
@@ -2691,8 +2772,8 @@
             const l = layerById(id); if (!l) return;
             state.activeLayer = id;
             if (!l.visible) { l.visible = true; applyLayerVisibility(); } // marking on a hidden layer makes no sense
-            if (l.color) dom.colorPicker.value = l.color; // layer colour = default ink
-            setStatus('Drawing on layer: ' + l.name + ' — everything you add now belongs to it');
+            if (l.color) dom.colorPicker.value = l.color; // layer color = default ink
+            setStatus('Drawing on layer: ' + l.name + ' - everything you add now belongs to it');
         },
         assignSelected: (id) => {
             // Move the currently selected markup(s) onto another layer
@@ -2901,7 +2982,7 @@
     // ── Eraser Tool ──
     // Two modes on one tool (toggled via the "Whiteout" checkbox in eraser options):
     //   * default  → remove ONLY your annotations (drag over them to delete). Safe: never touches PDF text.
-    //   * whiteout → paint the sampled background colour over content (hide original text/images).
+    //   * whiteout → paint the sampled background color over content (hide original text/images).
     let _eraserBgColor = '#ffffff'; // sampled at mousedown, used as whiteout brush color
     let _eraserWhiteout = false;    // set by the Whiteout toggle
     let _eraserDragging = false;
@@ -2936,7 +3017,7 @@
     function handleEraserDown(opt) {
         if (state.activeTool !== 'eraser') return;
         if (_eraserWhiteout) {
-            // Sample the background colour so the whiteout stroke blends in
+            // Sample the background color so the whiteout stroke blends in
             const p = fabricCanvas.getPointer(opt.e);
             applyEraserBrushColor(p.x, p.y);
             return;
@@ -3164,12 +3245,12 @@
         const choice = await _toolModal('Apply crop', `
             <label class="modal-label">How do you want to crop page ${state.currentPage}?</label>
             <select class="modal-input" data-k="mode">
-                <option value="dup" selected>Keep original — add a cropped copy after it</option>
+                <option value="dup" selected>Keep original - add a cropped copy after it</option>
                 <option value="replace">Crop this page (replace it)</option>
                 <option value="all">Crop ALL ${state.totalPages} pages with this area</option>
             </select>
             <p class="modal-hint" style="margin-top:10px;">You can undo the crop any time with Cmd/Ctrl+Z.
-            Note: crop hides the outside area — to permanently remove sensitive content use Redact instead.</p>`, 'Apply Crop');
+            Note: crop hides the outside area - to permanently remove sensitive content use Redact instead.</p>`, 'Apply Crop');
         if (!choice) return;
 
         setStatus('Applying crop...');
@@ -3177,10 +3258,11 @@
         try {
             saveCurrentAnnotations(); // 'dup' mode promises the original keeps its markups
             // Rotated pages: the axis mapping below is wrong for /Rotate 90/270
-            const pjRot = (await state.pdfDoc.getPage(state.currentPage)).rotate || 0;
+            const pjPage = await state.pdfDoc.getPage(state.currentPage);
+            const pjRot = pjPage.rotate || 0;
             if (pjRot % 360 !== 0) {
-                showToast('Crop is not supported on rotated pages yet — rotate the page upright first');
-                setStatus('Crop cancelled: page is rotated');
+                showToast('Crop is not supported on rotated pages yet - rotate the page upright first');
+                setStatus('Crop canceled: page is rotated');
                 return;
             }
             pushDocSnapshot('Crop');
@@ -3191,32 +3273,37 @@
             const cropWidth = cropRect.width * (cropRect.scaleX || 1);
             const cropHeight = cropRect.height * (cropRect.scaleY || 1);
 
-            // Convert display coordinates to PDF coordinates
+            // Convert display coordinates to PDF coordinates. The display shows
+            // pdf.js's CROPBOX view, so both scale and origin must come from it
+            // (page.view) — using the MediaBox size with an assumed (0,0) origin
+            // selected the wrong region on files whose CropBox has a non-zero
+            // origin (e.g. previously cropped elsewhere).
             const pdfLibDoc = await PDFLib.PDFDocument.load(state.pdfBytes);
             const page = pdfLibDoc.getPages()[state.currentPage - 1];
-            const { width: pageWidth, height: pageHeight } = page.getSize();
 
+            const [vx0, vy0, vx1, vy1] = pjPage.view; // CropBox in PDF user space
+            const viewW = vx1 - vx0, viewH = vy1 - vy0;
             const displayWidth = fabricCanvas.width;
             const displayHeight = fabricCanvas.height;
 
-            const scaleX = pageWidth / displayWidth;
-            const scaleY = pageHeight / displayHeight;
+            const scaleX = viewW / displayWidth;
+            const scaleY = viewH / displayHeight;
 
             // PDF coordinates: origin is bottom-left, y goes up
-            const pdfLeft = cropLeft * scaleX;
-            const pdfBottom = pageHeight - (cropTop + cropHeight) * scaleY;
-            const pdfRight = (cropLeft + cropWidth) * scaleX;
-            const pdfTop = pageHeight - cropTop * scaleY;
+            const pdfLeft = vx0 + cropLeft * scaleX;
+            const pdfBottom = vy0 + viewH - (cropTop + cropHeight) * scaleY;
+            const pdfRight = vx0 + (cropLeft + cropWidth) * scaleX;
+            const pdfTop = vy0 + viewH - cropTop * scaleY;
 
             if (choice.mode === 'all') {
                 // Same AREA on every page, applied as fractions so mixed page
                 // sizes crop proportionally (typical scans are uniform anyway).
-                const fx = pdfLeft / pageWidth, fy = pdfBottom / pageHeight;
-                const fw = (pdfRight - pdfLeft) / pageWidth, fh = (pdfTop - pdfBottom) / pageHeight;
+                const fx = (pdfLeft - vx0) / viewW, fy = (pdfBottom - vy0) / viewH;
+                const fw = (pdfRight - pdfLeft) / viewW, fh = (pdfTop - pdfBottom) / viewH;
                 for (const pg of pdfLibDoc.getPages()) {
-                    const sz = pg.getSize();
-                    pg.setCropBox(fx * sz.width, fy * sz.height, fw * sz.width, fh * sz.height);
-                    pg.setMediaBox(fx * sz.width, fy * sz.height, fw * sz.width, fh * sz.height);
+                    const cb = pg.getCropBox(); // fractions of each page's own visible box
+                    pg.setCropBox(cb.x + fx * cb.width, cb.y + fy * cb.height, fw * cb.width, fh * cb.height);
+                    pg.setMediaBox(cb.x + fx * cb.width, cb.y + fy * cb.height, fw * cb.width, fh * cb.height);
                 }
                 const allBytes = await pdfLibDoc.save();
                 state.pdfBytes = allBytes.slice().buffer;
@@ -3229,7 +3316,7 @@
                 setActiveTool('select');
                 renderPage(state.currentPage);
                 generateThumbnails();
-                setStatus('All ' + state.totalPages + ' pages cropped — Cmd/Ctrl+Z to undo');
+                setStatus('All ' + state.totalPages + ' pages cropped - Cmd/Ctrl+Z to undo');
                 showToast('All pages cropped');
                 return;
             }
@@ -3241,10 +3328,13 @@
                 pdfLibDoc.insertPage(state.currentPage, copied);
                 targetPage = copied;
                 // Shift per-page state for pages after the insertion point
+                // (comments too — addBlankPage shifts all four; leaving them
+                // unshifted attaches them to the wrong page once re-enabled)
                 for (let i = state.totalPages; i > state.currentPage; i--) {
                     if (state.annotations[i]) { state.annotations[i + 1] = state.annotations[i]; delete state.annotations[i]; }
                     if (state.undoStacks[i]) { state.undoStacks[i + 1] = state.undoStacks[i]; delete state.undoStacks[i]; }
                     if (state.redoStacks[i]) { state.redoStacks[i + 1] = state.redoStacks[i]; delete state.redoStacks[i]; }
+                    if (state.comments[i]) { state.comments[i + 1] = state.comments[i]; delete state.comments[i]; }
                 }
             }
             targetPage.setCropBox(pdfLeft, pdfBottom, pdfRight - pdfLeft, pdfTop - pdfBottom);
@@ -3285,10 +3375,10 @@
             dom.pageInput.max = state.totalPages;
             dom.fileInfo.textContent = `${state.fileName} | ${state.totalPages} page(s)`;
             if (choice.mode === 'dup') {
-                setStatus('Cropped copy added — original kept. Cmd/Ctrl+Z to undo.');
+                setStatus('Cropped copy added - original kept. Cmd/Ctrl+Z to undo.');
                 showToast('Cropped copy added after the original page');
             } else {
-                setStatus('Page cropped — Cmd/Ctrl+Z to undo');
+                setStatus('Page cropped - Cmd/Ctrl+Z to undo');
                 showToast('Page ' + state.currentPage + ' cropped');
             }
         } catch (err) {
@@ -3544,7 +3634,7 @@
         if (!files.length) return;
         e.target.value = '';
 
-        pushDocSnapshot('Merge');
+        if (!opStart('Merging PDFs...')) return;
         setStatus('Merging PDFs...');
 
         try {
@@ -3558,7 +3648,9 @@
             const mainDoc = await PDFLib.PDFDocument.load(bytesToLoad, { ignoreEncryption: true });
 
             // Merge each selected file
+            let mi = 0;
             for (const file of files) {
+                opProgress('Merging ' + file.name + '...', (++mi / (files.length + 1)) * 100);
                 const fileBytes = await file.arrayBuffer();
                 const srcDoc = await PDFLib.PDFDocument.load(fileBytes);
                 const pageIndices = srcDoc.getPageIndices();
@@ -3566,7 +3658,10 @@
                 copiedPages.forEach((page) => mainDoc.addPage(page));
             }
 
-            // Save merged PDF
+            // Save merged PDF. Snapshot only NOW — a snapshot taken before a
+            // failed merge left Ctrl+Z "undoing" nothing while wiping every
+            // page's markup undo/redo stacks.
+            pushDocSnapshot('Merge');
             const mergedBytes = await mainDoc.save();
             state.pdfBytes = mergedBytes.slice().buffer;
 
@@ -3592,7 +3687,7 @@
             console.error(err);
             setStatus('Merge failed: ' + err.message);
             showToast('Merge failed');
-        }
+        } finally { opDone(); }
     }
 
     // ── Add Blank Page ──
@@ -3693,7 +3788,7 @@
     // Analyze the CURRENT document for its own recurring header/footer text so a
     // new page can reuse the document's existing branding. Falls back to defaults.
     const TEMPLATE_BRAND = 'Greens Global';
-    const TEMPLATE_WATERMARK = 'GREENS GLOBAL — CONFIDENTIAL';
+    const TEMPLATE_WATERMARK = 'GREENS GLOBAL - CONFIDENTIAL';
 
     async function analyzeTemplate() {
         const result = { headerText: '', footerText: '' };
@@ -3745,7 +3840,7 @@
             const analysis = await analyzeTemplate();
             const usedDoc = !!(analysis.headerText || analysis.footerText);
             const headerText = analysis.headerText || TEMPLATE_BRAND;
-            const footerText = analysis.footerText || (TEMPLATE_BRAND + ' — Confidential');
+            const footerText = analysis.footerText || (TEMPLATE_BRAND + ' - Confidential');
 
             const bytesToLoad = state.pdfBytes instanceof ArrayBuffer
                 ? new Uint8Array(state.pdfBytes)
@@ -4004,7 +4099,7 @@
             renderPage(state.currentPage);
 
             setStatus('Page deleted');
-            showToast('Page ' + pageNum + ' deleted');
+            showToast('Page ' + pageNum + ' deleted', 'Undo', () => undoDocChange());
         } catch (err) {
             console.error(err);
             setStatus('Delete failed: ' + err.message);
@@ -4260,9 +4355,10 @@
             delBtn.draggable = false;
             delBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                if (confirm('Delete page ' + i + '?')) {
-                    deletePage(i);
-                }
+                // No confirm dialog: deletePage snapshots the document first,
+                // so the toast offers Undo instead — safer and lower friction
+                // than confirm-every-time (and no iframe-freezing native popup).
+                deletePage(i);
             });
             actions.appendChild(delBtn);
 
@@ -4382,6 +4478,35 @@
                     continue; // page fully replaced — skip per-object drawing
                 }
 
+                // Pages with /Rotate: every per-object branch below maps display
+                // coords assuming an unrotated page (scaleX/scaleY even mix the
+                // swapped axes for 90/270), so markups landed rotated/off-page.
+                // Instead, render this page's markups onto a TRANSPARENT
+                // full-page overlay in display orientation and draw it
+                // counter-rotated — the viewer's /Rotate then puts it exactly
+                // where the user placed it. (Raster overlay, same quality
+                // approach as the redaction path above.)
+                const pageRot = ((pdfJsPage.rotate % 360) + 360) % 360;
+                const exportObjs = annotData.objects.filter(o => !layerSkip(o) && !o._isCommentMark);
+                if (pageRot !== 0 && exportObjs.length) {
+                    const vp2 = pdfJsPage.getViewport({ scale: 2 });
+                    const insts = await new Promise((res) => fabric.util.enlivenObjects(exportObjs, res));
+                    const tmp = new fabric.StaticCanvas(null, { width: vp2.width, height: vp2.height });
+                    tmp.setZoom(vp2.width / displayWidth); // annot coords are at annotZoom
+                    insts.forEach(o => { if (o) { o.visible = true; tmp.add(o); } });
+                    tmp.renderAll();
+                    const png = await pdfLibDoc.embedPng(tmp.toDataURL({ format: 'png' }));
+                    // Counter-rotate about the drawImage anchor (bottom-left of
+                    // the image) so the overlay fills the unrotated MediaBox.
+                    // pdf-lib rotates CCW-positive; /Rotate is CW when displayed.
+                    const place =
+                        pageRot === 90  ? { x: pageWidth, y: 0, width: pageHeight, height: pageWidth, rotate: PDFLib.degrees(90) } :
+                        pageRot === 270 ? { x: 0, y: pageHeight, width: pageHeight, height: pageWidth, rotate: PDFLib.degrees(270) } :
+                                          { x: pageWidth, y: pageHeight, width: pageWidth, height: pageHeight, rotate: PDFLib.degrees(180) };
+                    pdfPage.drawImage(png, place);
+                    continue; // whole page's markups drawn — skip per-object path
+                }
+
                 for (const obj of annotData.objects) {
                     if (layerSkip(obj)) continue; // hidden or deleted layer
                     if (obj._isCommentMark) continue; // becomes a real Highlight annotation below
@@ -4487,7 +4612,7 @@
             } catch (e) { console.warn('Could not embed PDF comments:', e); }
 
             if (_exportFailures > 0) {
-                showToast(_exportFailures + ' markup(s) could not be saved into the PDF — check the result');
+                showToast(_exportFailures + ' markup(s) could not be saved into the PDF - check the result');
             }
             // Serialize and download
             const modifiedBytes = await pdfLibDoc.save();
@@ -4609,7 +4734,10 @@
             // Text annotation — apply detected font family, bold, italic and underline
             const fontSize = (obj.fontSize || 16) * scaleY * (obj.scaleY || 1);
             const x = (obj.left || 0) * scaleX;
-            const y = pageHeight - (obj.top || 0) * scaleY - fontSize;
+            // On screen the box top sits 0.92em above the baseline (see
+            // enterTextEditMode); assuming a full 1.0em here shifted every
+            // exported line visibly LOW relative to the glyphs it covers.
+            const y = pageHeight - (obj.top || 0) * scaleY - fontSize * 0.92;
 
             let color;
             try {
@@ -4644,6 +4772,11 @@
                 });
             }
         } else if (type === 'rect') {
+            // Rotated rects have no drawRectangle mapping (left/top alone loses
+            // the angle) — rasterize exactly, the same way rotated text does.
+            if (obj.angle) {
+                return await drawGenericObjectAsImage(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
+            }
             // Rectangle — outlined shapes AND filled marks (highlights,
             // underline/strike bars, comment marks, text-edit covers).
             const x = (obj.left || 0) * scaleX;
@@ -5052,6 +5185,23 @@
             fabricCanvas.renderAll();
         });
 
+        // Leaving the edit with the text UNCHANGED removes the pair — otherwise
+        // a curiosity double-click leaves a half-transparent cover box plus a
+        // duplicate line that export into the saved PDF.
+        editText.on('editing:exited', () => {
+            if ((editText.text || '') !== item.str) return;
+            _isRestoring = true;
+            fabricCanvas.remove(editText);
+            fabricCanvas.remove(coverRect);
+            _isRestoring = false;
+            const st = state.undoStacks[state.currentPage];
+            if (st && st.length > 1) st.pop(); // drop the add-snapshot for the pair
+            updateUndoRedoButtons();
+            fabricCanvas.discardActiveObject();
+            fabricCanvas.renderAll();
+            saveCurrentAnnotations();
+        });
+
         _isRestoring = true;
         fabricCanvas.add(coverRect);
         _isRestoring = false;
@@ -5063,7 +5213,7 @@
         fabricCanvas.renderAll();
 
         showContextualBar(editText);
-        setStatus(`Editing: "${item.str.substring(0, 40)}"  |  ${exactFaceFamily ? 'original font — ' + fontSource : 'substitute: ' + detected.fontFamily} · ${Math.round(fontSizePx)}px`);
+        setStatus(`Editing: "${item.str.substring(0, 40)}"  |  ${exactFaceFamily ? 'original font - ' + fontSource : 'substitute: ' + detected.fontFamily} · ${Math.round(fontSizePx)}px`);
     }
 
     // ── Sample background color from pdfCanvas at a display-coordinate bbox ──
@@ -5187,6 +5337,9 @@
             console.error(err);
             setStatus('Export failed: ' + err.message);
             showToast('Export failed');
+            // Only the success path hides the export-all overlay — a mid-export
+            // failure otherwise leaves the progress bar on screen forever.
+            opDone();
         }
     }
 
@@ -5200,11 +5353,13 @@
         const ctx = canvas.getContext('2d');
         await page.render({ canvasContext: ctx, viewport }).promise;
 
-        // Include the annotation layer — what you see is what exports.
-        try {
-            const fc = document.getElementById('fabricCanvas');
-            if (fc && fc.width > 0) ctx.drawImage(fc, 0, 0, canvas.width, canvas.height);
-        } catch (_) { /* no annotations */ }
+        // Include the annotation layer — what you see is what exports. Uses the
+        // STORED entry, not the live fabric canvas: in continuous-scroll mode
+        // that canvas is frozen on the last-edited page, which stamped the
+        // wrong page's markups onto the exported image.
+        saveCurrentAnnotations();
+        try { await drawAnnotationsOnExportCanvas(ctx, page, state.currentPage, canvas.width, canvas.height); }
+        catch (_) { /* no annotations */ }
 
         const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
         const quality = format === 'jpeg' ? 0.95 : undefined;
@@ -5237,11 +5392,13 @@
         const ctx = canvas.getContext('2d');
         await page.render({ canvasContext: ctx, viewport }).promise;
 
-        // Include the annotation layer — what you see is what exports.
-        try {
-            const fc = document.getElementById('fabricCanvas');
-            if (fc && fc.width > 0) ctx.drawImage(fc, 0, 0, canvas.width, canvas.height);
-        } catch (_) { /* no annotations */ }
+        // Include the annotation layer — what you see is what exports. Uses the
+        // STORED entry, not the live fabric canvas: in continuous-scroll mode
+        // that canvas is frozen on the last-edited page, which stamped the
+        // wrong page's markups onto the exported image.
+        saveCurrentAnnotations();
+        try { await drawAnnotationsOnExportCanvas(ctx, page, state.currentPage, canvas.width, canvas.height); }
+        catch (_) { /* no annotations */ }
 
         const blob = canvasToTiffBlob(canvas);
         const url = URL.createObjectURL(blob);
@@ -5334,6 +5491,59 @@
         return new Blob([buf], { type: 'image/tiff' });
     }
 
+    // ── Long-operation progress (shared overlay + cancel) ──
+    // Every multi-page operation (export-all, compress, merge, Word) shows the
+    // same progress overlay with a Cancel button, instead of an 11px status-bar
+    // line nobody sees. _opRunning also blocks double-starts: a second click on
+    // Compress used to silently kick off a second full pass.
+    let _opRunning = false;
+    let _opCancelled = false;
+    function opStart(label) {
+        if (_opRunning) { showToast('Another operation is already running'); return false; }
+        _opRunning = true;
+        _opCancelled = false;
+        dom.exportAllProgress.style.display = 'flex';
+        dom.exportAllStatus.textContent = label || 'Working...';
+        dom.exportAllBar.style.width = '0%';
+        return true;
+    }
+    function opProgress(label, pct) {
+        if (label != null) dom.exportAllStatus.textContent = label;
+        if (pct != null) dom.exportAllBar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    }
+    function opDone() {
+        _opRunning = false;
+        _opCancelled = false;
+        dom.exportAllProgress.style.display = 'none';
+        dom.exportAllBar.style.width = '0%';
+    }
+    document.getElementById('exportAllCancelBtn')?.addEventListener('click', () => {
+        _opCancelled = true;
+        dom.exportAllStatus.textContent = 'Canceling...';
+    });
+
+    // Draw a page's STORED markups onto an export canvas (same enliven pattern
+    // as the redaction path) so multi-page image exports match what the user
+    // sees — the live fabric canvas only ever holds the current page.
+    async function drawAnnotationsOnExportCanvas(ctx, page, pageNum, canvasW, canvasH) {
+        const entry = state.annotations[pageNum];
+        const data = entry && (entry.fabricData || entry);
+        if (!data || !data.objects || !data.objects.length) return;
+        const hiddenLayers = new Set(state.layers.filter(l => !l.visible).map(l => l.id));
+        const liveLayers = new Set(state.layers.map(l => l.id));
+        const objs = data.objects.filter(o => !o._isCommentMark &&
+            !(o._layerId !== undefined && (hiddenLayers.has(o._layerId) || !liveLayers.has(o._layerId))));
+        if (!objs.length) return;
+        const annotZoom = entry.zoom || 1.0;
+        const displayWidth = page.getViewport({ scale: annotZoom }).width;
+        const insts = await new Promise((res) => fabric.util.enlivenObjects(objs, res));
+        const tmp = new fabric.StaticCanvas(null, { width: canvasW, height: canvasH });
+        tmp.setZoom(canvasW / displayWidth);
+        insts.forEach(o => { if (o) { o.visible = true; tmp.add(o); } });
+        tmp.renderAll();
+        ctx.drawImage(tmp.lowerCanvasEl, 0, 0, canvasW, canvasH);
+    }
+
     // ── Export All Pages as Images ──
     async function exportAllImages(format) {
         const ext = format === 'jpeg' ? 'jpg' : 'png';
@@ -5341,14 +5551,13 @@
         const quality = format === 'jpeg' ? 0.92 : undefined;
         const baseName = state.fileName.replace(/\.pdf$/i, '');
 
-        dom.exportAllProgress.style.display = 'flex';
-        dom.exportAllStatus.textContent = 'Preparing...';
-        dom.exportAllBar.style.width = '0%';
+        if (!opStart('Preparing...')) return;
+        saveCurrentAnnotations(); // include the current page's live edits
 
         const canvases = [];
         for (let i = 1; i <= state.totalPages; i++) {
-            dom.exportAllStatus.textContent = `Rendering page ${i} of ${state.totalPages}...`;
-            dom.exportAllBar.style.width = Math.round((i / state.totalPages) * 70) + '%';
+            if (_opCancelled) { opDone(); setStatus('Export canceled'); showToast('Export canceled'); return; }
+            opProgress(`Rendering page ${i} of ${state.totalPages}...`, (i / state.totalPages) * 70);
 
             const page = await state.pdfDoc.getPage(i);
             const viewport = page.getViewport({ scale: 3 });
@@ -5356,25 +5565,28 @@
             canvas.width = viewport.width;
             canvas.height = viewport.height;
             await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+            // What you see is what exports: composite this page's markups.
+            try { await drawAnnotationsOnExportCanvas(canvas.getContext('2d'), page, i, canvas.width, canvas.height); }
+            catch (e) { console.warn('Annotation overlay failed for page ' + i, e); }
             canvases.push({ canvas, name: `${baseName}_page${i}.${ext}` });
 
             // Yield to UI
             if (i % 3 === 0) await new Promise(r => setTimeout(r, 0));
         }
 
-        dom.exportAllStatus.textContent = 'Packaging into ZIP...';
-        dom.exportAllBar.style.width = '80%';
+        opProgress('Packaging into ZIP...', 80);
 
         // Try JSZip (lazy load), fallback to sequential downloads
         try {
             await loadScript('libs/jszip.min.js').catch(() => loadScript('https://cdn.jsdelivr.net/npm/jszip@3/dist/jszip.min.js'));
             const zip = new JSZip();
             for (const { canvas, name } of canvases) {
+                if (_opCancelled) { opDone(); setStatus('Export canceled'); showToast('Export canceled'); return; }
                 const blob = await new Promise((res) => canvas.toBlob(res, mimeType, quality));
                 const buf = await blob.arrayBuffer();
                 zip.file(name, buf);
             }
-            dom.exportAllBar.style.width = '95%';
+            opProgress(null, 95);
             const zipBlob = await zip.generateAsync({ type: 'blob' });
             const url = URL.createObjectURL(zipBlob);
             const a = document.createElement('a');
@@ -5386,8 +5598,9 @@
         } catch (_) {
             // No JSZip (offline) — download each file individually
             for (let i = 0; i < canvases.length; i++) {
+                if (_opCancelled) { opDone(); setStatus('Export canceled'); showToast('Export canceled'); return; }
                 const { canvas, name } = canvases[i];
-                dom.exportAllStatus.textContent = `Downloading ${i + 1}/${canvases.length}...`;
+                opProgress(`Downloading ${i + 1}/${canvases.length}...`, null);
                 await new Promise((res) => {
                     canvas.toBlob((blob) => {
                         const url = URL.createObjectURL(blob);
@@ -5403,9 +5616,9 @@
             showToast(`${state.totalPages} pages downloaded`);
         }
 
-        dom.exportAllBar.style.width = '100%';
+        opProgress('Done', 100);
         setStatus(`All ${state.totalPages} pages exported as ${ext.toUpperCase()}`);
-        setTimeout(() => { dom.exportAllProgress.style.display = 'none'; }, 1500);
+        setTimeout(opDone, 1200);
     }
 
     // ── Export to Word ──
@@ -5423,11 +5636,13 @@
             }
         }
 
+        if (!opStart('Exporting to Word...')) return;
         try {
             const children = [];
 
             for (let i = 1; i <= state.totalPages; i++) {
-                setStatus('Extracting text: page ' + i + '/' + state.totalPages);
+                if (_opCancelled) { opDone(); setStatus('Export canceled'); showToast('Export canceled'); return; }
+                opProgress('Extracting text: page ' + i + ' of ' + state.totalPages, (i / state.totalPages) * 90);
                 const page = await state.pdfDoc.getPage(i);
                 const textContent = await page.getTextContent();
                 const lines = groupTextIntoLines(textContent.items);
@@ -5465,7 +5680,7 @@
             console.error(err);
             // Fallback on any error
             await exportWordFallback();
-        }
+        } finally { opDone(); }
     }
 
     async function exportWordFallback() {
@@ -5701,7 +5916,7 @@
         dom.stampMenu.classList.toggle('open');
     }
 
-    // Custom stamp dialog: stamp text + optional date, colour, an "Approval
+    // Custom stamp dialog: stamp text + optional date, color, an "Approval
     // stamp" quick-fill (name + date), and "apply to all pages".
     const STAMP_NAME_KEY = 'pdfEditorStampName';
     function customStampDialog(defaultColor = '#d32f2f') {
@@ -5726,7 +5941,7 @@
                             <input type="date" id="csDateVal" value="${today}">
                         </label>
                         <label class="stamp-date-row" style="padding:8px 0 0;">
-                            <span>Stamp colour</span>
+                            <span>Stamp color</span>
                             <input type="color" id="csColor" value="${defaultColor}">
                         </label>
                         <label class="stamp-date-row" style="padding:10px 0 0;">
@@ -5746,12 +5961,12 @@
             const done = (val) => { overlay.remove(); resolve(val); };
 
             // "Approval stamp": fill the text with APPROVED — <name>, tick the
-            // date, and set the colour green. Remembers the name for next time.
+            // date, and set the color green. Remembers the name for next time.
             overlay.querySelector('#csApproval').addEventListener('click', () => {
                 const nm = nameInput.value.trim();
                 if (!nm) { nameInput.focus(); showToast('Enter your name first'); return; }
                 try { localStorage.setItem(STAMP_NAME_KEY, nm); } catch { /* ignore */ }
-                input.value = 'APPROVED — ' + nm;
+                input.value = 'APPROVED - ' + nm;
                 overlay.querySelector('#csDateOn').checked = true;
                 overlay.querySelector('#csColor').value = '#1a7a3f';
             });
@@ -5784,7 +5999,7 @@
     }
 
     // In-app text prompt (Electron does not support window.prompt()).
-    // Returns a Promise resolving to the entered string, or null if cancelled.
+    // Returns a Promise resolving to the entered string, or null if canceled.
     function customPrompt(message, placeholder = '', defaultValue = '') {
         return new Promise((resolve) => {
             const overlay = document.createElement('div');
@@ -5821,7 +6036,7 @@
     async function addStamp(stampText) {
         if (!fabricCanvas) return;
 
-        // Per-preset default colours (green = approved, red = warning, grey = draft).
+        // Per-preset default colors (green = approved, red = warning, grey = draft).
         const PRESET_COLORS = {
             APPROVED: '#1a7a3f', DRAFT: '#6b7280', COPY: '#6b7280',
             FINAL: '#1d4ed8', VOID: '#d32f2f', CONFIDENTIAL: '#d32f2f',
@@ -5868,8 +6083,18 @@
                 if (!state.annotations[p]) state.annotations[p] = { fabricData: { objects: [] }, zoom: state.zoom };
                 const fd = state.annotations[p].fabricData || (state.annotations[p].fabricData = { objects: [] });
                 if (!fd.objects) fd.objects = [];
-                // Centre on the stored page's canvas if we know it, else reuse coords.
-                fd.objects.push({ ...stampJson });
+                // The clone's coords are in the CURRENT zoom; a page stored at a
+                // different zoom interprets them at that zoom — rescale so the
+                // stamp lands at the same physical spot and size everywhere.
+                const entryZoom = state.annotations[p].zoom || state.zoom;
+                const r = entryZoom / state.zoom;
+                const clone = { ...stampJson };
+                if (r !== 1) {
+                    clone.left = (clone.left || 0) * r;
+                    clone.top = (clone.top || 0) * r;
+                    clone.fontSize = (clone.fontSize || 60) * r;
+                }
+                fd.objects.push(clone);
             }
             showToast('Stamp added to all ' + state.totalPages + ' pages');
         } else {
@@ -6039,8 +6264,8 @@
                 const p1 = await state.pdfDoc.getPage(state.currentPage);
                 const tc = await p1.getTextContent();
                 if (!tc.items.some(it => it.str && it.str.trim())) {
-                    setStatus('No selectable text on this page — it looks scanned. Run Scan & OCR first, then search.');
-                    showToast('Scanned PDF — run Scan & OCR to make it searchable');
+                    setStatus('No selectable text on this page - it looks scanned. Run Scan & OCR first, then search.');
+                    showToast('Scanned PDF - run Scan & OCR to make it searchable');
                     return;
                 }
             } catch (_) {}
@@ -6304,8 +6529,8 @@
                 }, 2000);
             } else {
                 dom.ocrProgress.style.display = 'none';
-                showToast('OCR cancelled');
-                setStatus('OCR cancelled');
+                showToast('OCR canceled');
+                setStatus('OCR canceled');
             }
 
             try { await worker.terminate(); } catch (_) { /* already terminated by cancel */ }
@@ -6476,14 +6701,15 @@
         if (!state.pdfBytes) return;
         const beforeMB = ((state.pdfBytes.byteLength || state.pdfBytes.length) / 1048576).toFixed(1);
         const v = await _toolModal('Compress PDF', `
-            <p class="modal-hint" style="margin:0 0 10px;">Current size: <b>${beforeMB} MB</b>. Save your markups first — compression works on the saved document content.</p>
+            <p class="modal-hint" style="margin:0 0 10px;">Current size: <b>${beforeMB} MB</b>. Save your markups first - compression works on the saved document content.</p>
             <label class="modal-label">Compression level:</label>
             <select class="modal-input" data-k="level">
-                <option value="light">Light — keeps text selectable (small gain)</option>
-                <option value="strong" selected>Strong — pages become images (big gain)</option>
-                <option value="extreme">Extreme — smallest file, lower quality</option>
+                <option value="light">Light - keeps text selectable (small gain)</option>
+                <option value="strong" selected>Strong - pages become images (big gain)</option>
+                <option value="extreme">Extreme - smallest file, lower quality</option>
             </select>`, 'Compress & Save');
         if (!v) return;
+        if (!opStart('Compressing...')) return;
         setStatus('Compressing...');
         try {
             let outBytes;
@@ -6495,7 +6721,8 @@
                 const q = v.level === 'extreme' ? 0.38 : 0.6;
                 const out = await PDFLib.PDFDocument.create();
                 for (let i = 1; i <= state.totalPages; i++) {
-                    setStatus('Compressing page ' + i + '/' + state.totalPages + '...');
+                    if (_opCancelled) { opDone(); setStatus('Compression canceled'); showToast('Compression canceled'); return; }
+                    opProgress('Compressing page ' + i + ' of ' + state.totalPages + '...', (i / state.totalPages) * 95);
                     const page = await state.pdfDoc.getPage(i);
                     const vp = page.getViewport({ scale });
                     const canvas = document.createElement('canvas');
@@ -6520,9 +6747,10 @@
             a.download = state.fileName.replace(/\.pdf$/i, '') + '_compressed.pdf';
             a.click();
             URL.revokeObjectURL(url);
-            setStatus('Compressed: ' + beforeMB + ' MB → ' + afterMB + ' MB');
-            showToast('Compressed ' + beforeMB + ' MB → ' + afterMB + ' MB');
+            setStatus('Compressed: ' + beforeMB + ' MB to ' + afterMB + ' MB');
+            showToast('Compressed ' + beforeMB + ' MB to ' + afterMB + ' MB');
         } catch (err) { console.error(err); showToast('Compression failed'); }
+        finally { opDone(); }
     }
 
     // ── Form filling (AcroForm) ──
@@ -6681,7 +6909,7 @@
                 out += '=== Page ' + p + ' ===\n' + parts.join('\n') + '\n\n';
             }
             if (!out.replace(/=== Page \d+ ===/g, '').trim()) {
-                showToast('No selectable text found — this looks scanned. Run Scan & OCR first.');
+                showToast('No selectable text found - this looks scanned. Run Scan & OCR first.');
                 setStatus('No text to extract (scanned document)');
                 return;
             }
@@ -6754,7 +6982,7 @@
             <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noPrint"><span>No printing</span></label>
             <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noCopy"><span>No copying text</span></label>
             <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noModify"><span>No editing</span></label>
-            <p class="modal-hint" style="margin-top:8px;color:#e07300;">⚠ If the open-password is lost, NO app can open the file — not even this one. Store it safely.</p>`,
+            <p class="modal-hint" style="margin-top:8px;color:#e07300;">⚠ If the open-password is lost, NO app can open the file - not even this one. Store it safely.</p>`,
             'Encrypt & Save');
         if (!v) return;
         if (!v.user && !v.owner && !v.noPrint && !v.noCopy && !v.noModify) { showToast('Set a password or a restriction first'); return; }
@@ -6783,7 +7011,7 @@
             a.click();
             URL.revokeObjectURL(a.href);
             setStatus('Saved password-protected PDF');
-            showToast('Saved encrypted copy — keep the password safe');
+            showToast('Saved encrypted copy - keep the password safe');
         } catch (err) { console.error(err); showToast('Encryption failed: ' + err.message); }
     }
     window.addPasswordTool = addPasswordTool;
@@ -6953,8 +7181,8 @@
                 const bytes = await out.save();
                 if (otherDoc && otherDoc.destroy) { try { otherDoc.destroy(); } catch (_) {} }
                 await loadPDF(new File([bytes], 'comparison.pdf', { type: 'application/pdf' }));
-                setStatus('Comparison ready — ' + changedPages + ' page(s) differ (changes in red)');
-                showToast(changedPages + ' page(s) differ — differences shown in red');
+                setStatus('Comparison ready - ' + changedPages + ' page(s) differ (changes in red)');
+                showToast(changedPages + ' page(s) differ - differences shown in red');
             } catch (err) { console.error(err); showToast('Compare failed: ' + err.message); }
     }
     window.comparePdfsTool = comparePdfsTool;
@@ -6997,7 +7225,7 @@
                 } catch (_) {}
             }
             const bytes = await doc.save();
-            await _reloadFromBytes(bytes, 'Sanitized — removed ' + removed + ' script/attachment item(s)');
+            await _reloadFromBytes(bytes, 'Sanitized - removed ' + removed + ' script/attachment item(s)');
             showToast(removed ? 'Removed ' + removed + ' embedded script/attachment item(s)' : 'No embedded scripts or attachments found');
         } catch (err) { console.error(err); showToast('Sanitize failed'); }
     }
@@ -7030,15 +7258,31 @@
                 if (ink < 20) blanks.push(p); // needs to be VERY empty to count as blank
             }
             if (!blanks.length) { showToast('No blank pages found'); setStatus('No blank pages found'); return; }
-            if (blanks.length >= state.totalPages) { showToast('Every page looks blank — nothing removed'); return; }
+            if (blanks.length >= state.totalPages) { showToast('Every page looks blank - nothing removed'); return; }
             if (!window.confirm('Remove ' + blanks.length + ' blank page(s)? (pages ' + blanks.join(', ') + ')')) return;
             saveCurrentAnnotations();
             pushDocSnapshot('Remove blank pages');
             const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             blanks.sort((a, b) => b - a).forEach(p => doc.removePage(p - 1));
-            state.annotations = {}; state.undoStacks = {}; state.redoStacks = {};
+            // Remap surviving pages' markups to their new numbers (same pattern
+            // as deletePage) — wiping them all here lost every page's work.
+            const blankSet = new Set(blanks);
+            const newAnnotations = {}, newUndoStacks = {}, newRedoStacks = {}, newComments = {};
+            let np = 0;
+            for (let i = 1; i <= state.totalPages; i++) {
+                if (blankSet.has(i)) continue;
+                np++;
+                if (state.annotations[i]) newAnnotations[np] = state.annotations[i];
+                if (state.undoStacks[i]) newUndoStacks[np] = state.undoStacks[i];
+                if (state.redoStacks[i]) newRedoStacks[np] = state.redoStacks[i];
+                if (state.comments[i]) newComments[np] = state.comments[i];
+            }
+            state.annotations = newAnnotations; state.undoStacks = newUndoStacks;
+            state.redoStacks = newRedoStacks; state.comments = newComments;
             state.currentPage = 1;
-            await _reloadFromBytes(await doc.save(), 'Removed ' + blanks.length + ' blank page(s)');
+            // skipSave: annotations were saved (pre-remap) above — re-saving here
+            // would stamp the old visible page's canvas onto the new page 1.
+            await _reloadFromBytes(await doc.save(), 'Removed ' + blanks.length + ' blank page(s)', true);
         } catch (err) { console.error(err); showToast('Remove blank pages failed'); }
     }
     window.removeBlankPagesTool = removeBlankPagesTool;
@@ -7057,7 +7301,9 @@
             </select>
             <p class="modal-hint" style="margin-top:8px;">Great for handouts and saving paper. Saved as a new file.</p>`, 'Create N-up');
         if (!v) return;
-        pushDocSnapshot('N-up');
+        // No doc snapshot: N-up downloads a NEW file and never touches the open
+        // document — snapshotting made Ctrl+Z "undo" nothing while wiping every
+        // page's markup undo/redo stacks.
         setStatus('Building N-up...');
         try {
             const n = parseInt(v.n, 10);
@@ -7176,7 +7422,7 @@
             if (!settling && centeredPage !== state.currentPage) {
                 state.currentPage = centeredPage;
                 dom.pageInput.value = centeredPage;
-                if (typeof updateActiveThumbnail === 'function') updateActiveThumbnail(centeredPage);
+                updateThumbnailActive(); // (was a typo'd name behind a typeof guard — never ran)
             }
         };
         // While we're programmatically jumping to the target page, ignore the
@@ -7189,23 +7435,36 @@
         scroller.addEventListener('scroll', guardedOnScroll, { passive: true });
 
         // Jump to the page the user was on, then keep re-asserting it briefly
-        // while the estimated wrappers settle to their real sizes.
+        // while the estimated wrappers settle to their real sizes. The user's
+        // OWN input ends the settle immediately — re-asserting after they had
+        // already started scrolling yanked the view back to the target page.
         const targetPage = state.currentPage;
         const jumpToTarget = () => {
             const cur = _scrollEls[targetPage - 1];
             if (cur) scroller.scrollTop = cur.wrap.offsetTop;
         };
+        // Jump NOW, synchronously — the wrappers already exist with estimated
+        // sizes. If the user's next wheel tick ends the settle early (below),
+        // they must already be AT the target page, not still at the top.
+        jumpToTarget();
+        let reassert = null;
+        const endSettle = () => {
+            if (reassert) { clearInterval(reassert); reassert = null; }
+            scroller.removeEventListener('wheel', endSettle);
+            scroller.removeEventListener('touchstart', endSettle);
+            if (settling) { settling = false; onScroll(); }
+        };
+        scroller.addEventListener('wheel', endSettle, { passive: true });
+        scroller.addEventListener('touchstart', endSettle, { passive: true });
         setTimeout(() => {
+            if (!settling) return; // the user already took over
             jumpToTarget();
             // Re-assert a few times as pages render and heights correct.
             let n = 0;
-            const reassert = setInterval(() => {
+            reassert = setInterval(() => {
+                if (!settling) { clearInterval(reassert); reassert = null; return; }
                 jumpToTarget();
-                if (++n >= 4) {
-                    clearInterval(reassert);
-                    settling = false;   // hand control back to the scroll handler
-                    onScroll();
-                }
+                if (++n >= 4) endSettle();
             }, 60);
         }, 30);
         // Render whatever is initially in view (doesn't move currentPage yet).
@@ -7227,8 +7486,19 @@
             el.dispW = dispW;
             if (!el.sized) {
                 el.sized = true;
+                const scroller = dom.canvasScrollWrapper;
+                const before = el.wrap.offsetHeight;
                 el.wrap.style.width = dispW + 'px';
                 el.wrap.style.height = (dispW * (base.height / base.width)) + 'px';
+                // Scroll anchoring: correcting an ESTIMATED height on a page
+                // above the current position shifts everything below it — the
+                // view visibly jumped while scrolling upward. Compensate by
+                // the exact delta (native browser anchoring is disabled on the
+                // container so the two never double-correct).
+                const delta = el.wrap.offsetHeight - before;
+                if (delta && el.wrap.offsetTop < scroller.scrollTop) {
+                    scroller.scrollTop += delta;
+                }
             }
             const scale = (dispW / base.width) * 1.5; // 1.5 = retina sharpness
             const vp = page.getViewport({ scale });
@@ -7270,12 +7540,12 @@
             saveCurrentAnnotations();
             if (cw) cw.style.display = 'none';       // hide the single-page editor canvas
             buildScrollView();  // async; observers attach as pages are added
-            setStatus('Continuous scroll — click a page to edit it');
+            setStatus('Continuous scroll - click a page to edit it');
         } else {
             destroyScrollView();
             if (cw) cw.style.display = '';
             renderPage(state.currentPage);
-            setStatus('Edit mode — page ' + state.currentPage);
+            setStatus('Edit mode - page ' + state.currentPage);
         }
         if (btn) btn.classList.toggle('active', on);
     }
@@ -7424,16 +7694,37 @@
         dom.statusText.textContent = msg;
     }
 
-    function showToast(msg) {
+    let _toastTimer = null;
+    function showToast(msg, actionLabel, onAction) {
         let toast = document.querySelector('.toast');
         if (!toast) {
             toast = document.createElement('div');
             toast.className = 'toast';
+            toast.setAttribute('role', 'status');
+            toast.setAttribute('aria-live', 'polite'); // screen readers hear toasts
             document.body.appendChild(toast);
         }
         toast.textContent = msg;
+        // Optional inline action ("Undo") — safer and faster than a confirm.
+        if (actionLabel && typeof onAction === 'function') {
+            toast.classList.add('has-action');
+            const btn = document.createElement('button');
+            btn.className = 'toast-action';
+            btn.textContent = actionLabel;
+            btn.addEventListener('click', () => {
+                toast.classList.remove('show', 'has-action');
+                onAction();
+            });
+            toast.appendChild(btn);
+        } else {
+            toast.classList.remove('has-action');
+        }
         toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 3000);
+        // Reset the hide timer: the previous toast's timer otherwise hides a
+        // newer message early.
+        if (_toastTimer) clearTimeout(_toastTimer);
+        _toastTimer = setTimeout(() => toast.classList.remove('show', 'has-action'),
+            actionLabel ? 6000 : 3000);
     }
 
     // Polished "coming soon" popup for features that aren't ready yet.
@@ -7450,7 +7741,7 @@
               '<div class="cs-badge">Coming soon</div>' +
               '<h3 class="cs-title">' + escapeHtml(feature) + ' is on the way</h3>' +
               '<p class="cs-blurb">' + escapeHtml(blurb || '') + '</p>' +
-              '<p class="cs-note">We’re putting the finishing touches on this feature so it works flawlessly. It’ll be available here shortly — thanks for your patience!</p>' +
+              '<p class="cs-note">We’re putting the finishing touches on this feature so it works flawlessly. It’ll be available here shortly - thanks for your patience!</p>' +
               '<button class="cs-btn">Got it</button>' +
             '</div>';
         document.body.appendChild(ov);
@@ -7512,7 +7803,7 @@
         } catch (e) { /* offline */ }
         state.ollamaOnline = false;
         dom.aiStatusDot.className = 'ai-status-dot offline';
-        dom.aiStatusText.textContent = 'Offline — run: ollama serve';
+        dom.aiStatusText.textContent = 'Offline - run: ollama serve';
     }
 
     function toggleAiPanel() {
@@ -7727,7 +8018,7 @@
             let text, label;
             if (scope === 'page') {
                 text = await extractPageText(state.currentPage);
-                label = `📄 Page ${state.currentPage} — Summary`;
+                label = `📄 Page ${state.currentPage} - Summary`;
                 setStatus('AI: Summarizing page...');
             } else {
                 setStatus('AI: Extracting text...');
@@ -8135,7 +8426,7 @@ ${sample}`;
             return;
         }
         if (!state.ollamaOnline) {
-            showToast('Ollama is offline — start it first');
+            showToast('Ollama is offline - start it first');
             return;
         }
         _aiEditTargetObj = obj;
@@ -8387,7 +8678,9 @@ Replacement:`;
         .replace(/\uFB00/g, 'ff').replace(/\uFB01/g, 'fi').replace(/\uFB02/g, 'fl')
         .replace(/\uFB03/g, 'ffi').replace(/\uFB04/g, 'ffl')
         .replace(/[‘’‚]/g, "'").replace(/[“”„]/g, '"')
+        // eslint-disable-next-line no-irregular-whitespace -- the NBSP literal is the character being replaced
         .replace(/[–—]/g, '-').replace(/…/g, '...').replace(/ /g, ' ')
+        // eslint-disable-next-line no-control-regex -- deliberate WinAnsi range filter
         .replace(/[^\x00-\xFF]/g, '?');
 
     // Inline nodes → styled runs [{text, bold, italic}]; lists/tables/images
@@ -8685,8 +8978,8 @@ Replacement:`;
             const pdfFile = new File([bytes], (file.name || 'document').replace(/\.docx?$/i, '') + '.pdf',
                 { type: 'application/pdf' });
             await loadPDF(pdfFile);
-            setStatus('Word converted to PDF — click "Download" (top left) to save it');
-            showToast('Converted — click "Download" to save the PDF');
+            setStatus('Word converted to PDF - click "Download" (top left) to save it');
+            showToast('Converted - click "Download" to save the PDF');
         } catch (err) {
             console.error(err);
             setStatus('Word conversion failed: ' + err.message);
@@ -8718,8 +9011,8 @@ Replacement:`;
             const name = list.length === 1
                 ? list[0].name.replace(/\.(png|jpe?g)$/i, '') + '.pdf' : 'images.pdf';
             await loadPDF(new File([bytes], name, { type: 'application/pdf' }));
-            setStatus('Images converted — use Organize ▸ "Add Images" to add more, then "Save"');
-            showToast('Converted — add more via Organize ▸ Add Images');
+            setStatus('Images converted - use Organize ▸ "Add Images" to add more, then "Save"');
+            showToast('Converted - add more via Organize ▸ Add Images');
         } catch (err) {
             console.error(err);
             showToast('Could not convert those images');
@@ -8741,7 +9034,7 @@ Replacement:`;
                 '<button class="i2p-x" title="Close">✕</button>' +
               '</div>' +
               '<div class="i2p-body">' +
-                '<div class="i2p-empty">No images yet — add PNG or JPG images to build your PDF.</div>' +
+                '<div class="i2p-empty">No images yet - add PNG or JPG images to build your PDF.</div>' +
                 '<div class="i2p-grid"></div>' +
               '</div>' +
               '<div class="i2p-foot">' +
@@ -8799,6 +9092,7 @@ Replacement:`;
     // PDF. Lets a user add photos/scans to an existing document (or to a PDF
     // they just built from images) without starting over.
     async function appendImagesAsPages(files) {
+        _exitScrollForOp(); // structural change — operate on the real editor canvas
         if (!state.pdfDoc || !state.pdfBytes) { showToast('Open a PDF first'); return; }
         const list = [...files].filter(f => /^image\/(png|jpe?g)$/i.test(f.type));
         if (!list.length) { showToast('Choose PNG or JPG images'); return; }
@@ -8817,8 +9111,12 @@ Replacement:`;
                 page.drawImage(emb, { x: 0, y: 0, width: w, height: h });
             }
             const out = await doc.save();
-            await loadPDF(new File([out], state.fileName || 'document.pdf', { type: 'application/pdf' }));
-            setStatus('Added ' + list.length + ' image page' + (list.length > 1 ? 's' : '') + ' — click "Save" to keep them');
+            // Reload in place (NOT loadPDF, which resets annotations/undo/comments
+            // and silently destroyed all unsaved markups). Pages are appended at
+            // the end, so existing page numbers — and their markups — still match.
+            pushDocSnapshot('Add image pages');
+            await _reloadFromBytes(out, null);
+            setStatus('Added ' + list.length + ' image page' + (list.length > 1 ? 's' : '') + ' - click "Save" to keep them');
             showToast('Images added as new pages');
         } catch (err) {
             console.error(err);
@@ -9084,7 +9382,7 @@ Replacement:`;
             });
             const blob = await docx.Packer.toBlob(doc);
             const fileName = state.fileName.replace(/\.pdf$/i, '') + '.docx';
-            setStatus('Word ready — preview');
+            setStatus('Word ready - preview');
             // Don't auto-download: show how the Word file will look first, then
             // let the user download from the preview. The preview shows the exact
             // page images that were embedded in the .docx.
@@ -9120,7 +9418,7 @@ Replacement:`;
                 .join('');
             wrap = false;
         } else {
-            bodyHtml = '<p style="color:#888">Preview unavailable — you can still download.</p>';
+            bodyHtml = '<p style="color:#888">Preview unavailable - you can still download.</p>';
             try {
                 if (!window.mammoth) await loadScript('libs/mammoth.browser.min.js').catch(() => {});
                 if (window.mammoth) {
@@ -9137,7 +9435,7 @@ Replacement:`;
         ov.innerHTML =
             '<div class="word-preview-modal">' +
               '<div class="word-preview-head">' +
-                '<span class="word-preview-title">Word preview — ' + escapeHtml(fileName) + '</span>' +
+                '<span class="word-preview-title">Word preview - ' + escapeHtml(fileName) + '</span>' +
                 '<div class="word-preview-actions">' +
                   '<button class="wp-btn wp-cancel">Close</button>' +
                   '<button class="wp-btn wp-download">Download .docx</button>' +

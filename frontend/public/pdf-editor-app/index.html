@@ -7,20 +7,24 @@
          data can go. script-src is 'self' (+ wasm for Tesseract, + jsdelivr for
          the offline-lib CDN fallback); connect-src allows same-origin + the local
          Ollama endpoint; images may be data:/blob: (rendered pages & thumbnails);
-         object/base restricted. style-src keeps 'unsafe-inline' — the UI relies
+         object/base restricted. style-src keeps 'unsafe-inline' - the UI relies
          on inline styles. -->
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'self';
         script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net;
         worker-src 'self' blob:;
-        style-src 'self' 'unsafe-inline';
+        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
         img-src 'self' data: blob:;
-        font-src 'self' data:;
+        font-src 'self' data: https://fonts.gstatic.com;
         connect-src 'self' blob: data: http://localhost:11434 https://cdn.jsdelivr.net;
         object-src 'none';
         base-uri 'self';
         form-action 'none';">
     <title>Nexus PDF Editor</title>
+    <!-- Inter: the Nexus body font (legacy modules). Falls back to Segoe UI
+         offline (Electron) - the stack in style.css handles it. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=20260818g">
     <!-- PDF.js for rendering PDFs -->
     <script defer src="libs/pdf.min.js"></script>
@@ -80,10 +84,10 @@
                 <span>Template</span>
             </button>
             <div class="separator"></div>
-            <button id="undoBtn" class="tool-btn" title="Undo (Ctrl+Z)" disabled>
+            <button id="undoBtn" class="tool-btn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
             </button>
-            <button id="redoBtn" class="tool-btn" title="Redo (Ctrl+Y)" disabled>
+            <button id="redoBtn" class="tool-btn" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/></svg>
             </button>
         </div>
@@ -154,7 +158,7 @@
                     <button class="dropdown-item" data-stamp="custom">Custom...</button>
                     <div class="dropdown-divider"></div>
                     <label class="stamp-date-row" title="Colour of the stamp">
-                        <span>Stamp colour</span>
+                        <span>Stamp color</span>
                         <input type="color" id="stampColor" value="#d32f2f">
                     </label>
                 </div>
@@ -167,7 +171,7 @@
             <!-- Page numbers -->
             <button id="pageNumBtn" class="tool-btn" title="Add page numbers to every page" disabled>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M10 16h4M12 14v4"/></svg>
-                <span>Page No.</span>
+                <span>Page Numbers</span>
             </button>
             <!-- Compress -->
             <button id="compressBtn" class="tool-btn" title="Compress the PDF to a smaller file" disabled>
@@ -256,7 +260,7 @@
                 </select>
             </div>
             <div class="eraser-options" id="eraserOptions" style="display:none;">
-                <label class="eraser-toggle" title="OFF: the eraser removes only your annotations (highlights, drawings, shapes) and never touches the PDF text. ON: it covers original PDF text/images with the background colour (whiteout / redact).">
+                <label class="eraser-toggle" title="OFF: the eraser removes only your annotations (highlights, drawings, shapes) and never touches the PDF text. ON: it covers original PDF text/images with the background color (whiteout / redact).">
                     <input type="checkbox" id="eraserWhiteout">
                     <span>Whiteout (cover original text)</span>
                 </label>
@@ -272,10 +276,10 @@
         <div class="paint-section">
             <span class="paint-label">Color</span>
             <div class="color-swatches">
-                <label class="swatch swatch-custom" title="Choose any colour — full picker with eyedropper">
+                <label class="swatch swatch-custom" title="Choose any color - full picker with eyedropper">
                     <input type="color" id="pbCustomColor" value="#000000">
                 </label>
-                <span class="pb-color-current" id="pbColorCurrent" title="Current colour"></span>
+                <span class="pb-color-current" id="pbColorCurrent" title="Current color"></span>
             </div>
         </div>
         <div class="paint-sep"></div>
@@ -285,7 +289,7 @@
             <span id="pbSizeVal" style="font-size:11px;color:var(--text-secondary);min-width:22px;text-align:center;">6</span>
         </div>
         <div class="paint-sep"></div>
-        <button id="pbEraser" class="paint-eraser-btn" title="Eraser — click again to go back to the pen (E)">
+        <button id="pbEraser" class="paint-eraser-btn" title="Eraser - click again to go back to the pen (E)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16l9-9 8 8-4 4"/><line x1="6" y1="11" x2="13" y2="18"/></svg>
             <span>Eraser</span>
         </button>
@@ -451,7 +455,7 @@
                     <button id="zoomIn" class="nav-btn" title="Zoom In">+</button>
                     <button id="zoomFit" class="nav-btn" title="Fit to Width">Fit</button>
                     <button id="zoomFitPage" class="nav-btn" title="Fit whole page on screen">Page</button>
-                    <button id="scrollModeBtn" class="nav-btn" title="Continuous scroll — read all pages by scrolling (click a page to edit)">Scroll</button>
+                    <button id="scrollModeBtn" class="nav-btn" title="Continuous scroll - read all pages by scrolling (click a page to edit)">Scroll</button>
                 </div>
             </div>
 
@@ -545,7 +549,6 @@
             <div class="ai-output-area" id="aiOutputArea">
                 <div class="ai-output-placeholder">
                     <p>AI features require <strong>Ollama</strong> running locally.</p>
-                    <p>Install: <code>brew install ollama</code></p>
                     <p>Start: <code>ollama serve</code></p>
                     <p>Pull model: <code>ollama pull llama3</code></p>
                 </div>
@@ -565,11 +568,11 @@
             </div>
             <div class="comment-input-area">
                 <div class="stamp-date-row" style="padding:0 0 4px;">
-                    <span>Highlight colour</span>
+                    <span>Highlight color</span>
                     <input type="color" id="commentColor" value="#e53935" title="Colour used to mark the commented text">
                 </div>
                 <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">
-                    Drag across words on the page — your comment attaches to that text.
+                    Drag across words on the page - your comment attaches to that text.
                 </div>
                 <textarea id="commentInput" placeholder="Add a comment..." rows="3"></textarea>
                 <button id="addCommentBtn" class="comment-add-btn">Add Comment</button>
@@ -579,7 +582,7 @@
 
     <!-- Status Bar -->
     <footer class="status-bar">
-        <span id="statusText">Ready - Open a PDF to get started</span>
+        <span id="statusText" role="status" aria-live="polite">Ready - Open a PDF to get started</span>
         <span id="fileInfo"></span>
     </footer>
 
@@ -589,7 +592,7 @@
         <span id="searchInfo">0/0</span>
         <button id="searchPrev" class="nav-btn">&#9650;</button>
         <button id="searchNext" class="nav-btn">&#9660;</button>
-        <button id="searchClose" class="icon-btn">
+        <button id="searchClose" class="icon-btn" title="Close Search" aria-label="Close Search">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
     </div>
@@ -631,10 +634,10 @@
                 <label style="margin-top:12px;">Choose a signature style:</label>
                 <div id="signatureStyleList" class="signature-style-list"></div>
 
-                <label style="margin-top:12px;">Signature colour:</label>
+                <label style="margin-top:12px;">Signature color:</label>
                 <div class="signature-color-row">
-                    <input type="color" id="signatureColor" value="#0a2a66" title="Choose the signature colour — full picker with RGB values">
-                    <span class="modal-hint">Click to pick any colour (RGB / eyedropper).</span>
+                    <input type="color" id="signatureColor" value="#0a2a66" title="Choose the signature color - full picker with RGB values">
+                    <span class="modal-hint">Click to pick any color (RGB / eyedropper).</span>
                     <span class="modal-hint">The signature is inserted onto the page and can be moved &amp; resized.</span>
                 </div>
             </div>
@@ -660,7 +663,8 @@
     </div>
 
     <!-- Hidden file inputs -->
-    <input type="file" id="fileInput" accept=".pdf" style="display:none">
+    <!-- Accepts what the landing copy promises: PDFs, plus Word/images to convert -->
+    <input type="file" id="fileInput" accept=".pdf,.doc,.docx,image/png,image/jpeg" style="display:none">
     <input type="file" id="mergeInput" accept=".pdf" multiple style="display:none">
     <input type="file" id="imageInput" accept="image/*" style="display:none">
 
@@ -695,10 +699,11 @@
         </div>
     </div>
 
-    <!-- Export Progress Overlay -->
+    <!-- Long-operation progress overlay (export-all, compress, merge, Word/Excel) -->
     <div class="ocr-progress" id="exportAllProgress" style="display:none;">
-        <span id="exportAllStatus">Exporting pages...</span>
+        <span id="exportAllStatus" role="status" aria-live="polite">Exporting pages...</span>
         <div class="progress-bar-bg"><div class="progress-bar-fill" id="exportAllBar"></div></div>
+        <button id="exportAllCancelBtn" class="crop-btn cancel">Cancel</button>
     </div>
 
     </div><!-- end .page-wrapper -->

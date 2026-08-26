@@ -11,7 +11,7 @@
   const header = $('.toolbar');
   const mainContainer = $('.main-container');
   const pageWrapper = $('#pageWrapper');
-  if (!header || !mainContainer) return;
+  if (!header || !mainContainer || !pageWrapper) return; // any missing anchor → keep the legacy chrome instead of throwing
 
   // Running inside the Nexus portal (iframe) vs the standalone desktop app.
   // In the portal, the surrounding Nexus chrome already provides branding +
@@ -128,11 +128,14 @@
     }
     menu.appendChild(styleRow);
     document.body.appendChild(menu);
+    shapeBtn.setAttribute('aria-haspopup', 'menu');
+    shapeBtn.setAttribute('aria-expanded', 'false');
     shapeBtn.addEventListener('click', () => {
       const r = shapeBtn.getBoundingClientRect();
       menu.style.top = r.bottom + 4 + 'px';
       menu.style.left = r.left + 'px';
       menu.classList.toggle('open');
+      shapeBtn.setAttribute('aria-expanded', String(menu.classList.contains('open')));
     });
     document.addEventListener('click', (e) => {
       if (!e.target.closest('#shapeTool') && !e.target.closest('#shapeMenu')) menu.classList.remove('open');
@@ -197,7 +200,7 @@
     document.body.appendChild(imgPdfInput);
     mk('Image → PDF', 'Combine PNG/JPG images into a PDF (one page per image)', () => window.imageToPdfDialog ? window.imageToPdfDialog() : imgPdfInput.click());
 
-    mk('PDF → Word', 'Editable Word file — font sizes and bold are kept; scanned pages are included as exact images',
+    mk('PDF → Word', 'Editable Word file - font sizes and bold are kept; scanned pages are included as exact images',
       () => { if (!needDoc()) window.exportWordSmart && window.exportWordSmart(); }, 'word');
     mk('PDF → Excel', 'Extract the text into an Excel spreadsheet', () => clickExport('excel'), 'excel');
 
@@ -211,8 +214,8 @@
     const imgMenu = document.createElement('div');
     imgMenu.className = 'dropdown-menu';
     imgMenu.id = 'imgExportMenu';
-    for (const [k, t] of [['png', 'PNG — this page'], ['jpeg', 'JPEG — this page'], ['tiff', 'TIFF — this page'],
-                          ['all-png', 'PNG — all pages'], ['all-jpeg', 'JPEG — all pages']]) {
+    for (const [k, t] of [['png', 'PNG - This Page'], ['jpeg', 'JPEG - This Page'], ['tiff', 'TIFF - This Page'],
+                          ['all-png', 'PNG - All Pages'], ['all-jpeg', 'JPEG - All Pages']]) {
       const it = document.createElement('button');
       it.className = 'dropdown-item';
       it.textContent = t;
@@ -233,10 +236,10 @@
     dMenu.className = 'dropdown-menu';
     dMenu.id = 'drawMenu';
     const DMODES = [
-      ['pen', '🖊 Pen — smooth solid line'],
-      ['pencil', '✏️ Pencil — thin, light stroke'],
-      ['marker', '🖍 Marker — broad, semi-transparent'],
-      ['spray', '💨 Spray — airbrush dots'],
+      ['pen', '🖊 Pen - smooth solid line'],
+      ['pencil', '✏️ Pencil - thin, light stroke'],
+      ['marker', '🖍 Marker - broad, semi-transparent'],
+      ['spray', '💨 Spray - airbrush dots'],
     ];
     for (const [mode, label] of DMODES) {
       const it = document.createElement('button');
@@ -308,8 +311,8 @@
     });
   }
 
-  // Paint-bar custom colour: the rainbow swatch opens the OS colour picker
-  // (gradient + eyedropper + RGB), mirroring into the app's colour state.
+  // Paint-bar custom color: the rainbow swatch opens the OS color picker
+  // (gradient + eyedropper + RGB), mirroring into the app's color state.
   const pbCustom = el('#pbCustomColor');
   const mainColor = el('#colorPicker');
   if (pbCustom && mainColor) {
@@ -317,7 +320,7 @@
     const showCur = () => { if (cur) cur.style.background = mainColor.value; };
     pbCustom.addEventListener('input', () => {
       mainColor.value = pbCustom.value;
-      // Fire the same pipeline a swatch click uses (brush colour + actives).
+      // Fire the same pipeline a swatch click uses (brush color + actives).
       mainColor.dispatchEvent(new Event('input', { bubbles: true }));
       mainColor.dispatchEvent(new Event('change', { bubbles: true }));
       showCur();
@@ -385,12 +388,12 @@
     for (const l of window.pdfLayers.list()) {
       const row = document.createElement('div');
       row.className = 'layer-row' + (l.active ? ' active' : '');
-      // colour dot
+      // color dot
       const dot = document.createElement('input');
       dot.type = 'color';
       dot.className = 'layer-dot';
       dot.value = l.color || '#888888';
-      dot.title = 'Layer colour (used as the pen colour when this layer is active)';
+      dot.title = 'Layer color (used as the pen color when this layer is active)';
       dot.addEventListener('input', () => window.pdfLayers.setColor(l.id, dot.value));
       dot.addEventListener('click', (e) => e.stopPropagation());
       // name
@@ -406,9 +409,16 @@
         inp.value = l.name;
         nm.replaceWith(inp);
         inp.focus(); inp.select();
-        const commit = () => { window.pdfLayers.rename(l.id, inp.value.trim() || l.name); renderLayers(); };
+        // Escape must CANCEL: renderLayers() detaches the focused input, the
+        // detach fires blur, and blur is the commit handler — so a bare Escape
+        // silently saved whatever was typed. Flag it so commit becomes a no-op.
+        let canceled = false;
+        const commit = () => { if (canceled) return; window.pdfLayers.rename(l.id, inp.value.trim() || l.name); renderLayers(); };
         inp.addEventListener('blur', commit);
-        inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') inp.blur(); if (ev.key === 'Escape') renderLayers(); });
+        inp.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') inp.blur();
+          if (ev.key === 'Escape') { ev.stopPropagation(); canceled = true; renderLayers(); }
+        });
       });
       // eye toggle
       const eye = document.createElement('button');
@@ -526,7 +536,7 @@
       desc: 'Make scanned pages searchable',
       members: [el('#ocrBtn')] },
     { id: 'layers',   label: 'Layers',          tint: '#e8734a',
-      desc: 'Versions of markups — show or hide',
+      desc: 'Versions of markups - show or hide',
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>',
       action: () => toggleLayersPanel() },
   ];
@@ -564,15 +574,14 @@
     if (g.svg) { const t = document.createElement('span'); t.innerHTML = g.svg; return t.firstChild; }
     const src = g.members && g.members.find(Boolean);
     const svg = src && src.querySelector && src.querySelector('svg');
-    if (g.id === 'ai') { const b = el('#aiToggleBtn'); return b?.querySelector('svg')?.cloneNode(true) || null; }
     return svg ? svg.cloneNode(true) : null;
   };
 
   // First-step hints so a new user knows what to do after opening a tool.
   const HINTS = {
     edit: 'Add or edit text, draw or highlight on the page, add stamps and images.',
-    comment: 'Add shapes on the page, or open the notes panel for page comments.',
     organize: 'Rotate the current page, add or merge pages, or split out a page range.',
+    layers: 'Organize markups into layers you can show, hide, or rename.',
     sign: 'Click Sign to create your signature, then place it anywhere on the page.',
     export: 'Choose a format to export the current page or the whole document.',
     ocr: 'Run OCR to make scanned pages searchable and selectable.',
@@ -596,6 +605,16 @@
       if (ea) ea.insertBefore(pn, csw || null);
     }
   };
+  // Hidden scrollbars make clipped toolbar buttons undiscoverable — flag bars
+  // that actually overflow so the CSS can show a right-edge fade cue.
+  const overflowCue = () => {
+    for (const bar of [header, ctxBar]) {
+      if (bar) bar.classList.toggle('has-overflow', bar.scrollWidth > bar.clientWidth + 2);
+    }
+  };
+  window.addEventListener('resize', overflowCue);
+  setTimeout(overflowCue, 300); // after fonts/layout settle
+
   const open = (g) => {
     if (g.action) { g.action(); return; }
     if (active) active.box.style.display = 'none';
@@ -607,6 +626,7 @@
     dockPageNav(true);
     panel.querySelectorAll('.adobe-tool-item').forEach(b => b.classList.toggle('active', b.dataset.group === g.id));
     setHint(HINTS[g.id]);
+    requestAnimationFrame(overflowCue); // the bar's content just changed
   };
   const close = () => {
     if (active) active.box.style.display = 'none';
@@ -617,9 +637,36 @@
     // Return to the neutral select tool so no drawing mode stays armed.
     const sel = el('#selectTool'); if (sel && !sel.classList.contains('active')) sel.click();
   };
+  // Escape closes any open dropdown menu FIRST (capture phase, before the
+  // tool-tab close below or app.js's own Escape handling) — menus were
+  // click-only before, with no keyboard way out.
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const openMenus = document.querySelectorAll('.dropdown-menu.open');
+    if (openMenus.length) {
+      openMenus.forEach(m => m.classList.remove('open'));
+      document.querySelectorAll('[aria-expanded="true"]').forEach(b => b.setAttribute('aria-expanded', 'false'));
+      e.stopPropagation();
+    }
+  }, true);
+
   // Escape closes the open tool (unless the user is typing in a field).
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && active && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) close();
+  });
+  // app.js's single-key shortcuts (t/d/h/…) arm a tool directly on the canvas;
+  // open the tab that hosts that tool's button too, or the cursor draws while
+  // the chrome shows nothing active and the tool's options stay unreachable.
+  const KEY_TOOL = { t: 'text', d: 'draw', h: 'highlight', r: 'shape', e: 'eraser', i: 'image', c: 'crop' };
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    const tool = KEY_TOOL[e.key.toLowerCase()];
+    if (!tool) return;
+    const btn = document.querySelector(`[data-tool="${tool}"]`);
+    if (!btn || btn.disabled) return;
+    const g = GROUPS.find(x => x.box && x.box.contains(btn));
+    if (g && active !== g) open(g);
   });
 
   for (const g of GROUPS) {
@@ -655,7 +702,7 @@
     sep.className = 'page-sep';
     sep.textContent = '/';
     info.append(pageInput, sep, totalPages);
-    pageInput.title = 'Current page — type a number and press Enter';
+    pageInput.title = 'Current page - type a number and press Enter';
   }
   const zo = el('#zoomOut'), zi = el('#zoomIn');
   if (zo) zo.innerHTML = '&#8722;';
@@ -741,8 +788,8 @@
     // the signature corner-arrow accent. Recreated in their visual language
     // (not their copyrighted files) for the landing tool grid. `_a` is the arrow
     // color slot the card fills from the tile tint.
-    // iLovePDF signature: white marks on the coloured tile, plus a small
-    // corner-arrow badge in a darker shade of the same colour (--icf-d). The
+    // iLovePDF signature: white marks on the colored tile, plus a small
+    // corner-arrow badge in a darker shade of the same color (--icf-d). The
     // arrow sits in the lower-right, exactly like their icons.
     const ARROW = '<g transform="translate(15.5 15.5)"><rect x="-1" y="-1" width="8" height="8" rx="2" fill="var(--icf-d)"/><path d="M1.4 3.5h3.2m0 0-1.3-1.3M4.6 3.5 3.3 4.8" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>';
     const ICF = {
@@ -909,7 +956,7 @@
         const key = IC_KEY[path];
         const rich = key && ICF[key];
         const iconSvg = rich
-          // iLovePDF-style: white 2-tone marks on the coloured tile. --icf-a is
+          // iLovePDF-style: white 2-tone marks on the colored tile. --icf-a is
           // the tile tint (for glyphs sitting ON white); --icf-d is a darker
           // shade for the corner-arrow badge.
           ? `<svg width="24" height="24" viewBox="0 0 24 24" style="--icf-a:${tint};--icf-d:color-mix(in srgb, ${tint} 78%, #000)">${rich}</svg>`
@@ -928,9 +975,20 @@
     wrap.appendChild(tools);
     dz.appendChild(wrap);
 
-    // If the picker is cancelled, disarm the landing-card action so a later
-    // manual open doesn't unexpectedly fire a stale tool/export.
+    // If the picker is canceled, disarm the landing-card action so a later
+    // manual open doesn't unexpectedly fire a stale tool/export. The 'cancel'
+    // event alone isn't enough (older browsers never fire it, and a pick whose
+    // LOAD fails leaves the action armed too), so also disarm whenever the user
+    // opens a file through any route that is not the card flow.
     el('#fileInput')?.addEventListener('cancel', () => { pendingAction = null; });
+    el('#fileInput')?.addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      // Nothing picked, or a non-PDF (which routes into a conversion flow
+      // instead of the card's tool) → the armed action no longer applies.
+      if (!f || !/\.pdf$/i.test(f.name)) pendingAction = null;
+    });
+    document.addEventListener('drop', () => { pendingAction = null; }, true);
+    el('#openFileBtn')?.addEventListener('click', () => { pendingAction = null; }, true);
   }
 
   // ── Slim down the top bar ───────────────────────────────────────────────────
@@ -947,6 +1005,7 @@
   printBtn.id = 'printBtn';
   printBtn.className = 'tool-btn';
   printBtn.title = 'Print with your markups (Cmd/Ctrl+P)';
+  printBtn.setAttribute('aria-label', 'Print');
   printBtn.innerHTML = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>';
   printBtn.addEventListener('click', () => window.printPdf && window.printPdf());
   right.appendChild(printBtn);
@@ -957,8 +1016,10 @@
   if (dl) {
     const span = dl.querySelector('span');
     if (span) span.textContent = 'Save ▾';
-    dl.title = 'Save this document — choose a format';
+    dl.title = 'Save this document - choose a format';
     dl.classList.add('save-pdf-btn');
+    dl.setAttribute('aria-haspopup', 'menu');
+    dl.setAttribute('aria-expanded', 'false');
     right.appendChild(dl);
 
     const saveMenu = document.createElement('div');
@@ -967,19 +1028,19 @@
     const exp = (k) => el(`#exportMenu [data-export="${k}"]`)?.click();
     // Most-used formats up front; everything else behind "Other formats".
     const PRIMARY = [
-      ['PDF — all pages', () => window.downloadPDF && window.downloadPDF()],
-      ['PDF — selected pages…', () => el('#splitBtn')?.click()],
-      ['PNG image — this page', () => exp('png')],
-      ['JPEG image — this page', () => exp('jpeg')],
+      ['PDF - All Pages', () => window.downloadPDF && window.downloadPDF()],
+      ['PDF - Selected Pages…', () => el('#splitBtn')?.click()],
+      ['PNG Image - This Page', () => exp('png')],
+      ['JPEG Image - This Page', () => exp('jpeg')],
     ];
     const OTHER = [
-      ['Flattened PDF (uneditable)', () => window.saveFlattened && window.saveFlattened()],
-      ['All text (.txt)', () => window.extractAllText && window.extractAllText()],
+      ['Flattened PDF (Uneditable)', () => window.saveFlattened && window.saveFlattened()],
+      ['All Text (.txt)', () => window.extractAllText && window.extractAllText()],
       ['Word (.docx)', () => window.exportWordSmart && window.exportWordSmart()],
       ['Excel (.xlsx)', () => exp('excel')],
-      ['TIFF image — this page', () => exp('tiff')],
-      ['PNG images — all pages (ZIP)', () => exp('all-png')],
-      ['JPEG images — all pages (ZIP)', () => exp('all-jpeg')],
+      ['TIFF Image - This Page', () => exp('tiff')],
+      ['PNG Images - All Pages (ZIP)', () => exp('all-png')],
+      ['JPEG Images - All Pages (ZIP)', () => exp('all-jpeg')],
     ];
     const addItem = (parent, text, fn) => {
       const it = document.createElement('button');
@@ -991,7 +1052,7 @@
     for (const [text, fn] of PRIMARY) addItem(saveMenu, text, fn);
     const moreBtn = document.createElement('button');
     moreBtn.className = 'dropdown-item';
-    moreBtn.textContent = 'Other formats  ▸';
+    moreBtn.textContent = 'Other Formats  ▸';
     saveMenu.appendChild(moreBtn);
     const moreBox = document.createElement('div');
     moreBox.style.display = 'none';
@@ -1001,7 +1062,7 @@
       e.stopPropagation();
       const open = moreBox.style.display !== 'none';
       moreBox.style.display = open ? 'none' : 'block';
-      moreBtn.textContent = open ? 'Other formats  ▸' : 'Other formats  ▾';
+      moreBtn.textContent = open ? 'Other Formats  ▸' : 'Other Formats  ▾';
     });
     document.body.appendChild(saveMenu);
     // Intercept the button's click BEFORE app.js's own target listener can
@@ -1010,11 +1071,15 @@
     document.addEventListener('click', (e) => {
       if (!e.target.closest || !e.target.closest('#downloadBtn')) return;
       e.stopPropagation(); // never reaches the button → no instant download
+      // stopPropagation also starves the bubble-phase outside-click closers of
+      // the OTHER dropdowns — close them here so two menus can't overlap.
+      document.querySelectorAll('.dropdown-menu.open').forEach(m => { if (m !== saveMenu) m.classList.remove('open'); });
       const r = dl.getBoundingClientRect();
       saveMenu.style.top = r.bottom + 6 + 'px';
       saveMenu.style.left = Math.max(8, r.right - 230) + 'px';
       saveMenu.style.minWidth = '220px';
       saveMenu.classList.toggle('open');
+      dl.setAttribute('aria-expanded', String(saveMenu.classList.contains('open')));
     }, true);
     document.addEventListener('click', (e) => {
       if (!saveMenu.contains(e.target) && !dl.contains(e.target)) saveMenu.classList.remove('open');
@@ -1072,7 +1137,7 @@
           addRecent(it.name, it.path); // bump to top
           await window.loadPdfFile(new File([blob], it.name, { type: 'application/pdf' }));
         } catch {
-          const s = el('#statusText'); if (s) s.textContent = 'Could not reopen ' + it.name + ' — the file may have moved.';
+          const s = el('#statusText'); if (s) s.textContent = 'Could not reopen ' + it.name + ' - the file may have moved.';
         }
       });
       histMenu.appendChild(b);
@@ -1208,7 +1273,7 @@
         header.style.display = (name || _everHadDoc) ? '' : 'none';
       }
       // Window/tab title mirrors the open document, like every desktop app.
-      document.title = name ? `${name} — Nexus PDF Editor` : 'Nexus PDF Editor';
+      document.title = name ? `${name} - Nexus PDF Editor` : 'Nexus PDF Editor';
       // Landing-page card flow: the PDF just finished loading — run the tool
       // the user picked (buttons need a beat to enable first).
       if (name && pendingAction) { const fn = pendingAction; pendingAction = null; setTimeout(fn, 400); }

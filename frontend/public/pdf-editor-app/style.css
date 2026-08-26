@@ -38,7 +38,7 @@ body {
     height: 100%;
     display: flex;
     flex-direction: column;
-    font-family: -apple-system, 'Segoe UI', system-ui, BlinkMacSystemFont, sans-serif;
+    font-family: 'Inter', -apple-system, 'Segoe UI', system-ui, BlinkMacSystemFont, sans-serif;
     background: var(--bg-primary);
     color: var(--text-primary);
     overflow: hidden;
@@ -163,8 +163,11 @@ header.toolbar {
     display: none;
 }
 
-/* Show text on wider screens */
-@media (min-width: 1600px) {
+/* Show text labels from typical laptop widths up. The old 1600px threshold
+   left almost every user (1280-1536px laptops) with ~15 unlabeled icons;
+   the slimmed top bar (adobe-ui keeps only a handful of buttons) fits
+   labels comfortably at 1280px. */
+@media (min-width: 1280px) {
     .tool-btn span {
         display: inline;
     }
@@ -625,7 +628,7 @@ header.toolbar {
 }
 
 .thumbnail-list.view-icons .thumbnail-label {
-    font-size: 8px;
+    font-size: 10px; /* 8px was below the legibility floor */
     padding: 0;
 }
 
@@ -708,6 +711,22 @@ header.toolbar {
 
 .thumbnail-item:hover .thumb-actions {
     opacity: 1;
+}
+
+/* Touch devices have no hover: keep page actions visible (dimmed) and give
+   them real finger-sized targets, or pages can't be managed from the sidebar
+   at all on tablets/phones. */
+@media (hover: none) {
+    .thumb-actions,
+    .thumbnail-list.view-list .thumb-actions {
+        opacity: 0.85;
+    }
+    .thumb-btn,
+    .thumbnail-list.view-list .thumb-btn {
+        width: 32px;
+        height: 32px;
+        font-size: 13px;
+    }
 }
 
 .thumb-btn {
@@ -925,7 +944,23 @@ header.toolbar {
 }
 
 @media (max-width: 600px) {
+    /* Phones: the Pages panel becomes an overlay drawer instead of
+       display:none — the reopen tab used to show a panel that was
+       unconditionally hidden, leaving page navigation unreachable. The
+       existing collapse toggle + reopen tab drive it; app.js starts it
+       collapsed at this width. */
     .sidebar {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 300;
+        box-shadow: 4px 0 16px rgba(0, 0, 0, 0.25);
+    }
+    .sidebar.collapsed {
+        box-shadow: none;
+    }
+    .sidebar-resize-handle {
         display: none;
     }
     .page-nav {
@@ -3326,6 +3361,10 @@ html[data-theme="light"] {
     gap: 18px;
     padding: 20px 0 60px;
     width: 100%;
+    /* app.js compensates scrollTop itself when a lazily-rendered page above
+       the viewport corrects its estimated height - native anchoring would
+       double-correct and jump the view. */
+    overflow-anchor: none;
 }
 .cv-page {
     position: relative;
@@ -3475,3 +3514,53 @@ html[data-theme="light"] {
 .i2p-create { background: linear-gradient(135deg, #6a5cff, #9b6cff); color: #fff; box-shadow: 0 6px 16px rgba(106,92,255,0.32); }
 .i2p-create:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
 .i2p-create:not(:disabled):hover { transform: translateY(-1px); }
+
+/* ============================
+   Accessibility & motion
+   ============================ */
+/* Visible keyboard focus everywhere (the editor was mouse-only before) */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* Right-edge fade cue when a bar has horizontally clipped buttons — the
+   scrollbars are hidden, so without this clipped tools are undiscoverable.
+   The class is toggled by adobe-ui.js when scrollWidth > clientWidth. */
+.toolbar.has-overflow,
+.adobe-ctx-bar.has-overflow {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* Toast with an inline action (e.g. "Undo") - needs to be clickable */
+.toast.has-action {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.toast-action {
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 2px 4px;
+}
+
+.toast-action:hover {
+    text-decoration: underline;
+}
