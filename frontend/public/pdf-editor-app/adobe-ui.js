@@ -351,8 +351,10 @@
       ['setscale',   '⚖ Set scale directly (1 in = 10 ft)', true],  // action, not a kind
       ['mcalibrate', '📐 Calibrate by drawing a known line'],
       ['mlength',    '↦ Measure length'],
+      ['mpolylen',   '⌇ Measure polyline length'],
       ['mperim',     '⟿ Measure perimeter'],
       ['marea',      '▦ Measure area'],
+      ['mcutout',    '⊟ Area cutout (subtract a void)'],
       ['mangle',     '∠ Measure angle'],
       ['mradius',    '◐ Measure radius / diameter'],
       ['mvolume',    '⬒ Measure volume (area × depth)'],
@@ -399,7 +401,7 @@
     const shapeMenu = document.getElementById('shapeMenu');
     if (shapeMenu) {
       shapeMenu.querySelectorAll('.dropdown-item').forEach(it => {
-        if (['mcalibrate','mlength','mperim','marea','mangle','mradius','mvolume','mcount'].includes(it.dataset.kind)) it.remove();
+        if (['mcalibrate','mlength','mpolylen','mperim','marea','mcutout','mangle','mradius','mvolume','mcount'].includes(it.dataset.kind)) it.remove();
       });
       shapeMenu.querySelectorAll('.dropdown-group-label').forEach(h => {
         if (/measure & scale/i.test(h.textContent)) h.remove();

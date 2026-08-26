@@ -1771,8 +1771,10 @@
             mvolume: 'Volume: outline the area, double-click to finish, then enter a depth',
             mcount:  'Count: click to drop markers - the list tallies them',
             mlength: 'Length: click two points. Hold Shift for straight/45 deg; snaps to nearby ends',
+            mpolylen:'Polyline length: click points along a run, double-click to finish (one total)',
             mperim:  'Perimeter: click points, double-click to close. Shift = ortho, snaps to ends',
             marea:   'Area: click points, double-click to close. Shift = ortho, snaps to ends',
+            mcutout: 'Area cutout: click inside an area, then outline the void, double-click to subtract',
         };
         if (hints[k]) setStatus(hints[k]);
     };
@@ -1908,6 +1910,7 @@
     let measurePreview = null; // live fabric preview
     let measureKind = null;    // 'mlength' | 'mperim' | 'marea' while collecting
     let pendingCalib = null;   // {p1, p2} awaiting the real-length prompt
+    let _cutoutTarget = null;  // the area shape a cutout is being subtracted from
 
     // Canvas px -> page px (undo the zoom) so measurements are zoom-independent.
     const toPagePx = (d) => d / (state.zoom || 1);
@@ -1952,6 +1955,34 @@
         let out = _endpointSnap(p);                     // endpoint wins if in range
         if (out === p && _snapShift && from) out = _orthoSnap(from, p);
         return out;
+    }
+
+    // Absolute canvas-space vertices of a fabric polygon/polyline object.
+    function _absVerts(o) {
+        const ox = o.left, oy = o.top;
+        const px0 = o.pathOffset ? o.pathOffset.x : 0, py0 = o.pathOffset ? o.pathOffset.y : 0;
+        return (o.points || []).map(pt => ({ x: ox + (pt.x - px0), y: oy + (pt.y - py0) }));
+    }
+    // Ray-casting point-in-polygon.
+    function _pointInPoly(p, verts) {
+        let inside = false;
+        for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+            const a = verts[i], b = verts[j];
+            if (((a.y > p.y) !== (b.y > p.y)) &&
+                (p.x < (b.x - a.x) * (p.y - a.y) / ((b.y - a.y) || 1e-9) + a.x)) inside = !inside;
+        }
+        return inside;
+    }
+    // The Area (or Volume) measurement polygon under a point, if any.
+    function _areaShapeAt(p) {
+        let hit = null;
+        fabricCanvas.forEachObject((o) => {
+            if (hit) return;
+            if (!o._measure || !o.points) return;
+            if (o._measure.kind !== 'marea' && o._measure.kind !== 'mvolume') return;
+            if (_pointInPoly(p, _absVerts(o))) hit = o;
+        });
+        return hit;
     }
 
     // Length units, all expressed in millimetres (the base) so any unit can be
@@ -2018,7 +2049,9 @@
         if (pts.length < 2) return;
         const base = measureStyleBase();
         const areaKind = (measureKind === 'marea' || measureKind === 'mvolume');
-        const shape = areaKind
+        const shape = (measureKind === 'mcutout')
+            ? new fabric.Polygon(pts, { ...base, fill: 'rgba(245,76,76,0.18)', stroke: '#e03131' })
+            : areaKind
             ? new fabric.Polygon(pts, { ...base, fill: 'rgba(76,110,245,0.12)' })
             : new fabric.Polyline(pts, { ...base, fill: '' });
         _isRestoring = true; fabricCanvas.add(shape); measurePreview = shape; _isRestoring = false;
@@ -2100,7 +2133,7 @@
         showToast('Scale calibrated - measurements will show in ' + measureUnit);
     }
 
-    const _MEASURE_KINDS = ['mlength', 'mperim', 'marea', 'mcalibrate', 'mangle', 'mradius', 'mvolume', 'mcount'];
+    const _MEASURE_KINDS = ['mlength', 'mpolylen', 'mperim', 'marea', 'mcutout', 'mcalibrate', 'mangle', 'mradius', 'mvolume', 'mcount'];
     function handleMeasureClick(opt) {
         if (state.activeTool !== 'shape') return;
         if (!_MEASURE_KINDS.includes(shapeKind)) return;
@@ -2136,7 +2169,26 @@
             setStatus('Measurement needs a scale - use "Calibrate scale" first');
             return;
         }
-        measureKind = shapeKind;    // mlength | mperim | marea | mangle | mradius | mvolume
+
+        // Area cutout: first click picks the area to cut from, then the void is
+        // outlined; double-click subtracts it from that area's value.
+        if (shapeKind === 'mcutout') {
+            if (!_cutoutTarget) {
+                const hit = _areaShapeAt(p);
+                if (!hit) { showToast('Click inside an existing Area measurement first'); return; }
+                _cutoutTarget = hit;
+                measureKind = 'mcutout';
+                setStatus('Now outline the void inside the area - double-click to subtract');
+                return;
+            }
+            measureKind = 'mcutout';
+            measurePts.push({ x: p.x, y: p.y });
+            measureRedraw();
+            setStatus('Cutout: click void corners - double-click to subtract');
+            return;
+        }
+
+        measureKind = shapeKind;    // mlength | mpolylen | mperim | marea | mangle | mradius | mvolume
         measurePts.push({ x: p.x, y: p.y });
         measureRedraw();
         // Auto-finish at the natural point count for the fixed-vertex tools.
@@ -2219,6 +2271,31 @@
             measurePts = []; measureKind = null; fabricCanvas.renderAll(); setStatus('Ready'); return;
         }
 
+        // Area cutout: subtract the void polygon's area from the target area's
+        // value, draw the void outline, and record it on the target for export.
+        if (measureKind === 'mcutout') {
+            if (pts.length >= 3 && _cutoutTarget && _cutoutTarget._measure) {
+                const voidArea = toPagePx(toPagePx(polyAreaPx(pts))) * measureScale * measureScale;
+                const tm = _cutoutTarget._measure;
+                tm.value = Math.max(0, tm.value - voidArea);
+                tm.cutouts = (tm.cutouts || 0) + voidArea;
+                const base = measureStyleBase(); base.selectable = true;
+                const voidShape = new fabric.Polygon(pts, { ...base, fill: 'rgba(245,76,76,0.16)', stroke: '#e03131' });
+                voidShape._cutoutFor = tm._mid;   // bookkeeping only
+                fabricCanvas.add(voidShape);
+                // Refresh the target's on-plan label if it has one.
+                const lbl = fabricCanvas.getObjects().find(o => o._midLink === tm._mid && o.type === 'text');
+                if (lbl && !tm.label) lbl.set({ text: 'Area: ' + tm.value.toFixed(2) + ' ' + tm.unit + '²' });
+                saveAnnotationState(); saveCurrentAnnotations();
+                if (window.renderMeasureList) window.renderMeasureList();
+                setStatus('Cutout subtracted - area is now ' + tm.value.toFixed(2) + ' ' + tm.unit + '²');
+            } else if (!_cutoutTarget) {
+                showToast('Pick an area to cut from first');
+            }
+            measurePts = []; measureKind = null; _cutoutTarget = null;
+            fabricCanvas.renderAll(); return;
+        }
+
         if (pts.length >= need) {
             const base = measureStyleBase(); base.selectable = true;
             let label, cx, cy;
@@ -2230,6 +2307,13 @@
                 label = fmtMeasure(toPagePx(polyLenPx(pts, false)), 'len');
                 mKindLabel = 'Length';
                 cx = (pts[0].x + pts[1].x) / 2; cy = (pts[0].y + pts[1].y) / 2 - 12;
+            } else if (measureKind === 'mpolylen') {
+                shape = new fabric.Polyline(pts, { ...base, fill: '' });
+                fabricCanvas.add(shape);
+                mValue = toPagePx(polyLenPx(pts, false)) * measureScale;   // open path
+                label = fmtMeasure(toPagePx(polyLenPx(pts, false)), 'len');
+                mKindLabel = 'Polyline';
+                cx = pts[0].x; cy = pts[0].y - 14;
             } else if (measureKind === 'mperim') {
                 shape = new fabric.Polyline(pts, { ...base, fill: '' });
                 fabricCanvas.add(shape);
@@ -2270,7 +2354,7 @@
     }
     function measureCancel() {
         if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
-        measurePts = []; measureKind = null;
+        measurePts = []; measureKind = null; _cutoutTarget = null;
         fabricCanvas.renderAll();
     }
 
