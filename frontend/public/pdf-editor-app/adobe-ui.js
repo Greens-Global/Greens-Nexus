@@ -353,6 +353,7 @@
       ['mlength',    '↦ Measure length'],
       ['mperim',     '⟿ Measure perimeter'],
       ['marea',      '▦ Measure area'],
+      ['mlist',      '☰ Measurements list & totals', true],  // action: open the panel
     ];
     for (const [kind, label, isAction] of MMODES) {
       const it = document.createElement('button');
@@ -363,8 +364,9 @@
         e.stopPropagation();
         mMenu.classList.remove('open');
         if (isAction) {
-          // "Set scale" opens a dialog rather than arming a draw tool.
+          // Actions open a dialog/panel rather than arming a draw tool.
           if (kind === 'setscale' && window.openSetScaleDialog) window.openSetScaleDialog();
+          else if (kind === 'mlist' && window.toggleMeasureList) window.toggleMeasureList();
           return;
         }
         // Arm the shape tool (the measure engine lives on it), then set the kind.

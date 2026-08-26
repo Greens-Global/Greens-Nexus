@@ -758,6 +758,8 @@
         document.getElementById('sanitizeBtn')?.addEventListener('click', sanitizePdfTool);
         document.getElementById('rmBlankBtn')?.addEventListener('click', removeBlankPagesTool);
         document.getElementById('nupBtn')?.addEventListener('click', nUpTool);
+        document.getElementById('measureListClose')?.addEventListener('click', () => window.toggleMeasureList());
+        document.getElementById('measureExportBtn')?.addEventListener('click', () => window.exportMeasurements());
 
         // Keyboard shortcuts
         document.addEventListener('keydown', handleKeyboard);
@@ -2051,27 +2053,46 @@
         if (pts.length >= need) {
             const base = measureStyleBase(); base.selectable = true;
             let label, cx, cy;
+            let shape, mValue, mKindLabel;   // for the Markups List metadata
             if (measureKind === 'mlength') {
-                const shape = new fabric.Line([pts[0].x, pts[0].y, pts[1].x, pts[1].y], base);
+                shape = new fabric.Line([pts[0].x, pts[0].y, pts[1].x, pts[1].y], base);
                 fabricCanvas.add(shape);
+                mValue = toPagePx(polyLenPx(pts, false)) * measureScale;   // real length
                 label = fmtMeasure(toPagePx(polyLenPx(pts, false)), 'len');
+                mKindLabel = 'Length';
                 cx = (pts[0].x + pts[1].x) / 2; cy = (pts[0].y + pts[1].y) / 2 - 12;
             } else if (measureKind === 'mperim') {
-                const shape = new fabric.Polyline(pts, { ...base, fill: '' });
+                shape = new fabric.Polyline(pts, { ...base, fill: '' });
                 fabricCanvas.add(shape);
+                mValue = toPagePx(polyLenPx(pts, true)) * measureScale;
                 label = 'Perimeter: ' + fmtMeasure(toPagePx(polyLenPx(pts, true)), 'len');
+                mKindLabel = 'Perimeter';
                 cx = pts[0].x; cy = pts[0].y - 14;
             } else { // marea
-                const shape = new fabric.Polygon(pts, { ...base, fill: 'rgba(76,110,245,0.12)' });
+                shape = new fabric.Polygon(pts, { ...base, fill: 'rgba(76,110,245,0.12)' });
                 fabricCanvas.add(shape);
                 const areaUnit2 = toPagePx(toPagePx(polyAreaPx(pts))); // px^2 -> page px^2
+                mValue = areaUnit2 * measureScale * measureScale;
                 label = 'Area: ' + fmtMeasure(areaUnit2, 'area');
+                mKindLabel = 'Area';
                 cx = pts.reduce((s,p)=>s+p.x,0)/pts.length; cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
             }
+            // Tag the shape so the Markups List / Totals panel can enumerate it.
+            shape._measure = {
+                kind: measureKind,           // 'mlength' | 'mperim' | 'marea'
+                type: mKindLabel,            // display name
+                value: mValue,               // real-world number
+                unit: measureUnit,           // ft / m / ...
+                area: measureKind === 'marea',
+                page: state.currentPage,
+                label: '',                   // user-editable custom label
+            };
             const lbl = measureLabel(label, cx, cy);
             lbl.selectable = true;
+            lbl._measureLabelFor = shape._measure;   // link so we can retitle
             fabricCanvas.add(lbl);
             saveAnnotationState(); saveCurrentAnnotations();
+            if (window.renderMeasureList) window.renderMeasureList();
         }
         measurePts = []; measureKind = null;
         fabricCanvas.renderAll();
@@ -2082,6 +2103,91 @@
         measurePts = []; measureKind = null;
         fabricCanvas.renderAll();
     }
+
+    // ── Markups List + Totals (Bluebeam-style takeoff panel) ────────────────────
+    // Collect every measurement across ALL pages: the current page from live
+    // fabric objects, other pages from their saved annotation JSON.
+    function collectMeasurements() {
+        const rows = [];
+        // Current page - live objects (freshest).
+        if (fabricCanvas) {
+            fabricCanvas.getObjects().forEach((o) => {
+                if (o._measure) rows.push({ ...o._measure, _live: o });
+            });
+        }
+        // Other pages - from saved annotation JSON.
+        for (const [pgStr, entry] of Object.entries(state.annotations || {})) {
+            const pg = parseInt(pgStr, 10);
+            if (pg === state.currentPage) continue;
+            const objs = (entry && (entry.fabricData || entry).objects) || [];
+            objs.forEach((o) => { if (o._measure) rows.push({ ...o._measure, page: pg }); });
+        }
+        rows.sort((a, b) => (a.page - b.page));
+        return rows;
+    }
+
+    function _fmtVal(m) {
+        return m.value.toFixed(2) + ' ' + m.unit + (m.area ? '²' : '');
+    }
+
+    window.renderMeasureList = function renderMeasureList() {
+        const panel = document.getElementById('measureListPanel');
+        if (!panel) return;
+        const body = panel.querySelector('.measure-list-body');
+        const rows = collectMeasurements();
+        if (!rows.length) {
+            body.innerHTML = '<div class="measure-empty">No measurements yet. Use the Measure tool to add length, perimeter or area.</div>';
+            return;
+        }
+        // Totals per type+unit.
+        const totals = {};
+        rows.forEach((m) => {
+            const key = m.type + '|' + m.unit + (m.area ? '²' : '');
+            totals[key] = totals[key] || { type: m.type, unit: m.unit + (m.area ? '²' : ''), sum: 0, count: 0 };
+            totals[key].sum += m.value; totals[key].count++;
+        });
+        let html = '';
+        rows.forEach((m, i) => {
+            html += `<div class="measure-row" data-i="${i}">
+                <span class="measure-row-type">${m.type}</span>
+                <span class="measure-row-page">p${m.page}</span>
+                <span class="measure-row-val">${_fmtVal(m)}</span>
+            </div>`;
+        });
+        html += '<div class="measure-totals-head">Totals</div>';
+        Object.values(totals).forEach((t) => {
+            html += `<div class="measure-total-row"><span>${t.type} (${t.count})</span><b>${t.sum.toFixed(2)} ${t.unit}</b></div>`;
+        });
+        body.innerHTML = html;
+    };
+
+    // Export all measurements to a CSV the user can open in Excel (Quantity Link
+    // equivalent) - type, page, value, unit, plus the per-type totals.
+    window.exportMeasurements = function exportMeasurements() {
+        const rows = collectMeasurements();
+        if (!rows.length) { showToast('No measurements to export'); return; }
+        const esc = (s) => '"' + String(s).replace(/"/g, '""') + '"';
+        let csv = 'Type,Page,Value,Unit\n';
+        rows.forEach((m) => { csv += [esc(m.type), m.page, m.value.toFixed(4), esc(m.unit + (m.area ? '2' : ''))].join(',') + '\n'; });
+        csv += '\nTotals\n';
+        const totals = {};
+        rows.forEach((m) => { const k = m.type + '|' + m.unit + (m.area ? '²' : ''); totals[k] = totals[k] || { type: m.type, unit: m.unit + (m.area ? '²' : ''), sum: 0 }; totals[k].sum += m.value; });
+        Object.values(totals).forEach((t) => { csv += [esc(t.type), '', t.sum.toFixed(4), esc(t.unit)].join(',') + '\n'; });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+        a.download = (state.fileName || 'document').replace(/\.pdf$/i, '') + '_measurements.csv';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+        showToast('Exported ' + rows.length + ' measurements to CSV');
+    };
+
+    window.toggleMeasureList = function toggleMeasureList() {
+        const panel = document.getElementById('measureListPanel');
+        if (!panel) return;
+        const showing = panel.style.display !== 'none';
+        panel.style.display = showing ? 'none' : 'flex';
+        if (!showing) window.renderMeasureList();
+    };
 
     let dragKind = 'rect'; // kind locked at mousedown — menu changes mid-drag can't corrupt it
     // Build a complete arrow as ONE filled polygon path (shaft + head cut
@@ -4754,7 +4860,7 @@
         const orig = fabric.Object.prototype.toObject;
         fabric.Object.prototype.toObject = function (props) {
             return orig.call(this, ['_pdfFontName', '_pdfWeight', '_pdfStyle', '_isTextCover', '_isCommentMark', '_isEraserPath',
-                                    '_isSignature', '_isRedact', '_layerId', 'selectable', 'evented'].concat(props || []));
+                                    '_isSignature', '_isRedact', '_layerId', '_measure', 'selectable', 'evented'].concat(props || []));
         };
     })();
 
