@@ -17,20 +17,28 @@
 import { useEffect, useRef, useState } from "react";
 import { FileText } from "lucide-react";
 
-const nexusTheme = () =>
-  document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+const nexusTheme = () => {
+  // App.jsx stamps data-theme in an effect AFTER mount, so at module-import
+  // time (and on a deep link's very first render) the attribute is still
+  // absent - fall back to the same localStorage key App.jsx initializes from,
+  // or dark-mode users get a light first paint on every editor mount.
+  const t = document.documentElement.getAttribute('data-theme');
+  if (t) return t === 'dark' ? 'dark' : 'light';
+  try { return localStorage.getItem('gg-theme') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; }
+};
 
 // Cache-bust the iframe once per app load (not per render): the build id in
 // production, or a fixed 'dev' tag locally so editor updates show on refresh.
-// The theme rides along in the URL so the engine's FIRST paint already matches
-// Nexus - computed once at module scope, which is fine because later changes go
-// over postMessage (see below); putting live theme in src would remount the
-// iframe and discard the open document.
-const EDITOR_SRC = `/pdf-editor-app/index.html?v=${import.meta.env.VITE_BUILD_ID || 'dev'}`
-  + `&theme=${nexusTheme()}`;
+const EDITOR_BASE = `/pdf-editor-app/index.html?v=${import.meta.env.VITE_BUILD_ID || 'dev'}`;
 
 export default function PdfEditorModule() {
   const [hasDoc, setHasDoc] = useState(false);
+  // The theme rides along in the URL so the engine's FIRST paint already
+  // matches Nexus - resolved once per MOUNT (not per render, and not at module
+  // import, which froze the pre-mount theme); later changes go over postMessage
+  // (see below). Putting live theme in src would remount the iframe and
+  // discard the open document.
+  const [editorSrc] = useState(() => `${EDITOR_BASE}&theme=${nexusTheme()}`);
   const frameRef = useRef(null);
 
   // Keep the engine's theme locked to Nexus's (owner request Jul 30: consistent
@@ -58,7 +66,9 @@ export default function PdfEditorModule() {
       const d = e.data;
       if (d && d.type === 'pdf-editor:doc-state') {
         setHasDoc(!!d.hasDoc);
-        window.dispatchEvent(new CustomEvent('nexus:pdf-doc-state', { detail: { hasDoc: !!d.hasDoc } }));
+        // dirty rides along so App.jsx can warn before in-app navigation
+        // unmounts the iframe and destroys unsaved markups.
+        window.dispatchEvent(new CustomEvent('nexus:pdf-doc-state', { detail: { hasDoc: !!d.hasDoc, dirty: !!d.dirty } }));
       }
     };
     window.addEventListener('message', onMsg);
@@ -86,7 +96,7 @@ export default function PdfEditorModule() {
       )}
       <iframe
         ref={frameRef}
-        src={EDITOR_SRC}
+        src={editorSrc}
         title="Nexus PDF Editor"
         allow="clipboard-write"
         onLoad={() => {

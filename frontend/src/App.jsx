@@ -471,8 +471,16 @@ function MainApp() {
   // is open. We hide the top header only while editing a doc; the landing screen
   // keeps the bar.
   const [pdfHasDoc,        setPdfHasDoc]        = useState(false);
+  // Dirty flag from the PDF editor (unsaved in-memory markups). A ref, not
+  // state: it's read inside navigate(), which the nexus:navigate listener
+  // captures once - state would be stale there. Cleared automatically when the
+  // module unmounts (its cleanup dispatches hasDoc:false with no dirty).
+  const pdfDirtyRef = useRef(false);
   useEffect(() => {
-    const onDocState = (e) => setPdfHasDoc(!!(e.detail && e.detail.hasDoc));
+    const onDocState = (e) => {
+      setPdfHasDoc(!!(e.detail && e.detail.hasDoc));
+      pdfDirtyRef.current = !!(e.detail && e.detail.dirty);
+    };
     window.addEventListener('nexus:pdf-doc-state', onDocState);
     return () => window.removeEventListener('nexus:pdf-doc-state', onDocState);
   }, []);
@@ -542,6 +550,10 @@ function MainApp() {
   }, [sidebarPinned]);
 
   function navigate(view, sub = null) {
+    // The PDF editor's markups live only in the iframe's memory - navigating
+    // away unmounts it and loses them, and beforeunload does not cover this.
+    if (pdfDirtyRef.current && view !== 'pdf-editor'
+        && !window.confirm('You have unsaved changes in the PDF editor. Leave anyway?')) return;
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);
