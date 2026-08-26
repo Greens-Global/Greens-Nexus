@@ -495,17 +495,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             CA paid breaks
           </label>
         )}
-        {isAdmin && data?.autoClockout && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
-            title={`Forgotten clock-outs get escalating "still clocked in?" reminders, then the shift is auto-closed at ${data.autoClockout.outLocal || '23:59'} (employee-local). An auto-closed day pays 0 hours and blocks sign-off until the real end time is set.`}>
-            <input type="checkbox" checked={!!data.autoClockout.enabled}
-              onChange={async e => {
-                try { await api.timeAutoClockoutSet({ ...data.autoClockout, enabled: e.target.checked }); toastOk?.(`Auto clock-out ${e.target.checked ? 'on' : 'off'}.`); load(); }
-                catch (err) { toastErr?.(err?.message || 'Could not update auto clock-out.'); }
-              }} />
-            Auto clock-out
-          </label>
-        )}
         {!self && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>OT rule</span>
