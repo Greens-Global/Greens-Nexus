@@ -7668,13 +7668,20 @@
         // stopped, so it never blanks a page you're scrolling past (that was the
         // flicker). Runs ~250ms after the last scroll event.
         let _freeTimer = 0;
+        // Freeing bitmaps is what caused the blank-then-render FLICKER. For a
+        // normal document we simply DON'T free - every page, once rendered,
+        // stays rendered, so scrolling is rock-solid with zero flicker (dozens
+        // of canvases are fine for the browser). Only very large documents free
+        // pages, and even then only far away and only after scrolling stops.
+        const FREE_ABOVE_PAGES = 60;
         const freeFarPages = () => {
+            if (state.totalPages <= FREE_ABOVE_PAGES) return;   // keep all rendered
             const sRect = scroller.getBoundingClientRect();
             const margin = sRect.height || window.innerHeight;
             for (const el of _scrollEls) {
                 if (!el.rendered) continue;
                 const r = el.wrap.getBoundingClientRect();
-                if (r.bottom < sRect.top - margin * 4 || r.top > sRect.bottom + margin * 4) {
+                if (r.bottom < sRect.top - margin * 8 || r.top > sRect.bottom + margin * 8) {
                     el.canvas.width = 0; el.canvas.height = 0;
                     el.rendered = false;
                 }
@@ -7682,8 +7689,10 @@
         };
         const guardedOnScroll = () => {
             if (settling) return;
-            clearTimeout(_freeTimer);
-            _freeTimer = setTimeout(freeFarPages, 250); // free only after scroll idle
+            if (state.totalPages > FREE_ABOVE_PAGES) {
+                clearTimeout(_freeTimer);
+                _freeTimer = setTimeout(freeFarPages, 400); // large docs: free after idle
+            }
             if (_scrollRaf) return;
             _scrollRaf = requestAnimationFrame(() => { _scrollRaf = 0; onScroll(); });
         };
@@ -7712,6 +7721,27 @@
         }, 30);
         // Render whatever is initially in view (doesn't move currentPage yet).
         onScroll();
+
+        // Background pre-render: for a normal document, eagerly draw EVERY page
+        // (one per idle tick so the UI stays responsive) so no page is ever
+        // blank when it scrolls into view - fast scrolling then shows content
+        // immediately with no flicker. Skipped for very large docs, which rely
+        // on the near-viewport lazy render + freeing instead.
+        if (state.totalPages <= 60) {
+            const myGen = _thumbGen; // reuse the doc generation guard
+            let p = 0;
+            const pump = () => {
+                if (_scrollEls.length === 0) return;          // view torn down
+                if (p >= _scrollEls.length) return;           // all done
+                const el = _scrollEls[p++];
+                if (el && !(el.rendered && el.canvas.width > 0)) {
+                    renderScrollPage(el.page - 1);
+                }
+                // requestIdleCallback where available, else a small timeout.
+                (window.requestIdleCallback || ((f) => setTimeout(f, 16)))(pump);
+            };
+            (window.requestIdleCallback || ((f) => setTimeout(f, 60)))(pump);
+        }
     }
     let _scrollOnScroll = null;
 
