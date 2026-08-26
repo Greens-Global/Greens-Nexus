@@ -79,8 +79,24 @@
       ['ellipsecallout', '🗨 Speech bubble'],
       ['count', '① Count (click to tally items)'],
       ['redact', '⬛ Redact (removes content permanently)'],
+      // Measure & Scale: calibrate once against a known distance on the plan,
+      // then every line/perimeter/area is labeled with the real-world size.
+      ['--measure--', 'Measure & Scale'],
+      ['mcalibrate', '📐 Calibrate scale (set the plan scale)'],
+      ['mlength', '↦ Measure length'],
+      ['mperim', '⟿ Measure perimeter'],
+      ['marea', '▦ Measure area'],
     ];
     for (const [kind, text] of KINDS) {
+      // A "--measure--" entry is a non-clickable section header, not a shape.
+      if (kind === '--measure--') {
+        const hdr = document.createElement('div');
+        hdr.className = 'dropdown-group-label';
+        hdr.textContent = text;
+        hdr.style.marginTop = '4px';
+        menu.appendChild(hdr);
+        continue;
+      }
       const it = document.createElement('button');
       it.className = 'dropdown-item';
       it.textContent = text;

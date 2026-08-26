@@ -1945,7 +1945,7 @@
                 const px = polyLenPx(measurePts, false);
                 if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
                 measurePts = [];
-                const ans = window.prompt('Calibrate scale:\nYou drew a line. Enter its REAL length and unit, e.g. "10 ft" or "5 m":', '10 ft');
+                const ans = window.prompt('Calibrate the plan scale\n\nYou just drew a line over a known distance on the plan. Enter what that distance REALLY is (number + unit), e.g. "10 ft", "5 m", "24 in".\n\nAfter this, every line you measure shows its real-world size automatically.', '10 ft');
                 if (ans) {
                     const m = ans.trim().match(/^([\d.]+)\s*([a-zA-Z"']+)?$/);
                     if (m) {
