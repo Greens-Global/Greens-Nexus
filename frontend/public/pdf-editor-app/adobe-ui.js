@@ -542,7 +542,7 @@
       members: [el('#textTool'), el('[data-tool="edittext"]'), el('#drawTool'), el('#highlightTool'), el('#shapeTool'), wrapOf('#stampBtn'), el('#imageTool'), el('#cropTool'), el('#toolOptions')] },
     { id: 'organize', label: 'Organize Pages',  tint: '#4caf7d',
       desc: 'Rotate, add, merge, split pages',
-      members: [el('#rotateBtn'), el('#addPageBtn'), el('#addImagePageBtn'), el('#templatePageBtn'), el('#mergeBtn'), el('#splitBtn'), el('#watermarkBtn'), el('#pageNumBtn'), el('#nupBtn'), el('#rmBlankBtn')] },
+      members: [el('#rotateBtn'), el('#addPageBtn'), el('#addImagePageBtn'), el('#mergeBtn'), el('#splitBtn'), el('#watermarkBtn'), el('#pageNumBtn'), el('#nupBtn'), el('#rmBlankBtn')] },
     { id: 'sign',     label: 'Fill & Sign',     tint: '#5aa2e8',
       desc: 'Add your signature to the document',
       // A clear "signing" icon: a fountain pen writing on a signature line.
