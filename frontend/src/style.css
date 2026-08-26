@@ -75,6 +75,10 @@
   --nx-border:   #e6e8ec;
   --nx-border2:  #eef0f3;
   --nx-hover:    #f0f2f5;
+  /* Zebra banding on list rows - an ultra-light tint that lets the eye track a
+     row across to the far-right columns. Must stay lighter than --nx-hover so
+     hovering a banded row still reads as a change. */
+  --nx-zebra:    #f8fafc;
   --nx-primary:  #111827;
 }
 
@@ -127,6 +131,7 @@
   --nx-border:   rgba(255,255,255,0.10);
   --nx-border2:  rgba(255,255,255,0.055);
   --nx-hover:    rgba(255,255,255,0.06);
+  --nx-zebra:    rgba(255,255,255,0.022);
   --nx-primary:  #3a4358;
 }
 

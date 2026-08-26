@@ -11,7 +11,7 @@ import {
   Headphones, HeartPulse,
 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, ChipMultiSelect, useIsMobile } from './components';
 import { useTasks } from './TasksContext';
 import { topLevel, teamProjectIds, taskInProject } from './lib';
 import { CalendarView } from './views/extras';
@@ -59,7 +59,12 @@ export default function TeamsView({ onNavigate }) {
     [memberRequests],
   );
 
-  const sortedTeams = useMemo(() => [...teams].sort((a, b) => a.name.localeCompare(b.name)), [teams]);
+  // A-Z, case-insensitively - the same comparison the Projects and Portfolios
+  // lists use, so "apex" and "Apex" sort together rather than in two blocks.
+  const sortedTeams = useMemo(
+    () => [...teams].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' })),
+    [teams],
+  );
 
   if (detailId) {
     const team = teams.find((d) => d.id === detailId);
@@ -299,15 +304,11 @@ export function TeamModal({ team, onClose, onDelete }) {
       {projects.length === 0 ? (
         <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet.</div>
       ) : (
-        <div style={{ maxHeight: 168, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 10 }}>
-          {projects.map((p) => (
-            <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${NX.border2}` }}>
-              <input type="checkbox" checked={projectIds.includes(p.id)} style={{ cursor: 'pointer' }}
-                onChange={() => setProjectIds((ids) => (ids.includes(p.id) ? ids.filter((x) => x !== p.id) : [...ids, p.id]))} />
-              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-            </label>
-          ))}
-        </div>
+        /* A searchable dropdown, not an inline checkbox list - workspaces carry
+           dozens of projects, and the scrolling list pushed Color/Icon/Members
+           down and made finding one project a scroll-and-scan job. */
+        <ChipMultiSelect value={projectIds} onChange={setProjectIds} placeholder="Select projects…"
+          options={projects.map((p) => ({ id: p.id, label: p.name }))} />
       )}
 
       {/* Color */}
@@ -450,7 +451,6 @@ function MemberStack({ members, nameOf }) {
 
 function TeamOverviewTab({ team, teamProjects, onSeeMembers, onNavigate }) {
   const { tasks, nameOf } = useTasks();
-  const color = team.color || NX.blue;
   const members = team.memberIds || [];
   const shown = members.slice(0, 8);
   const [addOpen, setAddOpen] = useState(false);
@@ -461,9 +461,9 @@ function TeamOverviewTab({ team, teamProjects, onSeeMembers, onNavigate }) {
 
   return (
     <div>
-      {/* Hero banner */}
-      <div style={{ height: 112, borderRadius: 16, marginBottom: 20, background: `linear-gradient(120deg, ${color}22, ${color}0a)` }} />
-
+      {/* No hero banner here: the team's icon, color, name and counts are all
+          in the header right above the tabs, so a 112px tinted band added
+          nothing and read as a panel that had failed to load (Sagar, Aug 26). */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16 }}>
         {/* Projects - a team can serve several; change the set via Edit Team. */}
         <div style={{ border: `1px solid ${NX.border}`, borderRadius: 16, background: NX.surface, padding: 16, minWidth: 0 }}>

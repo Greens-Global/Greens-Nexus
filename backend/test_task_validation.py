@@ -134,7 +134,11 @@ class TaskValidationTests(unittest.TestCase):
 
     def test_collaborators_are_deduped_and_lowercased(self):
         out = self._create(follower_emails=["A@x.com", "a@x.com", "", "b@x.com"])
-        self.assertEqual(out["followerIds"], ["a@x.com", "b@x.com"])
+        # The creator is appended as a collaborator on every task they raise
+        # (see test_task_creator_follows), so assert what this case is actually
+        # about - that the SUBMITTED list is deduped, lowercased and stripped -
+        # rather than pinning the whole list.
+        self.assertEqual(out["followerIds"][:2], ["a@x.com", "b@x.com"])
 
     # ── structural cycles ────────────────────────────────────────────────
     def test_a_task_cannot_be_its_own_parent(self):
