@@ -7,6 +7,7 @@ import { Plus, BarChart3, LineChart as LineIcon, PieChart, Hash, Trash2, Pencil,
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from '../theme';
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../../components/UnsavedChangesPrompt';
+import { taskAssignees } from '../lib';
 
 const PALETTE = ['#2563eb', '#16a34a', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
 
@@ -147,7 +148,7 @@ const autoTitle = (cfg) => {
 function passes(t, f) {
   if (f.statuses.length && !f.statuses.includes(t.status)) return false;
   if (f.priorities.length && !f.priorities.includes(t.priority)) return false;
-  if (f.assigneeIds.length && !(t.assigneeId && f.assigneeIds.includes(t.assigneeId))) return false;
+  if (f.assigneeIds.length && !taskAssignees(t).some((e) => f.assigneeIds.includes(e))) return false;
   return true;
 }
 
@@ -174,9 +175,12 @@ function computeSeries(cfg, tasks, store) {
   }
   // assignee - derived from the tasks themselves
   const seen = new Map();
-  for (const t of rows) if (t.assigneeId && !seen.has(t.assigneeId)) seen.set(t.assigneeId, (store.nameOf?.(t.assigneeId) || t.assigneeId).split(' ')[0]);
-  const out = [...seen.entries()].map(([id, label], i) => ({ label, value: val(rows.filter((t) => t.assigneeId === id)), color: PALETTE[i % PALETTE.length] })).filter((d) => d.value > 0);
-  const un = val(rows.filter((t) => !t.assigneeId));
+  // Every assignee gets a slice, so a shared task shows on both people's bars.
+  // The slices can therefore total more than the task count - which is the
+  // honest answer to "how much is each person carrying".
+  for (const t of rows) for (const a of taskAssignees(t)) if (!seen.has(a)) seen.set(a, (store.nameOf?.(a) || a).split(' ')[0]);
+  const out = [...seen.entries()].map(([id, label], i) => ({ label, value: val(rows.filter((t) => taskAssignees(t).includes(id))), color: PALETTE[i % PALETTE.length] })).filter((d) => d.value > 0);
+  const un = val(rows.filter((t) => !taskAssignees(t).length));
   if (un > 0) out.push({ label: 'Unassigned', value: un, color: NX.faint });
   return out;
 }
@@ -309,7 +313,7 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
   // Assignee filter options derived from tasks.
   const assignees = useMemo(() => {
     const seen = new Map();
-    for (const t of tasks) if (t.assigneeId && !seen.has(t.assigneeId)) seen.set(t.assigneeId, store.nameOf?.(t.assigneeId) || t.assigneeId);
+    for (const t of tasks) for (const a of taskAssignees(t)) if (!seen.has(a)) seen.set(a, store.nameOf?.(a) || a);
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
   }, [tasks, store]);
 

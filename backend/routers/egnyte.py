@@ -418,6 +418,7 @@ def person_folder(email: str, user: dict = Depends(_require_hr_read),
            .filter(_f.lower(NexusEmployee.work_email) == email.lower()).first())
     if not emp:
         raise HTTPException(404, "No HR record for that email")
+    _assert_person_scope(emp, user, db)
     res = wiring.resolve_person_folder("people.person-folder", emp, db)
     folder = res["folder"]
     return {
@@ -452,6 +453,15 @@ def _emp_or_404(email: str, db: Session):
     return emp
 
 
+def _assert_person_scope(emp, user: dict, db: Session) -> None:
+    """Company-scoped People admins (hr_scope) must not resolve a private HR
+    folder for someone outside their companies - 404, same as no record."""
+    from auth import hr_scope
+    scope = hr_scope(user, db)
+    if scope is not None and (emp.company or "") not in scope:
+        raise HTTPException(404, "No HR record for that email")
+
+
 def _person_payload(email: str, emp, db):
     res = wiring.resolve_person_folder("people.person-folder", emp, db)
     folder = res["folder"]
@@ -469,6 +479,7 @@ def person_folder_point(email: str, body: PersonFolderIn,
     _guard()
     from models import EgnyteWiring
     emp = _emp_or_404(email, db)
+    _assert_person_scope(emp, user, db)
     path = svc.norm((body.path or "").strip())
     if not path:
         raise HTTPException(400, "Pick a folder first")
@@ -498,6 +509,7 @@ def person_folder_provision(email: str, user: dict = Depends(_require_hr_edit),
     existing folder just gains any missing subfolders."""
     _guard()
     emp = _emp_or_404(email, db)
+    _assert_person_scope(emp, user, db)
     try:
         wiring.provision_person_folder(emp, db)
     except ValueError as exc:

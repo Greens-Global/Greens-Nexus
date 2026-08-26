@@ -15,7 +15,8 @@ import models
 from database import get_db
 from auth import get_current_user, require_manager, require_any_module_grant
 from routers.task_util import (now_iso, gen_id, task_notify, is_manager, visible_project_ids,
-                               require_project_role, team_project_ids, log_activity)
+                               require_project_role, team_project_ids, log_activity,
+                               task_assignees, set_task_assignees)
 from routers.hr import _ensure_departments
 from routers.task_config import coerce_custom_field_values
 
@@ -363,7 +364,10 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
         return out
     now = now_iso()
 
-    tasks = db.query(models.Task).filter(models.Task.assignee_email == email).all()
+    # Python-side because assignee_emails is a JSON list (see the daily-briefing
+    # note). A shared task keeps its other assignees - only the departing person
+    # is swapped out, so handing over does not quietly unassign their colleagues.
+    tasks = [t for t in db.query(models.Task).all() if email in task_assignees(t)]
     if not include_completed:
         tasks = [t for t in tasks if not t.completed]
 
@@ -392,7 +396,7 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
             out["moved"] += 1
 
     for t in tasks:
-        t.assignee_email = to_email
+        set_task_assignees(t, [to_email if a == email else a for a in task_assignees(t)])
         t.modified_at = now
         out["reassigned"] += 1
 
@@ -838,6 +842,7 @@ def _snapshot_project(db: Session, p: models.TaskProject, *, blueprint: bool,
             "priority": t.priority or "medium",
             "tags": list(t.tags or []),
             "assigneeEmail": (t.assignee_email or "") if include_assignees else "",
+            "assigneeEmails": (task_assignees(t) if include_assignees else []),
             "followerEmails": list(t.follower_emails or []) if include_assignees else [],
             "estimateHours": t.estimate_hours,
             "isMilestone": bool(t.is_milestone),
@@ -1187,7 +1192,8 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
                 # source's manual positions. Left as whole numbers so a later
                 # drag between two of these still has room in between.
                 position=float(i),
-                assignee_email=((spec.get("assigneeEmail") or "").strip().lower() if include_assignees else ""),
+                # Set below via set_task_assignees, which writes both columns.
+                assignee_email="",
                 owner_email=owner,
                 follower_emails=(list(spec.get("followerEmails") or []) if include_assignees else []),
                 liked_by_emails=[],
@@ -1209,6 +1215,12 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
                 comment_ids=[], attachment_ids=[], activity_ids=[],
                 created_at=now, modified_at=now, created_by=user["email"],
             )
+            if include_assignees:
+                # assigneeEmails is the real field; assigneeEmail is the v2-era
+                # single that older payloads carry, folded in so a template
+                # captured before multi-assignee still assigns its one person.
+                set_task_assignees(row, spec.get("assigneeEmails")
+                                   or [spec.get("assigneeEmail") or ""])
             db.add(row)
             made.append((spec, row))
 

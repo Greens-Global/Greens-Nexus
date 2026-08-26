@@ -298,8 +298,11 @@ class HeaderSearchTests(unittest.TestCase):
     def test_one_character_does_not_search(self):
         """Every keystroke would otherwise scan the workspace to return
         everything, which is neither useful nor cheap."""
-        self.assertEqual(self._search("r"), {"tasks": [], "projects": [], "portfolios": [],
-                                             "teams": [], "people": []})
+        r = self._search("r")
+        self.assertEqual({k: v for k, v in r.items() if k != "totals"},
+                         {"tasks": [], "projects": [], "portfolios": [],
+                          "teams": [], "people": []})
+        self.assertFalse(any((r.get("totals") or {}).values()))
 
     def test_a_prefix_match_outranks_a_match_in_the_middle(self):
         self.db.add(models.Task(id="t3", code="TASK-3", title="Zebra rebrand notes",

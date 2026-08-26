@@ -31,6 +31,30 @@ from database import get_db
 from models import HrInterview, HrInterviewTemplate, HrCandidate, HrStageEvent
 from routers.hr import (require_hr_read, require_hr_write, _graph_token, _GRAPH,
                         _hr_notify)
+from auth import hr_scope
+
+
+# Company scoping (Neil, Aug 25): candidates carry a company, and a company-
+# scoped People admin must only see/touch their companies' pipeline - the same
+# contract hr.py enforces on /hr/candidates. These helpers resolve an interview
+# or candidate to its company and 404 when it's out of the caller's scope.
+
+def _cand_scoped(cand: Optional[HrCandidate], user: dict, db: Session) -> HrCandidate:
+    scope = hr_scope(user, db)
+    if scope is not None and (cand is None or (cand.company or "") not in scope):
+        raise HTTPException(404, "Candidate not found")
+    return cand
+
+
+def _iv_scoped(iv: Optional[HrInterview], user: dict, db: Session) -> HrInterview:
+    if iv is None:
+        raise HTTPException(404, "Interview not found")
+    scope = hr_scope(user, db)
+    if scope is not None:
+        cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
+        if cand is None or (cand.company or "") not in scope:
+            raise HTTPException(404, "Interview not found")
+    return iv
 
 
 def _advance_to_interview(db: Session, cand: HrCandidate, by: str, note: str):
@@ -189,6 +213,7 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
     cand = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not cand:
         raise HTTPException(404, "Candidate not found")
+    _cand_scoped(cand, user, db)
     if cand.stage in ("hired", "rejected"):
         raise HTTPException(400, f"{cand.first_name} is already {cand.stage} - no interviews to schedule")
     if not cand.email:
@@ -230,6 +255,7 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
 
 @router.get("/candidates/{cid}/interviews")
 def candidate_interviews(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    _cand_scoped(db.query(HrCandidate).filter(HrCandidate.id == cid).first(), user, db)
     rows = (db.query(HrInterview).filter(HrInterview.candidate_id == cid)
             .order_by(HrInterview.created_at.desc()).all())
     return [_ser_iv(i) for i in rows]
@@ -244,9 +270,7 @@ class InterviewPatch(BaseModel):
 @router.patch("/interviews/{iid}")
 def update_interview(iid: str, body: InterviewPatch, user: dict = Depends(require_hr_write),
                      db: Session = Depends(get_db)):
-    iv = db.query(HrInterview).filter(HrInterview.id == iid).first()
-    if not iv:
-        raise HTTPException(404, "Interview not found")
+    iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).first(), user, db)
     if body.status in ("live", "completed") and body.status != iv.status:
         iv.status = body.status
         if body.status == "live" and not iv.started_at:
@@ -269,9 +293,7 @@ def update_interview(iid: str, body: InterviewPatch, user: dict = Depends(requir
 
 @router.post("/interviews/{iid}/pull-transcript")
 def pull_transcript(iid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    iv = db.query(HrInterview).filter(HrInterview.id == iid).first()
-    if not iv:
-        raise HTTPException(404, "Interview not found")
+    iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).first(), user, db)
     if not iv.join_url:
         raise HTTPException(400, "No Teams meeting on this interview - paste the transcript instead")
     token = _graph_token()
@@ -333,9 +355,7 @@ def pull_transcript(iid: str, user: dict = Depends(require_hr_write), db: Sessio
 
 @router.post("/interviews/{iid}/autofill")
 def autofill(iid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    iv = db.query(HrInterview).filter(HrInterview.id == iid).first()
-    if not iv:
-        raise HTTPException(404, "Interview not found")
+    iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).first(), user, db)
     if not iv.transcript:
         raise HTTPException(400, "No transcript yet - pull it from Teams or paste it first")
     if not iv.answers:
@@ -357,9 +377,7 @@ def autofill(iid: str, user: dict = Depends(require_hr_write), db: Session = Dep
 
 @router.post("/interviews/{iid}/calibrate")
 def calibrate(iid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    iv = db.query(HrInterview).filter(HrInterview.id == iid).first()
-    if not iv:
-        raise HTTPException(404, "Interview not found")
+    iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).first(), user, db)
     answered = [a for a in (iv.answers or []) if (a.get("answer") or "").strip()]
     if not answered:
         raise HTTPException(400, "No answers to score - auto-fill from the transcript or type them in")
@@ -392,11 +410,15 @@ def leaderboard(template_id: str = "", user: dict = Depends(require_hr_read), db
     if template_id:
         q = q.filter(HrInterview.template_id == template_id)
     rows = q.order_by(HrInterview.total_score.desc()).limit(50).all()
+    scope = hr_scope(user, db)
     out = []
     for i in rows:
         cand = db.query(HrCandidate).filter(HrCandidate.id == i.candidate_id).first()
         # Rejected candidates are out of the running - no place on the board.
         if not cand or cand.stage == "rejected":
+            continue
+        # Company-scoped admins only see their companies' candidates.
+        if scope is not None and (cand.company or "") not in scope:
             continue
         d = _ser_iv(i, cand)
         d["candidateStage"] = cand.stage
@@ -416,11 +438,14 @@ def recommend_hire(body: RecommendIn, user: dict = Depends(require_hr_read), db:
     if body.template_id:
         q = q.filter(HrInterview.template_id == body.template_id)
     ivs = q.order_by(HrInterview.total_score.desc()).limit(12).all()
+    scope = hr_scope(user, db)
     packs = []
     for iv in ivs:
         cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
         if not cand or cand.stage in ("rejected", "hired"):
             continue   # only live contenders get compared
+        if scope is not None and (cand.company or "") not in scope:
+            continue   # scoped admins compare only their companies' candidates
         packs.append({
             "name": f"{cand.first_name} {cand.last_name}".strip() if cand else iv.candidate_id,
             "total": round(iv.total_score or 0),
@@ -453,9 +478,9 @@ class FinalRoundIn(BaseModel):
 @router.post("/interviews/{iid}/final-round")
 def invite_final_round(iid: str, body: FinalRoundIn, user: dict = Depends(require_hr_write),
                        db: Session = Depends(get_db)):
-    iv = db.query(HrInterview).filter(HrInterview.id == iid).first()
-    cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first() if iv else None
-    if not (iv and cand and cand.email):
+    iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).first(), user, db)
+    cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
+    if not (cand and cand.email):
         raise HTTPException(404, "Interview/candidate not found (or candidate has no email)")
     cand_name = f"{cand.first_name} {cand.last_name}".strip()
     meeting = _graph_create_meeting(

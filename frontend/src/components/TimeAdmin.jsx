@@ -257,6 +257,16 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   }, [loadExceptions]);
   const exBlocking = (exceptions || []).reduce((a, r) => a + (r.blocking || 0), 0);
 
+  // Billable time by location (Neil, Aug 25) - per-employee hours split by work
+  // site. Loaded only when the tab is open and reloaded with the range.
+  const [billable, setBillable] = useState(null);
+  const loadBillable = useCallback(() => {
+    if (view !== 'billable') return;
+    setBillable(null);
+    api.timeBillableByLocation(start, end).then(r => setBillable(r?.rows || [])).catch(() => setBillable([]));
+  }, [start, end, view]);
+  useEffect(() => { loadBillable(); }, [loadBillable]);
+
   // Manager+ files a time-off request FOR an employee (Neil, Aug 11) - the
   // sanctioned path, so nobody needs Act As (Global Admin only) for this.
   const [obo, setObo] = useState(null);   // {email, type, start, end, note} | null
@@ -398,6 +408,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           ['requests', 'Punch requests', Inbox, punchReqs.length],
           ['exceptions', 'Missing punches', AlertTriangle, exBlocking],
           ['screenshots', 'Screenshots', Camera], ['shifts', 'Shifts', CalendarClock],
+          ['billable', 'By location', MapPin],
           ['timeoff', 'Time off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
           const on = view === key;
           return (
@@ -416,8 +427,8 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         })}
       </div>
 
-      {/* Range picker - shared by Insights and Missing punches (both scan a range) */}
-      {(view === 'insights' || view === 'exceptions') && (
+      {/* Range picker - shared by Insights, Missing punches, and By-location (all scan a range) */}
+      {(view === 'insights' || view === 'exceptions' || view === 'billable') && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {[['This week', 0], ['Last week', -1]].map(([l, off]) => {
           const r = weekRange(off);
@@ -433,6 +444,48 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>Team total: <span style={{ color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(totalMin)}</span></span>
       </div>
+      )}
+
+      {view === 'billable' && (
+        billable === null ? (
+          <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+        ) : billable.length === 0 ? (
+          <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
+            No billable time in this range. Register each property as a Work site (People &gt; Work sites) with its address and radius, so clock-ins geofence to it and hours attribute per property.
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
+              Worked hours split by the work site each shift was clocked from. A worker who clocks out at one property and in at another splits automatically; the GPS-verified line shows time on each site from the mobile trail when a worker moves between properties within one clock-in.
+            </div>
+            {billable.map(r => {
+              const segTotal = r.byLocation.reduce((a, x) => a + (x.workedMin || 0), 0);
+              return (
+                <div key={r.email} style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, marginBottom: 8, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: r.byLocation.length ? '1px solid var(--line)' : 'none' }}>
+                    <button onClick={() => setPerson(r)} title="Open their time profile"
+                      style={{ fontSize: 13, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, fontFamily: 'var(--wk-font)', color: 'var(--wk-brand)' }}>{r.name}</button>
+                    <div style={{ flex: 1 }} />
+                    <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(segTotal)}</span>
+                  </div>
+                  {r.byLocation.map(loc => (
+                    <div key={loc.workSiteId || loc.workSite} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px 8px 26px', fontSize: 12.5, borderTop: '1px solid var(--line)' }}>
+                      <MapPin size={12} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.workSite || 'No location'}</span>
+                      <span style={{ width: 70, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(loc.workedMin)}</span>
+                      <span style={{ width: 80, textAlign: 'right', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>${(loc.pay || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  {(r.pingByLocation || []).length > 0 && (
+                    <div style={{ padding: '8px 14px 10px 26px', fontSize: 11, color: 'var(--muted)', borderTop: '1px solid var(--line)', background: 'var(--mist)' }}>
+                      GPS-verified time on site: {r.pingByLocation.map(l => `${l.workSite || 'unknown'} ${fmtMin(l.minutes)}`).join('  ·  ')}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )
       )}
 
       {view === 'timecards' && (<>

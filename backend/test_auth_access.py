@@ -36,6 +36,12 @@ KNOWN_PUBLIC = {
     "/health", "/version",                 # infra probes
     "/health/ready",                       # deep readiness probe (DB check) for blue-green slot warm-up
     "/health/leader",                      # read-only leader-lease readout (which instance runs the loops)
+    # Column names the models declare and the DB lacks - no data, no row
+    # counts, nothing user-identifying. Unauthenticated on purpose: the
+    # failure it reports (every query on a table 500ing while /health stays
+    # green) is one you need to diagnose from outside the box, often before
+    # anyone can sign in to the module that is broken.
+    "/health/schema",
     "/auth/login", "/auth/callback",       # BFF login: OAuth flow can't require auth; callback is state+PKCE guarded
     "/auth/logout",                        # only clears the session cookie; harmless without a valid session
     "/branding/config",                    # login screen needs it pre-auth
@@ -70,6 +76,11 @@ KNOWN_PUBLIC = {
     "/external-auth/activate/verify",
     "/external-auth/request-code",
     "/external-auth/login-verify",
+    # Forced phone verification at activation (Neil, Aug 25): stage 2 of the
+    # same pre-login flow - the emailed activation token + SMS'd activate2
+    # code are the credentials, with the same hashing/rate-limit machinery.
+    "/external-auth/activate/verify-phone",
+    "/external-auth/activate/send-phone-code",
 }
 
 _AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device")

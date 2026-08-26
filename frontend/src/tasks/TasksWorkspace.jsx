@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft, Copy, Pencil, LayoutTemplate } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm} from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton } from './components';
 import CreateTaskModal from './CreateTaskModal';
@@ -245,7 +245,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             await store.createTask({
               title: `${t.title} (copy)`, type: t.type || 'task', description: t.description || '',
               status: t.status || 'not_started', priority: t.priority || 'medium',
-              projectId: t.projectId || '', teamId: t.teamId || '', assigneeId: t.assigneeId || '',
+              projectId: t.projectId || '', teamId: t.teamId || '', assigneeIds: taskAssignees(t),
               followerIds: t.followerIds || [], dueOn: t.dueOn || '', startOn: t.startOn || '',
               tags: t.tags || [], estimateHours: t.estimateHours ?? null, isMilestone: !!t.isMilestone,
               customFieldValues: t.customFieldValues || {},
@@ -265,7 +265,12 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             <option value="" disabled>Priority…</option>
             {['urgent', 'high', 'medium', 'low'].map((p) => <option key={p} value={p} style={{ color: NX.ink }}>{p[0].toUpperCase() + p.slice(1)}</option>)}
           </select>
-          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { assigneeId: e.target.value === '-' ? '' : e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
+          {/* Bulk assign REPLACES the assignee list with the one person picked -
+              the same thing it has always meant, and the only unambiguous
+              reading when the selection holds tasks with different people on
+              them. Adding somebody alongside is a per-task action, done in the
+              drawer. */}
+          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { assigneeIds: e.target.value === '-' ? [] : [e.target.value] }); clearSel(); } }} defaultValue="" style={selStyle}>
             <option value="" disabled>Assign…</option>
             <option value="-" style={{ color: NX.ink }}>Unassigned</option>
             {people.map((p) => <option key={p.email} value={p.email} style={{ color: NX.ink }}>{p.name}</option>)}
@@ -363,7 +368,15 @@ function TaskRow({ t, store, selected, toggleSel, onOpen }) {
         <div style={{ fontSize: 14, fontWeight: 500, color: NX.ink, textDecoration: t.completed ? 'line-through' : 'none', opacity: t.completed ? 0.6 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
         {t.projectId && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>{projectName(t.projectId)}</div>}
       </div>
-      {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={24} /> : <span style={{ width: 24 }} />}
+      {taskAssignees(t).length ? (
+        <span style={{ display: 'inline-flex' }}>
+          {taskAssignees(t).slice(0, 2).map((a, i) => (
+            <span key={a} style={{ display: 'inline-flex', marginLeft: i ? -8 : 0 }}>
+              <Avatar email={a} name={nameOf(a)} size={24} />
+            </span>
+          ))}
+        </span>
+      ) : <span style={{ width: 24 }} />}
       <PriorityChip priority={t.priority} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 600 : 400, minWidth: 74, textAlign: 'right' }}>{t.dueOn || '-'}</span>
@@ -412,7 +425,13 @@ function BoardBody({ visible, group, ctx, store, onOpen }) {
                   <PriorityChip priority={t.priority} />
                   {t.dueOn && <span style={{ fontSize: 11.5, color: NX.dim }}>{t.dueOn}</span>}
                   {t.projectId && <span style={{ fontSize: 11.5, color: NX.faint }}>{projectName(t.projectId)}</span>}
-                  <div style={{ marginLeft: 'auto' }}>{t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : null}</div>
+                  <div style={{ marginLeft: 'auto', display: 'flex' }}>
+                    {taskAssignees(t).slice(0, 2).map((a, i) => (
+                      <span key={a} style={{ display: 'inline-flex', marginLeft: i ? -7 : 0 }}>
+                        <Avatar email={a} name={nameOf(a)} size={22} />
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
             ))}

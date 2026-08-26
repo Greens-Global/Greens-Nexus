@@ -5,6 +5,11 @@ access to - mainly to sandbox external/guest users (a client scoped to one
 property sees only that property). Enforcement lives in auth.scoped_ids(), which
 data endpoints call to get the allowed id set. This router is just the admin CRUD
 behind the scope picker on a person's Access tab.
+
+module_id='hr' rows are special: auth.hr_scope() reads them to limit an
+INTERNAL admin's People/Time/Leave access to specific companies (scope_type
+'entity', Neil Aug 25). Scopes are read live on every request - no cache to
+invalidate; adds/removes bite immediately.
 """
 import uuid
 from datetime import datetime, timezone

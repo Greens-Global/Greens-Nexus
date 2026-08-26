@@ -32,7 +32,7 @@ import graph_mail
 import task_mail_templates as tmpl
 from app_url import app_url
 from task_inbound_parse import reply_address, reply_mailbox
-from routers.task_util import log_activity
+from routers.task_util import log_activity, task_assignees
 
 _SETTINGS_KEY = "task_notify_config"
 
@@ -137,25 +137,32 @@ def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: s
         if email and email != actor and _is_sendable(db, email) and email not in out:
             out[email] = role
 
-    assignee = (t.assignee_email or "").strip().lower()
+    # add() de-duplicates, so fanning out over every assignee cannot mail
+    # anyone twice even when they are also a follower.
+    assignees = task_assignees(t)
+    assignee = assignees[0] if assignees else ""
     followers = [(f or "").strip().lower() for f in (t.follower_emails or [])]
+
+    def add_assignees():
+        for _a in assignees:
+            add(_a, "assignee")
     creator = (t.created_by or "").strip().lower()
 
     if event_type == "created":
-        add(assignee, "assignee")
+        add_assignees()
         for f in followers:
             add(f, "follower")
     elif event_type == "assigned":
-        add(assignee, "assignee")
+        add_assignees()
     elif event_type in ("due_soon", "overdue"):
-        add(assignee, "assignee")
+        add_assignees()
     elif event_type == "completed":
-        add(assignee, "assignee")
+        add_assignees()
         add(creator, "creator")
         for f in followers:
             add(f, "follower")
     elif event_type == "commented":
-        add(assignee, "assignee")
+        add_assignees()
         for f in followers:
             add(f, "follower")
     elif event_type == "mentioned":
@@ -167,11 +174,11 @@ def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: s
     elif event_type == "follower_added":
         add(extra.get("new_follower", ""), "follower")
     elif event_type == "modified":
-        add(assignee, "assignee")
+        add_assignees()
         for f in followers:
             add(f, "follower")
     elif event_type == "deleted":
-        add(assignee, "assignee")
+        add_assignees()
         add(creator, "creator")
         for f in followers:
             add(f, "follower")
@@ -248,7 +255,11 @@ def _task_context(db: Session, t: models.Task, actor_email: str) -> dict:
         "id": t.id, "code": t.code or "", "title": t.title, "status": t.status,
         "description": t.description or "", "priority": t.priority,
         "projectName": project_name,
-        "assigneeId": t.assignee_email or "", "assigneeName": _name_of(db, t.assignee_email or ""),
+        # assigneeName lists EVERY assignee - a mail that named only the first
+        # would read as though the other recipients were merely cc'd on somebody
+        # else's task, when it is equally theirs.
+        "assigneeId": t.assignee_email or "",
+        "assigneeName": ", ".join(_name_of(db, a) for a in task_assignees(t)),
         "actorEmail": actor_email, "actorName": _name_of(db, actor_email),
         "eventAtDisplay": _fmt(datetime.now(timezone.utc).isoformat()),
         "dueDateDisplay": _fmt(t.due_on) if t.due_on else "",
@@ -354,8 +365,8 @@ def _due_reminders_once(db: Session) -> None:
         except ValueError:
             continue
         days_left = (due - today).days
-        assignee = (t.assignee_email or "").strip().lower()
-        if not assignee or not _is_sendable(db, assignee):
+        recipients = [a for a in task_assignees(t) if _is_sendable(db, a)]
+        if not recipients:
             continue
 
         if days_left < 0:
@@ -384,11 +395,15 @@ def _due_reminders_once(db: Session) -> None:
         else:
             continue
 
-        ctx = _task_context(db, t, assignee)
         logo_url = cfg.get("logoUrl") or ""
-        subject, html = tmpl.due_reminder_email(t=ctx, base_url=app_url(), logo_url=logo_url, days_left=days_left)
-        _send_one(db, task_id=t.id, task_code=t.code, event_type=event_type, idem_suffix=idem_suffix,
-                 recipient=assignee, role="assignee", subject=subject, html=html, cfg=cfg)
+        # One reminder each. _send_one's idempotency key already includes the
+        # recipient, so the "only once per day" guarantee holds per person
+        # rather than being spent by whoever happens to be first in the list.
+        for who in recipients:
+            ctx = _task_context(db, t, who)
+            subject, html = tmpl.due_reminder_email(t=ctx, base_url=app_url(), logo_url=logo_url, days_left=days_left)
+            _send_one(db, task_id=t.id, task_code=t.code, event_type=event_type, idem_suffix=idem_suffix,
+                      recipient=who, role="assignee", subject=subject, html=html, cfg=cfg)
 
 
 # ── Background loops (same bare-asyncio-loop convention as ticket_notify.py /

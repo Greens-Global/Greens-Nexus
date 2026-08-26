@@ -25,7 +25,23 @@ class Task(Base):
     # creation order, the same order they've always shown in.
     position          = Column(Float, default=0.0, index=True)
     priority          = Column(String, default="medium")   # low|medium|high|urgent
-    assignee_email    = Column(String, default="", index=True)
+    # A task can be assigned to SEVERAL people (Sagar, Aug 2026). There is one
+    # task row and one `completed` flag, so whoever finishes it finishes it for
+    # everyone - that was always true, and is why this is a list on the task
+    # rather than a copy of the task per person.
+    #
+    # `assignee_emails` is the source of truth. `assignee_email` is kept as a
+    # PRIMARY MIRROR of assignee_emails[0] - the same shape TaskTeam.project_id
+    # already mirrors project_ids[0], and for the same reason: dozens of call
+    # sites (exports, dashboards, the daily briefing, the Asana sync) read the
+    # single column, and every one keeps working against the primary instead of
+    # all having to be found and rewritten at once.
+    #
+    # Anything asking "is this person on this task" must go through
+    # task_util.task_assignees(); every write must go through
+    # task_util.set_task_assignees() so the two can never drift.
+    assignee_email    = Column(String, default="", index=True)   # mirror of assignee_emails[0]
+    assignee_emails   = Column(JSON, default=list)
     owner_email       = Column(String, default="", index=True)
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)
@@ -737,6 +753,19 @@ class NexusEmployee(Base):
     # code delivered to `phone` (sent.dm SMS), this is stamped and future login
     # codes go to the phone first. Empty = phone unverified, codes go to email.
     phone_verified_at = Column(String, default="")
+    # Per-person geofence (Aug 25): a work location + radius assigned to THIS
+    # person, distinct from the shared HrWorkSite fences. When set (radius > 0),
+    # their punches are judged against this instead of the nearest work site -
+    # for home-based / field / single-location staff. Set from the People
+    # profile: "use last punch location" (reads their most recent located
+    # punch) or an address search (geocoded). '' lat/lng or radius 0 = unset.
+    geofence_lat      = Column(String, default="")
+    geofence_lng      = Column(String, default="")
+    geofence_radius_m = Column(Integer, default=0)             # 0 = no personal geofence (fall back to work sites)
+    geofence_label    = Column(String, default="")            # human label (address, or "From last punch MM/DD")
+    geofence_source   = Column(String, default="")            # last_punch | address | manual
+    geofence_set_by   = Column(String, default="")
+    geofence_set_at   = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):
@@ -768,6 +797,7 @@ class HrCandidate(Base):
     expected_start = Column(String, default="")               # ISO date
     interview_at   = Column(String, default="")               # ISO datetime of the next interview
     source         = Column(String, default="")               # referral, LinkedIn, ...
+    company        = Column(String, default="")               # HrEntity.id hiring for ('' = untagged; company-scoped admins see only their companies' pipeline)
     resume_url     = Column(String, default="")               # hr-docs storage path (private; signed URL to view)
     notes          = Column(String, default="")
     employee_id    = Column(String, default="")               # set when hired
