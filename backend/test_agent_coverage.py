@@ -11,7 +11,6 @@ different, agent-less computer read as covered, so that machine went uncaptured.
 """
 import os
 import unittest
-import uuid
 from datetime import datetime, timezone, timedelta
 
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")

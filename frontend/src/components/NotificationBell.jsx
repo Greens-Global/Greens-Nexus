@@ -493,6 +493,13 @@ export default function NotificationBell({ onNavigate }) {
       // view's own listener switches its internal tab even when the app-level
       // view/sub didn't change (repeat clicks on the same destination).
       window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: dest[0], sub: dest[1] } }));
+      // Task cards name the task they are about (task_notify puts it in the
+      // action). Without this, "View task" only reached My Tasks and left you
+      // to find the task the card had just named. Deferred like the header
+      // search does it - the Task module may not be mounted yet, and it owns
+      // the drawer.
+      const taskId = n.action?.taskId;
+      if (taskId) setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId } })), 0);
     }
   }
 

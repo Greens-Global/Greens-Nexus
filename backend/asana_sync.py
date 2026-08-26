@@ -67,6 +67,20 @@ def public_base():
     return f"https://{host}" if host else ""
 
 
+# ── Integration kill switch (Aug 27) ────────────────────────────────────────
+# Nexus is severed from Asana: the UI for it is gone and no background traffic
+# leaves this process. The code, the models and every AsanaTaskLink row are
+# deliberately KEPT so the link can be restored without a migration or a
+# re-import - set NEXUS_ASANA_ENABLED=true to bring it back.
+#
+# This gate sits in front of is_sync_worker() rather than replacing the config
+# row, so nothing has to be written to the shared dev/prod database to make it
+# take effect, and re-enabling is one environment variable.
+def is_asana_enabled():
+    """Whether the Asana integration is live at all in this deployment."""
+    return os.getenv("NEXUS_ASANA_ENABLED", "").lower() in ("1", "true", "yes")
+
+
 def is_sync_worker():
     """Whether THIS process may run background sync (auto-pull + the outbound
     fire-and-forget pushes).
@@ -80,6 +94,10 @@ def is_sync_worker():
 
     Manual Pull / Push-all remain available everywhere - those are explicit
     operator actions, not background traffic."""
+    # Severed: no pull loop, no push sweep, no fire-and-forget pushes. Checked
+    # first so NEXUS_ASANA_SYNC_WORKER cannot re-open the link on its own.
+    if not is_asana_enabled():
+        return False
     if os.getenv("NEXUS_ASANA_SYNC_WORKER", "").lower() in ("1", "true", "yes"):
         return True
     return bool(os.getenv("WEBSITE_SITE_NAME"))   # set by Azure App Service

@@ -1173,6 +1173,7 @@ export const api = {
   timeSchedAssign:   (id, email) => req(`/timeclock/schedule/${id}/assign`, { method: 'POST', body: JSON.stringify({ employee_email: email }) }),
   timeSchedUpdate:   (id, data)  => req(`/timeclock/schedule/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
+  timeSchedPublish:  (data)      => req('/timeclock/schedule/publish', { method: 'POST', body: JSON.stringify(data) }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
   timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),
@@ -1414,6 +1415,14 @@ export const api = {
   unifiOverview:  ()       => req("/unifi/overview", { timeoutMs: 20_000 }),
   unifiStats:     (siteId) => req(`/unifi/stats?siteId=${encodeURIComponent(siteId)}`, { timeoutMs: 20_000 }),
   unifiExportCsv: (siteId) => reqBlob(`/unifi/export/csv?siteId=${encodeURIComponent(siteId)}`),
+
+  // Task module: how THIS user has arranged the columns of each list view
+  // (order + widths). Personal, and never a reason to block a screen - the
+  // caller falls back to the default columns when these fail.
+  getTaskTablePrefs:   ()             => req("/task-prefs"),
+  saveTaskTablePrefs:  (table, data)  => req(`/task-prefs/${encodeURIComponent(table)}`, { method: "PUT", body: JSON.stringify(data) }),
+  resetTaskTablePrefs: (table)        => req(`/task-prefs/${encodeURIComponent(table)}`, { method: "DELETE" }),
+  resetAllTaskTablePrefs: ()          => req("/task-prefs", { method: "DELETE" }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

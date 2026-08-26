@@ -3846,12 +3846,26 @@ def _sched_dict(row: ScheduledShift, presets: dict) -> dict:
             "code": (p.code or p.name) if p else "", "color": p.color if p else "#64748b"}
 
 
+def _can_write_schedule(user: dict, db: Session) -> bool:
+    """True if the caller can BUILD schedules (level>=3, or an Access Group 'hr'
+    grant of 'editor') - the audience that sees unpublished DRAFT shifts and can
+    publish them. Read-only viewers ('hr' viewer) see only published shifts, which
+    matches Teams Shifts: staff see a schedule only once the manager shares it.
+    Mirrors the split between require_team_read (viewer) and require_team_write
+    (editor), both of which admit level>=3."""
+    from auth import _module_level, _MODULE_LEVEL_RANK
+    return (int(user.get("level", 0)) >= 3 or
+            _module_level(user["email"], "hr", db) >= _MODULE_LEVEL_RANK["editor"])
+
+
 @router.get("/schedule")
 def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
                   db: Session = Depends(get_db)):
     """Everything the grid needs for a date range: visible employees (scoped),
-    shift presets, groups, the placed shifts, and time off to overlay."""
+    shift presets, groups, the placed shifts, and time off to overlay. Drafts
+    (unpublished shifts) are returned only to schedulers who can publish them."""
     scope = _visible_emails(db, user)
+    can_write = _can_write_schedule(user, db)
     names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
     if scope is None:
@@ -3875,6 +3889,8 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
         # (unassigned slots, employee_email == '').
         q = q.filter((ScheduledShift.employee_email.in_(list(scope))) |
                      (ScheduledShift.employee_email == ""))
+    if not can_write:
+        q = q.filter(ScheduledShift.published == 1)   # staff see only SHARED shifts
     scheduled = [_sched_dict(r, presets) for r in q.all()]
 
     tq = (db.query(TimeOffRequest)
@@ -3886,7 +3902,8 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
                 "type": t.type, "status": t.status} for t in tq.all()]
 
     return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
-            "groups": groups, "scheduled": scheduled, "timeoff": timeoff}
+            "groups": groups, "scheduled": scheduled, "timeoff": timeoff,
+            "canManage": can_write}
 
 
 class ScheduledShiftIn(BaseModel):
@@ -3919,6 +3936,7 @@ def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_team_w
         start_hhmm=(body.start_hhmm or (preset.start_hhmm if preset else "09:00"))[:5],
         end_hhmm=(body.end_hhmm or (preset.end_hhmm if preset else "17:00"))[:5],
         label=(body.label or "")[:80], note=(body.note or "")[:200], open_slots=slots,
+        published=0,   # new shifts start as a DRAFT until the manager publishes
         created_by=user["email"], created_at=_now_iso())
     db.add(row)
     db.commit()
@@ -3950,6 +3968,7 @@ def assign_open_shift(sched_id: str, body: AssignOpenIn,
         id=str(uuid.uuid4()), employee_email=em, work_date=row.work_date,
         shift_id=row.shift_id, start_hhmm=row.start_hhmm, end_hhmm=row.end_hhmm,
         label=row.label, note=row.note, open_slots=0,
+        published=0,   # a newly assigned shift is a draft until published
         created_by=user["email"], created_at=_now_iso())
     db.add(assigned)
     row.open_slots = int(row.open_slots or 1) - 1
@@ -4056,7 +4075,8 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_team_write)
                 replaced += 1
             db.add(ScheduledShift(id=str(uuid.uuid4()), employee_email=em, work_date=ds,
                                   shift_id=shift_id, start_hhmm=shhmm, end_hhmm=ehhmm,
-                                  label=label, note=note, created_by=user["email"], created_at=now))
+                                  label=label, note=note, published=0,
+                                  created_by=user["email"], created_at=now))
             created += 1
     db.commit()
     return {"created": created, "replaced": replaced, "skipped": skipped,
@@ -4080,6 +4100,7 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
     row.end_hhmm = (body.end_hhmm or (preset.end_hhmm if preset else row.end_hhmm))[:5]
     row.label = (body.label or "")[:80]
     row.note = (body.note or "")[:200]
+    row.published = 0   # an edit is an unpublished change until re-shared (Teams)
     db.commit()
     return _sched_dict(row, {preset.id: preset} if preset else {})
 
@@ -4095,6 +4116,51 @@ def delete_scheduled(sched_id: str, user: dict = Depends(require_team_write),
         db.delete(row)
         db.commit()
     return {"ok": True}
+
+
+class PublishScheduleIn(BaseModel):
+    start_date: str                        # YYYY-MM-DD (inclusive)
+    end_date: str                          # YYYY-MM-DD (inclusive)
+    group_id: Optional[str] = ""           # optional: publish just one group's shifts
+    emails: List[str] = []                 # optional: publish just these people's shifts
+
+
+@router.post("/schedule/publish")
+def publish_schedule(body: PublishScheduleIn, user: dict = Depends(require_team_write),
+                     db: Session = Depends(get_db)):
+    """Publish (share) all DRAFT shifts in a date range so the team can see them -
+    the Teams "Share with team" action. Flips unpublished -> published within the
+    caller's team scope; team-wide OPEN shifts publish too (unless narrowed to a
+    group/people, since open slots belong to no group). Idempotent - re-running
+    with nothing left to publish just returns 0."""
+    d0, d1 = body.start_date[:10], body.end_date[:10]
+    try:
+        datetime.strptime(d0, "%Y-%m-%d"); datetime.strptime(d1, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Invalid date range.")
+    if d1 < d0:
+        raise HTTPException(400, "End date is before the start date.")
+    scope = _visible_emails(db, user)
+    q = (db.query(ScheduledShift)
+         .filter(ScheduledShift.work_date >= d0, ScheduledShift.work_date <= d1,
+                 ScheduledShift.published == 0))
+    if scope is not None:
+        q = q.filter((ScheduledShift.employee_email.in_(list(scope))) |
+                     (ScheduledShift.employee_email == ""))
+    narrow = {e.strip().lower() for e in body.emails if e and e.strip()}
+    if (body.group_id or "").strip():
+        narrow |= {(m.employee_email or "").lower() for m in
+                   db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == body.group_id.strip()).all()
+                   if m.employee_email}
+    if narrow:
+        # Narrowed publish targets named people only (drops team-wide open slots).
+        q = q.filter(ScheduledShift.employee_email.in_(list(narrow)))
+    n = 0
+    for r in q.all():
+        r.published = 1
+        n += 1
+    db.commit()
+    return {"published": n}
 
 
 # ── Payroll timecard (manager-editable, per pay period) ───────────────────────
@@ -4197,7 +4263,8 @@ def _shift_start_for(db: Session, email: str, dd: date):
     (it never affects pay)."""
     sched = (db.query(ScheduledShift)
              .filter(ScheduledShift.employee_email == email,
-                     ScheduledShift.work_date == dd.isoformat()).first())
+                     ScheduledShift.work_date == dd.isoformat(),
+                     ScheduledShift.published == 1).first())   # unpublished drafts don't drive Late
     if sched:
         grace = 10
         if sched.shift_id:

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star } from 'lucide-react';
 import { api } from '../api';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
@@ -35,6 +35,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const [openCell, setOpenCell] = useState(null);   // { date, existing? } - open-shift editor
   const [bulkOpen, setBulkOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(null);   // a shift on the "clipboard" to paste into a cell
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
@@ -88,6 +89,29 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     return { min, people: people.size };
   };
   const weekMin = (data?.scheduled || []).reduce((a, s) => a + durMin(s.start, s.end), 0);
+  const canManage = data?.canManage !== false;   // schedulers see/manage drafts
+  const unpublished = (data?.scheduled || []).filter(s => s.published === false).length;
+
+  async function publishWeek() {
+    setBusy(true);
+    try {
+      const r = await api.timeSchedPublish({ start_date: start, end_date: end });
+      toastOk?.(r.published ? `Shared ${r.published} shift${r.published !== 1 ? 's' : ''} with the team.` : 'Nothing new to share.');
+      load();
+    } catch (e) { toastErr?.(e?.message || 'Could not publish.'); }
+    setBusy(false);
+  }
+  // Copy/paste: stash a shift, then click an empty cell to drop a draft copy there.
+  async function pasteInto(email, date) {
+    if (!copied) return;
+    setBusy(true);
+    try {
+      await api.timeSchedCreate({ employee_email: email, work_date: date, shift_id: copied.shiftId,
+        start_hhmm: copied.start, end_hhmm: copied.end, label: copied.label, note: copied.note });
+      toastOk?.('Shift copied here.'); load();
+    } catch (e) { toastErr?.(e?.message || 'Could not paste the shift.'); }
+    setBusy(false);
+  }
 
   async function saveCell(payload) {
     setBusy(true);
@@ -150,12 +174,30 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
         </div>
         <span style={{ fontSize: 14, fontWeight: 800 }}>{rangeLabel}</span>
         <div style={{ flex: 1 }} />
-        <button className="primary-btn" onClick={() => setBulkOpen(true)}
+        <button className="secondary-btn" onClick={() => setBulkOpen(true)}
           style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <CalendarRange size={14} /> Fill schedule
         </button>
+        {canManage && (
+          <button className={unpublished ? 'primary-btn' : 'secondary-btn'} onClick={publishWeek}
+            disabled={busy || !unpublished} title={unpublished ? 'Share these shifts with the team' : 'Everything in this week is already shared'}
+            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Send size={13} /> {unpublished ? `Publish ${unpublished}` : 'All shared'}
+          </button>
+        )}
         <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Week: {fmtHrs(weekMin)}</span>
       </div>
+
+      {copied && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '8px 12px',
+          background: 'hsla(var(--color-green),0.08)', border: '1px dashed hsl(var(--color-green))', borderRadius: 10, fontSize: 12.5 }}>
+          <Copy size={14} style={{ color: 'hsl(var(--color-green))' }} />
+          <span style={{ fontWeight: 700 }}>Copied {copied.code || 'shift'} ({t12(copied.start)}–{t12(copied.end)})</span>
+          <span style={{ color: 'var(--muted)' }}>- click any empty cell to place it.</span>
+          <div style={{ flex: 1 }} />
+          <button className="secondary-btn" onClick={() => setCopied(null)} style={{ fontSize: 12 }}>Cancel</button>
+        </div>
+      )}
 
       {data === null ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>
@@ -202,7 +244,10 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                       <div key={s.id} onClick={(e) => { e.stopPropagation(); setOpenCell({ date: ds, existing: s }); }}
                         style={{ background: (s.color || '#16a34a') + '18', border: `1px dashed ${s.color || '#16a34a'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer' }}>
                         <div style={{ fontSize: 11, fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-                          <span>{s.code || 'Open'}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            {s.published === false && <Star size={10} fill="#f59e0b" color="#f59e0b" style={{ flexShrink: 0 }} />}
+                            {s.code || 'Open'}
+                          </span>
                           {(s.openSlots || 1) > 1 && <span style={{ fontSize: 10, background: '#16a34a', color: '#fff', borderRadius: 10, padding: '0 6px' }}>×{s.openSlots}</span>}
                         </div>
                         <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={9} /> {t12(s.start)}–{t12(s.end)}</div>
@@ -246,7 +291,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                       const items = byCell[`${emp.email}|${ds}`] || [];
                       const off = offOn(emp.email, ds);
                       return (
-                        <div key={di} onClick={() => !items.length && setCell({ email: emp.email, date: ds })}
+                        <div key={di} onClick={() => { if (!items.length) { copied ? pasteInto(emp.email, ds) : (!off && setCell({ email: emp.email, date: ds })); } }}
                           style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 54, cursor: items.length ? 'default' : 'pointer', position: 'relative' }}
                           className="sched-cell">
                           {off && !items.length && (
@@ -257,8 +302,13 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                           )}
                           {items.map(s => (
                             <div key={s.id} onClick={(e) => { e.stopPropagation(); setCell({ email: emp.email, date: ds, existing: s }); }}
-                              style={{ background: (s.color || '#64748b') + '22', borderLeft: `3px solid ${s.color || '#64748b'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer' }}>
-                              <div style={{ fontSize: 11, fontWeight: 800, color: '#334155' }}>{s.code || 'Shift'}</div>
+                              title={s.published === false ? 'Draft - not shared with the team yet' : undefined}
+                              style={{ background: (s.color || '#64748b') + '22', borderLeft: `3px solid ${s.color || '#64748b'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer',
+                                ...(s.published === false ? { outline: `1.5px dashed ${s.color || '#64748b'}`, outlineOffset: -2, opacity: 0.9 } : {}) }}>
+                              <div style={{ fontSize: 11, fontWeight: 800, color: '#334155', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                {s.published === false && <Star size={10} fill="#f59e0b" color="#f59e0b" style={{ flexShrink: 0 }} />}
+                                <span>{s.code || 'Shift'}</span>
+                              </div>
                               <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={9} /> {t12(s.start)}–{t12(s.end)}</div>
                               {s.label && <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>}
                             </div>
@@ -281,7 +331,8 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
 
       {cell && (
         <CellModal cell={cell} shifts={data?.shifts || []} busy={busy}
-          onSave={saveCell} onDelete={delCell} onClose={() => setCell(null)} />
+          onSave={saveCell} onDelete={delCell} onClose={() => setCell(null)}
+          onCopy={(s) => { setCopied(s); setCell(null); }} />
       )}
 
       {bulkOpen && (
@@ -470,7 +521,7 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
   );
 }
 
-function CellModal({ cell, shifts, busy, onSave, onDelete, onClose }) {
+function CellModal({ cell, shifts, busy, onSave, onDelete, onClose, onCopy }) {
   const ex = cell.existing;
   const [shiftId, setShiftId] = useState(ex?.shiftId || (shifts[0]?.id || ''));
   const [start, setStart] = useState(ex?.start || '');
@@ -525,6 +576,7 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onClose }) {
         )}
         <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
           {ex && <button onClick={() => onDelete(ex.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={13} /> Remove</button>}
+          {ex && onCopy && <button onClick={() => onCopy(ex)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }} title="Copy this shift to place on another person or day"><Copy size={13} /> Copy</button>}
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
           {shifts.length > 0 && <button className="primary-btn" onClick={submit} disabled={busy}>{busy ? '…' : 'Save'}</button>}
