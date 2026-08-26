@@ -2644,35 +2644,70 @@
 
     // Export all measurements to a CSV the user can open in Excel (Quantity Link
     // equivalent) - type, page, value, unit, plus the per-type totals.
-    window.exportMeasurements = function exportMeasurements() {
+    // Shared measurement + totals tables used by both the xlsx and csv paths.
+    function _buildMeasureTables() {
         const rows = collectMeasurements();
+        const uSuf = (m) => m.unit + (m.cubic ? '³' : m.area ? '²' : '');
+        const detail = rows.map((m) => ({
+            Type: m.type,
+            Subject: m.subject || m.type,
+            Page: m.page,
+            Value: m.kind === 'mcount' ? m.value : +m.value.toFixed(4),
+            Unit: uSuf(m),
+            Label: m.label || '',
+        }));
+        const tmap = {};
+        rows.forEach((m) => {
+            const grp = m.subject || m.type;
+            const k = grp + '|' + uSuf(m);
+            tmap[k] = tmap[k] || { Subject: grp, Type: m.type, Unit: uSuf(m), Total: 0, Count: 0, kind: m.kind };
+            tmap[k].Total += m.value; tmap[k].Count++;
+        });
+        const totals = Object.values(tmap).map((t) => ({
+            Subject: t.Subject, Type: t.Type,
+            Total: t.kind === 'mcount' ? t.Count : +t.Total.toFixed(4),
+            Unit: t.Unit, Count: t.Count,
+        }));
+        return { rows, detail, totals };
+    }
+
+    // Export to a real Excel workbook (Measurements + Totals sheets) using the
+    // bundled SheetJS. Falls back to CSV if the library can't be loaded.
+    window.exportMeasurements = async function exportMeasurements() {
+        const { rows, detail, totals } = _buildMeasureTables();
         if (!rows.length) { showToast('No measurements to export'); return; }
-        const esc = (s) => '"' + String(s).replace(/"/g, '""') + '"';
-        const csvSuffix = (m) => m.cubic ? '3' : m.area ? '2' : '';
-        let csv = 'Type,Page,Value,Unit,Label\n';
-        rows.forEach((m) => {
-            const val = m.kind === 'mcount' ? m.value : m.value.toFixed(4);
-            csv += [esc(m.type), m.page, val, esc(m.unit + csvSuffix(m)), esc(m.label || '')].join(',') + '\n';
-        });
-        csv += '\nTotals\n';
-        const totals = {};
-        rows.forEach((m) => {
-            const uSuf = m.unit + csvSuffix(m);
-            const k = m.type + '|' + uSuf;
-            totals[k] = totals[k] || { type: m.type, unit: uSuf, sum: 0, count: 0, kind: m.kind };
-            totals[k].sum += m.value; totals[k].count++;
-        });
-        Object.values(totals).forEach((t) => {
-            const sum = t.kind === 'mcount' ? t.count : t.sum.toFixed(4);
-            csv += [esc(t.type), '', sum, esc(t.unit), ''].join(',') + '\n';
-        });
+        const base = (state.fileName || 'document').replace(/\.pdf$/i, '') + '_measurements';
+        try {
+            if (typeof XLSX === 'undefined') {
+                await loadScript('libs/xlsx.full.min.js')
+                    .catch(() => loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'));
+            }
+            const wb = XLSX.utils.book_new();
+            const wsD = XLSX.utils.json_to_sheet(detail, { header: ['Type', 'Subject', 'Page', 'Value', 'Unit', 'Label'] });
+            const wsT = XLSX.utils.json_to_sheet(totals, { header: ['Subject', 'Type', 'Total', 'Unit', 'Count'] });
+            XLSX.utils.book_append_sheet(wb, wsD, 'Measurements');
+            XLSX.utils.book_append_sheet(wb, wsT, 'Totals');
+            XLSX.writeFile(wb, base + '.xlsx');
+            showToast('Exported ' + rows.length + ' measurements to Excel (.xlsx)');
+        } catch (e) {
+            console.warn('xlsx export failed, falling back to CSV:', e);
+            _exportMeasurementsCsv(detail, totals, base, rows.length);
+        }
+    };
+
+    function _exportMeasurementsCsv(detail, totals, base, n) {
+        const esc = (s) => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+        let csv = 'Type,Subject,Page,Value,Unit,Label\n';
+        detail.forEach((r) => { csv += [esc(r.Type), esc(r.Subject), r.Page, r.Value, esc(r.Unit), esc(r.Label)].join(',') + '\n'; });
+        csv += '\nTotals\nSubject,Type,Total,Unit,Count\n';
+        totals.forEach((t) => { csv += [esc(t.Subject), esc(t.Type), t.Total, esc(t.Unit), t.Count].join(',') + '\n'; });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-        a.download = (state.fileName || 'document').replace(/\.pdf$/i, '') + '_measurements.csv';
+        a.download = base + '.csv';
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-        showToast('Exported ' + rows.length + ' measurements to CSV');
-    };
+        showToast('Exported ' + n + ' measurements to CSV');
+    }
 
     window.toggleMeasureList = function toggleMeasureList() {
         const panel = document.getElementById('measureListPanel');
