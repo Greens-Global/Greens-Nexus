@@ -2073,10 +2073,26 @@
     };
 
     // Absolute canvas-space vertices of a fabric polygon/polyline object.
+    // Fabric stores points relative to the point-set's own min corner and places
+    // the object at left/top = that min corner (default originX/Y left/top). Using
+    // pathOffset (the bbox CENTER) as the base is wrong and shifts every vertex,
+    // so anchor on the actual min of the points instead.
     function _absVerts(o) {
-        const ox = o.left, oy = o.top;
-        const px0 = o.pathOffset ? o.pathOffset.x : 0, py0 = o.pathOffset ? o.pathOffset.y : 0;
-        return (o.points || []).map(pt => ({ x: ox + (pt.x - px0), y: oy + (pt.y - py0) }));
+        const pts = o.points || [];
+        if (!pts.length) return [];
+        let minX = Infinity, minY = Infinity;
+        for (const pt of pts) { if (pt.x < minX) minX = pt.x; if (pt.y < minY) minY = pt.y; }
+        const m = o.calcTransformMatrix ? o.calcTransformMatrix() : null;
+        return pts.map(pt => {
+            // Local coords relative to the object's top-left origin.
+            const lx = pt.x - minX, ly = pt.y - minY;
+            if (m) {
+                // Honor any move/scale/rotate applied after creation.
+                return { x: m[0] * (pt.x - o.pathOffset.x) + m[2] * (pt.y - o.pathOffset.y) + m[4],
+                         y: m[1] * (pt.x - o.pathOffset.x) + m[3] * (pt.y - o.pathOffset.y) + m[5] };
+            }
+            return { x: o.left + lx, y: o.top + ly };
+        });
     }
     // Ray-casting point-in-polygon.
     function _pointInPoly(p, verts) {
