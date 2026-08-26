@@ -2108,17 +2108,14 @@
     // Collect every measurement across ALL pages: the current page from live
     // fabric objects, other pages from their saved annotation JSON.
     function collectMeasurements() {
+        // Persist the live canvas first so the current page's measurements are
+        // also in state.annotations - then read EVERYTHING from there. This
+        // avoids double-counting (live + saved) and guarantees the page number
+        // is the annotation key, not a stale value stored on the object.
+        try { if (fabricCanvas) saveCurrentAnnotations(); } catch (_) {}
         const rows = [];
-        // Current page - live objects (freshest).
-        if (fabricCanvas) {
-            fabricCanvas.getObjects().forEach((o) => {
-                if (o._measure) rows.push({ ...o._measure, _live: o });
-            });
-        }
-        // Other pages - from saved annotation JSON.
         for (const [pgStr, entry] of Object.entries(state.annotations || {})) {
             const pg = parseInt(pgStr, 10);
-            if (pg === state.currentPage) continue;
             const objs = (entry && (entry.fabricData || entry).objects) || [];
             objs.forEach((o) => { if (o._measure) rows.push({ ...o._measure, page: pg }); });
         }
@@ -7709,39 +7706,34 @@
         if (!v) return;
         pushDocSnapshot('N-up');
         setStatus('Building N-up...');
-        try {
-            const n = parseInt(v.n, 10);
-            const cols = n === 2 ? 2 : n === 4 ? 2 : n === 6 ? 2 : 3;
-            const rows = n === 2 ? 1 : n === 4 ? 2 : n === 6 ? 3 : 3;
+
+        const n = parseInt(v.n, 10);
+        const cols = n === 2 ? 2 : n === 4 ? 2 : n === 6 ? 2 : 3;
+        const rows = n === 2 ? 1 : n === 4 ? 2 : n === 6 ? 3 : 3;
+
+        // Layout N pages per sheet. `mode` is 'vector' (embedPdf - crisp) or
+        // 'image' (pdf.js render - works on ANY compression). embedPdf decodes
+        // lazily at save() time, so a bad-compression PDF only throws THERE - we
+        // run the whole build+save and, on failure, retry in image mode.
+        const buildNup = async (mode) => {
             const src = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             const out = await PDFLib.PDFDocument.create();
             const first = src.getPage(0);
             const pw = first.getWidth(), ph = first.getHeight();
-            // landscape sheet for 2-up, else portrait, sized to the source
             const sheetW = cols >= rows ? Math.max(pw, ph) : Math.min(pw, ph);
             const sheetH = cols >= rows ? Math.min(pw, ph) : Math.max(pw, ph);
             const total = src.getPageCount();
             const cellW = sheetW / cols, cellH = sheetH / rows;
 
-            // Try to embed the pages as VECTORS (crisp, small). Some PDFs use
-            // content-stream compression pdf-lib's embedder can't decode ("unknown
-            // compression method in flate stream") - fall back to rendering each
-            // page to an image via pdf.js (which decodes everything).
             let embedded = null;
-            try {
+            const pageImg = [];
+            if (mode === 'vector') {
                 embedded = await out.embedPdf(src, Array.from({ length: total }, (_, i) => i));
-            } catch (embedErr) {
-                console.warn('N-up: vector embed failed, using image fallback:', embedErr.message);
-                embedded = null;
-            }
-
-            // Pre-render page images if we need the fallback.
-            const pageImg = [];   // { png, w, h } per source page (image mode only)
-            if (!embedded) {
+            } else {
                 for (let i = 0; i < total; i++) {
                     setStatus('Building N-up... rendering page ' + (i + 1) + '/' + total);
                     const pg = await state.pdfDoc.getPage(i + 1);
-                    const vp = pg.getViewport({ scale: 1.5 });   // decent quality
+                    const vp = pg.getViewport({ scale: 1.5 });
                     const canvas = document.createElement('canvas');
                     canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
                     const cx2 = canvas.getContext('2d');
@@ -7752,13 +7744,12 @@
                     pageImg.push({ png, w: base.width, h: base.height });
                 }
             }
-
             for (let i = 0; i < total; i += n) {
                 const sheet = out.addPage([sheetW, sheetH]);
                 for (let k = 0; k < n && i + k < total; k++) {
                     const idx = i + k;
                     let ew, eh, place;
-                    if (embedded) {
+                    if (mode === 'vector') {
                         const emb = embedded[idx];
                         ew = emb.width; eh = emb.height;
                         try {
@@ -7779,9 +7770,19 @@
                     place({ x, y, width: w, height: h });
                 }
             }
-            const bytes = await out.save();
-            // Apply IN the editor (Pranshu) - don't force a download. The user
-            // can keep editing and download when ready via Save/Download.
+            return await out.save();   // vector mode throws HERE on bad compression
+        };
+
+        try {
+            let bytes;
+            try {
+                bytes = await buildNup('vector');
+            } catch (vecErr) {
+                console.warn('N-up: vector build failed (' + vecErr.message + '), retrying as images');
+                setStatus('Building N-up (image mode)...');
+                bytes = await buildNup('image');   // works on any compression
+            }
+            // Apply IN the editor - don't force a download.
             await _reloadFromBytes(bytes, n + '-up layout applied - keep editing, then Save when ready');
             showToast('Created a ' + n + ' pages-per-sheet layout - download it with Save when ready');
         } catch (err) { console.error(err); showToast('N-up failed: ' + err.message); }
