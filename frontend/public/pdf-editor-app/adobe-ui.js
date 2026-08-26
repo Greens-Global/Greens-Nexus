@@ -353,6 +353,10 @@
       ['mlength',    '↦ Measure length'],
       ['mperim',     '⟿ Measure perimeter'],
       ['marea',      '▦ Measure area'],
+      ['mangle',     '∠ Measure angle'],
+      ['mradius',    '◐ Measure radius / diameter'],
+      ['mvolume',    '⬒ Measure volume (area × depth)'],
+      ['mcount',     '# Count'],
       ['mlist',      '☰ Measurements list & totals', true],  // action: open the panel
     ];
     for (const [kind, label, isAction] of MMODES) {
@@ -395,7 +399,7 @@
     const shapeMenu = document.getElementById('shapeMenu');
     if (shapeMenu) {
       shapeMenu.querySelectorAll('.dropdown-item').forEach(it => {
-        if (['mcalibrate','mlength','mperim','marea'].includes(it.dataset.kind)) it.remove();
+        if (['mcalibrate','mlength','mperim','marea','mangle','mradius','mvolume','mcount'].includes(it.dataset.kind)) it.remove();
       });
       shapeMenu.querySelectorAll('.dropdown-group-label').forEach(h => {
         if (/measure & scale/i.test(h.textContent)) h.remove();

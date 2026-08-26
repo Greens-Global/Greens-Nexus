@@ -1758,7 +1758,20 @@
     let shapeKind = 'rect';
     let shapeStyle = 'solid'; // solid | dashed | dotted
     // Exposed so the UI layer's Shape dropdown can pick the shape type/style.
-    window.setShapeKind = (k) => { shapeKind = k; };
+    window.setShapeKind = (k) => {
+        shapeKind = k;
+        // One-line hint per measure tool so the click sequence + snapping is discoverable.
+        const hints = {
+            mangle:  'Angle: click first ray end, then the vertex, then the second ray end',
+            mradius: 'Radius: click the center, then the edge (shows radius + diameter)',
+            mvolume: 'Volume: outline the area, double-click to finish, then enter a depth',
+            mcount:  'Count: click to drop markers - the list tallies them',
+            mlength: 'Length: click two points. Hold Shift for straight/45 deg; snaps to nearby ends',
+            mperim:  'Perimeter: click points, double-click to close. Shift = ortho, snaps to ends',
+            marea:   'Area: click points, double-click to close. Shift = ortho, snaps to ends',
+        };
+        if (hints[k]) setStatus(hints[k]);
+    };
     window.setShapeStyle = (s) => { shapeStyle = s; };
     const shapeDash = (w) => shapeStyle === 'dashed' ? [w * 3.5, w * 2.5]
         : shapeStyle === 'dotted' ? [Math.max(1, w * 0.5), w * 2.2] : null;
@@ -1895,6 +1908,48 @@
     // Canvas px -> page px (undo the zoom) so measurements are zoom-independent.
     const toPagePx = (d) => d / (state.zoom || 1);
 
+    // ── Snapping ────────────────────────────────────────────────────────────
+    // Ortho: hold Shift to lock the segment being drawn to 0/45/90 deg off the
+    // previous point. Endpoint: snap the cursor to a nearby vertex of an existing
+    // measurement markup so chained take-offs meet exactly.
+    let _snapShift = false;   // updated from key state on every measure move/click
+    const SNAP_PX = 10;       // endpoint snap radius, in canvas px
+    function _orthoSnap(from, p) {
+        if (!from) return p;
+        const dx = p.x - from.x, dy = p.y - from.y;
+        const ang = Math.atan2(dy, dx);
+        const step = Math.PI / 4;                       // 45 deg increments
+        const snapAng = Math.round(ang / step) * step;
+        const len = Math.hypot(dx, dy);
+        return { x: from.x + Math.cos(snapAng) * len, y: from.y + Math.sin(snapAng) * len };
+    }
+    function _endpointSnap(p) {
+        // Scan existing measurement shapes on the canvas for a nearby vertex.
+        let best = null, bestD = SNAP_PX;
+        fabricCanvas.forEachObject((o) => {
+            if (!o._measure && !o._measurePt) return;
+            const verts = [];
+            if (o.type === 'line') { verts.push({ x: o.x1, y: o.y1 }, { x: o.x2, y: o.y2 }); }
+            else if (o.points && o.points.length) {
+                // Polyline/Polygon points are relative to the object's own origin.
+                const ox = o.left, oy = o.top;
+                const px0 = o.pathOffset ? o.pathOffset.x : 0, py0 = o.pathOffset ? o.pathOffset.y : 0;
+                o.points.forEach(pt => verts.push({ x: ox + (pt.x - px0), y: oy + (pt.y - py0) }));
+            } else if (o._measurePt) { verts.push({ x: o.left, y: o.top }); }
+            for (const v of verts) {
+                const d = Math.hypot(v.x - p.x, v.y - p.y);
+                if (d < bestD) { bestD = d; best = v; }
+            }
+        });
+        return best || p;
+    }
+    // Apply snapping to a raw pointer position given the anchor it extends from.
+    function _snapPoint(p, from) {
+        let out = _endpointSnap(p);                     // endpoint wins if in range
+        if (out === p && _snapShift && from) out = _orthoSnap(from, p);
+        return out;
+    }
+
     // Length units, all expressed in millimetres (the base) so any unit can be
     // converted to any other. PDF user space is 72 points = 1 inch = 25.4 mm.
     const UNIT_MM = { mm: 1, cm: 10, m: 1000, in: 25.4, ft: 304.8, yd: 914.4 };
@@ -1958,11 +2013,33 @@
         const pts = livePt ? [...measurePts, livePt] : [...measurePts];
         if (pts.length < 2) return;
         const base = measureStyleBase();
-        const shape = (measureKind === 'marea')
+        const areaKind = (measureKind === 'marea' || measureKind === 'mvolume');
+        const shape = areaKind
             ? new fabric.Polygon(pts, { ...base, fill: 'rgba(76,110,245,0.12)' })
             : new fabric.Polyline(pts, { ...base, fill: '' });
         _isRestoring = true; fabricCanvas.add(shape); measurePreview = shape; _isRestoring = false;
         fabricCanvas.renderAll();
+    }
+
+    // Count tool: drop a small numbered dot. Each marker is its own measurement
+    // row (type "Count"); the Markups List tallies them.
+    let _countSeq = 0;
+    function placeCountMarker(p) {
+        const color = dom.colorPicker.value || '#e8590c';
+        const dot = new fabric.Circle({ left: p.x, top: p.y, radius: 6, fill: color,
+            stroke: '#fff', strokeWidth: 1.5, originX: 'center', originY: 'center', selectable: true });
+        _countSeq += 1;
+        const num = new fabric.Text(String(_countSeq), { left: p.x, top: p.y - 16, fontSize: 12,
+            fill: '#fff', backgroundColor: color, fontFamily: 'sans-serif', padding: 2,
+            originX: 'center', originY: 'center', selectable: false });
+        dot._measurePt = true;   // so endpoint-snap can see it
+        dot._measure = { kind: 'mcount', type: 'Count', value: 1, unit: '', area: false,
+                         page: state.currentPage, label: '' };
+        num._measureLabelFor = dot._measure;
+        fabricCanvas.add(dot); fabricCanvas.add(num);
+        saveAnnotationState(); saveCurrentAnnotations();
+        if (window.renderMeasureList) window.renderMeasureList();
+        setStatus('Count: ' + _countSeq + ' - click to add more, switch tools when done');
     }
 
     // Set Scale dialog (Bluebeam-style): type the scale directly, e.g. 1 in =
@@ -2005,10 +2082,17 @@
         showToast('Scale calibrated - measurements will show in ' + measureUnit);
     }
 
+    const _MEASURE_KINDS = ['mlength', 'mperim', 'marea', 'mcalibrate', 'mangle', 'mradius', 'mvolume', 'mcount'];
     function handleMeasureClick(opt) {
         if (state.activeTool !== 'shape') return;
-        if (!['mlength', 'mperim', 'marea', 'mcalibrate'].includes(shapeKind)) return;
-        const p = fabricCanvas.getPointer(opt.e);
+        if (!_MEASURE_KINDS.includes(shapeKind)) return;
+        _snapShift = !!(opt.e && opt.e.shiftKey);
+        const raw = fabricCanvas.getPointer(opt.e);
+        const anchor = measurePts.length ? measurePts[measurePts.length - 1] : null;
+        const p = _snapPoint(raw, anchor);
+
+        // Count: each click drops a numbered marker; no scale required.
+        if (shapeKind === 'mcount') { placeCountMarker(p); return; }
 
         if (shapeKind === 'mcalibrate') {
             // Two clicks define a known distance, then ask its real length.
@@ -2034,22 +2118,89 @@
             setStatus('Measurement needs a scale - use "Calibrate scale" first');
             return;
         }
-        measureKind = (shapeKind === 'mlength') ? 'mlength' : (shapeKind === 'marea' ? 'marea' : 'mperim');
+        measureKind = shapeKind;    // mlength | mperim | marea | mangle | mradius | mvolume
         measurePts.push({ x: p.x, y: p.y });
         measureRedraw();
+        // Auto-finish at the natural point count for the fixed-vertex tools.
         if (measureKind === 'mlength' && measurePts.length === 2) measureFinish();
+        else if (measureKind === 'mradius' && measurePts.length === 2) measureFinish();
+        else if (measureKind === 'mangle' && measurePts.length === 3) measureFinish();
+        else if (measureKind === 'mangle')
+            setStatus(measurePts.length === 1 ? 'Angle: click the vertex' : 'Angle: click the second ray end');
         else setStatus('Click to add points - double-click (or Enter) to finish, Esc to cancel');
     }
     function handleMeasureMove(opt) {
         if (!measureKind || !measurePts.length) return;
-        const p = fabricCanvas.getPointer(opt.e);
-        measureRedraw({ x: p.x, y: p.y });
+        _snapShift = !!(opt.e && opt.e.shiftKey);
+        const raw = fabricCanvas.getPointer(opt.e);
+        const p = _snapPoint(raw, measurePts[measurePts.length - 1]);
+        measureRedraw(p);
+    }
+    // Angle at pts[1] (vertex) between rays to pts[0] and pts[2], in degrees.
+    function angleDeg(pts) {
+        const [a, b, c] = pts;
+        const v1 = { x: a.x - b.x, y: a.y - b.y };
+        const v2 = { x: c.x - b.x, y: c.y - b.y };
+        const dot = v1.x * v2.x + v1.y * v2.y;
+        const m = Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y) || 1;
+        return Math.acos(Math.max(-1, Math.min(1, dot / m))) * 180 / Math.PI;
     }
     function measureFinish() {
         if (!measureKind) return;
         if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
         const pts = measurePts;
-        const need = measureKind === 'marea' ? 3 : 2;
+        // Angle needs 3 pts; area/volume need 3; radius/length need 2.
+        const need = (measureKind === 'marea' || measureKind === 'mvolume' || measureKind === 'mangle') ? 3 : 2;
+
+        // Angle: report degrees, no scale needed.
+        if (measureKind === 'mangle') {
+            if (pts.length >= 3) {
+                const base = measureStyleBase(); base.selectable = true; base.fill = '';
+                const shape = new fabric.Polyline([pts[0], pts[1], pts[2]], base);
+                fabricCanvas.add(shape);
+                const deg = angleDeg(pts);
+                shape._measure = { kind: 'mangle', type: 'Angle', value: deg, unit: '°',
+                                   area: false, page: state.currentPage, label: '' };
+                const lbl = measureLabel(deg.toFixed(1) + '°', pts[1].x + 14, pts[1].y - 14);
+                lbl.selectable = true; lbl._measureLabelFor = shape._measure;
+                fabricCanvas.add(lbl);
+                saveAnnotationState(); saveCurrentAnnotations();
+                if (window.renderMeasureList) window.renderMeasureList();
+            }
+            measurePts = []; measureKind = null; fabricCanvas.renderAll(); setStatus('Ready'); return;
+        }
+
+        // Radius / diameter: two clicks = center + edge (radius) OR edge-to-edge.
+        // We treat it as a straight distance and report both radius and diameter.
+        if (measureKind === 'mradius') {
+            if (pts.length >= 2 && measureScale) {
+                const base = measureStyleBase(); base.selectable = true;
+                const shape = new fabric.Line([pts[0].x, pts[0].y, pts[1].x, pts[1].y], base);
+                fabricCanvas.add(shape);
+                const dist = toPagePx(polyLenPx(pts, false)) * measureScale;   // real radius
+                shape._measure = { kind: 'mradius', type: 'Radius', value: dist, unit: measureUnit,
+                                   area: false, page: state.currentPage, label: '',
+                                   diameter: dist * 2 };
+                const cx = (pts[0].x + pts[1].x) / 2, cy = (pts[0].y + pts[1].y) / 2 - 12;
+                const lbl = measureLabel('R ' + dist.toFixed(2) + ' ' + measureUnit
+                    + '  (Ø ' + (dist * 2).toFixed(2) + ')', cx, cy);
+                lbl.selectable = true; lbl._measureLabelFor = shape._measure;
+                fabricCanvas.add(lbl);
+                saveAnnotationState(); saveCurrentAnnotations();
+                if (window.renderMeasureList) window.renderMeasureList();
+            } else if (!measureScale) {
+                showToast('Set the scale first');
+            }
+            measurePts = []; measureKind = null; fabricCanvas.renderAll(); setStatus('Ready'); return;
+        }
+
+        // Volume: draw the area polygon, then ask for a depth and multiply.
+        if (measureKind === 'mvolume') {
+            if (pts.length >= 3 && measureScale) { finishVolume([...pts]); }
+            else if (!measureScale) { showToast('Set the scale first'); }
+            measurePts = []; measureKind = null; fabricCanvas.renderAll(); setStatus('Ready'); return;
+        }
+
         if (pts.length >= need) {
             const base = measureStyleBase(); base.selectable = true;
             let label, cx, cy;
@@ -2104,6 +2255,33 @@
         fabricCanvas.renderAll();
     }
 
+    // Volume = polygon area x a depth the user types. Result is in cubic units of
+    // the current measure unit (e.g. ft³). Depth is entered in the same unit.
+    async function finishVolume(pts) {
+        const base = measureStyleBase(); base.selectable = true;
+        const shape = new fabric.Polygon(pts, { ...base, fill: 'rgba(76,110,245,0.12)' });
+        fabricCanvas.add(shape); fabricCanvas.renderAll();
+        const areaPagePx = toPagePx(toPagePx(polyAreaPx(pts)));
+        const area = areaPagePx * measureScale * measureScale;      // real area
+        const ans = await customPrompt(
+            'Enter the depth / thickness in ' + measureUnit + ' (e.g. 0.5):',
+            'depth in ' + measureUnit, '1');
+        if (!ans) { fabricCanvas.remove(shape); fabricCanvas.renderAll(); setStatus('Volume cancelled'); return; }
+        const depth = parseFloat(ans);
+        if (!(depth > 0)) { fabricCanvas.remove(shape); showToast('Enter a valid depth'); return; }
+        const vol = area * depth;
+        shape._measure = { kind: 'mvolume', type: 'Volume', value: vol, unit: measureUnit,
+                           area: false, cubic: true, page: state.currentPage, label: '',
+                           baseArea: area, depth: depth };
+        const cx = pts.reduce((s,p)=>s+p.x,0)/pts.length, cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
+        const lbl = measureLabel(vol.toFixed(2) + ' ' + measureUnit + '³', cx, cy);
+        lbl.selectable = true; lbl._measureLabelFor = shape._measure;
+        fabricCanvas.add(lbl);
+        saveAnnotationState(); saveCurrentAnnotations();
+        if (window.renderMeasureList) window.renderMeasureList();
+        setStatus('Volume: ' + vol.toFixed(2) + ' ' + measureUnit + '³');
+    }
+
     // ── Markups List + Totals (Bluebeam-style takeoff panel) ────────────────────
     // Collect every measurement across ALL pages: the current page from live
     // fabric objects, other pages from their saved annotation JSON.
@@ -2123,8 +2301,15 @@
         return rows;
     }
 
+    function _unitSuffix(m) {
+        if (m.cubic) return '³';
+        if (m.area) return '²';
+        return '';
+    }
     function _fmtVal(m) {
-        return m.value.toFixed(2) + ' ' + m.unit + (m.area ? '²' : '');
+        if (m.kind === 'mcount') return String(m.value);           // plain integer
+        if (m.kind === 'mangle') return m.value.toFixed(1) + '°';  // unit already '°'
+        return m.value.toFixed(2) + ' ' + m.unit + _unitSuffix(m);
     }
 
     window.renderMeasureList = function renderMeasureList() {
@@ -2133,14 +2318,15 @@
         const body = panel.querySelector('.measure-list-body');
         const rows = collectMeasurements();
         if (!rows.length) {
-            body.innerHTML = '<div class="measure-empty">No measurements yet. Use the Measure tool to add length, perimeter or area.</div>';
+            body.innerHTML = '<div class="measure-empty">No measurements yet. Use the Measure tool for length, perimeter, area, angle, radius, volume or count.</div>';
             return;
         }
         // Totals per type+unit.
         const totals = {};
         rows.forEach((m) => {
-            const key = m.type + '|' + m.unit + (m.area ? '²' : '');
-            totals[key] = totals[key] || { type: m.type, unit: m.unit + (m.area ? '²' : ''), sum: 0, count: 0 };
+            const uSuf = m.unit + _unitSuffix(m);
+            const key = m.type + '|' + uSuf;
+            totals[key] = totals[key] || { type: m.type, unit: uSuf, sum: 0, count: 0, kind: m.kind };
             totals[key].sum += m.value; totals[key].count++;
         });
         let html = '';
@@ -2153,7 +2339,11 @@
         });
         html += '<div class="measure-totals-head">Totals</div>';
         Object.values(totals).forEach((t) => {
-            html += `<div class="measure-total-row"><span>${t.type} (${t.count})</span><b>${t.sum.toFixed(2)} ${t.unit}</b></div>`;
+            // Count sums to a plain integer; angle keeps one decimal + degree sign.
+            const val = t.kind === 'mcount' ? String(t.count)
+                      : t.kind === 'mangle' ? t.sum.toFixed(1) + '°'
+                      : t.sum.toFixed(2) + ' ' + t.unit;
+            html += `<div class="measure-total-row"><span>${t.type} (${t.count})</span><b>${val}</b></div>`;
         });
         body.innerHTML = html;
     };
@@ -2164,12 +2354,24 @@
         const rows = collectMeasurements();
         if (!rows.length) { showToast('No measurements to export'); return; }
         const esc = (s) => '"' + String(s).replace(/"/g, '""') + '"';
-        let csv = 'Type,Page,Value,Unit\n';
-        rows.forEach((m) => { csv += [esc(m.type), m.page, m.value.toFixed(4), esc(m.unit + (m.area ? '2' : ''))].join(',') + '\n'; });
+        const csvSuffix = (m) => m.cubic ? '3' : m.area ? '2' : '';
+        let csv = 'Type,Page,Value,Unit,Label\n';
+        rows.forEach((m) => {
+            const val = m.kind === 'mcount' ? m.value : m.value.toFixed(4);
+            csv += [esc(m.type), m.page, val, esc(m.unit + csvSuffix(m)), esc(m.label || '')].join(',') + '\n';
+        });
         csv += '\nTotals\n';
         const totals = {};
-        rows.forEach((m) => { const k = m.type + '|' + m.unit + (m.area ? '²' : ''); totals[k] = totals[k] || { type: m.type, unit: m.unit + (m.area ? '²' : ''), sum: 0 }; totals[k].sum += m.value; });
-        Object.values(totals).forEach((t) => { csv += [esc(t.type), '', t.sum.toFixed(4), esc(t.unit)].join(',') + '\n'; });
+        rows.forEach((m) => {
+            const uSuf = m.unit + csvSuffix(m);
+            const k = m.type + '|' + uSuf;
+            totals[k] = totals[k] || { type: m.type, unit: uSuf, sum: 0, count: 0, kind: m.kind };
+            totals[k].sum += m.value; totals[k].count++;
+        });
+        Object.values(totals).forEach((t) => {
+            const sum = t.kind === 'mcount' ? t.count : t.sum.toFixed(4);
+            csv += [esc(t.type), '', sum, esc(t.unit), ''].join(',') + '\n';
+        });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
         a.download = (state.fileName || 'document').replace(/\.pdf$/i, '') + '_measurements.csv';
@@ -2250,7 +2452,7 @@
         // Count is click-to-drop (handled by handleCountClick), not drag.
         if (shapeKind === 'count') return;
         // Measurement tools are click-based (handled by handleMeasureClick).
-        if (['mcalibrate', 'mlength', 'mperim', 'marea'].includes(shapeKind)) return;
+        if (_MEASURE_KINDS.includes(shapeKind)) return;
         if (opt.target) return;
 
         dragKind = shapeKind;
@@ -4857,7 +5059,7 @@
         const orig = fabric.Object.prototype.toObject;
         fabric.Object.prototype.toObject = function (props) {
             return orig.call(this, ['_pdfFontName', '_pdfWeight', '_pdfStyle', '_isTextCover', '_isCommentMark', '_isEraserPath',
-                                    '_isSignature', '_isRedact', '_layerId', '_measure', 'selectable', 'evented'].concat(props || []));
+                                    '_isSignature', '_isRedact', '_layerId', '_measure', '_measurePt', 'selectable', 'evented'].concat(props || []));
         };
     })();
 
