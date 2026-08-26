@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Users, Clock, Loader2, X, Check, MessageSquare, Link2 as LinkIcon } from 'lucide-react';
 import { api } from '../api';
 import { graphTokenSilent, graphTokenInteractive, listMyChats } from '../teamsGraph';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 // ── Shifts, groups & bulk assignment ──────────────────────────────────────────
 // Define shifts (time + weekdays + grace), bundle people into reusable groups,
@@ -109,6 +111,20 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
   const emailOf = (p) => p.workEmail || p.work_email || p.email;
   const chip = (active) => ({ padding: '4px 10px', borderRadius: 999, border: `1px solid ${active ? 'transparent' : 'var(--wk-line2)'}`, background: active ? 'var(--wk-brand-tint)' : 'var(--card)', color: active ? 'var(--wk-brand)' : 'var(--muted)', fontSize: 12, fontWeight: active ? 700 : 500, cursor: 'pointer', fontFamily: 'var(--wk-font)' });
 
+  // Unsaved-changes guard for the shift and group modals: an overlay click, X,
+  // or Escape used to silently discard an in-progress edit. Baseline is
+  // captured the render after each modal opens (the ref starts null so the
+  // very first render right after open reads as clean, not already dirty).
+  const formBaselineRef = useRef(null);
+  useEffect(() => { formBaselineRef.current = form || null; }, [!!form]);
+  const formDirty = !!form && formBaselineRef.current !== null && JSON.stringify(form) !== JSON.stringify(formBaselineRef.current);
+  const formGuard = useUnsavedGuard(formDirty, () => setForm(null), saveShift);
+
+  const groupBaselineRef = useRef(null);
+  useEffect(() => { groupBaselineRef.current = groupForm || null; }, [!!groupForm]);
+  const groupDirty = !!groupForm && groupBaselineRef.current !== null && JSON.stringify(groupForm) !== JSON.stringify(groupBaselineRef.current);
+  const groupGuard = useUnsavedGuard(groupDirty, () => setGroupForm(null), saveGroup);
+
   return (
     <div style={{ fontFamily: 'Inter,sans-serif', display: 'grid', gap: 20 }}>
       {/* Shifts */}
@@ -200,11 +216,11 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
       {/* Shift create/edit modal */}
       {form && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-          onClick={e => e.target === e.currentTarget && setForm(null)}>
-          <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 420, padding: 20 }}>
+          onClick={e => e.target === e.currentTarget && formGuard.requestClose()}>
+          <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 'clamp(420px, 60vw, 700px)', padding: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
               <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{form.id ? 'Edit shift' : 'New shift'}</span>
-              <button onClick={() => setForm(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+              <button onClick={formGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
             </div>
             <div style={{ display: 'grid', gap: 12 }}>
               <div style={{ display: 'flex', gap: 10 }}>
@@ -243,15 +259,18 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
           </div>
         </div>
       )}
+      {formGuard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={formGuard.keepEditing} onDiscard={() => setForm(null)} onSave={formGuard.saveAndClose} saving={formGuard.saving || busy} />
+      )}
 
       {/* Group create/edit modal */}
       {groupForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-          onClick={e => e.target === e.currentTarget && setGroupForm(null)}>
-          <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 460, padding: 20, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+          onClick={e => e.target === e.currentTarget && groupGuard.requestClose()}>
+          <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 'clamp(460px, 60vw, 760px)', padding: 20, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
               <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{groupForm.id ? 'Edit group' : 'New group'}</span>
-              <button onClick={() => setGroupForm(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+              <button onClick={groupGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
             </div>
             <input className="form-input" placeholder="Group name (e.g. Warehouse crew)" value={groupForm.name} onChange={e => setGroupForm({ ...groupForm, name: e.target.value })} style={{ fontSize: 13, marginBottom: 12 }} />
             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Members ({groupForm.members.length})</div>
@@ -280,6 +299,16 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
                   style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   {chatLoading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <LinkIcon size={12} />} Bind a chat
                 </button>
+              ) : chatList.length === 0 ? (
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  No Teams chats found for your account. This list only shows chats
+                  <b> you</b> are already a member of - open Microsoft Teams, create
+                  (or join) the group chat with these people first, then{' '}
+                  <button type="button" onClick={loadChatOptions} disabled={chatLoading}
+                    style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 700, fontSize: 11.5 }}>
+                    refresh
+                  </button>.
+                </div>
               ) : (
                 <select className="form-input" value="" style={{ fontSize: 12.5, width: '100%' }}
                   onChange={e => { const c = chatList.find(x => x.id === e.target.value); if (c) setGroupForm({ ...groupForm, teamsChatId: c.id, teamsChatName: c.name }); }}>
@@ -298,6 +327,9 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
             </div>
           </div>
         </div>
+      )}
+      {groupGuard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={groupGuard.keepEditing} onDiscard={() => setGroupForm(null)} onSave={groupGuard.saveAndClose} saving={groupGuard.saving || busy} />
       )}
     </div>
   );

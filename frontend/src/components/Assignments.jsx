@@ -132,7 +132,7 @@ function ModalShell({ title, sub, children, onClose, busy = false, isDirty = fal
   return (
     <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
       onClick={e => { if (e.target === e.currentTarget) requestClose(); }}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 430, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 'clamp(430px, 60vw, 900px)', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>{title}</h3>
         {sub && <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 18 }}>{sub}</p>}
         {children}

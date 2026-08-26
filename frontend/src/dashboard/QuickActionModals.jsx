@@ -11,6 +11,8 @@ import { api } from '../api';
 import { sendMail, createEvent } from '../m365';
 import { TasksProvider } from '../tasks/TasksContext';
 import CreateTaskModal from '../tasks/CreateTaskModal';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 
 const Overlay = ({ children, onClose }) => (
   <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
@@ -20,7 +22,7 @@ const Overlay = ({ children, onClose }) => (
 );
 
 const Shell = ({ title, sub, onClose, footer, children }) => (
-  <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 560, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+  <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(520px, 60vw, 980px)', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
     <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ flex: 1 }}>
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>{title}</h3>
@@ -126,24 +128,31 @@ function EmailModal({ onClose }) {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const { busy, error, submit } = useSubmit(() => sendMail({ to, subject, body }), onClose);
+  const dirty = to.length > 0 || !!subject.trim() || !!body.trim();
+  const guard = useUnsavedGuard(dirty, () => onClose(), to.length ? submit : undefined);
 
   return (
-    <Overlay onClose={() => onClose()}>
-      <Shell title="New email" sub="Sends from your Outlook mailbox" onClose={() => onClose()}
-        footer={<><ErrorLine error={error} />
-          <SubmitBtn busy={busy} disabled={!to.length} onClick={submit}><Send size={14} /> {busy ? 'Sending...' : 'Send'}</SubmitBtn></>}>
-        <PeoplePicker value={to} onChange={setTo} people={people} label="To" placeholder="Add a recipient..." />
-        <div>
-          <Label>Subject</Label>
-          <input className="form-input" value={subject} onChange={(e) => setSubject(e.target.value)} style={{ width: '100%' }} />
-        </div>
-        <div>
-          <Label>Message</Label>
-          <textarea className="form-input" value={body} onChange={(e) => setBody(e.target.value)} rows={7}
-            style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif' }} />
-        </div>
-      </Shell>
-    </Overlay>
+    <>
+      <Overlay onClose={guard.requestClose}>
+        <Shell title="New email" sub="Sends from your Outlook mailbox" onClose={guard.requestClose}
+          footer={<><ErrorLine error={error} />
+            <SubmitBtn busy={busy} disabled={!to.length} onClick={submit}><Send size={14} /> {busy ? 'Sending...' : 'Send'}</SubmitBtn></>}>
+          <PeoplePicker value={to} onChange={setTo} people={people} label="To" placeholder="Add a recipient..." />
+          <div>
+            <Label>Subject</Label>
+            <input className="form-input" value={subject} onChange={(e) => setSubject(e.target.value)} style={{ width: '100%' }} />
+          </div>
+          <div>
+            <Label>Message</Label>
+            <textarea className="form-input" value={body} onChange={(e) => setBody(e.target.value)} rows={7}
+              style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif' }} />
+          </div>
+        </Shell>
+      </Overlay>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={() => onClose()} onSave={guard.saveAndClose} saving={guard.saving || busy} />
+      )}
+    </>
   );
 }
 
@@ -177,37 +186,46 @@ function EventModal({ onClose }) {
     if (v && new Date(end) <= new Date(v)) setEnd(localValue(new Date(new Date(v).getTime() + 60 * 60 * 1000)));
   };
 
+  const dirty = !!subject.trim() || !!location.trim() || !!body.trim() || attendees.length > 0
+    || start !== defStart || end !== defEnd;
+  const guard = useUnsavedGuard(dirty, () => onClose(), subject.trim() ? submit : undefined);
+
   return (
-    <Overlay onClose={() => onClose()}>
-      <Shell title="New event" sub="Adds to your Outlook calendar and invites attendees" onClose={() => onClose()}
-        footer={<><ErrorLine error={error} />
-          <SubmitBtn busy={busy} disabled={!subject.trim()} onClick={submit}><Send size={14} /> {busy ? 'Creating...' : 'Create event'}</SubmitBtn></>}>
-        <div>
-          <Label>Title</Label>
-          <input className="form-input" value={subject} onChange={(e) => setSubject(e.target.value)} style={{ width: '100%' }} />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+    <>
+      <Overlay onClose={guard.requestClose}>
+        <Shell title="New event" sub="Adds to your Outlook calendar and invites attendees" onClose={guard.requestClose}
+          footer={<><ErrorLine error={error} />
+            <SubmitBtn busy={busy} disabled={!subject.trim()} onClick={submit}><Send size={14} /> {busy ? 'Creating...' : 'Create event'}</SubmitBtn></>}>
           <div>
-            <Label>Starts</Label>
-            <input type="datetime-local" className="form-input" value={start} onChange={(e) => onStart(e.target.value)} style={{ width: '100%' }} />
+            <Label>Title</Label>
+            <input className="form-input" value={subject} onChange={(e) => setSubject(e.target.value)} style={{ width: '100%' }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <Label>Starts</Label>
+              <input type="datetime-local" className="form-input" value={start} onChange={(e) => onStart(e.target.value)} style={{ width: '100%' }} />
+            </div>
+            <div>
+              <Label>Ends</Label>
+              <input type="datetime-local" className="form-input" value={end} onChange={(e) => setEnd(e.target.value)} style={{ width: '100%' }} />
+            </div>
           </div>
           <div>
-            <Label>Ends</Label>
-            <input type="datetime-local" className="form-input" value={end} onChange={(e) => setEnd(e.target.value)} style={{ width: '100%' }} />
+            <Label>Location</Label>
+            <input className="form-input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Room, site, or Teams" style={{ width: '100%' }} />
           </div>
-        </div>
-        <div>
-          <Label>Location</Label>
-          <input className="form-input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Room, site, or Teams" style={{ width: '100%' }} />
-        </div>
-        <PeoplePicker value={attendees} onChange={setAttendees} people={people} label="Attendees" placeholder="Add an attendee..." />
-        <div>
-          <Label>Notes</Label>
-          <textarea className="form-input" value={body} onChange={(e) => setBody(e.target.value)} rows={4}
-            style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif' }} />
-        </div>
-      </Shell>
-    </Overlay>
+          <PeoplePicker value={attendees} onChange={setAttendees} people={people} label="Attendees" placeholder="Add an attendee..." />
+          <div>
+            <Label>Notes</Label>
+            <textarea className="form-input" value={body} onChange={(e) => setBody(e.target.value)} rows={4}
+              style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif' }} />
+          </div>
+        </Shell>
+      </Overlay>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={() => onClose()} onSave={guard.saveAndClose} saving={guard.saving || busy} />
+      )}
+    </>
   );
 }
 

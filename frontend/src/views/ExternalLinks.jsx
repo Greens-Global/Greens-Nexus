@@ -5,6 +5,8 @@ import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { PersonalLockGate } from '../credvault/vaultShared';
 import { LinkIcon } from '../components/LinkIcon.jsx';
 import { useLinkViews } from './useLinkViews';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import {
   Search, Plus, Pencil, Trash2, X, Star, Globe, LayoutGrid, List,
   Settings2, Bookmark, History,
@@ -1128,6 +1130,10 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks, depar
     if (!form.url.trim()) return null;
     return existingLinks.find(l => l.id !== modal.id && normalizeUrl(l.url) === normalizeUrl(form.url)) || null;
   }, [form.url, existingLinks, modal.id]);
+  const initialFormRef = useRef(form);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initialFormRef.current);
+  const closeModal = () => setModal(null);
+  const guard = useUnsavedGuard(dirty, closeModal, duplicate ? undefined : save);
 
   // Same auto-fill as the Company Links Add Link modal (see LinkModal) -
   // fetch the site's own meta description once the URL field is blurred,
@@ -1154,11 +1160,11 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks, depar
   };
 
   return (
-    <div className="modal-overlay" onClick={() => !saving && setModal(null)}>
+    <div className="modal-overlay" onClick={() => !saving && guard.requestClose()}>
       <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{mode === 'add' ? 'Add Personal Link' : 'Edit Personal Link'}</h3>
-          <button className="close-btn" onClick={() => setModal(null)}><X size={16} /></button>
+          <button className="close-btn" onClick={guard.requestClose}><X size={16} /></button>
         </div>
         <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           <p style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, margin: 0 }}>
@@ -1210,6 +1216,9 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks, depar
           <button className="primary-btn" onClick={save} disabled={saving || !!duplicate}>{saving ? 'Saving...' : mode === 'add' ? 'Add Link' : 'Save Changes'}</button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={closeModal} onSave={duplicate ? undefined : guard.saveAndClose} saving={saving} />
+      )}
     </div>
   );
 }
@@ -1961,18 +1970,20 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
     setBusy(true);
     try { await onSubmit(v.trim()); onClose(); } catch { setBusy(false); }
   };
+  const dirty = v.trim() !== (initial || '').trim();
+  const guard = useUnsavedGuard(dirty, onClose, v.trim() ? submit : undefined);
   return (
-    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    <div onClick={e => { if (e.target === e.currentTarget) guard.requestClose(); }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1450, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
         <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center' }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{title}</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
         </div>
         <div style={{ padding: 18 }}>
           <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>{label}</label>
           <input autoFocus value={v} onChange={e => setV(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onClose(); }}
+            onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') guard.requestClose(); }}
             className="form-input" style={{ width: '100%' }} placeholder="e.g. Finance apps" />
           <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
             <button className="secondary-btn" onClick={onClose}>Cancel</button>
@@ -1980,6 +1991,9 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
           </div>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={v.trim() ? guard.saveAndClose : undefined} saving={busy} />
+      )}
     </div>
   );
 }
@@ -2077,6 +2091,10 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
     if (!form.url.trim()) return null;
     return existingLinks.find(l => l.id !== modal.id && normalizeUrl(l.url) === normalizeUrl(form.url)) || null;
   }, [form.url, existingLinks, modal.id]);
+  const initialFormRef = useRef(form);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initialFormRef.current);
+  const closeModal = () => setModal(null);
+  const guard = useUnsavedGuard(dirty, closeModal, duplicate ? undefined : save);
 
   // Auto-fill description from the site's own <meta name="description"> once
   // the admin tabs out of the URL field, so Add Link doesn't require copying
@@ -2106,11 +2124,11 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
   };
 
   return (
-    <div className="modal-overlay" onClick={() => !saving && setModal(null)}>
+    <div className="modal-overlay" onClick={() => !saving && guard.requestClose()}>
       <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{mode === 'add' ? 'Add Link' : 'Edit Link'}</h3>
-          <button className="close-btn" onClick={() => setModal(null)}><X size={16} /></button>
+          <button className="close-btn" onClick={guard.requestClose}><X size={16} /></button>
         </div>
         <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="form-group">
@@ -2171,6 +2189,9 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
           <button className="primary-btn" onClick={save} disabled={saving || !!duplicate}>{saving ? 'Saving...' : mode === 'add' ? 'Add Link' : 'Save Changes'}</button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={closeModal} onSave={duplicate ? undefined : guard.saveAndClose} saving={saving} />
+      )}
     </div>
   );
 }
@@ -2705,12 +2726,19 @@ function ImportModal({ onClose, onImported, departmentNames, categoryNames }) {
     }
   };
 
+  // A pasted/uploaded batch not yet imported is lost on an accidental close.
+  // doImport doesn't close the modal itself (it stays open to show the
+  // result), so there's no clean single "save" action - Keep Editing/Discard
+  // only.
+  const dirty = !result && (rows.length > 0 || text.trim() !== '');
+  const guard = useUnsavedGuard(dirty, onClose, undefined);
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={() => guard.requestClose()}>
       <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Batch Import Links</h3>
-          <button className="close-btn" onClick={onClose}><X size={16} /></button>
+          <button className="close-btn" onClick={guard.requestClose}><X size={16} /></button>
         </div>
         <div style={{ padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {!result ? (
@@ -2803,6 +2831,9 @@ function ImportModal({ onClose, onImported, departmentNames, categoryNames }) {
           )}
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={undefined} />
+      )}
     </div>
   );
 }
