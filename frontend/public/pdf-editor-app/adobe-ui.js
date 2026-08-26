@@ -359,6 +359,7 @@
       ['mradius',    '◐ Measure radius / diameter'],
       ['mvolume',    '⬒ Measure volume (area × depth)'],
       ['mcount',     '# Count'],
+      ['snapcontent','🧲 Snap to Content (on/off)', true],  // action: toggle snapping
       ['mlist',      '☰ Measurements list & totals', true],  // action: open the panel
     ];
     for (const [kind, label, isAction] of MMODES) {
@@ -373,6 +374,10 @@
           // Actions open a dialog/panel rather than arming a draw tool.
           if (kind === 'setscale' && window.openSetScaleDialog) window.openSetScaleDialog();
           else if (kind === 'mlist' && window.toggleMeasureList) window.toggleMeasureList();
+          else if (kind === 'snapcontent' && window.toggleSnapContent) {
+            const on = window.toggleSnapContent();
+            it.textContent = (on ? '✓ ' : '') + '🧲 Snap to Content (on/off)';
+          }
           return;
         }
         // Arm the shape tool (the measure engine lives on it), then set the kind.

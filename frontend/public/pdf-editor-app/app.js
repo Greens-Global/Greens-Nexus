@@ -1950,12 +1950,54 @@
         });
         return best || p;
     }
+    // Snap to Content: find the nearest dark pixel of the rendered PDF (a drawn
+    // line/edge) to the cursor, by scanning the page bitmap. Works for vector or
+    // raster content since it reads the actual rendered pixels. The page canvas
+    // is rendered at zoom*1.5 while the fabric canvas is at display size, so we
+    // scale between the two. Returns a fabric-canvas point, or the input if none.
+    let _snapContent = false;   // toggled from the measure menu
+    const CONTENT_SNAP_PX = 12; // search radius in fabric-canvas px
+    function _contentSnap(p) {
+        const pc = dom.pdfCanvas;
+        if (!pc || !pc.width) return p;
+        const sx = pc.width / (fabricCanvas.getWidth() || 1);   // page-px per fabric-px (~1.5)
+        const sy = pc.height / (fabricCanvas.getHeight() || 1);
+        const cx = Math.round(p.x * sx), cy = Math.round(p.y * sy);
+        const rx = Math.round(CONTENT_SNAP_PX * sx), ry = Math.round(CONTENT_SNAP_PX * sy);
+        const x0 = Math.max(0, cx - rx), y0 = Math.max(0, cy - ry);
+        const w = Math.min(pc.width - x0, rx * 2), h = Math.min(pc.height - y0, ry * 2);
+        if (w <= 0 || h <= 0) return p;
+        let data;
+        try { data = pc.getContext('2d').getImageData(x0, y0, w, h).data; } catch (_) { return p; }
+        let best = null, bestD = Infinity;
+        for (let yy = 0; yy < h; yy++) {
+            for (let xx = 0; xx < w; xx++) {
+                const i = (yy * w + xx) * 4;
+                // "dark enough to be a line" - low luminance, opaque.
+                if (data[i + 3] > 40 && (data[i] + data[i + 1] + data[i + 2]) < 360) {
+                    const gx = x0 + xx, gy = y0 + yy;
+                    const d = (gx - cx) * (gx - cx) + (gy - cy) * (gy - cy);
+                    if (d < bestD) { bestD = d; best = { x: gx / sx, y: gy / sy }; }
+                }
+            }
+        }
+        return best || p;
+    }
+
     // Apply snapping to a raw pointer position given the anchor it extends from.
     function _snapPoint(p, from) {
-        let out = _endpointSnap(p);                     // endpoint wins if in range
-        if (out === p && _snapShift && from) out = _orthoSnap(from, p);
+        let out = _endpointSnap(p);                     // endpoint (own markups) wins
+        if (out === p && _snapContent) out = _contentSnap(p);   // then PDF content
+        if (out === p && _snapShift && from) out = _orthoSnap(from, p);  // then ortho
         return out;
     }
+    window.toggleSnapContent = function () {
+        _snapContent = !_snapContent;
+        showToast(_snapContent ? 'Snap to Content on - measurements snap to drawing lines'
+                               : 'Snap to Content off');
+        setStatus(_snapContent ? 'Snap to Content: ON' : 'Snap to Content: OFF');
+        return _snapContent;
+    };
 
     // Absolute canvas-space vertices of a fabric polygon/polyline object.
     function _absVerts(o) {
@@ -10347,6 +10389,8 @@ Replacement:`;
     if (location.search.includes('testhooks')) {
         window.__hooks = {
             fabric: () => fabricCanvas,
+            contentSnap: (p) => _contentSnap(p),   // test probe for Snap to Content
+            measures: () => fabricCanvas.getObjects().filter(o => o._measure).map(o => o._measure),
             addObj: (o) => { fabricCanvas.add(o); fabricCanvas.renderAll(); saveAnnotationState(); },
             rect: (opts) => new fabric.Rect(opts),
             ellipse: (opts) => new fabric.Ellipse(opts),
