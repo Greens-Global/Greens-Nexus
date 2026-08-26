@@ -1524,17 +1524,24 @@ _AGENT_FRESH_SEC = 180   # heartbeat is 60s; tolerate ~2 missed beats
 
 
 def _agent_active_for(db: Session, email: str) -> bool:
-    """True when a live desktop agent covers this person: a non-revoked device
-    assigned to them (owner) or currently bound to them (active_email) that has
-    checked in within the last few minutes. The browser reads this to skip its own
-    screen share (the agent captures instead) - detection is server-side because
-    Chrome's private-network policy blocks any browser->127.0.0.1 probe."""
+    """True when a desktop agent is BOUND to this person's CURRENT session - the
+    agent on the machine they clocked in from claimed the session through the
+    localhost pairing handshake (active_email), so it is capturing THIS machine.
+
+    Deliberately NOT keyed on enroll-time ownership (employee_email): a person who
+    owns an agent PC but is working today on a DIFFERENT, agent-less computer was
+    otherwise reported as covered, so the browser skipped its Chrome screen share
+    and that machine went completely uncaptured (Visesh, Aug 26). Owning an agent
+    somewhere is not the same as sitting at it. The browser now also probes the
+    local agent directly (GET 127.0.0.1:47615/nexus/ping) to decide per machine;
+    this is the server-side mirror, correct once the session is bound. When in
+    doubt the browser shares - over-capturing is safe, a silent gap is not."""
     if not email:
         return False
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=_AGENT_FRESH_SEC)).strftime("%Y-%m-%dT%H:%M:%S")
     q = (db.query(AgentDevice.id)
          .filter(AgentDevice.revoked == 0,
-                 (AgentDevice.employee_email == email) | (AgentDevice.active_email == email),
+                 AgentDevice.active_email == email,
                  AgentDevice.last_seen_at >= cutoff))
     return db.query(q.exists()).scalar()
 

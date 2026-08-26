@@ -5,9 +5,26 @@ import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 
-// Whether a live desktop agent covers this PC is decided SERVER-SIDE and read from
-// api.timeStatus().monitoring.agentActive - never by probing 127.0.0.1 from the
-// page, which Chrome's private-network policy blocks on unmanaged browsers.
+// Whether a desktop agent covers THIS machine is detected per-machine by asking
+// the local agent directly over localhost. The agent serves a no-side-effect
+// liveness probe (GET 127.0.0.1:47615/nexus/ping) with an
+// Access-Control-Allow-Private-Network header, so this works under Chrome's
+// private-network policy - the same channel clock-in already uses to pair. The
+// server's own agentActive (keyed on the bound session) is only a mirror; owning
+// an agent PC somewhere is NOT the same as sitting at it, which is why the
+// per-machine probe is the authority for whether the browser must screen-share.
+const NEXUS_AGENT_PORT = 47615;
+async function _localAgentPresent() {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 1200);
+    const r = await fetch(`http://127.0.0.1:${NEXUS_AGENT_PORT}/nexus/ping`, { signal: ctrl.signal, cache: 'no-store' });
+    clearTimeout(t);
+    return r.ok;
+  } catch {
+    return false;   // refused / blocked / timed out - no agent on this machine
+  }
+}
 
 // ── Global mini-timer - lives on EVERY screen while clocked in ────────────────
 // A floating pill with a live HH:MM:SS stopwatch, a quick punch-out, and the
@@ -160,26 +177,23 @@ export default function TimeclockWidget() {
         // a phone. Never block a field worker's punch on a share they physically
         // cannot perform; the punch records normally (monitoring simply n/a here).
         if (!navigator.mediaDevices?.getDisplayMedia) return true;
-        // A live desktop agent covers this PC (server-detected via the assigned
-        // device's heartbeat)? Then it captures every monitor natively - skip the
-        // browser share (no picker, no double capture). Re-check FRESH at click
-        // time (not the 25s-poll cache) so a PC assigned an owner moments ago is
-        // honored immediately - the employee never has to reload the page.
-        // BOUNDED: getDisplayMedia only works inside the click's transient
-        // activation (~5s in Chrome). An unbounded /status await here ate that
-        // whole window whenever the API was slow - the picker then threw
-        // NotAllowedError without ever appearing, and anyone WITHOUT a desktop
-        // agent simply could not share or clock in (Visesh, Aug 24). Race the
-        // re-check against a short timeout and fall back to the cached value.
-        let covered = agentActiveRef.current;
-        try {
-          const s = await Promise.race([
-            api.timeStatus(),
-            new Promise(res => setTimeout(() => res(null), 1500)),
-          ]);
-          if (s?.monitoring) { covered = !!s.monitoring.agentActive; agentActiveRef.current = covered; }
-        } catch { /* server unreachable - fall back to the last known value */ }
-        if (covered) return true;
+        // Is a desktop agent running on THIS machine? Ask it directly over
+        // localhost (the same channel clock-in pairs on) - the agent answers
+        // /nexus/ping with a Private-Network CORS header, so this works even
+        // under Chrome's private-network policy. A reachable agent captures every
+        // monitor natively, so the browser skips its own share (no picker, no
+        // double capture).
+        //
+        // This is PER MACHINE, unlike the old server `agentActive`, which said
+        // "covered" whenever the person OWNED an agent PC anywhere - so someone
+        // who owns an agent at their desk but is working today on a different,
+        // agent-less computer got no share option and that machine went
+        // uncaptured (Visesh, Aug 26). The probe only sees an agent that is
+        // actually here. BOUNDED (getDisplayMedia needs the click's ~5s
+        // transient activation): a missing agent refuses instantly, a blocked
+        // one times out in 1.2s, then the browser shares.
+        if (await _localAgentPresent()) { agentActiveRef.current = true; return true; }
+        agentActiveRef.current = false;
         await startRef.current?.();
         return streamsRef.current.length > 0;
       },
