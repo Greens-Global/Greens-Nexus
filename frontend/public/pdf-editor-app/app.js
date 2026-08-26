@@ -790,10 +790,25 @@
             if (e.key === 'Enter') { e.preventDefault(); polyFinish(); return; }
             if (e.key === 'Escape') { e.preventDefault(); polyCancel(); return; }
         }
-        // Measurement: Enter finishes, Escape cancels the in-progress measurement.
+        // Measurement in progress: Enter finishes, Escape cancels ONLY the
+        // measurement (never the ribbon - M10), Backspace removes the last point.
         if (measureKind) {
             if (e.key === 'Enter') { e.preventDefault(); measureFinish(); return; }
-            if (e.key === 'Escape') { e.preventDefault(); measureCancel(); return; }
+            if (e.key === 'Escape') { e.preventDefault(); measureCancel(); setStatus('Measurement cancelled'); return; }
+            if (e.key === 'Backspace' && measurePts.length) {
+                e.preventDefault(); measurePts.pop(); measureRedraw();
+                setStatus(measurePts.length ? 'Removed last point - ' + measurePts.length + ' left' : 'Click to start again');
+                return;
+            }
+        }
+        // A measure tool is armed but nothing drawn yet: Escape disarms the tool
+        // and returns to Select, instead of exiting Assemble / hiding the ribbon.
+        if (e.key === 'Escape' && state.activeTool === 'shape' && _MEASURE_KINDS.includes(shapeKind)) {
+            e.preventDefault();
+            document.getElementById('measureTool')?.classList.remove('active');
+            setActiveTool('select');
+            setStatus('Measure tool off');
+            return;
         }
 
         if (e.key === 'F1' || (ctrl && e.key === '/')) {
@@ -1795,8 +1810,20 @@
             mcutout: 'Area cutout: click inside an area, then outline the void, double-click to subtract',
         };
         if (hints[k]) setStatus(hints[k]);
+        // Re-apply tool mode so freshly-finished measurements become
+        // non-selectable while a measure tool is armed (M18: a click starts a
+        // point instead of selecting an existing markup).
+        if (_MEASURE_KINDS && _MEASURE_KINDS.includes(k) && state.activeTool === 'shape') {
+            try { applyToolMode(); } catch (_) {}
+        }
     };
     window.setShapeStyle = (s) => { shapeStyle = s; };
+    // Activate the shape tool for the measure engine WITHOUT opening the Shapes
+    // dropdown (M9). Leaves scroll mode first so the edit canvas is live.
+    window.activateShapeToolForMeasure = () => {
+        if (window.isScrollMode && window.isScrollMode()) _exitScrollForOp();
+        setActiveTool('shape');
+    };
     const shapeDash = (w) => shapeStyle === 'dashed' ? [w * 3.5, w * 2.5]
         : shapeStyle === 'dotted' ? [Math.max(1, w * 0.5), w * 2.2] : null;
 
@@ -2033,6 +2060,19 @@
     // Display precision (decimal places) for measurement values. 2 by default.
     let _measurePrecision = 2;
     function _mPrecision() { return _measurePrecision; }
+    // Global show/hide for all measurement captions on the plan (M21).
+    let _measureLabelsHidden = false;
+    window.toggleMeasureLabels = function () {
+        _measureLabelsHidden = !_measureLabelsHidden;
+        if (fabricCanvas) {
+            fabricCanvas.forEachObject((o) => {
+                if (o._midLink && o.type === 'text') o.set({ visible: !_measureLabelsHidden });
+            });
+            fabricCanvas.requestRenderAll(); saveCurrentAnnotations();
+        }
+        showToast(_measureLabelsHidden ? 'Measurement labels hidden' : 'Measurement labels shown');
+        return _measureLabelsHidden;
+    };
     window.setMeasurePrecision = function (n) { _measurePrecision = Math.max(0, Math.min(6, n | 0)); if (window.renderMeasureList) window.renderMeasureList(); };
 
     // Canvas px -> page px (undo the zoom) so measurements are zoom-independent.
@@ -2221,7 +2261,7 @@
     function measureLabel(text, x, y) {
         return new fabric.Text(text, { left: x, top: y, fontSize: 14, fill: '#ffffff',
             backgroundColor: 'rgba(0,0,0,0.72)', fontFamily: 'sans-serif', padding: 3,
-            originX: 'center', originY: 'center', selectable: false });
+            originX: 'center', originY: 'center', selectable: false, visible: !_measureLabelsHidden });
     }
 
     // Decorative angle arc + short extension marks at the vertex (M25). Tagged
@@ -2586,7 +2626,18 @@
         else if (measureKind === 'mangle' && measurePts.length === 3) measureFinish();
         else if (measureKind === 'mangle')
             setStatus(measurePts.length === 1 ? 'Angle: click the vertex' : 'Angle: click the second ray end');
-        else setStatus('Click to add points - double-click (or Enter) to finish, Esc to cancel');
+        else {
+            // Kind-specific continuation text so it doesn't contradict the arming
+            // hint (M19). Backspace removes the last point (M20).
+            const cont = {
+                mpolylen: 'Polyline: click the next point - double-click or Enter to finish, Backspace to undo, Esc to cancel',
+                mperim:   'Perimeter: click the next corner - double-click or Enter to close, Backspace to undo, Esc to cancel',
+                marea:    'Area: click the next corner - double-click or Enter to close, Backspace to undo, Esc to cancel',
+                mvolume:  'Volume: click the next corner - double-click or Enter to finish, Backspace to undo, Esc to cancel',
+                mcutout:  'Cutout: click the next void corner - double-click to subtract, Backspace to undo, Esc to cancel',
+            };
+            setStatus(cont[measureKind] || 'Click to add points - double-click (or Enter) to finish, Esc to cancel');
+        }
     }
     function handleMeasureMove(opt) {
         if (!measureKind || !measurePts.length) return;
@@ -2594,6 +2645,42 @@
         const raw = fabricCanvas.getPointer(opt.e);
         const p = _snapPoint(raw, measurePts[measurePts.length - 1]);
         measureRedraw(p);
+        _updateLiveReadout(p);
+    }
+
+    // Live running readout next to the cursor while drawing (M20): running
+    // length / area / angle, plus dx/dy for the current segment.
+    let _liveReadout = null;
+    function _updateLiveReadout(p) {
+        const pts = [...measurePts, p];
+        let txt = '';
+        const prev = measurePts[measurePts.length - 1];
+        const dx = toPagePx(Math.abs(p.x - prev.x)), dy = toPagePx(Math.abs(p.y - prev.y));
+        const P = _mPrecision();
+        if (measureKind === 'mangle' && pts.length >= 3) {
+            txt = angleDeg([pts[0], pts[1], pts[2]]).toFixed(P) + '°';
+        } else if (measureKind === 'marea' || measureKind === 'mvolume' || measureKind === 'mcutout') {
+            if (measureScale && pts.length >= 3) txt = 'A ' + (toPagePx(toPagePx(polyAreaPx(pts))) * measureScale * measureScale).toFixed(P) + ' ' + measureUnit + '²';
+            else if (measureScale) txt = 'seg ' + (toPagePx(polyLenPx([prev, p], false)) * measureScale).toFixed(P) + ' ' + measureUnit;
+        } else if (measureScale) {
+            const closed = measureKind === 'mperim';
+            const total = toPagePx(polyLenPx(pts, closed)) * measureScale;
+            const seg = toPagePx(polyLenPx([prev, p], false)) * measureScale;
+            txt = total.toFixed(P) + ' ' + measureUnit + (pts.length > 2 ? '  (seg ' + seg.toFixed(P) + ')' : '');
+        }
+        if (measureScale && txt && measureKind !== 'mangle') {
+            txt += '   Δx ' + (dx * measureScale).toFixed(P) + '  Δy ' + (dy * measureScale).toFixed(P);
+        }
+        if (!txt) { _clearLiveReadout(); return; }
+        if (_liveReadout) { _isRestoring = true; fabricCanvas.remove(_liveReadout); _isRestoring = false; }
+        _liveReadout = new fabric.Text(txt, { left: p.x + 14, top: p.y - 10, fontSize: 12, fill: '#fff',
+            backgroundColor: 'rgba(25,113,194,0.92)', fontFamily: 'sans-serif', padding: 3,
+            selectable: false, evented: false, excludeFromExport: true });
+        _isRestoring = true; fabricCanvas.add(_liveReadout); _isRestoring = false;
+        fabricCanvas.requestRenderAll();
+    }
+    function _clearLiveReadout() {
+        if (_liveReadout) { _isRestoring = true; fabricCanvas.remove(_liveReadout); _isRestoring = false; _liveReadout = null; }
     }
     // Angle at pts[1] (vertex) between rays to pts[0] and pts[2], in degrees.
     function angleDeg(pts) {
@@ -2606,6 +2693,7 @@
     }
     function measureFinish() {
         if (!measureKind) return;
+        _clearLiveReadout();
         if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
         const pts = measurePts;
         // Angle needs 3 pts; area/volume need 3; radius/length need 2.
@@ -2744,6 +2832,7 @@
     }
     function measureCancel() {
         if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
+        _clearLiveReadout();
         measurePts = []; measureKind = null; _cutoutTarget = null;
         fabricCanvas.renderAll();
     }

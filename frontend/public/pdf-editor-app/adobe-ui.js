@@ -363,6 +363,7 @@
       ['mvolume',    '⬒ Measure volume (area × depth)'],
       ['mcount',     '# Count'],
       ['snapcontent','🧲 Snap to Content (on/off)', true],  // action: toggle snapping
+      ['hidelabels', '👁 Show / hide measurement labels', true],
       ['mlist',      '☰ Measurements list & totals', true],  // action: open the panel
     ];
     for (const [kind, label, isAction] of MMODES) {
@@ -387,10 +388,17 @@
             const on = window.toggleSnapContent();
             it.textContent = (on ? '✓ ' : '') + '🧲 Snap to Content (on/off)';
           }
+          else if (kind === 'hidelabels' && window.toggleMeasureLabels) {
+            const hidden = window.toggleMeasureLabels();
+            it.textContent = (hidden ? '✓ ' : '') + '👁 Show / hide measurement labels';
+          }
           return;
         }
-        // Arm the shape tool (the measure engine lives on it), then set the kind.
-        if (!shapeToolForMeasure.classList.contains('active')) shapeToolForMeasure.click();
+        // Arm the shape tool (the measure engine lives on it) WITHOUT opening the
+        // Shapes dropdown (M9). Also make sure the Shapes menu is closed.
+        if (window.activateShapeToolForMeasure) window.activateShapeToolForMeasure();
+        else if (!shapeToolForMeasure.classList.contains('active')) shapeToolForMeasure.click();
+        document.getElementById('shapeMenu')?.classList.remove('open');
         window.setShapeKind && window.setShapeKind(kind);
         measureBtn.classList.add('active');
         mMenu.querySelectorAll('.dropdown-item[data-kind]').forEach(x => {
