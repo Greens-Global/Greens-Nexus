@@ -348,25 +348,33 @@
     mMenu.className = 'dropdown-menu';
     mMenu.id = 'measureMenu';
     const MMODES = [
-      ['mcalibrate', '📐 Calibrate scale (set the plan scale)'],
+      ['setscale',   '⚖ Set scale directly (1 in = 10 ft)', true],  // action, not a kind
+      ['mcalibrate', '📐 Calibrate by drawing a known line'],
       ['mlength',    '↦ Measure length'],
       ['mperim',     '⟿ Measure perimeter'],
       ['marea',      '▦ Measure area'],
     ];
-    for (const [kind, label] of MMODES) {
+    for (const [kind, label, isAction] of MMODES) {
       const it = document.createElement('button');
       it.className = 'dropdown-item';
       it.dataset.kind = kind;
       it.textContent = label;
       it.addEventListener('click', (e) => {
         e.stopPropagation();
+        mMenu.classList.remove('open');
+        if (isAction) {
+          // "Set scale" opens a dialog rather than arming a draw tool.
+          if (kind === 'setscale' && window.openSetScaleDialog) window.openSetScaleDialog();
+          return;
+        }
         // Arm the shape tool (the measure engine lives on it), then set the kind.
         if (!shapeToolForMeasure.classList.contains('active')) shapeToolForMeasure.click();
         window.setShapeKind && window.setShapeKind(kind);
         measureBtn.classList.add('active');
-        mMenu.querySelectorAll('.dropdown-item').forEach(x =>
-          x.textContent = (x.dataset.kind === kind ? '✓ ' : '') + x.textContent.replace(/^✓ /, ''));
-        mMenu.classList.remove('open');
+        mMenu.querySelectorAll('.dropdown-item[data-kind]').forEach(x => {
+          if (['setscale'].includes(x.dataset.kind)) return;
+          x.textContent = (x.dataset.kind === kind ? '✓ ' : '') + x.textContent.replace(/^✓ /, '');
+        });
       });
       mMenu.appendChild(it);
     }

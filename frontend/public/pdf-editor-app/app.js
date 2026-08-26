@@ -1893,6 +1893,25 @@
     // Canvas px -> page px (undo the zoom) so measurements are zoom-independent.
     const toPagePx = (d) => d / (state.zoom || 1);
 
+    // Length units, all expressed in millimetres (the base) so any unit can be
+    // converted to any other. PDF user space is 72 points = 1 inch = 25.4 mm.
+    const UNIT_MM = { mm: 1, cm: 10, m: 1000, in: 25.4, ft: 304.8, yd: 914.4 };
+    const PT_PER_MM = 72 / 25.4;   // points per millimetre (page px are PDF points)
+
+    // Set the scale DIRECTLY (no drawing): "pageVal pageUnit on the page = realVal
+    // realUnit in the real world" - e.g. 1 in = 10 ft. Computes measureScale
+    // (real-units-per-page-pixel) so all readouts come out in realUnit.
+    function setScaleDirect(pageVal, pageUnit, realVal, realUnit) {
+        const pagePerPx = 1 / PT_PER_MM / UNIT_MM[pageUnit];  // pageUnits represented by 1 page px
+        const realPerPage = (realVal / pageVal);              // realUnits per 1 pageUnit
+        measureScale = pagePerPx * realPerPage;               // realUnits per page px
+        measureUnit = realUnit;
+        setStatus('Scale set: ' + pageVal + ' ' + pageUnit + ' = ' + realVal + ' ' + realUnit
+                  + ' - measurements show in ' + realUnit);
+        showToast('Scale set - measurements will show in ' + realUnit);
+    }
+    window.setMeasureScaleDirect = setScaleDirect;
+
     function fmtMeasure(pagePixels, kind) {
         if (!measureScale) return '(set scale first)';
         if (kind === 'area') {
@@ -1943,6 +1962,30 @@
         _isRestoring = true; fabricCanvas.add(shape); measurePreview = shape; _isRestoring = false;
         fabricCanvas.renderAll();
     }
+
+    // Set Scale dialog (Bluebeam-style): type the scale directly, e.g. 1 in =
+    // 10 ft, with unit dropdowns - no need to draw a known line.
+    async function openSetScaleDialog() {
+        _exitScrollForOp();
+        const unitOpts = (sel) => ['mm','cm','m','in','ft','yd']
+            .map(u => `<option value="${u}"${u===sel?' selected':''}>${u}</option>`).join('');
+        const v = await _toolModal('Set Scale', `
+            <p class="modal-hint" style="margin:0 0 12px;">Enter the drawing scale directly. Example: 1 in = 10 ft means one inch on the page equals ten feet in real life.</p>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <input type="number" class="modal-input" data-k="pageVal" value="1" step="any" style="width:70px;">
+                <select class="modal-input" data-k="pageUnit" style="width:70px;">${unitOpts('in')}</select>
+                <span style="font-weight:700;">=</span>
+                <input type="number" class="modal-input" data-k="realVal" value="10" step="any" style="width:80px;">
+                <select class="modal-input" data-k="realUnit" style="width:70px;">${unitOpts('ft')}</select>
+            </div>
+            <p class="modal-hint" style="margin:12px 0 0;">Prefer to measure a known distance instead? Use "Calibrate scale".</p>`,
+            'Set Scale');
+        if (!v) return;
+        const pv = parseFloat(v.pageVal), rv = parseFloat(v.realVal);
+        if (!(pv > 0) || !(rv > 0)) { showToast('Enter valid numbers on both sides'); return; }
+        setScaleDirect(pv, v.pageUnit, rv, v.realUnit);
+    }
+    window.openSetScaleDialog = openSetScaleDialog;
 
     // Ask the real length of the calibration line via the in-page modal and set
     // the scale. Kept separate so handleMeasureClick stays sync.
