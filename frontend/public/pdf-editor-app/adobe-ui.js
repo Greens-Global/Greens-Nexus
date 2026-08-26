@@ -553,10 +553,10 @@
       desc: 'PDF to Word/Excel/images, Word to PDF',
       members: [buildExportBar()] },
     { id: 'optimize', label: 'Optimize',        tint: '#5c9e57',
-      desc: 'Compress, repair, OCR, unlock',
+      desc: 'Compress, repair, OCR',
       // Down-arrow into a tray: shrink / clean up the file.
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
-      members: [el('#compressBtn'), el('#sanitizeBtn'), el('#ocrBtn'), buildUnlockBtn()] },
+      members: [el('#compressBtn'), el('#sanitizeBtn'), el('#ocrBtn')] },
     { id: 'layers',   label: 'Layers',          tint: '#e8734a',
       desc: 'Versions of markups — show or hide',
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>',
