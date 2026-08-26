@@ -5,6 +5,8 @@ import { useGraphUsers }  from '../hooks/useGraphUsers';
 import { useMsal }        from '@azure/msal-react';
 import { api }            from '../api';
 import { cleanName }      from '../lib/utils';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 
 const ROLE_ORDER = ['owner', 'administrator', 'manager', 'supervisor', 'employee'];
 
@@ -160,17 +162,20 @@ function AddUserModal({ onClose, onAdd, saving }) {
   const [role,  setRole]  = useState('employee');
 
   const valid = name.trim() && email.trim() && email.includes('@');
+  const dirty = !!(name.trim() || email.trim() || dept.trim() || title.trim() || role !== 'employee');
+  const doAdd = () => onAdd({ name: name.trim(), email: email.trim().toLowerCase(), dept: dept.trim() || '-', title: title.trim() || '-', role });
+  const guard = useUnsavedGuard(dirty, onClose, valid ? doAdd : undefined);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 'clamp(460px, 60vw, 900px)', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <div>
             <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Add User</h3>
             <p style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>Manually add a user and assign their Nexus role</p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}>
             <X size={16} />
           </button>
         </div>
@@ -209,11 +214,14 @@ function AddUserModal({ onClose, onAdd, saving }) {
           <button className="primary-btn"
             disabled={!valid || saving}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            onClick={() => onAdd({ name: name.trim(), email: email.trim().toLowerCase(), dept: dept.trim() || '-', title: title.trim() || '-', role })}>
+            onClick={doAdd}>
             {saving ? 'Adding…' : <><UserPlus size={14} /> Add User</>}
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={valid ? guard.saveAndClose : undefined} saving={saving} />
+      )}
     </div>
   );
 }
@@ -274,16 +282,23 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
     }
   }
 
+  const doSave = () => onSave({ name: name.trim(), department: department.trim(), allowed_modules: [...modules].map(([id, level]) => ({ id, level })), members });
+  const dirty = name.trim() !== (group?.name ?? '').trim()
+    || department.trim() !== (group?.department ?? '').trim()
+    || JSON.stringify([...modules].sort()) !== JSON.stringify((group?.allowed_modules ?? []).map(m => [m.id, m.level || 'viewer']).sort())
+    || JSON.stringify([...members].sort()) !== JSON.stringify((group?.members ?? []).slice().sort());
+  const guard = useUnsavedGuard(dirty, onClose, valid ? doSave : undefined);
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 660, maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 'clamp(660px, 65vw, 1100px)', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <div>
             <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{isEdit ? `Edit ${group.name}` : 'Create Group'}</h3>
             <p style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>Organize people, grant screen access, and manage roles together</p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}>
             <X size={16} />
           </button>
         </div>
@@ -410,11 +425,14 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
           <button className="primary-btn"
             disabled={!valid || saving}
-            onClick={() => onSave({ name: name.trim(), department: department.trim(), allowed_modules: [...modules].map(([id, level]) => ({ id, level })), members })}>
+            onClick={doSave}>
             {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Group'}
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={valid ? guard.saveAndClose : undefined} saving={saving} />
+      )}
     </div>
   );
 }

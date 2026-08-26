@@ -2,9 +2,11 @@
 // Custom Charts panel + builder. Ported from the export's dashboard/charts.tsx
 // and CustomCharts.tsx to the Nexus inline-style idiom. Custom charts persist to
 // localStorage, namespaced by a scope key (project id, or "workspace").
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Plus, BarChart3, LineChart as LineIcon, PieChart, Hash, Trash2, Pencil, ChevronDown, Check, X } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from '../theme';
+import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from '../../components/UnsavedChangesPrompt';
 import { taskAssignees } from '../lib';
 
 const PALETTE = ['#2563eb', '#16a34a', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
@@ -19,21 +21,27 @@ export function Card({ title, children }) {
   );
 }
 
-export function LightBar({ data }) {
+export function LightBar({ data, onSelect }) {
   // Kit bar list: quiet label, slim rounded bar on a track, ink count outside
-  // (numbers wear text tokens, never white-on-series-color).
+  // (numbers wear text tokens, never white-on-series-color). When onSelect is
+  // given, each row becomes a real button that drills into the List view
+  // filtered to that slice - a bar chart people can click, not just look at.
   const max = Math.max(1, ...data.map((d) => d.value));
   if (data.length === 0) return <Empty />;
+  const Row = onSelect ? 'button' : 'div';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
       {data.map((d) => (
-        <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 13 }}>
+        <Row key={d.label} onClick={onSelect ? () => onSelect(d) : undefined}
+          style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 12, fontSize: 13, textAlign: 'left',
+            background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit',
+            cursor: onSelect ? 'pointer' : 'default', borderRadius: 6 }}>
           <span style={{ width: 96, flexShrink: 0, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.label}</span>
           <div style={{ height: 9, flex: 1, borderRadius: 6, background: NX.surface2, overflow: 'hidden' }}>
             <div style={{ height: '100%', borderRadius: 6, width: `${Math.max(5, (d.value / max) * 100)}%`, background: d.color }} />
           </div>
           <span style={{ width: 26, textAlign: 'right', fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{d.value}</span>
-        </div>
+        </Row>
       ))}
     </div>
   );
@@ -298,6 +306,10 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
   const sel = { ...inputStyle, cursor: 'pointer', appearance: 'auto' };
   const lbl = { display: 'block', fontSize: 12, color: NX.dim, marginBottom: 4 };
 
+  const initialCfgRef = useRef(cfg);
+  const dirty = JSON.stringify(cfg) !== JSON.stringify(initialCfgRef.current);
+  const guard = useUnsavedGuard(dirty, onClose, () => onSave({ ...cfg, title }));
+
   // Assignee filter options derived from tasks.
   const assignees = useMemo(() => {
     const seen = new Map();
@@ -306,11 +318,11 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
   }, [tasks, store]);
 
   return (
-    <div onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(17,24,39,0.45)', padding: 16, fontFamily: FONT }}>
+    <div onMouseDown={(e) => e.target === e.currentTarget && guard.requestClose()} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(17,24,39,0.45)', padding: 16, fontFamily: FONT }}>
       <div style={{ display: 'flex', flexDirection: 'column', height: '88vh', width: '100%', maxWidth: 1000, overflow: 'hidden', borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, boxShadow: '0 24px 60px rgba(0,0,0,0.28)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 20px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{initial ? 'Edit Chart' : 'Add Chart'}</h2>
-          <button onClick={onClose} style={{ ...btn('ghost'), padding: 6 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ ...btn('ghost'), padding: 6 }}><X size={18} /></button>
         </div>
         <div style={{ display: 'flex', minHeight: 0, flex: 1, flexWrap: 'wrap' }}>
           {/* Preview */}
@@ -356,6 +368,9 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
           <button onClick={() => onSave({ ...cfg, title })} style={btn('primary')}>{initial ? 'Save chart' : 'Add chart'}</button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={guard.saving} />
+      )}
     </div>
   );
 }

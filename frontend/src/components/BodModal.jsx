@@ -6,6 +6,8 @@ import { msalInstance } from '../msalInstance';
 import { formatTime } from '../lib/datetime';
 import { useRole } from '../contexts/RoleContext';
 import { cleanName, emailToName } from '../lib/utils';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 // ── Beginning / End-of-day / Break message ────────────────────────────────────
 // BOD on first punch-in, EOD on punch-out, BREAK when stepping away. The message
@@ -255,17 +257,23 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
 
   const skip = () => { clearDraft(); return onSkip ? onSkip() : onClose(); };
 
+  // An unintentional exit (overlay click, X) used to silently discard
+  // whatever was typed - only relevant when !required, since required gates
+  // already keep the modal open. `required` is untouched here on purpose.
+  const dirty = !required && !!(message.trim() || tasks.trim() || pending.trim());
+  const guard = useUnsavedGuard(dirty, onClose, send);
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1420, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => { if (e.target === e.currentTarget && !required) onClose(); }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 520, boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+      onClick={e => { if (e.target === e.currentTarget && !required) guard.requestClose(); }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(400px, 60vw, 660px)', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <M.Icon size={17} style={{ color: M.color }} />
           <div style={{ flex: 1 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>{M.title}</h3>
             <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>{M.sub}</p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={() => (required ? onClose() : guard.requestClose())} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
 
         <div style={{ padding: '16px 22px', display: 'grid', gap: 12 }}>
@@ -344,6 +352,14 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt
+          onKeepEditing={guard.keepEditing}
+          onDiscard={() => { clearDraft(); onClose(); }}
+          onSave={guard.saveAndClose}
+          saving={busy}
+        />
+      )}
     </div>
   );
 }

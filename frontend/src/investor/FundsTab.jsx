@@ -291,7 +291,7 @@ export default function FundsTab() {
       )}
 
       {modal && (
-        <Modal title={modal.id ? 'Edit Deal' : 'Add Deal'} onClose={() => setModal(null)} width={640}
+        <Modal title={modal.id ? 'Edit Deal' : 'Add Deal'} onClose={() => setModal(null)}
           isDirty={dirty} onSave={() => save({ preventDefault() {} })}>
           <form onSubmit={save}>
             <div className="form-grid">

@@ -1719,6 +1719,12 @@ class ScheduledShift(Base):
     label          = Column(String, default="")          # e.g. "All Properties"
     note           = Column(String, default="")
     published      = Column(Integer, default=1)
+    # OPEN SHIFTS (Teams-style, Aug 26): an unassigned slot has employee_email=''
+    # and open_slots >= 1 (how many people are still needed). It shows in the
+    # "Open shifts" row; a manager assigns it to a person, which spawns their
+    # own assigned row and decrements this one (removed at 0). A normal assigned
+    # shift has a real email and open_slots 0.
+    open_slots     = Column(Integer, default=0)
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
 

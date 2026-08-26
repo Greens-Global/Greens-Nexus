@@ -6,6 +6,8 @@ import {
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDate, formatDateTime } from '../lib/datetime';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 // AI-assisted interviews: Teams invite → live questionnaire → transcript
 // auto-fill → calibrated scores → role leaderboard → final-round invite.
@@ -13,7 +15,7 @@ import { formatDate, formatDateTime } from '../lib/datetime';
 const Overlay = ({ children, onClose, wide }) => (
   <div onClick={e => e.target === e.currentTarget && onClose()}
     style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-    <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: wide ? 760 : 560, maxHeight: 'min(92dvh, 780px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+    <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: wide ? 'clamp(680px, 68vw, 1100px)' : 'clamp(520px, 60vw, 900px)', maxHeight: 'min(92dvh, 780px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
       {children}
     </div>
   </div>
@@ -58,9 +60,12 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
     finally { setBusy(false); }
   };
 
+  const dirty = !!(editing && (editing.name.trim() || editing.text.trim()));
+  const guard = useUnsavedGuard(dirty, onClose, save);
+
   return (
-    <Overlay onClose={onClose}>
-      <Head title="Interview Questionnaires" sub="One per role - the questions you ask in the call; AI fills the answers from the transcript" onClose={onClose} />
+    <Overlay onClose={guard.requestClose}>
+      <Head title="Interview Questionnaires" sub="One per role - the questions you ask in the call; AI fills the answers from the transcript" onClose={guard.requestClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px' }}>
         {editing ? (
           <div>
@@ -103,6 +108,14 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
           </>
         )}
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt
+          onKeepEditing={guard.keepEditing}
+          onDiscard={() => { setEditing(null); onClose(); }}
+          onSave={guard.saveAndClose}
+          saving={busy}
+        />
+      )}
     </Overlay>
   );
 }
@@ -141,9 +154,15 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
 
   const setAnswer = (qid, answer) => refreshSel({ ...sel, answers: sel.answers.map(a => a.qid === qid ? { ...a, answer } : a) });
 
+  // A pending "schedule a round" draft or a pasted-but-unsaved transcript would
+  // otherwise be silently lost on an overlay click - per-question answers are
+  // excluded since those already auto-save onBlur (see onBlur below).
+  const dirty = !!(sched.at || paste.trim());
+  const guard = useUnsavedGuard(dirty, onClose, undefined);
+
   return (
-    <Overlay onClose={onClose} wide>
-      <Head title={`Interviews - ${c.firstName} ${c.lastName || ''}`} sub={c.roleTitle || c.department || ''} onClose={onClose} />
+    <Overlay onClose={guard.requestClose} wide>
+      <Head title={`Interviews - ${c.firstName} ${c.lastName || ''}`} sub={c.roleTitle || c.department || ''} onClose={guard.requestClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px', flex: 1 }}>
 
         {/* Schedule a new round */}
@@ -267,6 +286,12 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
           </div>
         )}
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt
+          onKeepEditing={guard.keepEditing}
+          onDiscard={() => { setSched(s => ({ ...s, at: '' })); setPaste(''); onClose(); }}
+        />
+      )}
     </Overlay>
   );
 }
@@ -303,9 +328,13 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
     finally { setBusy(false); }
   };
 
+  const dirty = !!finalAt;
+  const invitingRow = inviting ? (rows || []).find(r => r.id === inviting) : null;
+  const guard = useUnsavedGuard(dirty, onClose, invitingRow ? () => invite(invitingRow) : undefined);
+
   return (
-    <Overlay onClose={onClose} wide>
-      <Head title="Interview Leaderboard" sub="Calibrated scores per role - invite the winner to the offer discussion" onClose={onClose} />
+    <Overlay onClose={guard.requestClose} wide>
+      <Head title="Interview Leaderboard" sub="Calibrated scores per role - invite the winner to the offer discussion" onClose={guard.requestClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px' }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
           <select className="form-input" style={{ fontSize: 12.5 }} value={tid} onChange={e => setTid(e.target.value)}>
@@ -384,6 +413,14 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
             </div>
           ))}
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt
+          onKeepEditing={guard.keepEditing}
+          onDiscard={() => { setInviting(null); setFinalAt(''); onClose(); }}
+          onSave={invitingRow ? guard.saveAndClose : undefined}
+          saving={busy}
+        />
+      )}
     </Overlay>
   );
 }

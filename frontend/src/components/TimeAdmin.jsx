@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Clock, ChevronDown, ChevronRight, ChevronLeft, MapPin, AlertTriangle, Download,
@@ -17,6 +17,8 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { ErrorBanner } from './AsyncState';
 import { formatDate } from '../lib/datetime';
 import { Avatar } from '../tasks/components';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 
@@ -339,6 +341,25 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   const totalFlags = (rows || []).reduce((a, r) => a + r.flagCount, 0);
   const pendingCount = timeoff.filter(r => r.status === 'pending').length;
   const approvedCount = (rows || []).filter(isRowApproved).length;
+
+  // Unsaved-changes guards for the edit/on-behalf/add-punch modals: an
+  // overlay click, X, or Escape used to silently discard an in-progress
+  // edit. Baseline is captured the render after each modal opens (the ref
+  // starts null so the very first render right after open reads as clean).
+  const editBaselineRef = useRef(null);
+  useEffect(() => { editBaselineRef.current = edit || null; }, [!!edit]);
+  const editDirty = !!edit && editBaselineRef.current !== null && JSON.stringify(edit) !== JSON.stringify(editBaselineRef.current);
+  const editGuard = useUnsavedGuard(editDirty, () => setEdit(null), saveEdit);
+
+  const oboBaselineRef = useRef(null);
+  useEffect(() => { oboBaselineRef.current = obo || null; }, [!!obo]);
+  const oboDirty = !!obo && oboBaselineRef.current !== null && JSON.stringify(obo) !== JSON.stringify(oboBaselineRef.current);
+  const oboGuard = useUnsavedGuard(oboDirty, () => setObo(null), saveObo);
+
+  const addBaselineRef = useRef(null);
+  useEffect(() => { addBaselineRef.current = addFor ? addP : null; }, [!!addFor]);
+  const addDirty = !!addFor && addBaselineRef.current !== null && JSON.stringify(addP) !== JSON.stringify(addBaselineRef.current);
+  const addGuard = useUnsavedGuard(addDirty, () => setAddFor(null), saveAdd);
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)' }}>
@@ -1020,12 +1041,12 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       {/* Edit punch modal */}
       {edit && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-          onClick={e => e.target === e.currentTarget && setEdit(null)}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 430, boxShadow: 'var(--shadow-lg)' }}>
+          onClick={e => e.target === e.currentTarget && editGuard.requestClose()}>
+          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(430px, 60vw, 700px)', boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Clock size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Adjust punch - {KIND_LABEL[edit.kind]}</h3>
-              <button onClick={() => setEdit(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
+              <button onClick={editGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>
               {edit.originalAt && (
@@ -1054,17 +1075,20 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           </div>
         </div>
       , document.body)}
+      {editGuard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={editGuard.keepEditing} onDiscard={() => setEdit(null)} onSave={editGuard.saveAndClose} saving={editGuard.saving || busy} />
+      )}
 
       {/* Request-on-behalf modal (Neil, Aug 11): a normal pending request in the
           employee's name, stamped with who filed it; the employee is notified. */}
       {obo && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-          onClick={e => e.target === e.currentTarget && setObo(null)}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 430, boxShadow: 'var(--shadow-lg)' }}>
+          onClick={e => e.target === e.currentTarget && oboGuard.requestClose()}>
+          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(430px, 60vw, 700px)', boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><CalendarOff size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Request Time Off on Behalf</h3>
-              <button onClick={() => setObo(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
+              <button onClick={oboGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>
               <div><label style={FL}>Employee</label>
@@ -1098,16 +1122,19 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           </div>
         </div>
       , document.body)}
+      {oboGuard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={oboGuard.keepEditing} onDiscard={() => setObo(null)} onSave={oboGuard.saveAndClose} saving={oboGuard.saving || oboBusy} />
+      )}
 
       {/* Add punch modal */}
       {addFor && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-          onClick={e => e.target === e.currentTarget && setAddFor(null)}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 430, boxShadow: 'var(--shadow-lg)' }}>
+          onClick={e => e.target === e.currentTarget && addGuard.requestClose()}>
+          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(430px, 60vw, 700px)', boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Plus size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Add punch - {addFor}</h3>
-              <button onClick={() => setAddFor(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
+              <button onClick={addGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>
               <div><label style={FL}>Kind</label>
@@ -1129,6 +1156,9 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           </div>
         </div>
       , document.body)}
+      {addGuard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={addGuard.keepEditing} onDiscard={() => setAddFor(null)} onSave={addGuard.saveAndClose} saving={addGuard.saving || busy} />
+      )}
     </div>
   );
 }

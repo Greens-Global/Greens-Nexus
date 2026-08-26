@@ -224,7 +224,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
   return (
     <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch' }}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 640, width: '100%', display: 'flex', flexDirection: 'column', maxHeight: '92vh' }}>
+        style={{ maxWidth: 'clamp(520px, 60vw, 900px)', width: '100%', display: 'flex', flexDirection: 'column', maxHeight: '92vh' }}>
 
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
           <div style={{ minWidth: 0 }}>

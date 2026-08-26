@@ -553,6 +553,10 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN bod_exempt INTEGER DEFAULT 0",
             # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
             "ALTER TABLE hr_candidates ADD COLUMN company TEXT DEFAULT ''",
+            # Open shifts (Teams-style, Aug 26): unassigned slot count
+            "ALTER TABLE scheduled_shifts ADD COLUMN open_slots INTEGER DEFAULT 0",
+            # Draft/publish workflow (Teams Shifts parity): drafts hidden from staff until shared
+            "ALTER TABLE scheduled_shifts ADD COLUMN published INTEGER DEFAULT 1",
             # Per-person geofence (Aug 25)
             "ALTER TABLE nexus_employees ADD COLUMN geofence_lat TEXT DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN geofence_lng TEXT DEFAULT ''",
@@ -1184,6 +1188,10 @@ def _run_migrations():
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_exempt INTEGER DEFAULT 0",
         # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS company TEXT DEFAULT ''",
+        # Open shifts (Teams-style, Aug 26): unassigned slot count
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS open_slots INTEGER DEFAULT 0",
+        # Draft/publish workflow (Teams Shifts parity): drafts hidden from staff until shared
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS published INTEGER DEFAULT 1",
         # Per-person geofence (Aug 25)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_lat TEXT DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_lng TEXT DEFAULT ''",

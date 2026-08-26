@@ -1150,7 +1150,7 @@ function AddUpdateModal({ entry, submitLabel, myEmail, onClose, onSave }) {
   );
 
   return (
-    <Modal title={entry ? 'Edit update' : 'Add new update'} onClose={onClose} width={640} footer={footer}
+    <Modal title={entry ? 'Edit update' : 'Add new update'} onClose={onClose} footer={footer}
       isDirty={dirty} onSave={canSave ? save : undefined}>
       <Field label="Title">
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Fixed leave balance calculation" style={inputStyle} />
