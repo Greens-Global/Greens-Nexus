@@ -1944,31 +1944,39 @@
         fabricCanvas.renderAll();
     }
 
+    // Ask the real length of the calibration line via the in-page modal and set
+    // the scale. Kept separate so handleMeasureClick stays sync.
+    async function _finishCalibration(px) {
+        const ans = await customPrompt(
+            'Enter the real length of the line you drew (number + unit), e.g. 10 ft, 5 m, 24 in:',
+            'e.g. 10 ft', '10 ft');
+        if (!ans) { setStatus('Calibration cancelled'); return; }
+        const m = ans.trim().match(/^([\d.]+)\s*([a-zA-Z"']+)?$/);
+        if (!m) { showToast('Could not read that - try like "10 ft"'); return; }
+        const realLen = parseFloat(m[1]);
+        measureUnit = m[2] || measureUnit;
+        measureScale = realLen / toPagePx(px);   // units per page-pixel
+        setStatus('Scale set: measurements now show in ' + measureUnit + '. Use Measure length / perimeter / area.');
+        showToast('Scale calibrated - measurements will show in ' + measureUnit);
+    }
+
     function handleMeasureClick(opt) {
         if (state.activeTool !== 'shape') return;
         if (!['mlength', 'mperim', 'marea', 'mcalibrate'].includes(shapeKind)) return;
         const p = fabricCanvas.getPointer(opt.e);
 
         if (shapeKind === 'mcalibrate') {
-            // Two clicks define a known distance, then prompt for its real length.
+            // Two clicks define a known distance, then ask its real length.
             measurePts.push({ x: p.x, y: p.y });
             measureRedraw();
             if (measurePts.length === 2) {
                 const px = polyLenPx(measurePts, false);
                 if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
                 measurePts = [];
-                const ans = window.prompt('Calibrate the plan scale\n\nYou just drew a line over a known distance on the plan. Enter what that distance REALLY is (number + unit), e.g. "10 ft", "5 m", "24 in".\n\nAfter this, every line you measure shows its real-world size automatically.', '10 ft');
-                if (ans) {
-                    const m = ans.trim().match(/^([\d.]+)\s*([a-zA-Z"']+)?$/);
-                    if (m) {
-                        const realLen = parseFloat(m[1]);
-                        measureUnit = m[2] || measureUnit;
-                        measureScale = realLen / toPagePx(px);  // units per page-pixel
-                        setStatus('Scale set: 1 page-pixel = ' + measureScale.toFixed(4) + ' ' + measureUnit + '. Now use Length/Area/Perimeter.');
-                        showToast('Scale calibrated - measurements will show in ' + measureUnit);
-                    } else { showToast('Could not read that - try like "10 ft"'); }
-                }
                 fabricCanvas.renderAll();
+                // Use the in-page modal (not window.prompt, which browsers can
+                // silently drop inside an iframe) so the scale entry always shows.
+                _finishCalibration(px);
             } else {
                 setStatus('Calibrate: click the second end of a KNOWN distance');
             }
