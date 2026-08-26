@@ -913,6 +913,10 @@
             // pdf-lib (Unlock, save, merge...) needs this to actually decrypt.
             state.pdfPassword = pdfPassword || null;
             if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
+            // Tear down any continuous view from a previous document so the new
+            // one builds fresh (it's now kept hidden between edits, not destroyed).
+            if (typeof destroyScrollView === 'function') destroyScrollView();
+            _savedScrollTop = null;
             state.pdfDoc = pdf;
             state.totalPages = pdf.numPages;
             state.currentPage = 1;
@@ -6543,6 +6547,10 @@
         markDirty();
         if (!skipSave) saveCurrentAnnotations(); // keep markups on the visible page
         if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} } // L4: free worker memory
+        // The page set changed - drop any hidden continuous view so it rebuilds
+        // fresh next time (pages are kept hidden between edits, not destroyed).
+        if (typeof destroyScrollView === 'function') destroyScrollView();
+        _savedScrollTop = null;
         state.pdfBytes = newBytes.slice().buffer;
         const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
         state.pdfDoc = pdf;
@@ -7586,6 +7594,7 @@
     // that page. The proven editing pipeline is untouched.
     let _scrollOn = false;
     let _scrollEls = [];      // per-page { wrap, canvas, rendered, page }
+    let _savedScrollTop = null;   // scroll position kept while editing a page
 
     async function buildScrollView() {
         const host = dom.canvasScrollWrapper;
@@ -7800,21 +7809,58 @@
         if (cont) cont.remove();
         _scrollEls = [];
     }
+    // Re-add the existing scroll handler after the view was hidden for editing
+    // (it was detached, not destroyed) so scrolling keeps working on return.
+    function _reattachScrollHandler() {
+        if (_scrollOnScroll && dom.canvasScrollWrapper) {
+            dom.canvasScrollWrapper.removeEventListener('scroll', _scrollOnScroll); // avoid dupes
+            dom.canvasScrollWrapper.addEventListener('scroll', _scrollOnScroll, { passive: true });
+        }
+    }
 
     function setScrollMode(on) {
         if (!state.pdfDoc) return;
         _scrollOn = on;
         const cw = dom.canvasWrapper;
         const btn = document.getElementById('scrollModeBtn');
+        const existing = document.getElementById('continuousView');
         if (on) {
             saveCurrentAnnotations();
             if (cw) cw.style.display = 'none';       // hide the single-page editor canvas
-            buildScrollView();  // async; observers attach as pages are added
+            if (existing && _scrollEls.length) {
+                // The continuous view is still built (we only hid it to edit) -
+                // just SHOW it again and restore the scroll position. No rebuild,
+                // so returning to scroll is instant with no flicker. Pages are
+                // already rendered.
+                existing.style.display = '';
+                if (dom.canvasScrollWrapper && _savedScrollTop != null) {
+                    dom.canvasScrollWrapper.scrollTop = _savedScrollTop;
+                }
+                _reattachScrollHandler();
+            } else {
+                buildScrollView();  // first time (or torn down): build it
+            }
             setStatus('Scroll through all pages - pick a tool to edit the current page');
         } else {
-            destroyScrollView();
+            // Entering single-page edit: remember where we were and HIDE the
+            // continuous view instead of destroying it, so coming back doesn't
+            // rebuild/flicker. Detach the scroll handler while hidden.
+            _savedScrollTop = dom.canvasScrollWrapper ? dom.canvasScrollWrapper.scrollTop : 0;
+            if (_scrollOnScroll && dom.canvasScrollWrapper) {
+                dom.canvasScrollWrapper.removeEventListener('scroll', _scrollOnScroll);
+            }
+            if (existing) existing.style.display = 'none';
             if (cw) cw.style.display = '';
             renderPage(state.currentPage);
+            // Reset the scroll position to the top of the single page. Coming
+            // from a scrolled-down continuous view, the wrapper kept its old
+            // scrollTop, so the edited page appeared stuck at its bottom. Reset
+            // now AND after the async render settles the layout.
+            if (dom.canvasScrollWrapper) {
+                dom.canvasScrollWrapper.scrollTop = 0;
+                requestAnimationFrame(() => { dom.canvasScrollWrapper.scrollTop = 0; });
+                setTimeout(() => { dom.canvasScrollWrapper.scrollTop = 0; }, 120);
+            }
             setStatus('Edit mode — page ' + state.currentPage);
         }
         if (btn) btn.classList.toggle('active', on);
