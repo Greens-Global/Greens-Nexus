@@ -11,7 +11,6 @@
 """
 import os
 import unittest
-import uuid
 from datetime import datetime, timezone, timedelta
 
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
