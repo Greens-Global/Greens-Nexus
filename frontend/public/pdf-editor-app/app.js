@@ -1803,6 +1803,7 @@
             mradius: 'Radius: click the center, then the edge (shows radius + diameter)',
             mvolume: 'Volume: outline the area, double-click to finish, then enter a depth',
             mcount:  'Count: click to drop markers - the list tallies them',
+            mdynfill:'Dynamic fill: click inside an enclosed room to auto-measure its area',
             mlength: 'Length: click two points. Hold Shift for straight/45 deg; snaps to nearby ends',
             mpolylen:'Polyline length: click points along a run, double-click to finish (one total)',
             mperim:  'Perimeter: click points, double-click to close. Shift = ortho, snaps to ends',
@@ -2562,7 +2563,73 @@
         _updateScaleChip();
     }
 
-    const _MEASURE_KINDS = ['mlength', 'mpolylen', 'mperim', 'marea', 'mcutout', 'mcalibrate', 'mangle', 'mradius', 'mvolume', 'mcount'];
+    // ── Dynamic Fill (H2) ───────────────────────────────────────────────────
+    // Click inside an enclosed region on the plan; flood-fill the rendered page
+    // bitmap to find the room, compute its area by counting interior pixels
+    // (converted through the scale), and drop an Area measurement. This is the
+    // "paint-bucket" takeoff: no clicking each corner.
+    async function dynamicFillAt(canvasPt) {
+        if (!measureScale) { showToast('Set the scale first'); return; }
+        const pc = dom.pdfCanvas;
+        if (!pc || !pc.width) { showToast('Open a page first'); return; }
+        const sx = pc.width / (fabricCanvas.getWidth() || 1);   // page-px per fabric-px
+        const sy = pc.height / (fabricCanvas.getHeight() || 1);
+        const W = pc.width, H = pc.height;
+        let data;
+        try { data = pc.getContext('2d').getImageData(0, 0, W, H).data; } catch (_) { showToast('Cannot read the page pixels'); return; }
+        const startX = Math.round(canvasPt.x * sx), startY = Math.round(canvasPt.y * sy);
+        if (startX < 0 || startY < 0 || startX >= W || startY >= H) return;
+        const idx = (x, y) => (y * W + x) * 4;
+        // A pixel is "wall/line" (a barrier) if it's dark; interior is light.
+        const isWall = (x, y) => { const i = idx(x, y); return data[i + 3] > 40 && (data[i] + data[i + 1] + data[i + 2]) < 360; };
+        if (isWall(startX, startY)) { showToast('Click inside an open area, not on a line'); return; }
+        // Scanline flood fill over light pixels, bounded so a leak can't fill the
+        // whole sheet. Cap at ~1/3 of the page.
+        const cap = Math.floor(W * H / 3);
+        const visited = new Uint8Array(W * H);
+        const stack = [[startX, startY]];
+        let count = 0; let minX = startX, maxX = startX, minY = startY, maxY = startY;
+        setStatus('Dynamic fill: detecting the enclosed area...');
+        while (stack.length) {
+            const [x, y] = stack.pop();
+            if (x < 0 || y < 0 || x >= W || y >= H) continue;
+            const f = y * W + x;
+            if (visited[f]) continue;
+            if (isWall(x, y)) continue;
+            visited[f] = 1; count++;
+            if (count > cap) { showToast('That area is not enclosed - the fill leaked out'); setStatus('Ready'); return; }
+            if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+            stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+        }
+        if (count < 50) { showToast('That region is too small to measure'); setStatus('Ready'); return; }
+        // Interior pixel count -> page-px^2 -> real area. Each page px covers
+        // (1/sx)*(1/sy) fabric-px, and toPagePx converts fabric-px to page-px.
+        const fabricAreaPx2 = count / (sx * sy);              // area in fabric px^2
+        const pageAreaPx2 = toPagePx(toPagePx(fabricAreaPx2)); // page px^2 (undo zoom)
+        const realArea = pageAreaPx2 * measureScale * measureScale;
+        // Draw a translucent rectangle over the detected bounds as a visual marker
+        // (a full outline trace would be heavier; the bounds + label read clearly).
+        const rx = minX / sx, ry = minY / sy, rw = (maxX - minX) / sx, rh = (maxY - minY) / sy;
+        const base = measureStyleBase(); base.selectable = true;
+        const rect = new fabric.Rect({ left: rx, top: ry, width: rw, height: rh,
+            fill: 'rgba(45,158,68,0.16)', stroke: base.stroke, strokeWidth: base.strokeWidth,
+            strokeDashArray: [6, 4], selectable: true, objectCaching: false });
+        // Use polygon-style _measure but store geomPx as the true filled area so
+        // scale-recompute keeps working.
+        rect._measure = _tagMeasure(rect, { kind: 'marea', type: 'Area', value: realArea, unit: measureUnit,
+            area: true, page: state.currentPage, label: '', dynamicFill: true }, pageAreaPx2);
+        fabricCanvas.add(rect);
+        const cx = rx + rw / 2, cy = ry + rh / 2;
+        const lbl = measureLabel(_autoLabelText(rect._measure), cx, cy);
+        lbl.selectable = true; lbl._midLink = rect._measure._mid; lbl._measureLabelFor = rect._measure;
+        fabricCanvas.add(lbl);
+        fabricCanvas.requestRenderAll();
+        saveAnnotationState(); saveCurrentAnnotations();
+        if (window.renderMeasureList) window.renderMeasureList();
+        setStatus('Dynamic fill: area ' + realArea.toFixed(_mPrecision()) + ' ' + measureUnit + '²');
+    }
+
+    const _MEASURE_KINDS = ['mlength', 'mpolylen', 'mperim', 'marea', 'mcutout', 'mcalibrate', 'mangle', 'mradius', 'mvolume', 'mcount', 'mdynfill'];
     function handleMeasureClick(opt) {
         if (state.activeTool !== 'shape') return;
         if (!_MEASURE_KINDS.includes(shapeKind)) return;
@@ -2573,6 +2640,9 @@
 
         // Count: each click drops a numbered marker; no scale required.
         if (shapeKind === 'mcount') { placeCountMarker(p); return; }
+
+        // Dynamic fill: one click inside a room auto-detects the area.
+        if (shapeKind === 'mdynfill') { dynamicFillAt(p); return; }
 
         if (shapeKind === 'mcalibrate') {
             // Two clicks define a known distance, then ask its real length.
@@ -2916,11 +2986,12 @@
             const uSuf = m.unit + _unitSuffix(m);
             const key = grp + '|' + m.type + '|' + uSuf;
             totals[key] = totals[key] || { subject: grp, type: m.type, unit: uSuf, sum: 0, count: 0,
-                                           kind: m.kind, min: Infinity, max: -Infinity, scales: new Set() };
+                                           kind: m.kind, min: Infinity, max: -Infinity, scales: new Set(), cost: 0, hasCost: false };
             const t = totals[key];
             t.sum += m.value; t.count++;
             t.min = Math.min(t.min, m.value); t.max = Math.max(t.max, m.value);
             if (m.scaleAt != null) t.scales.add(+m.scaleAt.toFixed(6));
+            if (m.unitCost != null) { t.hasCost = true; t.cost += m.value * m.unitCost; }
         });
         const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => (
             { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
@@ -2967,8 +3038,12 @@
                 val = t.count === 1 ? t.min.toFixed(P) + u
                     : `min ${t.min.toFixed(P)} / max ${t.max.toFixed(P)} / avg ${(t.sum / t.count).toFixed(P)}${u}`;
             } else val = t.sum.toFixed(P) + ' ' + t.unit;
-            html += `<div class="measure-total-row"><span>${escH(label)} (${t.count})${mixed}</span><b>${val}</b></div>`;
+            const cost = t.hasCost ? ` <span class="measure-cost">$${t.cost.toFixed(2)}</span>` : '';
+            html += `<div class="measure-total-row"><span>${escH(label)} (${t.count})${mixed}</span><b>${val}${cost}</b></div>`;
         });
+        // Grand total cost across every group that has costs.
+        const grand = Object.values(totals).reduce((s, t) => s + (t.hasCost ? t.cost : 0), 0);
+        if (grand > 0) html += `<div class="measure-total-row measure-grand"><span>Estimated cost</span><b>$${grand.toFixed(2)}</b></div>`;
         body.innerHTML = html;
         body.querySelectorAll('.measure-row[data-mid]').forEach((row) => {
             row.addEventListener('click', () => {
@@ -3049,6 +3124,9 @@
                   <input type="number" class="modal-input" data-k="depth" value="${m.depth||1}" min="0" step="any" style="width:80px;">
                 </label>` : ''}
               </div>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Unit cost (per ${(m.unit + _unitSuffix(m)) || 'item'}) - optional
+                <input type="number" class="modal-input" data-k="unitCost" value="${m.unitCost != null ? m.unitCost : ''}" min="0" step="any" placeholder="e.g. 12.50" style="width:120px;">
+              </label>
               <label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="checkbox" data-k="hideLabel"${m.hideLabel ? ' checked' : ''}> Hide the label on the plan</label>
             </div>`, 'Save', (overlay) => {
               // Add a Delete button into the footer.
@@ -3068,6 +3146,10 @@
         m.color = v.color || m.color;
         m.thickness = Math.max(1, parseInt(v.thickness, 10) || m.thickness);
         m.hideLabel = !!v.hideLabel;
+        if (v.unitCost !== undefined) {
+            const uc = parseFloat(v.unitCost);
+            m.unitCost = (v.unitCost === '' || isNaN(uc)) ? null : uc;
+        }
         if (m.kind === 'mvolume' && v.depth !== undefined) {
             const d = parseFloat(v.depth);
             if (d > 0) { m.depth = d; _recomputeMeasure(m); }
@@ -3145,19 +3227,23 @@
             Page: m.page,
             Value: m.kind === 'mcount' ? m.value : +m.value.toFixed(4),
             Unit: uSuf(m),
+            'Unit cost': m.unitCost != null ? m.unitCost : '',
+            'Extended cost': m.unitCost != null ? +(m.value * m.unitCost).toFixed(2) : '',
             Label: m.label || '',
         }));
         const tmap = {};
         rows.forEach((m) => {
             const grp = m.subject || m.type;
-            const k = grp + '|' + uSuf(m);
-            tmap[k] = tmap[k] || { Subject: grp, Type: m.type, Unit: uSuf(m), Total: 0, Count: 0, kind: m.kind };
+            const k = grp + '|' + m.type + '|' + uSuf(m);
+            tmap[k] = tmap[k] || { Subject: grp, Type: m.type, Unit: uSuf(m), Total: 0, Count: 0, kind: m.kind, Cost: 0, hasCost: false };
             tmap[k].Total += m.value; tmap[k].Count++;
+            if (m.unitCost != null) { tmap[k].hasCost = true; tmap[k].Cost += m.value * m.unitCost; }
         });
         const totals = Object.values(tmap).map((t) => ({
             Subject: t.Subject, Type: t.Type,
             Total: t.kind === 'mcount' ? t.Count : +t.Total.toFixed(4),
             Unit: t.Unit, Count: t.Count,
+            'Extended cost': t.hasCost ? +t.Cost.toFixed(2) : '',
         }));
         return { rows, detail, totals };
     }
@@ -3174,8 +3260,8 @@
                     .catch(() => loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'));
             }
             const wb = XLSX.utils.book_new();
-            const wsD = XLSX.utils.json_to_sheet(detail, { header: ['Type', 'Subject', 'Page', 'Value', 'Unit', 'Label'] });
-            const wsT = XLSX.utils.json_to_sheet(totals, { header: ['Subject', 'Type', 'Total', 'Unit', 'Count'] });
+            const wsD = XLSX.utils.json_to_sheet(detail, { header: ['Type', 'Subject', 'Page', 'Value', 'Unit', 'Unit cost', 'Extended cost', 'Label'] });
+            const wsT = XLSX.utils.json_to_sheet(totals, { header: ['Subject', 'Type', 'Total', 'Unit', 'Count', 'Extended cost'] });
             XLSX.utils.book_append_sheet(wb, wsD, 'Measurements');
             XLSX.utils.book_append_sheet(wb, wsT, 'Totals');
             XLSX.writeFile(wb, base + '.xlsx');
@@ -3188,10 +3274,10 @@
 
     function _exportMeasurementsCsv(detail, totals, base, n) {
         const esc = (s) => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
-        let csv = 'Type,Subject,Page,Value,Unit,Label\n';
-        detail.forEach((r) => { csv += [esc(r.Type), esc(r.Subject), r.Page, r.Value, esc(r.Unit), esc(r.Label)].join(',') + '\n'; });
-        csv += '\nTotals\nSubject,Type,Total,Unit,Count\n';
-        totals.forEach((t) => { csv += [esc(t.Subject), esc(t.Type), t.Total, esc(t.Unit), t.Count].join(',') + '\n'; });
+        let csv = 'Type,Subject,Page,Value,Unit,Unit cost,Extended cost,Label\n';
+        detail.forEach((r) => { csv += [esc(r.Type), esc(r.Subject), r.Page, r.Value, esc(r.Unit), r['Unit cost'], r['Extended cost'], esc(r.Label)].join(',') + '\n'; });
+        csv += '\nTotals\nSubject,Type,Total,Unit,Count,Extended cost\n';
+        totals.forEach((t) => { csv += [esc(t.Subject), esc(t.Type), t.Total, esc(t.Unit), t.Count, t['Extended cost']].join(',') + '\n'; });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
         a.download = base + '.csv';

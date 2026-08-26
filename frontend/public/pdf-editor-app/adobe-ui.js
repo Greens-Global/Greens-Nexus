@@ -357,6 +357,7 @@
       ['mpolylen',   '⌇ Measure polyline length'],
       ['mperim',     '⟿ Measure perimeter'],
       ['marea',      '▦ Measure area'],
+      ['mdynfill',   '🪣 Dynamic fill (auto-detect a room)'],
       ['mcutout',    '⊟ Area cutout (subtract a void)'],
       ['mangle',     '∠ Measure angle'],
       ['mradius',    '◐ Measure radius / diameter'],
@@ -423,7 +424,7 @@
     const shapeMenu = document.getElementById('shapeMenu');
     if (shapeMenu) {
       shapeMenu.querySelectorAll('.dropdown-item').forEach(it => {
-        if (['mcalibrate','mlength','mpolylen','mperim','marea','mcutout','mangle','mradius','mvolume','mcount'].includes(it.dataset.kind)) it.remove();
+        if (['mcalibrate','mlength','mpolylen','mperim','marea','mdynfill','mcutout','mangle','mradius','mvolume','mcount'].includes(it.dataset.kind)) it.remove();
       });
       shapeMenu.querySelectorAll('.dropdown-group-label').forEach(h => {
         if (/measure & scale/i.test(h.textContent)) h.remove();
