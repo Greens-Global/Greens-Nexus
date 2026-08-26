@@ -588,8 +588,34 @@
   panel.className = 'adobe-tools-panel';
   const head = document.createElement('div');
   head.className = 'adobe-tools-head';
-  head.textContent = 'Tools';
+  const headLabel = document.createElement('span');
+  headLabel.textContent = 'Tools';
+  head.appendChild(headLabel);
+  // Collapse toggle: hides the tools list for more document space. A small
+  // floating tab re-opens it when collapsed.
+  const collapseBtn = document.createElement('button');
+  collapseBtn.className = 'adobe-tools-collapse';
+  collapseBtn.type = 'button';
+  collapseBtn.title = 'Hide tools panel';
+  collapseBtn.setAttribute('aria-label', 'Hide tools panel');
+  collapseBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+  head.appendChild(collapseBtn);
   panel.appendChild(head);
+
+  // A floating tab shown when the panel is collapsed, to bring it back.
+  const reopenTab = document.createElement('button');
+  reopenTab.className = 'adobe-tools-reopen';
+  reopenTab.type = 'button';
+  reopenTab.title = 'Show tools panel';
+  reopenTab.setAttribute('aria-label', 'Show tools panel');
+  reopenTab.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+
+  const setToolsCollapsed = (collapsed) => {
+    panel.classList.toggle('collapsed', collapsed);
+    reopenTab.style.display = collapsed ? 'flex' : 'none';
+  };
+  collapseBtn.addEventListener('click', () => setToolsCollapsed(true));
+  reopenTab.addEventListener('click', () => setToolsCollapsed(false));
 
   const iconFor = (g) => {
     // A group can define its own icon; otherwise reuse its first button's SVG.
@@ -674,6 +700,8 @@
     panel.appendChild(item);
   }
   mainContainer.appendChild(panel);
+  mainContainer.appendChild(reopenTab);
+  reopenTab.style.display = 'none'; // panel starts expanded
 
   // ── Page bar: compact floating-pill labels ─────────────────────────────────
   // Same elements (ids/listeners intact) — only the visual text is tidied.
