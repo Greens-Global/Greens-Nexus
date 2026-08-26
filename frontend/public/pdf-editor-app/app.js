@@ -5737,6 +5737,7 @@
             // Save current annotations
             saveCurrentAnnotations();
             _exportFailures = 0;
+            const _pendingMeasureAnnots = [];   // written in the annotation pass below (H3)
 
             // Load the current PDF with pdf-lib
             const bytesToLoad = state.pdfBytes instanceof ArrayBuffer
@@ -5825,6 +5826,17 @@
                     if (layerSkip(obj)) continue; // hidden or deleted layer
                     if (obj._isCommentMark) continue; // becomes a real Highlight annotation below
                     await drawObjectOnPDF(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
+                }
+
+                // Collect this page's measurements so a real PDF markup annotation
+                // can be attached AFTER all pages are drawn (see the annotation
+                // pass below). Doing it here races the later comment-annotation
+                // pass that can overwrite /Annots, so we defer.
+                for (const obj of annotData.objects) {
+                    if (obj._measure && !layerSkip(obj)) {
+                        _pendingMeasureAnnots.push({ pageIndex: pageNum - 1, m: obj._measure, obj,
+                            scaleX, scaleY, pageHeight });
+                    }
                 }
             }
 
@@ -5923,7 +5935,46 @@
                         }
                     });
                 }
+
             } catch (e) { console.warn('Could not embed PDF comments:', e); }
+
+            // Measurement markup annotations (H3): attach machine-readable measure
+            // data (/Contents for any viewer's comment list, /NexusMeasure JSON for
+            // round-trip) IF this build keeps vector annotations on save. Some save
+            // paths rasterize pages (flattening annotations); in that case the
+            // measure data still lives in the Excel/CSV export, and the visible
+            // markup is baked into the page. Best-effort, never fatal.
+            try {
+                const { PDFName, PDFString, PDFHexString } = PDFLib;
+                const ctx = pdfLibDoc.context;
+                for (const pm of _pendingMeasureAnnots) {
+                    const pg = pages[pm.pageIndex];
+                    if (!pg) continue;
+                    const { m, obj, scaleX, scaleY, pageHeight } = pm;
+                    const bx = (obj.left || 0) * scaleX, byTop = (obj.top || 0) * scaleY;
+                    const bw = Math.max(6, (obj.width || 20) * (obj.scaleX || 1) * scaleX);
+                    const bh = Math.max(6, (obj.height || 20) * (obj.scaleY || 1) * scaleY);
+                    const y1 = pageHeight - byTop - bh, y2 = pageHeight - byTop;
+                    const dict = ctx.obj({
+                        Type: 'Annot', Subtype: (m.area || m.cubic) ? 'Square' : 'PolyLine',
+                        Rect: [bx, y1, bx + bw, y2],
+                        Contents: PDFHexString.fromText((m.label ? m.label + ' - ' : '') + _autoLabelText(m).replace(/\s+/g, ' ')),
+                        T: PDFHexString.fromText('Nexus Measure'),
+                        Subj: PDFHexString.fromText('Measurement: ' + m.type),
+                        C: [0.1, 0.44, 0.76], CA: 0.01, F: 4,
+                        NexusMeasure: PDFString.of(JSON.stringify({
+                            kind: m.kind, type: m.type, value: m.value, unit: m.unit,
+                            subject: m.subject, label: m.label, geomPx: m.geomPx,
+                            scaleAt: m.scaleAt, unitCost: m.unitCost, depth: m.depth,
+                            area: !!m.area, cubic: !!m.cubic,
+                        })),
+                    });
+                    const ref = ctx.register(dict);
+                    const existing = pg.node.lookup(PDFName.of('Annots'));
+                    if (existing && existing.push) existing.push(ref);
+                    else pg.node.set(PDFName.of('Annots'), ctx.obj([ref]));
+                }
+            } catch (e) { console.warn('Could not write measurement annotations:', e); }
 
             if (_exportFailures > 0) {
                 showToast(_exportFailures + ' markup(s) could not be saved into the PDF — check the result');
