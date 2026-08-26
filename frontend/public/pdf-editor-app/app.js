@@ -7615,24 +7615,62 @@
             const sheetW = cols >= rows ? Math.max(pw, ph) : Math.min(pw, ph);
             const sheetH = cols >= rows ? Math.min(pw, ph) : Math.max(pw, ph);
             const total = src.getPageCount();
-            const embedded = await out.embedPdf(src, Array.from({ length: total }, (_, i) => i));
             const cellW = sheetW / cols, cellH = sheetH / rows;
+
+            // Try to embed the pages as VECTORS (crisp, small). Some PDFs use
+            // content-stream compression pdf-lib's embedder can't decode ("unknown
+            // compression method in flate stream") - fall back to rendering each
+            // page to an image via pdf.js (which decodes everything).
+            let embedded = null;
+            try {
+                embedded = await out.embedPdf(src, Array.from({ length: total }, (_, i) => i));
+            } catch (embedErr) {
+                console.warn('N-up: vector embed failed, using image fallback:', embedErr.message);
+                embedded = null;
+            }
+
+            // Pre-render page images if we need the fallback.
+            const pageImg = [];   // { png, w, h } per source page (image mode only)
+            if (!embedded) {
+                for (let i = 0; i < total; i++) {
+                    setStatus('Building N-up... rendering page ' + (i + 1) + '/' + total);
+                    const pg = await state.pdfDoc.getPage(i + 1);
+                    const vp = pg.getViewport({ scale: 1.5 });   // decent quality
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
+                    const cx2 = canvas.getContext('2d');
+                    cx2.fillStyle = '#fff'; cx2.fillRect(0, 0, canvas.width, canvas.height);
+                    await pg.render({ canvasContext: cx2, viewport: vp }).promise;
+                    const base = pg.getViewport({ scale: 1 });
+                    const png = await out.embedPng(canvas.toDataURL('image/png'));
+                    pageImg.push({ png, w: base.width, h: base.height });
+                }
+            }
+
             for (let i = 0; i < total; i += n) {
                 const sheet = out.addPage([sheetW, sheetH]);
                 for (let k = 0; k < n && i + k < total; k++) {
-                    const emb = embedded[i + k];
-                    // Honor source /Rotate: 90/270 swaps the visual aspect
-                    let ew = emb.width, eh = emb.height;
-                    try {
-                        const rot = (src.getPage(i + k).getRotation().angle % 360 + 360) % 360;
-                        if (rot === 90 || rot === 270) { ew = emb.height; eh = emb.width; }
-                    } catch (_) {}
+                    const idx = i + k;
+                    let ew, eh, place;
+                    if (embedded) {
+                        const emb = embedded[idx];
+                        ew = emb.width; eh = emb.height;
+                        try {
+                            const rot = (src.getPage(idx).getRotation().angle % 360 + 360) % 360;
+                            if (rot === 90 || rot === 270) { ew = emb.height; eh = emb.width; }
+                        } catch (_) {}
+                        place = (opts) => sheet.drawPage(emb, opts);
+                    } else {
+                        const im = pageImg[idx];
+                        ew = im.w; eh = im.h;
+                        place = (opts) => sheet.drawImage(im.png, opts);
+                    }
                     const scale = Math.min(cellW / ew, cellH / eh) * 0.95;
                     const w = ew * scale, h = eh * scale;
                     const col = k % cols, row = Math.floor(k / cols);
                     const x = col * cellW + (cellW - w) / 2;
                     const y = sheetH - (row + 1) * cellH + (cellH - h) / 2;
-                    sheet.drawPage(emb, { x, y, width: w, height: h });
+                    place({ x, y, width: w, height: h });
                 }
             }
             const bytes = await out.save();
