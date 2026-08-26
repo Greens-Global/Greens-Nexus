@@ -2115,8 +2115,10 @@ header.toolbar {
     margin-top: 6px;
 }
 .signature-style-option {
-    border: 1.5px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.03);
+    /* Tokens, not white-alpha hardcodes: the old #f2f2f7-on-white made the
+       style previews invisible in the light theme. */
+    border: 1.5px solid var(--border);
+    background: var(--bg-tertiary);
     border-radius: 8px;
     padding: 10px 12px;
     min-height: 54px;
@@ -2124,14 +2126,14 @@ header.toolbar {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    color: #f2f2f7;
+    color: var(--text-primary);
     overflow: hidden;
     white-space: nowrap;
     transition: border-color 0.12s ease, background 0.12s ease;
 }
-.signature-style-option:hover { border-color: rgba(124, 92, 252, 0.6); }
+.signature-style-option:hover { border-color: var(--accent); }
 .signature-style-option.selected {
-    border-color: #7c5cfc;
+    border-color: var(--accent);
     background: rgba(124, 92, 252, 0.12);
 }
 .signature-style-option .sig-preview {

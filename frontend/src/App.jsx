@@ -580,9 +580,25 @@ function MainApp() {
   // user got here (this app's arrow, the browser's own back/forward, a swipe
   // gesture, alt+Left).
   const fromPopstate = useRef(false);
+  // Depth of the entry currently shown - lets the popstate guard below tell a
+  // back-move from a forward-move so "cancel" can re-assert the right entry.
+  const lastDepthRef = useRef(0);
   useEffect(() => {
     const onPop = (e) => {
       const { view, sub } = parsePath();
+      // PDF editor markups live only in the iframe's memory. popstate (browser
+      // Back/Forward, swipe, alt+Left, the in-app arrow) bypasses navigate()'s
+      // dirty guard, so it needs its own; on cancel, step history back to the
+      // entry the user was on (which re-fires popstate onto the editor path -
+      // that pass sees view === 'pdf-editor' and skips this guard).
+      if (pdfDirtyRef.current && view !== 'pdf-editor'
+          && !window.confirm('You have unsaved changes in the PDF editor. Leave anyway?')) {
+        const newDepth = e.state?.depth || 0;
+        if (newDepth < lastDepthRef.current) window.history.forward();
+        else window.history.back();
+        return;
+      }
+      lastDepthRef.current = e.state?.depth || 0;
       fromPopstate.current = true;
       setActiveView(view);
       setActiveSub(sub ?? getDefaultSub(view));
@@ -604,6 +620,7 @@ function MainApp() {
       const depth = (window.history.state?.depth || 0) + 1;
       const fromLabel = viewLabel(prevLocRef.current.view);
       window.history.pushState({ depth, fromLabel }, '', path);
+      lastDepthRef.current = depth;
       setCanGoBack(true);
       setPrevLabel(fromLabel);
     }

@@ -1276,8 +1276,15 @@
         };
     }
 
+    // Generation counter: loadFromJSON enlivens objects ASYNCHRONOUSLY (images,
+    // signatures), so on fast page flips page A's callback can land after page
+    // B started loading — mixing A's objects onto B's canvas and then saving
+    // them into B's stored annotations. A superseded restore must bow out and
+    // re-run for the page that is actually current.
+    let _restoreSeq = 0;
     function restoreAnnotations(pageNum) {
         if (!fabricCanvas) return;
+        const seq = ++_restoreSeq;
         _isRestoring = true;
         fabricCanvas.clear();
         const entry = state.annotations[pageNum];
@@ -1285,6 +1292,7 @@
             // Support both the new { fabricData, zoom } format and old plain-JSON format
             const data = entry.fabricData || entry;
             fabricCanvas.loadFromJSON(data, () => {
+                if (seq !== _restoreSeq) { restoreAnnotations(state.currentPage); return; } // superseded — reload the right page
                 // The entry was captured at entry.zoom; if the zoom changed while
                 // another page was showing, rescale to the current zoom (mirrors
                 // undo/redo) — otherwise the marks render, and later export, at
@@ -1319,6 +1327,7 @@
     function saveAnnotationState() {
         // Skip if we're in the middle of restoring annotations (loadFromJSON fires object:added)
         if (_isRestoring) return;
+        _annotSeq++;
         markDirty();
         const page = state.currentPage;
         if (!state.undoStacks[page]) state.undoStacks[page] = [];
@@ -1345,7 +1354,14 @@
         const page = state.currentPage;
         const stack = state.undoStacks[page];
         if (!stack || stack.length <= 1) {
-            if (_docUndoStack.length) undoDocChange(); // e.g. undo a crop
+            const snap = _docUndoStack[_docUndoStack.length - 1];
+            if (snap && snap.annotSeq === _annotSeq) {
+                undoDocChange(); // e.g. undo a crop — nothing page-level happened since
+            } else if (snap) {
+                // A doc snapshot exists but markups were made after it (possibly
+                // on another page) — undoing it would destroy that newer work.
+                showToast('Nothing to undo on this page');
+            }
             return;
         }
 
@@ -3052,7 +3068,23 @@
     // ── Crop Tool ──
     // Document-level undo for STRUCTURAL changes (crop): snapshots of the
     // whole PDF bytes, restored by Cmd+Z when there is no markup to undo.
-    const _docUndoStack = []; // [{ bytes: ArrayBuffer, label, page }]
+    const _docUndoStack = []; // [{ bytes: ArrayBuffer, label, page, annotSeq }]
+    // Counts page-level markup actions. A doc-level snapshot records the count
+    // at capture time; Ctrl+Z may only fall through to the doc-level undo when
+    // NOTHING page-level happened since — otherwise undoing a crop from an
+    // unrelated page rolled annotations back and destroyed newer markups.
+    let _annotSeq = 0;
+
+    // One structural document operation at a time: delete/move/rotate/crop/add
+    // are multi-await rebuilds of state.pdfBytes, and two interleaved runs
+    // (double-clicked delete buttons, a drag during a delete) corrupt the page
+    // mapping. Acquire before mutating; release in the operation's finally.
+    let _docOpBusy = false;
+    function _acquireDocOp() {
+        if (_docOpBusy) { showToast('Please wait - another page operation is still running'); return false; }
+        _docOpBusy = true;
+        return true;
+    }
     function pushDocSnapshot(label) {
         try {
             saveCurrentAnnotations(); // capture the live canvas first
@@ -3061,6 +3093,7 @@
                 bytes: src.slice().buffer, label, page: state.currentPage,
                 ann: JSON.stringify(state.annotations),
                 comments: JSON.stringify(state.comments),
+                annotSeq: _annotSeq,
             });
             if (_docUndoStack.length > 5) _docUndoStack.shift(); // cap memory
             updateUndoRedoButtons();
@@ -3710,6 +3743,7 @@
             <p class="modal-hint" style="margin-top:8px;">The page is inserted after page ${state.currentPage}.</p>`, 'Add Page');
         if (!v) return;
 
+        if (!_acquireDocOp()) return;
         pushDocSnapshot('Add page');
         setStatus('Adding blank page...');
 
@@ -3781,7 +3815,7 @@
             console.error(err);
             setStatus('Add page failed: ' + err.message);
             showToast('Add page failed');
-        }
+        } finally { _docOpBusy = false; }
     }
 
     // ── Template Page System ──
@@ -3830,7 +3864,9 @@
     }
 
     async function addTemplatePage() {
+        _exitScrollForOp(); // structural change - operate on the real editor canvas
         if (!state.pdfBytes) return;
+        if (!_acquireDocOp()) return;
         setStatus('Analyzing document & adding template page...');
 
         try {
@@ -3935,7 +3971,7 @@
             console.error(err);
             setStatus('Template page failed: ' + err.message);
             showToast('Template page failed');
-        }
+        } finally { _docOpBusy = false; }
     }
 
     // ── Page Reorder ──
@@ -3955,6 +3991,7 @@
         if (fromPage < 1 || fromPage > state.totalPages) return;
         if (toPage < 1 || toPage > state.totalPages) return;
 
+        if (!_acquireDocOp()) return;
         pushDocSnapshot('Reorder pages');
         setStatus('Reordering pages...');
 
@@ -4030,7 +4067,7 @@
             console.error(err);
             setStatus('Reorder failed: ' + err.message);
             showToast('Reorder failed');
-        }
+        } finally { _docOpBusy = false; }
     }
 
     // ── Drag & Drop State ──
@@ -4043,6 +4080,7 @@
             return;
         }
 
+        if (!_acquireDocOp()) return;
         pushDocSnapshot('Delete page');
         setStatus('Deleting page...');
 
@@ -4099,12 +4137,18 @@
             renderPage(state.currentPage);
 
             setStatus('Page deleted');
-            showToast('Page ' + pageNum + ' deleted', 'Undo', () => undoDocChange());
+            // Undo only THIS deletion — if another doc-level change lands while
+            // the toast is up, the button must not undo that instead.
+            const delSnap = _docUndoStack[_docUndoStack.length - 1];
+            showToast('Page ' + pageNum + ' deleted', 'Undo', () => {
+                if (_docUndoStack[_docUndoStack.length - 1] === delSnap) undoDocChange();
+                else showToast('Cannot undo - the document changed since');
+            });
         } catch (err) {
             console.error(err);
             setStatus('Delete failed: ' + err.message);
             showToast('Delete failed');
-        }
+        } finally { _docOpBusy = false; }
     }
 
     // ── View Mode ──
@@ -4810,14 +4854,21 @@
         } else if (type === 'path') {
             // Freehand drawing - render as image overlay
             await drawPathAsImage(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
-        } else if (type === 'ellipse' || type === 'triangle' || type === 'line' || type === 'group' || type === 'polygon') {
+        } else if (type === 'ellipse' || type === 'triangle' || type === 'line' || type === 'group'
+                   || type === 'polygon' || type === 'polyline' || type === 'circle') {
             // Shapes with no direct pdf-lib primitive (or with dash styles) —
             // re-create the fabric object and embed it as a crisp PNG overlay.
-            // (These were previously DROPPED from the saved PDF entirely.)
+            // (These were previously DROPPED from the saved PDF entirely —
+            // 'polyline' included, which the shape tool's polyline mode creates.)
             await drawGenericObjectAsImage(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
         } else if (type === 'image') {
             // Image object
             await drawImageOnPDF(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
+        } else {
+            // Unknown type: count it so the "N markup(s) could not be saved"
+            // toast fires instead of a silent drop (how polylines got lost).
+            _exportFailures++;
+            console.warn('No export mapping for object type:', type);
         }
     }
 
@@ -5865,6 +5916,7 @@
         _exitScrollForOp();
         if (!state.pdfBytes) return;
 
+        if (!_acquireDocOp()) return;
         setStatus('Rotating page...');
 
         try {
@@ -5901,7 +5953,7 @@
             console.error(err);
             setStatus('Rotate failed: ' + err.message);
             showToast('Rotate failed');
-        }
+        } finally { _docOpBusy = false; }
     }
 
     // ── Stamp / Watermark ──
@@ -6034,6 +6086,10 @@
     }
 
     async function addStamp(stampText) {
+        // In continuous scroll the live canvas is hidden and frozen: the stamp
+        // landed there, saveCurrentAnnotations no-op'd, and the mark silently
+        // vanished (and "all pages" skipped the page the user was looking at).
+        _exitScrollForOp();
         if (!fabricCanvas) return;
 
         // Per-preset default colors (green = approved, red = warning, grey = draft).
