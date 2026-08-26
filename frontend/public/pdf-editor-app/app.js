@@ -1173,6 +1173,8 @@
 
         state.currentPage = pageNum;
         dom.pageInput.value = pageNum;
+        // Each sheet can carry its own stored scale (Store Scale in Page).
+        _applyStoredScaleForPage(pageNum);
 
         setStatus(`Rendering page ${pageNum}...`);
 
@@ -1906,6 +1908,77 @@
     // real units. Stored per-document; persists until re-calibrated or a new doc.
     let measureScale = null;   // number (units per page-pixel) | null = uncalibrated
     let measureUnit = 'ft';    // display unit label
+    let _scaleLocked = false;  // when true, Calibrate/Set Scale are blocked
+    // Per-page stored scales: page number -> { scale, unit }. "Store Scale in
+    // Page" saves here so each sheet keeps its own calibration across page
+    // switches, save, and reload.
+    const _pageScales = {};
+    function _applyStoredScaleForPage(pg) {
+        const s = _pageScales[pg];
+        if (s) { measureScale = s.scale; measureUnit = s.unit; }
+    }
+    // Guard the two scale-setting entry points against an accidental change.
+    function _scaleChangeAllowed() {
+        if (_scaleLocked) {
+            showToast('Scale is locked - unlock it from the Measure menu to change it');
+            setStatus('Scale is locked');
+            return false;
+        }
+        return true;
+    }
+    window.toggleScaleLock = function () {
+        _scaleLocked = !_scaleLocked;
+        showToast(_scaleLocked ? 'Scale locked - it will not change accidentally' : 'Scale unlocked');
+        setStatus(_scaleLocked ? 'Scale: LOCKED' : 'Scale: unlocked');
+        return _scaleLocked;
+    };
+    window.storeScaleInPage = function () {
+        if (!measureScale) { showToast('Set a scale first, then store it'); return; }
+        _pageScales[state.currentPage] = { scale: measureScale, unit: measureUnit };
+        showToast('Scale stored on page ' + state.currentPage + ' - it will reload with this sheet');
+        setStatus('Scale stored in page ' + state.currentPage);
+    };
+    // ISO 32000 defines a page /VP viewport with a /Measure dict (the "embedded
+    // scale"). Read it via pdf-lib if present so a drawing that already carries a
+    // scale can be used without re-calibrating.
+    window.useEmbeddedScale = async function () {
+        if (!_scaleChangeAllowed()) return;
+        try {
+            const src = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
+            const page = src.getPage(state.currentPage - 1);
+            const vp = page.node.lookup(PDFLib.PDFName.of('VP'));
+            const found = _readEmbeddedMeasure(vp);
+            if (!found) { showToast('No embedded scale found in this PDF - use Calibrate or Set Scale'); return; }
+            measureScale = found.scale; measureUnit = found.unit;
+            _pageScales[state.currentPage] = { scale: measureScale, unit: measureUnit };
+            showToast('Using the PDF\'s embedded scale - measurements show in ' + measureUnit);
+            setStatus('Embedded scale loaded: measurements in ' + measureUnit);
+        } catch (e) { console.warn(e); showToast('Could not read an embedded scale from this PDF'); }
+    };
+    // Parse a /VP array's first /Measure /RL (ratio) into units-per-page-pixel.
+    function _readEmbeddedMeasure(vp) {
+        try {
+            const arr = (vp && vp.asArray) ? vp.asArray() : null;
+            if (!arr || !arr.length) return null;
+            for (const viewport of arr) {
+                const vpd = viewport && viewport.lookup ? viewport : null;
+                const measure = vpd && vpd.lookup(PDFLib.PDFName.of('Measure'));
+                const x = measure && measure.lookup && measure.lookup(PDFLib.PDFName.of('X'));
+                const xArr = x && x.asArray ? x.asArray() : null;
+                const nd = xArr && xArr[0];
+                // /X [ <numberformat> ] where the number format /C is units per point.
+                const c = nd && nd.lookup && nd.lookup(PDFLib.PDFName.of('C'));
+                const unitName = nd && nd.lookup && nd.lookup(PDFLib.PDFName.of('U'));
+                if (c && typeof c.asNumber === 'function') {
+                    // C = real units per default user-space unit (point). Convert
+                    // to per page-pixel (page px == point here).
+                    const unit = unitName && unitName.asString ? unitName.asString() : measureUnit;
+                    return { scale: c.asNumber(), unit: String(unit).replace(/[^a-zA-Z]/g, '') || measureUnit };
+                }
+            }
+        } catch (_) {}
+        return null;
+    }
     let measurePts = [];       // active measurement points (canvas px)
     let measurePreview = null; // live fabric preview
     let measureKind = null;    // 'mlength' | 'mperim' | 'marea' while collecting
@@ -2040,6 +2113,7 @@
         const realPerPage = (realVal / pageVal);              // realUnits per 1 pageUnit
         measureScale = pagePerPx * realPerPage;               // realUnits per page px
         measureUnit = realUnit;
+        _pageScales[state.currentPage] = { scale: measureScale, unit: measureUnit };
         setStatus('Scale set: ' + pageVal + ' ' + pageUnit + ' = ' + realVal + ' ' + realUnit
                   + ' - measurements show in ' + realUnit);
         showToast('Scale set - measurements will show in ' + realUnit);
@@ -2138,6 +2212,7 @@
     // Set Scale dialog (Bluebeam-style): type the scale directly, e.g. 1 in =
     // 10 ft, with unit dropdowns - no need to draw a known line.
     async function openSetScaleDialog() {
+        if (!_scaleChangeAllowed()) return;
         _exitScrollForOp();
         const unitOpts = (sel) => ['mm','cm','m','in','ft','yd']
             .map(u => `<option value="${u}"${u===sel?' selected':''}>${u}</option>`).join('');
@@ -2162,6 +2237,7 @@
     // Ask the real length of the calibration line via the in-page modal and set
     // the scale. Kept separate so handleMeasureClick stays sync.
     async function _finishCalibration(px) {
+        if (!_scaleChangeAllowed()) return;
         const ans = await customPrompt(
             'Enter the real length of the line you drew (number + unit), e.g. 10 ft, 5 m, 24 in:',
             'e.g. 10 ft', '10 ft');
@@ -2171,6 +2247,7 @@
         const realLen = parseFloat(m[1]);
         measureUnit = m[2] || measureUnit;
         measureScale = realLen / toPagePx(px);   // units per page-pixel
+        _pageScales[state.currentPage] = { scale: measureScale, unit: measureUnit };
         setStatus('Scale set: measurements now show in ' + measureUnit + '. Use Measure length / perimeter / area.');
         showToast('Scale calibrated - measurements will show in ' + measureUnit);
     }
@@ -10391,6 +10468,7 @@ Replacement:`;
             fabric: () => fabricCanvas,
             contentSnap: (p) => _contentSnap(p),   // test probe for Snap to Content
             measures: () => fabricCanvas.getObjects().filter(o => o._measure).map(o => o._measure),
+            scaleState: () => ({ scale: measureScale, unit: measureUnit, locked: _scaleLocked, stored: { ..._pageScales } }),
             addObj: (o) => { fabricCanvas.add(o); fabricCanvas.renderAll(); saveAnnotationState(); },
             rect: (opts) => new fabric.Rect(opts),
             ellipse: (opts) => new fabric.Ellipse(opts),

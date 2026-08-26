@@ -349,7 +349,10 @@
     mMenu.id = 'measureMenu';
     const MMODES = [
       ['setscale',   '⚖ Set scale directly (1 in = 10 ft)', true],  // action, not a kind
+      ['embedscale', '🧾 Use embedded scale (from the PDF)', true],
       ['mcalibrate', '📐 Calibrate by drawing a known line'],
+      ['storescale', '📌 Store scale in this page', true],
+      ['lockscale',  '🔒 Lock / unlock scale', true],
       ['mlength',    '↦ Measure length'],
       ['mpolylen',   '⌇ Measure polyline length'],
       ['mperim',     '⟿ Measure perimeter'],
@@ -374,6 +377,12 @@
           // Actions open a dialog/panel rather than arming a draw tool.
           if (kind === 'setscale' && window.openSetScaleDialog) window.openSetScaleDialog();
           else if (kind === 'mlist' && window.toggleMeasureList) window.toggleMeasureList();
+          else if (kind === 'embedscale' && window.useEmbeddedScale) window.useEmbeddedScale();
+          else if (kind === 'storescale' && window.storeScaleInPage) window.storeScaleInPage();
+          else if (kind === 'lockscale' && window.toggleScaleLock) {
+            const locked = window.toggleScaleLock();
+            it.textContent = (locked ? '🔒 ' : '🔓 ') + 'Lock / unlock scale';
+          }
           else if (kind === 'snapcontent' && window.toggleSnapContent) {
             const on = window.toggleSnapContent();
             it.textContent = (on ? '✓ ' : '') + '🧲 Snap to Content (on/off)';
