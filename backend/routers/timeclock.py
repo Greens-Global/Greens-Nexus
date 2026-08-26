@@ -3845,6 +3845,7 @@ def _sched_dict(row: ScheduledShift, presets: dict) -> dict:
     return {"id": row.id, "email": row.employee_email, "date": row.work_date,
             "shiftId": row.shift_id, "start": row.start_hhmm, "end": row.end_hhmm,
             "label": row.label, "note": row.note, "published": bool(row.published),
+            "openSlots": int(getattr(row, "open_slots", 0) or 0),
             "code": (p.code or p.name) if p else "", "color": p.color if p else "#64748b"}
 
 
@@ -3873,7 +3874,10 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
     q = (db.query(ScheduledShift)
          .filter(ScheduledShift.work_date >= start, ScheduledShift.work_date <= end))
     if scope is not None:
-        q = q.filter(ScheduledShift.employee_email.in_(list(scope)))
+        # Assigned shifts for the caller's team PLUS team-wide OPEN shifts
+        # (unassigned slots, employee_email == '').
+        q = q.filter((ScheduledShift.employee_email.in_(list(scope))) |
+                     (ScheduledShift.employee_email == ""))
     scheduled = [_sched_dict(r, presets) for r in q.all()]
 
     tq = (db.query(TimeOffRequest)
@@ -3896,6 +3900,7 @@ class ScheduledShiftIn(BaseModel):
     end_hhmm: Optional[str] = ""
     label: Optional[str] = ""
     note: Optional[str] = ""
+    open_slots: Optional[int] = None   # >=1 with an empty email = an OPEN shift
 
 
 @router.post("/schedule")
@@ -3903,19 +3908,162 @@ def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_team_w
                      db: Session = Depends(get_db)):
     em = body.employee_email.strip().lower()
     scope = _visible_emails(db, user)
-    if scope is not None and em not in scope:
+    # An empty email is an OPEN shift (an unassigned team slot); a real email must
+    # be someone the caller can see.
+    if em and scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
+    slots = int(body.open_slots or 0)
+    if not em:
+        slots = max(1, slots)   # an open shift needs at least one slot
     preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
     row = ScheduledShift(
         id=str(uuid.uuid4()), employee_email=em, work_date=body.work_date[:10],
         shift_id=body.shift_id or "",
         start_hhmm=(body.start_hhmm or (preset.start_hhmm if preset else "09:00"))[:5],
         end_hhmm=(body.end_hhmm or (preset.end_hhmm if preset else "17:00"))[:5],
-        label=(body.label or "")[:80], note=(body.note or "")[:200],
+        label=(body.label or "")[:80], note=(body.note or "")[:200], open_slots=slots,
         created_by=user["email"], created_at=_now_iso())
     db.add(row)
     db.commit()
     return _sched_dict(row, {preset.id: preset} if preset else {})
+
+
+class AssignOpenIn(BaseModel):
+    employee_email: str
+
+
+@router.post("/schedule/{sched_id}/assign")
+def assign_open_shift(sched_id: str, body: AssignOpenIn,
+                      user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """Assign an OPEN shift to a person (Teams "Assign open shifts"). Spawns their
+    own assigned shift from the open slot and decrements the open count, removing
+    the open row once every slot is filled."""
+    row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).first()
+    if not row:
+        raise HTTPException(404, "Shift not found")
+    if (row.employee_email or "").strip():
+        raise HTTPException(400, "That shift is already assigned.")
+    em = body.employee_email.strip().lower()
+    if not em:
+        raise HTTPException(400, "Pick a person to assign this shift to.")
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    assigned = ScheduledShift(
+        id=str(uuid.uuid4()), employee_email=em, work_date=row.work_date,
+        shift_id=row.shift_id, start_hhmm=row.start_hhmm, end_hhmm=row.end_hhmm,
+        label=row.label, note=row.note, open_slots=0,
+        created_by=user["email"], created_at=_now_iso())
+    db.add(assigned)
+    row.open_slots = int(row.open_slots or 1) - 1
+    if row.open_slots <= 0:
+        db.delete(row)
+    db.commit()
+    preset = db.query(Shift).filter(Shift.id == assigned.shift_id).first() if assigned.shift_id else None
+    return _sched_dict(assigned, {preset.id: preset} if preset else {})
+
+
+class BulkScheduleIn(BaseModel):
+    shift_id:   Optional[str] = ""          # preset -> its start/end/name
+    start_hhmm: Optional[str] = ""          # override when there's no preset
+    end_hhmm:   Optional[str] = ""
+    label:      Optional[str] = ""
+    note:       Optional[str] = ""
+    emails:     List[str] = []              # explicit people
+    group_id:   Optional[str] = ""          # OR a shift group -> its members
+    start_date: str                         # YYYY-MM-DD (inclusive)
+    end_date:   str                         # YYYY-MM-DD (inclusive)
+    weekdays:   Optional[List[int]] = None  # 0=Mon..6=Sun; empty/None = every day
+    skip_timeoff: bool = True               # don't schedule over approved/pending time off
+    overwrite:  bool = False                # replace an existing shift that day, else skip it
+
+
+@router.post("/schedule/bulk")
+def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_team_write),
+                  db: Session = Depends(get_db)):
+    """Assign a shift preset to a whole GROUP (or set of people) across a DATE
+    RANGE in one action, instead of adding it per person per day (Visesh, Aug 26).
+    Applies a preset (or explicit start/end) to every selected person on every
+    date in [start_date, end_date] that matches `weekdays`, skipping dates a
+    person has time off (unless turned off) and existing shifts (unless
+    overwrite). Team-scoped: only people the caller can already see are touched."""
+    scope = _visible_emails(db, user)
+    emails = {e.strip().lower() for e in body.emails if e and e.strip()}
+    if (body.group_id or "").strip():
+        emails |= {(m.employee_email or "").lower() for m in
+                   db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == body.group_id.strip()).all()
+                   if m.employee_email}
+    if scope is not None:
+        emails &= set(scope)          # never schedule outside the caller's team
+    emails = {e for e in emails if e}
+    if not emails:
+        raise HTTPException(400, "No people selected (or none in your team).")
+
+    try:
+        d0 = datetime.strptime(body.start_date[:10], "%Y-%m-%d").date()
+        d1 = datetime.strptime(body.end_date[:10], "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "Invalid date range.")
+    if d1 < d0:
+        raise HTTPException(400, "End date is before the start date.")
+    wd = set(body.weekdays) if body.weekdays else None    # None = all days
+    dates = []
+    cur = d0
+    while cur <= d1:
+        if wd is None or cur.weekday() in wd:
+            dates.append(cur.strftime("%Y-%m-%d"))
+        cur += timedelta(days=1)
+    if not dates:
+        raise HTTPException(400, "No dates match the chosen days of the week.")
+    if len(emails) * len(dates) > 6000:
+        raise HTTPException(400, "That's too many at once - narrow the people, dates, or days of week.")
+
+    preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if (body.shift_id or "").strip() else None
+    shhmm = (body.start_hhmm or (preset.start_hhmm if preset else "09:00"))[:5]
+    ehhmm = (body.end_hhmm or (preset.end_hhmm if preset else "17:00"))[:5]
+    label = (body.label or (preset.name if preset else ""))[:80]
+    note = (body.note or "")[:200]
+    shift_id = body.shift_id or ""
+
+    # Existing shifts in range (for overwrite / skip) and time off, in one query each.
+    existing = {}
+    for r in (db.query(ScheduledShift)
+              .filter(ScheduledShift.employee_email.in_(emails),
+                      ScheduledShift.work_date >= dates[0], ScheduledShift.work_date <= dates[-1]).all()):
+        existing.setdefault((r.employee_email, r.work_date), []).append(r)
+    off = {}
+    if body.skip_timeoff:
+        for t in (db.query(TimeOffRequest)
+                  .filter(TimeOffRequest.employee_email.in_(emails),
+                          TimeOffRequest.status.in_(["approved", "pending"]),
+                          TimeOffRequest.start_date <= dates[-1], TimeOffRequest.end_date >= dates[0]).all()):
+            off.setdefault(t.employee_email, []).append((t.start_date, t.end_date))
+
+    def _is_off(em, ds):
+        return any(s <= ds <= e for (s, e) in off.get(em, []))
+
+    created = replaced = skipped = timeoff_skipped = 0
+    now = _now_iso()
+    for em in sorted(emails):
+        for ds in dates:
+            if body.skip_timeoff and _is_off(em, ds):
+                timeoff_skipped += 1
+                continue
+            have = existing.get((em, ds))
+            if have:
+                if not body.overwrite:
+                    skipped += 1
+                    continue
+                for r in have:
+                    db.delete(r)
+                replaced += 1
+            db.add(ScheduledShift(id=str(uuid.uuid4()), employee_email=em, work_date=ds,
+                                  shift_id=shift_id, start_hhmm=shhmm, end_hhmm=ehhmm,
+                                  label=label, note=note, created_by=user["email"], created_at=now))
+            created += 1
+    db.commit()
+    return {"created": created, "replaced": replaced, "skipped": skipped,
+            "timeoffSkipped": timeoff_skipped, "people": len(emails), "dates": len(dates)}
 
 
 @router.patch("/schedule/{sched_id}")
@@ -3925,10 +4073,12 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
     if not row:
         raise HTTPException(404, "Shift not found")
     scope = _visible_emails(db, user)
-    if scope is not None and row.employee_email not in scope:
+    if row.employee_email and scope is not None and row.employee_email not in scope:
         raise HTTPException(403, "Outside your team")
     preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
     row.shift_id = body.shift_id or ""
+    if body.open_slots is not None and not row.employee_email:
+        row.open_slots = max(1, int(body.open_slots))   # editing an open shift's count
     row.start_hhmm = (body.start_hhmm or (preset.start_hhmm if preset else row.start_hhmm))[:5]
     row.end_hhmm = (body.end_hhmm or (preset.end_hhmm if preset else row.end_hhmm))[:5]
     row.label = (body.label or "")[:80]
@@ -3943,7 +4093,7 @@ def delete_scheduled(sched_id: str, user: dict = Depends(require_team_write),
     row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).first()
     if row:
         scope = _visible_emails(db, user)
-        if scope is not None and row.employee_email not in scope:
+        if row.employee_email and scope is not None and row.employee_email not in scope:
             raise HTTPException(403, "Outside your team")
         db.delete(row)
         db.commit()
