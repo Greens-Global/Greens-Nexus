@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, Loader2 } from 'lucide-react';
 import { api } from '../api';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 // ── Weekly schedule grid (Microsoft Teams "Shifts" style) ─────────────────────
 // Rows = employees (grouped by shift group), columns = the 7 days of the week.
@@ -225,13 +227,19 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onClose }) {
     });
   }
 
+  // ex is fixed for this modal instance's lifetime (a fresh CellModal mounts
+  // per cell click), so the initial useState values ARE the baseline.
+  const dirty = shiftId !== (ex?.shiftId || (shifts[0]?.id || '')) || start !== (ex?.start || '')
+    || end !== (ex?.end || '') || label !== (ex?.label || '') || note !== (ex?.note || '');
+  const guard = useUnsavedGuard(dirty, onClose, submit);
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 420, padding: 20 }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 'clamp(420px, 60vw, 700px)', padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{ex ? 'Edit Shift' : 'Add Shift'}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
           {new Date(cell.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}
@@ -261,6 +269,9 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onClose }) {
           {shifts.length > 0 && <button className="primary-btn" onClick={submit} disabled={busy}>{busy ? '…' : 'Save'}</button>}
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={guard.saving || busy} />
+      )}
     </div>
   );
 }

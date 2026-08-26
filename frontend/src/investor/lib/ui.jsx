@@ -76,7 +76,7 @@ export function Modal({ title, onClose, width, children, isDirty = false, onSave
   };
   return (
     <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) requestClose(); }}>
-      <div className="modal-content" style={width ? { maxWidth: width } : undefined}>
+      <div className="modal-content" style={{ maxWidth: width || 'clamp(520px, 60vw, 980px)' }}>
         <div className="modal-header">
           <h3>{title}</h3>
           <button type="button" className="close-btn" onClick={requestClose}><X size={18} /></button>

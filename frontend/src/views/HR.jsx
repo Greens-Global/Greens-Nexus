@@ -22,6 +22,8 @@ import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext'
 import TimeAdmin from '../components/TimeAdmin';
 import ModuleTabs from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
 // External tab folded into People (Neil, Aug 24: one master list) - only the
 // shared pieces remain in use: badge, invite modal, lifecycle section.
@@ -116,6 +118,11 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     notes:           e?.notes || '',
   });
   const [f, setF] = useState(() => seedFrom(employee));
+  // Baseline for the unsaved-changes guard. Kept separate from the initial
+  // seed because the background refresh below can silently replace untouched
+  // fields with fresher server data - that's not a user edit, so the ref is
+  // re-synced whenever the refresh applies, not just once on mount.
+  const initialFRef = useRef(f);
   // The row this modal opened from can be STALE: other surfaces change the
   // record without this view's list refetching - assigning a job role (from
   // Roles & Access or the card's Access tab) rewrites job_title server-side,
@@ -138,6 +145,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           if (k === 'contractor') continue;
           if (cur[k] === orig[k]) merged[k] = next[k];
         }
+        initialFRef.current = merged;
         return merged;
       });
     }).catch(() => {});
@@ -262,16 +270,19 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     </div>
   );
 
+  const dirty = compDirty || JSON.stringify(f) !== JSON.stringify(initialFRef.current);
+  const guard = useUnsavedGuard(dirty, onClose, f.first_name.trim() ? save : undefined);
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 560, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(520px, 60vw, 980px)', maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-green),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <UserPlus size={17} color="hsl(var(--color-green))" />
           </div>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{editing ? `Edit ${fullName(employee)}` : initialType === 'contractor' ? 'Add Independent Contractor' : 'Add Employee'}</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {input('FIRST NAME *', 'first_name', { autoFocus: !editing })}
@@ -459,6 +470,9 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={f.first_name.trim() ? guard.saveAndClose : undefined} saving={busy} />
+      )}
     </div>
   );
 }
@@ -1811,13 +1825,15 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
     <div><label style={FL}>{label}</label>
       <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
   );
+  const dirty = Object.values(f).some(v => (v || '').trim() !== '');
+  const guard = useUnsavedGuard(dirty, onClose, f.first_name.trim() ? save : undefined);
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 520, maxHeight: 'min(92dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(520px, 60vw, 980px)', maxHeight: 'min(92dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Add Candidate</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {input('FIRST NAME *', 'first_name', { autoFocus: true })}
@@ -1843,6 +1859,9 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={f.first_name.trim() ? guard.saveAndClose : undefined} saving={busy} />
+      )}
     </div>
   );
 }
@@ -2894,13 +2913,15 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
     try { onSaved(await api.createLeave({ ...f, days: Number(f.days) })); onClose(); }
     catch (err) { toastErr(err?.message || 'Could not record leave.'); setBusy(false); }
   }
+  const dirty = !!(f.employee_id || f.start_date || f.end_date || f.reason.trim() || f.days !== 1);
+  const guard = useUnsavedGuard(dirty, onClose, canSave ? save : undefined);
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 480, maxHeight: 'min(92dvh, 620px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(480px, 60vw, 900px)', maxHeight: 'min(92dvh, 620px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>New Leave Request</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <div style={{ gridColumn: '1 / -1' }}><label style={FL}>EMPLOYEE *</label>
@@ -2928,6 +2949,9 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={canSave ? guard.saveAndClose : undefined} saving={busy} />
+      )}
     </div>
   );
 }
@@ -3289,8 +3313,12 @@ function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, 
     setGroupMgrBusy(false);
   }
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-  const startNew = () => { setF(blank); setMode('new'); };
-  const startEdit = en => { setF({ name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '', manager_email: en.managerEmail || '' }); setMode(en.id); };
+  const formSnapshotRef = useRef(blank);
+  const startNew = () => { setF(blank); formSnapshotRef.current = blank; setMode('new'); };
+  const startEdit = en => {
+    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '', manager_email: en.managerEmail || '' };
+    setF(seeded); formSnapshotRef.current = seeded; setMode(en.id);
+  };
   const deptId = (typeof mode === 'string' && mode.startsWith('dept:')) ? mode.slice(5) : null;
   const deptEntity = deptId ? entities.find(e => e.id === deptId) : null;
 
@@ -3322,16 +3350,21 @@ function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, 
     </div>
   );
 
+  // Only the add/edit form (mode set, not the department sub-view) carries
+  // unsaved state - the list view itself has nothing to lose.
+  const dirty = !!mode && !deptId && JSON.stringify(f) !== JSON.stringify(formSnapshotRef.current);
+  const guard = useUnsavedGuard(dirty, onClose, f.name.trim() ? save : undefined);
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 60vw, 980px)', maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Building2 size={17} color="hsl(var(--color-blue))" />
           </div>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{deptId ? `Departments · ${deptEntity?.name || ''}` : mode ? (mode === 'new' ? 'Add Company' : 'Edit Company') : 'Company Setup'}</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
 
         {deptId ? (
@@ -3420,6 +3453,9 @@ function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, 
           </>
         )}
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={f.name.trim() ? guard.saveAndClose : undefined} saving={busy} />
+      )}
     </div>
   );
 }
@@ -3561,13 +3597,15 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
     </div>
   );
 
+  const guard = useUnsavedGuard(canApply, onClose, save);
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 500, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(500px, 60vw, 900px)', maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Change status - {fullName(employee)}</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '18px 24px', display: 'grid', gap: 14, overflowY: 'auto', flex: 1 }}>
           <div><label style={FL}>NEW STATUS</label>
@@ -3669,6 +3707,9 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
           <button className="primary-btn" onClick={save} disabled={busy || !canApply} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !canApply) ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Apply</button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={canApply ? guard.saveAndClose : undefined} saving={busy} />
+      )}
     </div>
   );
 }
@@ -3697,21 +3738,24 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setC(prev => ({ ...prev, [k]: v }));
   const setConsent = (k, v) => setC(prev => ({ ...prev, consents: { ...prev.consents, [k]: v } }));
+  const initialCRef = useRef(c);
+  const dirty = JSON.stringify(c) !== JSON.stringify(initialCRef.current);
 
   async function save() {
     if (busy) return; setBusy(true);
     try { const saved = await api.updateEmployee(employee.id, { compliance: c }); onSaved(saved); toastOk('Compliance saved.'); onClose(); }
     catch (e) { toastErr(e?.message || 'Could not save.'); setBusy(false); }
   }
+  const guard = useUnsavedGuard(dirty, onClose, save);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 580, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(580px, 60vw, 980px)', maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-purple),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ShieldCheck size={17} color="hsl(var(--color-purple))" /></div>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Right to Work - {fullName(employee)}</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -3740,6 +3784,9 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
           <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save</button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={busy} />
+      )}
     </div>
   );
 }
@@ -3760,21 +3807,24 @@ function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setP(prev => ({ ...prev, [k]: v }));
   const setE = (k, v) => setP(prev => ({ ...prev, emergency: { ...prev.emergency, [k]: v } }));
+  const initialPRef = useRef(p);
+  const dirty = JSON.stringify(p) !== JSON.stringify(initialPRef.current);
 
   async function save() {
     if (busy) return; setBusy(true);
     try { const saved = await api.updateEmployee(employee.id, { personal: p }); onSaved(saved); toastOk('Personal details saved.'); onClose(); }
     catch (e) { toastErr(e?.message || 'Could not save.'); setBusy(false); }
   }
+  const guard = useUnsavedGuard(dirty, onClose, save);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 580, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(580px, 60vw, 980px)', maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Contact size={17} color="hsl(var(--color-blue))" /></div>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Personal - {fullName(employee)}</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -3797,6 +3847,9 @@ function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
           <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save</button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={busy} />
+      )}
     </div>
   );
 }
@@ -3818,11 +3871,20 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const setC = (k, v) => setComp(p => ({ ...p, [k]: v }));
+  // Baseline for the unsaved-changes guard, re-synced once the real record
+  // loads (the pre-fetch defaults above aren't a meaningful baseline).
+  const baselineRef = useRef({ comp, bank });
 
   useEffect(() => {
     let live = true;
     api.getCompensation(employee.id)
-      .then(r => { if (!live) return; setComp({ base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [], ...(r.compensation || {}) }); setBank(r.bank || []); })
+      .then(r => {
+        if (!live) return;
+        const nextComp = { base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [], ...(r.compensation || {}) };
+        const nextBank = r.bank || [];
+        setComp(nextComp); setBank(nextBank);
+        baselineRef.current = { comp: nextComp, bank: nextBank };
+      })
       .catch(e => toastErr(e?.message || 'Could not load compensation.'))
       .finally(() => live && setLoading(false));
     return () => { live = false; };
@@ -3848,11 +3910,13 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
     } catch (e) { toastErr(e?.message || 'Could not save compensation.'); setBusy(false); }
   }
   const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '-';
+  const dirty = JSON.stringify({ comp, bank }) !== JSON.stringify(baselineRef.current);
+  const guard = useUnsavedGuard(dirty, onClose, save);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: 'min(92dvh, 780px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(620px, 60vw, 980px)', maxHeight: 'min(92dvh, 780px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-green),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Wallet size={17} color="hsl(var(--color-green))" />
@@ -3861,7 +3925,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Pay, Benefits & Bank - {fullName(employee)}</h3>
             <div style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}><Lock size={11} /> Restricted · compensation grant</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
 
         {loading ? (
@@ -3927,6 +3991,9 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={busy} />
+      )}
     </div>
   );
 }
@@ -3938,8 +4005,12 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-  const startNew = () => { setF(blank); setMode('new'); };
-  const startEdit = s => { setF({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, company: s.company || '', notes: s.notes || '' }); setMode(s.id); };
+  const formSnapshotRef = useRef(blank);
+  const startNew = () => { setF(blank); formSnapshotRef.current = blank; setMode('new'); };
+  const startEdit = s => {
+    const seeded = { name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, company: s.company || '', notes: s.notes || '' };
+    setF(seeded); formSnapshotRef.current = seeded; setMode(s.id);
+  };
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
   async function save() {
@@ -3961,16 +4032,19 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
       <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
   );
 
+  const dirty = !!mode && JSON.stringify(f) !== JSON.stringify(formSnapshotRef.current);
+  const guard = useUnsavedGuard(dirty, onClose, f.name.trim() ? save : undefined);
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 60vw, 980px)', maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-purple),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <MapPinned size={17} color="hsl(var(--color-purple))" />
           </div>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{mode ? (mode === 'new' ? 'Add Work Site' : 'Edit Work Site') : 'Work Sites'}</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
 
         {mode ? (
@@ -4022,6 +4096,9 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
           </>
         )}
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={f.name.trim() ? guard.saveAndClose : undefined} saving={busy} />
+      )}
     </div>
   );
 }

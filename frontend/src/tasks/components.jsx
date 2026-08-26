@@ -82,7 +82,7 @@ export function EmptyState({ icon: Icon, title, hint }) {
 // the edit away (Aug 18 - "when we click outside... it should ask us for
 // 'Do you want to save'"). With isDirty unset (the default) a modal behaves
 // exactly as before.
-export function Modal({ title, onClose, children, footer, width = 560, isDirty = false, onSave }) {
+export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 60vw, 980px)', isDirty = false, onSave }) {
   const [confirmClose, setConfirmClose] = useState(false);
   const [saving, setSaving] = useState(false);
   const requestClose = () => { if (isDirty) setConfirmClose(true); else onClose(); };

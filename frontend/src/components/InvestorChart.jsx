@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Briefcase, Loader2, Plus, X } from 'lucide-react';
 import { api } from '../api';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 const HUES = ['215 70% 46%', '150 55% 38%', '265 55% 52%', '20 75% 48%', '340 60% 48%', '190 70% 38%'];
 const hueFor = (s) => HUES[(s || '').split('').reduce((n, c) => n + c.charCodeAt(0), 0) % HUES.length];
@@ -173,6 +175,9 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
     setAddBusy(false);
   };
 
+  const addDirty = !!(adding && (adding.name.trim() || adding.email.trim() || adding.owner));
+  const addGuard = useUnsavedGuard(addDirty, () => setAdding(null), saveAdd);
+
   if (denied) return (
     <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
       <Briefcase size={30} style={{ opacity: .3, display: 'block', margin: '0 auto 10px' }} />
@@ -309,12 +314,12 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
 
       {adding && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-          onClick={e => e.target === e.currentTarget && setAdding(null)}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: 'var(--shadow-lg)' }}>
+          onClick={e => e.target === e.currentTarget && addGuard.requestClose()}>
+          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(400px, 60vw, 640px)', boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Briefcase size={14} /></span>
               <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Add Investor</h3>
-              <button onClick={() => setAdding(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
+              <button onClick={addGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>
               <div><label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Name</label>
@@ -336,6 +341,14 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
               </button>
             </div>
           </div>
+          {addGuard.confirming && (
+            <UnsavedChangesPrompt
+              onKeepEditing={addGuard.keepEditing}
+              onDiscard={() => setAdding(null)}
+              onSave={addGuard.saveAndClose}
+              saving={addBusy}
+            />
+          )}
         </div>
       )}
     </div>
