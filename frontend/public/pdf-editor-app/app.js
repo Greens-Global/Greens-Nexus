@@ -2027,6 +2027,19 @@
 
     // Count tool: drop a small numbered dot. Each marker is its own measurement
     // row (type "Count"); the Markups List tallies them.
+    // Unique id per measurement so the Markups List can select/edit the exact
+    // shape (and its linked label) even across page switches and reloads.
+    let _midSeq = 0;
+    function _newMid() { _midSeq += 1; return 'm' + _midSeq + '_' + (state.currentPage || 1); }
+    // Stamp id + editable-property defaults onto a freshly created _measure.
+    function _tagMeasure(shape, m) {
+        m._mid = _newMid();
+        if (m.subject === undefined) m.subject = m.type;   // Bluebeam "Subject"
+        m.color = shape.stroke || (dom.colorPicker.value || '#4c6ef5');
+        m.thickness = shape.strokeWidth || 2;
+        return m;
+    }
+
     let _countSeq = 0;
     function placeCountMarker(p) {
         const color = dom.colorPicker.value || '#e8590c';
@@ -2037,9 +2050,10 @@
             fill: '#fff', backgroundColor: color, fontFamily: 'sans-serif', padding: 2,
             originX: 'center', originY: 'center', selectable: false });
         dot._measurePt = true;   // so endpoint-snap can see it
-        dot._measure = { kind: 'mcount', type: 'Count', value: 1, unit: '', area: false,
-                         page: state.currentPage, label: '' };
+        dot._measure = _tagMeasure(dot, { kind: 'mcount', type: 'Count', value: 1, unit: '', area: false,
+                         page: state.currentPage, label: '' });
         num._measureLabelFor = dot._measure;
+        num._midLink = dot._measure._mid;
         fabricCanvas.add(dot); fabricCanvas.add(num);
         saveAnnotationState(); saveCurrentAnnotations();
         if (window.renderMeasureList) window.renderMeasureList();
@@ -2163,10 +2177,10 @@
                 const shape = new fabric.Polyline([pts[0], pts[1], pts[2]], base);
                 fabricCanvas.add(shape);
                 const deg = angleDeg(pts);
-                shape._measure = { kind: 'mangle', type: 'Angle', value: deg, unit: '°',
-                                   area: false, page: state.currentPage, label: '' };
+                shape._measure = _tagMeasure(shape, { kind: 'mangle', type: 'Angle', value: deg, unit: '°',
+                                   area: false, page: state.currentPage, label: '' });
                 const lbl = measureLabel(deg.toFixed(1) + '°', pts[1].x + 14, pts[1].y - 14);
-                lbl.selectable = true; lbl._measureLabelFor = shape._measure;
+                lbl.selectable = true; lbl._measureLabelFor = shape._measure; lbl._midLink = shape._measure._mid;
                 fabricCanvas.add(lbl);
                 saveAnnotationState(); saveCurrentAnnotations();
                 if (window.renderMeasureList) window.renderMeasureList();
@@ -2182,13 +2196,13 @@
                 const shape = new fabric.Line([pts[0].x, pts[0].y, pts[1].x, pts[1].y], base);
                 fabricCanvas.add(shape);
                 const dist = toPagePx(polyLenPx(pts, false)) * measureScale;   // real radius
-                shape._measure = { kind: 'mradius', type: 'Radius', value: dist, unit: measureUnit,
+                shape._measure = _tagMeasure(shape, { kind: 'mradius', type: 'Radius', value: dist, unit: measureUnit,
                                    area: false, page: state.currentPage, label: '',
-                                   diameter: dist * 2 };
+                                   diameter: dist * 2 });
                 const cx = (pts[0].x + pts[1].x) / 2, cy = (pts[0].y + pts[1].y) / 2 - 12;
                 const lbl = measureLabel('R ' + dist.toFixed(2) + ' ' + measureUnit
                     + '  (Ø ' + (dist * 2).toFixed(2) + ')', cx, cy);
-                lbl.selectable = true; lbl._measureLabelFor = shape._measure;
+                lbl.selectable = true; lbl._measureLabelFor = shape._measure; lbl._midLink = shape._measure._mid;
                 fabricCanvas.add(lbl);
                 saveAnnotationState(); saveCurrentAnnotations();
                 if (window.renderMeasureList) window.renderMeasureList();
@@ -2233,7 +2247,7 @@
                 cx = pts.reduce((s,p)=>s+p.x,0)/pts.length; cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
             }
             // Tag the shape so the Markups List / Totals panel can enumerate it.
-            shape._measure = {
+            shape._measure = _tagMeasure(shape, {
                 kind: measureKind,           // 'mlength' | 'mperim' | 'marea'
                 type: mKindLabel,            // display name
                 value: mValue,               // real-world number
@@ -2241,10 +2255,11 @@
                 area: measureKind === 'marea',
                 page: state.currentPage,
                 label: '',                   // user-editable custom label
-            };
+            });
             const lbl = measureLabel(label, cx, cy);
             lbl.selectable = true;
             lbl._measureLabelFor = shape._measure;   // link so we can retitle
+            lbl._midLink = shape._measure._mid;
             fabricCanvas.add(lbl);
             saveAnnotationState(); saveCurrentAnnotations();
             if (window.renderMeasureList) window.renderMeasureList();
@@ -2274,12 +2289,12 @@
         const depth = parseFloat(ans);
         if (!(depth > 0)) { fabricCanvas.remove(shape); showToast('Enter a valid depth'); return; }
         const vol = area * depth;
-        shape._measure = { kind: 'mvolume', type: 'Volume', value: vol, unit: measureUnit,
+        shape._measure = _tagMeasure(shape, { kind: 'mvolume', type: 'Volume', value: vol, unit: measureUnit,
                            area: false, cubic: true, page: state.currentPage, label: '',
-                           baseArea: area, depth: depth };
+                           baseArea: area, depth: depth });
         const cx = pts.reduce((s,p)=>s+p.x,0)/pts.length, cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
         const lbl = measureLabel(vol.toFixed(2) + ' ' + measureUnit + '³', cx, cy);
-        lbl.selectable = true; lbl._measureLabelFor = shape._measure;
+        lbl.selectable = true; lbl._measureLabelFor = shape._measure; lbl._midLink = shape._measure._mid;
         fabricCanvas.add(lbl);
         saveAnnotationState(); saveCurrentAnnotations();
         if (window.renderMeasureList) window.renderMeasureList();
@@ -2325,18 +2340,24 @@
             body.innerHTML = '<div class="measure-empty">No measurements yet. Use the Measure tool for length, perimeter, area, angle, radius, volume or count.</div>';
             return;
         }
-        // Totals per type+unit.
+        // Totals grouped by Subject + unit (Bluebeam groups by Subject, so a
+        // renamed subject rolls up separately). Falls back to the type name.
         const totals = {};
         rows.forEach((m) => {
+            const grp = (m.subject || m.type);
             const uSuf = m.unit + _unitSuffix(m);
-            const key = m.type + '|' + uSuf;
-            totals[key] = totals[key] || { type: m.type, unit: uSuf, sum: 0, count: 0, kind: m.kind };
+            const key = grp + '|' + uSuf;
+            totals[key] = totals[key] || { type: grp, unit: uSuf, sum: 0, count: 0, kind: m.kind };
             totals[key].sum += m.value; totals[key].count++;
         });
+        const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => (
+            { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
         let html = '';
         rows.forEach((m, i) => {
-            html += `<div class="measure-row" data-i="${i}">
-                <span class="measure-row-type">${m.type}</span>
+            const name = m.label ? escH(m.label) : escH(m.subject || m.type);
+            const dot = m.color ? `<span class="measure-swatch" style="background:${escH(m.color)}"></span>` : '';
+            html += `<div class="measure-row" data-mid="${escH(m._mid || '')}" data-i="${i}" title="Click to edit label, subject, color, thickness">
+                ${dot}<span class="measure-row-type">${name}</span>
                 <span class="measure-row-page">p${m.page}</span>
                 <span class="measure-row-val">${_fmtVal(m)}</span>
             </div>`;
@@ -2350,7 +2371,73 @@
             html += `<div class="measure-total-row"><span>${t.type} (${t.count})</span><b>${val}</b></div>`;
         });
         body.innerHTML = html;
+        body.querySelectorAll('.measure-row[data-mid]').forEach((row) => {
+            row.addEventListener('click', () => {
+                const mid = row.getAttribute('data-mid');
+                if (mid) editMeasurement(mid);
+            });
+        });
     };
+
+    // Find the live fabric shape carrying a given measurement id on the CURRENT
+    // page (measurements on other pages must be opened by navigating there).
+    function _findMeasureShape(mid) {
+        if (!fabricCanvas) return null;
+        let hit = null;
+        fabricCanvas.forEachObject((o) => { if (o._measure && o._measure._mid === mid) hit = o; });
+        return hit;
+    }
+
+    // Edit a measurement's properties (Bluebeam-style): custom Label + Subject,
+    // color, and line thickness. Applies live to the shape + its label + the list.
+    async function editMeasurement(mid) {
+        const shape = _findMeasureShape(mid);
+        if (!shape) {
+            // The measurement lives on another page - tell the user where.
+            let onPage = null;
+            for (const [pgStr, entry] of Object.entries(state.annotations || {})) {
+                const objs = (entry && (entry.fabricData || entry).objects) || [];
+                if (objs.some(o => o._measure && o._measure._mid === mid)) { onPage = parseInt(pgStr, 10); break; }
+            }
+            if (onPage && onPage !== state.currentPage) showToast('That measurement is on page ' + onPage + ' - open that page to edit it');
+            else showToast('Could not find that measurement');
+            return;
+        }
+        const m = shape._measure;
+        const v = await _toolModal('Edit Measurement', `
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Label (shown on the plan; blank = auto)
+                <input type="text" class="modal-input" data-k="label" value="${(m.label||'').replace(/"/g,'&quot;')}" placeholder="e.g. North wall">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Subject (groups totals in the list)
+                <input type="text" class="modal-input" data-k="subject" value="${(m.subject||m.type||'').replace(/"/g,'&quot;')}">
+              </label>
+              <div style="display:flex;gap:14px;align-items:flex-end;">
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Color
+                  <input type="color" class="modal-input" data-k="color" value="${m.color||'#4c6ef5'}" style="width:52px;height:34px;padding:2px;">
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Thickness
+                  <input type="number" class="modal-input" data-k="thickness" value="${m.thickness||2}" min="1" max="20" step="1" style="width:70px;">
+                </label>
+              </div>
+            </div>`, 'Save');
+        if (!v) return;
+        // Apply to the model.
+        m.label = (v.label || '').trim();
+        m.subject = (v.subject || m.type).trim();
+        m.color = v.color || m.color;
+        m.thickness = Math.max(1, parseInt(v.thickness, 10) || m.thickness);
+        // Apply to the shape.
+        shape.set({ stroke: m.color, strokeWidth: m.thickness });
+        // Update the linked label text/color if there is one.
+        const lbl = fabricCanvas.getObjects().find(o => o._midLink === mid && o.type === 'text');
+        if (lbl && m.label) lbl.set({ text: m.label });
+        fabricCanvas.requestRenderAll();
+        saveAnnotationState(); saveCurrentAnnotations();
+        if (window.renderMeasureList) window.renderMeasureList();
+        setStatus('Measurement updated');
+    }
+    window.editMeasurement = editMeasurement;
 
     // Export all measurements to a CSV the user can open in Excel (Quantity Link
     // equivalent) - type, page, value, unit, plus the per-type totals.
@@ -5063,7 +5150,7 @@
         const orig = fabric.Object.prototype.toObject;
         fabric.Object.prototype.toObject = function (props) {
             return orig.call(this, ['_pdfFontName', '_pdfWeight', '_pdfStyle', '_isTextCover', '_isCommentMark', '_isEraserPath',
-                                    '_isSignature', '_isRedact', '_layerId', '_measure', '_measurePt', 'selectable', 'evented'].concat(props || []));
+                                    '_isSignature', '_isRedact', '_layerId', '_measure', '_measurePt', '_midLink', 'selectable', 'evented'].concat(props || []));
         };
     })();
 
