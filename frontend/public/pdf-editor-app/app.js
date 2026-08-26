@@ -1540,6 +1540,10 @@
         document.querySelectorAll('[data-tool]').forEach((btn) => {
             btn.classList.toggle('active', btn.dataset.tool === tool);
         });
+        // The Measure button has no data-tool; clear its active state whenever a
+        // different tool is chosen (it re-highlights when a measure kind is picked).
+        const mBtn = document.getElementById('measureTool');
+        if (mBtn && tool !== 'shape') mBtn.classList.remove('active');
 
         // Clean up crop if switching away from crop tool
         if (tool !== 'crop' && cropRect) {

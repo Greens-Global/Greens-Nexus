@@ -338,6 +338,61 @@
     });
   }
 
+  // Measure & Scale: a dedicated toolbar button (after Highlight) that opens a
+  // small menu. It drives the same engine as the Shape menu's measure kinds -
+  // arm the shape tool, then set the measure kind.
+  const measureBtn = el('#measureTool');
+  const shapeToolForMeasure = el('#shapeTool');
+  if (measureBtn && shapeToolForMeasure) {
+    const mMenu = document.createElement('div');
+    mMenu.className = 'dropdown-menu';
+    mMenu.id = 'measureMenu';
+    const MMODES = [
+      ['mcalibrate', '📐 Calibrate scale (set the plan scale)'],
+      ['mlength',    '↦ Measure length'],
+      ['mperim',     '⟿ Measure perimeter'],
+      ['marea',      '▦ Measure area'],
+    ];
+    for (const [kind, label] of MMODES) {
+      const it = document.createElement('button');
+      it.className = 'dropdown-item';
+      it.dataset.kind = kind;
+      it.textContent = label;
+      it.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Arm the shape tool (the measure engine lives on it), then set the kind.
+        if (!shapeToolForMeasure.classList.contains('active')) shapeToolForMeasure.click();
+        window.setShapeKind && window.setShapeKind(kind);
+        measureBtn.classList.add('active');
+        mMenu.querySelectorAll('.dropdown-item').forEach(x =>
+          x.textContent = (x.dataset.kind === kind ? '✓ ' : '') + x.textContent.replace(/^✓ /, ''));
+        mMenu.classList.remove('open');
+      });
+      mMenu.appendChild(it);
+    }
+    document.body.appendChild(mMenu);
+    measureBtn.addEventListener('click', () => {
+      const r = measureBtn.getBoundingClientRect();
+      mMenu.style.top = r.bottom + 4 + 'px';
+      mMenu.style.left = r.left + 'px';
+      mMenu.classList.toggle('open');
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#measureTool') && !e.target.closest('#measureMenu')) mMenu.classList.remove('open');
+    });
+    // Drop the measure entries from the Shape menu now that they have their own
+    // button (avoids two places for the same thing).
+    const shapeMenu = document.getElementById('shapeMenu');
+    if (shapeMenu) {
+      shapeMenu.querySelectorAll('.dropdown-item').forEach(it => {
+        if (['mcalibrate','mlength','mperim','marea'].includes(it.dataset.kind)) it.remove();
+      });
+      shapeMenu.querySelectorAll('.dropdown-group-label').forEach(h => {
+        if (/measure & scale/i.test(h.textContent)) h.remove();
+      });
+    }
+  }
+
   // Paint-bar custom color: the rainbow swatch opens the OS color picker
   // (gradient + eyedropper + RGB), mirroring into the app's color state.
   const pbCustom = el('#pbCustomColor');
@@ -538,8 +593,8 @@
 
   const GROUPS = [
     { id: 'edit',     label: 'Assemble',        tint: '#b06ee8',
-      desc: 'Text, draw, highlight, stamps, images',
-      members: [el('#textTool'), el('[data-tool="edittext"]'), el('#drawTool'), el('#highlightTool'), el('#shapeTool'), wrapOf('#stampBtn'), el('#imageTool'), el('#cropTool'), el('#toolOptions')] },
+      desc: 'Text, draw, highlight, measure, stamps, images',
+      members: [el('#textTool'), el('[data-tool="edittext"]'), el('#drawTool'), el('#highlightTool'), el('#measureTool'), el('#shapeTool'), wrapOf('#stampBtn'), el('#imageTool'), el('#cropTool'), el('#toolOptions')] },
     { id: 'organize', label: 'Organize Pages',  tint: '#4caf7d',
       desc: 'Rotate, add, merge, split pages',
       members: [el('#rotateBtn'), el('#addPageBtn'), el('#addImagePageBtn'), el('#mergeBtn'), el('#splitBtn'), el('#watermarkBtn'), el('#pageNumBtn'), el('#nupBtn'), el('#rmBlankBtn')] },
