@@ -10,6 +10,8 @@ import {
 import { api } from '../api';
 import { PdfEditor } from './PdfEditor';
 import { docxToPdf, isDocx } from '../lib/docx2pdf';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
