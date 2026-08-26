@@ -2545,8 +2545,21 @@ html[data-theme="light"] {
     padding-left: 8px;
     border-left: 1px solid var(--border);
 }
-.page-nav #zoomFit { font-size: 11.5px; font-weight: 600; }
 .page-nav #zoomLevel { min-width: 44px; }
+/* Compact icon buttons for Fit-width / Fit-page / Scroll (were wide text
+   labels). Square, icon-centered - saves toolbar space. */
+.page-nav .nav-icon-btn {
+    min-width: 30px;
+    width: 30px;
+    padding: 0;
+    color: var(--text-secondary);
+}
+.page-nav .nav-icon-btn:hover { color: var(--text-primary); }
+/* Active view mode (e.g. Scroll on) reads as pressed. */
+.page-nav .nav-icon-btn.active {
+    background: var(--accent);
+    color: #fff;
+}
 @media (max-width: 600px) {
     .page-nav { flex-wrap: nowrap; bottom: 10px; }
 }

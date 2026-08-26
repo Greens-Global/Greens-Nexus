@@ -21,7 +21,7 @@
         base-uri 'self';
         form-action 'none';">
     <title>PDF Tools</title>
-    <link rel="stylesheet" href="style.css?v=20260826y">
+    <link rel="stylesheet" href="style.css?v=20260826z">
     <!-- PDF.js for rendering PDFs -->
     <script defer src="libs/pdf.min.js"></script>
     <!-- pdf-lib for modifying/exporting PDFs -->
@@ -449,9 +449,15 @@
                     <button id="zoomOut" class="nav-btn" title="Zoom Out">-</button>
                     <span id="zoomLevel">100%</span>
                     <button id="zoomIn" class="nav-btn" title="Zoom In">+</button>
-                    <button id="zoomFit" class="nav-btn" title="Fit to Width">Fit</button>
-                    <button id="zoomFitPage" class="nav-btn" title="Fit whole page on screen">Page</button>
-                    <button id="scrollModeBtn" class="nav-btn" title="Continuous scroll — read all pages by scrolling (click a page to edit)">Scroll</button>
+                    <button id="zoomFit" class="nav-btn nav-icon-btn" title="Fit to width" aria-label="Fit to width">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3H3v18h18z" opacity="0.35"/><polyline points="8 9 5 12 8 15"/><polyline points="16 9 19 12 16 15"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    </button>
+                    <button id="zoomFitPage" class="nav-btn nav-icon-btn" title="Fit whole page on screen" aria-label="Fit whole page">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="1"/><polyline points="8 8 12 5 16 8"/><polyline points="8 16 12 19 16 16"/></svg>
+                    </button>
+                    <button id="scrollModeBtn" class="nav-btn nav-icon-btn" title="Continuous scroll — read all pages by scrolling (click a page to edit)" aria-label="Continuous scroll">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="5" rx="1"/><rect x="6" y="10" width="12" height="5" rx="1"/><rect x="6" y="17" width="12" height="4" rx="1"/></svg>
+                    </button>
                 </div>
             </div>
 
@@ -703,7 +709,7 @@
 
     </div><!-- end .page-wrapper -->
 
-    <script defer src="app.js?v=20260826y"></script>
-    <script defer src="adobe-ui.js?v=20260826y"></script>
+    <script defer src="app.js?v=20260826z"></script>
+    <script defer src="adobe-ui.js?v=20260826z"></script>
 </body>
 </html>
