@@ -6,8 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
-  Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check,
+  Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check, AlertTriangle,
 } from 'lucide-react';
+import DataQualityTab from './DataQualityTab';
 import { useTasks } from './TasksContext';
 import { api } from '../api';
 import {
@@ -27,6 +28,16 @@ const iconBadge = { width: 32, height: 32, flexShrink: 0, borderRadius: 9, displ
 
 function Field({ label, children }) {
   return <div style={{ marginBottom: 14 }}><label style={fieldLabel}>{label}</label>{children}</div>;
+}
+
+// A team's dozen-plus projects or a field's dozen-plus options used to print
+// every single one, which read as a wall of text instead of a summary and
+// pushed rows across five wrapped lines. Capped with a "+N more" tail - full
+// detail still lives one click away in the row's own Edit modal.
+const LIST_CAP = 6;
+function capList(items, max = LIST_CAP) {
+  if (items.length <= max) return items.join(', ');
+  return `${items.slice(0, max).join(', ')} +${items.length - max} more`;
 }
 
 function SectionHead({ title, hint, action }) {
@@ -61,6 +72,9 @@ const SWATCHES = [NX.blue, NX.green, NX.amber, NX.red, NX.purple, NX.teal, NX.pi
 // ── Sub-tabs registry ─────────────────────────────────────────────────────────
 const SUBTABS = [
   { key: 'tasklist', label: 'Task List', icon: List },
+  // Company-wide, manager-only: every open task missing a due date, project,
+  // priority, or team in one list, editable inline (Neil, Aug 2026).
+  { key: 'dataQuality', label: 'Data Quality', icon: AlertTriangle },
   // Asana severed (Aug 27): the tab is gone so the import/setup/two-way-sync
   // controls are unreachable. AsanaImportTab below and the whole backend are
   // deliberately kept - restoring the link is this line plus
@@ -99,12 +113,14 @@ export default function ManageView() {
         })}
       </div>
 
-      {/* Body - the Task List is full-bleed (wide, self-scrolling table); the rest
-          keep the centered admin column. */}
+      {/* Body - the Task List and Data Quality are full-bleed (wide,
+          self-scrolling tables); the rest keep the centered admin column. */}
       {tab === 'tasklist' ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <TasksWorkspace title="Task List" />
         </div>
+      ) : tab === 'dataQuality' ? (
+        <DataQualityTab store={store} />
       ) : (
         <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
           <div style={{ maxWidth: 940, margin: '0 auto' }}>
@@ -962,7 +978,7 @@ function TeamsTab({ store }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>{d.name}</div>
                 <div style={{ fontSize: 12, color: NX.faint, marginTop: 1 }}>
-                  {(teamProjectIds(d).map(projectName).filter(Boolean).join(', ') || 'No project')} · {members.length} member{members.length === 1 ? '' : 's'} · {taskCountByTeam[d.id] || 0} task{(taskCountByTeam[d.id] || 0) === 1 ? '' : 's'}
+                  {(capList(teamProjectIds(d).map(projectName).filter(Boolean)) || 'No project')} · {members.length} member{members.length === 1 ? '' : 's'} · {taskCountByTeam[d.id] || 0} task{(taskCountByTeam[d.id] || 0) === 1 ? '' : 's'}
                 </div>
               </div>
               <IconButton icon={Pencil} title="Edit Team" onClick={() => setEditing(d)} />
@@ -1189,16 +1205,19 @@ function FieldsTab({ store }) {
             {f.description && <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{f.description}</div>}
             {OPTION_TYPES.includes(f.type) && !!(f.options || []).length && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
-                {(f.options || []).map((o) => {
+                {(f.options || []).slice(0, LIST_CAP).map((o) => {
                   const opt = typeof o === 'string' ? { id: o, label: o, color: NX.dim } : o;
                   return <span key={opt.id} style={chip(opt.color || NX.dim, `${opt.color || NX.dim}1a`)}>{opt.label}</span>;
                 })}
+                {(f.options || []).length > LIST_CAP && (
+                  <span style={chip(NX.dim, NX.border2)}>+{(f.options || []).length - LIST_CAP} more</span>
+                )}
               </div>
             )}
             {(f.appliesTo || []).includes('task') && (
               <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
                 {(f.projectIds || []).length
-                  ? (f.projectIds || []).map(projectName).filter(Boolean).join(', ')
+                  ? capList((f.projectIds || []).map(projectName).filter(Boolean))
                   : 'Every project'}
               </div>
             )}
@@ -1425,7 +1444,7 @@ function StatusesTab({ store }) {
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.label}</div>
             <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
               {(s.projectIds || []).length
-                ? (s.projectIds || []).map(projectName).filter(Boolean).join(', ')
+                ? capList((s.projectIds || []).map(projectName).filter(Boolean))
                 : 'Every project'}
             </div>
           </div>
