@@ -1954,7 +1954,9 @@
                     fabricCanvas.isDrawingMode = true;
                     fabricCanvas.freeDrawingBrush = new fabric.PencilBrush(fabricCanvas);
                     const hlOpacity = Math.min(parseInt(dom.opacityPicker.value, 10) / 100, 0.4);
-                    fabricCanvas.freeDrawingBrush.color = hexToRgba(dom.colorPicker.value, hlOpacity);
+                    // A11: a highlighter is translucent - black (the default) makes
+                    // an ugly grey bar, so default it to yellow like text-highlight.
+                    fabricCanvas.freeDrawingBrush.color = hexToRgba(_highlightColor(), hlOpacity);
                     fabricCanvas.freeDrawingBrush.width = Math.max(20, parseInt(dom.sizePicker.value, 10) * 3);
                 } else {
                     // Text-snap modes: drag over text, marks snap to the words.
@@ -3978,6 +3980,9 @@
             stroke: dom.colorPicker.value,
             strokeWidth: sw,
             selectable: false,
+            // A8: honor the opacity slider for shapes (was ignored - a 46% cloud
+            // rendered fully opaque).
+            opacity: Math.max(0.05, Math.min(1, (parseInt(dom.opacityPicker.value, 10) || 100) / 100)),
             strokeDashArray: shapeDash(sw),
             strokeLineCap: shapeStyle === 'dotted' ? 'round' : 'butt',
             // Keep the border a constant visual thickness when the shape is
@@ -4173,6 +4178,13 @@
         drawMode = m;
         if (state.activeTool === 'draw') applyToolMode();
     };
+    // A11: the highlight color - the picked color, but black (the default swatch)
+    // becomes yellow so highlighting never produces a grey/black bar. Used by
+    // every highlight mode for consistency.
+    function _highlightColor() {
+        const c = (dom.colorPicker.value || '').toLowerCase();
+        return (c === '#000000' || c === '#000' || c === '') ? '#FFEB3B' : dom.colorPicker.value;
+    }
     let highlightMode = 'text'; // text | free | underline | strike
     window.setHighlightMode = (m) => {
         highlightMode = m;
@@ -4282,8 +4294,8 @@
         }
         // Commit in the picked color. Untouched black defaults to marker
         // yellow for HIGHLIGHTS only — a black underline/strike is legitimate.
-        const chosen = (highlightMode === 'text' && dom.colorPicker.value === '#000000')
-            ? '#FFEB3B' : dom.colorPicker.value;
+        const chosen = (highlightMode === 'text' || highlightMode === 'free')
+            ? _highlightColor() : dom.colorPicker.value;
         const marks = _hlMakeMarks(entries, chosen, false);
         _isRestoring = true;
         for (const m of marks) fabricCanvas.add(m);
@@ -4527,7 +4539,7 @@
         mk('🖍 Highlight', () => {
             const ents = _miniBar._entries; hideMiniBar();
             if (!ents) return;
-            const chosen = dom.colorPicker.value === '#000000' ? '#FFEB3B' : dom.colorPicker.value;
+            const chosen = _highlightColor();
             _isRestoring = true;
             for (const { bbox } of ents) fabricCanvas.add(new fabric.Rect({
                 left: bbox.left - 1, top: bbox.top, width: bbox.width + 2, height: bbox.height,
@@ -4886,9 +4898,34 @@
         return Math.max(parseInt(dom.sizePicker.value, 10) * 2, 10) / 2;
     }
 
-    // True if the eraser circle at point p (radius r) overlaps object o's bounds.
+    // True if the eraser circle at point p (radius r) actually touches object o.
+    // A12: for lines / polylines / paths, test distance to the real geometry, not
+    // the bounding box (a diagonal line's box is huge, so box-tests deleted it
+    // from far away / past its end - the ~10px over-reach the review saw).
     function eraserTouches(o, p, r) {
-        const b = o.getBoundingRect(true, true); // absolute, calculate
+        // Line: distance to the segment.
+        if (o.type === 'line') {
+            try {
+                const m = o.calcTransformMatrix(); const c = o.calcLinePoints();
+                const a = fabric.util.transformPoint({ x: c.x1, y: c.y1 }, m);
+                const b2 = fabric.util.transformPoint({ x: c.x2, y: c.y2 }, m);
+                return _distToSeg(p, a, b2) <= r + (o.strokeWidth || 1) / 2;
+            } catch (_) {}
+        }
+        // Polyline/polygon: nearest segment.
+        if (o.points && (o.type === 'polyline' || o.type === 'polygon')) {
+            try {
+                const v = _absVerts(o);
+                const n = o.type === 'polygon' ? v.length : v.length - 1;
+                for (let i = 0; i < n; i++) {
+                    const a = v[i], b2 = v[(i + 1) % v.length];
+                    if (_distToSeg(p, a, b2) <= r + (o.strokeWidth || 1) / 2) return true;
+                }
+                return false;
+            } catch (_) {}
+        }
+        // Fallback (rects/ellipses/text/paths): bounding box + radius.
+        const b = o.getBoundingRect(true, true);
         return p.x >= b.left - r && p.x <= b.left + b.width + r &&
                p.y >= b.top  - r && p.y <= b.top  + b.height + r;
     }
