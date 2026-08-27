@@ -405,8 +405,13 @@
         // The shape tool is the engine host, but visually the MEASURE button is
         // the active one - don't leave Shapes highlighted (N4).
         shapeToolForMeasure.classList.remove('active');
+        // Only the draw-KIND rows get the "armed" checkmark. Action rows
+        // (setscale/embedscale/storescale/lockscale/snapcontent/hidelabels/mlist)
+        // own their own label/state, so leave them alone - otherwise the ✓ lands
+        // on the wrong row once action items are interleaved in the menu.
+        const ACTION_KINDS = new Set(['setscale','embedscale','storescale','lockscale','snapcontent','hidelabels','mlist']);
         mMenu.querySelectorAll('.dropdown-item[data-kind]').forEach(x => {
-          if (['setscale'].includes(x.dataset.kind)) return;
+          if (ACTION_KINDS.has(x.dataset.kind)) return;
           x.textContent = (x.dataset.kind === kind ? '✓ ' : '') + x.textContent.replace(/^✓ /, '');
         });
       });
