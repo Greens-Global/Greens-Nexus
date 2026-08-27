@@ -368,7 +368,7 @@ const DEFAULT_SUBS = {
   development:       "dev-permits",
   "property-asset":  "asset-portfolio",
   hr:                "hr-ms",
-  documents:         "documents-esign",
+  documents:         "documents-dashboard",
   "investor-relations": "investor-dashboard",
   marketing:         "marketing-ads",
   accounting:        "transactions",
