@@ -1321,6 +1321,7 @@
         // Measurement / dimension tools (calibrate, length, perimeter, area).
         fabricCanvas.on('mouse:down', handleMeasureClick);
         fabricCanvas.on('mouse:move', handleMeasureMove);
+        fabricCanvas.on('mouse:up', handleMeasureUp);
         fabricCanvas.on('mouse:dblclick', measureFinish);
 
         // Text-snap highlight / underline / strikethrough
@@ -2233,12 +2234,13 @@
         shapeKind = k;
         // One-line hint per measure tool so the click sequence + snapping is discoverable.
         const hints = {
+            mcalibrate: 'Calibrate: click (or drag) the two ends of a known distance, then enter its real length',
             mangle:  'Angle: click first ray end, then the vertex, then the second ray end',
             mradius: 'Radius: click the center, then the edge (shows radius + diameter)',
             mvolume: 'Volume: outline the area, double-click to finish, then enter a depth',
             mcount:  'Count "' + _countGroup + '": click to drop markers - set the group name via Measure > Count group',
             mdynfill:'Dynamic fill: click inside an enclosed room to auto-measure its area',
-            mlength: 'Length: click two points. Hold Shift for straight/45 deg; snaps to nearby ends',
+            mlength: 'Length: click two points, or drag one line. Hold Shift for straight/45 deg; snaps to nearby ends',
             mpolylen:'Polyline length: click points along a run, double-click to finish (one total)',
             mperim:  'Perimeter: click points, double-click to close. Shift = ortho, snaps to ends',
             marea:   'Area: click points, double-click to close. Shift = ortho, snaps to ends',
@@ -3165,8 +3167,33 @@
             if (m && parseFloat(m[1]) > 0) { realLen = parseFloat(m[1]); unit = m[2] || measureUnit; break; }
             showToast('Could not read that - try like "10 ft". Enter again or Cancel.');
         }
-        const newScale = realLen / toPagePx(px);   // units per page-pixel
+        const pagePx = toPagePx(px);
+        const newScale = realLen / pagePx;   // units per page-pixel
+        // Belt-and-braces: never let a non-finite scale reach a label/export even
+        // if the length guard above is ever bypassed.
+        if (!Number.isFinite(newScale) || newScale <= 0) {
+            setStatus('That line is too short to calibrate from - draw a longer one');
+            showToast('Could not calibrate - the line was too short');
+            return;
+        }
+        // C1: let the user push this calibration across the whole sheet set in one
+        // step instead of re-drawing it on all 33 pages. Uniform drawing sets are
+        // the common case, so default to "all pages".
+        let scope = 'all';
+        if ((state.totalPages || 1) > 1) {
+            const drawn = 'You drew ' + pagePx.toFixed(1) + ' pt (' + (pagePx / 72).toFixed(2) +
+                ' in) = ' + realLen + ' ' + unit + '.';
+            scope = await _choiceModal('Apply this scale',
+                drawn + ' Apply it to just this page, or to every page in the document?',
+                [{ key: 'all', label: 'All ' + (state.totalPages || 1) + ' pages' },
+                 { key: 'page', label: 'This page only' }]);
+            if (!scope) { setStatus('Calibration cancelled - scale unchanged'); return; }
+        }
+        if (scope === 'all') {
+            for (let i = 1; i <= (state.totalPages || 1); i++) _pageScales[i] = { scale: newScale, unit };
+        }
         await _applyScaleChange(newScale, unit, 'Calibrated: ' + realLen + ' ' + unit);
+        if (scope === 'all') showToast('Scale applied to all ' + (state.totalPages || 1) + ' pages');
     }
 
     // Central scale-change path (M1/M12). Sets the scale, stores it on the page,
@@ -3283,11 +3310,45 @@
             [{ key: 'go', label: 'Continue' }]);
         return choice === 'go';
     };
+    // Remember where a measure gesture pressed down, so mouse:up can tell a
+    // click (down==up) from a drag (down far from up). Length/radius accept BOTH
+    // now, so a half-finished drag can never leave a stale anchor for the next
+    // measurement to reuse (C3).
+    let _measDownPt = null;
+    function handleMeasureUp(opt) {
+        if (state.activeTool !== 'shape') return;
+        if (shapeKind !== 'mlength' && shapeKind !== 'mradius' && shapeKind !== 'mcalibrate') return;
+        if (!_measDownPt || measurePts.length !== 1) { _measDownPt = null; return; }
+        const raw = fabricCanvas.getPointer(opt.e);
+        const moved = Math.hypot(raw.x - _measDownPt.x, raw.y - _measDownPt.y);
+        _measDownPt = null;
+        if (moved < 6) return;   // a click, not a drag - wait for the second click
+        _snapShift = !!(opt.e && opt.e.shiftKey);
+        const p = _snapPoint(raw, measurePts[0]);
+        // Calibrate accepts a drag too, for consistency with every other measure
+        // tool (the reviewer flagged the click-only gesture as inconsistent).
+        if (shapeKind === 'mcalibrate') {
+            const px = polyLenPx([measurePts[0], p], false);
+            if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
+            measurePts = [];
+            fabricCanvas.renderAll();
+            if (toPagePx(px) < 4) {
+                setStatus('That line is too short to calibrate from - draw a longer one');
+                showToast('That line is too short to calibrate from - draw a longer one');
+                return;
+            }
+            _finishCalibration(px);
+            return;
+        }
+        measurePts.push({ x: p.x, y: p.y });
+        measureFinish();
+    }
     function handleMeasureClick(opt) {
         if (state.activeTool !== 'shape') return;
         if (!_MEASURE_KINDS.includes(shapeKind)) return;
         _snapShift = !!(opt.e && opt.e.shiftKey);
         const raw = fabricCanvas.getPointer(opt.e);
+        _measDownPt = { x: raw.x, y: raw.y };
         const anchor = measurePts.length ? measurePts[measurePts.length - 1] : null;
         const p = _snapPoint(raw, anchor);
 
@@ -3306,6 +3367,14 @@
                 if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
                 measurePts = [];
                 fabricCanvas.renderAll();
+                // C2: reject a degenerate (zero/near-zero) calibration line before
+                // it can divide-by-~0 into an Infinity scale that poisons every
+                // measurement and the Excel export.
+                if (toPagePx(px) < 4) {
+                    setStatus('That line is too short to calibrate from - draw a longer one');
+                    showToast('That line is too short to calibrate from - draw a longer one');
+                    return;
+                }
                 // Use the in-page modal (not window.prompt, which browsers can
                 // silently drop inside an iframe) so the scale entry always shows.
                 _finishCalibration(px);
