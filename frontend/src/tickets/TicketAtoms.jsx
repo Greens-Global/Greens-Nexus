@@ -2,7 +2,7 @@
 // wizard and the drawer. Everything here is driven by ticketMeta.js.
 import { useEffect, useState } from 'react';
 import { NX, FONT, chip, btn, input as inputStyle } from '../tasks/theme';
-import { PersonSelect, PersonMultiSelect, DateField } from '../tasks/components';
+import { PersonSelect, PersonMultiSelect, DateField, SearchSelect } from '../tasks/components';
 import {
   TICKET_TYPE_META, TICKET_STATUS_META, SLA_META, slaState, toEmailList, fmtDate,
 } from './ticketMeta';
@@ -39,11 +39,16 @@ export function TypeFieldInput({ field: f, value, onChange, people, projects, in
   if (f.type === 'datetime') return <input type="datetime-local" value={value || ''} onChange={(e) => onChange(e.target.value)} style={{ ...iStyle, appearance: 'auto' }} />;
   if (f.type === 'person') return <PersonSelect value={value || null} onChange={(v) => onChange(v || '')} people={people} placeholder="Select person" />;
   if (f.type === 'multiperson') return <PersonMultiSelect value={toEmailList(value)} onChange={onChange} people={people} placeholder="Select people" />;
+  // Projects are alphabetical and searchable: a ticket desk sees the whole
+  // workspace's project list, which is far past what a native select can show.
   if (f.type === 'project') return (
-    <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={selStyle}>
-      <option value="">No project</option>
-      {(projects || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-    </select>
+    <SearchSelect value={value ?? ''} placeholder="No project" searchPlaceholder="Search projects…"
+      emptyText="No projects yet." onPick={(id) => onChange(id)}
+      buttonStyle={{ ...iStyle, cursor: 'pointer', justifyContent: 'space-between' }}
+      options={[{ id: '', label: 'No project' },
+                ...(projects || []).slice()
+                  .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
+                  .map((p) => ({ id: p.id, label: p.name }))]} />
   );
   if (f.type === 'multiselect') {
     const arr = Array.isArray(value) ? value : [];

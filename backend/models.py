@@ -1719,6 +1719,12 @@ class ScheduledShift(Base):
     label          = Column(String, default="")          # e.g. "All Properties"
     note           = Column(String, default="")
     published      = Column(Integer, default=1)
+    # OPEN SHIFTS (Teams-style, Aug 26): an unassigned slot has employee_email=''
+    # and open_slots >= 1 (how many people are still needed). It shows in the
+    # "Open shifts" row; a manager assigns it to a person, which spawns their
+    # own assigned row and decrements this one (removed at 0). A normal assigned
+    # shift has a real email and open_slots 0.
+    open_slots     = Column(Integer, default=0)
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
 
@@ -3525,3 +3531,45 @@ class TaskProjectTemplate(Base):
     created_at  = Column(String, default="")
     modified_at = Column(String, default="")
     created_by  = Column(String, default="")
+
+
+class TaskTablePref(Base):
+    """A user's per-table column arrangement for the Task module's list views -
+    which columns they have, in what order, and how wide. One row per person,
+    holding a JSON document keyed by table, mirroring UserLinkLayout's
+    JSON-blob-per-user shape rather than normalizing into a row per column:
+    a reorder rewrites the whole arrangement in one UPSERT, and nothing here
+    needs querying by column SQL-side.
+
+    prefs shape: {
+      "<table>": {
+        "order":     ["task", "status", ...],   # column order
+        "widths":    {"task": 280},             # column widths, px
+        "hidden":    ["estimate"],              # columns they have hidden
+        "collapsed": ["completed"],             # group sections they keep closed
+      }
+    }
+    An absent key means "never set, use the default"; an empty list means the
+    person explicitly cleared it. That distinction is load-bearing - it is what
+    lets someone re-open a section that ships collapsed by default.
+    `table` is the client's own id for a list ("richlist", "mytasks",
+    "projects", "portfolios"). Unknown tables and unknown column keys are kept
+    verbatim and ignored at read time by the client, so a column that is
+    renamed or retired degrades to "not in my saved order" (it falls back to
+    its default position) instead of breaking the arrangement.
+
+    Nothing here widens access: this only says how a person arranges columns of
+    data they can already see. Purely personal - every read/write is scoped to
+    owner_email, no admin gate.
+
+    New table - create_all builds it, so no migration line is needed. It DOES
+    need `ALTER TABLE task_table_prefs ENABLE ROW LEVEL SECURITY` on dev and
+    prod as part of the release (CLAUDE.md): the backend bypasses RLS via the
+    privileged URL, but without it the table is readable by anyone holding the
+    public anon key."""
+    __tablename__ = "task_table_prefs"
+    id          = Column(String, primary_key=True)   # uuid
+    owner_email = Column(String, index=True, unique=True, nullable=False)
+    prefs       = Column(JSON, default=dict)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")

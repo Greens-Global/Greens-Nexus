@@ -1,7 +1,7 @@
 // Task Module - Portfolios. Grid of portfolio cards with a task rollup, plus a
 // per-portfolio detail view (member projects + add/remove/reorder). Ported from
 // the export's PortfoliosPage/PortfolioDetailPage into Nexus inline-style idiom.
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import {
   Briefcase, Plus, Search, Pencil, Trash2, FolderKanban, ArrowLeft, ArrowRight,
   AlertTriangle, ArrowUp, ArrowDown, X, Archive, ArchiveRestore, ChevronRight, ArrowUpRight,
@@ -9,7 +9,21 @@ import {
 import { useTasks } from './TasksContext';
 import { taskStats, topLevel } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab, ChipMultiSelect } from './components';
+import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
+
+// Columns in grid order, with the sort key each header drives. A portfolio's
+// name is elastic; the rollup columns are fixed until someone drags one.
+// Alphabetical A-Z by default. Stable identity: a fresh object each render
+// would re-run consumers' memos.
+const PF_DEFAULT_SORT = { key: 'name', dir: 'asc' };
+const PF_COLS = [
+  { key: 'name',     label: 'Portfolio', sort: 'name',     template: 'minmax(0,2fr)' },
+  { key: 'tasks',    label: 'Tasks',     sort: 'tasks',    width: 90 },
+  { key: 'progress', label: 'Progress',  sort: 'progress', width: 200 },
+  { key: 'projects', label: 'Projects',  sort: 'projects', template: 'minmax(0,2fr)' },
+  { key: 'actions',  label: '',                            width: 76, fixed: true },
+];
 
 // Progress bar (accent-coloured) used on cards and project rows.
 function ProgressBar({ pct, color, height = 8 }) {
@@ -31,11 +45,45 @@ export default function PortfoliosView({ onNavigate }) {
   const [editing, setEditing] = useState(null);   // portfolio object, or {} for new, or null
   const [detailId, setDetailId] = useState(null);
   const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const [sort, setSort] = useTableValue('portfolios', 'sort', PF_DEFAULT_SORT);
+  const { cols: pfCols, template, startResize, resetWidth, widths, wrapRef, dragProps } =
+    useTableColumns({ table: 'portfolios', cols: PF_COLS });
   const toggleExpanded = (id) => setExpandedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   // Top-level, non-section tasks only - matches the workspace's rollup basis.
   const topTasks = useMemo(() => topLevel(tasks), [tasks]);
   const rollup = (projectIds = []) => taskStats(topTasks.filter((t) => t.projectId && projectIds.includes(t.projectId)));
+
+  // Rows for the table. Computed BEFORE the detail-view early return below -
+  // a hook after a conditional return runs in a different order on the render
+  // that opens a portfolio, which React treats as a fatal mismatch.
+  const q = search.trim().toLowerCase();
+  const filtered = portfolios
+    .filter((p) => (showArchived ? true : !p.archived))
+    .filter((p) => (q ? (p.name || '').toLowerCase().includes(q) : true));
+  // Header sort. `null` is the unsorted state - whatever order the store hands
+  // back - which is where a third click returns to.
+  const visible = useMemo(() => {
+    if (!sort?.key) return filtered;
+    const val = (pf) => {
+      const r = rollup(pf.projectIds);
+      switch (sort.key) {
+        case 'tasks':    return r.total;
+        case 'progress': return r.pct;
+        case 'projects': return (pf.projectIds || []).length;
+        default:         return (pf.name || '').toLowerCase();
+      }
+    };
+    const dir = sort.dir === 'desc' ? -1 : 1;
+    return filtered.slice().sort((a, b) => {
+      // Archived stays at the bottom whatever the sort, same as Projects.
+      if (!!a.archived !== !!b.archived) return a.archived ? 1 : -1;
+      const x = val(a), y = val(b);
+      if (typeof x === 'number' && typeof y === 'number') return (x - y) * dir;
+      return String(x).localeCompare(String(y), 'en', { sensitivity: 'base' }) * dir;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, sort, topTasks]);
 
   // ── Detail view ────────────────────────────────────────────────────────────
   if (detailId) {
@@ -51,10 +99,6 @@ export default function PortfoliosView({ onNavigate }) {
   }
 
   // ── Grid ─────────────────────────────────────────────────────────────────
-  const q = search.trim().toLowerCase();
-  const visible = portfolios
-    .filter((p) => (showArchived ? true : !p.archived))
-    .filter((p) => (q ? (p.name || '').toLowerCase().includes(q) : true));
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -78,6 +122,7 @@ export default function PortfoliosView({ onNavigate }) {
             <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} style={{ cursor: 'pointer' }} />
             {isMobile ? 'Archived' : 'Show archived'}
           </label>
+          {!isMobile && <ResetColumnsButton />}
         </div>
       </div>
 
@@ -88,9 +133,14 @@ export default function PortfoliosView({ onNavigate }) {
         ) : (
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
             <div className="nx-scroll" style={{ overflowX: 'auto' }}>
-              <div style={{ minWidth: 900 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) 90px 200px minmax(0,2fr) 76px', alignItems: 'center', gap: 12, padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
-                  <span>Portfolio</span><span>Tasks</span><span>Progress</span><span>Projects</span><span />
+              <div ref={wrapRef} style={{ minWidth: 900, '--nx-grid': template }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+                  {pfCols.map((c) => (
+                    <TableHead key={c.key} label={c.label} sortKey={c.sort} sort={sort} setSort={setSort}
+                      drag={dragProps(c.key, !c.fixed)}
+                      onResizeStart={startResize(c.key, widths[c.key] ?? c.width ?? 200)}
+                      onResizeReset={() => resetWidth(c.key)} />
+                  ))}
                 </div>
                 {visible.map((pf) => {
                   const accent = pf.color || NX.purple;
@@ -99,26 +149,39 @@ export default function PortfoliosView({ onNavigate }) {
                   const memberProjects = (pf.projectIds || []).map((id) => projectById(id)).filter(Boolean);
                   return (
                     <div key={pf.id} style={{ borderBottom: `1px solid ${NX.border2}`, opacity: pf.archived ? 0.62 : 1 }}>
-                      <div onClick={() => toggleExpanded(pf.id)} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) 90px 200px minmax(0,2fr) 76px', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer' }}
+                      <div onClick={() => toggleExpanded(pf.id)} style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer' }}
                         onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                        {/* Keyed and rendered in the header's order - a row that
+                            renders cells in a fixed sequence puts every value
+                            under the wrong heading once columns can be dragged. */}
+                        {pfCols.map((c) => <Fragment key={c.key}>{({
+                          name: (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                           <ChevronRight size={14} style={{ color: NX.faint, flexShrink: 0, transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.12s' }} />
                           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 9, flexShrink: 0, background: `${accent}1a`, color: accent }}><Briefcase size={16} /></span>
                           <span style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pf.name}</span>
                           {pf.archived && <span style={chip(NX.dim, NX.border2)}>Archived</span>}
                         </div>
-                        <span style={{ fontSize: 13, color: NX.dim }}>{r.completed}/{r.total}</span>
+                          ),
+                          tasks: <span style={{ fontSize: 13, color: NX.dim }}>{r.completed}/{r.total}</span>,
+                          progress: (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <ProgressBar pct={r.pct} color={accent} />
                           <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700 }}>{r.pct}%</span>
                         </div>
+                          ),
+                          projects: (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minWidth: 0 }}>
                           {memberProjects.map((p) => <span key={p.id} style={chip(NX.dim, NX.surface2)}>{p.name}</span>)}
                         </div>
+                          ),
+                          actions: (
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }} onClick={(e) => e.stopPropagation()}>
                           <button title="Open Portfolio" onClick={() => setDetailId(pf.id)} style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><ArrowUpRight size={14} /></button>
                           <button title="Edit Portfolio" onClick={() => setEditing(pf)} style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Pencil size={14} /></button>
                         </div>
+                          ),
+                        })[c.key]}</Fragment>)}
                       </div>
 
                       {isOpen && (
@@ -130,21 +193,31 @@ export default function PortfoliosView({ onNavigate }) {
                               const pr = taskStats(topTasks.filter((t) => t.projectId === p.id));
                               return (
                                 <div key={p.id} onClick={() => onNavigate && onNavigate({ projectId: p.id })}
-                                  style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) 90px 200px minmax(0,2fr) 76px', alignItems: 'center', gap: 12, padding: '9px 16px 9px 54px', borderTop: `1px solid ${NX.border2}`, cursor: 'pointer' }}
+                                  style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '9px 16px 9px 54px', borderTop: `1px solid ${NX.border2}`, cursor: 'pointer' }}
                                   onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                                  {/* Same keying as the portfolio row above, so an
+                                      expanded project stays aligned with it. */}
+                                  {pfCols.map((c) => <Fragment key={c.key}>{({
+                                    name: (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
                                     <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 7, flexShrink: 0, background: `${NX.blue}1a`, color: NX.blue }}><FolderKanban size={13} /></span>
                                     <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                                   </div>
-                                  <span style={{ fontSize: 12, color: NX.dim }}>{pr.completed}/{pr.total}</span>
+                                    ),
+                                    tasks: <span style={{ fontSize: 12, color: NX.dim }}>{pr.completed}/{pr.total}</span>,
+                                    progress: (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                     <ProgressBar pct={pr.pct} color={NX.blue} height={6} />
                                     <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 11, fontWeight: 700 }}>{pr.pct}%</span>
                                   </div>
+                                    ),
+                                    projects: (
                                   <div>
                                     {pr.overdue > 0 && <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: 'fit-content', fontSize: 11, fontWeight: 600, color: NX.red }}><AlertTriangle size={11} />{pr.overdue} overdue</span>}
                                   </div>
-                                  <div />
+                                    ),
+                                    actions: <div />,
+                                  })[c.key]}</Fragment>)}
                                 </div>
                               );
                             })
@@ -189,7 +262,6 @@ function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpda
   // to scroll Name/Description/Owner out of view on phones.
   const isMobile = useIsMobile();
 
-  const toggleProject = (id) => { setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])); setDirty(true); };
 
   const save = async () => {
     if (!name.trim() || busy) return;
@@ -247,19 +319,15 @@ function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpda
         </div>
         <div>
           <label style={label}>Projects</label>
-          {projects.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet - create one first, then add it here.</div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, maxHeight: 220, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8, padding: 8 }}>
-              {projects.map((p) => (
-                <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, padding: '4px 6px', borderRadius: 6, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={projectIds.includes(p.id)} onChange={() => toggleProject(p.id)} style={{ cursor: 'pointer' }} />
-                  <FolderKanban size={13} style={{ color: NX.faint, flexShrink: 0 }} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                </label>
-              ))}
-            </div>
-          )}
+          {/* A portfolio is picked FROM the whole workspace, so this list is as
+              long as the workspace is - searchable, with what you picked shown
+              as chips instead of a grid you scroll hunting for ticks. */}
+          <ChipMultiSelect value={projectIds} onChange={(ids) => { setProjectIds(ids); setDirty(true); }}
+            placeholder="Add projects…" searchPlaceholder="Search projects…"
+            emptyText="No projects yet - create one first, then add it here."
+            options={(projects || []).slice()
+              .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
+              .map((p) => ({ id: p.id, label: p.name }))} />
         </div>
       </div>
     </Modal>

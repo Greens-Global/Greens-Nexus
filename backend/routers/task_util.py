@@ -73,6 +73,13 @@ def task_notify(db: Session, *, kind: str, for_email: str, title: str, body: str
     event surfaces in TopHeader's global bell, not just the module's own one.
     `nexus_action`, if given, is `{"view": ..., "sub": ..., "label": ...}` -
     NotificationBell's default click handler dispatches nexus:navigate to it.
+
+    When the notification is ABOUT a task, `taskId` is added to that action
+    here rather than at each call site: every one of them wrote the same
+    {"view": "tasks", "sub": "mine"}, which landed you on My Tasks and left you
+    to find the task the card just named. Tasks.jsx opens the drawer for a
+    navigate event carrying a taskId, so this is what makes "View task" open
+    the task. Central so new call sites get it without remembering.
     """
     target = for_email if for_email == "admins" else (for_email or "").lower()
     if not target:
@@ -83,7 +90,10 @@ def task_notify(db: Session, *, kind: str, for_email: str, title: str, body: str
         read=False, created_at=now_iso(),
     ))
     recipients = admin_emails(db) if target == "admins" else [target]
-    action_json = json.dumps(nexus_action) if nexus_action else ""
+    action = dict(nexus_action) if nexus_action else None
+    if action and task_id and not action.get("taskId"):
+        action["taskId"] = task_id
+    action_json = json.dumps(action) if action else ""
     now = now_iso()
     for recipient in recipients:
         db.add(NexusNotification(

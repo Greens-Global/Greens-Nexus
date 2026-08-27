@@ -85,12 +85,29 @@ describe('SiteActivity', () => {
     await waitFor(() => expect(screen.getByLabelText('Jobsite')).toBeTruthy());
   });
 
+  // The picker is a searchable dropdown, not a native select: open it, type
+  // enough to narrow forty jobsites to one, pick that one.
   it('switching jobsite reloads that site logs', async () => {
     api.getConstructionOverview.mockResolvedValue({ projects: [project, project2] });
     render(<SiteActivity />);
     await waitFor(() => expect(screen.getByLabelText('Jobsite')).toBeTruthy());
-    fireEvent.change(screen.getByLabelText('Jobsite'), { target: { value: 'p2' } });
+    fireEvent.click(screen.getByLabelText('Jobsite'));
+    fireEvent.change(screen.getByPlaceholderText('Search jobsites…'), { target: { value: 'harbor' } });
+    fireEvent.click(screen.getByText('Harbor View'));
     await waitFor(() => expect(api.getConstructionLogs).toHaveBeenCalledWith('p2'));
+  });
+
+  it('the jobsite picker filters instead of making you scroll', async () => {
+    api.getConstructionOverview.mockResolvedValue({ projects: [project, project2] });
+    render(<SiteActivity />);
+    await waitFor(() => expect(screen.getByLabelText('Jobsite')).toBeTruthy());
+    fireEvent.click(screen.getByLabelText('Jobsite'));
+    // Open: the trigger names the current site and the menu lists both.
+    expect(screen.getAllByText('Valley Center Phase 2')).toHaveLength(2);
+    fireEvent.change(screen.getByPlaceholderText('Search jobsites…'), { target: { value: 'harbor' } });
+    expect(screen.getByText('Harbor View')).toBeTruthy();
+    // Filtered: only the trigger's own label is left.
+    expect(screen.getAllByText('Valley Center Phase 2')).toHaveLength(1);
   });
 
   it('survives the logs failing without losing the screen', async () => {

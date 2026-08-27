@@ -40,17 +40,15 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   const [actAsModalOpen, setActAsModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [myProfileOpen, setMyProfileOpen] = useState(false);
-  // Coming back from Asana's consent screen: the OAuth callback redirects here
-  // with ?asana=connected|denied|error so the outcome isn't lost across the
-  // full page navigation. Reopen Account Settings on it, then strip the params
-  // so a refresh doesn't replay the message.
+  // Asana severed (Aug 27). This used to catch the OAuth callback's
+  // ?asana=connected|denied|error and reopen Account Settings on it. Nobody can
+  // start that flow any more, but a stale bookmark or an in-flight redirect
+  // still can - so the params are stripped silently rather than reopening a
+  // modal about an integration that is gone.
   const [asanaResult, setAsanaResult] = useState({ result: "", reason: "" });
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    const result = p.get("asana");
-    if (!result) return;
-    setAsanaResult({ result, reason: p.get("reason") || "" });
-    setSettingsOpen(true);
+    if (!p.get("asana")) return;
     p.delete("asana"); p.delete("reason");
     const qs = p.toString();
     window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash);
@@ -518,9 +516,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <button className="hud-item" onClick={() => { setOpen(false); setMyProfileOpen(true); }}>
                 <User size={14} /> My Profile
               </button>
+{/* Account Settings held ONE thing - the personal Asana connection -
+    so with Asana severed (Aug 27) it would open an empty modal. Hidden
+    rather than deleted; restore this entry alongside the Manage tab.
               <button className="hud-item" onClick={() => { setOpen(false); setSettingsOpen(true); }}>
                 <Settings size={14} /> Account Settings
-              </button>
+              </button> */}
               <button className="hud-item" onClick={() => { setOpen(false); setChangelogOpen(true); }}>
                 <Sparkles size={14} /> What's New
               </button>

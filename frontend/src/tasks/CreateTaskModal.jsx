@@ -262,13 +262,13 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
               {/* Multi: several people can hold one task. The first is the
                   primary (what a single-avatar surface shows), and any of them
                   can complete it - which closes it for everyone. */}
-              <PersonMultiSelect value={form.assigneeIds} onChange={(v) => set('assigneeIds', v)}
+              <PersonMultiSelect value={form.assigneeIds} onChange={(v) => set('assigneeIds', v)} addTitle="Add assignee"
                 people={people} placeholder="Assign to…" />
             </div>
           </div>
           <div style={field}>
             <label style={label}>Collaborators</label>
-            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} placeholder="Add collaborators…" />
+            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} placeholder="Add collaborators…" addTitle="Add collaborator" />
           </div>
           <div style={field}>
             <label style={label}>Due Date {!isEdit && req}</label>
