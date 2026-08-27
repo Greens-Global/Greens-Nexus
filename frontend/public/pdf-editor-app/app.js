@@ -39,6 +39,7 @@
 
     // ── Dirty tracking: orange Save + guard against losing unsaved work ──
     let _isDirty = false;
+    let _suppressRasterWarn = false;   // "don't warn again" for the redaction-flatten notice (S5)
     function markDirty(d = true) {
         _isDirty = d;
         const btn = document.getElementById('downloadBtn');
@@ -1111,6 +1112,7 @@
                 cropRect = null;
                 clearCropDimOverlay();
                 updateCropDims();
+                if (typeof _syncCropApply === 'function') _syncCropApply();
             }
             updateUndoRedoButtons();
         });
@@ -1481,11 +1483,20 @@
         delete state.redoStacks[pageNum];
     }
 
+    // Debounced thumbnail refresh so markups appear in the strip (B8) without
+    // re-rendering every thumbnail on each stroke.
+    let _thumbRefreshT = null;
+    function _scheduleThumbRefresh() {
+        if (_thumbRefreshT) clearTimeout(_thumbRefreshT);
+        _thumbRefreshT = setTimeout(() => { _thumbRefreshT = null; try { generateThumbnails(); } catch (_) {} }, 900);
+    }
+
     // ── Undo / Redo ──
     function saveAnnotationState() {
         // Skip if we're in the middle of restoring annotations (loadFromJSON fires object:added)
         if (_isRestoring) return;
         markDirty();
+        _scheduleThumbRefresh();   // reflect the new/changed markup in thumbnails (B8)
         const page = state.currentPage;
         if (!state.undoStacks[page]) state.undoStacks[page] = [];
         // Seed a baseline snapshot representing the canvas *before* this action so
@@ -1856,6 +1867,7 @@
                     obj.evented = false;
                 });
                 dom.cropConfirmBar.style.display = 'flex';
+                _syncCropApply();   // starts disabled until a rectangle is drawn (B9)
                 break;
 
             case 'edittext':
@@ -4823,6 +4835,11 @@
             updateCropDims();
         }
         cropStartPoint = null;
+        _syncCropApply();
+    }
+    // Apply Crop is disabled until a valid rectangle exists (B9).
+    function _syncCropApply() {
+        if (dom.cropApply) dom.cropApply.disabled = !cropRect;
     }
 
     // Live size chip: shows the crop area in mm + pt while drawing/adjusting.
@@ -4911,13 +4928,16 @@
         }
 
         // Ask how to apply it — replace the page, or keep the original and
-        // add a cropped COPY right after it. Both are undoable with Cmd+Z.
+        // add a cropped COPY right after it. Both are undoable with Cmd+Z. The
+        // scope dropdown on the crop bar pre-selects "all pages" here (B9).
+        const barScope = (document.getElementById('cropScope') || {}).value;
+        const sel = (v) => barScope === 'all' ? (v === 'all' ? ' selected' : '') : (v === 'dup' ? ' selected' : '');
         const choice = await _toolModal('Apply crop', `
             <label class="modal-label">How do you want to crop page ${state.currentPage}?</label>
             <select class="modal-input" data-k="mode">
-                <option value="dup" selected>Keep original — add a cropped copy after it</option>
-                <option value="replace">Crop this page (replace it)</option>
-                <option value="all">Crop ALL ${state.totalPages} pages with this area</option>
+                <option value="dup"${sel('dup')}>Keep original — add a cropped copy after it</option>
+                <option value="replace"${sel('replace')}>Crop this page (replace it)</option>
+                <option value="all"${sel('all')}>Crop ALL ${state.totalPages} pages with this area</option>
             </select>
             <p class="modal-hint" style="margin-top:10px;">You can undo the crop any time with Cmd/Ctrl+Z.
             Note: crop hides the outside area — to permanently remove sensitive content use Redact instead.</p>`, 'Apply Crop');
@@ -5915,6 +5935,37 @@
 
     // ── Generate Thumbnails ──
     let _thumbGen = 0; // generation token: a newer run aborts older ones
+    // Composite a page's stored markups onto a thumbnail canvas (B8). Annotations
+    // are in canvas px at the capture zoom; we scale them to the thumb size. Skips
+    // hidden-layer + helper objects so the thumbnail matches the page.
+    async function _drawAnnotationsOnThumb(ctx, pageNum, thumbW, thumbH) {
+        try {
+            // Flush the live canvas for the current page so freshly-added markups
+            // are included (they may not be in state.annotations yet).
+            if (pageNum === state.currentPage) { try { saveCurrentAnnotations(); } catch (_) {} }
+            const entry = state.annotations[pageNum];
+            const data = entry && (entry.fabricData || entry);
+            const objs = data && data.objects;
+            if (!objs || !objs.length) return;
+            // Capture-canvas size = pdf.js page at the capture zoom.
+            const zoom = (entry.zoom) || state.zoom || 1;
+            const pj = await state.pdfDoc.getPage(pageNum);
+            const capVp = pj.getViewport({ scale: zoom });
+            const f = thumbW / capVp.width;   // capture px -> thumb px
+            const hidden = new Set(state.layers.filter(l => !l.visible).map(l => l.id));
+            const drawable = objs.filter(o => !o.excludeFromExport && !o._isCommentMark &&
+                !(o._layerId !== undefined && hidden.has(o._layerId)));
+            if (!drawable.length) return;
+            const insts = await new Promise((res) => fabric.util.enlivenObjects(drawable, res));
+            const tmp = new fabric.StaticCanvas(null, { width: Math.max(2, Math.round(thumbW)), height: Math.max(2, Math.round(thumbH)) });
+            tmp.setZoom(f);
+            insts.forEach(o => { if (o) { o.visible = true; tmp.add(o); } });
+            tmp.renderAll();
+            ctx.drawImage(tmp.lowerCanvasEl, 0, 0, Math.round(thumbW), Math.round(thumbH));
+            tmp.dispose && tmp.dispose();
+        } catch (_) { /* thumbnail markups are best-effort */ }
+    }
+
     async function generateThumbnails() {
         const gen = ++_thumbGen;
         dom.thumbnailList.innerHTML = '';
@@ -5952,6 +6003,8 @@
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(0, 0, thumbCanvas.width, thumbCanvas.height);
                 await page.render({ canvasContext: ctx, viewport }).promise;
+                // Overlay this page's markups so thumbnails reflect annotations (B8).
+                await _drawAnnotationsOnThumb(ctx, i, viewport.width, viewport.height);
             } catch (err) {
                 // A page that refuses to render still gets a visible placeholder
                 console.warn('Thumbnail render failed for page ' + i + ':', err);
@@ -6149,6 +6202,25 @@
                 }
             }
         } catch (_) { /* warning is best-effort - never block the save */ }
+
+        // S5: warn once if the save will RASTERIZE any page. Redacted pages are
+        // flattened to an image (searchable text under the boxes is destroyed -
+        // that's the point of redaction, but the user should confirm). A remembered
+        // "don't warn again" keeps it from nagging every save.
+        try {
+            let redactPages = 0;
+            for (const entry of Object.values(state.annotations || {})) {
+                const objs = (entry && (entry.fabricData || entry).objects) || [];
+                if (objs.some(o => o._isRedact)) redactPages++;
+            }
+            if (redactPages > 0 && !_suppressRasterWarn) {
+                const choice = await _choiceModal('Some pages will be flattened',
+                    redactPages + ' page' + (redactPages > 1 ? 's' : '') + ' with redaction will be saved as an image - the text under the redaction boxes is permanently removed and those pages will no longer be searchable. This is how redaction protects the content. Continue?',
+                    [{ key: 'go', label: 'Save' }, { key: 'goquiet', label: 'Save, don\'t warn again' }]);
+                if (choice !== 'go' && choice !== 'goquiet') { setStatus('Download cancelled'); return; }
+                if (choice === 'goquiet') _suppressRasterWarn = true;
+            }
+        } catch (_) { /* best-effort */ }
 
         setStatus('Preparing download...');
 
@@ -11602,6 +11674,7 @@ Replacement:`;
             ellipse: (opts) => new fabric.Ellipse(opts),
             itext: (t, opts) => new fabric.IText(t, opts),
             goto: (n) => renderPage(n),
+            thumbs: () => generateThumbnails(),   // test probe for B8
             save: () => downloadPDF(),
             state: () => ({ page: state.currentPage, total: state.totalPages, zoom: state.zoom }),
             pdfDoc: () => state.pdfDoc,

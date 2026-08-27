@@ -21,7 +21,7 @@
         base-uri 'self';
         form-action 'none';">
     <title>PDF Tools</title>
-    <link rel="stylesheet" href="style.css?v=20260828f">
+    <link rel="stylesheet" href="style.css?v=20260828g">
     <!-- PDF.js for rendering PDFs -->
     <script defer src="libs/pdf.min.js"></script>
     <!-- pdf-lib for modifying/exporting PDFs -->
@@ -610,7 +610,7 @@
         <span id="statusText"></span>
         <button id="scaleChip" class="scale-chip" style="display:none;" title="Click to set the drawing scale"></button>
         <span id="fileInfo"></span>
-        <span id="buildStamp" title="Editor bundle version - if this is stale, hard-reload" style="margin-left:auto;opacity:0.5;font-size:10px;">build 20260828f</span>
+        <span id="buildStamp" title="Editor bundle version - if this is stale, hard-reload" style="margin-left:auto;opacity:0.5;font-size:10px;">build 20260828g</span>
     </footer>
 
     <!-- Search Bar -->
@@ -685,7 +685,11 @@
     <!-- Crop Confirm Bar -->
     <div class="crop-confirm-bar" id="cropConfirmBar" style="display:none;">
         <span>Drag a rectangle to select the crop area, then confirm or cancel.</span>
-        <button id="cropApply" class="crop-btn apply">Apply Crop</button>
+        <select id="cropScope" class="crop-scope" title="Apply the crop to">
+            <option value="page">This page</option>
+            <option value="all">All pages</option>
+        </select>
+        <button id="cropApply" class="crop-btn apply" disabled>Apply Crop</button>
         <button id="cropCancel" class="crop-btn cancel">Cancel</button>
     </div>
 
@@ -733,7 +737,7 @@
 
     </div><!-- end .page-wrapper -->
 
-    <script defer src="app.js?v=20260828f"></script>
-    <script defer src="adobe-ui.js?v=20260828f"></script>
+    <script defer src="app.js?v=20260828g"></script>
+    <script defer src="adobe-ui.js?v=20260828g"></script>
 </body>
 </html>
