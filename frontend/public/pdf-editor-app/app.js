@@ -1654,36 +1654,37 @@
         if (state.undoStacks[page].length > 50) {
             state.undoStacks[page].shift();
         }
-        // Clear redo stack on new action
+        // Clear redo stack on new action (both per-page and the global order).
         state.redoStacks[page] = [];
-        // A5: record the page in a global order log so undo can reach an edit
-        // made on a page you've since navigated away from.
+        _redoOrder.length = 0;
+        // A5: record the page in the global chronological timeline.
         _undoOrder.push(page);
         if (_undoOrder.length > 500) _undoOrder.shift();
         updateUndoRedoButtons();
     }
-    const _undoOrder = [];   // chronological page log for cross-page undo (A5)
+    const _undoOrder = [];   // chronological page log - the single global timeline (A5)
+    const _redoOrder = [];   // pages available to redo, in reverse-chronological order
 
     function undo() {
-        let page = state.currentPage;
-        let stack = state.undoStacks[page];
-        // A5: nothing to undo on THIS page - jump to the most recently edited
-        // page that still has history and undo there, so paging away doesn't
-        // strand a mistake.
+        // A5: a SINGLE chronological timeline. The most recent action anywhere is
+        // the last entry in _undoOrder - undo that, jumping to its page first if
+        // needed, regardless of which page you're currently viewing.
+        const targetPage = _undoOrder.length ? _undoOrder[_undoOrder.length - 1] : state.currentPage;
+        let stack = state.undoStacks[targetPage];
         if (!stack || stack.length <= 1) {
-            let target = null;
-            for (let i = _undoOrder.length - 1; i >= 0; i--) {
-                const p = _undoOrder[i];
-                if (state.undoStacks[p] && state.undoStacks[p].length > 1) { target = p; break; }
-            }
-            if (target != null && target !== state.currentPage) {
-                goToPage(target);
-                setTimeout(() => undo(), 250);   // undo once the page is rendered
-                return;
-            }
+            // Stale order entry (stack already drained) - drop it and retry.
+            if (_undoOrder.length) { _undoOrder.pop(); if (_undoOrder.length) return undo(); }
             if (_docUndoStack.length) undoDocChange(); // e.g. undo a crop
             return;
         }
+        if (targetPage !== state.currentPage) {
+            goToPage(targetPage);
+            setTimeout(() => undo(), 250);   // undo once the page is rendered
+            return;
+        }
+        const page = targetPage;
+        _undoOrder.pop();                 // consume this action from the timeline
+        _redoOrder.push(page);            // it becomes redoable
 
         const current = stack.pop();
         if (!state.redoStacks[page]) state.redoStacks[page] = [];
@@ -1712,9 +1713,22 @@
     }
 
     function redo() {
-        const page = state.currentPage;
-        const redoStack = state.redoStacks[page];
-        if (!redoStack || redoStack.length === 0) return;
+        // A5: redo follows the global timeline too - the last undone action is
+        // the last entry in _redoOrder.
+        const targetPage = _redoOrder.length ? _redoOrder[_redoOrder.length - 1] : state.currentPage;
+        const redoStack = state.redoStacks[targetPage];
+        if (!redoStack || redoStack.length === 0) {
+            if (_redoOrder.length) { _redoOrder.pop(); if (_redoOrder.length) return redo(); }
+            return;
+        }
+        if (targetPage !== state.currentPage) {
+            goToPage(targetPage);
+            setTimeout(() => redo(), 250);
+            return;
+        }
+        const page = targetPage;
+        _redoOrder.pop();
+        _undoOrder.push(page);   // redone -> back on the undo timeline
 
         const next = redoStack.pop();
         if (!state.undoStacks[page]) state.undoStacks[page] = [];
@@ -1741,13 +1755,9 @@
     }
 
     function updateUndoRedoButtons() {
-        const page = state.currentPage;
-        const localUndo = state.undoStacks[page] && state.undoStacks[page].length > 1;
-        // A5: undo stays enabled if ANY page has history (cross-page undo).
-        const anyUndo = localUndo || Object.keys(state.undoStacks).some(p =>
-            state.undoStacks[p] && state.undoStacks[p].length > 1);
-        dom.undoBtn.disabled = !anyUndo && _docUndoStack.length === 0;
-        dom.redoBtn.disabled = !state.redoStacks[page] || state.redoStacks[page].length === 0;
+        // A5: enabled state follows the global timeline.
+        dom.undoBtn.disabled = _undoOrder.length === 0 && _docUndoStack.length === 0;
+        dom.redoBtn.disabled = _redoOrder.length === 0;
     }
 
     // ── Page Navigation ──
@@ -12271,6 +12281,7 @@ Replacement:`;
     // (the automated suite in tests/ uses them; never active for users).
     if (location.search.includes('testhooks')) {
         window.__hooks = {
+            undoOrder: () => _undoOrder.slice(),   // A5 debug probe
             fabric: () => fabricCanvas,
             contentSnap: (p) => _contentSnap(p),   // test probe for Snap to Content
             measures: () => fabricCanvas.getObjects().filter(o => o._measure).map(o => o._measure),
