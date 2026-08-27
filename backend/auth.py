@@ -688,3 +688,28 @@ def company_scope(user: dict, db: Session):
             if (g.company_id or "").strip():
                 companies.add(g.company_id.strip())
     return companies
+
+
+def company_of(email_or_user, db: Session) -> str:
+    """The HrEntity company an actor belongs to (their nexus_employees.company) -
+    used to STAMP the company onto records they create, so those records land on
+    the actor's side of the wall. '' when unknown/untagged."""
+    from sqlalchemy import func
+    from models import NexusEmployee
+    email = ((email_or_user.get("email") if isinstance(email_or_user, dict) else email_or_user) or "").lower()
+    if not email:
+        return ""
+    row = (db.query(NexusEmployee.company)
+           .filter(func.lower(NexusEmployee.work_email) == email).first())
+    return (row.company if row else "") or ""
+
+
+def company_ok(record_company: str, scope) -> bool:
+    """Does the caller's company scope admit a record stamped with
+    `record_company`? scope None (walls off / Global Admin) always admits;
+    otherwise the record's company must be in the scope set. Untagged ('')
+    records are Global-Admin-only when armed. The one-liner every module's list
+    filter uses: `[r for r in rows if company_ok(r.company_id, scope)]`."""
+    if scope is None:
+        return True
+    return (record_company or "") in scope

@@ -394,6 +394,11 @@ class NexusNotification(Base):
     action      = Column(String, default="")              # serialised JSON for action button
     actioned    = Column(Boolean, default=False)
     read_by     = Column(String, default="")              # comma-separated emails
+    # Multi-company walls: the company this notification belongs to (its
+    # originator's HrEntity). A manager broadcast (recipient='') is shown only to
+    # managers in this company once the walls are armed; '' = org-wide (legacy) =
+    # Global-Admin-only when armed. Stamped by _notify / create_notification.
+    company     = Column(String, default="", index=True)
     created_at  = Column(String, nullable=False)
 
 
@@ -454,6 +459,10 @@ class Item(Base):
     __tablename__ = "items"
     id             = Column(String, primary_key=True)
     serial_number  = Column(String, default="")               # static per-unit identity (GG-#####); the CSV import upsert key
+    # Multi-company walls: the HrEntity company that owns this item, stamped from
+    # its creator. Walled per company once armed; '' (legacy/shared) is
+    # Global-Admin-only when armed.
+    company_id     = Column(String, default="", index=True)
     name           = Column(String, nullable=False)
     item_type      = Column(String, default="Other")          # Devices|Tools|Vehicles|Equipment|Keys|Other
     make           = Column(String, default="")

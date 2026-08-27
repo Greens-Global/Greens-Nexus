@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from typing import Optional
 import httpx
 from database import get_db
-from auth import get_current_user, require_level_or_module
+from auth import get_current_user, require_level_or_module, company_of
 from models import Item, ItemCheckout, ItemCartEntry, ItemAssignment, ItemCustomField, ItemType, NexusRole, NexusNotification, AuditLog, NexusEmployee
 
 _VALID_TRANSITIONS = {
@@ -109,6 +109,9 @@ def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
         action="",
         actioned=False,
         read_by="",
+        # Company wall: a broadcast is about `requested_by`; a personal one is for
+        # `recipient` - stamp that person's company so the bell obeys the wall.
+        company=company_of(requested_by or recipient, db),
         created_at=datetime.now(timezone.utc).isoformat(),
     )
     db.add(row)
@@ -329,6 +332,7 @@ def list_items(
     department: Optional[str] = None,
     item_type:  Optional[str] = None,
     status:     Optional[str] = None,
+    user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     # Soft-deleted items (deleted_at set) are hidden from the normal catalogue -
@@ -342,6 +346,12 @@ def list_items(
     if status:
         q = q.filter(Item.status == status)
     items = q.all()
+    # Company wall: once armed, only items in the caller's companies (Global Admin
+    # sees all; untagged/shared items are Global-Admin-only). Off = unchanged.
+    import auth
+    _scope = auth.company_scope(user, db)
+    if _scope is not None:
+        items = [i for i in items if auth.company_ok(getattr(i, "company_id", ""), _scope)]
 
     # Enrich each item with live checkout activity so ALL users (not just
     # managers who see every checkout) know when an item is taken or under
@@ -559,6 +569,7 @@ def create_item(body: ItemCreate, response: Response, user: dict = Depends(requi
         item = Item(
             id=str(uuid.uuid4()),
             serial_number=_fmt_serial(_serial_start(db)),
+            company_id=company_of(user, db),   # company wall: stamp creator's company
             name=name,
             item_type=_normalize_type(body.item_type, _type_canon(db)),
             make=(body.make or "").strip(),
@@ -707,6 +718,7 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
             new_item = Item(
                 id=str(uuid.uuid4()),
                 serial_number=serial,
+                company_id=company_of(user, db),   # company wall
                 name=name,
                 item_type=item_type,
                 make=make,

@@ -23,7 +23,9 @@ from sqlalchemy import text as _text
 with database.engine.connect() as _c:
     for _sql in ("ALTER TABLE nexus_groups ADD COLUMN company_id TEXT DEFAULT ''",
                  "ALTER TABLE nexus_groups ADD COLUMN is_global_admin INTEGER DEFAULT 0",
-                 "ALTER TABLE tasks ADD COLUMN company_id TEXT DEFAULT ''"):
+                 "ALTER TABLE tasks ADD COLUMN company_id TEXT DEFAULT ''",
+                 "ALTER TABLE items ADD COLUMN company_id TEXT DEFAULT ''",
+                 "ALTER TABLE nexus_notifications ADD COLUMN company TEXT DEFAULT ''"):
         try:
             _c.execute(_text(_sql)); _c.commit()
         except Exception:
@@ -61,7 +63,7 @@ class CompanyWallsTests(unittest.TestCase):
             # GLOBAL is an administrator (level 4) - the bootstrap global admin
             db.add(models.NexusRole(email=GLOBAL, role="administrator"))
             db.add(models.NexusRole(email=AEMP, role="employee"))
-            db.add(models.NexusRole(email=AMGR, role="employee"))
+            db.add(models.NexusRole(email=AMGR, role="manager"))   # a scoped (company A) manager
             db.add(models.NexusRole(email=BEMP, role="employee"))
             # A company-scoped role: membership puts AMGR in company A even though
             # his employee row has no company set.
@@ -101,6 +103,8 @@ class CompanyWallsTests(unittest.TestCase):
             db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_([GA_GROUP, AROLE, TGRANT])).delete(synchronize_session=False)
             db.query(models.Task).filter(models.Task.id.like("task-walls%")).delete(synchronize_session=False)
             db.query(models.TaskTicket).filter(models.TaskTicket.id.like("tkt-walls%")).delete(synchronize_session=False)
+            db.query(models.Item).filter(models.Item.id.like("item-walls%")).delete(synchronize_session=False)
+            db.query(models.NexusNotification).filter(models.NexusNotification.id.like("ntf-walls%")).delete(synchronize_session=False)
             db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete(synchronize_session=False)
             db.query(models.AuditLog).filter(models.AuditLog.action.like("company_walls_%")).delete(synchronize_session=False)
             db.commit()
@@ -209,6 +213,42 @@ class CompanyWallsTests(unittest.TestCase):
         self.assertIn("tkt-walls-a", a); self.assertNotIn("tkt-walls-b", a)
         g = self._get_ids("/task-tickets", GLOBAL)
         self.assertTrue({"tkt-walls-a", "tkt-walls-b"} <= g)
+
+    def _mk_item(self, iid, company):
+        db = database.SessionLocal()
+        try:
+            db.add(models.Item(id=iid, serial_number=iid, company_id=company, name=f"Item {iid}"))
+            db.commit()
+        finally:
+            db.close()
+
+    def _mk_broadcast(self, nid, company):
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusNotification(id=nid, type="req_pending", recipient="",
+                                            title=f"B {nid}", body="x", company=company,
+                                            created_at="2026-08-28T00:00:00+00:00"))
+            db.commit()
+        finally:
+            db.close()
+
+    def test_armed_items_are_company_walled(self):
+        self._mk_item("item-walls-a", COA)
+        self._mk_item("item-walls-b", COB)
+        self._arm(True)
+        a = self._get_ids("/items", AEMP)
+        self.assertIn("item-walls-a", a); self.assertNotIn("item-walls-b", a)
+        g = self._get_ids("/items", GLOBAL)
+        self.assertTrue({"item-walls-a", "item-walls-b"} <= g)
+
+    def test_armed_notification_broadcasts_are_company_walled(self):
+        self._mk_broadcast("ntf-walls-a", COA)
+        self._mk_broadcast("ntf-walls-b", COB)
+        self._arm(True)
+        a = self._get_ids("/notifications", AMGR)   # a company-A manager
+        self.assertIn("ntf-walls-a", a); self.assertNotIn("ntf-walls-b", a)
+        g = self._get_ids("/notifications", GLOBAL)
+        self.assertTrue({"ntf-walls-a", "ntf-walls-b"} <= g)
 
     def test_arm_switch_endpoint_arms_and_audits(self):
         os.environ["NEXUS_DEV_EMAIL"] = GLOBAL   # administrator = bootstrap global admin
