@@ -794,7 +794,8 @@
         // measurement (never the ribbon - M10), Backspace removes the last point.
         if (measureKind) {
             if (e.key === 'Enter') { e.preventDefault(); measureFinish(); return; }
-            if (e.key === 'Escape') { e.preventDefault(); measureCancel(); setStatus('Measurement cancelled'); return; }
+            // stopPropagation so the ribbon's window-level Escape can't also fire.
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); measureCancel(); setStatus('Measurement cancelled'); return; }
             if (e.key === 'Backspace' && measurePts.length) {
                 e.preventDefault(); measurePts.pop(); measureRedraw();
                 setStatus(measurePts.length ? 'Removed last point - ' + measurePts.length + ' left' : 'Click to start again');
@@ -807,6 +808,13 @@
         // than via setActiveTool, whose button path collapses the ribbon.
         if (e.key === 'Escape' && state.activeTool === 'shape' && _MEASURE_KINDS.includes(shapeKind)) {
             e.preventDefault();
+            // Stop the event reaching the ribbon's own Escape handler (it would
+            // collapse Assemble). We disarm the tool here, so by the time that
+            // handler ran isMeasureActive() would already be false - hence stopping
+            // propagation, not relying on the guard, is what fixes M10.
+            // stopImmediatePropagation covers the case where both handlers sit on
+            // the same target and registration order would otherwise decide.
+            e.stopImmediatePropagation();
             document.getElementById('measureTool')?.classList.remove('active');
             shapeKind = 'rect';                // leave the measure engine
             state.activeTool = 'select';
@@ -3187,7 +3195,10 @@
         menu.innerHTML = items.map(([lbl, act]) =>
             `<button data-act="${act}"${act === 'del' ? ' class="danger"' : ''}>${lbl}</button>`).join('');
         document.body.appendChild(menu);
-        const close = () => menu.remove();
+        // Escape closes the menu (and only the menu) - capture phase + stop so it
+        // pre-empts the measure/ribbon Escape handlers while the menu is open.
+        const onEsc = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); } };
+        const close = () => { menu.remove(); document.removeEventListener('keydown', onEsc, true); };
         menu.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
             const act = b.dataset.act; close();
             if (act === 'edit') editMeasurement(mid);
@@ -3195,6 +3206,7 @@
             else if (act === 'dup') duplicateMeasurement(mid);
             else if (act === 'copy') { const s = _findMeasureShape(mid); if (s) navigator.clipboard?.writeText(_fmtVal(s._measure)).then(() => showToast('Value copied')); }
         }));
+        document.addEventListener('keydown', onEsc, true);
         setTimeout(() => document.addEventListener('click', close, { once: true }), 0);
     }
 
