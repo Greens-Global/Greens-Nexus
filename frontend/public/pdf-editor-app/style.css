@@ -370,7 +370,13 @@ body.toolbar-collapsed .toolbar-toggle svg {
     scrollbar-width: none;
     height: 40px;
     min-height: 40px;
+    /* A1: sit ABOVE tool dropdown menus so the color/size controls always win
+       the hit-test - a menu from the row above must never occlude them. */
+    position: relative;
+    z-index: 10001;
 }
+/* The tool-options row (toolbar color/size/font) likewise sits above menus. */
+.tool-options { position: relative; z-index: 10001; }
 /* Match every other slider in the app (was default native width + accent). */
 .paint-bar input[type="range"] { width: 90px; accent-color: var(--accent); }
 

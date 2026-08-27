@@ -54,6 +54,22 @@
   const el = (sel) => document.querySelector(sel);
   const wrapOf = (sel) => { const b = el(sel); return b ? b.closest('.dropdown-wrap') || b : null; };
 
+  // A1 FIX: a tool dropdown (Draw/Highlight/Shape/Measure menu) opens downward
+  // and can overlap the paint bar / tool-options row below it. A click on the
+  // COLOR/SIZE control then lands on a stale menu item instead - which, with a
+  // markup tool armed, leaked through to the canvas and could even edit real PDF
+  // text. Guard: in the CAPTURE phase, if a mousedown targets any toolbar/paint
+  // control (or a color/size input), close every open dropdown FIRST so nothing
+  // occludes the control at click time.
+  document.addEventListener('mousedown', (e) => {
+    const t = e.target;
+    if (!t || !t.closest) return;
+    const onControl = t.closest('#toolOptions, .paint-bar, .tool-options, input[type="color"], input[type="range"], #eraserOptions, .ctx-color');
+    if (onControl) {
+      document.querySelectorAll('.dropdown-menu.open').forEach(m => m.classList.remove('open'));
+    }
+  }, true);
+
   // ── Shape picker: clicking Shape shows a menu of shape types ────────────────
   // app.js exposes window.setShapeKind; the tool itself stays #shapeTool.
   const shapeBtn = el('#shapeTool');
