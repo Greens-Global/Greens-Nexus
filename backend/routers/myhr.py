@@ -176,22 +176,36 @@ def people_directory(user: dict = Depends(get_current_user), db: Session = Depen
 
     Cached (cache.py): every picker app-wide loads this list on mount, and it
     only changes on HR edits/M365 sync - the single hottest read for its rate
-    of change. Same payload for every caller, so one cache entry serves all."""
-    import cache
-    cached = cache.people_directory.get("all")
+    of change.
+
+    COMPANY WALL (Aug 2026): this is the one picker every module uses, so it is
+    the primary tenant choke point - once the walls are armed, a caller sees only
+    people in their own companies (auth.company_scope), which is what stops
+    cross-company task assignment, @mentions, followers and watchers at the
+    source. The cache key carries the caller's company set; employee/entity edits
+    flush the whole namespace (cache._WATCHED), and a scope change moves the caller
+    to a different key, so per-wall caching stays correct. Walls off (or a Global
+    Admin) → scope None → the old single 'all' list, unchanged."""
+    import cache, auth
+    scope = auth.company_scope(user, db)
+    key = "all" if scope is None else ("co:" + ",".join(sorted(scope)) if scope else "co:none")
+    cached = cache.people_directory.get(key)
     if cached is not None:
         return cached
     # External users (Aug 17) are excluded: guest/external identities must
     # never appear in people pickers, assignment lists, or any org-wide people
     # surface built on this directory. NULL-safe: legacy rows have no
     # identity_type, and `notin_` alone would silently drop them too.
-    from sqlalchemy import or_
-    rows = (db.query(NexusEmployee)
+    from sqlalchemy import or_, false
+    q = (db.query(NexusEmployee)
               .filter(NexusEmployee.status != "offboarded")
               .filter(NexusEmployee.work_email != "")
               .filter(or_(NexusEmployee.identity_type.is_(None),
-                          NexusEmployee.identity_type.notin_(("guest", "external"))))
-              .order_by(NexusEmployee.first_name, NexusEmployee.last_name).all())
+                          NexusEmployee.identity_type.notin_(("guest", "external")))))
+    if scope is not None:
+        # Company wall: only people in the caller's companies; fail closed if none.
+        q = q.filter(NexusEmployee.company.in_(list(scope))) if scope else q.filter(false())
+    rows = q.order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
     # company is the ENTITY ID on the employee row; resolve the display name once
     # so pickers can offer company/department filters without an HR-gated call.
     ent_names = {en.id: en.name for en in db.query(HrEntity).all()}
@@ -199,7 +213,7 @@ def people_directory(user: dict = Depends(get_current_user), db: Session = Depen
             "company": e.company or "", "companyName": ent_names.get(e.company or "", ""),
             "department": e.department or ""}
            for e in rows]
-    cache.people_directory.set("all", out)
+    cache.people_directory.set(key, out)
     return out
 
 

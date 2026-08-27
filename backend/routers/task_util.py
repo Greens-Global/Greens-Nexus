@@ -258,6 +258,45 @@ def task_is_visible(t: Task, user_or_email, visible_proj_ids: set[str]) -> bool:
     return False
 
 
+# ── Company wall (Aug 2026) ───────────────────────────────────────────────────
+# A hard tenant boundary layered ON TOP of the visibility rules above: even a
+# manager's org-wide bypass and an 'org'-access task are still confined to the
+# caller's own companies once the walls are armed. Off (or a Global Admin) → a
+# no-op, so the Task module is unchanged for the single-org setup.
+def _emp_company_map(db: Session) -> dict:
+    from models import NexusEmployee
+    return {(e.work_email or "").lower(): (e.company or "")
+            for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all()
+            if e.work_email}
+
+
+def task_company(t, emp_company: dict) -> str:
+    """The HrEntity company a task belongs to: its stamped company_id, else
+    derived from the owner/creator's company - so tasks created before stamping
+    (and Asana-sync tasks) still land on the right side of the wall rather than
+    slipping through untagged."""
+    c = (getattr(t, "company_id", "") or "").strip()
+    if c:
+        return c
+    for who in ((getattr(t, "owner_email", "") or ""), (getattr(t, "created_by", "") or "")):
+        c2 = emp_company.get(who.lower())
+        if c2:
+            return c2
+    return ""
+
+
+def wall_tasks(db: Session, user, rows):
+    """Keep only the tasks the caller's company scope admits. No-op when the walls
+    are off or the caller is a Global Admin (auth.company_scope → None). Untagged
+    tasks (no company, no owner/creator company) stay Global-Admin-only."""
+    import auth
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return list(rows)
+    emp = _emp_company_map(db)
+    return [t for t in rows if task_company(t, emp) in scope]
+
+
 # ── Project access roles (Share panel, Jul 2026) ─────────────────────────────
 # Mirrors Asana's own 4 tiers so the Share UI can be a direct parity build:
 # a role only ever implies everything ranked below it.

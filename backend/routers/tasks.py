@@ -16,6 +16,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -24,7 +25,7 @@ from database import get_db
 from auth import get_current_user, require_manager, require_any_module_grant
 from routers.task_util import (
     now_iso, gen_id, fire_task_event, task_notify, log_activity, email_list,
-    is_manager, visible_project_ids, task_is_visible,
+    is_manager, visible_project_ids, task_is_visible, wall_tasks,
     project_for_task, require_project_role, require_task_role, create_comment,
     task_assignees, set_task_assignees,
 )
@@ -665,6 +666,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
     nid = gen_id()
     nxt = models.Task(
         id=nid,
+        company_id=getattr(t, "company_id", "") or "",   # inherit the parent's company
         code=_next_code(db),
         title=t.title,
         description=t.description or "",
@@ -713,7 +715,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
 
 @router.get("")
 def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = db.query(models.Task).all()
+    rows = wall_tasks(db, user, db.query(models.Task).all())   # company wall first
     if is_manager(user):
         return [task_to_dict(t) for t in rows]
     # Pass the USER dict, not just the email: the helpers scope external
@@ -768,7 +770,7 @@ def export_tasks_excel(
     except ImportError:
         raise HTTPException(500, "openpyxl not installed - run: pip install openpyxl")
 
-    rows = db.query(models.Task).all()
+    rows = wall_tasks(db, user, db.query(models.Task).all())   # company wall first
     if not is_manager(user):
         visible = visible_project_ids(db, user)
         rows = [t for t in rows if task_is_visible(t, user, visible)]
@@ -978,7 +980,7 @@ def search_everything(q: str = "", limit: int = 6,
     manager = is_manager(user)
     visible = None if manager else visible_project_ids(db, user)
 
-    tasks = [t for t in db.query(models.Task).all()
+    tasks = [t for t in wall_tasks(db, user, db.query(models.Task).all())
              if (term in (t.title or "").lower() or term in (t.code or "").lower())
              and not t.completed
              and (manager or task_is_visible(t, user, visible))]
@@ -1072,7 +1074,7 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
 
     manager = is_manager(user)
     visible = None if manager else visible_project_ids(db, user)
-    rows = [t for t in db.query(models.Task).all()
+    rows = [t for t in wall_tasks(db, user, db.query(models.Task).all())
             if manager or task_is_visible(t, user, visible)]
     project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
 
@@ -1156,7 +1158,7 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
     q = db.query(models.Task)
     if since:
         q = q.filter(models.Task.modified_at > since)
-    rows = q.all()
+    rows = wall_tasks(db, user, q.all())   # company wall first
     if not is_manager(user):
         visible_projects = visible_project_ids(db, user)
         rows = [t for t in rows if task_is_visible(t, user, visible_projects)]
@@ -1186,8 +1188,15 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     # than needing a later PATCH to tidy it.
     validate_task_payload(db, body.__dict__, task_id=tid)
     access_level = body.access_level or (project.access_level if project else None) or "org"
+    # Company wall: stamp the creator's company so the task is fixed on their side
+    # of the wall even if they later change companies (task_util.task_company falls
+    # back to deriving it for legacy/sync rows that were never stamped).
+    _creator = (db.query(models.NexusEmployee.company)
+                .filter(func.lower(models.NexusEmployee.work_email) == user["email"].lower()).first())
+    company_id = (_creator.company if _creator else "") or ""
     t = models.Task(
         id=tid,
+        company_id=company_id,
         code=body.code or _next_code(db),
         title=body.title,
         description=body.description or "",

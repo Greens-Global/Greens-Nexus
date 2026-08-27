@@ -300,9 +300,18 @@ def _emit_stale_reminders(db: Session, rows: list) -> None:
 
 # ---- CRUD -----------------------------------------------------------------
 @router.get("/documents")
-def list_documents(db: Session = Depends(get_db)):
+def list_documents(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = db.query(models.KbDocument).all()
     _emit_stale_reminders(db, rows)
+    # Company wall: once armed, a KB doc owned by a company's person is private to
+    # that company; an untagged-owner doc stays shared org-wide (shared_when_blank
+    # - the knowledge base is a shared surface, not per-company data by default).
+    import auth
+    _scope = auth.company_scope(user, db)
+    if _scope is not None:
+        _emp = auth.company_of_email_map(db)
+        rows = [d for d in rows
+                if auth.company_ok(_emp.get((d.owner_email or "").lower(), ""), _scope, shared_when_blank=True)]
     rows.sort(key=lambda d: d.updated_at or "", reverse=True)
     return [_serialize(d) for d in rows]
 

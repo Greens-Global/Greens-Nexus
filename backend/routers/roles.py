@@ -101,8 +101,18 @@ def get_directory(
     db:   Session = Depends(get_db),
 ):
     """People picker for on-behalf flows - names and emails only, no roles.
-    Open to every authenticated user (it's the same data as the Outlook GAL)."""
+    Open to every authenticated user (it's the same data as the Outlook GAL).
+    Company wall (Aug 2026): once armed, narrowed to people in the caller's own
+    companies, like /myhr/directory - so no cross-company picker leaks here either."""
+    import auth
     rows = db.query(NexusRole).order_by(NexusRole.email).all()
+    scope = auth.company_scope(user, db)
+    if scope is not None:
+        from models import NexusEmployee
+        allowed = {(e.work_email or "").lower()
+                   for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all()
+                   if (e.company or "") in scope} if scope else set()
+        rows = [r for r in rows if (r.email or "").lower() in allowed]
     return [
         {
             "email": r.email,

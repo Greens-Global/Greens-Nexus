@@ -551,6 +551,13 @@ def _run_migrations():
             "ALTER TABLE payroll_rates ADD COLUMN time_tracking_exempt INTEGER DEFAULT 0",
             # BOD/EOD prompt exemption per role (Neil, Aug 25)
             "ALTER TABLE nexus_groups ADD COLUMN bod_exempt INTEGER DEFAULT 0",
+            # Multi-company walls: company-scoped roles + Global-Admin flag
+            "ALTER TABLE nexus_groups ADD COLUMN company_id TEXT DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN is_global_admin INTEGER DEFAULT 0",
+            "ALTER TABLE tasks ADD COLUMN company_id TEXT DEFAULT ''",
+            "ALTER TABLE nexus_notifications ADD COLUMN company TEXT DEFAULT ''",
+            "ALTER TABLE items ADD COLUMN company_id TEXT DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN company_id TEXT DEFAULT ''",
             # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
             "ALTER TABLE hr_candidates ADD COLUMN company TEXT DEFAULT ''",
             # Open shifts (Teams-style, Aug 26): unassigned slot count
@@ -1186,6 +1193,13 @@ def _run_migrations():
         "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS time_tracking_exempt INTEGER DEFAULT 0",
         # BOD/EOD prompt exemption per role (Neil, Aug 25)
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_exempt INTEGER DEFAULT 0",
+        # Multi-company walls: company-scoped roles + Global-Admin flag
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS company_id TEXT DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_global_admin INTEGER DEFAULT 0",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS company_id TEXT DEFAULT ''",
+        "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS company TEXT DEFAULT ''",
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS company_id TEXT DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS company_id TEXT DEFAULT ''",
         # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS company TEXT DEFAULT ''",
         # Open shifts (Teams-style, Aug 26): unassigned slot count

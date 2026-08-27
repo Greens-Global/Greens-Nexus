@@ -192,6 +192,13 @@ def list_documents(folder_id: str = "", status: str = "", q: str = "", mine: boo
     if limit:
         query = query.limit(limit)
     rows = query.all()
+    # Company wall: once armed, a document owned by a company's person is private
+    # to that company (untagged -> Global-Admin-only). Off = unchanged.
+    import auth
+    _scope = auth.company_scope(user, db)
+    if _scope is not None:
+        _emp = auth.company_of_email_map(db)
+        rows = [d for d in rows if auth.company_ok(_emp.get((d.owner_email or "").lower(), ""), _scope)]
     statuses = _sign_statuses(db, rows)
     return [_ser_document(d, statuses.get(d.sign_request_id, "")) for d in rows]
 
