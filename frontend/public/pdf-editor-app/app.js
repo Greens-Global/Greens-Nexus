@@ -2846,6 +2846,17 @@
     // True while a measure tool is armed or a measurement is mid-draw - lets the
     // ribbon's global Escape handler defer to us so it doesn't collapse (M10).
     window.isMeasureActive = () => (state.activeTool === 'shape' && _MEASURE_KINDS.includes(shapeKind)) || !!measureKind;
+    // True whenever any markup tool (not plain select/pan) is active, so PDF link
+    // overlays don't hijack clicks meant for the canvas (B2).
+    function _isMarkupModeActive() { return state.activeTool && state.activeTool !== 'select'; }
+    // In-page confirm for arming Redact (S1) - window.confirm can be dropped in an
+    // iframe, so use the styled choice modal.
+    window.confirmRedact = async function () {
+        const choice = await _choiceModal('Redact content',
+            'Redaction permanently removes the content under each box when you save the PDF. This cannot be undone after download. Draw the boxes, then Save to apply. Continue?',
+            [{ key: 'go', label: 'Continue' }]);
+        return choice === 'go';
+    };
     function handleMeasureClick(opt) {
         if (state.activeTool !== 'shape') return;
         if (!_MEASURE_KINDS.includes(shapeKind)) return;
@@ -4355,6 +4366,10 @@
                     'width:' + Math.abs(vx2 - vx1) + 'px;height:' + Math.abs(vy2 - vy1) + 'px;';
                 el.title = a.url || 'Go to page';
                 el.addEventListener('click', async (ev) => {
+                    // Don't navigate while ANY markup tool is armed (B2): the click
+                    // is meant for the canvas (place a stamp, start a shape, etc).
+                    // Covers tools that arm via menus (Stamp) as well as data-tools.
+                    if (_isMarkupModeActive()) { ev.stopPropagation(); return; }
                     ev.stopPropagation();
                     if (a.url) { window.open(a.url, '_blank', 'noopener'); return; }
                     try {
@@ -5976,6 +5991,35 @@
     // ── Download / Export PDF ──
     async function downloadPDF() {
         if (!state.pdfBytes) return;
+
+        // Warn if hidden layers carry content that the save will drop (S12).
+        try {
+            saveCurrentAnnotations();
+            const hidden = new Set(state.layers.filter(l => !l.visible).map(l => l.id));
+            if (hidden.size) {
+                let hiddenCount = 0;
+                for (const entry of Object.values(state.annotations || {})) {
+                    const objs = (entry && (entry.fabricData || entry).objects) || [];
+                    hiddenCount += objs.filter(o => o._layerId !== undefined && hidden.has(o._layerId) && !o.excludeFromExport).length;
+                }
+                if (hiddenCount > 0) {
+                    const choice = await _choiceModal('Hidden layers won\'t be saved',
+                        hiddenCount + ' markup' + (hiddenCount > 1 ? 's' : '') + ' on hidden layer' +
+                        (hidden.size > 1 ? 's' : '') + ' will NOT be written into the PDF. Show those layers first if you want to keep them. Save anyway?',
+                        [{ key: 'save', label: 'Save without them' }, { key: 'show', label: 'Show hidden layers first' }]);
+                    if (choice !== 'save') {
+                        if (choice === 'show') {
+                            state.layers.forEach(l => { l.visible = true; });
+                            applyLayerVisibility();
+                            if (window.pdfLayers && window.renderLayersPanel) try { window.renderLayersPanel(); } catch (_) {}
+                            showToast('Hidden layers shown - review, then Download again');
+                        }
+                        setStatus('Download cancelled');
+                        return;
+                    }
+                }
+            }
+        } catch (_) { /* warning is best-effort - never block the save */ }
 
         setStatus('Preparing download...');
 

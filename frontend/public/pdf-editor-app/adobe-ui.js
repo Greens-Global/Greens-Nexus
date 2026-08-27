@@ -78,7 +78,8 @@
       ['cloud', '☁ Cloud (revision)'], ['callout', '💬 Text callout (arrow + note)'],
       ['ellipsecallout', '🗨 Speech bubble'],
       ['count', '① Count (click to tally items)'],
-      ['redact', '⬛ Redact (removes content permanently)'],
+      // Redact removed from Shapes (S1): one mis-click below Rectangle risked
+      // irreversible loss. It now has its own tool with an explicit confirm.
       // Measure & Scale: calibrate once against a known distance on the plan,
       // then every line/perimeter/area is labeled with the real-world size.
       ['--measure--', 'Measure & Scale'],
@@ -173,6 +174,30 @@
     b.dataset.reveal = 'unlock';
     b.innerHTML = '<span style="display:inline">Unlock</span>';
     b.addEventListener('click', () => { if (window.unlockPdfTool) window.unlockPdfTool(); });
+    return b;
+  }
+
+  // Redact tool (S1): moved out of the Shapes menu into its own button with an
+  // explicit confirm, since it permanently destroys content.
+  function buildRedactBtn() {
+    const b = document.createElement('button');
+    b.className = 'tool-btn';
+    b.id = 'redactBtn';
+    b.title = 'Black out and PERMANENTLY remove content (irreversible on save)';
+    b.innerHTML = '<span style="display:inline">Redact</span>';
+    b.addEventListener('click', async () => {
+      const dl = el('#downloadBtn');
+      if (dl && dl.disabled) { const s = el('#statusText'); if (s) s.textContent = 'Open a PDF first.'; return; }
+      const ok = window.confirmRedact ? await window.confirmRedact() : window.confirm(
+        'Redact permanently removes the content under each box when you save - it cannot be undone after download. Continue?');
+      if (!ok) return;
+      // Arm the shape engine in redact mode without opening the Shapes dropdown.
+      if (window.activateShapeToolForMeasure) window.activateShapeToolForMeasure();
+      else el('#shapeTool')?.click();
+      document.getElementById('shapeMenu')?.classList.remove('open');
+      window.setShapeKind && window.setShapeKind('redact');
+      const s = el('#statusText'); if (s) s.textContent = 'Redact armed - draw boxes over content to remove, then Save';
+    });
     return b;
   }
 
@@ -667,7 +692,7 @@
       desc: 'Compress, repair, OCR',
       // Down-arrow into a tray: shrink / clean up the file.
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
-      members: [el('#compressBtn'), el('#sanitizeBtn'), el('#ocrBtn')] },
+      members: [el('#compressBtn'), el('#sanitizeBtn'), el('#ocrBtn'), buildRedactBtn()] },
     { id: 'layers',   label: 'Layers',          tint: '#e8734a',
       desc: 'Versions of markups — show or hide',
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>',
