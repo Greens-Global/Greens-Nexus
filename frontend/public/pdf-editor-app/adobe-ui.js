@@ -787,9 +787,14 @@
     // Return to the neutral select tool so no drawing mode stays armed.
     const sel = el('#selectTool'); if (sel && !sel.classList.contains('active')) sel.click();
   };
-  // Escape closes the open tool (unless the user is typing in a field).
+  // Escape closes the open tool (unless the user is typing in a field). But when
+  // a Measure tool is armed OR a measurement is mid-draw, app.js handles Escape
+  // (disarm / cancel the measurement) and the ribbon must stay open (M10).
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && active && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) close();
+    if (e.key !== 'Escape' || !active) return;
+    if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    if (window.isMeasureActive && window.isMeasureActive()) return;   // M10: leave the ribbon
+    close();
   });
 
   for (const g of GROUPS) {

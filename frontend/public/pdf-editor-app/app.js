@@ -1104,13 +1104,15 @@
         // list row (M7: Edit / Duplicate / Copy / Delete).
         if (fabricCanvas.upperCanvasEl) {
             fabricCanvas.upperCanvasEl.addEventListener('contextmenu', (ev) => {
-                const p = fabricCanvas.getPointer(ev);
-                let hit = null;
-                fabricCanvas.forEachObject((o) => { if (o._measure && o.containsPoint && o.containsPoint(new fabric.Point(p.x, p.y))) hit = o; });
-                if (!hit) {
-                    // Also match a measurement whose polygon encloses the click.
-                    fabricCanvas.forEachObject((o) => { if (!hit && o._measure && o.points && _pointInPoly(p, _absVerts(o))) hit = o; });
-                }
+                // Compute the click point in canvas space from the raw DOM event
+                // (getPointer expects a fabric-wrapped event; on a bare contextmenu
+                // it can misfire). Account for the CSS<->backing-store scale.
+                const el = fabricCanvas.upperCanvasEl;
+                const r = el.getBoundingClientRect();
+                const sx = (fabricCanvas.getWidth() || r.width) / r.width;
+                const sy = (fabricCanvas.getHeight() || r.height) / r.height;
+                const p = { x: (ev.clientX - r.left) * sx, y: (ev.clientY - r.top) * sy };
+                const hit = _measureHitAt(p);
                 if (hit && hit._measure && typeof _measureRowMenu === 'function') {
                     ev.preventDefault();
                     _measureRowMenu(ev, hit._measure._mid);
@@ -2235,6 +2237,48 @@
         }
         return inside;
     }
+    // Distance from point p to segment a-b, in canvas px.
+    function _distToSeg(p, a, b) {
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const len2 = dx * dx + dy * dy;
+        let t = len2 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2 : 0;
+        t = Math.max(0, Math.min(1, t));
+        const cx = a.x + t * dx, cy = a.y + t * dy;
+        return Math.hypot(p.x - cx, p.y - cy);
+    }
+    // The measurement under a point, tolerant enough for thin lines (M7). Areas/
+    // volumes: point-in-polygon; lines/polylines/perimeters/angles: within TOL of
+    // any segment; radius line: near the line; count dot: within its radius.
+    function _measureHitAt(p) {
+        const TOL = 8;
+        let best = null, bestD = Infinity;
+        fabricCanvas.forEachObject((o) => {
+            if (!o._measure) return;
+            const m = o._measure;
+            if ((m.area || m.cubic) && o.points) {
+                if (_pointInPoly(p, _absVerts(o))) { if (bestD > 0) { best = o; bestD = 0; } }
+                return;
+            }
+            if (o.type === 'line') {
+                const mtx = o.calcTransformMatrix(); const c = o.calcLinePoints();
+                const a = fabric.util.transformPoint({ x: c.x1, y: c.y1 }, mtx);
+                const b = fabric.util.transformPoint({ x: c.x2, y: c.y2 }, mtx);
+                const d = _distToSeg(p, a, b);
+                if (d < TOL && d < bestD) { best = o; bestD = d; }
+            } else if (o.points) {
+                const v = _absVerts(o);
+                for (let i = 1; i < v.length; i++) {
+                    const d = _distToSeg(p, v[i - 1], v[i]);
+                    if (d < TOL && d < bestD) { best = o; bestD = d; }
+                }
+            } else if (m.kind === 'mcount') {
+                const d = Math.hypot(p.x - o.left, p.y - o.top);
+                if (d < (o.radius || 8) + 4 && d < bestD) { best = o; bestD = d; }
+            }
+        });
+        return best;
+    }
+
     // The Area (or Volume) measurement polygon under a point, if any.
     function _areaShapeAt(p) {
         let hit = null;
@@ -2269,10 +2313,10 @@
         if (!measureScale) return '(set scale first)';
         if (kind === 'area') {
             const val = pagePixels * measureScale * measureScale; // px^2 -> unit^2
-            return val.toFixed(_mPrecision()) + ' ' + measureUnit + '²';
+            return _fmtNum(val) + ' ' + measureUnit + '²';
         }
         const val = pagePixels * measureScale;
-        return val.toFixed(_mPrecision()) + ' ' + measureUnit;
+        return _fmtNum(val) + ' ' + measureUnit;
     }
 
     function measureStyleBase() {
@@ -2432,14 +2476,14 @@
     // The default on-plan caption for a measurement (² / ³ / ° rendered right).
     function _autoLabelText(m) {
         if (m.kind === 'mcount') return String(m.value);
-        if (m.kind === 'mangle') return m.value.toFixed(_mPrecision()) + '°';
-        if (m.kind === 'mradius') return 'R ' + m.value.toFixed(_mPrecision()) + ' ' + m.unit
-            + '  (Ø ' + (m.diameter || m.value * 2).toFixed(_mPrecision()) + ' ' + m.unit + ')';
-        if (m.cubic) return m.value.toFixed(_mPrecision()) + ' ' + m.unit + '³'
+        if (m.kind === 'mangle') return _fmtNum(m.value) + '°';
+        if (m.kind === 'mradius') return 'R ' + _fmtNum(m.value) + ' ' + m.unit
+            + '  (Ø ' + _fmtNum(m.diameter || m.value * 2) + ' ' + m.unit + ')';
+        if (m.cubic) return _fmtNum(m.value) + ' ' + m.unit + '³'
             + (m.depth ? '  (d ' + m.depth + ' ' + m.unit + ')' : '');
         const suf = m.area ? '²' : '';
         const pre = m.kind === 'mperim' ? 'Perimeter: ' : m.kind === 'marea' ? 'Area: ' : '';
-        return pre + m.value.toFixed(_mPrecision()) + ' ' + m.unit + suf;
+        return pre + _fmtNum(m.value) + ' ' + m.unit + suf;
     }
     // Recompute every measurement on the current page against the live scale and
     // refresh labels + the list. Returns how many were changed.
@@ -2681,6 +2725,9 @@
     }
 
     const _MEASURE_KINDS = ['mlength', 'mpolylen', 'mperim', 'marea', 'mcutout', 'mcalibrate', 'mangle', 'mradius', 'mvolume', 'mcount', 'mdynfill'];
+    // True while a measure tool is armed or a measurement is mid-draw - lets the
+    // ribbon's global Escape handler defer to us so it doesn't collapse (M10).
+    window.isMeasureActive = () => (state.activeTool === 'shape' && _MEASURE_KINDS.includes(shapeKind)) || !!measureKind;
     function handleMeasureClick(opt) {
         if (state.activeTool !== 'shape') return;
         if (!_MEASURE_KINDS.includes(shapeKind)) return;
@@ -3017,19 +3064,23 @@
         if (m.area) return '²';
         return '';
     }
+    // Number formatting with thousands separators at the current precision (N5).
+    function _fmtNum(n) {
+        const P = _mPrecision();
+        return Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: P, maximumFractionDigits: P });
+    }
     // Currency formatting with thousands separators (N5).
     function _fmtMoney(n) {
         return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
     function _fmtVal(m) {
-        const P = _mPrecision();
         if (m.kind === 'mcount') return String(m.value);           // plain integer
-        if (m.kind === 'mangle') return m.value.toFixed(P) + '°';  // unit already '°'
-        if (m.kind === 'mradius') return 'R ' + m.value.toFixed(P) + ' ' + m.unit
-            + ' / Ø ' + (m.diameter || m.value * 2).toFixed(P) + ' ' + m.unit;   // M14: unit on Ø
-        if (m.cubic) return m.value.toFixed(P) + ' ' + m.unit + '³'
-            + (m.depth ? ' (d ' + m.depth + ' ' + m.unit + ')' : '');            // M23: show depth in the list too
-        return m.value.toFixed(P) + ' ' + m.unit + _unitSuffix(m);
+        if (m.kind === 'mangle') return _fmtNum(m.value) + '°';    // unit already '°'
+        if (m.kind === 'mradius') return 'R ' + _fmtNum(m.value) + ' ' + m.unit
+            + ' / Ø ' + _fmtNum(m.diameter || m.value * 2) + ' ' + m.unit;   // M14: unit on Ø
+        if (m.cubic) return _fmtNum(m.value) + ' ' + m.unit + '³'
+            + (m.depth ? ' (d ' + m.depth + ' ' + m.unit + ')' : '');        // M23: show depth in the list too
+        return _fmtNum(m.value) + ' ' + m.unit + _unitSuffix(m);
     }
 
     window.renderMeasureList = function renderMeasureList() {
@@ -3102,9 +3153,9 @@
             else if (t.kind === 'mangle' || t.kind === 'mradius') {
                 // Never sum angles/radii - show the range instead (M11).
                 const u = t.kind === 'mangle' ? '°' : ' ' + t.unit;
-                val = t.count === 1 ? t.min.toFixed(P) + u
-                    : `min ${t.min.toFixed(P)} / max ${t.max.toFixed(P)} / avg ${(t.sum / t.count).toFixed(P)}${u}`;
-            } else val = t.sum.toFixed(P) + ' ' + t.unit;
+                val = t.count === 1 ? _fmtNum(t.min) + u
+                    : `min ${_fmtNum(t.min)} / max ${_fmtNum(t.max)} / avg ${_fmtNum(t.sum / t.count)}${u}`;
+            } else val = _fmtNum(t.sum) + ' ' + t.unit;
             const cost = t.hasCost ? ` <span class="measure-cost">${_fmtMoney(t.cost)}</span>` : '';
             html += `<div class="measure-total-row"><span>${escH(label)} (${t.count})${mixed}</span><b>${val}${cost}</b></div>`;
         });
