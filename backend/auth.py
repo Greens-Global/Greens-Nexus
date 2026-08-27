@@ -704,12 +704,29 @@ def company_of(email_or_user, db: Session) -> str:
     return (row.company if row else "") or ""
 
 
-def company_ok(record_company: str, scope) -> bool:
-    """Does the caller's company scope admit a record stamped with
+def company_ok(record_company: str, scope, shared_when_blank: bool = False) -> bool:
+    """Does the caller's company scope admit a record whose company is
     `record_company`? scope None (walls off / Global Admin) always admits;
     otherwise the record's company must be in the scope set. Untagged ('')
-    records are Global-Admin-only when armed. The one-liner every module's list
-    filter uses: `[r for r in rows if company_ok(r.company_id, scope)]`."""
+    records are Global-Admin-only by default (the compliance-safe choice for
+    per-company data) - pass shared_when_blank=True for modules that are
+    legitimately shared org-wide (e.g. the knowledge base), where an untagged
+    record is visible to everyone. The one-liner every module's list filter uses:
+    `[r for r in rows if company_ok(r.company_id, scope)]`."""
     if scope is None:
         return True
-    return (record_company or "") in scope
+    rc = record_company or ""
+    if not rc:
+        return shared_when_blank
+    return rc in scope
+
+
+def company_of_email_map(db: Session) -> dict:
+    """{work_email(lower) -> HrEntity company} for every employee, built once so a
+    module list can derive each row's company from an owner/creator email without
+    a per-row query. Used by modules that gate on an owner email instead of a
+    stamped company_id (property, documents, KB, ...)."""
+    from models import NexusEmployee
+    return {(e.work_email or "").lower(): (e.company or "")
+            for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all()
+            if e.work_email}

@@ -105,6 +105,7 @@ class CompanyWallsTests(unittest.TestCase):
             db.query(models.TaskTicket).filter(models.TaskTicket.id.like("tkt-walls%")).delete(synchronize_session=False)
             db.query(models.Item).filter(models.Item.id.like("item-walls%")).delete(synchronize_session=False)
             db.query(models.NexusNotification).filter(models.NexusNotification.id.like("ntf-walls%")).delete(synchronize_session=False)
+            db.query(models.KbDocument).filter(models.KbDocument.id.like("kb-walls%")).delete(synchronize_session=False)
             db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete(synchronize_session=False)
             db.query(models.AuditLog).filter(models.AuditLog.action.like("company_walls_%")).delete(synchronize_session=False)
             db.commit()
@@ -249,6 +250,26 @@ class CompanyWallsTests(unittest.TestCase):
         self.assertIn("ntf-walls-a", a); self.assertNotIn("ntf-walls-b", a)
         g = self._get_ids("/notifications", GLOBAL)
         self.assertTrue({"ntf-walls-a", "ntf-walls-b"} <= g)
+
+    def _mk_kb(self, kid, owner):
+        db = database.SessionLocal()
+        try:
+            db.add(models.KbDocument(id=kid, title=f"KB {kid}", owner_email=owner, status="approved"))
+            db.commit()
+        finally:
+            db.close()
+
+    def test_armed_kb_is_company_walled_but_untagged_stays_shared(self):
+        self._mk_kb("kb-walls-a", AEMP)      # owner in company A
+        self._mk_kb("kb-walls-b", BEMP)      # owner in company B
+        self._mk_kb("kb-walls-shared", "")   # no owner -> shared org-wide
+        self._arm(True)
+        a = self._get_ids("/knowledge-base/documents", AEMP)
+        self.assertIn("kb-walls-a", a)
+        self.assertIn("kb-walls-shared", a)          # shared_when_blank
+        self.assertNotIn("kb-walls-b", a)            # company B's private SOP is walled
+        g = self._get_ids("/knowledge-base/documents", GLOBAL)
+        self.assertTrue({"kb-walls-a", "kb-walls-b", "kb-walls-shared"} <= g)
 
     def test_arm_switch_endpoint_arms_and_audits(self):
         os.environ["NEXUS_DEV_EMAIL"] = GLOBAL   # administrator = bootstrap global admin
