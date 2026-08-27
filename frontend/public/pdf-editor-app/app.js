@@ -3212,6 +3212,52 @@
         return rows;
     }
 
+    // Every NON-measure annotation across all pages, for the general Markups list
+    // (S11): text, shapes, stamps, ink, highlights, images, redactions. Each row
+    // is { page, kind, label, mid, obj (live only), _idx }. Skips helpers and
+    // hidden/deleted layers so the list mirrors what will save.
+    function collectAllMarkups() {
+        try { if (fabricCanvas) saveCurrentAnnotations(); } catch (_) {}
+        const hidden = new Set(state.layers.filter(l => !l.visible).map(l => l.id));
+        const live = new Set(state.layers.map(l => l.id));
+        const skipLayer = (o) => o._layerId !== undefined && (hidden.has(o._layerId) || !live.has(o._layerId));
+        const classify = (o) => {
+            if (o._measure) return null;                        // measurements have their own list
+            if (o._measureCaption || o._measureDecor || o._isLeader) return null; // measurement helpers
+            if (o.excludeFromExport || o._isTextCover || o._isCommentMark) return null;
+            if (o._isStamp) return { kind: 'Stamp', label: _objText(o) || 'Stamp' };
+            if (o._isRedact) return { kind: 'Redaction', label: 'Redaction box' };
+            const t = o.type;
+            if (t === 'i-text' || t === 'text' || t === 'textbox') return { kind: 'Text', label: _objText(o) };
+            if (t === 'image') return { kind: 'Image', label: 'Image' };
+            if (t === 'path' || t === 'polyline' && o.fill === '') return { kind: 'Ink', label: 'Freehand' };
+            if (t === 'rect') return { kind: 'Rectangle', label: 'Rectangle' };
+            if (t === 'circle' || t === 'ellipse') return { kind: 'Ellipse', label: 'Ellipse' };
+            if (t === 'triangle') return { kind: 'Triangle', label: 'Triangle' };
+            if (t === 'line') return { kind: 'Line', label: 'Line' };
+            if (t === 'polygon') return { kind: 'Polygon', label: 'Polygon' };
+            if (t === 'polyline') return { kind: 'Polyline', label: 'Polyline' };
+            if (t === 'group') return { kind: 'Group', label: 'Group' };
+            return { kind: (t || 'Markup'), label: (t || 'Markup') };
+        };
+        const rows = [];
+        for (const [pgStr, entry] of Object.entries(state.annotations || {})) {
+            const pg = parseInt(pgStr, 10);
+            const objs = (entry && (entry.fabricData || entry).objects) || [];
+            objs.forEach((o, idx) => {
+                if (skipLayer(o)) return;
+                const c = classify(o);
+                if (c) rows.push({ page: pg, kind: c.kind, label: c.label, _idx: idx });
+            });
+        }
+        rows.sort((a, b) => (a.page - b.page));
+        return rows;
+    }
+    function _objText(o) {
+        const s = (o && (o.text != null ? o.text : ''));
+        return String(s).replace(/\s+/g, ' ').trim().slice(0, 40);
+    }
+
     function _unitSuffix(m) {
         if (m.cubic) return '³';
         if (m.area) return '²';
@@ -3241,12 +3287,16 @@
         if (!panel) return;
         const body = panel.querySelector('.measure-list-body');
         const rows = collectMeasurements();
-        if (!rows.length) {
-            body.innerHTML = '<div class="measure-empty">No measurements yet. Use the Measure tool for length, perimeter, area, angle, radius, volume or count.</div>';
-            return;
-        }
         const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => (
             { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+        if (!rows.length) {
+            // No measurements, but still show the general markups list (S11).
+            let mh = '<div class="measure-empty">No measurements yet. Use the Measure tool for length, perimeter, area, angle, radius, volume or count.</div>';
+            mh += _renderAllMarkupsSection(escH);
+            body.innerHTML = mh;
+            _wireMarkupRows(body);
+            return;
+        }
         const P = _mPrecision();
         const sortMode = window._measureSort || 'page';
         const filt = (window._measureFilter || '').toLowerCase();
@@ -3315,6 +3365,7 @@
         // Grand total cost across every group that has costs.
         const grand = Object.values(totals).reduce((s, t) => s + (t.hasCost ? t.cost : 0), 0);
         if (grand > 0) html += `<div class="measure-total-row measure-grand"><span>Estimated cost</span><b>${_fmtMoney(grand)}</b></div>`;
+        html += _renderAllMarkupsSection(escH);
         body.innerHTML = html;
         body.querySelectorAll('.measure-row[data-mid]').forEach((row) => {
             row.addEventListener('click', () => {
@@ -3327,7 +3378,61 @@
                 if (mid) _measureRowMenu(e, mid);
             });
         });
+        _wireMarkupRows(body);
     };
+
+    // Build the "All Markups" section HTML (S11): every non-measure annotation,
+    // grouped by page, click-to-go. Respects the same filter box.
+    function _renderAllMarkupsSection(escH) {
+        const filt = (window._measureFilter || '').toLowerCase();
+        let markups = collectAllMarkups();
+        if (filt) markups = markups.filter(r => (r.kind + ' ' + r.label + ' p' + r.page).toLowerCase().includes(filt));
+        if (!markups.length) return '';
+        // Type tally for the header.
+        const byKind = {};
+        markups.forEach(r => { byKind[r.kind] = (byKind[r.kind] || 0) + 1; });
+        let h = '<div class="measure-totals-head">Markups (' + markups.length + ')</div>';
+        let lastPage = null;
+        markups.forEach((r) => {
+            if (r.page !== lastPage) {
+                const n = markups.filter(x => x.page === r.page).length;
+                h += `<div class="measure-subtotal">Sheet ${r.page} - ${n} markup${n > 1 ? 's' : ''}</div>`;
+                lastPage = r.page;
+            }
+            const lbl = r.label ? escH(r.label) : escH(r.kind);
+            h += `<div class="measure-row markup-row" data-mpage="${r.page}" data-midx="${r._idx}" title="Go to this markup">
+                <span class="markup-kind">${escH(r.kind)}</span>
+                <span class="measure-row-type">${lbl}</span>
+                <span class="measure-row-page">p${r.page}</span>
+            </div>`;
+        });
+        return h;
+    }
+    // Clicking an All-Markups row navigates to its page and selects the object.
+    function _wireMarkupRows(body) {
+        body.querySelectorAll('.markup-row[data-mpage]').forEach((row) => {
+            row.addEventListener('click', () => {
+                const pg = parseInt(row.getAttribute('data-mpage'), 10);
+                const idx = parseInt(row.getAttribute('data-midx'), 10);
+                _goToMarkup(pg, idx);
+            });
+        });
+    }
+    async function _goToMarkup(pg, idx) {
+        if (pg !== state.currentPage) { await goToPage(pg); await new Promise(r => setTimeout(r, 150)); }
+        // Select the object at that stored index on the (now current) page.
+        try {
+            const objs = fabricCanvas.getObjects().filter(o => !o.excludeFromExport);
+            // Prefer selecting the live object; fall back to the nth non-helper.
+            const target = fabricCanvas.getObjects()[idx] || objs[idx];
+            if (target && target.selectable) {
+                if (state.activeTool !== 'select') setActiveTool('select');
+                fabricCanvas.setActiveObject(target);
+                fabricCanvas.requestRenderAll();
+            }
+        } catch (_) {}
+        setStatus('Jumped to markup on sheet ' + pg);
+    }
 
     // Right-click context menu on a measurement row (M7): Edit / Duplicate /
     // Delete / Copy value.
