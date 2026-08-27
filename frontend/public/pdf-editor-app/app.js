@@ -40,6 +40,7 @@
     // ── Dirty tracking: orange Save + guard against losing unsaved work ──
     let _isDirty = false;
     let _suppressRasterWarn = false;   // "don't warn again" for the redaction-flatten notice (S5)
+    let _stampCascade = 0;             // offsets successive stamps so they don't blob (A2)
     function markDirty(d = true) {
         _isDirty = d;
         const btn = document.getElementById('downloadBtn');
@@ -7923,6 +7924,7 @@
 
     async function addStamp(stampText) {
         if (!fabricCanvas) return;
+        _exitScrollForOp();   // A2: place on the visible single-page edit canvas
 
         // Per-preset default colors (green = approved, red = warning, grey = draft).
         const PRESET_COLORS = {
@@ -7947,6 +7949,28 @@
         // place. (Was a fixed page-center 35deg translucent-grey watermark that
         // ignored the color swatch and had no handles.)
         const vw = fabricCanvas.getWidth(), vh = fabricCanvas.getHeight();
+        // A2: place at the center of what's ACTUALLY VISIBLE, accounting for
+        // scroll - not the canvas center (which, when scrolled, dropped the stamp
+        // hundreds of px away from view). Map the viewport center to canvas coords
+        // via the canvas element's position inside the scroller.
+        let placeX = vw / 2, placeY = vh / 2;
+        try {
+            const up = fabricCanvas.upperCanvasEl;
+            const cont = dom.canvasScrollWrapper && dom.canvasScrollWrapper.offsetParent ? dom.canvasScrollWrapper : dom.editorArea;
+            if (up && cont) {
+                const cr = cont.getBoundingClientRect();
+                const ur = up.getBoundingClientRect();
+                // Visible center in viewport px, clamped to the canvas bounds.
+                const visCx = Math.min(Math.max(cr.left, ur.left), cr.right) + (Math.min(cr.right, ur.right) - Math.max(cr.left, ur.left)) / 2;
+                const visCy = Math.min(Math.max(cr.top, ur.top), cr.bottom) + (Math.min(cr.bottom, ur.bottom) - Math.max(cr.top, ur.top)) / 2;
+                // viewport px -> canvas coords (undo the CSS<->backing scale).
+                const sx = vw / ur.width, sy = vh / ur.height;
+                placeX = (visCx - ur.left) * sx;
+                placeY = (visCy - ur.top) * sy;
+                if (!isFinite(placeX) || placeX < 0 || placeX > vw) placeX = vw / 2;
+                if (!isFinite(placeY) || placeY < 0 || placeY > vh) placeY = vh / 2;
+            }
+        } catch (_) {}
         // Size the stamp to the view, not the whole page: ~28% of view width.
         const fontSize = Math.max(22, Math.min(48, Math.round(vw * 0.05)));
         const label = new fabric.Text(stampText, {
@@ -7961,8 +7985,11 @@
             rx: 6, ry: 6, fill: hexToRgba(stampColor, 0.08),
             stroke: stampColor, strokeWidth: Math.max(2, Math.round(fontSize / 12)),
         });
+        // Cascade successive stamps so they don't stack into one blob (A2).
+        _stampCascade = (_stampCascade + 1) % 6;
+        const off = _stampCascade * 22;
         const stamp = new fabric.Group([box, label], {
-            left: vw / 2, top: vh / 2, originX: 'center', originY: 'center',
+            left: placeX + off, top: placeY + off, originX: 'center', originY: 'center',
             selectable: true, hasControls: true, hasBorders: true, lockUniScaling: false,
         });
         stamp._isStamp = true;
