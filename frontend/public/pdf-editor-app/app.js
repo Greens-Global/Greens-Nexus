@@ -780,7 +780,19 @@
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
         if (fabricCanvas) {
             const activeObj = fabricCanvas.getActiveObject();
-            if (activeObj && activeObj.isEditing) return;
+            if (activeObj && activeObj.isEditing) {
+                // Escape exits text editing cleanly instead of leaving the box in
+                // an editing/selected limbo (B5).
+                if (e.key === 'Escape') {
+                    e.preventDefault(); e.stopImmediatePropagation();
+                    activeObj.exitEditing();
+                    fabricCanvas.discardActiveObject();
+                    fabricCanvas.requestRenderAll();
+                    hideContextualBars();
+                    setStatus('Ready');
+                }
+                return;
+            }
         }
 
         const ctrl = e.ctrlKey || e.metaKey;
@@ -1710,6 +1722,15 @@
         // (shown when text is selected/edited) carries all those controls.
         const toolOptions = document.getElementById('toolOptions');
         if (toolOptions) toolOptions.style.display = 'none';
+
+        // Unmount the text/image contextual bar when the tool changes, unless the
+        // new tool is Select (where a text selection legitimately keeps it) - B3.
+        // Prevents the formatting row lingering after a tool/ribbon switch and the
+        // ~36px layout jump it caused (B7).
+        if (state.activeTool !== 'select') {
+            if (fabricCanvas.getActiveObject()) { _isRestoring = true; fabricCanvas.discardActiveObject(); _isRestoring = false; }
+            hideContextualBars();
+        }
 
         // Reset modes
         clearEraserCursor();
@@ -10231,6 +10252,9 @@ ${sample}`;
         dom.textFormatBar.style.display = 'none';
         dom.imageEditBar.style.display = 'none';
     }
+    // Exposed so the ribbon (adobe-ui.js) can dismiss a lingering formatting bar
+    // when the user switches ribbon groups (B3).
+    window.hideEditorContextBars = function () { try { hideContextualBars(); } catch (_) {} };
 
     // Sync bar state to match the selected text object's current properties
     function syncTextFormatBar(obj) {
@@ -10239,7 +10263,21 @@ ${sample}`;
         dom.tbUnderline.classList.toggle('active', !!obj.underline);
         dom.tbStrike.classList.toggle('active', !!obj.linethrough);
         dom.tbFontSize.value = Math.round(obj.fontSize || 20);
-        dom.tbFontFamily.value = obj.fontFamily || 'Arial';
+        // If the object's font isn't one of the dropdown's presets (e.g. an
+        // embedded PDF font), the <select> would render EMPTY (B6). Inject a
+        // one-off option so the user can see and keep the original font.
+        const fam = obj.fontFamily || 'Arial';
+        const sel = dom.tbFontFamily;
+        if (sel && ![...sel.options].some(o => o.value === fam)) {
+            const opt = document.createElement('option');
+            opt.value = fam;
+            opt.textContent = fam + (obj._pdfFontName ? ' (original)' : '');
+            opt.dataset.injected = '1';
+            sel.insertBefore(opt, sel.firstChild);
+        }
+        // Drop any previously-injected option that no longer applies.
+        if (sel) [...sel.options].forEach(o => { if (o.dataset.injected && o.value !== fam) o.remove(); });
+        dom.tbFontFamily.value = fam;
         // Fabric fill can be a color string or rgba
         const fillColor = obj.fill || '#000000';
         if (fillColor.startsWith('#') && fillColor.length === 7) {

@@ -793,6 +793,9 @@
   };
   const open = (g) => {
     if (g.action) { g.action(); return; }
+    // Switching ribbon groups dismisses any lingering text/image formatting bar
+    // from the previous group's tool (B3).
+    if (window.hideEditorContextBars) window.hideEditorContextBars();
     if (active) active.box.style.display = 'none';
     active = g;
     g.box.style.display = 'flex';
