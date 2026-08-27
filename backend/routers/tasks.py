@@ -980,6 +980,7 @@ def search_everything(q: str = "", limit: int = 6,
 
     tasks = [t for t in db.query(models.Task).all()
              if (term in (t.title or "").lower() or term in (t.code or "").lower())
+             and not t.completed
              and (manager or task_is_visible(t, user, visible))]
     project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
     # Archived projects DO appear here. Archiving hides a project from the

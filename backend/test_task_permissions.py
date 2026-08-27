@@ -314,6 +314,18 @@ class HeaderSearchTests(unittest.TestCase):
 
         self.assertEqual(titles[0], "Rebrand the footer")
 
+    def test_a_completed_task_is_not_offered(self):
+        """A struck-through, checked-off row in search results reads as noise,
+        not a find - work that's done is not what a search bar is for."""
+        self.db.add(models.Task(id="t-done", code="TASK-4", title="Rebrand old banner",
+                                project_id="p-open", access_level="org", completed=True,
+                                created_at=now_iso(), modified_at=now_iso()))
+        self.db.commit()
+
+        titles = [t["title"] for t in self._search("rebrand")["tasks"]]
+
+        self.assertNotIn("Rebrand old banner", titles)
+
 
 class PersonProfileTests(unittest.TestCase):
     """GET /tasks/people/{email} backs a person's page. Two of its four task
