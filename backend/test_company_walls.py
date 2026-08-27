@@ -281,6 +281,17 @@ class CompanyWallsTests(unittest.TestCase):
         os.environ["NEXUS_DEV_EMAIL"] = GLOBAL
         self.assertEqual(self.client.get("/knowledge-base/documents/kb-walls-b").status_code, 200)
 
+    def test_sub_resource_reads_are_walled(self):
+        # A task's comments/attachments/activity must 404 across the wall, not just
+        # the task list.
+        self._mk_task("task-walls-b", COB, BEMP)
+        self._arm(True)
+        os.environ["NEXUS_DEV_EMAIL"] = AEMP   # has the tasks grant, company A
+        for sub in ("comments", "attachments", "activity"):
+            self.assertEqual(self.client.get(f"/tasks/task-walls-b/{sub}").status_code, 404, sub)
+        os.environ["NEXUS_DEV_EMAIL"] = GLOBAL
+        self.assertEqual(self.client.get("/tasks/task-walls-b/comments").status_code, 200)
+
     def test_arm_switch_endpoint_arms_and_audits(self):
         os.environ["NEXUS_DEV_EMAIL"] = GLOBAL   # administrator = bootstrap global admin
         r = self.client.put("/access-scopes/config/walls", json={"on": True})

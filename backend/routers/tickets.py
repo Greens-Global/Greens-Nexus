@@ -66,6 +66,8 @@ def _require_ticket_participant(db: Session, user: dict, t) -> None:
     """A ticket's own requester/watchers/assignee may read and comment on it
     without any module grant - it is their support request. Everyone else needs
     the desk grant."""
+    import auth   # company wall: another company's ticket is 404 (before any grant)
+    auth.assert_company(getattr(t, "company_id", "") or "", user, db)
     if _has_desk_grant(user, db):
         return
     if (user.get("email") or "").lower() in _ticket_participants(t):

@@ -266,6 +266,15 @@ def _get_task(db: Session, task_id: str) -> models.Task:
     return t
 
 
+def _wall_task(db: Session, user: dict, task_id: str) -> models.Task:
+    """Fetch a task by id AND enforce the company wall - another company's task is
+    404 (never 403). Use in every per-task endpoint (sub-resources included)."""
+    import auth
+    t = _get_task(db, task_id)
+    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    return t
+
+
 # ── Field validation ─────────────────────────────────────────────────────────
 # Everything below rejects input the API used to store verbatim. Found by a QA
 # audit (Aug 2026); each case had a real downstream effect rather than being
@@ -1604,12 +1613,12 @@ class CommentUpdate(BaseModel):
 
 
 @router.get("/{task_id}/comments")
-def list_comments(task_id: str, db: Session = Depends(get_db)):
+def list_comments(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     # 404 rather than an empty list for a task that isn't there: "no comments"
     # and "no such task" are different answers, and returning the first for the
     # second made a drawer left open on a deleted task look merely empty. POST
     # and PATCH on the same id already 404.
-    _get_task(db, task_id)
+    _wall_task(db, user, task_id)   # company wall
     rows = db.query(models.TaskComment).filter(models.TaskComment.task_id == task_id).all()
     return [comment_to_dict(c) for c in rows]
 
@@ -1707,7 +1716,8 @@ class AttachmentCreate(BaseModel):
 
 
 @router.get("/{task_id}/attachments")
-def list_attachments(task_id: str, db: Session = Depends(get_db)):
+def list_attachments(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _wall_task(db, user, task_id)   # company wall
     rows = db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == task_id).all()
     return [attachment_to_dict(a) for a in rows]
 
@@ -1786,7 +1796,8 @@ def global_activity(limit: int = 500, db: Session = Depends(get_db)):
 
 
 @router.get("/{task_id}/activity")
-def task_activity(task_id: str, db: Session = Depends(get_db)):
+def task_activity(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _wall_task(db, user, task_id)   # company wall
     # "Created from Asana" / "Updated from Asana" are the sync's own bookkeeping,
     # logged once per inbound apply. On a task's own timeline they say nothing a
     # reader wants: the very next row is the real story ("changed the due date to
