@@ -10387,11 +10387,26 @@
         else if (_colorPop) setTimeout(() => document.addEventListener('mousedown', _onColorOutside, { once: true }), 0);
     }
     function _initColorPopover() {
-        // Replace the native <input type=color> triggers with our popover.
         document.querySelectorAll('.swatch-custom').forEach((trigger) => {
-            // Neutralize the inner native input so it doesn't open the OS dialog.
+            // A label wrapping <input type=color> FORWARDS clicks to the input and
+            // opens the OS dialog no matter what - pointer-events/preventDefault
+            // can't reliably stop label-forwarding. So physically MOVE the native
+            // input OUT of the label (keep it as the app's color-state holder) and
+            // give the trigger a visible swatch chip instead.
             const nativeIn = trigger.querySelector('input[type="color"]');
-            if (nativeIn) { nativeIn.style.pointerEvents = 'none'; }
+            if (nativeIn && nativeIn.parentElement === trigger) {
+                nativeIn.style.display = 'none';
+                nativeIn.removeAttribute('id-was');   // keep its id for state reads
+                document.body.appendChild(nativeIn);  // detach from the label
+                // A visible chip that shows the current color inside the trigger.
+                const chip = document.createElement('span');
+                chip.className = 'swatch-chip';
+                chip.style.cssText = 'display:inline-block;width:20px;height:20px;border-radius:5px;border:1px solid rgba(0,0,0,.25);background:' + (nativeIn.value || '#000') + ';';
+                trigger.appendChild(chip);
+                trigger._chip = chip;
+                // Keep the chip in sync when the color changes anywhere.
+                nativeIn.addEventListener('input', () => { chip.style.background = nativeIn.value; });
+            }
             trigger.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
             trigger.addEventListener('click', (e) => {
                 e.preventDefault(); e.stopPropagation();
@@ -10399,6 +10414,11 @@
                 _openColorPop(trigger);
             });
         });
+        // Reflect the current color on all trigger chips.
+        const syncChips = () => document.querySelectorAll('.swatch-custom .swatch-chip')
+            .forEach(c => { c.style.background = dom.colorPicker.value; });
+        dom.colorPicker.addEventListener('input', syncChips);
+        syncChips();
     }
 
     function updateSwatchActive() {
