@@ -113,7 +113,8 @@ def _hide_soft_deleted(state):
     from models import NexusEmployee, Task
     # NULL as well as "" - a row that existed before the column was added
     # reads back NULL on databases that do not backfill.
-    _live = lambda cls: (cls.deleted_at == "") | (cls.deleted_at.is_(None))
+    def _live(cls):
+        return (cls.deleted_at == "") | (cls.deleted_at.is_(None))
     state.statement = state.statement.options(
         with_loader_criteria(NexusEmployee, _live, include_aliases=True),
         # Task trash (Aug 27): same reasoning as NexusEmployee above, and even

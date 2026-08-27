@@ -22,7 +22,7 @@ from fastapi import BackgroundTasks
 import database
 import models
 from routers.task_util import gen_id, now_iso
-from routers.tasks import _next_due, _spawn_next_occurrence, update_task, TaskUpdate
+from routers.tasks import _next_due, update_task, TaskUpdate
 
 USER = {"email": "sagar@greensglobal.com", "level": 3}
 
