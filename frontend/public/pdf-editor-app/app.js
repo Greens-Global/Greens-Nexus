@@ -2870,6 +2870,9 @@
     // True whenever any markup tool (not plain select/pan) is active, so PDF link
     // overlays don't hijack clicks meant for the canvas (B2).
     function _isMarkupModeActive() { return state.activeTool && state.activeTool !== 'select'; }
+    // Exposed so the ribbon's Escape handler leaves the group open while a markup
+    // tool is armed (B4).
+    window.isEditorMarkupActive = _isMarkupModeActive;
     // In-page confirm for arming Redact (S1) - window.confirm can be dropped in an
     // iframe, so use the styled choice modal.
     window.confirmRedact = async function () {
@@ -7832,6 +7835,8 @@
         searchResults = [];
         searchCurrentIdx = -1;
         dom.searchInfo.textContent = '0/0';
+        // Clear the "N result(s) found" status so it doesn't linger (B11).
+        setStatus('Ready');
     }
 
     function clearSearchHighlights() {

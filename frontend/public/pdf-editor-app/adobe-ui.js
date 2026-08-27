@@ -744,7 +744,8 @@
   reopenTab.type = 'button';
   reopenTab.title = 'Show tools panel';
   reopenTab.setAttribute('aria-label', 'Show tools panel');
-  reopenTab.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+  // Labeled (not icon-only) so a collapsed ribbon is obvious to restore (B12).
+  reopenTab.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg><span style="margin-left:4px;font-size:12px;font-weight:600;">Tools</span>';
 
   const setToolsCollapsed = (collapsed) => {
     panel.classList.toggle('collapsed', collapsed);
@@ -770,7 +771,7 @@
     sign: 'Click Sign to create your signature, then place it anywhere on the page.',
     export: 'Choose a format to export the current page or the whole document.',
     ocr: 'Run OCR to make scanned pages searchable and selectable.',
-    optimize: 'Compress the file, repair a damaged PDF, run OCR, or remove a password.',
+    optimize: 'Compress the file, sanitize hidden data, run OCR, or redact content.',
   };
   const setHint = (t) => { const s = el('#statusText'); if (s && t) s.textContent = t; };
 
@@ -821,7 +822,13 @@
   window.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !active) return;
     if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
-    if (window.isMeasureActive && window.isMeasureActive()) return;   // M10: leave the ribbon
+    // B4: if a dropdown/menu is open, Escape closes THAT, not the ribbon.
+    const openMenu = document.querySelector('.dropdown-menu.open, #stampMenu.open, #exportMenu.open, #shapeMenu.open, #measureMenu.open');
+    if (openMenu) { openMenu.classList.remove('open'); return; }
+    // B4/M10: don't collapse the ribbon while ANY markup tool is armed - the user
+    // is mid-task. Only a bare Select state lets Escape close the group.
+    if (window.isMeasureActive && window.isMeasureActive()) return;
+    if (window.isEditorMarkupActive && window.isEditorMarkupActive()) return;
     close();
   });
 
