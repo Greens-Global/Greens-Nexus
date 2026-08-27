@@ -43,7 +43,8 @@ export const statusesForProject = (customStatuses, projectId) =>
 // camelCase (frontend) → snake_case (API body). The backend serialises replies
 // back to camelCase, so we only map on the way out.
 const CAMEL_TO_SNAKE = {
-  assigneeId: 'assignee_email', followerIds: 'follower_emails', likedByIds: 'liked_by_emails',
+  assigneeId: 'assignee_email', assigneeIds: 'assignee_emails',
+  followerIds: 'follower_emails', likedByIds: 'liked_by_emails',
   accessLevel: 'access_level', projectId: 'project_id', sectionId: 'section_id',
   teamId: 'team_id', parentTaskId: 'parent_task_id', subtaskIds: 'subtask_ids',
   blockedByIds: 'blocked_by_ids', blockingIds: 'blocking_ids', dependencyTypes: 'dependency_types',

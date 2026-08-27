@@ -6,6 +6,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, CloudOff, ExternalLink, Link2, Loader2 } from 'lucide-react';
 import { api } from '../api';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 
 export const CARD = {
   background: 'var(--wk-card)',
@@ -211,25 +213,35 @@ export function EgnyteMenu({ anchorRect, items, onClose, align = 'right' }) {
 
 // Small centered dialog for the browser's confirm/rename moments. Deliberately
 // tiny - the full-viewport sheet belongs to the file viewer only.
-export function EgnyteDialog({ title, children, footer, onClose, width = 420 }) {
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+// `isDirty` + `onSave`: some callers use this shell for a rename/text-entry
+// form rather than a pure confirm - with isDirty set, an unintentional exit
+// (overlay click, Escape) confirms first instead of silently discarding what
+// was typed. Defaults keep every existing caller's behavior unchanged.
+export function EgnyteDialog({ title, children, footer, onClose, width = 420, isDirty = false, onSave }) {
+  const guard = useUnsavedGuard(isDirty, onClose, onSave);
   return createPortal(
-    <div
-      className="egx-overlay"
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose?.(); }}
-      style={{ position: 'fixed', inset: 0, zIndex: 6500, background: 'rgba(15,18,24,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-    >
-      <div className="egx-pop" role="dialog" aria-modal="true" aria-label={title}
-        style={{ ...CARD, width: `min(${width}px, 100%)`, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ ...HEADING, fontSize: 14.5 }}>{title}</div>
-        <div style={{ ...BODY, fontSize: 13 }}>{children}</div>
-        {footer && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>{footer}</div>}
+    <>
+      <div
+        className="egx-overlay"
+        onMouseDown={e => { if (e.target === e.currentTarget) guard.requestClose(); }}
+        style={{ position: 'fixed', inset: 0, zIndex: 6500, background: 'rgba(15,18,24,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      >
+        <div className="egx-pop" role="dialog" aria-modal="true" aria-label={title}
+          style={{ ...CARD, width: `min(${width}px, 100%)`, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ ...HEADING, fontSize: 14.5 }}>{title}</div>
+          <div style={{ ...BODY, fontSize: 13 }}>{children}</div>
+          {footer && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>{footer}</div>}
+        </div>
       </div>
-    </div>,
+      {guard.confirming && (
+        <UnsavedChangesPrompt
+          onKeepEditing={guard.keepEditing}
+          onDiscard={onClose}
+          onSave={onSave ? guard.saveAndClose : undefined}
+          saving={guard.saving}
+        />
+      )}
+    </>,
     document.body,
   );
 }

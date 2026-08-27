@@ -132,6 +132,24 @@ def _active_external(db, email: str) -> NexusEmployee | None:
     return emp
 
 
+def _staged_external(db, email: str) -> NexusEmployee | None:
+    """The STAGED (created-for-testing, unreleased - Neil Aug 25) guest/external
+    row. Only the admin test-code login path may mint a session for one; every
+    other credential path refuses staged rows via _active_external."""
+    email = (email or "").lower().strip()
+    if not email:
+        return None
+    emp = (db.query(NexusEmployee)
+           .filter(func.lower(NexusEmployee.work_email) == email,
+                   NexusEmployee.identity_type.in_(_EXTERNAL_TYPES)).first())
+    if not emp or (emp.status or "active") != "staged":
+        return None
+    exp = (getattr(emp, "expires_at", "") or "").strip()
+    if exp and exp[:10] < _now_dt().date().isoformat():
+        return None
+    return emp
+
+
 def _invalidate_codes(db, email: str, purposes: tuple = ("activate", "login")) -> None:
     (db.query(ExternalLoginCode)
      .filter(ExternalLoginCode.email == email,
@@ -155,7 +173,7 @@ def _rate_limited(db, email: str, ip: str) -> bool:
     admin actions, not by the anonymous endpoints this protects."""
     hour_ago = _iso(_now_dt() - timedelta(hours=1))
     q = db.query(ExternalLoginCode).filter(
-        ExternalLoginCode.purpose.in_(("activate", "login")),
+        ExternalLoginCode.purpose.in_(("activate", "activate2", "login")),
         ExternalLoginCode.created_at > hour_ago)
     if q.filter(ExternalLoginCode.email == email).count() >= MAX_REQUESTS_PER_HOUR:
         return True
@@ -164,7 +182,7 @@ def _rate_limited(db, email: str, ip: str) -> bool:
     throttle = _iso(_now_dt() - timedelta(seconds=RESEND_THROTTLE_S))
     recent = (db.query(ExternalLoginCode)
               .filter(ExternalLoginCode.email == email,
-                      ExternalLoginCode.purpose.in_(("activate", "login")),
+                      ExternalLoginCode.purpose.in_(("activate", "activate2", "login")),
                       ExternalLoginCode.created_at > throttle).first())
     return bool(recent)
 
@@ -173,7 +191,9 @@ def _issue_code(db, email: str, purpose: str, channel: str, ip: str) -> str:
     """Mint a fresh 6-digit code, invalidating any prior live ones. Returns the
     PLAINTEXT once, for delivery only - it is never stored or logged."""
     code = f"{secrets.randbelow(1_000_000):06d}"
-    _invalidate_codes(db, email)
+    # Also kill prior codes of the SAME purpose - purposes outside the default
+    # tuple (activate2, staged_test) would otherwise leave stale live rows.
+    _invalidate_codes(db, email, purposes=("activate", "login", purpose))
     db.add(ExternalLoginCode(
         id=str(uuid.uuid4()), email=email, code_hash=_hash_code(code),
         purpose=purpose, channel=channel,
@@ -181,6 +201,29 @@ def _issue_code(db, email: str, purpose: str, channel: str, ip: str) -> str:
         attempts=0, created_ip=ip, consumed_at="", created_at=_iso()))
     db.commit()
     return code
+
+
+STAGED_CODE_TTL_HOURS = 24
+_STAGED_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # no 0/O/1/I/L ambiguity
+
+
+def issue_staged_test_code(db, emp: NexusEmployee, admin_email: str) -> tuple[str, str]:
+    """Neil's "temporary password" (Aug 25): an admin-held 8-character code for
+    a STAGED account that works at the real Partner Sign-In in place of the
+    emailed/SMS OTP - so an admin can walk the genuine end-to-end login as the
+    user before release. Shown ONCE, salted-hashed at rest, 24h TTL, dies with
+    the account's release. Returns (plaintext, expires_at_iso)."""
+    email = (emp.work_email or "").lower()
+    code = "".join(secrets.choice(_STAGED_CODE_ALPHABET) for _ in range(8))
+    _invalidate_codes(db, email, purposes=("staged_test",))
+    expires = _iso(_now_dt() + timedelta(hours=STAGED_CODE_TTL_HOURS))
+    db.add(ExternalLoginCode(
+        id=str(uuid.uuid4()), email=email, code_hash=_hash_code(code),
+        purpose="staged_test", channel="admin",
+        expires_at=expires, attempts=0, created_ip="", consumed_at="", created_at=_iso()))
+    db.commit()
+    _audit(db, email, "external_staged_test_code", f"test sign-in code minted by {admin_email}", "")
+    return code, expires
 
 
 def _live_code_row(db, email: str, purpose: str):
@@ -450,6 +493,11 @@ def activate_lookup(body: TokenIn, request: Request):
             "invitedBy": _inviter_name(db, getattr(emp, "invited_by", "") or ""),
             "hasPhone": bool((emp.phone or "").strip()),
             "phoneMasked": _mask_phone(emp.phone or ""),
+            # Neil, Aug 25: externals must verify BOTH channels on their own -
+            # the page requires a phone before continuing, and an unverified
+            # number gets its own SMS step after the email code.
+            "phoneRequired": True,
+            "phoneVerified": bool((getattr(emp, "phone_verified_at", "") or "").strip()),
             "signedInAs": signed_in_as,
             "sessionConflict": conflict,
         }
@@ -503,11 +551,84 @@ def activate_verify(body: ActivateVerifyIn, request: Request):
         outcome = _verify_code(db, email, "activate", (body.code or "").strip(), ip)
         if outcome is not True:
             return outcome
+        # Both channels must be theirs (Neil, Aug 25). An EMAIL code proves the
+        # inbox but not the phone: when the number on file is still unverified,
+        # hold the session, text a second code to that number, and finish in
+        # /activate/verify-phone. An SMS activation code already stamped the
+        # phone inside _verify_code, so that path (and admin-attested numbers)
+        # falls straight through to the session.
+        phone = (emp.phone or "").strip()
+        if phone and not (getattr(emp, "phone_verified_at", "") or "").strip():
+            db.commit()   # persist the consumed email code before the next send
+            # SMS ONLY - a phone-proof code degraded to email would prove
+            # nothing. Unreachable SMS (sent.dm down) must not brick the
+            # activation: the inbox IS verified, so let them in and leave the
+            # number for a later SMS login to stamp.
+            code = _issue_code(db, email, "activate2", "sms", ip)
+            ok, err = sentdm.send_code(phone, code)
+            if ok:
+                return {"ok": True, "needsPhoneVerify": True,
+                        "phoneMasked": _mask_phone(phone)}
+            _invalidate_codes(db, email, purposes=("activate2",))
+            db.commit()
+            _audit(db, email, "external_activate_phone_skipped",
+                   f"phone verify skipped - SMS delivery unavailable ({err})", ip)
         token_row.consumed_at = _iso()
         emp.invite_status = "accepted"   # feeds the People > External list badge
         db.commit()
         _audit(db, email, "external_activated", "invite redeemed, account activated", ip)
         return _session_response(db, email, {"ok": True, "next": "/"})
+    finally:
+        db.close()
+
+
+@router.post("/activate/verify-phone")
+def activate_verify_phone(body: ActivateVerifyIn, request: Request):
+    """Stage 2 of activation for an unverified phone: verify the SMS code
+    (which stamps phone_verified_at inside _verify_code), then consume the
+    invite token and mint the session - both channels now proven."""
+    ip = _client_ip(request)
+    db = SessionLocal()
+    try:
+        token_row = _invite_row(db, (body.token or "").strip())
+        emp = _active_external(db, token_row.email) if token_row else None
+        if not emp:
+            return JSONResponse(status_code=404, content={"detail": "Invalid or expired invitation."})
+        email = (emp.work_email or "").lower()
+        outcome = _verify_code(db, email, "activate2", (body.code or "").strip(), ip)
+        if outcome is not True:
+            return outcome
+        token_row.consumed_at = _iso()
+        emp.invite_status = "accepted"
+        db.commit()
+        _audit(db, email, "external_activated",
+               "invite redeemed, email + phone verified, account activated", ip)
+        return _session_response(db, email, {"ok": True, "next": "/"})
+    finally:
+        db.close()
+
+
+@router.post("/activate/send-phone-code")
+def activate_send_phone_code(body: TokenIn, request: Request):
+    """Resend the stage-2 SMS code (rate-limited like every other send)."""
+    ip = _client_ip(request)
+    db = SessionLocal()
+    try:
+        token_row = _invite_row(db, (body.token or "").strip())
+        emp = _active_external(db, token_row.email) if token_row else None
+        if not emp or not (emp.phone or "").strip():
+            return JSONResponse(status_code=404, content={"detail": "Invalid or expired invitation."})
+        email = (emp.work_email or "").lower()
+        if _locked_out(db, email) or _rate_limited(db, email, ip):
+            return JSONResponse(status_code=429, content={"detail": "Too many attempts - wait a bit and try again."})
+        code = _issue_code(db, email, "activate2", "sms", ip)
+        ok, err = sentdm.send_code(emp.phone.strip(), code)
+        if not ok:
+            _invalidate_codes(db, email, purposes=("activate2",))
+            db.commit()
+            _audit(db, email, "external_code_delivery_failed", f"activate2 SMS failed: {err}", ip)
+            return JSONResponse(status_code=502, content={"detail": "The text could not be sent right now - try again shortly."})
+        return {"ok": True, "channel": "sms", "hint": _mask_phone(emp.phone)}
     finally:
         db.close()
 
@@ -539,32 +660,48 @@ def request_code(body: RequestCodeIn, request: Request):
 
 @router.post("/login-verify")
 def login_verify(body: LoginVerifyIn, request: Request):
-    """Partner Sign-In step 2: verify the code, mint the session cookie."""
+    """Partner Sign-In step 2: verify the code, mint the session cookie.
+    A STAGED (unreleased) account is accepted here through exactly one door:
+    the admin-minted 8-character test code - that walk-through IS the point
+    of staging (Neil, Aug 25). Regular 6-digit codes never exist for staged
+    rows because request-code refuses to send them."""
     ip = _client_ip(request)
     email = (body.email or "").lower().strip()
+    code = (body.code or "").strip()
     db = SessionLocal()
     try:
         emp = _active_external(db, email)
-        if not emp:
+        if emp:
+            outcome = _verify_code(db, email, "login", code, ip)
+            if outcome is not True:
+                return outcome
+            _audit(db, email, "external_login", "passwordless sign-in", ip)
+            return _session_response(db, email, {"ok": True, "next": "/"})
+        staged = _staged_external(db, email)
+        if not staged:
             return JSONResponse(status_code=400, content={"detail": "Invalid or expired code."})
-        outcome = _verify_code(db, email, "login", (body.code or "").strip(), ip)
+        outcome = _verify_code(db, email, "staged_test", code.upper(), ip,
+                               pattern=r"[A-Z0-9]{8}")
         if outcome is not True:
             return outcome
-        _audit(db, email, "external_login", "passwordless sign-in", ip)
+        _audit(db, email, "external_staged_test_login",
+               "staged account signed in with an admin test code", ip)
         return _session_response(db, email, {"ok": True, "next": "/"})
     finally:
         db.close()
 
 
-def _verify_code(db, email: str, purpose: str, code: str, ip: str):
+def _verify_code(db, email: str, purpose: str, code: str, ip: str,
+                 pattern: str = r"\d{6}"):
     """Shared verify: True on success (code consumed, phone stamped for SMS),
     else a JSONResponse error. Counts attempts on the ROW (cross-worker) and
-    kills it at MAX_ATTEMPTS, which starts the 15-minute lockout."""
+    kills it at MAX_ATTEMPTS, which starts the 15-minute lockout. `pattern`
+    matches the code shape (6-digit OTP by default; 8-char staged test code)."""
     if _locked_out(db, email):
         return JSONResponse(status_code=429, content={
             "detail": "Too many incorrect codes - wait 15 minutes and request a new one."})
     row = _live_code_row(db, email, purpose)
-    if not row or not re.fullmatch(r"\d{6}", code or ""):
+    if not row or not re.fullmatch(pattern, code or ""):
         return JSONResponse(status_code=400, content={"detail": "Invalid or expired code."})
     if not _code_matches(code, row.code_hash):
         row.attempts = (row.attempts or 0) + 1

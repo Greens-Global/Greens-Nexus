@@ -8,6 +8,8 @@ import { WIDGETS } from './widgets.jsx';
 import DashboardGrid from './DashboardGrid';
 import DeskHome, { DeskGreeting } from './DeskHome';
 import { WidgetGallery, ConfigModal } from './WidgetGallery';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 
 // Small, reliable name dialog (replaces window.prompt, which wouldn't let the
 // user type / was silently blocked). Auto-focuses; Enter submits, Esc cancels.
@@ -19,26 +21,33 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
     setBusy(true);
     try { await onSubmit(v.trim()); onClose(); } catch { setBusy(false); }
   };
+  const dirty = v.trim() !== initial.trim();
+  const guard = useUnsavedGuard(dirty, onClose, submit);
   return (
-    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1450, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
-        <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center' }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{title}</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
-        </div>
-        <div style={{ padding: 18 }}>
-          <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>{label}</label>
-          <input autoFocus value={v} onChange={e => setV(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onClose(); }}
-            className="form-input" style={{ width: '100%' }} placeholder="e.g. Operations team" />
-          <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
-            <button className="secondary-btn" onClick={onClose}>Cancel</button>
-            <button className="primary-btn" onClick={submit} disabled={!v.trim() || busy}>{busy ? 'Saving…' : cta}</button>
+    <>
+      <div onClick={e => { if (e.target === e.currentTarget) guard.requestClose(); }}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1450, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
+          <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center' }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{title}</h3>
+            <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
+          </div>
+          <div style={{ padding: 18 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>{label}</label>
+            <input autoFocus value={v} onChange={e => setV(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') guard.requestClose(); }}
+              className="form-input" style={{ width: '100%' }} placeholder="e.g. Operations team" />
+            <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
+              <button className="secondary-btn" onClick={onClose}>Cancel</button>
+              <button className="primary-btn" onClick={submit} disabled={!v.trim() || busy}>{busy ? 'Saving…' : cta}</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={guard.saving || busy} />
+      )}
+    </>
   );
 }
 

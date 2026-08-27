@@ -9,7 +9,7 @@ import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, PersonMultiSelect, usePeople, DateField, useIsMobile } from './components';
 import { ProjectCreateModal } from './ProjectsView';
 import { CustomFieldInput } from './TaskDetailDrawer';
-import { filesFromPaste, teamInProject, fieldsForProject, uploadTaskAttachment } from './lib';
+import { filesFromPaste, teamInProject, fieldsForProject, uploadTaskAttachment, taskAssignees } from './lib';
 import ProjectPicker from './ProjectPicker';
 import RichDescription from './RichDescription';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
@@ -30,7 +30,12 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     title: editing?.title ?? defaults.title ?? '', description: editing?.description ?? '',
     // New tasks default assignee AND owner to the creator; editing keeps whatever
     // the task has (an unassigned / unowned task must stay that way).
-    assigneeId: editing ? (editing.assigneeId ?? null) : (defaults.assigneeId ?? myEmail ?? null),
+    // A task can be assigned to several people; whoever finishes it finishes
+     // it for all of them (one row, one completed flag). assigneeIds is the
+     // real field - assigneeId is only read here to seed from an older caller.
+    assigneeIds: editing
+      ? taskAssignees(editing)
+      : (defaults.assigneeIds || (defaults.assigneeId ? [defaults.assigneeId] : (myEmail ? [myEmail] : []))),
     ownerId: editing ? (editing.ownerId ?? null) : (defaults.ownerId ?? myEmail ?? null),
     priority: editing?.priority ?? defaults.priority ?? 'medium', status: editing?.status ?? defaults.status ?? 'not_started',
     projectId: editing?.projectId ?? defaults.projectId ?? '',
@@ -118,7 +123,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   // strand every older task.
   const missing = isEdit ? [] : [
     !form.title.trim() && 'title',
-    !form.assigneeId && 'assignee',
+    !form.assigneeIds.length && 'assignee',
     !form.dueOn && 'due',
   ].filter(Boolean);
   // Only the fields that apply to the chosen project - a field scoped to
@@ -139,7 +144,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     if (!canSubmit) return;
     setBusy(true);
     const core = {
-      title: form.title.trim(), description: form.description, assigneeId: form.assigneeId || '', ownerId: form.ownerId || '',
+      title: form.title.trim(), description: form.description, assigneeIds: form.assigneeIds, ownerId: form.ownerId || '',
       priority: form.priority, status: form.recurFreq !== 'none' ? 'recurring' : form.status, projectId: form.projectId || '', teamId: form.teamId || '',
       dueOn: form.dueOn || '', estimateHours: (form.estimateHrs || form.estimateMin) ? (Number(form.estimateHrs || 0) + Number(form.estimateMin || 0) / 60) : null, tags: form.labels, recurrence: recurrence(),
       followerIds: form.followerIds,
@@ -164,7 +169,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
 
   const sel = { ...input, cursor: 'pointer' };
   return (
-    <Modal title={isEdit ? 'Edit Task' : 'Create a Task'} width={640} onClose={() => onClose(false)}
+    <Modal title={isEdit ? 'Edit Task' : 'Create a Task'} onClose={() => onClose(false)}
       isDirty={dirty} onSave={canSubmit ? submit : undefined} footer={
       <>
         {/* Phone only - desktop already has the Attachments field in view without
@@ -254,12 +259,16 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           <div style={field}>
             <label style={label}>Assignee {!isEdit && req}</label>
             <div style={{ borderRadius: 8, ...missStyle('assignee'), ...(missing.includes('assignee') ? { border: `1px solid ${NX.red}` } : {}) }}>
-              <PersonSelect value={form.assigneeId} onChange={(v) => set('assigneeId', v)} people={people} />
+              {/* Multi: several people can hold one task. The first is the
+                  primary (what a single-avatar surface shows), and any of them
+                  can complete it - which closes it for everyone. */}
+              <PersonMultiSelect value={form.assigneeIds} onChange={(v) => set('assigneeIds', v)} addTitle="Add assignee"
+                people={people} placeholder="Assign to…" />
             </div>
           </div>
           <div style={field}>
             <label style={label}>Collaborators</label>
-            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} placeholder="Add collaborators…" />
+            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} placeholder="Add collaborators…" addTitle="Add collaborator" />
           </div>
           <div style={field}>
             <label style={label}>Due Date {!isEdit && req}</label>

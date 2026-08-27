@@ -37,7 +37,7 @@ export function Modal({ title, children, footer, wide, maxWidth, onClose, isDirt
     >
       <div
         className="modal-content"
-        style={{ width: maxWidth ? `min(94vw, ${maxWidth}px)` : undefined, maxWidth: maxWidth || (wide ? 760 : 560) }}
+        style={{ width: maxWidth ? `min(94vw, ${maxWidth}px)` : undefined, maxWidth: maxWidth || (wide ? 'clamp(680px, 68vw, 1100px)' : 'clamp(520px, 60vw, 980px)') }}
       >
         <div className="modal-header">
           <h3>{title}</h3>

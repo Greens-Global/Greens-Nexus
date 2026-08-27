@@ -2,12 +2,12 @@
 // A dedicated personal view: avatar + "My tasks" header, List/Board/Calendar/
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
-import { useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight, ArrowUp, ArrowDown } from 'lucide-react';
+import { Fragment, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl, personScoped, rootParent, effectiveProjectId } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, input as inputStyle, colorForKey } from './theme';
-import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField, TaskCountBadges } from './components';
+import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField, TaskCountBadges, SearchSelect } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
 import MobileTaskBar from './MobileTaskBar';
 import CreateTaskModal from './CreateTaskModal';
@@ -16,6 +16,7 @@ import TaskDetailDrawer from './TaskDetailDrawer';
 import { CalendarView, DashboardView } from './views/extras';
 import { FilesView } from './views/more';
 import BoardView from './views/board';
+import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 
 const VIEW_TABS = [
   { key: 'list', label: 'List', icon: ListIcon },
@@ -30,37 +31,23 @@ const MY_GROUP_OPTIONS = [
   { key: 'project', label: 'Project' }, { key: 'assignee', label: 'Assignee' }, { key: 'none', label: 'None' },
 ];
 
-// Name · Due date · Collaborators · Projects · Task visibility
-const COLS = 'minmax(220px,1fr) 118px 132px 150px';
 // The four list columns, in grid order, with the sort key each header drives.
 // Same keys the toolbar's Sort menu writes, so a header click and a Sort pick
-// stay one state rather than two competing ones.
+// stay one state rather than two competing ones. Name is elastic; the rest are
+// fixed until someone drags them wider.
+// Stable identity: a fresh object each render would re-run consumers' memos.
+// Alphabetical A-Z out of the box (Sagar, Aug 27) - a list you have never
+// sorted should read in an order you can predict and scan. Cycling a header
+// back past descending still returns to Manual, which is the order row
+// drag-reorder works under.
+const DEFAULT_SORT = { key: 'title', dir: 'asc' };
 const LIST_COLS = [
-  { key: 'title', label: 'Name' },
-  { key: 'dueOn', label: 'Due Date' },
-  { key: 'collaborators', label: 'Collaborators' },
-  { key: 'project', label: 'Projects' },
+  { key: 'title', label: 'Name', template: 'minmax(220px,1fr)' },
+  { key: 'dueOn', label: 'Due Date', width: 118 },
+  { key: 'collaborators', label: 'Collaborators', width: 132 },
+  { key: 'project', label: 'Projects', width: 150 },
 ];
 
-// Click cycles unsorted -> ascending -> descending -> back to Manual. Manual
-// has to be reachable from the same control that left it: it is the order the
-// list falls back to, and the only one that reads as "however I arranged it".
-function SortHead({ colKey, label, sort, setSort }) {
-  const active = sort?.key === colKey;
-  const Arrow = sort?.dir === 'desc' ? ArrowDown : ArrowUp;
-  const cycle = () => setSort((prev) => {
-    if (prev?.key !== colKey) return { key: colKey, dir: 'asc' };
-    if (prev.dir === 'asc') return { key: colKey, dir: 'desc' };
-    return { key: 'manual', dir: 'asc' };
-  });
-  return (
-    <div onClick={cycle} title={`Sort by ${label}`}
-      style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', userSelect: 'none', color: active ? NX.ink : NX.dim }}>
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-      {active && <Arrow size={12} strokeWidth={2.5} style={{ flexShrink: 0, color: NX.primary }} />}
-    </div>
-  );
-}
 const dueColor = (iso, completed) => {
   if (!iso || completed) return NX.faint;
   const today = new Date().toISOString().slice(0, 10);
@@ -117,8 +104,21 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
   );
 }
 
-function TaskRow({ t, people, projects, store, onOpen }) {
-  const activeProjects = (projects || []).filter((p) => !p.archived);
+// Options for the project cell's picker. Archived projects are left out of
+// every task picker - filing new work into an archive is the confusion
+// archiving exists to avoid - and the rest are alphabetical, because database
+// order is no order at all once a workspace carries ~90 of them.
+function projectOptions(projects) {
+  return [{ id: '', label: 'No project' },
+    ...(projects || []).filter((p) => !p.archived).slice()
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
+      .map((p) => ({ id: p.id, label: p.name }))];
+}
+
+// `band` = this row sits on an odd index inside its group, so it gets the
+// zebra tint. Banding is what lets the eye follow a row all the way out to the
+// Collaborators/Projects columns on a wide screen.
+function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST_COLS }) {
   // A subtask's project is its parent's; the project cell then names the parent
   // (click-through) rather than offering a select that would re-home the subtask.
   const parent = t.parentTaskId ? rootParent(t, store.taskById) : null;
@@ -130,9 +130,12 @@ function TaskRow({ t, people, projects, store, onOpen }) {
     : t.dueOn < today ? 'rgba(220,38,38,0.10)'
     : t.dueOn === today ? 'rgba(232,163,61,0.16)'
     : NX.surface2;
-  return (
-    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: COLS, alignItems: 'center', gap: 8, padding: '5px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, cursor: 'pointer' }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+  const rowBg = band ? NX.zebra : 'transparent';
+  // Cells are keyed and rendered in the header's order, not in source order -
+  // once columns can be dragged, a row that renders them in a fixed sequence
+  // puts every value under the wrong heading.
+  const cells = {
+    title: (
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
         <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
         <span title={store.statusMeta?.[t.status]?.label || t.status} style={{ width: 9, height: 9, borderRadius: 3, background: store.statusMeta?.[t.status]?.color || NX.faint, flexShrink: 0 }} />
@@ -142,30 +145,40 @@ function TaskRow({ t, people, projects, store, onOpen }) {
             as data missing rather than as a different screen. */}
         <TaskCountBadges t={t} store={store} />
       </div>
+    ),
+    dueOn: (
       <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)}
         title="Due Date" style={{ fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' }} />
+    ),
+    collaborators: (
       <CollaboratorPicker value={t.followerIds || []} people={people} onChange={(v) => store.updateTask(t.id, { followerIds: v })} />
-      {parent ? (
-        <button onClick={(e) => { e.stopPropagation(); onOpen(parent.id); }} title={`Subtask of "${parent.title}"${projectId ? ` in ${store.projectName(projectId)}` : ''}`}
-          style={{ ...btn('ghost'), padding: '2px 4px', fontSize: 12.5, color: NX.dim, minWidth: 0, maxWidth: '100%', justifyContent: 'flex-start' }}>
-          <CornerDownRight size={12} style={{ flexShrink: 0 }} />
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{parent.title}{projectId ? ` · ${store.projectName(projectId)}` : ''}</span>
-        </button>
-      ) : (
-      <select value={t.projectId || ''} onClick={(e) => e.stopPropagation()} onChange={(e) => store.updateTask(t.id, { projectId: e.target.value || null })}
-        style={{ border: '1px solid transparent', borderRadius: 6, padding: '2px 4px', fontSize: 13, color: NX.dim, background: 'transparent', fontFamily: FONT, width: 'fit-content', maxWidth: '100%', cursor: 'pointer' }}>
-        <option value="">No project</option>
-        {/* Archived projects are left out of every task picker - filing new
-            work into an archive is the confusion archiving exists to avoid. */}
-        {activeProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
-      )}
+    ),
+    project: parent ? (
+      <button onClick={(e) => { e.stopPropagation(); onOpen(parent.id); }} title={`Subtask of "${parent.title}"${projectId ? ` in ${store.projectName(projectId)}` : ''}`}
+        style={{ ...btn('ghost'), padding: '2px 4px', fontSize: 12.5, color: NX.dim, minWidth: 0, maxWidth: '100%', justifyContent: 'flex-start' }}>
+        <CornerDownRight size={12} style={{ flexShrink: 0 }} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{parent.title}{projectId ? ` · ${store.projectName(projectId)}` : ''}</span>
+      </button>
+    ) : (
+      // The cell is an inline editor sitting inside a clickable row, so the
+      // picker swallows its own clicks - opening it must not open the task.
+      <div onClick={(e) => e.stopPropagation()} style={{ minWidth: 0, maxWidth: '100%' }}>
+        <SearchSelect value={t.projectId || ''} placeholder="No project" searchPlaceholder="Search projects…"
+          emptyText="No projects yet." options={projectOptions(projects)}
+          buttonStyle={{ border: '1px solid transparent', borderRadius: 6, padding: '2px 4px', fontSize: 13, color: NX.dim, background: 'transparent', fontFamily: FONT, width: '100%', maxWidth: '100%', cursor: 'pointer', height: 'auto', fontWeight: 400 }}
+          onPick={(id) => store.updateTask(t.id, { projectId: id || null })} />
+      </div>
+    ),
+  };
+  return (
+    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 8, padding: '5px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)} onMouseLeave={(e) => (e.currentTarget.style.background = rowBg)}>
+      {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>
   );
 }
 
-function AddTaskRow({ people, projects, onAdd, defaults = {} }) {
-  const activeProjects = (projects || []).filter((p) => !p.archived);
+function AddTaskRow({ people, projects, onAdd, defaults = {}, cols = LIST_COLS }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
   const [dueOn, setDueOn] = useState(defaults.dueOn || '');
@@ -191,17 +204,29 @@ function AddTaskRow({ people, projects, onAdd, defaults = {} }) {
       </button>
     );
   }
+  const addCells = {
+    title: (
+      <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') reset(); }}
+        placeholder="Task Name" style={{ ...inputStyle, padding: '5px 8px', fontSize: 13, borderColor: NX.blue }} />
+    ),
+    dueOn: (
+      <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} placeholder="Due Date" style={{ ...inputStyle, padding: '4px 6px', fontSize: 12, width: 'fit-content' }} />
+    ),
+    collaborators: (
+      <CollaboratorPicker value={followerIds} people={people} onChange={setFollowerIds} anchor="Add" />
+    ),
+    project: (
+      <SearchSelect value={projectId} placeholder="No project" searchPlaceholder="Search projects…"
+        emptyText="No projects yet." options={projectOptions(projects)} onPick={setProjectId}
+        buttonStyle={{ ...inputStyle, padding: '4px 6px', fontSize: 13, maxWidth: '100%', cursor: 'pointer', justifyContent: 'space-between' }} />
+    ),
+  };
   return (
     <div style={{ padding: '6px 16px 6px 32px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: COLS, alignItems: 'center', gap: 8 }}>
-        <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') reset(); }}
-          placeholder="Task Name" style={{ ...inputStyle, padding: '5px 8px', fontSize: 13, borderColor: NX.blue }} />
-        <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} placeholder="Due Date" style={{ ...inputStyle, padding: '4px 6px', fontSize: 12, width: 'fit-content' }} />
-        <CollaboratorPicker value={followerIds} people={people} onChange={setFollowerIds} anchor="Add" />
-        <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ ...inputStyle, padding: '4px 6px', fontSize: 13, width: 'fit-content', maxWidth: '100%' }}>
-          <option value="">No project</option>
-          {activeProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+      <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 8 }}>
+        {/* Keyed like TaskRow so the inline add form's fields stay under the
+            headers they belong to when the columns are rearranged. */}
+        {cols.map((c) => <Fragment key={c.key}>{addCells[c.key]}</Fragment>)}
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
         <button onClick={reset} style={{ ...btn('ghost'), fontSize: 11, padding: '4px 8px' }}>Cancel</button>
@@ -214,10 +239,15 @@ function AddTaskRow({ people, projects, onAdd, defaults = {} }) {
 export default function MyTasksView() {
   const store = useTasks();
   const { tasks, projects, myEmail, createTask, nameOf } = store;
-  const [view, setView] = useState('list');
-  const [group, setGroup] = useState('date');
+  // View / grouping / sort ride in the user's profile with their columns -
+  // coming back to a screen you have to re-set every time is the same
+  // complaint as re-hiding columns every morning.
+  const [view, setView] = useTableValue('mytasks', 'view', 'list');
+  const [group, setGroup] = useTableValue('mytasks', 'group', 'date');
   const [filters, setFilters] = useState(EMPTY_FILTER);
-  const [sort, setSort] = useState({ key: 'manual', dir: 'asc' });
+  const [sort, setSort] = useTableValue('mytasks', 'sort', DEFAULT_SORT);
+  const { cols: listCols, template, startResize, resetWidth, widths, wrapRef, dragProps } =
+    useTableColumns({ table: 'mytasks', cols: LIST_COLS });
   // Person / Project / Collaborator sorts order by the NAME on screen, not the
   // email or uuid underneath it - these are the resolvers that do that.
   const sortCtx = useMemo(
@@ -266,7 +296,7 @@ export default function MyTasksView() {
   const boardTasks = useMemo(() => sortTasks(allMine, sort, [], sortCtx), [allMine, sort, sortCtx]);
 
   const addTask = ({ title, dueOn, followerIds, projectId, status, priority, teamId }) =>
-    createTask({ title, assigneeId: myEmail, status: status || 'not_started', priority: priority || 'medium', type: 'task', dueOn: dueOn || '', followerIds, projectId: projectId || '', teamId: teamId || '' }).catch(() => {});
+    createTask({ title, assigneeIds: myEmail ? [myEmail] : [], status: status || 'not_started', priority: priority || 'medium', type: 'task', dueOn: dueOn || '', followerIds, projectId: projectId || '', teamId: teamId || '' }).catch(() => {});
 
 
   return (
@@ -309,6 +339,7 @@ export default function MyTasksView() {
             <select value={group} onChange={(e) => setGroup(e.target.value)} style={{ ...inputStyle, width: 'auto', flexShrink: 0, cursor: 'pointer', height: CONTROL_H, fontSize: CONTROL_FS, padding: '0 8px' }}>
               {['date', 'status', 'priority', 'project', 'assignee', 'none'].map((g) => <option key={g} value={g}>Group: {g === 'date' ? 'Due Date' : g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1)}</option>)}
             </select>
+            <ResetColumnsButton style={{ height: CONTROL_H }} />
           </div>
         )}
       </div>
@@ -322,10 +353,14 @@ export default function MyTasksView() {
                 below their content size - scroll horizontally on narrow
                 viewports instead of getting clipped by the card's rounded corners. */}
             <div style={{ overflowX: 'auto' }}>
-              <div style={{ minWidth: 560 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, padding: '6px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
-                  {LIST_COLS.map((c) => (
-                    <SortHead key={c.key} colKey={c.key} label={c.label} sort={sort} setSort={setSort} />
+              <div ref={wrapRef} style={{ minWidth: 560, '--nx-grid': template }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', gap: 8, padding: '6px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+                  {listCols.map((c) => (
+                    <TableHead key={c.key} label={c.label} sortKey={c.key} sort={sort} setSort={setSort}
+                      sortReset={{ key: 'manual', dir: 'asc' }} style={{ color: NX.dim }}
+                      drag={dragProps(c.key)}
+                      onResizeStart={startResize(c.key, widths[c.key] ?? c.width ?? 150)}
+                      onResizeReset={() => resetWidth(c.key)} />
                   ))}
                 </div>
                 {groups.map((g) => {
@@ -340,8 +375,8 @@ export default function MyTasksView() {
                         <span style={{ width: 9, height: 9, borderRadius: 3, background: gc, flexShrink: 0 }} />
                         {g.label} <span style={{ color: NX.faint, fontWeight: 600, fontSize: 12 }}>{g.tasks.length} item{g.tasks.length !== 1 ? 's' : ''}</span>
                       </div>
-                      {g.tasks.map((t) => <TaskRow key={t.id} t={t} people={people} projects={projects} store={store} onOpen={setOpenId} />)}
-                      <AddTaskRow key={`add-${group}-${g.key}`} people={people} projects={projects} onAdd={addTask} defaults={groupAddDefaults(group, g.key)} />
+                      {g.tasks.map((t, i) => <TaskRow key={t.id} t={t} people={people} projects={projects} store={store} onOpen={setOpenId} band={i % 2 === 1} cols={listCols} />)}
+                      <AddTaskRow key={`add-${group}-${g.key}`} people={people} projects={projects} onAdd={addTask} defaults={groupAddDefaults(group, g.key)} cols={listCols} />
                     </div>
                   );
                 })}

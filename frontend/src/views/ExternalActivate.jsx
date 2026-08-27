@@ -29,7 +29,9 @@ function Brand() {
 export default function ExternalActivate({ token }) {
   // switch = the account-switch confirmation (Aug 18, Visesh: activating a
   // guest silently replaced his admin session - now it warns first).
-  const [phase, setPhase] = useState('loading');   // loading | invalid | switch | intro | code | done
+  // phone-code = the second verification stage (Neil, Aug 25: email AND phone
+  // are both proven by the user before the session exists).
+  const [phase, setPhase] = useState('loading');   // loading | invalid | switch | intro | code | phone-code | done
   const [invite, setInvite] = useState(null);
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
@@ -66,10 +68,35 @@ export default function ExternalActivate({ token }) {
   const verify = async () => {
     setBusy(true); setError('');
     try {
-      await post('/external-auth/activate/verify', { token, code: code.trim() });
+      const d = await post('/external-auth/activate/verify', { token, code: code.trim() });
+      if (d?.needsPhoneVerify) {
+        // Email proven; now the phone (a text just went out to it).
+        setSentTo({ channel: 'sms', hint: d.phoneMasked, delivered: true });
+        setPhase('phone-code'); setCode(''); setBusy(false); startResend(30);
+        return;
+      }
       setPhase('done');
       window.location.assign('/');
     } catch (e) { setError(e.message); setBusy(false); }
+  };
+
+  const verifyPhone = async () => {
+    setBusy(true); setError('');
+    try {
+      await post('/external-auth/activate/verify-phone', { token, code: code.trim() });
+      setPhase('done');
+      window.location.assign('/');
+    } catch (e) { setError(e.message); setBusy(false); }
+  };
+
+  const resendPhoneCode = async () => {
+    setBusy(true); setError('');
+    try {
+      const d = await post('/external-auth/activate/send-phone-code', { token });
+      setSentTo({ channel: 'sms', hint: d.hint, delivered: true });
+      setCode(''); startResend(30);
+    } catch (e) { setError(e.message); }
+    setBusy(false);
   };
 
   return (
@@ -131,21 +158,30 @@ export default function ExternalActivate({ token }) {
               </p>
             ) : (
               <div style={{ marginBottom: 14 }}>
-                <span style={label}>Mobile phone (optional - lets you sign in by text next time)</span>
+                {/* Required (Neil, Aug 25): every external verifies a phone of
+                    their own before their access starts. */}
+                <span style={label}>Mobile phone (required - we verify it with a text)</span>
                 <input style={field} type="tel" placeholder="+1 555 555 1234" value={phone}
-                  onChange={e => setPhone(e.target.value)} />
+                  onChange={e => setPhone(e.target.value)} required />
               </div>
             )}
             {error && <div style={{ margin: '0 0 12px', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{error}</div>}
             <div style={{ display: 'grid', gap: 9 }}>
-              {(invite.hasPhone || phone.trim()) && (
-                <button style={primaryBtn} disabled={busy} onClick={() => sendCode('')}>Text Me a Code</button>
-              )}
-              <button style={(invite.hasPhone || phone.trim()) ? { ...primaryBtn, background: '#fff', color: '#0f3d2e', border: '1.5px solid #0f3d2e' } : primaryBtn}
-                disabled={busy} onClick={() => sendCode('email')}>
+              <button style={primaryBtn} disabled={busy || !(invite.hasPhone || phone.trim())}
+                title={(invite.hasPhone || phone.trim()) ? '' : 'Enter your mobile number first'}
+                onClick={() => sendCode('')}>Text Me a Code</button>
+              <button style={{ ...primaryBtn, background: '#fff', color: '#0f3d2e', border: '1.5px solid #0f3d2e', opacity: (invite.hasPhone || phone.trim()) ? 1 : 0.55 }}
+                disabled={busy || !(invite.hasPhone || phone.trim())}
+                title={(invite.hasPhone || phone.trim()) ? '' : 'Enter your mobile number first'}
+                onClick={() => sendCode('email')}>
                 Email Me a Code
               </button>
             </div>
+            {!invite.hasPhone && !phone.trim() && (
+              <p style={{ margin: '10px 0 0', fontSize: 12, lineHeight: 1.55, color: '#6b7280' }}>
+                Your phone is part of your sign-in - enter it to continue.
+              </p>
+            )}
           </>
         )}
 
@@ -178,6 +214,29 @@ export default function ExternalActivate({ token }) {
                   Send to My Email Instead
                 </button>
               )}
+            </div>
+          </>
+        )}
+
+        {phase === 'phone-code' && (
+          <>
+            <h1 style={{ margin: '0 0 8px', fontSize: 20, color: '#111827' }}>Now verify your phone</h1>
+            <p style={{ margin: '0 0 16px', fontSize: 13.5, lineHeight: 1.6, color: '#374151' }}>
+              Email verified. We texted a 6-digit code to {sentTo?.hint || 'your phone'} - enter it to finish.
+            </p>
+            <input style={{ ...field, fontSize: 24, letterSpacing: 10, textAlign: 'center', fontWeight: 700 }}
+              inputMode="numeric" autoFocus maxLength={6} placeholder="______" value={code}
+              onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onKeyDown={e => { if (e.key === 'Enter' && code.length === 6) verifyPhone(); }} />
+            {error && <div style={{ margin: '10px 0 0', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{error}</div>}
+            <button style={{ ...primaryBtn, marginTop: 14 }} disabled={busy || code.length !== 6} onClick={verifyPhone}>
+              Verify and Continue
+            </button>
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+              <button style={{ ...quietBtn, opacity: resendLeft ? 0.5 : 1 }} disabled={busy || resendLeft > 0}
+                onClick={resendPhoneCode}>
+                {resendLeft > 0 ? `Resend in ${resendLeft}s` : 'Resend Code'}
+              </button>
             </div>
           </>
         )}

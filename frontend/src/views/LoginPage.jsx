@@ -227,12 +227,14 @@ export default function LoginPage() {
           <p className="nxl-sub" style={{ "--i": 2 }}>
             If this account exists, a 6-digit code was sent to the contact on file - check your phone and your email (including spam).
           </p>
-          <input inputMode="numeric" autoFocus maxLength={6} value={pCode} placeholder="______"
-            onChange={e => setPCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            onKeyDown={e => { if (e.key === 'Enter' && pCode.length === 6) partnerVerify(); }}
-            style={{ width: '100%', maxWidth: 240, boxSizing: 'border-box', padding: '12px 14px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 24, letterSpacing: 10, textAlign: 'center', fontWeight: 700, fontFamily: 'inherit', marginBottom: 12 }} />
+          {/* 6-digit OTPs AND the admin's 8-character staged test code (Neil,
+              Aug 25) both land here - accept alphanumeric up to 8. */}
+          <input autoFocus maxLength={8} value={pCode} placeholder="______"
+            onChange={e => setPCode(e.target.value.replace(/[^0-9A-Za-z]/g, '').toUpperCase().slice(0, 8))}
+            onKeyDown={e => { if (e.key === 'Enter' && (pCode.length === 6 || pCode.length === 8)) partnerVerify(); }}
+            style={{ width: '100%', maxWidth: 240, boxSizing: 'border-box', padding: '12px 14px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 24, letterSpacing: 8, textAlign: 'center', fontWeight: 700, fontFamily: 'inherit', marginBottom: 12 }} />
           {pError && <p role="alert" style={{ margin: '0 0 12px', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{pError}</p>}
-          <button className="nxl-cta" style={{ "--i": 3 }} disabled={pBusy || pCode.length !== 6} onClick={partnerVerify}>Verify and Sign In</button>
+          <button className="nxl-cta" style={{ "--i": 3 }} disabled={pBusy || !(pCode.length === 6 || pCode.length === 8)} onClick={partnerVerify}>Verify and Sign In</button>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginTop: 4 }}>
             <button disabled={pBusy || resendLeft > 0} onClick={() => partnerRequest()}
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px', opacity: resendLeft ? 0.5 : 1 }}>

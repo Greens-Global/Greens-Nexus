@@ -764,6 +764,9 @@ export const api = {
   updateExternalUser:   (email, data) => req(`/external-users/${encodeURIComponent(email)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   resendExternalInvite: (email)       => req(`/external-users/${encodeURIComponent(email)}/invite`, { method: 'POST' }),
   removeExternalUser:   (email)       => req(`/external-users/${encodeURIComponent(email)}`, { method: 'DELETE' }),
+  // Staged release (Neil, Aug 25): test-first external accounts
+  externalTestCode:     (email)       => req(`/external-users/${encodeURIComponent(email)}/test-code`, { method: 'POST' }),
+  releaseExternalUser:  (email)       => req(`/external-users/${encodeURIComponent(email)}/release`, { method: 'POST' }),
 
   // Job Roles (Roles & Access redesign) - a job role is a group template with a tier
   getJobRoles:       ()                  => req('/jobroles'),
@@ -954,6 +957,8 @@ export const api = {
   // HR - live assets (permanent assignments + active checkouts from Item Management)
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
   getEmployeeBod:    (id, start, end) => req(`/hr/employees/${id}/bod?start=${start || ''}&end=${end || ''}`),
+  getGeofence:       (id)       => req(`/hr/employees/${id}/geofence`),
+  setGeofence:       (id, data) => req(`/hr/employees/${id}/geofence`, { method: 'PUT', body: JSON.stringify(data) }),
   changeEmployeeStatus: (id, data) => req(`/hr/employees/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
 
   // HR - mailbox export (zip of .eml via Graph; needs Mail.Read consent)
@@ -1164,8 +1169,11 @@ export const api = {
   timeMyChat:        ()          => req('/timeclock/my-chat'),
   timeSchedule:      (start, end) => req(`/timeclock/schedule?start=${start}&end=${end}`),
   timeSchedCreate:   (data)      => req('/timeclock/schedule', { method: 'POST', body: JSON.stringify(data) }),
+  timeSchedBulk:     (data)      => req('/timeclock/schedule/bulk', { method: 'POST', body: JSON.stringify(data) }),
+  timeSchedAssign:   (id, email) => req(`/timeclock/schedule/${id}/assign`, { method: 'POST', body: JSON.stringify({ employee_email: email }) }),
   timeSchedUpdate:   (id, data)  => req(`/timeclock/schedule/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
+  timeSchedPublish:  (data)      => req('/timeclock/schedule/publish', { method: 'POST', body: JSON.stringify(data) }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
   timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),
@@ -1176,12 +1184,10 @@ export const api = {
   // Break policy: CA paid rest breaks + long/unended-break flags (Charmi, Aug 21)
   timeBreakPolicyGet: ()         => req('/timeclock/payroll/breakpolicy'),
   timeBreakPolicySet: (data)     => req('/timeclock/payroll/breakpolicy', { method: 'PUT', body: JSON.stringify(data) }),
-  // End-of-day auto clock-out: warns + 11:59 PM auto-close (Neil, Aug 24)
-  timeAutoClockoutGet: ()        => req('/timeclock/payroll/autoclockout'),
-  timeAutoClockoutSet: (data)    => req('/timeclock/payroll/autoclockout', { method: 'PUT', body: JSON.stringify(data) }),
   timeFinalize:      (data)      => req('/timeclock/finalize', { method: 'POST', body: JSON.stringify(data) }),
   timeUnfinalize:    (data)      => req('/timeclock/unfinalize', { method: 'POST', body: JSON.stringify(data) }),
   timeTeamExceptions:(start, end) => req(`/timeclock/team-exceptions?start=${start || ''}&end=${end || ''}`),
+  timeBillableByLocation:(start, end) => req(`/timeclock/billable-by-location?start=${start || ''}&end=${end || ''}`),
   // Insights dashboard (Top Apps / Top Websites / activity), from the desktop agent
   timeInsights:      (email, start, end) => req(`/timeclock/insights?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}&tz=${new Date().getTimezoneOffset()}`),
   timeRatings:       ()          => req('/timeclock/ratings'),
@@ -1409,6 +1415,14 @@ export const api = {
   unifiOverview:  ()       => req("/unifi/overview", { timeoutMs: 20_000 }),
   unifiStats:     (siteId) => req(`/unifi/stats?siteId=${encodeURIComponent(siteId)}`, { timeoutMs: 20_000 }),
   unifiExportCsv: (siteId) => reqBlob(`/unifi/export/csv?siteId=${encodeURIComponent(siteId)}`),
+
+  // Task module: how THIS user has arranged the columns of each list view
+  // (order + widths). Personal, and never a reason to block a screen - the
+  // caller falls back to the default columns when these fail.
+  getTaskTablePrefs:   ()             => req("/task-prefs"),
+  saveTaskTablePrefs:  (table, data)  => req(`/task-prefs/${encodeURIComponent(table)}`, { method: "PUT", body: JSON.stringify(data) }),
+  resetTaskTablePrefs: (table)        => req(`/task-prefs/${encodeURIComponent(table)}`, { method: "DELETE" }),
+  resetAllTaskTablePrefs: ()          => req("/task-prefs", { method: "DELETE" }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

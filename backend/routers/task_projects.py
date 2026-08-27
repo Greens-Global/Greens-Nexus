@@ -15,7 +15,8 @@ import models
 from database import get_db
 from auth import get_current_user, require_manager, require_any_module_grant
 from routers.task_util import (now_iso, gen_id, task_notify, is_manager, visible_project_ids,
-                               require_project_role, team_project_ids, log_activity)
+                               require_project_role, team_project_ids, log_activity,
+                               task_assignees, set_task_assignees)
 from routers.hr import _ensure_departments
 from routers.task_config import coerce_custom_field_values
 
@@ -61,12 +62,46 @@ def project_to_dict(p: models.TaskProject) -> dict:
     }
 
 
-def portfolio_to_dict(p: models.TaskPortfolio) -> dict:
+def portfolio_to_dict(p: models.TaskPortfolio, project_ids: Optional[list] = None) -> dict:
     return {
         "id": p.id, "name": p.name, "description": p.description or "", "color": _nz(p.color),
-        "ownerId": _nz(p.owner_email), "projectIds": p.project_ids or [],
+        "ownerId": _nz(p.owner_email),
+        "projectIds": (p.project_ids or []) if project_ids is None else project_ids,
         "archived": bool(p.archived), "createdAt": p.created_at or "", "modifiedAt": p.modified_at or "",
     }
+
+
+def project_portfolio_map(db: Session) -> dict:
+    """{project_id: portfolio_id} for every live project, in one query."""
+    return {pid: (pf or "") for pid, pf in
+            db.query(models.TaskProject.id, models.TaskProject.portfolio_id).all()}
+
+
+def portfolio_project_ids(pf: models.TaskPortfolio, owner_of: dict) -> list:
+    """The portfolio's members, read from BOTH sides of the link.
+
+    Membership is stored twice - `TaskPortfolio.project_ids` (ordered, what the
+    Portfolios screen renders) and `TaskProject.portfolio_id` (what the Projects
+    list badges). Writes keep the two together (_sync_portfolio_membership), but
+    only writes that went through this build: a row linked by an older backend,
+    by the Asana sync or by hand leaves a project pointing at the portfolio that
+    the portfolio's own list never learned about - and the Portfolios screen
+    then showed one project where the Projects screen showed three
+    (Sagar, Aug 27).
+
+    So the read reconciles rather than trusting one copy:
+      - the stored order first, since it is curated and drag-ordered, minus any
+        id whose project is gone or has since been moved to another portfolio;
+      - a project whose portfolio_id is blank stays listed - portfolios built
+        before that column was written have members that point nowhere, and
+        dropping them would delete membership on a read;
+      - then every project pointing here that the list is missing.
+    """
+    listed = [pid for pid in (pf.project_ids or [])
+              if pid in owner_of and owner_of[pid] in ("", pf.id)]
+    seen = set(listed)
+    return listed + sorted(pid for pid, owner in owner_of.items()
+                           if owner == pf.id and pid not in seen)
 
 
 def team_to_dict(d: models.TaskTeam) -> dict:
@@ -171,14 +206,38 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
         custom_field_values=coerce_custom_field_values(db, body.custom_field_values or {}),
     )
     db.add(p)
-    # keep the portfolio's ordered project list in sync
+    db.flush()   # the helper queries portfolios; the row must exist first
+    # Same rule create and update both go through - see _sync_portfolio_membership.
     if p.portfolio_id:
-        pf = db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == p.portfolio_id).first()
-        if pf:
-            pf.project_ids = list(pf.project_ids or []) + [p.id]
+        _sync_portfolio_membership(db, p.id, p.portfolio_id)
     db.commit()
     db.refresh(p)
     return project_to_dict(p)
+
+
+def _sync_portfolio_membership(db: Session, project_id: str, portfolio_id: str) -> None:
+    """Put `project_id` in exactly one portfolio's ordered list - the one it now
+    points at, or none.
+
+    Portfolio membership is stored twice: `TaskProject.portfolio_id` (what the
+    Projects list reads for its badge) and `TaskPortfolio.project_ids` (ordered,
+    and what the Portfolios screen actually renders). Editing a PORTFOLIO
+    already updated both sides; editing a PROJECT set only its own column, so
+    picking a portfolio from the project form appeared to save and then showed
+    nothing on the Portfolios screen (Sagar, Aug 27). One helper for both
+    directions rather than a second copy of the rule that can drift again.
+
+    Order is preserved: a project already in the right list keeps its position
+    instead of being moved to the end by a save that never touched membership.
+    """
+    portfolio_id = (portfolio_id or "").strip()
+    for pf in db.query(models.TaskPortfolio).all():
+        ids = list(pf.project_ids or [])
+        if pf.id == portfolio_id:
+            if project_id not in ids:
+                pf.project_ids = ids + [project_id]
+        elif project_id in ids:
+            pf.project_ids = [i for i in ids if i != project_id]
 
 
 @router.patch("/task-projects/{project_id}")
@@ -215,6 +274,10 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
         p.hr_department_name = dept.name if dept else ""
         if p.hr_department_id and not dept:
             p.hr_department_id = ""
+    # Picking (or clearing) a portfolio here has to move the project in that
+    # portfolio's own ordered list too - see _sync_portfolio_membership.
+    if "portfolio_id" in data:
+        _sync_portfolio_membership(db, p.id, p.portfolio_id or "")
     p.modified_at = now_iso()
     db.commit()
     db.refresh(p)
@@ -363,7 +426,10 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
         return out
     now = now_iso()
 
-    tasks = db.query(models.Task).filter(models.Task.assignee_email == email).all()
+    # Python-side because assignee_emails is a JSON list (see the daily-briefing
+    # note). A shared task keeps its other assignees - only the departing person
+    # is swapped out, so handing over does not quietly unassign their colleagues.
+    tasks = [t for t in db.query(models.Task).all() if email in task_assignees(t)]
     if not include_completed:
         tasks = [t for t in tasks if not t.completed]
 
@@ -392,7 +458,7 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
             out["moved"] += 1
 
     for t in tasks:
-        t.assignee_email = to_email
+        set_task_assignees(t, [to_email if a == email else a for a in task_assignees(t)])
         t.modified_at = now
         out["reassigned"] += 1
 
@@ -421,7 +487,9 @@ class PortfolioBody(BaseModel):
 
 @router.get("/task-portfolios")
 def list_portfolios(db: Session = Depends(get_db)):
-    return [portfolio_to_dict(p) for p in db.query(models.TaskPortfolio).all()]
+    owner_of = project_portfolio_map(db)
+    return [portfolio_to_dict(p, portfolio_project_ids(p, owner_of))
+            for p in db.query(models.TaskPortfolio).all()]
 
 
 @router.post("/task-portfolios", status_code=201)
@@ -436,9 +504,18 @@ def create_portfolio(body: PortfolioBody, user: dict = Depends(get_current_user)
         created_at=now, modified_at=now, created_by=user["email"],
     )
     db.add(p)
+    # Creating a portfolio WITH projects picked has to tag those projects too -
+    # update_portfolio already did this and create did not, so a portfolio built
+    # in one go showed its members here while the Projects list badged none of
+    # them.
+    db.flush()
+    for pid in p.project_ids or []:
+        proj = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
+        if proj:
+            proj.portfolio_id = p.id
     db.commit()
     db.refresh(p)
-    return portfolio_to_dict(p)
+    return portfolio_to_dict(p, portfolio_project_ids(p, project_portfolio_map(db)))
 
 
 @router.patch("/task-portfolios/{portfolio_id}")
@@ -470,7 +547,7 @@ def update_portfolio(portfolio_id: str, body: PortfolioBody, db: Session = Depen
                 proj.portfolio_id = ""
     db.commit()
     db.refresh(p)
-    return portfolio_to_dict(p)
+    return portfolio_to_dict(p, portfolio_project_ids(p, project_portfolio_map(db)))
 
 
 @router.delete("/task-portfolios/{portfolio_id}", status_code=204)
@@ -838,6 +915,7 @@ def _snapshot_project(db: Session, p: models.TaskProject, *, blueprint: bool,
             "priority": t.priority or "medium",
             "tags": list(t.tags or []),
             "assigneeEmail": (t.assignee_email or "") if include_assignees else "",
+            "assigneeEmails": (task_assignees(t) if include_assignees else []),
             "followerEmails": list(t.follower_emails or []) if include_assignees else [],
             "estimateHours": t.estimate_hours,
             "isMilestone": bool(t.is_milestone),
@@ -1187,7 +1265,8 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
                 # source's manual positions. Left as whole numbers so a later
                 # drag between two of these still has room in between.
                 position=float(i),
-                assignee_email=((spec.get("assigneeEmail") or "").strip().lower() if include_assignees else ""),
+                # Set below via set_task_assignees, which writes both columns.
+                assignee_email="",
                 owner_email=owner,
                 follower_emails=(list(spec.get("followerEmails") or []) if include_assignees else []),
                 liked_by_emails=[],
@@ -1209,6 +1288,12 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
                 comment_ids=[], attachment_ids=[], activity_ids=[],
                 created_at=now, modified_at=now, created_by=user["email"],
             )
+            if include_assignees:
+                # assigneeEmails is the real field; assigneeEmail is the v2-era
+                # single that older payloads carry, folded in so a template
+                # captured before multi-assignee still assigns its one person.
+                set_task_assignees(row, spec.get("assigneeEmails")
+                                   or [spec.get("assigneeEmail") or ""])
             db.add(row)
             made.append((spec, row))
 

@@ -19,7 +19,7 @@ const MAX_W = {
 // `isDirty` + `onSave`: an unintentional exit (overlay click, Escape, the X
 // button) used to silently discard an in-progress form. When isDirty is set,
 // those three now ask first instead of closing straight away.
-export default function Modal({ title, onClose, children, width = 'max-w-2xl', isDirty = false, onSave }) {
+export default function Modal({ title, onClose, children, width, isDirty = false, onSave }) {
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const requestClose = () => { if (isDirty) setConfirming(true); else onClose() }
@@ -36,7 +36,14 @@ export default function Modal({ title, onClose, children, width = 'max-w-2xl', i
     try { await onSave() } finally { setSaving(false); setConfirming(false) }
   }
 
-  const maxWidth = MAX_W[width] || 672
+  // Every caller of this Modal is a real content form (add/edit/detail), never
+  // a small confirm, so it always sizes to ~60% of the viewport - clamped so
+  // it never overflows a narrow laptop or shrinks below a usable floor -
+  // matching the app-wide modal default in style.css. The width token is kept
+  // only as a floor: a caller that asked for something bigger than 60vw (e.g.
+  // max-w-4xl on a wide report) still gets that larger fixed size.
+  const tokenWidth = MAX_W[width] || 0
+  const maxWidth = tokenWidth > 900 ? tokenWidth : 'clamp(520px, 60vw, 980px)'
 
   return (
     <div

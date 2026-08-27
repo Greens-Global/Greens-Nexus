@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star } from 'lucide-react';
 import { api } from '../api';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 // ── Weekly schedule grid (Microsoft Teams "Shifts" style) ─────────────────────
 // Rows = employees (grouped by shift group), columns = the 7 days of the week.
@@ -30,7 +32,10 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [data, setData] = useState(null);
   const [cell, setCell] = useState(null);   // { email, date, existing? }
+  const [openCell, setOpenCell] = useState(null);   // { date, existing? } - open-shift editor
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(null);   // a shift on the "clipboard" to paste into a cell
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
@@ -44,12 +49,19 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   }, [start, end, toastErr]);
   useEffect(load, [load]);
 
-  // index: "email|date" -> [shifts]; and time off lookup
+  // index: "email|date" -> [shifts]; and time off lookup. Open shifts (email '')
+  // are indexed by date on their own so they render in the Open shifts row.
   const byCell = useMemo(() => {
     const map = {};
-    (data?.scheduled || []).forEach(s => { (map[`${s.email}|${s.date}`] ||= []).push(s); });
+    (data?.scheduled || []).forEach(s => { if (s.email) (map[`${s.email}|${s.date}`] ||= []).push(s); });
     return map;
   }, [data]);
+  const openByDate = useMemo(() => {
+    const map = {};
+    (data?.scheduled || []).forEach(s => { if (!s.email) (map[s.date] ||= []).push(s); });
+    return map;
+  }, [data]);
+  const openCount = (data?.scheduled || []).reduce((a, s) => a + (!s.email ? (s.openSlots || 1) : 0), 0);
   const offOn = (email, ds) => (data?.timeoff || []).find(t => t.email === email && t.startDate <= ds && ds <= t.endDate);
 
   // group employees by shift group; the rest go under "Everyone else"
@@ -77,6 +89,29 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     return { min, people: people.size };
   };
   const weekMin = (data?.scheduled || []).reduce((a, s) => a + durMin(s.start, s.end), 0);
+  const canManage = data?.canManage !== false;   // schedulers see/manage drafts
+  const unpublished = (data?.scheduled || []).filter(s => s.published === false).length;
+
+  async function publishWeek() {
+    setBusy(true);
+    try {
+      const r = await api.timeSchedPublish({ start_date: start, end_date: end });
+      toastOk?.(r.published ? `Shared ${r.published} shift${r.published !== 1 ? 's' : ''} with the team.` : 'Nothing new to share.');
+      load();
+    } catch (e) { toastErr?.(e?.message || 'Could not publish.'); }
+    setBusy(false);
+  }
+  // Copy/paste: stash a shift, then click an empty cell to drop a draft copy there.
+  async function pasteInto(email, date) {
+    if (!copied) return;
+    setBusy(true);
+    try {
+      await api.timeSchedCreate({ employee_email: email, work_date: date, shift_id: copied.shiftId,
+        start_hhmm: copied.start, end_hhmm: copied.end, label: copied.label, note: copied.note });
+      toastOk?.('Shift copied here.'); load();
+    } catch (e) { toastErr?.(e?.message || 'Could not paste the shift.'); }
+    setBusy(false);
+  }
 
   async function saveCell(payload) {
     setBusy(true);
@@ -91,6 +126,34 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     setBusy(true);
     try { await api.timeSchedDelete(id); toastOk?.('Shift removed.'); setCell(null); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not remove.'); }
+    setBusy(false);
+  }
+  async function saveOpen(payload) {
+    setBusy(true);
+    try {
+      if (payload.id) await api.timeSchedUpdate(payload.id, payload);
+      else await api.timeSchedCreate({ ...payload, employee_email: '' });
+      toastOk?.('Open shift saved.'); setOpenCell(null); load();
+    } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
+    setBusy(false);
+  }
+  async function assignOpen(id, email) {
+    setBusy(true);
+    try { await api.timeSchedAssign(id, email); toastOk?.('Shift assigned.'); setOpenCell(null); load(); }
+    catch (e) { toastErr?.(e?.message || 'Could not assign.'); }
+    setBusy(false);
+  }
+  async function bulkAssign(payload) {
+    setBusy(true);
+    try {
+      const r = await api.timeSchedBulk(payload);
+      const bits = [`Placed ${r.created} shift${r.created !== 1 ? 's' : ''} across ${r.people} ${r.people === 1 ? 'person' : 'people'}`];
+      if (r.replaced) bits.push(`replaced ${r.replaced}`);
+      if (r.skipped) bits.push(`kept ${r.skipped} existing`);
+      if (r.timeoffSkipped) bits.push(`skipped ${r.timeoffSkipped} on time off`);
+      toastOk?.(bits.join(' · ') + '.');
+      setBulkOpen(false); load();
+    } catch (e) { toastErr?.(e?.message || 'Could not fill the schedule.'); }
     setBusy(false);
   }
 
@@ -111,8 +174,30 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
         </div>
         <span style={{ fontSize: 14, fontWeight: 800 }}>{rangeLabel}</span>
         <div style={{ flex: 1 }} />
+        <button className="secondary-btn" onClick={() => setBulkOpen(true)}
+          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <CalendarRange size={14} /> Fill schedule
+        </button>
+        {canManage && (
+          <button className={unpublished ? 'primary-btn' : 'secondary-btn'} onClick={publishWeek}
+            disabled={busy || !unpublished} title={unpublished ? 'Share these shifts with the team' : 'Everything in this week is already shared'}
+            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Send size={13} /> {unpublished ? `Publish ${unpublished}` : 'All shared'}
+          </button>
+        )}
         <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Week: {fmtHrs(weekMin)}</span>
       </div>
+
+      {copied && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '8px 12px',
+          background: 'hsla(var(--color-green),0.08)', border: '1px dashed hsl(var(--color-green))', borderRadius: 10, fontSize: 12.5 }}>
+          <Copy size={14} style={{ color: 'hsl(var(--color-green))' }} />
+          <span style={{ fontWeight: 700 }}>Copied {copied.code || 'shift'} ({t12(copied.start)}–{t12(copied.end)})</span>
+          <span style={{ color: 'var(--muted)' }}>- click any empty cell to place it.</span>
+          <div style={{ flex: 1 }} />
+          <button className="secondary-btn" onClick={() => setCopied(null)} style={{ fontSize: 12 }}>Cancel</button>
+        </div>
+      )}
 
       {data === null ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>
@@ -132,6 +217,48 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                       <span style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>{d.toLocaleDateString([], { weekday: 'short' })}</span>
                     </div>
                     <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 1 }}>{st.people} · {fmtHrs(st.min)}</div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Open shifts row (Teams-style): unassigned slots to hand out */}
+            <div style={{ ...GRID, borderBottom: '1px solid var(--line)', background: 'hsla(var(--color-green),0.03)' }}>
+              <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <span style={{ width: 26, height: 26, borderRadius: 7, background: 'var(--card)', border: '1px dashed var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', flexShrink: 0 }}>
+                  <CalendarRange size={13} />
+                </span>
+                <span>
+                  <div style={{ fontSize: 12.5, fontWeight: 800 }}>Open shifts</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{openCount} open</div>
+                </span>
+              </div>
+              {days.map((d, di) => {
+                const ds = isoDate(d);
+                const items = openByDate[ds] || [];
+                return (
+                  <div key={di} onClick={() => !items.length && setOpenCell({ date: ds })}
+                    style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 48, cursor: items.length ? 'default' : 'pointer', position: 'relative' }}
+                    className="sched-cell">
+                    {items.map(s => (
+                      <div key={s.id} onClick={(e) => { e.stopPropagation(); setOpenCell({ date: ds, existing: s }); }}
+                        style={{ background: (s.color || '#16a34a') + '18', border: `1px dashed ${s.color || '#16a34a'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer' }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            {s.published === false && <Star size={10} fill="#f59e0b" color="#f59e0b" style={{ flexShrink: 0 }} />}
+                            {s.code || 'Open'}
+                          </span>
+                          {(s.openSlots || 1) > 1 && <span style={{ fontSize: 10, background: '#16a34a', color: '#fff', borderRadius: 10, padding: '0 6px' }}>×{s.openSlots}</span>}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={9} /> {t12(s.start)}–{t12(s.end)}</div>
+                        {s.label && <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>}
+                      </div>
+                    ))}
+                    {!items.length && (
+                      <div className="sched-add" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--line)', opacity: 0 }}>
+                        <Plus size={16} />
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -164,7 +291,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                       const items = byCell[`${emp.email}|${ds}`] || [];
                       const off = offOn(emp.email, ds);
                       return (
-                        <div key={di} onClick={() => !items.length && setCell({ email: emp.email, date: ds })}
+                        <div key={di} onClick={() => { if (!items.length) { copied ? pasteInto(emp.email, ds) : (!off && setCell({ email: emp.email, date: ds })); } }}
                           style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 54, cursor: items.length ? 'default' : 'pointer', position: 'relative' }}
                           className="sched-cell">
                           {off && !items.length && (
@@ -175,8 +302,13 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                           )}
                           {items.map(s => (
                             <div key={s.id} onClick={(e) => { e.stopPropagation(); setCell({ email: emp.email, date: ds, existing: s }); }}
-                              style={{ background: (s.color || '#64748b') + '22', borderLeft: `3px solid ${s.color || '#64748b'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer' }}>
-                              <div style={{ fontSize: 11, fontWeight: 800, color: '#334155' }}>{s.code || 'Shift'}</div>
+                              title={s.published === false ? 'Draft - not shared with the team yet' : undefined}
+                              style={{ background: (s.color || '#64748b') + '22', borderLeft: `3px solid ${s.color || '#64748b'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer',
+                                ...(s.published === false ? { outline: `1.5px dashed ${s.color || '#64748b'}`, outlineOffset: -2, opacity: 0.9 } : {}) }}>
+                              <div style={{ fontSize: 11, fontWeight: 800, color: '#334155', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                {s.published === false && <Star size={10} fill="#f59e0b" color="#f59e0b" style={{ flexShrink: 0 }} />}
+                                <span>{s.code || 'Shift'}</span>
+                              </div>
                               <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={9} /> {t12(s.start)}–{t12(s.end)}</div>
                               {s.label && <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>}
                             </div>
@@ -199,7 +331,20 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
 
       {cell && (
         <CellModal cell={cell} shifts={data?.shifts || []} busy={busy}
-          onSave={saveCell} onDelete={delCell} onClose={() => setCell(null)} />
+          onSave={saveCell} onDelete={delCell} onClose={() => setCell(null)}
+          onCopy={(s) => { setCopied(s); setCell(null); }} />
+      )}
+
+      {bulkOpen && (
+        <BulkModal groups={data?.groups || []} shifts={data?.shifts || []}
+          allEmails={(data?.employees || []).map(e => e.email)}
+          defaultStart={start} defaultEnd={end} busy={busy}
+          onApply={bulkAssign} onClose={() => setBulkOpen(false)} />
+      )}
+
+      {openCell && (
+        <OpenShiftModal cell={openCell} shifts={data?.shifts || []} people={data?.employees || []} busy={busy}
+          onSave={saveOpen} onAssign={assignOpen} onDelete={delCell} onClose={() => setOpenCell(null)} />
       )}
 
       <style>{`.sched-cell:hover .sched-add { opacity: 1 !important; }`}</style>
@@ -207,7 +352,176 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   );
 }
 
-function CellModal({ cell, shifts, busy, onSave, onDelete, onClose }) {
+// Bulk assign: apply a preset to a whole group (or everyone in view) across a
+// date range and chosen weekdays in one action, instead of adding a shift per
+// person per day. Skips time off and (unless overwrite) days that already have
+// a shift, so re-running it is safe.
+function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd, busy, onApply, onClose }) {
+  const [groupId, setGroupId] = useState(groups[0]?.id || '');   // '' = everyone in view
+  const [shiftId, setShiftId] = useState(shifts[0]?.id || '');
+  const [from, setFrom] = useState(defaultStart);
+  const [to, setTo] = useState(defaultEnd);
+  const [dows, setDows] = useState([0, 1, 2, 3, 4]);   // Mon-Fri by default
+  const [skipOff, setSkipOff] = useState(true);
+  const [overwrite, setOverwrite] = useState(false);
+  const preset = shifts.find(s => s.id === shiftId);
+  const DOW = [['Mon', 0], ['Tue', 1], ['Wed', 2], ['Thu', 3], ['Fri', 4], ['Sat', 5], ['Sun', 6]];
+  const toggle = (n) => setDows(d => d.includes(n) ? d.filter(x => x !== n) : [...d, n]);
+  const targetCount = groupId ? (groups.find(g => g.id === groupId)?.members?.length || 0) : allEmails.length;
+  const canApply = shifts.length > 0 && from && to && dows.length > 0 && !busy && (groupId || allEmails.length);
+
+  function submit() {
+    const payload = { shift_id: shiftId, start_date: from, end_date: to, weekdays: dows,
+                      skip_timeoff: skipOff, overwrite };
+    if (groupId) payload.group_id = groupId; else payload.emails = allEmails;
+    onApply(payload);
+  }
+
+  const lbl = { fontSize: 11, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 };
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 460, padding: 20, maxHeight: '92dvh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Fill schedule</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+          Apply a shift to a whole group across a date range in one go - no more adding it per person per day.
+        </div>
+        {shifts.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift presets yet - create one under “Presets & groups” first.</div>
+        ) : (
+          <div style={{ display: 'grid', gap: 14 }}>
+            <div>
+              <div style={lbl}>Apply to</div>
+              <select className="form-input" value={groupId} onChange={e => setGroupId(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
+                {groups.map(g => <option key={g.id} value={g.id}>{g.name} ({g.members?.length || 0})</option>)}
+                <option value="">Everyone in view ({allEmails.length})</option>
+              </select>
+            </div>
+            <div>
+              <div style={lbl}>Shift preset</div>
+              <select className="form-input" value={shiftId} onChange={e => setShiftId(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
+                {shifts.map(s => <option key={s.id} value={s.id}>{s.code ? `${s.code} · ` : ''}{s.name} ({s.start}–{s.end})</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <label style={{ flex: 1 }}><div style={lbl}>From</div><input type="date" className="form-input" value={from} onChange={e => setFrom(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+              <label style={{ flex: 1 }}><div style={lbl}>To</div><input type="date" className="form-input" value={to} onChange={e => setTo(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+            </div>
+            <div>
+              <div style={lbl}>Days of week</div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {DOW.map(([label, n]) => {
+                  const on = dows.includes(n);
+                  return (
+                    <button key={n} type="button" onClick={() => toggle(n)}
+                      style={{ fontSize: 12, fontWeight: 700, padding: '6px 11px', borderRadius: 8, cursor: 'pointer',
+                        border: `1px solid ${on ? 'var(--wk-brand, hsl(var(--color-green)))' : 'var(--line)'}`,
+                        background: on ? 'hsla(var(--color-green),0.12)' : 'transparent',
+                        color: on ? 'hsl(var(--color-green))' : 'var(--muted)' }}>{label}</button>
+                  );
+                })}
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={skipOff} onChange={e => setSkipOff(e.target.checked)} /> Skip days a person has time off
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)
+            </label>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              {targetCount} {targetCount === 1 ? 'person' : 'people'} · {preset ? `${preset.start}–${preset.end}` : 'preset'} · {dows.length} day{dows.length !== 1 ? 's' : ''}/week
+            </div>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose}>Cancel</button>
+          {shifts.length > 0 && <button className="primary-btn" onClick={submit} disabled={!canApply}
+            style={{ opacity: canApply ? 1 : 0.55 }}>{busy ? '…' : 'Fill schedule'}</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Open shift editor: create/edit an unassigned slot (preset + how many people
+// needed) and, for an existing one, ASSIGN it to a person - which spawns their
+// own shift and drops the open count (Teams "Assign open shifts").
+function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete, onClose }) {
+  const ex = cell.existing;
+  const [shiftId, setShiftId] = useState(ex?.shiftId || (shifts[0]?.id || ''));
+  const [start, setStart] = useState(ex?.start || '');
+  const [end, setEnd] = useState(ex?.end || '');
+  const [slots, setSlots] = useState(ex?.openSlots || 1);
+  const [label, setLabel] = useState(ex?.label || '');
+  const [assignee, setAssignee] = useState('');
+  const preset = shifts.find(s => s.id === shiftId);
+  const eff = (v, p) => v || p || '';
+
+  function submit() {
+    onSave({ id: ex?.id, work_date: cell.date, shift_id: shiftId,
+      start_hhmm: eff(start, preset?.start), end_hhmm: eff(end, preset?.end),
+      label, open_slots: Math.max(1, Number(slots) || 1) });
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 430, padding: 20, maxHeight: '92dvh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{ex ? 'Open shift' : 'Add open shift'}</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+          {new Date(cell.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })} · an unassigned slot anyone on the team can be given
+        </div>
+        {shifts.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift presets yet - create one under “Presets & groups” first.</div>
+        ) : (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Shift preset</div>
+              <select className="form-input" value={shiftId} onChange={e => { setShiftId(e.target.value); setStart(''); setEnd(''); }} style={{ width: '100%', fontSize: 13 }}>
+                {shifts.map(s => <option key={s.id} value={s.id}>{s.code ? `${s.code} · ` : ''}{s.name} ({s.start}–{s.end})</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>Start<input type="time" className="form-input" value={eff(start, preset?.start)} onChange={e => setStart(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+              <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>End<input type="time" className="form-input" value={eff(end, preset?.end)} onChange={e => setEnd(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+              <label style={{ width: 80, fontSize: 11, color: 'var(--muted)' }}>People<input type="number" min={1} max={50} className="form-input" value={slots} onChange={e => setSlots(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+            </div>
+            <input className="form-input" placeholder="Label (e.g. All Properties)" value={label} onChange={e => setLabel(e.target.value)} style={{ fontSize: 13 }} />
+
+            {ex && (
+              <div style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4, fontWeight: 700 }}>Assign to a person</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <select className="form-input" value={assignee} onChange={e => setAssignee(e.target.value)} style={{ flex: 1, fontSize: 13 }}>
+                    <option value="">- pick someone -</option>
+                    {people.map(p => <option key={p.email} value={p.email}>{p.name || p.email}</option>)}
+                  </select>
+                  <button className="secondary-btn" onClick={() => assignee && onAssign(ex.id, assignee)} disabled={!assignee || busy}
+                    style={{ opacity: assignee ? 1 : 0.55 }}>Assign</button>
+                </div>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 5 }}>Gives this shift to the person and drops the open count by one.</div>
+              </div>
+            )}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
+          {ex && <button onClick={() => onDelete(ex.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={13} /> Remove</button>}
+          <div style={{ flex: 1 }} />
+          <button className="secondary-btn" onClick={onClose}>Cancel</button>
+          {shifts.length > 0 && <button className="primary-btn" onClick={submit} disabled={busy}>{busy ? '…' : 'Save'}</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CellModal({ cell, shifts, busy, onSave, onDelete, onClose, onCopy }) {
   const ex = cell.existing;
   const [shiftId, setShiftId] = useState(ex?.shiftId || (shifts[0]?.id || ''));
   const [start, setStart] = useState(ex?.start || '');
@@ -225,13 +539,19 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onClose }) {
     });
   }
 
+  // ex is fixed for this modal instance's lifetime (a fresh CellModal mounts
+  // per cell click), so the initial useState values ARE the baseline.
+  const dirty = shiftId !== (ex?.shiftId || (shifts[0]?.id || '')) || start !== (ex?.start || '')
+    || end !== (ex?.end || '') || label !== (ex?.label || '') || note !== (ex?.note || '');
+  const guard = useUnsavedGuard(dirty, onClose, submit);
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 420, padding: 20 }}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 'clamp(420px, 60vw, 700px)', padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{ex ? 'Edit Shift' : 'Add Shift'}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
           {new Date(cell.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}
@@ -256,11 +576,15 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onClose }) {
         )}
         <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
           {ex && <button onClick={() => onDelete(ex.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={13} /> Remove</button>}
+          {ex && onCopy && <button onClick={() => onCopy(ex)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }} title="Copy this shift to place on another person or day"><Copy size={13} /> Copy</button>}
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
           {shifts.length > 0 && <button className="primary-btn" onClick={submit} disabled={busy}>{busy ? '…' : 'Save'}</button>}
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={guard.saving || busy} />
+      )}
     </div>
   );
 }

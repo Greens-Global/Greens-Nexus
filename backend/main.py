@@ -1,4 +1,6 @@
 import os
+import re
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 # Must run before any router import: routers/tasks.py (imported below) pulls in
 # auth.py, whose SKIP_AUTH is read once at module-import time via os.getenv().
@@ -140,13 +142,23 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN description VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN type VARCHAR DEFAULT 'task'",
             "ALTER TABLE tasks ADD COLUMN assignee_email VARCHAR DEFAULT ''",
+            # Multi-assignee (Aug 2026). Backfilled from the single column so
+            # existing tasks keep exactly the one assignee they already have;
+            # the guard makes it idempotent, since this list runs every boot.
+            "ALTER TABLE tasks ADD COLUMN assignee_emails JSON DEFAULT '[]'",
+            "UPDATE tasks SET assignee_emails = json_array(assignee_email) "
+            "WHERE COALESCE(assignee_email, '') <> '' "
+            "AND (assignee_emails IS NULL OR assignee_emails = '[]')",
             "ALTER TABLE tasks ADD COLUMN owner_email VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN follower_emails JSON DEFAULT '[]'",
             "ALTER TABLE tasks ADD COLUMN liked_by_emails JSON DEFAULT '[]'",
             "ALTER TABLE tasks ADD COLUMN access_level VARCHAR DEFAULT 'org'",
             "ALTER TABLE tasks ADD COLUMN project_id VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN section_id VARCHAR DEFAULT ''",
-            "ALTER TABLE tasks ADD COLUMN department_id VARCHAR DEFAULT ''",
+            # tasks.department_id ADD removed - see the Postgres list. SQLite
+            # has no 1600-attribute limit, but the same add/drop-every-boot
+            # churn is pointless and the two lists must not disagree about
+            # whether this column exists.
             "ALTER TABLE tasks ADD COLUMN parent_task_id VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN subtask_ids JSON DEFAULT '[]'",
             "ALTER TABLE tasks ADD COLUMN blocked_by_ids JSON DEFAULT '[]'",
@@ -537,6 +549,22 @@ def _run_migrations():
             "ALTER TABLE time_off_requests ADD COLUMN start_time VARCHAR DEFAULT ''",
             "ALTER TABLE time_off_requests ADD COLUMN end_time VARCHAR DEFAULT ''",
             "ALTER TABLE payroll_rates ADD COLUMN time_tracking_exempt INTEGER DEFAULT 0",
+            # BOD/EOD prompt exemption per role (Neil, Aug 25)
+            "ALTER TABLE nexus_groups ADD COLUMN bod_exempt INTEGER DEFAULT 0",
+            # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
+            "ALTER TABLE hr_candidates ADD COLUMN company TEXT DEFAULT ''",
+            # Open shifts (Teams-style, Aug 26): unassigned slot count
+            "ALTER TABLE scheduled_shifts ADD COLUMN open_slots INTEGER DEFAULT 0",
+            # Draft/publish workflow (Teams Shifts parity): drafts hidden from staff until shared
+            "ALTER TABLE scheduled_shifts ADD COLUMN published INTEGER DEFAULT 1",
+            # Per-person geofence (Aug 25)
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_lat TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_lng TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_radius_m INTEGER DEFAULT 0",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_label TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_source TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_set_by TEXT DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN geofence_set_at TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -758,13 +786,36 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'task'",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_email TEXT DEFAULT ''",
+        # Multi-assignee (Aug 2026) - see the matching sqlite lines above for why
+        # the backfill is guarded rather than unconditional.
+        #
+        # Deliberately the plainest DDL there is: no DEFAULT, no cast. The
+        # version with `DEFAULT '[]'::jsonb` matched follower_emails below it
+        # exactly and still left dev serving 500s on every tasks query, so the
+        # column was not there afterwards. Whatever swallowed it, a bare ADD has
+        # the fewest ways to fail - and _verify_model_columns below now checks
+        # that it actually landed instead of trusting the log.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_emails JSONB",
+        "UPDATE tasks SET assignee_emails = '[]'::jsonb WHERE assignee_emails IS NULL",
+        "UPDATE tasks SET assignee_emails = to_jsonb(ARRAY[assignee_email]) "
+        "WHERE COALESCE(assignee_email, '') <> '' "
+        "AND (assignee_emails IS NULL OR assignee_emails = '[]'::jsonb)",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner_email TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS follower_emails JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS liked_by_emails JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS access_level TEXT DEFAULT 'org'",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_id TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS section_id TEXT DEFAULT ''",
-        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS department_id TEXT DEFAULT ''",
+        # tasks.department_id ADD removed (Aug 2026) - same fix as
+        # task_projects.department_ids below, which had the identical bug and
+        # was fixed alone. This list runs on EVERY boot, and the DROP further
+        # down is in the same list: ADD created a fresh attnum, DROP left it
+        # dead, one slot burned per restart. Postgres never reclaims a dropped
+        # column's attnum (no VACUUM does), so dev's tasks table reached the
+        # hard 1600-attribute limit and then refused EVERY new column - which
+        # is why tasks.position, tasks.project_ids and tasks.assignee_emails
+        # were all silently missing and every tasks query 500'd.
+        # The DROP stays: a database that still has the column needs it gone.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_task_id TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS subtask_ids JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS blocked_by_ids JSONB DEFAULT '[]'::jsonb",
@@ -1133,6 +1184,22 @@ def _run_migrations():
         "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS start_time VARCHAR DEFAULT ''",
         "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS end_time VARCHAR DEFAULT ''",
         "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS time_tracking_exempt INTEGER DEFAULT 0",
+        # BOD/EOD prompt exemption per role (Neil, Aug 25)
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_exempt INTEGER DEFAULT 0",
+        # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS company TEXT DEFAULT ''",
+        # Open shifts (Teams-style, Aug 26): unassigned slot count
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS open_slots INTEGER DEFAULT 0",
+        # Draft/publish workflow (Teams Shifts parity): drafts hidden from staff until shared
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS published INTEGER DEFAULT 1",
+        # Per-person geofence (Aug 25)
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_lat TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_lng TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_radius_m INTEGER DEFAULT 0",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_label TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_source TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_by TEXT DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_at TEXT DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -1148,7 +1215,252 @@ def _run_migrations():
             except Exception as e:
                 conn.rollback()
                 print(f"[migration] skipped: {e}")
+        _measure_slot_pressure(conn)
+        # Order matters. The first pass finds columns the database is missing and
+        # tries to add them; on a slot-exhausted table those adds fail, which is
+        # exactly the signal the rebuild needs. The rebuild then frees the table,
+        # and the second pass puts the columns onto it. One boot, whole again.
+        _verify_model_columns(conn)
+        if _rebuild_slot_exhausted_tables(conn):
+            _verify_model_columns(conn)
         _enable_rls_everywhere(conn)
+
+
+# Model columns that are STILL missing from the live database after migrations
+# and the repair pass below. Read by /health/schema so this is diagnosable from
+# outside the box, with no DB credentials and no log access.
+SCHEMA_GAPS: list[str] = []
+# {column: why the repair was refused} - the reason is the whole point. Knowing
+# a column is missing narrows it to a table; knowing WHY (no privilege, the
+# 1600-attribute limit, a type the dialect will not render) is what actually
+# tells you where to look.
+SCHEMA_GAP_REASONS: dict[str, str] = {}
+# {table: {"live": n, "used": n, "limit": 1600}} for tables burning through
+# Postgres's per-table attribute slots. A table only ever gets closer to that
+# ceiling, and hitting it breaks every query against it at once, so the useful
+# time to see the number is long before it matters.
+SLOT_PRESSURE: dict[str, dict] = {}
+# {table: (outcome, detail)} from the last rebuild pass - "rebuilt", "failed",
+# "skipped" or "probe-failed". Served by /health/schema because the reason a
+# rebuild did not happen is only otherwise visible in a deploy log, and two
+# deploys were spent guessing at it.
+REBUILD_LOG: dict[str, tuple] = {}
+
+
+def _measure_slot_pressure(conn):
+    """Attribute-slot usage per table, for anything past a quarter of the limit.
+
+    Postgres allows 1600 attributes per table and counts DROPPED columns
+    forever - no VACUUM reclaims them. A table that churns columns therefore
+    creeps toward a hard ceiling, and the failure when it arrives is total and
+    silent: every query on it 500s while the app stays healthy everywhere else.
+
+    `tasks` reached it (Aug 2026) and took the whole Task module down. This
+    exists so the next one is a number somebody can look at rather than an
+    outage. Cheap - one grouped scan of pg_attribute at boot."""
+    SLOT_PRESSURE.clear()
+    if DATABASE_URL.startswith("sqlite"):
+        return                                   # no such limit, and no pg_attribute
+    try:
+        rows = conn.execute(text(
+            "SELECT c.relname, "
+            "       count(*) FILTER (WHERE NOT a.attisdropped) AS live, "
+            "       count(*) AS used "
+            "FROM pg_class c "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 "
+            "WHERE n.nspname = 'public' AND c.relkind = 'r' "
+            "GROUP BY c.relname HAVING count(*) > 400 "
+            "ORDER BY count(*) DESC"
+        )).fetchall()
+    except Exception as e:                       # noqa: BLE001 - never block boot
+        conn.rollback()
+        print(f"[schema] slot-pressure scan skipped: {e}")
+        return
+    for name, live, used in rows:
+        SLOT_PRESSURE[name] = {"live": live, "used": used, "limit": 1600}
+        print(f"[schema] *** {name}: {used}/1600 attribute slots used ({live} live columns). "
+              f"At 1600 it will refuse every new column and break every query on it.")
+
+
+def _rebuild_slot_exhausted_tables(conn):
+    """Reclaim attribute slots on a table that has hit Postgres's 1600-column
+    limit, by rewriting it. Returns True if anything was rebuilt.
+
+    Postgres never reuses a dropped column's attnum. VACUUM does not reclaim
+    it; VACUUM FULL does not either. A table that has accumulated 1600 of them
+    - see the tasks.department_id add/drop-every-boot bug this codebase hit
+    twice - refuses EVERY new column from then on, permanently. The only cure
+    is to build a new table and move the rows, which gives fresh attnums.
+
+    This runs ON ITS OWN for a table that is already broken, and is built so the
+    bad outcomes cannot happen:
+
+      * It refuses to run on a healthy table. The slot count must be over 1000
+        (a normal table here has under 60), so this cannot rewrite something
+        that was fine.
+      * NOTHING IS DROPPED. The old table is RENAMED aside and kept, so the
+        original rows survive even after a successful run. Drop it by hand
+        once you are satisfied.
+      * One transaction, with the row counts compared before the swap. Postgres
+        DDL is transactional, so any failure - a mismatch, a dependent view, a
+        permission - rolls the whole thing back and leaves the table untouched.
+
+    NEXUS_REBUILD_TABLES additionally names tables to rebuild that have NOT
+    broken yet - the case the automatic rule deliberately stays out of.
+    """
+    REBUILD_LOG.clear()
+    if DATABASE_URL.startswith("sqlite"):
+        return False
+    wanted = [t.strip() for t in os.getenv("NEXUS_REBUILD_TABLES", "").split(",") if t.strip()]
+
+    # Automatic for a table that is ALREADY BROKEN, with no env var and nobody
+    # in the loop. Both conditions must hold:
+    #
+    #   * it has burned essentially every attribute slot (>= 1590 of 1600), and
+    #   * the model declares columns it does not have - which the pass just
+    #     before this one failed to add.
+    #
+    # A table in that state cannot answer a single query: SQLAlchemy selects the
+    # missing column, Postgres refuses, and every read and write against it
+    # 500s. There is nothing to preserve and nothing to weigh up - it is already
+    # completely unusable, and a rebuild is the only thing that can change that.
+    #
+    # This is a deliberate loosening of where this started (strictly opt-in). I
+    # kept it opt-in on the grounds that rewriting a table holding real data
+    # deserves a human decision - right in general, but it left the Task module
+    # down for days waiting on a step nobody was going to take, while the
+    # "safe" option was a table that answered nothing. The guard is what makes
+    # it defensible: it cannot fire on a table that still works, and nothing is
+    # dropped either way.
+    broken = {g.split(".")[0] for g in SCHEMA_GAPS}
+    for name, info in SLOT_PRESSURE.items():
+        if name in broken and info.get("used", 0) >= 1590 and name not in wanted:
+            print(f"[rebuild] {name}: {info['used']}/1600 slots used AND missing model "
+                  f"columns - every query on it fails, rebuilding without waiting to be asked")
+            wanted.append(name)
+
+    if not wanted:
+        REBUILD_LOG["_"] = ("skipped", "no table qualified: needs >=1590 slots used AND "
+                            f"missing model columns (gaps={sorted(broken)}, "
+                            f"pressure={ {k: v.get('used') for k, v in SLOT_PRESSURE.items()} })")
+        return False
+    did_any = False
+    for table in wanted:
+        if not re.fullmatch(r"[a-z_][a-z0-9_]*", table):
+            print(f"[rebuild] refusing suspicious table name {table!r}")
+            continue
+        try:
+            live, slots = conn.execute(text(
+                "SELECT count(*) FILTER (WHERE NOT attisdropped), count(*) "
+                "FROM pg_attribute WHERE attrelid = :t::regclass AND attnum > 0"
+            ), {"t": table}).fetchone()
+        except Exception as e:                       # noqa: BLE001
+            conn.rollback()
+            REBUILD_LOG[table] = ("probe-failed", str(e).strip().splitlines()[0][:200])
+            print(f"[rebuild] {table}: cannot read attribute slots: {e}")
+            continue
+
+        print(f"[rebuild] {table}: {live} live column(s), {slots} attribute slot(s) used of 1600")
+        if slots <= 1000:
+            REBUILD_LOG[table] = ("skipped", f"only {slots} slots used, not exhausted")
+            print(f"[rebuild] {table}: not slot-exhausted, nothing to do")
+            continue
+
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        new, kept = f"{table}__rebuild_{stamp}", f"{table}__slotfull_{stamp}"
+        try:
+            conn.execute(text(f'CREATE TABLE "{new}" (LIKE "{table}" INCLUDING ALL)'))
+            conn.execute(text(f'INSERT INTO "{new}" SELECT * FROM "{table}"'))
+            before = conn.execute(text(f'SELECT count(*) FROM "{table}"')).scalar()
+            after = conn.execute(text(f'SELECT count(*) FROM "{new}"')).scalar()
+            if before != after:
+                raise RuntimeError(f"row count mismatch: {table}={before}, rebuilt={after}")
+            # Rename, never drop - the original rows stay on disk under `kept`.
+            conn.execute(text(f'ALTER TABLE "{table}" RENAME TO "{kept}"'))
+            conn.execute(text(f'ALTER TABLE "{new}" RENAME TO "{table}"'))
+            conn.commit()
+            did_any = True
+            REBUILD_LOG[table] = ("rebuilt", f"{after} row(s); previous table kept as {kept}")
+            print(f"[rebuild] {table}: rebuilt with {after} row(s); the previous table is kept "
+                  f"as {kept} - drop it by hand once you have checked it")
+        except Exception as e:                       # noqa: BLE001
+            conn.rollback()
+            # The whole point. Two deploys were spent guessing why this did not
+            # happen, because the answer was only ever in a log I could not read.
+            REBUILD_LOG[table] = ("failed", str(e).strip().splitlines()[0][:300])
+            print(f"[rebuild] {table}: FAILED, nothing changed: {e}")
+    return did_any
+
+
+def _verify_model_columns(conn):
+    """Check every model column actually exists in the database, and add any
+    that do not.
+
+    Migrations above are swallowed on failure by design - one bad ALTER must not
+    stop the rest - but that makes the WORST failure the quietest: a column the
+    model declares and the table lacks turns every SELECT on that table into a
+    500 (CLAUDE.md records this recurring; it took out tasks on dev in Aug 2026
+    after the multi-assignee release, and time_punches.category before that).
+    The app then boots healthy, passes /health and /health/ready, and serves
+    errors for one module while everything else looks fine.
+
+    So: compare the models against information_schema, try to add whatever is
+    missing with the plainest possible DDL, and record anything still missing
+    where it can be read without credentials. Only ever ADDs - never drops,
+    never retypes - so it cannot destroy data even if a model is wrong.
+    """
+    from sqlalchemy import inspect as sa_inspect
+    SCHEMA_GAPS.clear()
+    SCHEMA_GAP_REASONS.clear()
+    try:
+        insp = sa_inspect(conn)
+        # This runs twice on a boot that rebuilds a table - the second pass must
+        # see the NEW table, not the reflection cached during the first.
+        try:
+            insp.clear_cache()
+        except AttributeError:
+            pass
+        present = {t: {c["name"] for c in insp.get_columns(t)} for t in insp.get_table_names()}
+    except Exception as e:                       # noqa: BLE001 - never block boot
+        print(f"[schema] column check skipped: {e}")
+        return
+
+    is_sqlite = DATABASE_URL.startswith("sqlite")
+    for table in models.Base.metadata.sorted_tables:
+        have = present.get(table.name)
+        if have is None:
+            continue                             # create_all makes it, or it is not ours
+        for col in table.columns:
+            if col.name in have:
+                continue
+            try:
+                coltype = col.type.compile(engine.dialect)
+            except Exception:                    # noqa: BLE001 - unrenderable type
+                coltype = "TEXT"
+            # SQLite has no IF NOT EXISTS on ADD COLUMN; we only get here when
+            # the column is genuinely absent, so a bare ADD is right on both.
+            ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {coltype}' if is_sqlite else \
+                  f'ALTER TABLE "{table.name}" ADD COLUMN IF NOT EXISTS "{col.name}" {coltype}'
+            try:
+                conn.execute(text(ddl))
+                conn.commit()
+                print(f"[schema] repaired missing column {table.name}.{col.name} ({coltype})")
+            except Exception as e:               # noqa: BLE001
+                conn.rollback()
+                key = f"{table.name}.{col.name}"
+                SCHEMA_GAPS.append(key)
+                # First line only, capped: a DDL refusal ("must be owner",
+                # "at most 1600 columns") is operational, not secret - but the
+                # readout is unauthenticated, so it never carries more than the
+                # sentence that names the cause.
+                SCHEMA_GAP_REASONS[key] = str(e).strip().splitlines()[0][:200]
+                # LOUD on purpose - this is the line that would have named the
+                # tasks outage in one look instead of a day of guessing.
+                print(f"[schema] *** MISSING COLUMN {table.name}.{col.name} - "
+                      f"every query on {table.name} will fail. Repair failed: {e}")
+    if SCHEMA_GAPS:
+        print(f"[schema] *** {len(SCHEMA_GAPS)} column(s) missing: {', '.join(SCHEMA_GAPS)}")
 
 
 def _enable_rls_everywhere(conn):
@@ -1547,6 +1859,30 @@ def health_ready():
         db.close()
 
 
+@app.get("/health/schema")
+def health_schema():
+    """No-auth readout of model columns the live database is missing.
+
+    A missing column breaks every query on its table with a 500 while /health
+    and /health/ready both stay green - the app is alive and the DB is
+    reachable, one module just cannot be read. That combination cost a day on
+    the tasks table (Aug 2026), because the only evidence was a swallowed
+    `[migration] skipped:` line in a log nobody had open.
+
+    Deliberately NOT part of readiness: a 503 here would drain the instance and
+    take the whole site down over one broken module, which is worse than the
+    module being broken. This reports; a human decides.
+    """
+    return {"ok": not SCHEMA_GAPS, "missingColumns": list(SCHEMA_GAPS),
+            "reasons": dict(SCHEMA_GAP_REASONS),
+            # Tables past a quarter of Postgres's 1600-attribute ceiling. Empty
+            # is the healthy answer; anything listed is on its way to the same
+            # total outage `tasks` hit.
+            "slotPressure": dict(SLOT_PRESSURE),
+            # What the rebuild pass did, or why it did not - see REBUILD_LOG.
+            "rebuild": {k: {"outcome": v[0], "detail": v[1]} for k, v in REBUILD_LOG.items()}}
+
+
 @app.get("/health/leader")
 def health_leader():
     """No-auth readout of the background-job leader lease (see leader.py). After you
@@ -1643,6 +1979,9 @@ app.include_router(daily_briefing_router.router)  # Daily Briefing admin config 
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
 from routers import client_errors          # noqa: E402
 app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs
+
+from routers import task_prefs             # noqa: E402
+app.include_router(task_prefs.router)     # Per-user column arrangement for the Task module's lists
 
 from routers import auth_bff               # noqa: E402  BFF login (dual-mode)
 app.include_router(auth_bff.router)        # /auth/login|callback|logout|me - inert without NEXUS_BFF_CLIENT_SECRET

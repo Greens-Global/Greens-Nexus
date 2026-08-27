@@ -33,6 +33,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from database import get_db
 from auth import (get_current_user, require_level_or_module, require_administrator,
@@ -44,9 +45,6 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
-# Safe one-way import: timeclock_watch only imports THIS module lazily inside
-# functions, so no cycle at import time. Shares the auto clock-out config.
-from timeclock_watch import AUTO_OUT_KEY as _AUTO_OUT_KEY, _auto_out_cfg
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
 
@@ -76,14 +74,25 @@ require_tracking_read_write = require_level_or_modules(3, [("hr", "editor"), ("e
 
 def _visible_emails(db: Session, user: dict):
     """Team-data scope. None = whole company (administrators, or anyone holding
-    an HR-module grant). A plain level-3/4 manager sees only their DIRECT
-    reports (manager_email == them) plus themself - the Manager Dashboard view."""
-    from auth import _module_level
-    if user.get("level", 0) >= 4 or _module_level(user["email"], "hr", db) >= 1:
+    an UNRESTRICTED HR-module grant). An HR grant limited by company scopes
+    (Neil, Aug 25 - hr_scope) yields the emails of those companies' people
+    instead, which flows through every team surface built on this function
+    (timesheet, payroll, exceptions, screenshots, monitoring, time off). A
+    plain level-3 manager sees only their DIRECT reports (manager_email ==
+    them) plus themself - the Manager Dashboard view."""
+    from auth import _module_level, hr_scope
+    if user.get("level", 0) >= 4:
         return None
     directs = {(e.work_email or "").lower() for e in db.query(NexusEmployee)
                .filter(NexusEmployee.manager_email == user["email"]).all() if e.work_email}
     directs.add(user["email"])
+    if _module_level(user["email"], "hr", db) >= 1:
+        scope = hr_scope(user, db)
+        if scope is None:
+            return None
+        company = {(e.work_email or "").lower() for e in db.query(NexusEmployee)
+                   .filter(NexusEmployee.company.in_(scope)).all() if e.work_email}
+        return company | directs   # a scoped admin is still a manager of their directs
     return directs
 
 KINDS = ("in", "out", "break_start", "break_end")
@@ -115,14 +124,53 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
-def _geofence(db: Session, lat, lng, accuracy_m: int) -> dict:
-    """Nearest geofenced work site + soft-gate verdict with accuracy credit."""
+def _soft_gate(d: float, radius: int, accuracy_m: int, base: dict) -> dict:
+    """Shared soft-gate verdict: in_fence / out_of_fence / low_accuracy, with the
+    same GPS-accuracy credit (capped at 150 m) used for work sites and personal
+    geofences alike."""
+    acc = max(0, int(accuracy_m or 0))
+    if acc > 500:
+        return {**base, "geo_status": "low_accuracy"}
+    effective = max(0.0, d - min(acc, 150))
+    return {**base, "geo_status": "in_fence" if effective <= radius else "out_of_fence"}
+
+
+def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "") -> dict:
+    """Soft-gate verdict for a punch. A person with a PERSONAL geofence assigned
+    (geofence_radius_m > 0) is judged against that location - it is their work
+    area. Everyone else is judged against the nearest geofenced work site."""
     try:
         plat, plng = float(lat), float(lng)
     except (TypeError, ValueError):
         return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
+    # Personal geofence wins when set.
+    if email:
+        emp = (db.query(NexusEmployee)
+               .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
+        if emp and (emp.geofence_radius_m or 0) > 0:
+            try:
+                glat, glng = float(emp.geofence_lat), float(emp.geofence_lng)
+            except (TypeError, ValueError):
+                glat = glng = None
+            if glat is not None:
+                d = _haversine_m(plat, plng, glat, glng)
+                radius = max(25, int(emp.geofence_radius_m or 150))
+                base = {"work_site_id": "personal",
+                        "work_site_name": emp.geofence_label or "Assigned work location",
+                        "distance_m": int(round(d))}
+                return _soft_gate(d, radius, accuracy_m, base)
+    return _geofence_site(db, plat, plng, accuracy_m)
+
+
+def _geofence_site(db: Session, plat: float, plng: float, accuracy_m: int, sites=None) -> dict:
+    """Soft-gate against the nearest geofenced HrWorkSite ONLY - never a personal
+    geofence. This is the attribution used for billable-time-per-location, where
+    a worker who moves between rental properties must resolve to the actual
+    property site, not their personal 'assigned work location'. Pass a preloaded
+    `sites` list to avoid a per-ping query. Desktops have no GPS: _soft_gate caps
+    the accuracy credit at 150 m; past ±500 m the fix is low_accuracy."""
     best = None
-    for s in db.query(HrWorkSite).all():
+    for s in (sites if sites is not None else db.query(HrWorkSite).all()):
         try:
             slat, slng = float(s.latitude), float(s.longitude)
         except (TypeError, ValueError):
@@ -131,21 +179,11 @@ def _geofence(db: Session, lat, lng, accuracy_m: int) -> dict:
         if best is None or d < best[0]:
             best = (d, s)
     if best is None:
-        # No geofenced sites configured at all - location recorded, nothing to judge
         return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     d, site = best
     radius = max(25, int(site.radius_m or 150))
-    acc = max(0, int(accuracy_m or 0))
     base = {"work_site_id": site.id, "work_site_name": site.name or "", "distance_m": int(round(d))}
-    # Desktops have no GPS: browsers triangulate from Wi-Fi/IP and can be
-    # kilometres off with a huge reported accuracy. Crediting that in full
-    # would let a coarse fix "pass" any fence, so the credit is capped at
-    # 150 m, and past ±500 m the fix can't be judged at all → low_accuracy
-    # (recorded, neutral - phones give GPS fixes and judge normally).
-    if acc > 500:
-        return {**base, "geo_status": "low_accuracy"}
-    effective = max(0.0, d - min(acc, 150))
-    return {**base, "geo_status": "in_fence" if effective <= radius else "out_of_fence"}
+    return _soft_gate(d, radius, accuracy_m, base)
 
 
 def _unconfirmed_auto_out(p) -> bool:
@@ -378,13 +416,17 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
                       TimePunch.local_date == local_today, TimePunch.voided == 0).first())
     pol = _get_policy(db)
     _rr = db.query(PayrollRate).filter(PayrollRate.employee_email == email).first()
+    _bod_ex = _is_bod_exempt(db, email)
     return {
         "lastPunch": _serialize(last) if last else None,
         "allowed": _allowed_kinds(last.kind if last else None),
         "days": summaries,
         "todayUtc": today,
         "geofencedSites": sites,
-        "bodRequired": has_bod is None and has_in is None,
+        "bodRequired": (has_bod is None and has_in is None) and not _bod_ex,
+        # Role-flagged people skip EVERY message prompt (BOD, EOD, break start/
+        # end) - punches go straight through (Neil, Aug 25).
+        "bodExempt": _bod_ex,
         # Salaried/exempt people (Charmi, Aug 21): the client hides the punch
         # card and every "hours this week" surface. The flag lives on the pay
         # record (HR sets it in the wage editor).
@@ -416,6 +458,37 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     }
 
 
+def _handover_shared_pc(db: Session, dev, tz_offset_min: int) -> None:
+    """A new employee is taking over a shared PC still bound to someone who left
+    without clocking out. Close that person's forgotten shift with a pay-safe,
+    flagged auto clock-out (source='auto_eod' - the pay engine holds its segment
+    at 0 minutes and blocks sign-off until a human confirms the real end time,
+    exactly like the nightly EOD sweep, so nobody is paid for a shift they walked
+    away from) and free the device. If the previous person's session is already
+    closed (a stale binding), just release the device."""
+    prev = (dev.active_email or "").strip()
+    dev.active_email = ""
+    dev.active_session_id = ""
+    if not prev:
+        return
+    last = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == prev, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc()).first())
+    if not last or last.kind == "out":
+        return   # not clocked in (stale binding) - nothing to close
+    now = _now_iso()
+    at = now
+    _lt = _parse_iso(last.at)
+    _nt = _parse_iso(now)
+    if _lt and _nt and _nt <= _lt:            # keep the out strictly after the last punch
+        at = (_lt + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%S")
+    db.add(TimePunch(id=str(uuid.uuid4()), employee_email=prev, kind="out", at=at,
+                     local_date=_local_date(at, tz_offset_min), tz_offset_min=tz_offset_min,
+                     geo_status="", source="auto_eod",
+                     note="Auto clock-out - another employee started a shift on this shared PC",
+                     created_by="system", created_at=now))
+
+
 @router.post("/punch")
 def punch(body: PunchIn, request: Request,
           user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -428,18 +501,20 @@ def punch(body: PunchIn, request: Request,
     allowed = _allowed_kinds(last.kind if last else None)
     if body.kind not in allowed:
         raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
-    # Shared-PC: resolve the device the local agent claimed (via /agent/pair) and
-    # gate it BEFORE recording an 'in', so a device already in use blocks cleanly
-    # without leaving a stray punch. One active employee per device.
+    # Shared-PC: resolve the device the local agent claimed (via /agent/pair).
+    # A successful pairing means THIS employee is physically at that PC's agent,
+    # so if it is still bound to someone else, that person LEFT the shared PC
+    # without clocking out (logged out / walked away). Don't block the next
+    # person behind a 409 - hand the PC over: close the previous person's
+    # forgotten shift with a pay-safe, flagged auto clock-out and free the
+    # binding, so this employee can start their shift (Visesh, Aug 26).
     pending_bind = None
     if body.kind == "in" and (body.pair_nonce or "").strip():
         pending_bind = _resolve_pairing(db, body.pair_nonce.strip(), email)
         if pending_bind:
             _pairing, _dev = pending_bind
             if _dev.active_email and _dev.active_email != email:
-                _e2 = db.query(NexusEmployee).filter(NexusEmployee.work_email == _dev.active_email).first()
-                _nm = (f"{_e2.first_name} {_e2.last_name}".strip() if _e2 else _dev.active_email.split("@")[0])
-                raise HTTPException(409, f"This PC is already clocked in for {_nm}. They need to clock out before you can start a shift on this computer.")
+                _handover_shared_pc(db, _dev, body.tz_offset_min or 0)
     now = _now_iso()
     # The BOD/EOD message gate opens BEFORE the punch is sent, so the minutes
     # spent writing the day message used to fall outside the recorded time
@@ -469,7 +544,7 @@ def punch(body: PunchIn, request: Request,
         prev = _parse_iso(last.at)
         if prev and (datetime.now(timezone.utc) - prev).total_seconds() < 60:
             raise HTTPException(409, "Duplicate punch - you just did that.")
-    geo = _geofence(db, body.lat, body.lng, body.accuracy_m or 0)
+    geo = _geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
     if not (body.lat or "").strip():
         geo = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     ip, ua = _client_meta(request)
@@ -589,12 +664,32 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None) -> list:
     # Break policy per employee (the paid rest-break credit is CA-rule only) -
     # bulk-load rules so this stays one query, not one per person.
     _bp = _breakpolicy_cfg(db)
-    _rules = {r.employee_email: (getattr(r, "overtime_rule", None) or "ca")
-              for r in db.query(PayrollRate).all()}
+    _rates = {r.employee_email: r for r in db.query(PayrollRate).all()}
+    _rules = {em: (getattr(r, "overtime_rule", None) or "ca") for em, r in _rates.items()}
+
+    # Show EVERY hourly employee in scope, not only those who happen to have
+    # punches this period (Charmi, Aug 25 - "I don't even see Vicky; when I run
+    # payroll how do I get everyone's hours?"). Without this, a person with a
+    # clean period or who never clocked in simply vanishes from the timesheet,
+    # the sidebar, and search. No-punch people get a zero row (days={}), which
+    # renders as N.A. Salaried leadership with time_tracking_exempt, and fixed
+    # (non-hourly) pay types, stay out - they are not on the hourly timesheet.
+    def _is_hourly(em: str) -> bool:
+        r = _rates.get(em)
+        if r is None:
+            return True   # no rate row yet = treated as hourly (default)
+        return (getattr(r, "pay_type", None) or "hourly") != "fixed" and not getattr(r, "time_tracking_exempt", 0)
+
+    roster = {(e.work_email or "").lower() for e in db.query(NexusEmployee).all()
+              if e.work_email and _is_hourly((e.work_email or "").lower())}
+    if only_emails is not None:
+        roster &= set(only_emails)
+
     rows = []
-    for email, plist in sorted(by_emp.items()):
+    for email in sorted(set(by_emp) | roster):
+        plist = by_emp.get(email, [])
         days = _day_summaries(plist, rmin,
-                              break_cfg={**_bp, "enabled": _bp["enabled"] and _rules.get(email, "ca") == "ca"})
+                              break_cfg={**_bp, "enabled": _bp["enabled"] and _rules.get(email, "ca") == "ca"}) if plist else {}
         rows.append({
             "email": email,
             "name": names.get(email) or email.split("@")[0].replace(".", " ").title(),
@@ -654,6 +749,77 @@ def team_timesheet(start: str = "", end: str = "",
                                        for (em, _d), v in last_change.items() if em == r["email"])}
                          if a else None)
     return {"rows": rows}
+
+
+@router.get("/billable-by-location")
+def billable_by_location(start: str = "", end: str = "",
+                         user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Billable time BY LOCATION for the visible team over [start,end] (Neil,
+    Aug 25 - a worker splits a shift across rental properties; extract the time
+    per property so maintenance is billable). Per employee:
+      - byLocation: priced worked-minutes per work site from the timecard
+        segments (each in->out segment bills to the site it was clocked in
+        from - so clocking out at A and in at B splits correctly);
+      - pingByLocation: GPS-verified minutes per site from the mobile tracking
+        trail, which catches an A->B move WITHIN a single clock-in (present only
+        when the field app was running). Both ignore personal geofences
+        (_geofence_site) so each point resolves to the actual property site."""
+    scope = _visible_emails(db, user)
+    roster = _team_rows(db, start, end, only_emails=scope)   # hourly people in scope, with names
+    names = {r["email"]: r["name"] for r in roster}
+    emails = list(names.keys())
+
+    # Segment-based, priced, per location (the reliable billing baseline).
+    seg_by_email = {}
+    for em in emails:
+        card = _compute_timecard(db, em, start, end)
+        bl = [x for x in (card.get("byLocation") or []) if x.get("workedMin", 0) > 0]
+        if bl:
+            seg_by_email[em] = bl
+
+    # Ping-based minutes per site (GPS trail). Re-attribute each ping to the
+    # nearest ACTUAL work site (site-only), independent of what was stamped at
+    # ingest, so personal geofences don't collapse a multi-property day.
+    sites = db.query(HrWorkSite).all()
+    cap_sec = _TRACK_INTERVAL_SEC * 2       # never credit a gap longer than two intervals
+    ping_min = {}                            # email -> {(siteId, siteName): minutes}
+    if emails:
+        pings = (db.query(TrackPing)
+                 .filter(TrackPing.employee_email.in_(emails),
+                         TrackPing.local_date >= (start or "0"),
+                         TrackPing.local_date <= (end or "9"),
+                         TrackPing.lat != "", TrackPing.lng != "")
+                 .order_by(TrackPing.employee_email, TrackPing.session_id, TrackPing.at).all())
+        # group by (email, session) so we only credit intervals within one shift
+        from itertools import groupby
+        for (em, _sid), grp in groupby(pings, key=lambda p: (p.employee_email, p.session_id)):
+            seq = list(grp)
+            for i, p in enumerate(seq):
+                nxt = seq[i + 1] if i + 1 < len(seq) else None
+                t0, t1 = _parse_iso(p.at), (_parse_iso(nxt.at) if nxt else None)
+                secs = min(cap_sec, (t1 - t0).total_seconds()) if (t0 and t1) else 0
+                if secs <= 0:
+                    continue
+                try:
+                    g = _geofence_site(db, float(p.lat), float(p.lng), int(p.accuracy_m or 0), sites=sites)
+                except (TypeError, ValueError):
+                    continue
+                if not g.get("work_site_id"):
+                    continue   # no site resolvable near this point
+                key = (g["work_site_id"], g["work_site_name"])
+                ping_min.setdefault(em, {})[key] = ping_min.setdefault(em, {}).get(key, 0.0) + secs / 60.0
+
+    out = []
+    for em in emails:
+        pbl = [{"workSiteId": sid, "workSite": nm, "minutes": int(round(m))}
+               for (sid, nm), m in sorted((ping_min.get(em) or {}).items(), key=lambda kv: -kv[1])]
+        bl = seg_by_email.get(em, [])
+        if not bl and not pbl:
+            continue   # nothing to bill for this person in the range
+        out.append({"email": em, "name": names.get(em, em),
+                    "byLocation": bl, "pingByLocation": pbl})
+    out.sort(key=lambda r: -sum(x["workedMin"] for x in r["byLocation"]))
+    return {"start": start, "end": end, "rows": out}
 
 
 def _finalized_row(db: Session, email: str, d_start: str, d_end: str = ""):
@@ -860,6 +1026,13 @@ def revoke_approval(approval_id: str, user: dict = Depends(require_team_write),
                     db: Session = Depends(get_db)):
     row = db.query(TimeApproval).filter(TimeApproval.id == approval_id).first()
     if not row:
+        raise HTTPException(404, "Approval not found")
+    # Scope: a company-scoped admin may only revoke approvals for their own
+    # people (matches approve_timecard). 404 (not 403) so out-of-scope approval
+    # ids don't leak - and this keeps a scoped admin from unlocking another
+    # company's finalized pay period by revoking its 'final' row.
+    scope = _visible_emails(db, user)
+    if scope is not None and (row.employee_email or "").lower() not in scope:
         raise HTTPException(404, "Approval not found")
     row.revoked = 1
     row.revoked_by = user["email"]
@@ -1284,12 +1457,21 @@ def export_iif(start: str = "", end: str = "",
         card = _compute_timecard(db, r["email"], start, end)
         name = _clean(r["name"])
         for d in card["days"]:
+            # Billing dimension (Neil, Aug 25): if the whole day was worked at ONE
+            # work site, put it in the JOB column (QuickBooks Customer:Job) and
+            # mark the time billable. Split-site days stay blank in the IIF (the
+            # payroll numbers are unchanged) - those are read off the By-location
+            # report instead, since one day-total row can't be cleanly divided
+            # across jobs without splitting the OT/DT computation.
+            day_sites = {(s.get("workSite") or "").strip() for s in d.get("segments", []) if (s.get("workSite") or "").strip()}
+            job = _clean(next(iter(day_sites))) if len(day_sites) == 1 else ""
+            billing = "1" if job else "0"
             for mins, pitem in ((d.get("regMin", 0), "Regular Pay"),
                                 (d.get("otMin", 0), "Overtime Pay"),
                                 (d.get("dtMin", 0), "Double-time Pay")):
                 if mins <= 0:
                     continue
-                lines.append(f"TIMEACT\t{_mdy(d['date'])}\t\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t0")
+                lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job}\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t{billing}")
     body = "\r\n".join(lines) + "\r\n"
     fname = f"timeclock-{start or 'all'}-to-{end or 'now'}.iif"
     return PlainTextResponse(body, media_type="application/octet-stream",
@@ -1356,21 +1538,40 @@ def _is_monitoring_exempt(db: Session, email: str) -> bool:
         NexusGroup.id.in_(gids), NexusGroup.monitoring_exempt == 1).first() is not None
 
 
+def _is_bod_exempt(db: Session, email: str) -> bool:
+    """True when the person belongs to any group/role flagged bod_exempt - they
+    skip the Beginning/End-of-day and break message prompts entirely (Neil,
+    Aug 25: field workers who cannot type were blocked from clocking in)."""
+    gids = [m.group_id for m in db.query(NexusGroupMember.group_id)
+            .filter(NexusGroupMember.email == email).all()]
+    if not gids:
+        return False
+    return db.query(NexusGroup.id).filter(
+        NexusGroup.id.in_(gids), NexusGroup.bod_exempt == 1).first() is not None
+
+
 _AGENT_FRESH_SEC = 180   # heartbeat is 60s; tolerate ~2 missed beats
 
 
 def _agent_active_for(db: Session, email: str) -> bool:
-    """True when a live desktop agent covers this person: a non-revoked device
-    assigned to them (owner) or currently bound to them (active_email) that has
-    checked in within the last few minutes. The browser reads this to skip its own
-    screen share (the agent captures instead) - detection is server-side because
-    Chrome's private-network policy blocks any browser->127.0.0.1 probe."""
+    """True when a desktop agent is BOUND to this person's CURRENT session - the
+    agent on the machine they clocked in from claimed the session through the
+    localhost pairing handshake (active_email), so it is capturing THIS machine.
+
+    Deliberately NOT keyed on enroll-time ownership (employee_email): a person who
+    owns an agent PC but is working today on a DIFFERENT, agent-less computer was
+    otherwise reported as covered, so the browser skipped its Chrome screen share
+    and that machine went completely uncaptured (Visesh, Aug 26). Owning an agent
+    somewhere is not the same as sitting at it. The browser now also probes the
+    local agent directly (GET 127.0.0.1:47615/nexus/ping) to decide per machine;
+    this is the server-side mirror, correct once the session is bound. When in
+    doubt the browser shares - over-capturing is safe, a silent gap is not."""
     if not email:
         return False
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=_AGENT_FRESH_SEC)).strftime("%Y-%m-%dT%H:%M:%S")
     q = (db.query(AgentDevice.id)
          .filter(AgentDevice.revoked == 0,
-                 (AgentDevice.employee_email == email) | (AgentDevice.active_email == email),
+                 AgentDevice.active_email == email,
                  AgentDevice.last_seen_at >= cutoff))
     return db.query(q.exists()).scalar()
 
@@ -2305,11 +2506,40 @@ def agent_devices(user: dict = Depends(require_tracking), db: Session = Depends(
         secs = int((now - _ts).total_seconds()) if _ts else None
         online = bool(d.last_seen_at and d.last_seen_at >= online_cutoff)
         subject = (d.active_email or d.employee_email or "").strip()
-        capturing = False
-        if online and cap_on and subject:
-            _clocked, _brk = _punch_state(db, subject)
-            capturing = bool(_clocked and not _brk)
+
+        # Clock state of the bound user and of the enroll owner (only worth a
+        # query while the agent is online).
+        def _clk(em):
+            return _punch_state(db, em) if (online and em) else (False, False)
+        active_clk = _clk(d.active_email)
+        owner_clk = _clk(d.employee_email)
+        subj_clk = active_clk if d.active_email else owner_clk
+        capturing = bool(online and cap_on and subject and subj_clk[0] and not subj_clk[1])
+
+        # Pairing status - the shared-PC health signal (Visesh, Aug 26). Is the
+        # agent capturing the person actually clocked in on THIS machine (a
+        # successful localhost pairing), or has it silently fallen back to the
+        # enroll owner because the browser could not reach the local agent to
+        # bind (127.0.0.1 blocked)?
+        #   bound          - the clocked-in user is bound to this PC (pairing worked)
+        #   owner_fallback - nobody bound but the OWNER is clocked in, so the agent
+        #                    is capturing the owner as a fallback: pairing is NOT
+        #                    binding here, and a different person on this PC would
+        #                    be mis-attributed to the owner
+        #   stale_binding  - someone is bound but is NOT clocked in (a clock-out
+        #                    that failed to release the PC)
+        #   idle           - online, nobody working on it
+        #   offline        - agent not reporting
+        if not online:
+            pairing = "offline"
+        elif d.active_email:
+            pairing = "bound" if active_clk[0] else "stale_binding"
+        elif d.employee_email and owner_clk[0]:
+            pairing = "owner_fallback"
+        else:
+            pairing = "idle"
         out.append({
+            "pairingStatus": pairing,
             "id": d.id,
             # Assigned owner: which Nexus person this PC belongs to (admin-set).
             "email": d.employee_email, "name": _nm(d.employee_email),
@@ -3221,7 +3451,7 @@ def track_ping(body: PingBatch, dev: AgentDevice = Depends(get_agent_device),
         if not (p.lat or "").strip() or not (p.lng or "").strip():
             continue
         at = (p.at or "").strip()[:19] or _now_iso()
-        geo = _geofence(db, p.lat, p.lng, p.accuracy_m or 0)
+        geo = _geofence(db, p.lat, p.lng, p.accuracy_m or 0, email=email)
         db.add(TrackPing(
             id=str(uuid.uuid4()), session_id=sess.id, employee_email=email,
             at=at, received_at=_now_iso(), local_date=_local_date(at, p.tz_offset_min or 0),
@@ -3265,7 +3495,7 @@ def track_clock(body: TrackClockIn, dev: AgentDevice = Depends(get_agent_device)
     if body.kind not in _allowed_kinds(last.kind if last else None):
         raise HTTPException(409, f"Can't clock '{body.kind}' right now.")
     now = _now_iso()
-    geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0)
+    geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
            if (body.lat or "").strip() else
            {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0})
     db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
@@ -3475,11 +3705,22 @@ def delete_shift(shift_id: str, user: dict = Depends(require_team_write), db: Se
     return {"ok": True}
 
 
+def _require_unscoped_team(user: dict, db: Session) -> None:
+    """Shift groups + their Teams-chat bindings are a cross-company scheduling
+    construct (a group can hold people from several companies, and its chat
+    routes their BOD/EOD). A company-scoped People admin must not remap them or
+    reroute another company's work-log delivery - that stays whole-team."""
+    if _visible_emails(db, user) is not None:
+        raise HTTPException(403, "Managing shift groups needs company-wide team access")
+
+
 @router.get("/shift-groups")
 def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    scope = _visible_emails(db, user)
     members = {}
     for m in db.query(ShiftGroupMember).all():
-        members.setdefault(m.group_id, []).append(m.employee_email)
+        if scope is None or (m.employee_email or "").lower() in scope:
+            members.setdefault(m.group_id, []).append(m.employee_email)
     return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                         "chatId": g.teams_chat_id or "", "chatName": g.teams_chat_name or ""}
                        for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]}
@@ -3494,6 +3735,7 @@ class GroupIn(BaseModel):
 
 @router.post("/shift-groups")
 def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    _require_unscoped_team(user, db)
     if not body.name.strip():
         raise HTTPException(400, "Name is required")
     g = ShiftGroup(id=str(uuid.uuid4()), name=body.name.strip()[:80],
@@ -3509,6 +3751,7 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), 
 
 @router.patch("/shift-groups/{group_id}")
 def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    _require_unscoped_team(user, db)
     g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
     if not g:
         raise HTTPException(404, "Group not found")
@@ -3550,6 +3793,7 @@ def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(
 
 @router.delete("/shift-groups/{group_id}")
 def delete_shift_group(group_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    _require_unscoped_team(user, db)
     db.query(ShiftGroup).filter(ShiftGroup.id == group_id).delete()
     db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
     db.commit()
@@ -3566,8 +3810,11 @@ def assign_shift(body: AssignIn, user: dict = Depends(require_team_write), db: S
     """Bulk-assign a shift to a set of employees (typically a group's members).
     An empty shift_id clears the assignment."""
     now = _now_iso()
+    scope = _visible_emails(db, user)   # scoped admins may only touch their own people
     n = 0
     for em in dict.fromkeys(e.strip().lower() for e in body.emails if e.strip()):
+        if scope is not None and em not in scope:
+            continue
         row = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == em).first()
         if not row:
             row = ShiftAssignment(id=str(uuid.uuid4()), employee_email=em)
@@ -3582,8 +3829,10 @@ def assign_shift(body: AssignIn, user: dict = Depends(require_team_write), db: S
 
 @router.get("/shift-assignments")
 def shift_assignments(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    scope = _visible_emails(db, user)
     return {"assignments": {a.employee_email: a.shift_id
-                            for a in db.query(ShiftAssignment).all() if a.shift_id}}
+                            for a in db.query(ShiftAssignment).all()
+                            if a.shift_id and (scope is None or (a.employee_email or "").lower() in scope)}}
 
 
 # ── Weekly schedule grid (Teams-Shifts style) ────────────────────────────────
@@ -3593,15 +3842,30 @@ def _sched_dict(row: ScheduledShift, presets: dict) -> dict:
     return {"id": row.id, "email": row.employee_email, "date": row.work_date,
             "shiftId": row.shift_id, "start": row.start_hhmm, "end": row.end_hhmm,
             "label": row.label, "note": row.note, "published": bool(row.published),
+            "openSlots": int(getattr(row, "open_slots", 0) or 0),
             "code": (p.code or p.name) if p else "", "color": p.color if p else "#64748b"}
+
+
+def _can_write_schedule(user: dict, db: Session) -> bool:
+    """True if the caller can BUILD schedules (level>=3, or an Access Group 'hr'
+    grant of 'editor') - the audience that sees unpublished DRAFT shifts and can
+    publish them. Read-only viewers ('hr' viewer) see only published shifts, which
+    matches Teams Shifts: staff see a schedule only once the manager shares it.
+    Mirrors the split between require_team_read (viewer) and require_team_write
+    (editor), both of which admit level>=3."""
+    from auth import _module_level, _MODULE_LEVEL_RANK
+    return (int(user.get("level", 0)) >= 3 or
+            _module_level(user["email"], "hr", db) >= _MODULE_LEVEL_RANK["editor"])
 
 
 @router.get("/schedule")
 def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
                   db: Session = Depends(get_db)):
     """Everything the grid needs for a date range: visible employees (scoped),
-    shift presets, groups, the placed shifts, and time off to overlay."""
+    shift presets, groups, the placed shifts, and time off to overlay. Drafts
+    (unpublished shifts) are returned only to schedulers who can publish them."""
     scope = _visible_emails(db, user)
+    can_write = _can_write_schedule(user, db)
     names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
     if scope is None:
@@ -3613,14 +3877,20 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
     presets = {s.id: s for s in db.query(Shift).all()}
     members = {}
     for m in db.query(ShiftGroupMember).all():
-        members.setdefault(m.group_id, []).append(m.employee_email)
+        if scope is None or (m.employee_email or "").lower() in scope:
+            members.setdefault(m.group_id, []).append(m.employee_email)
     groups = [{"id": g.id, "name": g.name, "members": members.get(g.id, [])}
               for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]
 
     q = (db.query(ScheduledShift)
          .filter(ScheduledShift.work_date >= start, ScheduledShift.work_date <= end))
     if scope is not None:
-        q = q.filter(ScheduledShift.employee_email.in_(list(scope)))
+        # Assigned shifts for the caller's team PLUS team-wide OPEN shifts
+        # (unassigned slots, employee_email == '').
+        q = q.filter((ScheduledShift.employee_email.in_(list(scope))) |
+                     (ScheduledShift.employee_email == ""))
+    if not can_write:
+        q = q.filter(ScheduledShift.published == 1)   # staff see only SHARED shifts
     scheduled = [_sched_dict(r, presets) for r in q.all()]
 
     tq = (db.query(TimeOffRequest)
@@ -3632,7 +3902,8 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
                 "type": t.type, "status": t.status} for t in tq.all()]
 
     return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
-            "groups": groups, "scheduled": scheduled, "timeoff": timeoff}
+            "groups": groups, "scheduled": scheduled, "timeoff": timeoff,
+            "canManage": can_write}
 
 
 class ScheduledShiftIn(BaseModel):
@@ -3643,6 +3914,7 @@ class ScheduledShiftIn(BaseModel):
     end_hhmm: Optional[str] = ""
     label: Optional[str] = ""
     note: Optional[str] = ""
+    open_slots: Optional[int] = None   # >=1 with an empty email = an OPEN shift
 
 
 @router.post("/schedule")
@@ -3650,19 +3922,165 @@ def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_team_w
                      db: Session = Depends(get_db)):
     em = body.employee_email.strip().lower()
     scope = _visible_emails(db, user)
-    if scope is not None and em not in scope:
+    # An empty email is an OPEN shift (an unassigned team slot); a real email must
+    # be someone the caller can see.
+    if em and scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
+    slots = int(body.open_slots or 0)
+    if not em:
+        slots = max(1, slots)   # an open shift needs at least one slot
     preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
     row = ScheduledShift(
         id=str(uuid.uuid4()), employee_email=em, work_date=body.work_date[:10],
         shift_id=body.shift_id or "",
         start_hhmm=(body.start_hhmm or (preset.start_hhmm if preset else "09:00"))[:5],
         end_hhmm=(body.end_hhmm or (preset.end_hhmm if preset else "17:00"))[:5],
-        label=(body.label or "")[:80], note=(body.note or "")[:200],
+        label=(body.label or "")[:80], note=(body.note or "")[:200], open_slots=slots,
+        published=0,   # new shifts start as a DRAFT until the manager publishes
         created_by=user["email"], created_at=_now_iso())
     db.add(row)
     db.commit()
     return _sched_dict(row, {preset.id: preset} if preset else {})
+
+
+class AssignOpenIn(BaseModel):
+    employee_email: str
+
+
+@router.post("/schedule/{sched_id}/assign")
+def assign_open_shift(sched_id: str, body: AssignOpenIn,
+                      user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """Assign an OPEN shift to a person (Teams "Assign open shifts"). Spawns their
+    own assigned shift from the open slot and decrements the open count, removing
+    the open row once every slot is filled."""
+    row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).first()
+    if not row:
+        raise HTTPException(404, "Shift not found")
+    if (row.employee_email or "").strip():
+        raise HTTPException(400, "That shift is already assigned.")
+    em = body.employee_email.strip().lower()
+    if not em:
+        raise HTTPException(400, "Pick a person to assign this shift to.")
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    assigned = ScheduledShift(
+        id=str(uuid.uuid4()), employee_email=em, work_date=row.work_date,
+        shift_id=row.shift_id, start_hhmm=row.start_hhmm, end_hhmm=row.end_hhmm,
+        label=row.label, note=row.note, open_slots=0,
+        published=0,   # a newly assigned shift is a draft until published
+        created_by=user["email"], created_at=_now_iso())
+    db.add(assigned)
+    row.open_slots = int(row.open_slots or 1) - 1
+    if row.open_slots <= 0:
+        db.delete(row)
+    db.commit()
+    preset = db.query(Shift).filter(Shift.id == assigned.shift_id).first() if assigned.shift_id else None
+    return _sched_dict(assigned, {preset.id: preset} if preset else {})
+
+
+class BulkScheduleIn(BaseModel):
+    shift_id:   Optional[str] = ""          # preset -> its start/end/name
+    start_hhmm: Optional[str] = ""          # override when there's no preset
+    end_hhmm:   Optional[str] = ""
+    label:      Optional[str] = ""
+    note:       Optional[str] = ""
+    emails:     List[str] = []              # explicit people
+    group_id:   Optional[str] = ""          # OR a shift group -> its members
+    start_date: str                         # YYYY-MM-DD (inclusive)
+    end_date:   str                         # YYYY-MM-DD (inclusive)
+    weekdays:   Optional[List[int]] = None  # 0=Mon..6=Sun; empty/None = every day
+    skip_timeoff: bool = True               # don't schedule over approved/pending time off
+    overwrite:  bool = False                # replace an existing shift that day, else skip it
+
+
+@router.post("/schedule/bulk")
+def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_team_write),
+                  db: Session = Depends(get_db)):
+    """Assign a shift preset to a whole GROUP (or set of people) across a DATE
+    RANGE in one action, instead of adding it per person per day (Visesh, Aug 26).
+    Applies a preset (or explicit start/end) to every selected person on every
+    date in [start_date, end_date] that matches `weekdays`, skipping dates a
+    person has time off (unless turned off) and existing shifts (unless
+    overwrite). Team-scoped: only people the caller can already see are touched."""
+    scope = _visible_emails(db, user)
+    emails = {e.strip().lower() for e in body.emails if e and e.strip()}
+    if (body.group_id or "").strip():
+        emails |= {(m.employee_email or "").lower() for m in
+                   db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == body.group_id.strip()).all()
+                   if m.employee_email}
+    if scope is not None:
+        emails &= set(scope)          # never schedule outside the caller's team
+    emails = {e for e in emails if e}
+    if not emails:
+        raise HTTPException(400, "No people selected (or none in your team).")
+
+    try:
+        d0 = datetime.strptime(body.start_date[:10], "%Y-%m-%d").date()
+        d1 = datetime.strptime(body.end_date[:10], "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "Invalid date range.")
+    if d1 < d0:
+        raise HTTPException(400, "End date is before the start date.")
+    wd = set(body.weekdays) if body.weekdays else None    # None = all days
+    dates = []
+    cur = d0
+    while cur <= d1:
+        if wd is None or cur.weekday() in wd:
+            dates.append(cur.strftime("%Y-%m-%d"))
+        cur += timedelta(days=1)
+    if not dates:
+        raise HTTPException(400, "No dates match the chosen days of the week.")
+    if len(emails) * len(dates) > 6000:
+        raise HTTPException(400, "That's too many at once - narrow the people, dates, or days of week.")
+
+    preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if (body.shift_id or "").strip() else None
+    shhmm = (body.start_hhmm or (preset.start_hhmm if preset else "09:00"))[:5]
+    ehhmm = (body.end_hhmm or (preset.end_hhmm if preset else "17:00"))[:5]
+    label = (body.label or (preset.name if preset else ""))[:80]
+    note = (body.note or "")[:200]
+    shift_id = body.shift_id or ""
+
+    # Existing shifts in range (for overwrite / skip) and time off, in one query each.
+    existing = {}
+    for r in (db.query(ScheduledShift)
+              .filter(ScheduledShift.employee_email.in_(emails),
+                      ScheduledShift.work_date >= dates[0], ScheduledShift.work_date <= dates[-1]).all()):
+        existing.setdefault((r.employee_email, r.work_date), []).append(r)
+    off = {}
+    if body.skip_timeoff:
+        for t in (db.query(TimeOffRequest)
+                  .filter(TimeOffRequest.employee_email.in_(emails),
+                          TimeOffRequest.status.in_(["approved", "pending"]),
+                          TimeOffRequest.start_date <= dates[-1], TimeOffRequest.end_date >= dates[0]).all()):
+            off.setdefault(t.employee_email, []).append((t.start_date, t.end_date))
+
+    def _is_off(em, ds):
+        return any(s <= ds <= e for (s, e) in off.get(em, []))
+
+    created = replaced = skipped = timeoff_skipped = 0
+    now = _now_iso()
+    for em in sorted(emails):
+        for ds in dates:
+            if body.skip_timeoff and _is_off(em, ds):
+                timeoff_skipped += 1
+                continue
+            have = existing.get((em, ds))
+            if have:
+                if not body.overwrite:
+                    skipped += 1
+                    continue
+                for r in have:
+                    db.delete(r)
+                replaced += 1
+            db.add(ScheduledShift(id=str(uuid.uuid4()), employee_email=em, work_date=ds,
+                                  shift_id=shift_id, start_hhmm=shhmm, end_hhmm=ehhmm,
+                                  label=label, note=note, published=0,
+                                  created_by=user["email"], created_at=now))
+            created += 1
+    db.commit()
+    return {"created": created, "replaced": replaced, "skipped": skipped,
+            "timeoffSkipped": timeoff_skipped, "people": len(emails), "dates": len(dates)}
 
 
 @router.patch("/schedule/{sched_id}")
@@ -3672,14 +4090,17 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
     if not row:
         raise HTTPException(404, "Shift not found")
     scope = _visible_emails(db, user)
-    if scope is not None and row.employee_email not in scope:
+    if row.employee_email and scope is not None and row.employee_email not in scope:
         raise HTTPException(403, "Outside your team")
     preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
     row.shift_id = body.shift_id or ""
+    if body.open_slots is not None and not row.employee_email:
+        row.open_slots = max(1, int(body.open_slots))   # editing an open shift's count
     row.start_hhmm = (body.start_hhmm or (preset.start_hhmm if preset else row.start_hhmm))[:5]
     row.end_hhmm = (body.end_hhmm or (preset.end_hhmm if preset else row.end_hhmm))[:5]
     row.label = (body.label or "")[:80]
     row.note = (body.note or "")[:200]
+    row.published = 0   # an edit is an unpublished change until re-shared (Teams)
     db.commit()
     return _sched_dict(row, {preset.id: preset} if preset else {})
 
@@ -3690,11 +4111,56 @@ def delete_scheduled(sched_id: str, user: dict = Depends(require_team_write),
     row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).first()
     if row:
         scope = _visible_emails(db, user)
-        if scope is not None and row.employee_email not in scope:
+        if row.employee_email and scope is not None and row.employee_email not in scope:
             raise HTTPException(403, "Outside your team")
         db.delete(row)
         db.commit()
     return {"ok": True}
+
+
+class PublishScheduleIn(BaseModel):
+    start_date: str                        # YYYY-MM-DD (inclusive)
+    end_date: str                          # YYYY-MM-DD (inclusive)
+    group_id: Optional[str] = ""           # optional: publish just one group's shifts
+    emails: List[str] = []                 # optional: publish just these people's shifts
+
+
+@router.post("/schedule/publish")
+def publish_schedule(body: PublishScheduleIn, user: dict = Depends(require_team_write),
+                     db: Session = Depends(get_db)):
+    """Publish (share) all DRAFT shifts in a date range so the team can see them -
+    the Teams "Share with team" action. Flips unpublished -> published within the
+    caller's team scope; team-wide OPEN shifts publish too (unless narrowed to a
+    group/people, since open slots belong to no group). Idempotent - re-running
+    with nothing left to publish just returns 0."""
+    d0, d1 = body.start_date[:10], body.end_date[:10]
+    try:
+        datetime.strptime(d0, "%Y-%m-%d"); datetime.strptime(d1, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Invalid date range.")
+    if d1 < d0:
+        raise HTTPException(400, "End date is before the start date.")
+    scope = _visible_emails(db, user)
+    q = (db.query(ScheduledShift)
+         .filter(ScheduledShift.work_date >= d0, ScheduledShift.work_date <= d1,
+                 ScheduledShift.published == 0))
+    if scope is not None:
+        q = q.filter((ScheduledShift.employee_email.in_(list(scope))) |
+                     (ScheduledShift.employee_email == ""))
+    narrow = {e.strip().lower() for e in body.emails if e and e.strip()}
+    if (body.group_id or "").strip():
+        narrow |= {(m.employee_email or "").lower() for m in
+                   db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == body.group_id.strip()).all()
+                   if m.employee_email}
+    if narrow:
+        # Narrowed publish targets named people only (drops team-wide open slots).
+        q = q.filter(ScheduledShift.employee_email.in_(list(narrow)))
+    n = 0
+    for r in q.all():
+        r.published = 1
+        n += 1
+    db.commit()
+    return {"published": n}
 
 
 # ── Payroll timecard (manager-editable, per pay period) ───────────────────────
@@ -3797,7 +4263,8 @@ def _shift_start_for(db: Session, email: str, dd: date):
     (it never affects pay)."""
     sched = (db.query(ScheduledShift)
              .filter(ScheduledShift.employee_email == email,
-                     ScheduledShift.work_date == dd.isoformat()).first())
+                     ScheduledShift.work_date == dd.isoformat(),
+                     ScheduledShift.published == 1).first())   # unpublished drafts don't drive Late
     if sched:
         grace = 10
         if sched.shift_id:
@@ -4180,52 +4647,6 @@ def get_breakpolicy(user: dict = Depends(require_team_read), db: Session = Depen
     return _breakpolicy_cfg(db)
 
 
-# ── End-of-day auto clock-out config (the sweep lives in timeclock_watch.py) ──
-
-@router.get("/payroll/autoclockout")
-def get_autoclockout(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    return _auto_out_cfg(db)
-
-
-class AutoClockoutIn(BaseModel):
-    enabled: Optional[bool] = None           # None = leave unchanged (like every other field)
-    warnLocal: Optional[List[str]] = None    # up to 3 'HH:MM' local warn moments ([] = no warns)
-    outLocal: Optional[str] = None           # 'HH:MM' local auto-close moment
-    minSessionMin: Optional[int] = None      # never insta-close a session younger than this
-
-
-def _norm_hhmm(v: str) -> str:
-    """Strict 'HH:MM' (24-hour) or a 422 - stored config, the sweep's parse and
-    the admin tooltip must never diverge on what time this is."""
-    try:
-        t = datetime.strptime(str(v).strip(), "%H:%M")
-        return f"{t.hour:02d}:{t.minute:02d}"
-    except (ValueError, TypeError):
-        raise HTTPException(422, "Times must be HH:MM (24-hour), e.g. 21:30 or 23:59.")
-
-
-@router.put("/payroll/autoclockout")
-def set_autoclockout(body: AutoClockoutIn, user: dict = Depends(require_administrator),
-                     db: Session = Depends(get_db)):
-    cfg = _auto_out_cfg(db)
-    if body.enabled is not None:
-        cfg["enabled"] = bool(body.enabled)
-    if body.warnLocal is not None:
-        cfg["warnLocal"] = [_norm_hhmm(v) for v in body.warnLocal][:3]
-    if body.outLocal is not None:
-        cfg["outLocal"] = _norm_hhmm(body.outLocal)
-    if body.minSessionMin is not None:
-        cfg["minSessionMin"] = max(0, int(body.minSessionMin))
-    row = db.query(NexusSetting).filter(NexusSetting.key == _AUTO_OUT_KEY).first()
-    if not row:
-        row = NexusSetting(key=_AUTO_OUT_KEY)
-        db.add(row)
-    row.value = json.dumps(cfg)
-    row.updated_by = user["email"]
-    db.commit()
-    return cfg
-
-
 class BreakPolicyIn(BaseModel):
     enabled: bool = False
     paidBreakMin: int = 10
@@ -4561,6 +4982,24 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             a["pay"] = round(a["pay"] + (s.get("amount") or 0), 2)
     by_category = sorted(cat_agg.values(), key=lambda x: -x["workedMin"])
 
+    # Billable time BY LOCATION (Neil, Aug 25 - split shifts across rental
+    # properties). Each segment is already attributed to the work site it was
+    # clocked in from; roll worked-minutes + wage up per site so maintenance
+    # time at each property is quantified for billing. A worker who clocks out
+    # at property A and in at property B produces two segments and bills each
+    # correctly; the mobile ping trail (see /billable-by-location) captures an
+    # A->B move within a single clock-in.
+    loc_agg = {}
+    for d in days_out:
+        for s in d["segments"]:
+            wid = (s.get("workSiteId") or "").strip()
+            wname = (s.get("workSite") or "").strip() or ("No location" if not wid else wid)
+            key = wid or wname
+            a = loc_agg.setdefault(key, {"workSiteId": wid, "workSite": wname, "workedMin": 0, "pay": 0.0})
+            a["workedMin"] += s.get("workedMin", 0)
+            a["pay"] = round(a["pay"] + (s.get("amount") or 0), 2)
+    by_location = sorted(loc_agg.values(), key=lambda x: -x["workedMin"])
+
     # Pending add/remove punch requests in this window - surfaced ON the timecard
     # (grouped by their local date) so HR can approve/reject in-context, not only
     # from the separate Punch requests tab. Inline time EDITS already ride on their
@@ -4579,8 +5018,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
             "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
             "breakPolicy": _bp,
-            "autoClockout": _auto_out_cfg(db),
-            "byCategory": by_category, "pendingRequests": pending_requests,
+            "byCategory": by_category, "byLocation": by_location,
+            "pendingRequests": pending_requests,
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
                        "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
                        "totalPay": round(reg_pay + ot_pay + dt_pay, 2),

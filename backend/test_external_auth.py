@@ -115,11 +115,14 @@ class _Base(unittest.TestCase):
         auth.invalidate_role_cache(ADMIN)
         os.environ["NEXUS_DEV_EMAIL"] = ADMIN
 
-    def _enroll(self, phone=""):
+    def _enroll(self, phone="", send_invite=True):
+        """Enroll the guest. send_invite=True = the released flow most tests
+        exercise; the NEW default in the API is staged (send_invite=False,
+        Neil Aug 25) - covered by TestStagedRelease."""
         self._as_admin()
         r = self.client.post("/external-users", json={
             "email": GUEST, "first_name": "Pat", "last_name": "Partner",
-            "company": "BuildCo", "phone": phone})
+            "company": "BuildCo", "phone": phone, "send_invite": send_invite})
         assert r.status_code == 201, r.text
         return r.json()
 
@@ -637,6 +640,139 @@ class TestAccountSwitch(_Base):
             self.assertEqual(row.user_email, GUEST)
         finally:
             db.close()
+
+
+class TestStagedRelease(_Base):
+    """Neil, Aug 25: create staged -> test with an admin code -> release."""
+
+    def _status_of(self):
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.NexusEmployee).filter(
+                models.NexusEmployee.work_email == GUEST).first()
+            return row.status if row else None
+        finally:
+            db.close()
+
+    def test_default_enroll_is_staged_and_sends_nothing(self):
+        out = self._enroll(send_invite=False)
+        self.assertEqual(out["status"], "staged")
+        self.assertEqual(out["inviteStatus"], "")
+        self.assertEqual(self.sent_invites, [])
+        self.assertIn("testing", out["inviteMessage"].lower())
+
+    def test_staged_gets_no_login_codes_and_generic_200(self):
+        self._enroll(send_invite=False)
+        r = self.client.post("/external-auth/request-code", json={"email": GUEST})
+        self.assertEqual(r.status_code, 200)          # generic - no enumeration
+        self.assertEqual(self._code_rows("login"), [])
+        self.assertEqual(self.sent_email, [])
+        self.assertEqual(self.sent_sms, [])
+
+    def test_staged_resend_and_status_patch_refused(self):
+        self._enroll(send_invite=False)
+        self.assertEqual(self.client.post(f"/external-users/{GUEST}/invite").status_code, 409)
+        r = self.client.patch(f"/external-users/{GUEST}", json={"status": "active"})
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(self._status_of(), "staged")
+
+    def test_admin_test_code_signs_in_the_staged_account(self):
+        self._enroll(send_invite=False)
+        r = self.client.post(f"/external-users/{GUEST}/test-code")
+        self.assertEqual(r.status_code, 200, r.text)
+        code = r.json()["code"]
+        self.assertRegex(code, r"^[A-Z0-9]{8}$")
+        v = self.client.post("/external-auth/login-verify",
+                             json={"email": GUEST, "code": code.lower()})   # case-insensitive
+        self.assertEqual(v.status_code, 200, v.text)
+        self.assertIn(bff_session.SESSION_COOKIE, v.cookies)
+
+    def test_test_code_is_single_use_and_wrong_codes_count_attempts(self):
+        self._enroll(send_invite=False)
+        code = self.client.post(f"/external-users/{GUEST}/test-code").json()["code"]
+        self.assertEqual(self.client.post("/external-auth/login-verify",
+                                          json={"email": GUEST, "code": "WRONGGGG"}).status_code, 400)
+        self.assertEqual(self.client.post("/external-auth/login-verify",
+                                          json={"email": GUEST, "code": code}).status_code, 200)
+        # consumed - the same code never works twice
+        self.assertEqual(self.client.post("/external-auth/login-verify",
+                                          json={"email": GUEST, "code": code}).status_code, 400)
+
+    def test_release_flips_active_kills_codes_and_sends_the_invite(self):
+        self._enroll(send_invite=False)
+        code = self.client.post(f"/external-users/{GUEST}/test-code").json()["code"]
+        r = self.client.post(f"/external-users/{GUEST}/release")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["status"], "active")
+        self.assertEqual(r.json()["inviteStatus"], "sent")
+        self.assertEqual(len(self.sent_invites), 1)
+        # the pre-release test code died with the release
+        v = self.client.post("/external-auth/login-verify",
+                             json={"email": GUEST, "code": code})
+        self.assertEqual(v.status_code, 400)
+        # and released accounts can't mint test codes
+        self.assertEqual(self.client.post(f"/external-users/{GUEST}/test-code").status_code, 409)
+        self.assertEqual(self.client.post(f"/external-users/{GUEST}/release").status_code, 409)
+
+
+class TestForcedPhoneVerify(_Base):
+    """Neil, Aug 25: email AND phone verified by the user before the session."""
+
+    def test_email_code_with_unverified_phone_requires_sms_stage(self):
+        self._enroll(send_invite=True)          # released, invite in hand
+        token = self._token()
+        # user types their own number and asks for the EMAIL code
+        r = self.client.post("/external-auth/activate/send-code",
+                             json={"token": token, "phone": "+19495551234", "channel": "email"})
+        self.assertEqual(r.status_code, 200, r.text)
+        email_code = self.sent_email[-1][1]
+        v = self.client.post("/external-auth/activate/verify",
+                             json={"token": token, "code": email_code})
+        self.assertEqual(v.status_code, 200, v.text)
+        body = v.json()
+        self.assertTrue(body.get("needsPhoneVerify"), body)     # held - no session yet
+        self.assertNotIn(bff_session.SESSION_COOKIE, v.cookies)
+        sms_code = self.sent_sms[-1][1]
+        self._age_all()                                          # past the resend throttle
+        v2 = self.client.post("/external-auth/activate/verify-phone",
+                              json={"token": token, "code": sms_code})
+        self.assertEqual(v2.status_code, 200, v2.text)
+        self.assertIn(bff_session.SESSION_COOKIE, v2.cookies)
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.NexusEmployee).filter(
+                models.NexusEmployee.work_email == GUEST).first()
+            self.assertTrue(row.phone_verified_at)               # both channels proven
+            self.assertEqual(row.invite_status, "accepted")
+        finally:
+            db.close()
+
+    def test_sms_activation_code_needs_no_second_stage(self):
+        self._enroll(send_invite=True)
+        token = self._token()
+        r = self.client.post("/external-auth/activate/send-code",
+                             json={"token": token, "phone": "+19495551234"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["channel"], "sms")
+        sms_code = self.sent_sms[-1][1]
+        v = self.client.post("/external-auth/activate/verify",
+                             json={"token": token, "code": sms_code})
+        self.assertEqual(v.status_code, 200, v.text)
+        self.assertNotIn("needsPhoneVerify", v.json())
+        self.assertIn(bff_session.SESSION_COOKIE, v.cookies)
+
+    def test_admin_attested_phone_skips_the_second_stage(self):
+        self._enroll(phone="+19495550000", send_invite=True)     # admin-set = attested
+        token = self._token()
+        r = self.client.post("/external-auth/activate/send-code",
+                             json={"token": token, "channel": "email"})
+        self.assertEqual(r.status_code, 200, r.text)
+        email_code = self.sent_email[-1][1]
+        v = self.client.post("/external-auth/activate/verify",
+                             json={"token": token, "code": email_code})
+        self.assertEqual(v.status_code, 200, v.text)
+        self.assertNotIn("needsPhoneVerify", v.json())
+        self.assertIn(bff_session.SESSION_COOKIE, v.cookies)
 
 
 if __name__ == "__main__":

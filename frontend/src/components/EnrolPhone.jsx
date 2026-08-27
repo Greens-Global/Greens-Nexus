@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import QRCode from 'qrcode';
 import { Loader2, X, KeyRound, Smartphone, Ban } from 'lucide-react';
 import { api, API_BASE } from '../api';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 // Enrol a field worker's phone: mint a one-time device token (reuses the
 // silent-agent model) and render a QR that carries EVERYTHING the Nexus Field
@@ -50,23 +52,29 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
     catch (e) { toastErr && toastErr(e?.message || 'Could not revoke.'); }
   }
 
+  // Pairing already generated = nothing left to lose (the code lives on
+  // screen either way); the guard only matters for the still-unsubmitted
+  // email/server-URL form.
+  const dirty = !pairing && !!(email.trim() || serverUrl.trim() !== API_BASE);
+  const guard = useUnsavedGuard(dirty, onClose, enrol);
+
   const overlay = {
     position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 1000,
     display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 16px', overflowY: 'auto',
   };
   const card = {
     background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16,
-    width: 'min(560px, 100%)', padding: 22, fontFamily: 'Inter,sans-serif',
+    width: 'min(clamp(520px, 60vw, 900px), 100%)', padding: 22, fontFamily: 'Inter,sans-serif',
   };
 
   return (
-    <div style={overlay} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div style={overlay} onMouseDown={e => { if (e.target === e.currentTarget) guard.requestClose(); }}>
       <div style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <Smartphone size={18} style={{ color: 'var(--pine)' }} />
           <strong style={{ fontSize: 16 }}>Enrol a phone</strong>
           <div style={{ flex: 1 }} />
-          <button onClick={onClose} style={{ background: 'none', border: 0, cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 0, cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
 
         {!pairing ? (
@@ -135,6 +143,14 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
             ))}
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt
+          onKeepEditing={guard.keepEditing}
+          onDiscard={() => { setEmail(''); setServerUrl(API_BASE); onClose(); }}
+          onSave={guard.saveAndClose}
+          saving={busy}
+        />
+      )}
     </div>
   );
 }

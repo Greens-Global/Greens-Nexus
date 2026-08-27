@@ -15,6 +15,7 @@ export const NX = {
   border:   'var(--nx-border)',
   border2:  'var(--nx-border2)',
   hover:    'var(--nx-hover)',
+  zebra:    'var(--nx-zebra)',   // alternating list-row band
   primary:  'var(--nx-primary)',
   blue:     '#2563eb',
   green:    '#16a34a',

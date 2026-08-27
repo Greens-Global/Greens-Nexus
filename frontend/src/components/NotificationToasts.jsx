@@ -132,6 +132,10 @@ export default function NotificationToasts({ onNavigate }) {
       // still navigate to the right tab instead of doing nothing.
       const dest = destinationFor(n);
       if (dest && onNavigate) onNavigate(dest[0], dest[1]);
+      // Same as the bell: a task toast opens the task it names, not just the
+      // module. Deferred so the Task module is mounted to receive it.
+      const taskId = n.action?.taskId;
+      if (taskId) setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId } })), 0);
     }
     close(n.id);
   }

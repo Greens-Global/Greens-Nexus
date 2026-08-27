@@ -25,7 +25,23 @@ class Task(Base):
     # creation order, the same order they've always shown in.
     position          = Column(Float, default=0.0, index=True)
     priority          = Column(String, default="medium")   # low|medium|high|urgent
-    assignee_email    = Column(String, default="", index=True)
+    # A task can be assigned to SEVERAL people (Sagar, Aug 2026). There is one
+    # task row and one `completed` flag, so whoever finishes it finishes it for
+    # everyone - that was always true, and is why this is a list on the task
+    # rather than a copy of the task per person.
+    #
+    # `assignee_emails` is the source of truth. `assignee_email` is kept as a
+    # PRIMARY MIRROR of assignee_emails[0] - the same shape TaskTeam.project_id
+    # already mirrors project_ids[0], and for the same reason: dozens of call
+    # sites (exports, dashboards, the daily briefing, the Asana sync) read the
+    # single column, and every one keeps working against the primary instead of
+    # all having to be found and rewritten at once.
+    #
+    # Anything asking "is this person on this task" must go through
+    # task_util.task_assignees(); every write must go through
+    # task_util.set_task_assignees() so the two can never drift.
+    assignee_email    = Column(String, default="", index=True)   # mirror of assignee_emails[0]
+    assignee_emails   = Column(JSON, default=list)
     owner_email       = Column(String, default="", index=True)
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)
@@ -578,6 +594,11 @@ class NexusGroup(Base):
     # monitoring: no capture is offered and clock-in is not gated on sharing a
     # screen (used for leadership). A person is exempt if ANY of their groups sets it.
     monitoring_exempt = Column(Integer, default=0)
+    # Members of a group flagged bod_exempt=1 skip the Beginning/End-of-day and
+    # break message prompts entirely - punches go straight through (Neil,
+    # Aug 25: field workers "that cannot type" were blocked from clocking in by
+    # the required BOD message). A person is exempt if ANY of their groups sets it.
+    bod_exempt        = Column(Integer, default=0)
     # Job roles only: the role's default manager/timesheet approver. Assigning the
     # role to someone with NO manager set copies this onto their People card -
     # per-person Manager stays the source of truth and can always be overridden.
@@ -732,6 +753,19 @@ class NexusEmployee(Base):
     # code delivered to `phone` (sent.dm SMS), this is stamped and future login
     # codes go to the phone first. Empty = phone unverified, codes go to email.
     phone_verified_at = Column(String, default="")
+    # Per-person geofence (Aug 25): a work location + radius assigned to THIS
+    # person, distinct from the shared HrWorkSite fences. When set (radius > 0),
+    # their punches are judged against this instead of the nearest work site -
+    # for home-based / field / single-location staff. Set from the People
+    # profile: "use last punch location" (reads their most recent located
+    # punch) or an address search (geocoded). '' lat/lng or radius 0 = unset.
+    geofence_lat      = Column(String, default="")
+    geofence_lng      = Column(String, default="")
+    geofence_radius_m = Column(Integer, default=0)             # 0 = no personal geofence (fall back to work sites)
+    geofence_label    = Column(String, default="")            # human label (address, or "From last punch MM/DD")
+    geofence_source   = Column(String, default="")            # last_punch | address | manual
+    geofence_set_by   = Column(String, default="")
+    geofence_set_at   = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):
@@ -763,6 +797,7 @@ class HrCandidate(Base):
     expected_start = Column(String, default="")               # ISO date
     interview_at   = Column(String, default="")               # ISO datetime of the next interview
     source         = Column(String, default="")               # referral, LinkedIn, ...
+    company        = Column(String, default="")               # HrEntity.id hiring for ('' = untagged; company-scoped admins see only their companies' pipeline)
     resume_url     = Column(String, default="")               # hr-docs storage path (private; signed URL to view)
     notes          = Column(String, default="")
     employee_id    = Column(String, default="")               # set when hired
@@ -1684,6 +1719,12 @@ class ScheduledShift(Base):
     label          = Column(String, default="")          # e.g. "All Properties"
     note           = Column(String, default="")
     published      = Column(Integer, default=1)
+    # OPEN SHIFTS (Teams-style, Aug 26): an unassigned slot has employee_email=''
+    # and open_slots >= 1 (how many people are still needed). It shows in the
+    # "Open shifts" row; a manager assigns it to a person, which spawns their
+    # own assigned row and decrements this one (removed at 0). A normal assigned
+    # shift has a real email and open_slots 0.
+    open_slots     = Column(Integer, default=0)
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
 
@@ -3490,3 +3531,45 @@ class TaskProjectTemplate(Base):
     created_at  = Column(String, default="")
     modified_at = Column(String, default="")
     created_by  = Column(String, default="")
+
+
+class TaskTablePref(Base):
+    """A user's per-table column arrangement for the Task module's list views -
+    which columns they have, in what order, and how wide. One row per person,
+    holding a JSON document keyed by table, mirroring UserLinkLayout's
+    JSON-blob-per-user shape rather than normalizing into a row per column:
+    a reorder rewrites the whole arrangement in one UPSERT, and nothing here
+    needs querying by column SQL-side.
+
+    prefs shape: {
+      "<table>": {
+        "order":     ["task", "status", ...],   # column order
+        "widths":    {"task": 280},             # column widths, px
+        "hidden":    ["estimate"],              # columns they have hidden
+        "collapsed": ["completed"],             # group sections they keep closed
+      }
+    }
+    An absent key means "never set, use the default"; an empty list means the
+    person explicitly cleared it. That distinction is load-bearing - it is what
+    lets someone re-open a section that ships collapsed by default.
+    `table` is the client's own id for a list ("richlist", "mytasks",
+    "projects", "portfolios"). Unknown tables and unknown column keys are kept
+    verbatim and ignored at read time by the client, so a column that is
+    renamed or retired degrades to "not in my saved order" (it falls back to
+    its default position) instead of breaking the arrangement.
+
+    Nothing here widens access: this only says how a person arranges columns of
+    data they can already see. Purely personal - every read/write is scoped to
+    owner_email, no admin gate.
+
+    New table - create_all builds it, so no migration line is needed. It DOES
+    need `ALTER TABLE task_table_prefs ENABLE ROW LEVEL SECURITY` on dev and
+    prod as part of the release (CLAUDE.md): the backend bypasses RLS via the
+    privileged URL, but without it the table is readable by anyone holding the
+    public anon key."""
+    __tablename__ = "task_table_prefs"
+    id          = Column(String, primary_key=True)   # uuid
+    owner_email = Column(String, index=True, unique=True, nullable=False)
+    prefs       = Column(JSON, default=dict)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")

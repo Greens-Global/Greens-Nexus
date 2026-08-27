@@ -1,8 +1,8 @@
 // Task Module - shared UI atoms (inline-styled to match the export's light theme).
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
-  ListTree, MessageSquare, Paperclip, Download, CalendarDays } from 'lucide-react';
+  ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
@@ -82,7 +82,7 @@ export function EmptyState({ icon: Icon, title, hint }) {
 // the edit away (Aug 18 - "when we click outside... it should ask us for
 // 'Do you want to save'"). With isDirty unset (the default) a modal behaves
 // exactly as before.
-export function Modal({ title, onClose, children, footer, width = 560, isDirty = false, onSave }) {
+export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 60vw, 980px)', isDirty = false, onSave }) {
   const [confirmClose, setConfirmClose] = useState(false);
   const [saving, setSaving] = useState(false);
   const requestClose = () => { if (isDirty) setConfirmClose(true); else onClose(); };
@@ -468,7 +468,6 @@ function TeamPicker({ teams, value, onChange, placeholder = 'Add a team…' }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef(null);
-  useClickOutside(ref, () => setOpen(false), open);
   const chosen = teams.find((t) => t.id === value) || null;
   const shown = q ? teams.filter((t) => (t.name || '').toLowerCase().includes(q.toLowerCase())) : teams;
   return (
@@ -483,7 +482,7 @@ function TeamPicker({ teams, value, onChange, placeholder = 'Add a team…' }) {
         <ChevronDown size={15} style={{ color: NX.faint }} />
       </button>
       {open && (
-        <div className="nx-scroll" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, maxHeight: 260, overflowY: 'auto' }}>
+        <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams…"
             style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
           {shown.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>No teams match.</div>}
@@ -495,7 +494,7 @@ function TeamPicker({ teams, value, onChange, placeholder = 'Add a team…' }) {
               <span style={{ fontSize: 11.5, color: NX.faint }}>{(t.memberIds || []).length} people</span>
             </div>
           ))}
-        </div>
+        </SelectMenu>
       )}
     </div>
   );
@@ -704,15 +703,77 @@ export function ProjectAccessButton({ project, teams, people }) {
   );
 }
 
+// Menu panel shared by the three select controls below. Rendered in a PORTAL at
+// fixed coordinates rather than absolutely inside the field: an absolutely
+// positioned panel is clipped by whatever scroll container it lives in, which
+// is why the Members search results in the Create-a-Team modal were invisible
+// until you scrolled the modal (Sagar, Aug 26). Flips above the field when
+// there is no room below, and caps its height to the space actually there.
+// It also owns dismissal - a click inside a portal is NOT inside the field's
+// own ref, so each field cannot judge "outside" for itself any more.
+function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
+  const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+  useLayoutEffect(() => {
+    const place = () => {
+      const a = anchorRef.current?.getBoundingClientRect();
+      if (!a) return;
+      // anchor rect / innerHeight are in the OUTER space, CSS lengths in the
+      // INNER one - see rootZoom (same dance as CalendarPopover).
+      const z = rootZoom();
+      const GAP = 4, EDGE = 8, MAX = 280;
+      const below = window.innerHeight - a.bottom - GAP - EDGE;
+      const above = a.top - GAP - EDGE;
+      const up = below < above && below < MAX * z;
+      // A menu is at least as wide as its trigger, and at least `minWidth` -
+      // a narrow trigger (the bulk bar's "Assign...") would otherwise hand its
+      // own width to the menu and truncate every name to "Ash Ben...".
+      // Then kept inside the viewport: widening rightwards off-screen would
+      // trade one unreadable menu for another.
+      const room = window.innerWidth / z - EDGE * 2;
+      const width = Math.min(Math.max(a.width / z, minWidth), room);
+      const left = Math.max(EDGE / z, Math.min(a.left / z, window.innerWidth / z - EDGE / z - width));
+      setPos({
+        left, width,
+        maxHeight: Math.max(140, Math.min(MAX, (up ? above : below) / z)),
+        ...(up ? { bottom: (window.innerHeight - a.top + GAP) / z } : { top: (a.bottom + GAP) / z }),
+      });
+    };
+    place();
+    // Capture phase so the modal's own scroll container re-places it too.
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+  }, [anchorRef, minWidth]);
+  useEffect(() => {
+    const onDoc = (e) => {
+      if (ref.current?.contains(e.target)) return;
+      if (anchorRef.current?.contains(e.target)) return;
+      onClose();
+    };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [onClose, anchorRef]);
+  if (!pos) return null;
+  return createPortal(
+    <div ref={ref} className="nx-scroll" style={{
+      position: 'fixed', left: pos.left, width: pos.width, maxHeight: pos.maxHeight,
+      ...(pos.top !== undefined ? { top: pos.top } : { bottom: pos.bottom }),
+      background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
+      boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 5000, overflowY: 'auto', fontFamily: FONT,
+    }}>
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
 export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned', disabled = false }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef(null);
-  useEffect(() => {
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, []);
   const sel = people.find((p) => p.email === value);
   // A value can be set to someone not in the loaded directory (e.g. the current
   // user before the People directory has loaded / when it's empty). Still show
@@ -730,7 +791,7 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
         <ChevronDown size={15} style={{ color: NX.faint }} />
       </button>
       {open && !disabled && (
-        <div className="nx-scroll" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, maxHeight: 280, overflowY: 'auto' }}>
+        <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…" style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
           <div onClick={() => { onChange(null); setOpen(false); }} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
           {filtered.map((p) => (
@@ -740,7 +801,7 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
               {p.email === value && <Check size={14} style={{ color: NX.blue }} />}
             </div>
           ))}
-        </div>
+        </SelectMenu>
       )}
     </div>
   );
@@ -749,15 +810,10 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
 // Multi-select sibling of PersonSelect - same directory, search and avatars, but
 // picks stay selected and the menu stays open so several people can be added in
 // one go. `value` is an array of emails; onChange receives a new array.
-export function PersonMultiSelect({ value, onChange, people, placeholder = 'Select people' }) {
+export function PersonMultiSelect({ value, onChange, people, placeholder = 'Select people', addTitle = 'Add people' }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef(null);
-  useEffect(() => {
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, []);
   const emails = Array.isArray(value) ? value : [];
   const personFor = (em) => people.find((p) => p.email === em) || { email: em, name: emailToName(em) };
   const filtered = (q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people)
@@ -786,11 +842,26 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
               </span>
             );
           })}
+          {/* The same dashed person-plus the Collaborators row uses. "Add
+              another one of these" is what people look for after a chip; the
+              chevron alone reads as "replace", not "add" (Sagar, Aug 26).
+              A span, not a button - it sits inside the dropdown trigger, and
+              its click opens that same menu. */}
+          <span role="button" tabIndex={0} title={addTitle} aria-label={addTitle}
+            onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); setOpen(true); } }}
+            style={{
+              width: 22, height: 22, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
+              color: NX.faint, cursor: 'pointer', flexShrink: 0,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+            <UserPlus size={12} />
+          </span>
         </span>
         <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0 }} />
       </button>
       {open && (
-        <div className="nx-scroll" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, maxHeight: 280, overflowY: 'auto' }}>
+        <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…" style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
           {filtered.map((p) => {
             const on = emails.includes(p.email);
@@ -807,7 +878,132 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
               {q ? `No people match “${q}”.` : 'No people in the directory.'}
             </div>
           )}
-        </div>
+        </SelectMenu>
+      )}
+    </div>
+  );
+}
+
+// A one-shot searchable picker: the trigger always shows its placeholder and
+// picking fires `onPick` rather than storing a value. Built for the bulk-action
+// bar, whose "Assign..." and "Move To..." were native <select>s - fine at ten
+// options, unusable at the ~150 people and ~90 projects a real workspace has,
+// where finding one meant scrolling a list you cannot type into.
+//
+// Options are `{ id, label }`; `keywords` on an option adds extra searchable
+// text (an email, say) that is matched but not displayed.
+export function SearchSelect({
+  options, onPick, placeholder = 'Select...', searchPlaceholder = 'Search...',
+  emptyText = 'Nothing to choose from.', buttonStyle, renderOption, menuMinWidth = 260,
+  value,
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  const query = q.trim().toLowerCase();
+  const shown = query
+    ? options.filter((o) => `${o.label || ''} ${o.keywords || ''}`.toLowerCase().includes(query))
+    : options;
+  const close = () => { setOpen(false); setQ(''); };
+  // Two roles in one control. Given `value` it is a FIELD: the trigger shows
+  // the current selection and a tick marks it in the list. Without one it is a
+  // COMMAND (the bulk bar's "Assign..."), whose trigger always reads as its
+  // placeholder because nothing stays selected.
+  const chosen = value !== undefined ? options.find((o) => o.id === value) : null;
+  const label = value !== undefined ? (chosen?.label || placeholder) : placeholder;
+  const muted = value !== undefined && !chosen;
+  return (
+    // minWidth:0 on the wrapper as well as the label: dropped into a flex or
+    // grid cell (the task table's Project column) this div is the flex item,
+    // and an item that will not shrink past its content painted a long project
+    // name straight over the Due Date column.
+    <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
+      <button type="button" onClick={() => (open ? close() : setOpen(true))}
+        title={typeof label === 'string' ? label : undefined}
+        style={{ ...btn('outline'), justifyContent: 'space-between', gap: 8, overflow: 'hidden', fontWeight: value !== undefined ? 400 : undefined, ...buttonStyle }}>
+        {/* minWidth:0 is what actually lets the label ellipsis: a flex child
+            floors at its content width without it, so a long project name
+            spilled out of a table cell and over the next column instead. */}
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: muted ? NX.faint : undefined }}>{label}</span>
+        <ChevronDown size={15} style={{ flexShrink: 0, opacity: 0.75 }} />
+      </button>
+      {open && (
+        <SelectMenu anchorRef={ref} onClose={close} minWidth={menuMinWidth}>
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          {shown.map((o) => (
+            <div key={o.id} onClick={() => { onPick(o.id); close(); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+              {renderOption ? renderOption(o) : (
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
+              )}
+              {value !== undefined && o.id === value && <Check size={14} style={{ color: NX.blue, flexShrink: 0 }} />}
+            </div>
+          ))}
+          {shown.length === 0 && (
+            <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
+              {query ? `No matches for “${q.trim()}”.` : emptyText}
+            </div>
+          )}
+        </SelectMenu>
+      )}
+    </div>
+  );
+}
+
+// Generic sibling of PersonMultiSelect for non-people options (projects, tags…).
+// Same grammar - chips in the trigger, a searchable checkbox menu below - so a
+// long list collapses to one control instead of a scrolling wall of checkboxes
+// that pushes the rest of a modal off screen.
+// `options` is [{ id, label }]; `value`/`onChange` are arrays of ids.
+export function ChipMultiSelect({ value, onChange, options, placeholder = 'Select…', searchPlaceholder = 'Search…', emptyText = 'Nothing to choose from.' }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  const ids = Array.isArray(value) ? value : [];
+  const labelFor = (id) => options.find((o) => o.id === id)?.label || id;
+  const filtered = q ? options.filter((o) => (o.label || '').toLowerCase().includes(q.toLowerCase())) : options;
+  const toggle = (id) => onChange(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+  return (
+    <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px', textAlign: 'left' }}>
+        <span className="nx-scroll" style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', maxHeight: 96, overflowY: 'auto' }}>
+          {ids.length === 0 && <span style={{ color: NX.faint, fontWeight: 400 }}>{placeholder}</span>}
+          {ids.map((id) => (
+            <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 7px', fontSize: 12, color: NX.ink, maxWidth: '100%' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{labelFor(id)}</span>
+              {/* A span, not a button - this sits inside the dropdown trigger button. */}
+              <span role="button" tabIndex={0} title={`Remove ${labelFor(id)}`}
+                onClick={(e) => { e.stopPropagation(); toggle(id); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); toggle(id); } }}
+                style={{ display: 'inline-flex', cursor: 'pointer', color: NX.faint, flexShrink: 0 }}>
+                <X size={11} />
+              </span>
+            </span>
+          ))}
+        </span>
+        <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0 }} />
+      </button>
+      {open && (
+        <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          {filtered.map((o) => {
+            const on = ids.includes(o.id);
+            return (
+              <div key={o.id} onClick={() => toggle(o.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
+                {on && <Check size={14} style={{ color: NX.blue, flexShrink: 0 }} />}
+              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
+              {q ? `No matches for “${q}”.` : emptyText}
+            </div>
+          )}
+        </SelectMenu>
       )}
     </div>
   );
