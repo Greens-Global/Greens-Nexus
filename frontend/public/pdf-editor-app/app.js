@@ -829,24 +829,32 @@
     function handleKeyboard(e) {
         if (!state.pdfDoc) return;
 
-        // Don't intercept when typing in input fields or editing Fabric text
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-        if (fabricCanvas) {
-            const activeObj = fabricCanvas.getActiveObject();
-            if (activeObj && activeObj.isEditing) {
-                // Escape exits text editing cleanly instead of leaving the box in
-                // an editing/selected limbo (B5).
-                if (e.key === 'Escape') {
-                    e.preventDefault(); e.stopImmediatePropagation();
-                    activeObj.exitEditing();
-                    fabricCanvas.discardActiveObject();
-                    fabricCanvas.requestRenderAll();
-                    hideContextualBars();
-                    setStatus('Ready');
-                }
-                return;
+        // Don't intercept when typing in a form field, a contentEditable, OR
+        // fabric's hidden text-editing textarea. The tagName check alone missed
+        // fabric's textarea in some paths, so global single-letter shortcuts fired
+        // while typing (e.g. "Georgia" armed the Image tool) and Enter could be
+        // swallowed. Also bail whenever a fabric object is being edited.
+        // If a fabric text object is being edited, let fabric own the keystrokes
+        // (Enter = newline for a Textbox, letters = typing) - only intercept the
+        // commit keys. This must come BEFORE the form-field guard, because the
+        // edit target IS fabric's hidden textarea.
+        const editingObj = fabricCanvas && fabricCanvas.getActiveObject && fabricCanvas.getActiveObject();
+        if (editingObj && editingObj.isEditing) {
+            const commit = (e.key === 'Escape') || (e.key === 'Enter' && (e.metaKey || e.ctrlKey));
+            if (commit) {
+                e.preventDefault(); e.stopImmediatePropagation();
+                editingObj.exitEditing();
+                fabricCanvas.discardActiveObject();
+                fabricCanvas.requestRenderAll();
+                hideContextualBars();
+                setStatus('Ready');
             }
+            return;   // plain Enter, letters, etc. go to fabric (Enter = newline)
         }
+        // Otherwise, don't steal keys from a real form field (fixes the font
+        // select's letters firing single-letter tool shortcuts).
+        const tag = e.target && e.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target && e.target.isContentEditable)) return;
 
         const ctrl = e.ctrlKey || e.metaKey;
 
