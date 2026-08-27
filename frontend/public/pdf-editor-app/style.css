@@ -3689,5 +3689,15 @@ html[data-theme="light"] {
 .sr-row:hover { background: var(--bg-hover); }
 .sr-row.active { background: rgba(25,113,194,.14); font-weight: 600; }
 .sr-empty { padding: 14px; text-align: center; color: var(--text-secondary); font-size: 12.5px; }
+/* S9: Tool Chest presets */
+.tool-chest { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.tool-chest-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--text-secondary); }
+.tool-chest-chips { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
+.tool-chest-empty { font-size: 11px; color: var(--text-secondary); }
+.tool-chest-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; border: 1px solid var(--border); background: var(--bg-input, #fff); color: inherit; border-radius: 12px; padding: 2px 9px; cursor: pointer; }
+.tool-chest-chip.active { border-color: #1971c2; box-shadow: 0 0 0 1px #1971c2 inset; }
+.tool-chest-chip .tc-dot { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.15) inset; }
+.tool-chest-add { font-size: 11.5px; font-weight: 600; border: 1px dashed var(--border); background: none; color: inherit; border-radius: 12px; padding: 2px 9px; cursor: pointer; }
+.tool-chest-add:hover { border-color: #1971c2; color: #1971c2; }
 /* N1: PDF links stop intercepting clicks while a markup/measure tool is armed */
 .markup-active .pdf-link { pointer-events: none !important; }

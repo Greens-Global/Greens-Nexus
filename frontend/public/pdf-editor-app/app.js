@@ -790,6 +790,14 @@
             window._measureSort = e.target.value; if (window.renderMeasureList) window.renderMeasureList();
         });
         document.getElementById('scaleChip')?.addEventListener('click', () => window.openSetScaleDialog && window.openSetScaleDialog());
+        // Tool Chest: save the current style as a named preset (S9).
+        document.getElementById('toolChestSave')?.addEventListener('click', async () => {
+            const name = await customPrompt('Name this tool preset (e.g. "Wall - red 3px"):', 'Preset name', '');
+            if (!name) return;
+            window.saveToolPreset(name);
+            window.renderToolChest();
+            showToast('Preset "' + name + '" saved');
+        });
 
         // Keyboard shortcuts
         document.addEventListener('keydown', handleKeyboard);
@@ -2214,6 +2222,70 @@
     // Display precision (decimal places) for measurement values. 2 by default.
     let _measurePrecision = 2;
     function _mPrecision() { return _measurePrecision; }
+
+    // ── Tool Chest (S9): named presets of markup/measure style, saved locally.
+    // A preset captures color + thickness + optional subject + unit cost so a
+    // takeoff can reuse a consistent style with one click.
+    const _TOOLCHEST_KEY = 'pdfEditorToolChest';
+    let _toolChest = [];
+    let _activePreset = null;   // subject/cost to stamp onto the next measurements
+    function _loadToolChest() {
+        try { _toolChest = JSON.parse(localStorage.getItem(_TOOLCHEST_KEY) || '[]') || []; }
+        catch (_) { _toolChest = []; }
+    }
+    function _saveToolChest() {
+        try { localStorage.setItem(_TOOLCHEST_KEY, JSON.stringify(_toolChest)); } catch (_) {}
+    }
+    window.toolChestList = () => _toolChest.slice();
+    window.saveToolPreset = function (name) {
+        const nm = (name || '').trim();
+        if (!nm) return null;
+        const sw = parseInt(dom.sizePicker.value, 10) || 2;
+        const preset = { name: nm, color: _measureColor(), thickness: sw,
+                         subject: (_activePreset && _activePreset.subject) || '',
+                         unitCost: (_activePreset && _activePreset.unitCost) != null ? _activePreset.unitCost : null };
+        const i = _toolChest.findIndex(p => p.name === nm);
+        if (i >= 0) _toolChest[i] = preset; else _toolChest.push(preset);
+        _saveToolChest();
+        return preset;
+    };
+    window.applyToolPreset = function (name) {
+        const p = _toolChest.find(x => x.name === name);
+        if (!p) return;
+        _measureColorState = p.color || _measureColorState;
+        if (dom.sizePicker) dom.sizePicker.value = p.thickness || dom.sizePicker.value;
+        if (dom.colorPicker) dom.colorPicker.value = p.color || dom.colorPicker.value;
+        _activePreset = { subject: p.subject || '', unitCost: p.unitCost };
+        // Count sessions drop into the preset's subject too.
+        if (p.subject && window.setCountGroup) window.setCountGroup(p.subject);
+        showToast('Preset "' + p.name + '" active - new markups use it');
+        setStatus('Tool preset: ' + p.name);
+    };
+    window.deleteToolPreset = function (name) {
+        _toolChest = _toolChest.filter(p => p.name !== name);
+        _saveToolChest();
+        window.renderToolChest && window.renderToolChest();
+    };
+    window.renderToolChest = function () {
+        const wrap = document.getElementById('toolChestChips');
+        if (!wrap) return;
+        if (!_toolChest.length) { wrap.innerHTML = '<span class="tool-chest-empty">No presets yet</span>'; return; }
+        const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+        wrap.innerHTML = _toolChest.map(p => {
+            const active = _activePreset && p.subject && _activePreset.subject === p.subject;
+            return `<button class="tool-chest-chip${active ? ' active' : ''}" data-preset="${escH(p.name)}" title="Apply preset (right-click to delete)">
+                <span class="tc-dot" style="background:${escH(p.color)}"></span>${escH(p.name)}</button>`;
+        }).join('');
+        wrap.querySelectorAll('.tool-chest-chip').forEach(chip => {
+            const name = chip.getAttribute('data-preset');
+            chip.addEventListener('click', () => { window.applyToolPreset(name); window.renderToolChest(); });
+            chip.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                if (confirm('Delete preset "' + name + '"?')) window.deleteToolPreset(name);
+            });
+        });
+    };
+    _loadToolChest();
     // Global show/hide for all measurement captions on the plan (M21).
     let _measureLabelsHidden = false;
     window.toggleMeasureLabels = function () {
@@ -2569,6 +2641,12 @@
     // measurement was taken under, so we can detect/flag mixed-scale totals.
     function _tagMeasure(shape, m, geomPx) {
         m._mid = _newMid();
+        // An active Tool Chest preset (S9) stamps its subject + unit cost onto
+        // new measurements so a takeoff stays consistent.
+        if (_activePreset) {
+            if (_activePreset.subject && m.subject === undefined) m.subject = _activePreset.subject;
+            if (_activePreset.unitCost != null && m.unitCost === undefined) m.unitCost = _activePreset.unitCost;
+        }
         if (m.subject === undefined) m.subject = m.type;   // Bluebeam "Subject"
         m.color = shape.stroke || _measureColor();
         m.thickness = shape.strokeWidth || 2;
@@ -3694,7 +3772,7 @@
         if (!panel) return;
         const showing = panel.style.display !== 'none';
         panel.style.display = showing ? 'none' : 'flex';
-        if (!showing) window.renderMeasureList();
+        if (!showing) { window.renderMeasureList(); if (window.renderToolChest) window.renderToolChest(); }
     };
 
     let dragKind = 'rect'; // kind locked at mousedown — menu changes mid-drag can't corrupt it
