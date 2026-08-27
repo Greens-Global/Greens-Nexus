@@ -2979,7 +2979,13 @@
         if (!v) return;
         _countGroup = (v.name || 'Count').trim() || 'Count';
         if (v.color) _measureColorState = v.color;
-        setStatus('Count group: "' + _countGroup + '" - clicks now tally under this group');
+        // A15: arm the Count tool so the next clicks actually count (before, the
+        // previously-active tool stayed live and clicks made length measurements).
+        if (window.activateShapeToolForMeasure) window.activateShapeToolForMeasure();
+        document.getElementById('shapeMenu')?.classList.remove('open');
+        window.setShapeKind && window.setShapeKind('mcount');
+        document.getElementById('measureTool')?.classList.add('active');
+        setStatus('Count "' + _countGroup + '": click to drop markers under this group');
         showToast('Counting "' + _countGroup + '"');
     };
     function placeCountMarker(p) {
@@ -3678,8 +3684,13 @@
         const countSeen = new Set();
         shown.forEach(({ m, i }) => {
             if (sortMode === 'page' && m.page !== lastPage) {
-                const pageRows = filteredRows.filter(r => r.page === m.page);
-                html += `<div class="measure-subtotal">Sheet ${m.page} - ${pageRows.length} item${pageRows.length > 1 ? 's' : ''}</div>`;
+                // A15: count the way the rows show - count markers collapse to one
+                // row per group, so the header must not tally raw markers.
+                const onPage = filteredRows.filter(r => r.page === m.page);
+                const nonCount = onPage.filter(r => r.kind !== 'mcount').length;
+                const countGroups = new Set(onPage.filter(r => r.kind === 'mcount').map(r => r.subject || 'Count')).size;
+                const shownCount = nonCount + countGroups;
+                html += `<div class="measure-subtotal">Sheet ${m.page} - ${shownCount} item${shownCount > 1 ? 's' : ''}</div>`;
                 lastPage = m.page;
             }
             if (m.kind === 'mcount') {
