@@ -389,6 +389,7 @@
       ['mradius',    '◐ Measure radius / diameter'],
       ['mvolume',    '⬒ Measure volume (area × depth)'],
       ['mcount',     '# Count'],
+      ['countgroup', '🏷 Count group (name + color)...', true],
       ['snapcontent','🧲 Snap to Content (on/off)', true],  // action: toggle snapping
       ['hidelabels', '👁 Show / hide measurement labels', true],
       ['mlist',      '☰ Measurements list & totals', true],  // action: open the panel
@@ -419,6 +420,7 @@
             const hidden = window.toggleMeasureLabels();
             it.textContent = (hidden ? '✓ ' : '') + '👁 Show / hide measurement labels';
           }
+          else if (kind === 'countgroup' && window.openCountGroupDialog) window.openCountGroupDialog();
           return;
         }
         // Arm the shape tool (the measure engine lives on it) WITHOUT opening the

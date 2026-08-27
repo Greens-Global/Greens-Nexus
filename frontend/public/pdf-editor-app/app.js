@@ -2164,7 +2164,7 @@
             mangle:  'Angle: click first ray end, then the vertex, then the second ray end',
             mradius: 'Radius: click the center, then the edge (shows radius + diameter)',
             mvolume: 'Volume: outline the area, double-click to finish, then enter a depth',
-            mcount:  'Count: click to drop markers - the list tallies them',
+            mcount:  'Count "' + _countGroup + '": click to drop markers - set the group name via Measure > Count group',
             mdynfill:'Dynamic fill: click inside an enclosed room to auto-measure its area',
             mlength: 'Length: click two points. Hold Shift for straight/45 deg; snaps to nearby ends',
             mpolylen:'Polyline length: click points along a run, double-click to finish (one total)',
@@ -2738,6 +2738,13 @@
             // line then connects it back to the measurement (M22).
             selectable: true, hasControls: false, hasBorders: true, lockScalingX: true, lockScalingY: true, lockRotation: true,
             visible: !_measureLabelsHidden });
+        // A16: keep the caption inside the page - clamp its center so half its
+        // width/height can't hang off the edge and get clipped.
+        try {
+            const cw = fabricCanvas.getWidth(), ch = fabricCanvas.getHeight();
+            const hw = (t.width || 40) / 2 + 4, hh = (t.height || 16) / 2 + 4;
+            t.set({ left: Math.max(hw, Math.min(cw - hw, t.left)), top: Math.max(hh, Math.min(ch - hh, t.top)) });
+        } catch (_) {}
         t._measureCaption = true;
         t._anchor = { x, y };   // where the label belongs (for the leader line)
         // Follow the active layer so the caption hides/saves with its markup (M31).
@@ -2942,6 +2949,20 @@
     let _countSeq = 0;
     let _countGroup = 'Count';   // the subject the current count session drops into (M27)
     window.setCountGroup = function (name) { _countGroup = (name || 'Count').trim() || 'Count'; };
+    // A15: name + color the current count group, so counts of different kinds
+    // (columns, fixtures, ...) tally separately with their own color.
+    window.openCountGroupDialog = async function () {
+        const v = await _toolModal('Count group', `
+            <label class="modal-label">Group name (what you're counting):</label>
+            <input type="text" class="modal-input" data-k="name" value="${(_countGroup || 'Count').replace(/"/g,'&quot;')}" placeholder="e.g. Columns, Fixtures">
+            <label class="stamp-date-row" style="padding:10px 0 0;"><span>Marker color</span>
+                <input type="color" data-k="color" value="${_measureColor()}"></label>`, 'Set Group');
+        if (!v) return;
+        _countGroup = (v.name || 'Count').trim() || 'Count';
+        if (v.color) _measureColorState = v.color;
+        setStatus('Count group: "' + _countGroup + '" - clicks now tally under this group');
+        showToast('Counting "' + _countGroup + '"');
+    };
     function placeCountMarker(p) {
         const color = _measureColor();
         const dot = new fabric.Circle({ left: p.x, top: p.y, radius: 6, fill: color,
@@ -3633,14 +3654,30 @@
         });
         let html = '<div class="measure-row measure-row-head"><span></span><span class="measure-row-type">Item</span><span class="measure-row-page">Pg</span><span class="measure-row-val">Value</span></div>';
         let lastPage = null;
+        // A15: collapse count markers into ONE row per (group + page) with a tally,
+        // instead of a separate "Count 1" row for every click.
+        const countSeen = new Set();
         shown.forEach(({ m, i }) => {
             if (sortMode === 'page' && m.page !== lastPage) {
                 const pageRows = filteredRows.filter(r => r.page === m.page);
                 html += `<div class="measure-subtotal">Sheet ${m.page} - ${pageRows.length} item${pageRows.length > 1 ? 's' : ''}</div>`;
                 lastPage = m.page;
             }
+            if (m.kind === 'mcount') {
+                const gkey = (m.subject || 'Count') + '|' + m.page;
+                if (countSeen.has(gkey)) return;   // already rendered this group
+                countSeen.add(gkey);
+                const tally = filteredRows.filter(r => r.kind === 'mcount' && (r.subject || 'Count') === (m.subject || 'Count') && r.page === m.page).length;
+                const swColor = m.color || '#e8590c';
+                html += `<div class="measure-row" data-mid="${escH(m._mid || '')}" data-i="${i}" title="Count group - right-click a marker on the plan to edit">
+                    <span class="measure-swatch" style="background:${escH(swColor)}"></span><span class="measure-row-type">${escH(m.subject || 'Count')} <span class="markup-kind">count</span></span>
+                    <span class="measure-row-page">p${m.page}</span>
+                    <span class="measure-row-val">${tally}</span>
+                </div>`;
+                return;
+            }
             const name = m.label ? escH(m.label) : escH(m.subject || m.type);
-            const swColor = m.color || (m.kind === 'mcount' ? '#e8590c' : '#1971c2');
+            const swColor = m.color || '#1971c2';
             const dot = `<span class="measure-swatch" style="background:${escH(swColor)}"></span>`;
             const mixed = (m.scaleAt != null && measureScale != null && Math.abs(m.scaleAt - measureScale) > 1e-6)
                 ? ' <span class="measure-flag" title="Captured under a different scale than the current one">⚠</span>' : '';
