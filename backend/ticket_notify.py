@@ -35,6 +35,14 @@ _SETTINGS_KEY = "ticket_notify_config"
 _DEFAULT_SETTINGS = {
     "fromMailbox":      "",     # blank = fall back to graph_mail.DEFAULT_FROM_EMAIL (NEXUS_FROM_EMAIL env var)
     "agentEmails":      [],     # the service desk - who new tickets go to (see ticket_agents)
+    # Multi-company desks (Aug 2026): {HrEntity.id: [email, ...]}. A ticket's
+    # own company_id (stamped from the requester's People record at creation -
+    # see company_for in routers/tickets.py) picks its roster from here FIRST;
+    # `agentEmails` above is the fallback for a company with no roster of its
+    # own, and stays the everything-fallback for a workspace running as one
+    # company that has never touched this. Same shape as `agentEmails` - one
+    # flat list per key, no per-company nesting of the other settings below.
+    "agentEmailsByCompany": {},
     "ticketAdminEmail": "",     # last-resort recipient when no agent is available to notify
     "defaultCc":        [],
     "replyTo":           "",
@@ -115,7 +123,22 @@ def _is_sendable(db: Session, email: str) -> bool:
     return not (emp and emp.status in ("inactive", "offboarded"))
 
 
-def ticket_agents(db: Session, cfg: dict | None = None) -> list[str]:
+def _dedupe(emails: list[str]) -> list[str]:
+    seen, out = set(), []
+    for email in emails:
+        email = (email or "").strip().lower()
+        if email and email not in seen:
+            seen.add(email)
+            out.append(email)
+    return out
+
+
+def _administrators(db: Session) -> list[str]:
+    return [r.email for r in db.query(models.NexusRole)
+            .filter(models.NexusRole.role.in_(["administrator", "owner"])).all()]
+
+
+def ticket_agents(db: Session, cfg: dict | None = None, company_id: str | None = None) -> list[str]:
     """The service desk: who new tickets go to for assignment and everything
     that follows. Chosen in Ticket -> Manage, not derived from anything.
 
@@ -126,30 +149,50 @@ def ticket_agents(db: Session, cfg: dict | None = None) -> list[str]:
     app-wide admin are different jobs, and tying them meant you had to hand
     someone administrator - the whole application - to let them triage tickets.
 
-    An empty list falls back to the administrators rather than nobody, so a
-    workspace that has not configured a desk yet still routes its tickets
-    somewhere a human will see them.
+    Multi-company desks (Aug 2026): pass the ticket's `company_id` and, if that
+    company has its own roster in `agentEmailsByCompany`, it wins over the flat
+    `agentEmails` list - a Greens India ticket should not page a Greens US
+    agent who cannot act on it and has no context for it. `company_id=None`
+    (or a company with no roster of its own) falls through to `agentEmails`
+    unchanged, so single-company workspaces and every existing caller that
+    doesn't pass one are unaffected.
+
+    An empty result at every level falls back to the administrators rather
+    than nobody, so a workspace that has not configured a desk yet still
+    routes its tickets somewhere a human will see them.
 
     THE one definition of the desk. routers/tickets.py drives the in-app bell
     from this same function - the two channels must never disagree about who
     owns a ticket."""
     cfg = cfg if cfg is not None else get_settings(db)
-    configured = [(e or "").strip().lower() for e in (cfg.get("agentEmails") or [])]
+    configured = []
+    if company_id:
+        configured = list((cfg.get("agentEmailsByCompany") or {}).get(company_id) or [])
     if not configured:
-        configured = [(r.email or "").strip().lower() for r in
-                      db.query(models.NexusRole)
-                        .filter(models.NexusRole.role.in_(["administrator", "owner"])).all()]
-    seen, out = set(), []
-    for email in configured:
-        if email and email not in seen:
-            seen.add(email)
-            out.append(email)
-    return out
+        configured = list(cfg.get("agentEmails") or [])
+    if not configured:
+        configured = _administrators(db)
+    return _dedupe(configured)
 
 
-def _agent_recipients(db: Session, cfg: dict) -> list[str]:
+def all_agents(db: Session, cfg: dict | None = None) -> list[str]:
+    """Every configured agent across every company, plus the flat fallback
+    list - the union used for "is this person on desk AT ALL" checks (queue
+    visibility) that have no single ticket, and so no single company, to
+    scope to. Per-ticket routing uses `ticket_agents(..., company_id=...)`
+    instead - this is deliberately broader."""
+    cfg = cfg if cfg is not None else get_settings(db)
+    configured = list(cfg.get("agentEmails") or [])
+    for roster in (cfg.get("agentEmailsByCompany") or {}).values():
+        configured.extend(roster or [])
+    if not configured:
+        configured = _administrators(db)
+    return _dedupe(configured)
+
+
+def _agent_recipients(db: Session, cfg: dict, company_id: str | None = None) -> list[str]:
     """ticket_agents, minus anyone we must not email (inactive/offboarded)."""
-    return [e for e in ticket_agents(db, cfg) if _is_sendable(db, e)]
+    return [e for e in ticket_agents(db, cfg, company_id) if _is_sendable(db, e)]
 
 
 def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dict) -> list[tuple[str, str]]:
@@ -166,7 +209,7 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
 
     requester = (t.requester_email or "").strip().lower()
     assignee = (t.assignee_email or "").strip().lower()
-    agents = _agent_recipients(db, cfg)
+    agents = _agent_recipients(db, cfg, t.company_id)
     if not agents:
         # No desk configured, no administrators either, or none of them is
         # sendable. The configured Ticket Administrator is the last resort so a
