@@ -6,15 +6,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
-  Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check,
+  Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check, AlertTriangle,
 } from 'lucide-react';
+import DataQualityTab from './DataQualityTab';
 import { useTasks } from './TasksContext';
 import { api } from '../api';
 import {
   NX, FONT, card, chip, btn, input as inputStyle,
   STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, colorForKey,
 } from './theme';
-import { Avatar, EmptyState, Modal } from './components';
+import { Avatar, EmptyState, Modal, SearchSelect, ChipMultiSelect } from './components';
 import { taskStats, topLevel, fmtDateTime, teamProjectIds } from './lib';
 import TasksWorkspace from './TasksWorkspace';
 import { TeamModal, deptIcon } from './TeamsView';
@@ -27,6 +28,16 @@ const iconBadge = { width: 32, height: 32, flexShrink: 0, borderRadius: 9, displ
 
 function Field({ label, children }) {
   return <div style={{ marginBottom: 14 }}><label style={fieldLabel}>{label}</label>{children}</div>;
+}
+
+// A team's dozen-plus projects or a field's dozen-plus options used to print
+// every single one, which read as a wall of text instead of a summary and
+// pushed rows across five wrapped lines. Capped with a "+N more" tail - full
+// detail still lives one click away in the row's own Edit modal.
+const LIST_CAP = 6;
+function capList(items, max = LIST_CAP) {
+  if (items.length <= max) return items.join(', ');
+  return `${items.slice(0, max).join(', ')} +${items.length - max} more`;
 }
 
 function SectionHead({ title, hint, action }) {
@@ -61,7 +72,14 @@ const SWATCHES = [NX.blue, NX.green, NX.amber, NX.red, NX.purple, NX.teal, NX.pi
 // ── Sub-tabs registry ─────────────────────────────────────────────────────────
 const SUBTABS = [
   { key: 'tasklist', label: 'Task List', icon: List },
-  { key: 'import', label: 'Asana', icon: Download },
+  // Company-wide, manager-only: every open task missing a due date, project,
+  // priority, or team in one list, editable inline (Neil, Aug 2026).
+  { key: 'dataQuality', label: 'Data Quality', icon: AlertTriangle },
+  // Asana severed (Aug 27): the tab is gone so the import/setup/two-way-sync
+  // controls are unreachable. AsanaImportTab below and the whole backend are
+  // deliberately kept - restoring the link is this line plus
+  // NEXUS_ASANA_ENABLED=true, with no migration or re-import.
+  // { key: 'import', label: 'Asana', icon: Download },
   { key: 'departments', label: 'Teams', icon: Users },
   { key: 'rules', label: 'Automation Rules', icon: Zap },
   { key: 'fields', label: 'Custom Fields', icon: ListChecks },
@@ -95,16 +113,18 @@ export default function ManageView() {
         })}
       </div>
 
-      {/* Body - the Task List is full-bleed (wide, self-scrolling table); the rest
-          keep the centered admin column. */}
+      {/* Body - the Task List and Data Quality are full-bleed (wide,
+          self-scrolling tables); the rest keep the centered admin column. */}
       {tab === 'tasklist' ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <TasksWorkspace title="Task List" />
         </div>
+      ) : tab === 'dataQuality' ? (
+        <DataQualityTab store={store} />
       ) : (
         <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
           <div style={{ maxWidth: 940, margin: '0 auto' }}>
-            {tab === 'import' && <AsanaImportTab store={store} />}
+            {/* {tab === 'import' && <AsanaImportTab store={store} />}  - see SUBTABS */}
             {tab === 'departments' && <TeamsTab store={store} />}
             {tab === 'rules' && <RulesTab store={store} />}
             {tab === 'fields' && <FieldsTab store={store} />}
@@ -123,6 +143,9 @@ export default function ManageView() {
 
 
 // ── Import from Asana - paste a token + project GIDs, runs server-side ─────────
+// Parked, not deleted - see SUBTABS. Kept so restoring the Asana link is a
+// one-line change rather than recovering 900 lines from git.
+// eslint-disable-next-line no-unused-vars
 function AsanaImportTab({ store }) {
   const [token, setToken] = useState('');
   const [gids, setGids] = useState('');
@@ -131,6 +154,7 @@ function AsanaImportTab({ store }) {
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [projects, setProjects] = useState(null);   // null = not loaded; [] = loaded, none
   const [picked, setPicked] = useState(() => new Set());
+  const [projQ, setProjQ] = useState('');           // filters the list below
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const togglePick = (gid) => setPicked((s) => { const n = new Set(s); n.has(gid) ? n.delete(gid) : n.add(gid); return n; });
@@ -176,20 +200,46 @@ function AsanaImportTab({ store }) {
           </div>
         </Field>
 
-        {/* Project picker - populated by "Load projects" */}
-        {projects && projects.length > 0 && (
-          <Field label={`Projects  (${picked.size} selected)`}>
-            <div style={{ maxHeight: 240, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 8 }}>
-              {projects.map((p) => (
-                <label key={p.gid} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${NX.border2}` }}>
-                  <input type="checkbox" checked={picked.has(p.gid)} onChange={() => togglePick(p.gid)} />
-                  <span style={{ flex: 1, minWidth: 0, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                  {p.workspace && <span style={{ fontSize: 11, color: NX.faint }}>{p.workspace}</span>}
-                </label>
-              ))}
-            </div>
-          </Field>
-        )}
+        {/* Project picker - populated by "Load projects". Stays a checkbox list
+            rather than a dropdown: importing is a bulk decision, and ticking
+            twenty boxes inside a menu that closes on every pick is worse than
+            the list. What it needed was the filter. */}
+        {projects && projects.length > 0 && (() => {
+          const needle = projQ.trim().toLowerCase();
+          const shown = needle
+            ? projects.filter((p) => `${p.name || ''} ${p.workspace || ''} ${p.gid}`.toLowerCase().includes(needle))
+            : projects;
+          const allShown = shown.length > 0 && shown.every((p) => picked.has(p.gid));
+          const setShown = (on) => setPicked((prev) => {
+            const n = new Set(prev);
+            shown.forEach((p) => (on ? n.add(p.gid) : n.delete(p.gid)));
+            return n;
+          });
+          return (
+            <Field label={`Projects  (${picked.size} selected)`}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                <input value={projQ} onChange={(e) => setProjQ(e.target.value)} placeholder="Search Asana projects…"
+                  style={{ ...inputStyle, flex: 1, padding: '6px 9px', fontSize: 12.5 }} />
+                <button type="button" onClick={() => setShown(!allShown)}
+                  style={{ ...btn('ghost'), padding: '3px 8px', fontSize: 12, color: NX.blue, flexShrink: 0 }}>
+                  {allShown ? 'Clear These' : 'Select These'}
+                </button>
+              </div>
+              <div style={{ maxHeight: 240, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 8 }}>
+                {shown.length === 0 && (
+                  <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>No matches for &ldquo;{projQ.trim()}&rdquo;.</div>
+                )}
+                {shown.map((p) => (
+                  <label key={p.gid} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${NX.border2}` }}>
+                    <input type="checkbox" checked={picked.has(p.gid)} onChange={() => togglePick(p.gid)} />
+                    <span style={{ flex: 1, minWidth: 0, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                    {p.workspace && <span style={{ fontSize: 11, color: NX.faint }}>{p.workspace}</span>}
+                  </label>
+                ))}
+              </div>
+            </Field>
+          );
+        })()}
 
         <Field label="Project GID(s) - optional">
           <input value={gids} onChange={(e) => setGids(e.target.value)} placeholder="Leave blank to import everything this token can see" style={inputStyle} />
@@ -742,10 +792,16 @@ function AsanaSyncPanel({ store }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                 {asanaProjects ? (
-                  <select value={map[p.id] || ''} onChange={(e) => setMap((m) => ({ ...m, [p.id]: e.target.value }))} style={{ ...inputStyle, appearance: 'auto', cursor: 'pointer', width: 230, padding: '5px 8px', fontSize: 12 }}>
-                    <option value="">- not synced -</option>
-                    {asanaProjects.map((ap) => <option key={ap.gid} value={ap.gid}>{ap.name}</option>)}
-                  </select>
+                  /* A whole Asana workspace lands in this list - hundreds of
+                     projects on a real account - so it has to be searchable. */
+                  <div style={{ width: 230, flexShrink: 0 }}>
+                    <SearchSelect value={map[p.id] || ''} placeholder="- not synced -" searchPlaceholder="Search Asana projects…"
+                      emptyText="No Asana projects loaded." menuMinWidth={230}
+                      buttonStyle={{ ...inputStyle, cursor: 'pointer', width: '100%', padding: '5px 8px', fontSize: 12, justifyContent: 'space-between' }}
+                      options={[{ id: '', label: '- not synced -' },
+                                ...asanaProjects.map((ap) => ({ id: ap.gid, label: ap.name, keywords: ap.gid }))]}
+                      onPick={(gid) => setMap((m) => ({ ...m, [p.id]: gid }))} />
+                  </div>
                 ) : (
                   <input value={map[p.id] || ''} onChange={(e) => setMap((m) => ({ ...m, [p.id]: e.target.value }))} placeholder="Asana project GID" style={{ ...inputStyle, width: 200, padding: '5px 8px', fontSize: 12 }} />
                 )}
@@ -922,7 +978,7 @@ function TeamsTab({ store }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>{d.name}</div>
                 <div style={{ fontSize: 12, color: NX.faint, marginTop: 1 }}>
-                  {(teamProjectIds(d).map(projectName).filter(Boolean).join(', ') || 'No project')} · {members.length} member{members.length === 1 ? '' : 's'} · {taskCountByTeam[d.id] || 0} task{(taskCountByTeam[d.id] || 0) === 1 ? '' : 's'}
+                  {(capList(teamProjectIds(d).map(projectName).filter(Boolean)) || 'No project')} · {members.length} member{members.length === 1 ? '' : 's'} · {taskCountByTeam[d.id] || 0} task{(taskCountByTeam[d.id] || 0) === 1 ? '' : 's'}
                 </div>
               </div>
               <IconButton icon={Pencil} title="Edit Team" onClick={() => setEditing(d)} />
@@ -1149,16 +1205,19 @@ function FieldsTab({ store }) {
             {f.description && <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{f.description}</div>}
             {OPTION_TYPES.includes(f.type) && !!(f.options || []).length && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
-                {(f.options || []).map((o) => {
+                {(f.options || []).slice(0, LIST_CAP).map((o) => {
                   const opt = typeof o === 'string' ? { id: o, label: o, color: NX.dim } : o;
                   return <span key={opt.id} style={chip(opt.color || NX.dim, `${opt.color || NX.dim}1a`)}>{opt.label}</span>;
                 })}
+                {(f.options || []).length > LIST_CAP && (
+                  <span style={chip(NX.dim, NX.border2)}>+{(f.options || []).length - LIST_CAP} more</span>
+                )}
               </div>
             )}
             {(f.appliesTo || []).includes('task') && (
               <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
                 {(f.projectIds || []).length
-                  ? (f.projectIds || []).map(projectName).filter(Boolean).join(', ')
+                  ? capList((f.projectIds || []).map(projectName).filter(Boolean))
                   : 'Every project'}
               </div>
             )}
@@ -1227,7 +1286,6 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
     || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds);
 
   const setOpt = (i, patch) => setOptions((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
-  const toggleProject = (id) => setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   // At least one kind must stay checked - a field that applies to nothing
   // can't show up anywhere to be edited again.
   const toggleAppliesTo = (kind) => setAppliesTo((prev) => (prev.includes(kind)
@@ -1300,18 +1358,8 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
           <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 6 }}>
             Pick none to use this field in every project.
           </div>
-          {projects.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet.</div>
-          ) : (
-            <div style={{ maxHeight: 150, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 10 }}>
-              {projects.filter((p) => !p.archived).map((p) => (
-                <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${NX.border2}` }}>
-                  <input type="checkbox" checked={projectIds.includes(p.id)} onChange={() => toggleProject(p.id)} style={{ cursor: 'pointer' }} />
-                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                </label>
-              ))}
-            </div>
-          )}
+          <ChipMultiSelect value={projectIds} onChange={setProjectIds} options={projectPickerOptions(projects)}
+            placeholder="Every project" searchPlaceholder="Search projects…" emptyText="No projects yet." />
         </div>
       )}
       <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 13, cursor: 'pointer' }}>
@@ -1322,6 +1370,15 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
       </label>
     </Modal>
   );
+}
+
+// Every "which projects does this apply to?" control reads from here:
+// alphabetical, archived left out (a rule that no longer applies to live work
+// does not need scoping to a dead board).
+function projectPickerOptions(projects) {
+  return (projects || []).filter((p) => !p.archived).slice()
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
+    .map((p) => ({ id: p.id, label: p.name }));
 }
 
 // ── 3. Custom statuses ────────────────────────────────────────────────────────
@@ -1387,7 +1444,7 @@ function StatusesTab({ store }) {
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.label}</div>
             <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
               {(s.projectIds || []).length
-                ? (s.projectIds || []).map(projectName).filter(Boolean).join(', ')
+                ? capList((s.projectIds || []).map(projectName).filter(Boolean))
                 : 'Every project'}
             </div>
           </div>
@@ -1411,7 +1468,6 @@ function StatusModal({ projects = [], status = null, onClose, onSave }) {
   }), [status]);
   const dirty = label !== initial.label || color !== initial.color
     || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds);
-  const toggleProject = (id) => setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   const save = () => { if (label.trim()) onSave({ label: label.trim(), color, project_ids: projectIds }); };
 
   return (
@@ -1436,18 +1492,8 @@ function StatusModal({ projects = [], status = null, onClose, onSave }) {
         <div style={{ fontSize: 12, color: NX.dim, marginBottom: 6 }}>
           Leave all unchecked to show this status on every board.
         </div>
-        {projects.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet.</div>
-        ) : (
-          <div style={{ maxHeight: 150, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 10 }}>
-            {projects.filter((p) => !p.archived).map((p) => (
-              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${NX.border2}` }}>
-                <input type="checkbox" checked={projectIds.includes(p.id)} onChange={() => toggleProject(p.id)} style={{ cursor: 'pointer' }} />
-                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-              </label>
-            ))}
-          </div>
-        )}
+        <ChipMultiSelect value={projectIds} onChange={setProjectIds} options={projectPickerOptions(projects)}
+          placeholder="Every board" searchPlaceholder="Search projects…" emptyText="No projects yet." />
       </div>
     </Modal>
   );
@@ -1600,11 +1646,14 @@ function IntakeModal({ projects, onClose, onSave }) {
     }>
       <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. IT support request" style={inputStyle} /></Field>
       <Field label="Target project">
-        <select value={targetProjectId} onChange={(e) => setTargetProjectId(e.target.value)} style={selectStyle}>
-          <option value="">No target project</option>
-          {/* Intake forms file NEW tasks, so archived projects are not offered. */}
-          {(projects || []).filter((p) => !p.archived).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        {/* Intake forms file NEW tasks, so archived projects are not offered. */}
+        <SearchSelect value={targetProjectId} placeholder="No target project" searchPlaceholder="Search projects…"
+          emptyText="No projects yet." onPick={setTargetProjectId}
+          buttonStyle={{ ...selectStyle, cursor: 'pointer', justifyContent: 'space-between' }}
+          options={[{ id: '', label: 'No target project' },
+                    ...(projects || []).filter((p) => !p.archived).slice()
+                      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
+                      .map((p) => ({ id: p.id, label: p.name }))]} />
       </Field>
       <label style={fieldLabel}>Fields</label>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

@@ -23,6 +23,12 @@ router = APIRouter(tags=["Asana"])
 @router.post("/asana-sync/webhook")
 async def asana_webhook(request: Request, db: Session = Depends(get_db)):
     import asana_sync
+    # Severed (Aug 27): the endpoint stays mounted so Asana gets a clean answer
+    # rather than a 404 storm, but nothing is applied and no handshake is
+    # accepted, so a webhook left registered at Asana's end cannot quietly
+    # resume the link. NEXUS_ASANA_ENABLED=true restores it.
+    if not asana_sync.is_asana_enabled():
+        return Response(status_code=200)
     body = await request.body()
     secret = request.headers.get("X-Hook-Secret")
     if secret:

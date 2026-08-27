@@ -7,6 +7,7 @@ import { CalendarDays, User, X, Image as ImageIcon, Paperclip, ScanText, Camera,
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { usePeople, PersonMultiSelect, DateField } from './components';
+import { SearchSelect } from './components';
 import { BottomSheet } from './MobileTaskBar';
 import { filesFromPaste, uploadTaskAttachment } from './lib';
 import { NX, FONT, btn, input as inputStyle } from './theme';
@@ -94,17 +95,20 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
           </div>
           <div>
             <span style={fieldLabel}><User size={13} /> Assignee <span style={{ color: NX.red }}>*</span></span>
-            <PersonMultiSelect value={assigneeIds} onChange={setAssigneeIds} people={people} placeholder="Assign to…" />
+            <PersonMultiSelect value={assigneeIds} onChange={setAssigneeIds} people={people} placeholder="Assign to…" addTitle="Add assignee" />
           </div>
         </div>
 
         {!lockedProject && (
           <div>
             <span style={fieldLabel}><FolderKanban size={13} /> Project <span style={{ color: NX.red }}>*</span></span>
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={sel}>
-              <option value="">Select a project…</option>
-              {projects.filter((p) => !p.archived).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <SearchSelect value={projectId} placeholder="Select a project…" searchPlaceholder="Search projects…"
+              buttonStyle={{ ...sel, justifyContent: 'space-between' }} emptyText="No projects yet."
+              options={[{ id: '', label: 'No project' },
+                        ...projects.filter((p) => !p.archived)
+                          .slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
+                          .map((p) => ({ id: p.id, label: p.name }))]}
+              onPick={setProjectId} />
           </div>
         )}
 

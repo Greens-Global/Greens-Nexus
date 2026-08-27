@@ -10,9 +10,9 @@
 // exist, how far along, their milestones and RFIs), this is the timeline (what
 // the crew filed, what the week adds up to).
 //
-// The project picker is a select rather than cards: getting here means you
-// already know which site you want, and a second grid of project tiles would
-// just be the dashboard again.
+// The project picker is one searchable field rather than cards: getting here
+// means you already know which site you want, and a second grid of project
+// tiles would just be the dashboard again.
 import { useCallback, useEffect, useState } from 'react';
 import { ClipboardList, Folder, MapPin, Plus } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
@@ -24,6 +24,7 @@ import ConstructionInbox from './ConstructionInbox';
 import ReviewQueue from './ReviewQueue';
 import DailyLogCapture from './DailyLogCapture';
 import WeeklyReports from './WeeklyReports';
+import SearchPicker from './SearchPicker';
 
 export default function SiteActivity() {
   const { can } = useRole();
@@ -113,17 +114,15 @@ export default function SiteActivity() {
               <label htmlFor="site-activity-project" style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
                 Jobsite
               </label>
-              <select
+              <SearchPicker
                 id="site-activity-project"
                 value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-                style={{
-                  padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)',
-                  backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)',
-                  fontSize: '0.9rem', minWidth: 220, cursor: 'pointer',
-                }}>
-                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+                onChange={setProjectId}
+                placeholder="Pick a jobsite"
+                searchPlaceholder="Search jobsites…"
+                options={projects.slice()
+                  .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
+                  .map((p) => ({ id: p.id, label: p.name, hint: p.phase || '' }))} />
               {project?.phase && (
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                   {project.phase} · {Math.round(project.percentComplete || 0)}% complete

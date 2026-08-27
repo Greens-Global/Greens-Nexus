@@ -217,6 +217,29 @@ def _extra_project_ids(project_ids: Optional[list], project_id: str) -> list:
     return out
 
 
+def _follow_as_actor(t, actor: str) -> None:
+    """Put `actor` on the task as a collaborator unless they are already on it.
+
+    Whoever puts work on someone else's plate almost always wants the comments
+    and the completion (Sagar, Aug 27), and remembering to add yourself is
+    exactly the step that gets skipped. Applied when a task is CREATED and
+    whenever assignees are newly ADDED - never on an unassign, which is not a
+    reason to subscribe anyone to anything.
+
+    No-ops when the actor is an assignee (they are already on it, and a
+    duplicate would show their own face twice in the Person cell) or already a
+    follower. Deliberately never reached by the Asana sync, which builds rows
+    directly in asana_sync.py - the sync worker must not subscribe itself to
+    the entire workspace.
+    """
+    actor = (actor or "").strip().lower()
+    if not actor or actor in task_assignees(t):
+        return
+    followers = list(t.follower_emails or [])
+    if actor not in followers:
+        t.follower_emails = followers + [actor]
+
+
 def _assignees_from(data: dict, current: list) -> Optional[list]:
     """What a payload means for assignment, or None if it says nothing.
 
@@ -957,6 +980,7 @@ def search_everything(q: str = "", limit: int = 6,
 
     tasks = [t for t in db.query(models.Task).all()
              if (term in (t.title or "").lower() or term in (t.code or "").lower())
+             and not t.completed
              and (manager or task_is_visible(t, user, visible))]
     project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
     # Archived projects DO appear here. Archiving hides a project from the
@@ -1209,6 +1233,8 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
         created_at=now, modified_at=now, created_by=user["email"],
     )
     set_task_assignees(t, _assignees_from(body.__dict__, []) or [])
+    # Whoever raised the task follows it - see _follow_as_actor.
+    _follow_as_actor(t, user["email"])
     db.add(t)
     # link into parent
     if t.parent_task_id:
@@ -1307,6 +1333,13 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         acts.append(log_activity(db, type="assignee_changed", actor_email=user["email"],
                                  entity_id=t.id, entity_code=t.code, entity_title=t.title,
                                  detail="reassigned this task"))
+        # Assigning somebody LATER follows the task for you too, same as
+        # creating it did. Only when people were actually added - taking an
+        # assignee off is no reason to subscribe anyone. Skipped when this same
+        # PATCH states the collaborator list explicitly: that is the caller
+        # saying who is on it, including deciding it is not them.
+        if (now_assignees - prev_assignees) and "follower_emails" not in data:
+            _follow_as_actor(t, user["email"])
         # Only people newly ADDED are notified. Re-notifying everyone whenever a
         # third assignee joins would mail the original two about a task they
         # already hold.
@@ -1510,6 +1543,10 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             for who in (now_assignees - set(prev_assignees)):
                 if who != actor:
                     newly_assigned.setdefault(who, []).append(t)
+            # Bulk-assigning is assigning: the person who did it follows each
+            # task they put on someone else's plate, exactly as PATCH does.
+            if (now_assignees - set(prev_assignees)) and "follower_emails" not in patch:
+                _follow_as_actor(t, actor)
         if t.completed and not prev_completed:
             acts.append(log_activity(db, type="completed", actor_email=user["email"],
                                      entity_id=t.id, entity_code=t.code, entity_title=t.title,

@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, useIsMobile, MobileFab } from './components';
+import { Avatar, EmptyState, Modal, usePeople, useIsMobile, MobileFab, SearchSelect } from './components';
 import { formatDate } from '../lib/datetime';
 
 const VISIBILITY_OPTS = [
@@ -169,17 +169,17 @@ export function SaveTemplateModal({ projectId: fixedProjectId = '', onClose, onS
         {!fixedProjectId && (
           <div>
             <label style={label}>Project To Capture</label>
-            <select value={projectId} style={{ ...inputStyle, cursor: 'pointer' }}
-              onChange={(e) => {
-                const id = e.target.value;
+            <SearchSelect value={projectId} placeholder="Empty template (no tasks)"
+              searchPlaceholder="Search projects…" emptyText="No projects yet."
+              buttonStyle={{ ...inputStyle, cursor: 'pointer', justifyContent: 'space-between' }}
+              options={[{ id: '', label: 'Empty template (no tasks)' },
+                        ...projects.filter((p) => !p.archived).slice()
+                          .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
+                          .map((p) => ({ id: p.id, label: p.name }))]}
+              onPick={(id) => {
                 setProjectId(id);
                 if (!nameTouched) set({ name: projects.find((x) => x.id === id)?.name || '' });
-              }}>
-              <option value="">Empty template (no tasks)</option>
-              {projects.filter((p) => !p.archived).slice()
-                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
-                .map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+              }} />
           </div>
         )}
 

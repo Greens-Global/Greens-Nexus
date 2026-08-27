@@ -1980,6 +1980,9 @@ app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one
 from routers import client_errors          # noqa: E402
 app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs
 
+from routers import task_prefs             # noqa: E402
+app.include_router(task_prefs.router)     # Per-user column arrangement for the Task module's lists
+
 from routers import auth_bff               # noqa: E402  BFF login (dual-mode)
 app.include_router(auth_bff.router)        # /auth/login|callback|logout|me - inert without NEXUS_BFF_CLIENT_SECRET
 
