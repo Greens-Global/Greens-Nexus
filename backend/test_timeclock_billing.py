@@ -37,6 +37,7 @@ ADMIN = "billtest.admin@greensglobal.com"
 E_PUNCH = "billtest.punch@greensglobal.com"   # hourly, has punches
 E_NONE = "billtest.none@greensglobal.com"     # hourly, NO punches
 E_EXEMPT = "billtest.exempt@greensglobal.com" # salaried-exempt (must be hidden)
+E_FIXED = "billtest.fixed@greensglobal.com"   # salaried, NOT exempt - must appear on the team list (Charmi, Aug 28)
 GROUP = "grp-billtest"
 SITE_A = "site-a-billtest"
 SITE_B = "site-b-billtest"
@@ -56,15 +57,19 @@ class BillingTests(unittest.TestCase):
         self._cleanup()
         db = database.SessionLocal()
         try:
-            for em, fn in ((ADMIN, "Admin"), (E_PUNCH, "Pat"), (E_NONE, "Vicky"), (E_EXEMPT, "Sal")):
+            for em, fn in ((ADMIN, "Admin"), (E_PUNCH, "Pat"), (E_NONE, "Vicky"),
+                           (E_EXEMPT, "Sal"), (E_FIXED, "Charmi")):
                 db.add(models.NexusEmployee(id=f"emp-{em}", first_name=fn, last_name="Test",
                                             work_email=em, company="", status="active", deleted_at=""))
             # admin gets an hr grant so require_team_read admits them (whole company)
             db.add(models.NexusGroup(id=GROUP, name="Bill Test", allowed_modules="hr:editor"))
             db.add(models.NexusGroupMember(group_id=GROUP, email=ADMIN))
-            # exempt person: fixed pay + time_tracking_exempt
+            # exempt person: fixed pay + time_tracking_exempt (off the timesheet)
             db.add(models.PayrollRate(employee_email=E_EXEMPT,
                                       pay_type="fixed", time_tracking_exempt=1))
+            # salaried but NOT exempt: must appear on the team list even with no punches
+            db.add(models.PayrollRate(employee_email=E_FIXED,
+                                      pay_type="fixed", time_tracking_exempt=0))
             # two geofenced work sites (properties)
             db.add(models.HrWorkSite(id=SITE_A, name="Rental A", latitude="33.6846", longitude="-117.8265", radius_m=150))
             db.add(models.HrWorkSite(id=SITE_B, name="Rental B", latitude="34.0522", longitude="-118.2437", radius_m=150))
@@ -102,7 +107,7 @@ class BillingTests(unittest.TestCase):
                .filter(models.NexusEmployee.work_email.like("billtest.%")).delete(synchronize_session=False))
             db.query(models.NexusGroup).filter(models.NexusGroup.id == GROUP).delete(synchronize_session=False)
             db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == GROUP).delete(synchronize_session=False)
-            db.query(models.PayrollRate).filter(models.PayrollRate.employee_email == E_EXEMPT).delete(synchronize_session=False)
+            db.query(models.PayrollRate).filter(models.PayrollRate.employee_email.in_((E_EXEMPT, E_FIXED))).delete(synchronize_session=False)
             db.query(models.HrWorkSite).filter(models.HrWorkSite.id.in_((SITE_A, SITE_B))).delete(synchronize_session=False)
             db.query(models.TimePunch).filter(models.TimePunch.employee_email.like("billtest.%")).delete(synchronize_session=False)
             db.commit()
@@ -116,7 +121,9 @@ class BillingTests(unittest.TestCase):
         self.assertIn(E_PUNCH, rows)                 # has punches
         self.assertIn(E_NONE, rows)                  # NO punches - must still appear (Charmi)
         self.assertEqual(rows[E_NONE]["workedMin"], 0)
-        self.assertNotIn(E_EXEMPT, rows)             # salaried-exempt stays off the hourly timesheet
+        self.assertNotIn(E_EXEMPT, rows)             # salaried-EXEMPT stays off the timesheet
+        self.assertIn(E_FIXED, rows)                 # salaried, not exempt - now shows (Charmi, Aug 28)
+        self.assertEqual(rows[E_FIXED]["payType"], "fixed")
 
     def test_billable_by_location_splits_two_sites(self):
         r = self.client.get(f"/timeclock/billable-by-location?start={self.ld}&end={self.ld}")

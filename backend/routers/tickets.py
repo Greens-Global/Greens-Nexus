@@ -22,7 +22,7 @@ from auth import get_current_user, require_manager, require_any_module_grant
 from routers.task_util import now_iso, gen_id, log_activity, task_notify
 from ticket_code import TICKET_CODE_DIGITS, ticket_no
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
-                           save_settings as save_notify_settings, ticket_agents)
+                           save_settings as save_notify_settings, ticket_agents, all_agents)
 
 router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
 
@@ -66,6 +66,8 @@ def _require_ticket_participant(db: Session, user: dict, t) -> None:
     """A ticket's own requester/watchers/assignee may read and comment on it
     without any module grant - it is their support request. Everyone else needs
     the desk grant."""
+    import auth   # company wall: another company's ticket is 404 (before any grant)
+    auth.assert_company(getattr(t, "company_id", "") or "", user, db)
     if _has_desk_grant(user, db):
         return
     if (user.get("email") or "").lower() in _ticket_participants(t):
@@ -167,25 +169,35 @@ def _type_label(type_: str) -> str:
     return (type_ or "").replace("_", " ").title() or "-"
 
 
-def _it_admins(db: Session) -> list:
+def _it_admins(db: Session, company_id: str | None = None) -> list:
     """The service desk - who new tickets are announced to.
 
-    Chosen in Ticket -> Manage (ticket_agents). Deliberately "irrespective of
-    departments": one desk sees everything that comes in, decides what needs
-    approval, and hands the work out."""
-    return [e for e in (ticket_agents(db) or []) if e]
+    Chosen in Ticket -> Manage (ticket_agents). Multi-company desks (Aug 2026):
+    pass a ticket's `company_id` to scope to that company's roster (falling
+    back to the flat list, then administrators - see ticket_agents). Without
+    one, "irrespective of departments" still holds within whichever roster
+    applies: one desk per company sees everything that comes in for it,
+    decides what needs approval, and hands the work out."""
+    return [e for e in (ticket_agents(db, company_id=company_id) or []) if e]
 
 
 def _on_desk(db: Session, user: dict) -> bool:
-    """Is this person actually ON the service desk roster?
+    """Is this person actually ON the service desk roster - any company's?
 
     Membership, nothing else - an administrator who was not picked in Manage is
     not on the desk. This is what decides whether the desk QUEUES are somebody's
     work, and it has to agree with who gets the bells: an off-desk admin who
     stops being notified about new tickets must also stop being shown a queue
-    telling them to assign those tickets."""
+    telling them to assign those tickets.
+
+    Deliberately the UNION across every company's roster (all_agents), not one
+    company's: this check has no single ticket to scope to, and queues are not
+    filtered by company - a Greens India agent still needs the desk queues
+    visible to reach the India tickets in them, even though per-ticket EMAIL
+    routing (ticket_agents with a company_id) would not page them for a
+    Greens US ticket."""
     email = (user.get("email") or "").strip().lower()
-    return email in {e.lower() for e in _it_admins(db)}
+    return email in {e.lower() for e in all_agents(db)}
 
 
 def _is_agent(db: Session, user: dict) -> bool:
@@ -215,7 +227,7 @@ def _notify_triage(db: Session, t: models.TaskTicket, actor: str,
     if t.assignee_email:
         return
     tk_action = {"view": "tickets", "label": "View ticket"}
-    for em in dict.fromkeys(e.lower() for e in _it_admins(db)):
+    for em in dict.fromkeys(e.lower() for e in _it_admins(db, t.company_id)):
         if em == actor:
             continue   # they raised/approved it themselves; they can already see it
         task_notify(db, kind="ticket_needs_assignment", for_email=em,
@@ -325,6 +337,13 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     filter would still ship all of them to an employee's browser. Default is
     unchanged, so the Tickets module is unaffected."""
     rows = db.query(models.TaskTicket).all()
+    # Company wall (Aug 2026): once armed, the desk queue is confined to the
+    # caller's own companies - a ticket carries the requester's company_id, and a
+    # Global Admin (scope None) still sees them all. Off = unchanged.
+    import auth
+    _cscope = auth.company_scope(user, db)
+    if _cscope is not None:
+        rows = [t for t in rows if (t.company_id or "") in _cscope]
     # Without the desk grant the scope is forced, not requested: the unscoped
     # list IS the agent queue, so honouring `mine` only when asked would leave
     # the whole company's tickets one query parameter away from any employee.
@@ -456,6 +475,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first()
     if not t:
         raise HTTPException(404, "Ticket not found")
+    import auth   # company wall: another company's ticket is 404
+    auth.assert_company(t.company_id or "", user, db)
     data = body.model_dump(exclude_unset=True)
     reopen_reason = data.pop("reopen_reason", "") or ""   # not a column - see TicketUpdate
     scope = _ticket_edit_scope(db, t, user)

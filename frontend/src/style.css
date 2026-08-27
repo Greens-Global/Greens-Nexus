@@ -3546,6 +3546,7 @@ button, [role="button"], select { touch-action: manipulation; }
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;   /* anchor for the loading cover overlay */
   /* Behind the iframe while it loads - follow the Nexus theme rather than
      hardcoding the engine's dark canvas, which flashed dark in light mode. */
   background: var(--wk-bg);
@@ -3570,6 +3571,35 @@ button, [role="button"], select { touch-action: manipulation; }
   min-height: 0;
   border: none;
   display: block;
+  transition: opacity 0.15s ease;   /* fade in once loaded (no flash) */
+}
+/* Loading cover over the iframe until it's ready, so the editor never flashes
+   a half-loaded / bfcache state when entering the module. */
+.pdf-editor-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--wk-bg, var(--bg-secondary));
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  z-index: 2;
+}
+[data-theme="dark"] .pdf-editor-loading { background: #1e1e2e; }
+.pdf-editor-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid color-mix(in srgb, var(--text-secondary) 25%, transparent);
+  border-top-color: hsl(var(--color-blue));
+  border-radius: 50%;
+  animation: pdf-editor-spin 0.7s linear infinite;
+}
+@keyframes pdf-editor-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .pdf-editor-spinner { animation-duration: 2s; }
 }
 
 /* ── Egnyte module ───────────────────────────────────────────────────────────

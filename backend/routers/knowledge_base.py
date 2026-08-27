@@ -300,9 +300,18 @@ def _emit_stale_reminders(db: Session, rows: list) -> None:
 
 # ---- CRUD -----------------------------------------------------------------
 @router.get("/documents")
-def list_documents(db: Session = Depends(get_db)):
+def list_documents(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = db.query(models.KbDocument).all()
     _emit_stale_reminders(db, rows)
+    # Company wall: once armed, a KB doc owned by a company's person is private to
+    # that company; an untagged-owner doc stays shared org-wide (shared_when_blank
+    # - the knowledge base is a shared surface, not per-company data by default).
+    import auth
+    _scope = auth.company_scope(user, db)
+    if _scope is not None:
+        _emp = auth.company_of_email_map(db)
+        rows = [d for d in rows
+                if auth.company_ok(_emp.get((d.owner_email or "").lower(), ""), _scope, shared_when_blank=True)]
     rows.sort(key=lambda d: d.updated_at or "", reverse=True)
     return [_serialize(d) for d in rows]
 
@@ -508,8 +517,12 @@ def delete_tag(tag_id: str, user: dict = Depends(require_level(3)), db: Session 
 
 
 @router.get("/documents/{doc_id}")
-def get_document(doc_id: str, db: Session = Depends(get_db)):
+def get_document(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     d = _get_or_404(doc_id, db)
+    # Company wall: a company's private SOP is 404 to other companies (owner-derived,
+    # shared_when_blank so untagged-owner docs stay shared org-wide).
+    import auth
+    auth.assert_company(auth.company_of(d.owner_email or "", db), user, db, shared_when_blank=True)
     d.views = (d.views or 0) + 1
     db.commit()
     db.refresh(d)

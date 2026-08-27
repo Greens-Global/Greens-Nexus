@@ -21,7 +21,7 @@
         base-uri 'self';
         form-action 'none';">
     <title>PDF Tools</title>
-    <link rel="stylesheet" href="style.css?v=20260818g">
+    <link rel="stylesheet" href="style.css?v=20260829b">
     <!-- PDF.js for rendering PDFs -->
     <script defer src="libs/pdf.min.js"></script>
     <!-- pdf-lib for modifying/exporting PDFs -->
@@ -38,7 +38,7 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
                 <span>Open</span>
             </button>
-            <button id="downloadBtn" class="tool-btn" title="Download PDF" disabled>
+            <button id="downloadBtn" class="tool-btn" title="Download PDF (Cmd/Ctrl+S)" disabled>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 <span>Download</span>
             </button>
@@ -75,15 +75,15 @@
                 <span>Add Images</span>
             </button>
             <input type="file" id="addImagePageInput" accept="image/png,image/jpeg" multiple style="display:none">
-            <button id="templatePageBtn" class="tool-btn" title="Add Template Page (Greens Global branding)" disabled>
+            <button id="templatePageBtn" class="tool-btn" title="Add Template Page (Greens Global branding)" style="display:none;" disabled>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="7" y1="6" x2="17" y2="6"/><line x1="7" y1="18" x2="17" y2="18"/><path d="M9 10l6 4M15 10l-6 4"/></svg>
                 <span>Template</span>
             </button>
             <div class="separator"></div>
-            <button id="undoBtn" class="tool-btn" title="Undo (Ctrl+Z)" disabled>
+            <button id="undoBtn" class="tool-btn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
             </button>
-            <button id="redoBtn" class="tool-btn" title="Redo (Ctrl+Y)" disabled>
+            <button id="redoBtn" class="tool-btn" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/></svg>
             </button>
         </div>
@@ -105,6 +105,10 @@
             <button id="highlightTool" class="tool-btn" title="Highlight (H)" data-tool="highlight">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="8" rx="1" fill="rgba(255,235,59,0.4)"/><line x1="3" y1="12" x2="21" y2="12"/></svg>
                 <span>Highlight</span>
+            </button>
+            <button id="measureTool" class="tool-btn" title="Measure &amp; Scale — calibrate the plan, then measure length / perimeter / area">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3 3 21"/><path d="m6 8 2 2"/><path d="m9 5 2 2"/><path d="m11 13 2 2"/><path d="m14 10 2 2"/></svg>
+                <span>Measure</span>
             </button>
             <button id="shapeTool" class="tool-btn" title="Rectangle (R)" data-tool="shape">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
@@ -153,8 +157,8 @@
                     <button class="dropdown-item" data-stamp="VOID">VOID</button>
                     <button class="dropdown-item" data-stamp="custom">Custom...</button>
                     <div class="dropdown-divider"></div>
-                    <label class="stamp-date-row" title="Colour of the stamp">
-                        <span>Stamp colour</span>
+                    <label class="stamp-date-row" title="Color of the stamp">
+                        <span>Stamp color</span>
                         <input type="color" id="stampColor" value="#d32f2f">
                     </label>
                 </div>
@@ -167,7 +171,7 @@
             <!-- Page numbers -->
             <button id="pageNumBtn" class="tool-btn" title="Add page numbers to every page" disabled>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M10 16h4M12 14v4"/></svg>
-                <span>Page No.</span>
+                <span>Page Numbers</span>
             </button>
             <!-- Compress -->
             <button id="compressBtn" class="tool-btn" title="Compress the PDF to a smaller file" disabled>
@@ -239,7 +243,7 @@
 
         <div class="toolbar-right">
             <div class="tool-options" id="toolOptions">
-                <label title="Color">
+                <label class="swatch-custom" title="Color" id="toolColorTrigger" style="position:relative;display:inline-flex;align-items:center;cursor:pointer;">
                     <input type="color" id="colorPicker" value="#000000">
                 </label>
                 <label title="Font Size / Stroke Width">
@@ -256,11 +260,16 @@
                 </select>
             </div>
             <div class="eraser-options" id="eraserOptions" style="display:none;">
-                <label class="eraser-toggle" title="OFF: the eraser removes only your annotations (highlights, drawings, shapes) and never touches the PDF text. ON: it covers original PDF text/images with the background colour (whiteout / redact).">
+                <label class="eraser-toggle" title="OFF: the eraser removes only your annotations (highlights, drawings, shapes) and never touches the PDF text. ON: it covers original PDF text/images with the background color (whiteout / redact).">
                     <input type="checkbox" id="eraserWhiteout">
                     <span>Whiteout (cover original text)</span>
                 </label>
             </div>
+            <!-- Hide/show the toolbar for more document viewing space (Pranshu).
+                 Sits at the extreme right; the chevron flips when collapsed. -->
+            <button id="toolbarToggle" class="tool-btn toolbar-toggle" title="Hide toolbar (more viewing space)" aria-label="Hide toolbar">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+            </button>
         </div>
     </header>
 
@@ -272,10 +281,10 @@
         <div class="paint-section">
             <span class="paint-label">Color</span>
             <div class="color-swatches">
-                <label class="swatch swatch-custom" title="Choose any colour — full picker with eyedropper">
+                <label class="swatch swatch-custom" title="Choose any color — full picker with eyedropper">
                     <input type="color" id="pbCustomColor" value="#000000">
                 </label>
-                <span class="pb-color-current" id="pbColorCurrent" title="Current colour"></span>
+                <span class="pb-color-current" id="pbColorCurrent" title="Current color"></span>
             </div>
         </div>
         <div class="paint-sep"></div>
@@ -294,6 +303,19 @@
             <span class="paint-label">Opacity</span>
             <input type="range" id="opacityPicker" min="10" max="100" value="100">
             <span id="opacityValue">100%</span>
+        </div>
+        <!-- A10: font picker for the Text tool, shown only when Text is armed -->
+        <div class="paint-sep" id="pbFontSep" style="display:none;"></div>
+        <div class="paint-section" id="pbFontSection" style="display:none;">
+            <span class="paint-label">Font</span>
+            <select id="pbFontFamily" class="font-select" title="Font family">
+                <option value="Arial">Arial</option>
+                <option value="Times New Roman">Times New Roman</option>
+                <option value="Courier New">Courier New</option>
+                <option value="Georgia">Georgia</option>
+                <option value="Verdana">Verdana</option>
+                <option value="Helvetica">Helvetica</option>
+            </select>
         </div>
     </div>
 
@@ -389,9 +411,6 @@
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <span>Pages</span>
-                <button id="bookmarksBtn" class="icon-btn" title="Bookmarks / outline">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4h12a1 1 0 0 1 1 1v16l-7-4-7 4V5a1 1 0 0 1 1-1z"/></svg>
-                </button>
                 <div class="sidebar-actions">
                     <button id="toggleSidebar" class="icon-btn" title="Toggle Sidebar">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
@@ -406,11 +425,6 @@
                 <button class="view-mode-btn" data-view="list" title="List">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
                 </button>
-            </div>
-            <div class="thumb-zoom-bar" title="Thumbnail size">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
-                <input type="range" id="thumbZoom" min="55" max="200" value="100">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
             </div>
             <div class="thumbnail-list" id="thumbnailList">
                 <!-- Thumbnails injected by JS -->
@@ -442,16 +456,22 @@
             <div class="page-nav" id="pageNav" style="display:none;">
                 <button id="prevPage" class="nav-btn" title="Previous Page">&laquo; Prev</button>
                 <span class="page-info">
-                    Page <input type="number" id="pageInput" min="1" value="1"> of <span id="totalPages">0</span>
+                    Page <input type="number" id="pageInput" min="1" value="1" aria-label="Current page"> of <span id="totalPages">0</span>
                 </span>
                 <button id="nextPage" class="nav-btn" title="Next Page">Next &raquo;</button>
                 <div class="zoom-controls">
                     <button id="zoomOut" class="nav-btn" title="Zoom Out">-</button>
                     <span id="zoomLevel">100%</span>
                     <button id="zoomIn" class="nav-btn" title="Zoom In">+</button>
-                    <button id="zoomFit" class="nav-btn" title="Fit to Width">Fit</button>
-                    <button id="zoomFitPage" class="nav-btn" title="Fit whole page on screen">Page</button>
-                    <button id="scrollModeBtn" class="nav-btn" title="Continuous scroll — read all pages by scrolling (click a page to edit)">Scroll</button>
+                    <button id="zoomFit" class="nav-btn nav-icon-btn" title="Fit to width" aria-label="Fit to width">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3H3v18h18z" opacity="0.35"/><polyline points="8 9 5 12 8 15"/><polyline points="16 9 19 12 16 15"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    </button>
+                    <button id="zoomFitPage" class="nav-btn nav-icon-btn" title="Fit whole page on screen" aria-label="Fit whole page">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="1"/><polyline points="8 8 12 5 16 8"/><polyline points="8 16 12 19 16 16"/></svg>
+                    </button>
+                    <button id="scrollModeBtn" class="nav-btn nav-icon-btn" title="Continuous scroll — read all pages by scrolling (click a page to edit)" aria-label="Continuous scroll">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="5" rx="1"/><rect x="6" y="10" width="12" height="5" rx="1"/><rect x="6" y="17" width="12" height="4" rx="1"/></svg>
+                    </button>
                 </div>
             </div>
 
@@ -565,8 +585,8 @@
             </div>
             <div class="comment-input-area">
                 <div class="stamp-date-row" style="padding:0 0 4px;">
-                    <span>Highlight colour</span>
-                    <input type="color" id="commentColor" value="#e53935" title="Colour used to mark the commented text">
+                    <span>Highlight color</span>
+                    <input type="color" id="commentColor" value="#e53935" title="Color used to mark the commented text">
                 </div>
                 <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">
                     Drag across words on the page — your comment attaches to that text.
@@ -577,15 +597,47 @@
         </aside>
     </div>
 
+    <!-- Measurements list + totals (Bluebeam-style takeoff panel) -->
+    <div id="measureListPanel" class="measure-list-panel" style="display:none;">
+        <div class="measure-list-head">
+            <span>Measurements</span>
+            <div class="measure-list-actions">
+                <button id="measureExportBtn" class="icon-btn" title="Export to Excel (.xlsx)">Excel</button>
+                <button id="measureListClose" class="icon-btn" title="Close">✕</button>
+            </div>
+        </div>
+        <div class="measure-list-tools">
+            <input id="measureFilter" type="text" placeholder="Filter..." class="measure-filter-input">
+            <select id="measureSort" class="measure-sort-select" title="Sort by">
+                <option value="page">Sort: Page</option>
+                <option value="type">Sort: Type</option>
+                <option value="subject">Sort: Subject</option>
+                <option value="value">Sort: Value</option>
+            </select>
+        </div>
+        <!-- Tool Chest presets (S9) -->
+        <div class="tool-chest" id="toolChest">
+            <span class="tool-chest-label">Tool Chest</span>
+            <span id="toolChestChips" class="tool-chest-chips"></span>
+            <button id="toolChestSave" class="tool-chest-add" title="Save the current style as a preset">+ Save</button>
+        </div>
+        <div class="measure-list-body"></div>
+    </div>
+
     <!-- Status Bar -->
     <footer class="status-bar">
-        <span id="statusText">Ready - Open a PDF to get started</span>
+        <span id="statusText"></span>
+        <button id="scaleChip" class="scale-chip" style="display:none;" title="Click to set the drawing scale"></button>
         <span id="fileInfo"></span>
+        <span id="buildStamp" title="Editor bundle version - if this is stale, hard-reload" style="margin-left:auto;opacity:0.5;font-size:10px;">build 20260829b</span>
     </footer>
 
     <!-- Search Bar -->
     <div class="search-bar" id="searchBar" style="display:none;">
         <input type="text" id="searchInput" placeholder="Search text in PDF...">
+        <button id="searchCase" class="search-opt" title="Match case" aria-pressed="false">Aa</button>
+        <button id="searchWord" class="search-opt" title="Whole word" aria-pressed="false">|W|</button>
+        <button id="searchListToggle" class="search-opt" title="Show all results" aria-pressed="false">&#9776;</button>
         <span id="searchInfo">0/0</span>
         <button id="searchPrev" class="nav-btn">&#9650;</button>
         <button id="searchNext" class="nav-btn">&#9660;</button>
@@ -593,9 +645,11 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
     </div>
+    <!-- Search results list (S8) -->
+    <div class="search-results" id="searchResultsPanel" style="display:none;"></div>
 
     <!-- Split Modal -->
-    <div class="modal-overlay" id="splitModal" style="display:none;">
+    <div class="modal-overlay" id="splitModal" role="dialog" aria-modal="true" aria-label="Split PDF" style="display:none;">
         <div class="modal">
             <div class="modal-header">
                 <span>Split / Extract Pages</span>
@@ -616,7 +670,7 @@
     </div>
 
     <!-- Signature Modal -->
-    <div class="modal-overlay" id="signatureModal" style="display:none;">
+    <div class="modal-overlay" id="signatureModal" role="dialog" aria-modal="true" aria-label="Signature" style="display:none;">
         <div class="modal signature-modal">
             <div class="modal-header">
                 <span>Add Signature</span>
@@ -631,10 +685,10 @@
                 <label style="margin-top:12px;">Choose a signature style:</label>
                 <div id="signatureStyleList" class="signature-style-list"></div>
 
-                <label style="margin-top:12px;">Signature colour:</label>
+                <label style="margin-top:12px;">Signature color:</label>
                 <div class="signature-color-row">
-                    <input type="color" id="signatureColor" value="#0a2a66" title="Choose the signature colour — full picker with RGB values">
-                    <span class="modal-hint">Click to pick any colour (RGB / eyedropper).</span>
+                    <input type="color" id="signatureColor" value="#0a2a66" title="Choose the signature color — full picker with RGB values">
+                    <span class="modal-hint">Click to pick any color (RGB / eyedropper).</span>
                     <span class="modal-hint">The signature is inserted onto the page and can be moved &amp; resized.</span>
                 </div>
             </div>
@@ -655,7 +709,11 @@
     <!-- Crop Confirm Bar -->
     <div class="crop-confirm-bar" id="cropConfirmBar" style="display:none;">
         <span>Drag a rectangle to select the crop area, then confirm or cancel.</span>
-        <button id="cropApply" class="crop-btn apply">Apply Crop</button>
+        <select id="cropScope" class="crop-scope" title="Apply the crop to">
+            <option value="page">This page</option>
+            <option value="all">All pages</option>
+        </select>
+        <button id="cropApply" class="crop-btn apply" disabled>Apply Crop</button>
         <button id="cropCancel" class="crop-btn cancel">Cancel</button>
     </div>
 
@@ -665,7 +723,7 @@
     <input type="file" id="imageInput" accept="image/*" style="display:none">
 
     <!-- AI Text Edit Modal -->
-    <div class="modal-overlay" id="aiEditModal" style="display:none;">
+    <div class="modal-overlay" id="aiEditModal" role="dialog" aria-modal="true" aria-label="AI edit" style="display:none;">
         <div class="modal ai-edit-modal">
             <div class="modal-header">
                 <span>
@@ -703,7 +761,7 @@
 
     </div><!-- end .page-wrapper -->
 
-    <script defer src="app.js?v=20260825e"></script>
-    <script defer src="adobe-ui.js?v=20260825e"></script>
+    <script defer src="app.js?v=20260829b"></script>
+    <script defer src="adobe-ui.js?v=20260829b"></script>
 </body>
 </html>

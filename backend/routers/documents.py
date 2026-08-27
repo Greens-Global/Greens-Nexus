@@ -192,6 +192,13 @@ def list_documents(folder_id: str = "", status: str = "", q: str = "", mine: boo
     if limit:
         query = query.limit(limit)
     rows = query.all()
+    # Company wall: once armed, a document owned by a company's person is private
+    # to that company (untagged -> Global-Admin-only). Off = unchanged.
+    import auth
+    _scope = auth.company_scope(user, db)
+    if _scope is not None:
+        _emp = auth.company_of_email_map(db)
+        rows = [d for d in rows if auth.company_ok(_emp.get((d.owner_email or "").lower(), ""), _scope)]
     statuses = _sign_statuses(db, rows)
     return [_ser_document(d, statuses.get(d.sign_request_id, "")) for d in rows]
 
@@ -759,6 +766,9 @@ def get_document(did: str, user: dict = Depends(get_current_user), db: Session =
     row = db.query(Document).filter(Document.id == did).first()
     if not row:
         raise HTTPException(404, "Document not found")
+    # Company wall: another company's document is 404 (owner-derived).
+    import auth
+    auth.assert_company(auth.company_of(row.owner_email or "", db), user, db)
     statuses = _sign_statuses(db, [row])
     return _ser_document(row, statuses.get(row.sign_request_id, ""))
 

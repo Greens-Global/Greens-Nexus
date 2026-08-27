@@ -77,3 +77,46 @@ def remove_scope(email: str, scope_id: str, user: dict = Depends(require_adminis
         db.delete(row); db.commit()
     rows = db.query(NexusAccessScope).filter(NexusAccessScope.email == email.lower()).all()
     return [_serialize(s) for s in rows]
+
+
+# ── Multi-company walls: the master arm switch (Aug 2026) ─────────────────────
+# Two-segment path so it doesn't collide with the /{email} routes above.
+class WallsIn(BaseModel):
+    on: bool
+
+
+@router.get("/config/walls")
+def get_walls(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    from models import NexusSetting, NexusGroup, NexusGroupMember
+    row = db.query(NexusSetting).filter(NexusSetting.key == "company_walls").first()
+    on = bool(row and (row.value or "").strip().lower() in ("on", "1", "true", "yes"))
+    ga_ids = [g.id for g in db.query(NexusGroup.id).filter(NexusGroup.is_global_admin == 1).all()]
+    ga_members = (db.query(NexusGroupMember).filter(NexusGroupMember.group_id.in_(ga_ids)).count()
+                  if ga_ids else 0)
+    return {"on": on, "globalAdminGroups": len(ga_ids), "globalAdmins": ga_members}
+
+
+@router.put("/config/walls")
+def set_walls(body: WallsIn, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Arm or disarm the company walls. Refuses to arm if it would lock the caller
+    out (walls on + a Global Admins group exists that they are not in). Writes an
+    audit row and invalidates the cached flag so it bites immediately."""
+    import cache
+    import auth
+    from models import NexusSetting, AuditLog
+    if body.on and not auth.is_global_admin(user, db):
+        raise HTTPException(400, "You would be locked out - add yourself to a "
+                                 "Global Admins group before arming the walls.")
+    now = datetime.now(timezone.utc).isoformat()
+    row = db.query(NexusSetting).filter(NexusSetting.key == "company_walls").first()
+    if not row:
+        row = NexusSetting(key="company_walls"); db.add(row)
+    row.value = "on" if body.on else ""
+    row.updated_by = user["email"]
+    row.updated_at = now
+    db.add(AuditLog(timestamp=now, user_email=user["email"], user_role=user.get("role", ""),
+                    action="company_walls_" + ("armed" if body.on else "disarmed"),
+                    resource_type="tenancy", resource_id="company_walls"))
+    db.commit()
+    cache.settings_config.invalidate()
+    return {"on": bool(body.on)}

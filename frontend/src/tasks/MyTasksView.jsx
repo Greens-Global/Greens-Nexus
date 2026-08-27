@@ -3,7 +3,7 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight } from 'lucide-react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Square, CheckSquare, CheckCircle2, CornerDownRight } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl, personScoped, rootParent, effectiveProjectId } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, input as inputStyle, colorForKey } from './theme';
@@ -137,7 +137,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
   const cells = {
     title: (
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-        <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
+        <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, flexShrink: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckSquare size={17} /> : <Square size={17} />}</button>
         <span title={store.statusMeta?.[t.status]?.label || t.status} style={{ width: 9, height: 9, borderRadius: 3, background: store.statusMeta?.[t.status]?.color || NX.faint, flexShrink: 0 }} />
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
         {/* Same badges the Task List shows. Without them the same task looked

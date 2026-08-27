@@ -779,6 +779,9 @@ export const api = {
   applyJobRoleManager: (id, manager_email) => req(`/jobroles/${id}/apply-manager`, { method: 'POST', body: JSON.stringify({ manager_email }) }),
   // Row-level access scopes (sandbox external users to specific companies)
   getAccessScopes:   (email)             => req(`/access-scopes/${encodeURIComponent(email)}`),
+  // Multi-company walls: the master arm switch (admin only)
+  getCompanyWalls:   ()                  => req('/access-scopes/config/walls'),
+  setCompanyWalls:   (on)                => req('/access-scopes/config/walls', { method: 'PUT', body: JSON.stringify({ on }) }),
   addAccessScope:    (email, body)       => req(`/access-scopes/${encodeURIComponent(email)}`, { method: 'POST', body: JSON.stringify(body) }),
   deleteAccessScope: (email, scopeId)    => req(`/access-scopes/${encodeURIComponent(email)}/${encodeURIComponent(scopeId)}`, { method: 'DELETE' }),
 

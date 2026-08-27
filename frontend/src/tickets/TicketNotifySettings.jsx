@@ -81,7 +81,7 @@ export default function TicketNotifySettings() {
   };
 
   return (
-    <div style={{ fontFamily: FONT, color: NX.ink, maxWidth: 760 }}>
+    <div style={{ fontFamily: FONT, color: NX.ink }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
         <Mail size={18} style={{ color: NX.dim }} />
         <div style={{ fontSize: 18, fontWeight: 700 }}>Ticket Email Notifications</div>
@@ -96,55 +96,63 @@ export default function TicketNotifySettings() {
       </div>
 
       {tab === 'settings' ? (
-        <div style={{ ...card, padding: 18 }}>
-          <Field label="Shared mailbox (sender)" hint="Blank falls back to the NEXUS_FROM_EMAIL env var.">
-            <input value={cfg.fromMailbox || ''} onChange={(e) => set('fromMailbox', e.target.value)}
-              placeholder="support@companydomain.com" style={inputStyle} />
-          </Field>
-          <Field label="Ticket Administrator" hint="Last resort, emailed only when no agent is available to notify.">
-            <input value={cfg.ticketAdminEmail || ''} onChange={(e) => set('ticketAdminEmail', e.target.value)}
-              placeholder="ticket-admin@companydomain.com" style={inputStyle} />
-          </Field>
-          <Field label="Default CC" hint="Comma-separated. Applied to every ticket notification.">
-            <input value={ccInput} onChange={(e) => setCcInput(e.target.value)} placeholder="ops@companydomain.com, qa@companydomain.com" style={inputStyle} />
-          </Field>
-          <Field label="Reply-to address">
-            <input value={cfg.replyTo || ''} onChange={(e) => set('replyTo', e.target.value)} placeholder="support@companydomain.com" style={inputStyle} />
-          </Field>
-          <Field label="Company logo URL" hint="Shown in the email header. Blank uses the default Nexus branding.">
-            <input value={cfg.logoUrl || ''} onChange={(e) => set('logoUrl', e.target.value)} placeholder="https://…/logo.png" style={inputStyle} />
-          </Field>
-          <Field label="Auto-close period (days)" hint="A Resolved ticket auto-closes after this many days if nobody reopens it. 0 = never.">
-            <input type="number" min={0} value={cfg.autoCloseDays ?? 0} onChange={(e) => set('autoCloseDays', Math.max(0, Number(e.target.value) || 0))}
-              style={{ ...inputStyle, width: 120 }} />
-          </Field>
-
-          <div style={{ ...field, borderTop: `1px solid ${NX.border2}`, paddingTop: 14 }}>
-            <label style={fieldLabel}>Notification types</label>
-            {Object.entries(EVENT_LABELS).map(([k, lab]) => (
-              <div key={k} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
-                <span style={{ fontSize: 13.5 }}>{lab}</span>
-                <Toggle on={!!cfg.enabledEvents?.[k]} onChange={() => setEvent(k, !cfg.enabledEvents?.[k])} />
-              </div>
-            ))}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
-              <span style={{ fontSize: 13.5 }}>Comments trigger an email</span>
-              <Toggle on={!!cfg.commentsTrigger} onChange={() => set('commentsTrigger', !cfg.commentsTrigger)} />
+        <>
+          {/* Two cards side by side on a wide screen rather than one long
+              single-column stack (Pranshu, Aug 27) - mail settings and
+              notification-type toggles are two independent groups of
+              controls, not one flow that reads top-to-bottom. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 480px) minmax(320px, 420px)', gap: 16, alignItems: 'start' }}>
+            <div style={{ ...card, padding: 18 }}>
+              <Field label="Shared mailbox (sender)" hint="Blank falls back to the NEXUS_FROM_EMAIL env var.">
+                <input value={cfg.fromMailbox || ''} onChange={(e) => set('fromMailbox', e.target.value)}
+                  placeholder="support@companydomain.com" style={inputStyle} />
+              </Field>
+              <Field label="Ticket Administrator" hint="Last resort, emailed only when no agent is available to notify.">
+                <input value={cfg.ticketAdminEmail || ''} onChange={(e) => set('ticketAdminEmail', e.target.value)}
+                  placeholder="ticket-admin@companydomain.com" style={inputStyle} />
+              </Field>
+              <Field label="Default CC" hint="Comma-separated. Applied to every ticket notification.">
+                <input value={ccInput} onChange={(e) => setCcInput(e.target.value)} placeholder="ops@companydomain.com, qa@companydomain.com" style={inputStyle} />
+              </Field>
+              <Field label="Reply-to address">
+                <input value={cfg.replyTo || ''} onChange={(e) => set('replyTo', e.target.value)} placeholder="support@companydomain.com" style={inputStyle} />
+              </Field>
+              <Field label="Company logo URL" hint="Shown in the email header. Blank uses the default Nexus branding.">
+                <input value={cfg.logoUrl || ''} onChange={(e) => set('logoUrl', e.target.value)} placeholder="https://…/logo.png" style={inputStyle} />
+              </Field>
+              <Field label="Auto-close period (days)" hint="A Resolved ticket auto-closes after this many days if nobody reopens it. 0 = never.">
+                <input type="number" min={0} value={cfg.autoCloseDays ?? 0} onChange={(e) => set('autoCloseDays', Math.max(0, Number(e.target.value) || 0))}
+                  style={{ ...inputStyle, width: 120 }} />
+              </Field>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
-              <span style={{ fontSize: 13.5 }}>Attachments trigger an email</span>
-              <Toggle on={!!cfg.attachmentsTrigger} onChange={() => set('attachmentsTrigger', !cfg.attachmentsTrigger)} />
+
+            <div style={{ ...card, padding: 18 }}>
+              <label style={fieldLabel}>Notification types</label>
+              {Object.entries(EVENT_LABELS).map(([k, lab]) => (
+                <div key={k} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
+                  <span style={{ fontSize: 13.5 }}>{lab}</span>
+                  <Toggle on={!!cfg.enabledEvents?.[k]} onChange={() => setEvent(k, !cfg.enabledEvents?.[k])} />
+                </div>
+              ))}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderTop: `1px solid ${NX.border2}`, marginTop: 4 }}>
+                <span style={{ fontSize: 13.5 }}>Comments trigger an email</span>
+                <Toggle on={!!cfg.commentsTrigger} onChange={() => set('commentsTrigger', !cfg.commentsTrigger)} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
+                <span style={{ fontSize: 13.5 }}>Attachments trigger an email</span>
+                <Toggle on={!!cfg.attachmentsTrigger} onChange={() => set('attachmentsTrigger', !cfg.attachmentsTrigger)} />
+              </div>
             </div>
           </div>
 
-          {err && <div style={{ fontSize: 12.5, color: NX.red, marginBottom: 10 }}>{err}</div>}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {err && <div style={{ fontSize: 12.5, color: NX.red, margin: '14px 0 0' }}>{err}</div>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
             <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1 }} onClick={save} disabled={saving}>
               <Save size={14} /> {saving ? 'Saving…' : 'Save Settings'}
             </button>
             {saved && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved</span>}
           </div>
-        </div>
+        </>
       ) : (
         <DeliveryLog />
       )}

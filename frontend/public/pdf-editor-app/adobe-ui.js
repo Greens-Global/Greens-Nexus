@@ -77,10 +77,28 @@
       ['arrow', '→ Arrow'], ['arrow2', '↔ Double arrow'],
       ['cloud', '☁ Cloud (revision)'], ['callout', '💬 Text callout (arrow + note)'],
       ['ellipsecallout', '🗨 Speech bubble'],
-      ['count', '① Count (click to tally items)'],
-      ['redact', '⬛ Redact (removes content permanently)'],
+      // Count removed from Shapes (S2): it was a rival to Measure > Count and the
+      // two didn't share a tally, so users double-counted. Use Measure > Count.
+      // Redact removed from Shapes (S1): one mis-click below Rectangle risked
+      // irreversible loss. It now has its own tool with an explicit confirm.
+      // Measure & Scale: calibrate once against a known distance on the plan,
+      // then every line/perimeter/area is labeled with the real-world size.
+      ['--measure--', 'Measure & Scale'],
+      ['mcalibrate', '📐 Calibrate scale (set the plan scale)'],
+      ['mlength', '↦ Measure length'],
+      ['mperim', '⟿ Measure perimeter'],
+      ['marea', '▦ Measure area'],
     ];
     for (const [kind, text] of KINDS) {
+      // A "--measure--" entry is a non-clickable section header, not a shape.
+      if (kind === '--measure--') {
+        const hdr = document.createElement('div');
+        hdr.className = 'dropdown-group-label';
+        hdr.textContent = text;
+        hdr.style.marginTop = '4px';
+        menu.appendChild(hdr);
+        continue;
+      }
       const it = document.createElement('button');
       it.className = 'dropdown-item';
       it.textContent = text;
@@ -157,6 +175,30 @@
     b.dataset.reveal = 'unlock';
     b.innerHTML = '<span style="display:inline">Unlock</span>';
     b.addEventListener('click', () => { if (window.unlockPdfTool) window.unlockPdfTool(); });
+    return b;
+  }
+
+  // Redact tool (S1): moved out of the Shapes menu into its own button with an
+  // explicit confirm, since it permanently destroys content.
+  function buildRedactBtn() {
+    const b = document.createElement('button');
+    b.className = 'tool-btn';
+    b.id = 'redactBtn';
+    b.title = 'Black out and PERMANENTLY remove content (irreversible on save)';
+    b.innerHTML = '<span style="display:inline">Redact</span>';
+    b.addEventListener('click', async () => {
+      const dl = el('#downloadBtn');
+      if (dl && dl.disabled) { const s = el('#statusText'); if (s) s.textContent = 'Open a PDF first.'; return; }
+      const ok = window.confirmRedact ? await window.confirmRedact() : window.confirm(
+        'Redact permanently removes the content under each box when you save - it cannot be undone after download. Continue?');
+      if (!ok) return;
+      // Arm the shape engine in redact mode without opening the Shapes dropdown.
+      if (window.activateShapeToolForMeasure) window.activateShapeToolForMeasure();
+      else el('#shapeTool')?.click();
+      document.getElementById('shapeMenu')?.classList.remove('open');
+      window.setShapeKind && window.setShapeKind('redact');
+      const s = el('#statusText'); if (s) s.textContent = 'Redact armed - draw boxes over content to remove, then Save';
+    });
     return b;
   }
 
@@ -290,8 +332,8 @@
     const HMODES = [
       ['text', '🖍 Highlight text (exact words)'],
       ['free', '✏️ Freehand highlight'],
-      ['underline', 'U̲ Underline text'],
-      ['strike', 'S̶ Strikethrough text'],
+      ['underline', '↧ Underline text'],
+      ['strike', '⊘ Strikethrough text'],
     ];
     for (const [mode, label] of HMODES) {
       const it = document.createElement('button');
@@ -322,8 +364,121 @@
     });
   }
 
-  // Paint-bar custom colour: the rainbow swatch opens the OS colour picker
-  // (gradient + eyedropper + RGB), mirroring into the app's colour state.
+  // Measure & Scale: a dedicated toolbar button (after Highlight) that opens a
+  // small menu. It drives the same engine as the Shape menu's measure kinds -
+  // arm the shape tool, then set the measure kind.
+  const measureBtn = el('#measureTool');
+  const shapeToolForMeasure = el('#shapeTool');
+  if (measureBtn && shapeToolForMeasure) {
+    const mMenu = document.createElement('div');
+    mMenu.className = 'dropdown-menu';
+    mMenu.id = 'measureMenu';
+    const MMODES = [
+      ['setscale',   '⚖ Set scale directly...', true],  // action, not a kind (label reflects live scale via updateMeasureMenuLabels)
+      ['embedscale', '🧾 Use embedded scale (from the PDF)', true],
+      ['mcalibrate', '📐 Calibrate by drawing a known line'],
+      ['storescale', '📌 Store scale in this page', true],
+      ['lockscale',  '🔒 Lock / unlock scale', true],
+      ['mlength',    '↦ Measure length'],
+      ['mpolylen',   '⌇ Measure polyline length'],
+      ['mperim',     '⟿ Measure perimeter'],
+      ['marea',      '▦ Measure area'],
+      ['mdynfill',   '🪣 Dynamic fill (auto-detect a room)'],
+      ['mcutout',    '⊟ Area cutout (subtract a void)'],
+      ['mangle',     '∠ Measure angle'],
+      ['mradius',    '◐ Measure radius / diameter'],
+      ['mvolume',    '⬒ Measure volume (area × depth)'],
+      ['mcount',     '# Count'],
+      ['countgroup', '🏷 Count group (name + color)...', true],
+      ['snapcontent','🧲 Snap to Content (on/off)', true],  // action: toggle snapping
+      ['hidelabels', '👁 Show / hide measurement labels', true],
+      ['mlist',      '☰ Measurements list & totals', true],  // action: open the panel
+    ];
+    for (const [kind, label, isAction] of MMODES) {
+      const it = document.createElement('button');
+      it.className = 'dropdown-item';
+      it.dataset.kind = kind;
+      it.textContent = label;
+      it.addEventListener('click', (e) => {
+        e.stopPropagation();
+        mMenu.classList.remove('open');
+        if (isAction) {
+          // Actions open a dialog/panel rather than arming a draw tool.
+          if (kind === 'setscale' && window.openSetScaleDialog) window.openSetScaleDialog();
+          else if (kind === 'mlist' && window.toggleMeasureList) window.toggleMeasureList();
+          else if (kind === 'embedscale' && window.useEmbeddedScale) window.useEmbeddedScale();
+          else if (kind === 'storescale' && window.storeScaleInPage) window.storeScaleInPage();
+          else if (kind === 'lockscale' && window.toggleScaleLock) {
+            const locked = window.toggleScaleLock();
+            it.textContent = (locked ? '🔒 ' : '🔓 ') + 'Lock / unlock scale';
+          }
+          else if (kind === 'snapcontent' && window.toggleSnapContent) {
+            const on = window.toggleSnapContent();
+            it.textContent = (on ? '✓ ' : '') + '🧲 Snap to Content (on/off)';
+          }
+          else if (kind === 'hidelabels' && window.toggleMeasureLabels) {
+            const hidden = window.toggleMeasureLabels();
+            it.textContent = (hidden ? '✓ ' : '') + '👁 Show / hide measurement labels';
+          }
+          else if (kind === 'countgroup' && window.openCountGroupDialog) window.openCountGroupDialog();
+          return;
+        }
+        // Arm the shape tool (the measure engine lives on it) WITHOUT opening the
+        // Shapes dropdown (M9). Also make sure the Shapes menu is closed.
+        if (window.activateShapeToolForMeasure) window.activateShapeToolForMeasure();
+        else if (!shapeToolForMeasure.classList.contains('active')) shapeToolForMeasure.click();
+        document.getElementById('shapeMenu')?.classList.remove('open');
+        window.setShapeKind && window.setShapeKind(kind);
+        measureBtn.classList.add('active');
+        // The shape tool is the engine host, but visually the MEASURE button is
+        // the active one - don't leave Shapes highlighted (N4).
+        shapeToolForMeasure.classList.remove('active');
+        // Only the draw-KIND rows get the "armed" checkmark. Action rows
+        // (setscale/embedscale/storescale/lockscale/snapcontent/hidelabels/mlist)
+        // own their own label/state, so leave them alone - otherwise the ✓ lands
+        // on the wrong row once action items are interleaved in the menu.
+        const ACTION_KINDS = new Set(['setscale','embedscale','storescale','lockscale','snapcontent','hidelabels','mlist']);
+        mMenu.querySelectorAll('.dropdown-item[data-kind]').forEach(x => {
+          if (ACTION_KINDS.has(x.dataset.kind)) return;
+          x.textContent = (x.dataset.kind === kind ? '✓ ' : '') + x.textContent.replace(/^✓ /, '');
+        });
+      });
+      mMenu.appendChild(it);
+    }
+    document.body.appendChild(mMenu);
+    // Let app.js refresh the scale/lock menu labels to reflect the live state
+    // (M6/M29): the Set scale item shows the current scale; Lock shows on/off.
+    window.updateMeasureMenuLabels = function (info) {
+      const setItem = mMenu.querySelector('.dropdown-item[data-kind="setscale"]');
+      if (setItem) setItem.textContent = info && info.scaleText
+        ? '⚖ ' + info.scaleText : '⚖ Set scale directly...';
+      const lockItem = mMenu.querySelector('.dropdown-item[data-kind="lockscale"]');
+      if (lockItem) lockItem.textContent = (info && info.locked ? '🔒 Scale locked - click to unlock' : '🔓 Lock scale');
+    };
+    measureBtn.addEventListener('click', () => {
+      const r = measureBtn.getBoundingClientRect();
+      mMenu.style.top = r.bottom + 4 + 'px';
+      mMenu.style.left = r.left + 'px';
+      mMenu.classList.toggle('open');
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#measureTool') && !e.target.closest('#measureMenu')) mMenu.classList.remove('open');
+    });
+    // Drop the measure entries from the Shape menu now that they have their own
+    // button (avoids two places for the same thing).
+    const shapeMenu = document.getElementById('shapeMenu');
+    if (shapeMenu) {
+      shapeMenu.querySelectorAll('.dropdown-item').forEach(it => {
+        if (['mcalibrate','mlength','mpolylen','mperim','marea','mdynfill','mcutout','mangle','mradius','mvolume','mcount'].includes(it.dataset.kind)) it.remove();
+      });
+      shapeMenu.querySelectorAll('.dropdown-group-label').forEach(h => {
+        if (/measure & scale/i.test(h.textContent)) h.remove();
+      });
+    }
+  }
+
+  // Paint-bar custom color: the rainbow swatch opens the OS color picker
+  // (gradient + eyedropper + RGB), mirroring into the app's color state.
   const pbCustom = el('#pbCustomColor');
   const mainColor = el('#colorPicker');
   if (pbCustom && mainColor) {
@@ -331,7 +486,7 @@
     const showCur = () => { if (cur) cur.style.background = mainColor.value; };
     pbCustom.addEventListener('input', () => {
       mainColor.value = pbCustom.value;
-      // Fire the same pipeline a swatch click uses (brush colour + actives).
+      // Fire the same pipeline a swatch click uses (brush color + actives).
       mainColor.dispatchEvent(new Event('input', { bubbles: true }));
       mainColor.dispatchEvent(new Event('change', { bubbles: true }));
       showCur();
@@ -399,12 +554,12 @@
     for (const l of window.pdfLayers.list()) {
       const row = document.createElement('div');
       row.className = 'layer-row' + (l.active ? ' active' : '');
-      // colour dot
+      // color dot
       const dot = document.createElement('input');
       dot.type = 'color';
       dot.className = 'layer-dot';
       dot.value = l.color || '#888888';
-      dot.title = 'Layer colour (used as the pen colour when this layer is active)';
+      dot.title = 'Layer color (used as the pen color when this layer is active)';
       dot.addEventListener('input', () => window.pdfLayers.setColor(l.id, dot.value));
       dot.addEventListener('click', (e) => e.stopPropagation());
       // name
@@ -522,11 +677,11 @@
 
   const GROUPS = [
     { id: 'edit',     label: 'Assemble',        tint: '#b06ee8',
-      desc: 'Text, draw, highlight, stamps, images',
-      members: [el('#textTool'), el('[data-tool="edittext"]'), el('#drawTool'), el('#highlightTool'), el('#shapeTool'), wrapOf('#stampBtn'), el('#imageTool'), el('#cropTool'), el('#toolOptions')] },
+      desc: 'Text, draw, highlight, measure, stamps, images',
+      members: [el('#textTool'), el('[data-tool="edittext"]'), el('#drawTool'), el('#highlightTool'), el('#measureTool'), el('#shapeTool'), wrapOf('#stampBtn'), el('#imageTool'), el('#cropTool'), el('#toolOptions')] },
     { id: 'organize', label: 'Organize Pages',  tint: '#4caf7d',
       desc: 'Rotate, add, merge, split pages',
-      members: [el('#rotateBtn'), el('#addPageBtn'), el('#addImagePageBtn'), el('#templatePageBtn'), el('#mergeBtn'), el('#splitBtn'), el('#watermarkBtn'), el('#pageNumBtn'), el('#nupBtn'), el('#rmBlankBtn')] },
+      members: [el('#rotateBtn'), el('#addPageBtn'), el('#addImagePageBtn'), el('#mergeBtn'), el('#splitBtn'), el('#watermarkBtn'), el('#pageNumBtn'), el('#nupBtn'), el('#rmBlankBtn')] },
     { id: 'sign',     label: 'Fill & Sign',     tint: '#5aa2e8',
       desc: 'Add your signature to the document',
       // A clear "signing" icon: a fountain pen writing on a signature line.
@@ -537,10 +692,10 @@
       desc: 'PDF to Word/Excel/images, Word to PDF',
       members: [buildExportBar()] },
     { id: 'optimize', label: 'Optimize',        tint: '#5c9e57',
-      desc: 'Compress, repair, OCR, unlock',
+      desc: 'Compress, repair, OCR',
       // Down-arrow into a tray: shrink / clean up the file.
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
-      members: [el('#compressBtn'), el('#sanitizeBtn'), el('#ocrBtn'), buildUnlockBtn()] },
+      members: [el('#compressBtn'), el('#sanitizeBtn'), el('#ocrBtn'), buildRedactBtn()] },
     { id: 'layers',   label: 'Layers',          tint: '#e8734a',
       desc: 'Versions of markups — show or hide',
       svg: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>',
@@ -572,8 +727,35 @@
   panel.className = 'adobe-tools-panel';
   const head = document.createElement('div');
   head.className = 'adobe-tools-head';
-  head.textContent = 'Tools';
+  const headLabel = document.createElement('span');
+  headLabel.textContent = 'Tools';
+  head.appendChild(headLabel);
+  // Collapse toggle: hides the tools list for more document space. A small
+  // floating tab re-opens it when collapsed.
+  const collapseBtn = document.createElement('button');
+  collapseBtn.className = 'adobe-tools-collapse';
+  collapseBtn.type = 'button';
+  collapseBtn.title = 'Hide tools panel';
+  collapseBtn.setAttribute('aria-label', 'Hide tools panel');
+  collapseBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+  head.appendChild(collapseBtn);
   panel.appendChild(head);
+
+  // A floating tab shown when the panel is collapsed, to bring it back.
+  const reopenTab = document.createElement('button');
+  reopenTab.className = 'adobe-tools-reopen';
+  reopenTab.type = 'button';
+  reopenTab.title = 'Show tools panel';
+  reopenTab.setAttribute('aria-label', 'Show tools panel');
+  // Labeled (not icon-only) so a collapsed ribbon is obvious to restore (B12).
+  reopenTab.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg><span style="margin-left:4px;font-size:12px;font-weight:600;">Tools</span>';
+
+  const setToolsCollapsed = (collapsed) => {
+    panel.classList.toggle('collapsed', collapsed);
+    reopenTab.style.display = collapsed ? 'flex' : 'none';
+  };
+  collapseBtn.addEventListener('click', () => setToolsCollapsed(true));
+  reopenTab.addEventListener('click', () => setToolsCollapsed(false));
 
   const iconFor = (g) => {
     // A group can define its own icon; otherwise reuse its first button's SVG.
@@ -592,7 +774,7 @@
     sign: 'Click Sign to create your signature, then place it anywhere on the page.',
     export: 'Choose a format to export the current page or the whole document.',
     ocr: 'Run OCR to make scanned pages searchable and selectable.',
-    optimize: 'Compress the file, repair a damaged PDF, run OCR, or remove a password.',
+    optimize: 'Compress the file, sanitize hidden data, run OCR, or redact content.',
   };
   const setHint = (t) => { const s = el('#statusText'); if (s && t) s.textContent = t; };
 
@@ -615,6 +797,9 @@
   };
   const open = (g) => {
     if (g.action) { g.action(); return; }
+    // Switching ribbon groups dismisses any lingering text/image formatting bar
+    // from the previous group's tool (B3).
+    if (window.hideEditorContextBars) window.hideEditorContextBars();
     if (active) active.box.style.display = 'none';
     active = g;
     g.box.style.display = 'flex';
@@ -634,9 +819,20 @@
     // Return to the neutral select tool so no drawing mode stays armed.
     const sel = el('#selectTool'); if (sel && !sel.classList.contains('active')) sel.click();
   };
-  // Escape closes the open tool (unless the user is typing in a field).
+  // Escape closes the open tool (unless the user is typing in a field). But when
+  // a Measure tool is armed OR a measurement is mid-draw, app.js handles Escape
+  // (disarm / cancel the measurement) and the ribbon must stay open (M10).
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && active && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) close();
+    if (e.key !== 'Escape' || !active) return;
+    if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    // B4: if a dropdown/menu is open, Escape closes THAT, not the ribbon.
+    const openMenu = document.querySelector('.dropdown-menu.open, #stampMenu.open, #exportMenu.open, #shapeMenu.open, #measureMenu.open');
+    if (openMenu) { openMenu.classList.remove('open'); return; }
+    // B4/M10: don't collapse the ribbon while ANY markup tool is armed - the user
+    // is mid-task. Only a bare Select state lets Escape close the group.
+    if (window.isMeasureActive && window.isMeasureActive()) return;
+    if (window.isEditorMarkupActive && window.isEditorMarkupActive()) return;
+    close();
   });
 
   for (const g of GROUPS) {
@@ -658,6 +854,8 @@
     panel.appendChild(item);
   }
   mainContainer.appendChild(panel);
+  mainContainer.appendChild(reopenTab);
+  reopenTab.style.display = 'none'; // panel starts expanded
 
   // ── Page bar: compact floating-pill labels ─────────────────────────────────
   // Same elements (ids/listeners intact) — only the visual text is tidied.
@@ -758,8 +956,8 @@
     // the signature corner-arrow accent. Recreated in their visual language
     // (not their copyrighted files) for the landing tool grid. `_a` is the arrow
     // color slot the card fills from the tile tint.
-    // iLovePDF signature: white marks on the coloured tile, plus a small
-    // corner-arrow badge in a darker shade of the same colour (--icf-d). The
+    // iLovePDF signature: white marks on the colored tile, plus a small
+    // corner-arrow badge in a darker shade of the same color (--icf-d). The
     // arrow sits in the lower-right, exactly like their icons.
     const ARROW = '<g transform="translate(15.5 15.5)"><rect x="-1" y="-1" width="8" height="8" rx="2" fill="var(--icf-d)"/><path d="M1.4 3.5h3.2m0 0-1.3-1.3M4.6 3.5 3.3 4.8" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>';
     const ICF = {
@@ -855,7 +1053,7 @@
         ['Compress PDF',  'Reduce the file size',          '#5c9e57', IC.compress,  () => pickPdfThen(() => revealTool('optimize', '#compressBtn'))],
         ['Repair PDF',    'Fix a damaged or corrupt PDF',  '#6b7280', IC.sanitize,  () => pickPdfThen(() => revealTool('optimize', '#sanitizeBtn'))],
         ['OCR (scanned)', 'Make scans searchable',         '#7dc243', IC.ocr,       () => pickPdfThen(() => revealTool('optimize', '#ocrBtn'))],
-        ['Unlock PDF',    'Remove a password',             '#d4506e', IC.unlock,    () => pickPdfThen(() => window.unlockPdfTool && window.unlockPdfTool())],
+        ['Lock PDF',      'Password-protect the file',     '#d4506e', IC.protect,   () => pickPdfThen(() => revealTool('sign', '#protectBtn'))],
       ]},
     ];
 
@@ -870,22 +1068,6 @@
     // ── Left column: Step 1 = upload ──
     const leftCol = document.createElement('div');
     leftCol.className = 'welcome-left';
-
-    // "Edit" button ABOVE the dropzone card (Neil, Aug 2026): editing is started
-    // right from the drop area, so there's no separate Edit PDF tile. Sits
-    // outside the dashed card, aligned to its top-left.
-    const editBtn = document.createElement('button');
-    editBtn.type = 'button';
-    editBtn.className = 'welcome-edit-btn';
-    editBtn.title = 'Open a PDF and start editing';
-    editBtn.innerHTML =
-      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="M15 5l4 4"/></svg>' +
-      '<span>Assemble</span>';
-    editBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      pickPdfThen(() => revealTool('edit', '#textTool'));
-    });
-    leftCol.appendChild(editBtn);
 
     const drop = document.createElement('button');
     drop.className = 'welcome-drop';
@@ -926,7 +1108,7 @@
         const key = IC_KEY[path];
         const rich = key && ICF[key];
         const iconSvg = rich
-          // iLovePDF-style: white 2-tone marks on the coloured tile. --icf-a is
+          // iLovePDF-style: white 2-tone marks on the colored tile. --icf-a is
           // the tile tint (for glyphs sitting ON white); --icf-d is a darker
           // shade for the corner-arrow badge.
           ? `<svg width="24" height="24" viewBox="0 0 24 24" style="--icf-a:${tint};--icf-d:color-mix(in srgb, ${tint} 78%, #000)">${rich}</svg>`
@@ -955,7 +1137,12 @@
   const left = $('.toolbar-left'), center = $('.toolbar-center'), right = $('.toolbar-right');
   // Undo/Redo live on the RIGHT, next to Save — that's where the user's eyes
   // are while editing (they were easy to miss tucked in the far-left corner).
-  const keepRight = [el('#selectTool'), el('#searchToggle'),
+  // Select is NOT surfaced on the right (Pranshu) - it stays available via the
+  // main tool row / keyboard, but the top-right cursor button is hidden. The
+  // element remains in the DOM so app.js's listeners and setActiveTool('select')
+  // resets keep working.
+  const selBtn = el('#selectTool'); if (selBtn) selBtn.style.display = 'none';
+  const keepRight = [el('#searchToggle'),
                      ...(IN_PORTAL ? [] : [el('#themeToggle')]), el('#undoBtn'), el('#redoBtn')];
   if (IN_PORTAL) { const tt = el('#themeToggle'); if (tt) tt.style.display = 'none'; }
   for (const b of keepRight) if (b) right.appendChild(b);
@@ -963,7 +1150,7 @@
   const printBtn = document.createElement('button');
   printBtn.id = 'printBtn';
   printBtn.className = 'tool-btn';
-  printBtn.title = 'Print with your markups (Cmd/Ctrl+P)';
+  printBtn.title = 'Print with your markups (Cmd/Ctrl+P)'; printBtn.setAttribute('aria-label', 'Print');
   printBtn.innerHTML = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>';
   printBtn.addEventListener('click', () => window.printPdf && window.printPdf());
   right.appendChild(printBtn);
@@ -1058,7 +1245,7 @@
 
   const histBtn = document.createElement('button');
   histBtn.className = 'tool-btn';
-  histBtn.title = 'Recent files';
+  histBtn.title = 'Recent files'; histBtn.setAttribute('aria-label', 'Recent files');
   histBtn.innerHTML =
     '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
   const histMenu = document.createElement('div');
@@ -1112,7 +1299,7 @@
   // Document Info (i) button
   const infoBtn = document.createElement('button');
   infoBtn.className = 'tool-btn';
-  infoBtn.title = 'Document information (title, author, keywords)';
+  infoBtn.title = 'Document information (title, author, keywords)'; infoBtn.setAttribute('aria-label', 'Document information');
   infoBtn.innerHTML = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>';
   infoBtn.addEventListener('click', () => window.documentInfoDialog && window.documentInfoDialog());
   histBtn.after(infoBtn);
@@ -1211,7 +1398,9 @@
       if (sbh) sbh.style.display = name ? '' : 'none';
       // Top bar on the landing page: only Recent files + Theme are meaningful.
       // Open duplicates the "Open PDF" card; the rest need a document.
-      for (const s of ['#openFileBtn', '#selectTool', '#searchToggle', '#undoBtn', '#redoBtn', '#downloadBtn', '#printBtn']) {
+      // Note: #selectTool is intentionally omitted - it stays hidden (Pranshu);
+      // its listeners still work, it's just never surfaced in the top bar.
+      for (const s of ['#openFileBtn', '#searchToggle', '#undoBtn', '#redoBtn', '#downloadBtn', '#printBtn']) {
         const n = el(s); if (n) n.style.display = name ? 'inline-flex' : 'none';
       }
       // In the portal, hide the whole top bar on the landing state (the tool
