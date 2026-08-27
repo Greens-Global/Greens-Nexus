@@ -2593,9 +2593,12 @@
         if (!v) return;
         const pv = parseFloat(v.pageVal), rv = parseFloat(v.realVal);
         if (!(pv > 0) || !(rv > 0)) { showToast('Enter valid numbers on both sides'); return; }
-        // Apply precision immediately and re-render (N3).
+        // Apply precision immediately and re-render (N3). Parse carefully: "0 dp"
+        // is a valid choice, so `parseInt(...) || 2` would WRONGLY snap 0 back to
+        // 2 (0 is falsy). Use the parsed value whenever it's a real number.
         if (v.precision !== undefined) {
-            _measurePrecision = Math.max(0, Math.min(6, parseInt(v.precision, 10) || 2));
+            const pp = parseInt(v.precision, 10);
+            _measurePrecision = Number.isFinite(pp) ? Math.max(0, Math.min(6, pp)) : _measurePrecision;
             _recomputeAllOnPage();   // relabels every measurement at the new precision
         }
         const newScale = (1 / PT_PER_MM / UNIT_MM[v.pageUnit]) * (rv / pv);
