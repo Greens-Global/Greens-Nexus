@@ -877,6 +877,21 @@
                 return;
             }
         }
+        // Arrow keys nudge the selected markup(s) (Shift = 10px steps).
+        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && fabricCanvas) {
+            const objs = fabricCanvas.getActiveObjects ? fabricCanvas.getActiveObjects() : [];
+            const sel = objs.length ? objs : (fabricCanvas.getActiveObject() ? [fabricCanvas.getActiveObject()] : []);
+            if (sel.length) {
+                e.preventDefault();
+                const step = e.shiftKey ? 10 : 1;
+                const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+                const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+                sel.forEach(o => { o.set({ left: (o.left || 0) + dx, top: (o.top || 0) + dy }); o.setCoords(); });
+                fabricCanvas.requestRenderAll();
+                saveAnnotationState(); saveCurrentAnnotations();
+                return;
+            }
+        }
         // A measure tool is armed but nothing drawn yet: Escape disarms the
         // measure engine in place and returns to the Select cursor WITHOUT
         // touching the Assemble ribbon (M10). We flip tool state directly rather
@@ -1884,9 +1899,29 @@
         });
     }
 
+    // Per-tool remembered size (Bluebeam keeps properties per tool). Text wants a
+    // large default (font pt); draw/shape/highlight want a small stroke width.
+    const _toolSizeDefaults = { text: 20, draw: 4, shape: 2, highlight: 12, eraser: 10 };
+    const _toolSize = { ...(_toolSizeDefaults) };
+    let _prevSizeTool = null;
+    function _rememberAndApplyToolSize(tool) {
+        if (!dom.sizePicker) return;
+        // Save the outgoing tool's current size.
+        if (_prevSizeTool && _toolSize[_prevSizeTool] !== undefined) _toolSize[_prevSizeTool] = parseInt(dom.sizePicker.value, 10) || _toolSize[_prevSizeTool];
+        // Apply the incoming tool's remembered size.
+        if (_toolSize[tool] !== undefined) {
+            dom.sizePicker.value = _toolSize[tool];
+            if (dom.sizeValue) dom.sizeValue.textContent = _toolSize[tool];
+            const pb = document.getElementById('pbSizeSlider'), pv = document.getElementById('pbSizeVal');
+            if (pb) pb.value = _toolSize[tool]; if (pv) pv.textContent = _toolSize[tool];
+        }
+        _prevSizeTool = tool;
+    }
+
     // ── Tool Management ──
     function setActiveTool(tool) {
         state.activeTool = tool;
+        _rememberAndApplyToolSize(tool);   // per-tool size (text pt vs stroke width)
 
         // Update button states
         document.querySelectorAll('[data-tool]').forEach((btn) => {
@@ -2143,11 +2178,16 @@
             left: pointer.x,
             top: pointer.y,
             width: Math.min(240, maxW),
-            fontSize: parseInt(dom.sizePicker.value, 10) + 14,
+            // Size slider = font size directly for text (was size+14, which made
+            // the paint-bar SIZE and the text bar's font size disagree, e.g. 30->44).
+            fontSize: Math.max(8, parseInt(dom.sizePicker.value, 10) || 20),
             fontFamily: dom.fontFamily.value,
             fill: dom.colorPicker.value,
             editable: true,
             cursorColor: dom.colorPicker.value,
+            // Whole bounding box is grabbable for moving (not just the glyphs).
+            perPixelTargetFind: false,
+            lockScalingFlip: true,
             splitByGrapheme: false,
         });
         text._isNewText = true;   // so an empty one can be auto-removed on blur (A6)
