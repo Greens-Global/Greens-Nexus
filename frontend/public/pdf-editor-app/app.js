@@ -882,13 +882,18 @@
             return;
         }
         // A4: Escape while ANY markup tool is armed returns to Select AND clears
-        // the ribbon button highlight - visual and functional state must agree
-        // (before, Escape hid the properties row but left the tool live + button
-        // highlighted, so the next click still drew).
+        // the ribbon button highlight - WITHOUT collapsing the Assemble ribbon
+        // (setActiveTool's button path collapses it). We flip tool state directly
+        // and stop the event so the ribbon's own Escape handler never fires.
         if (e.key === 'Escape' && state.activeTool && state.activeTool !== 'select') {
             e.preventDefault();
-            setActiveTool('select');
+            e.stopImmediatePropagation();
+            if (fabricCanvas && fabricCanvas.getActiveObject && fabricCanvas.getActiveObject()) fabricCanvas.discardActiveObject();
+            shapeKind = 'rect';
+            state.activeTool = 'select';
+            document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === 'select'));
             document.getElementById('measureTool')?.classList.remove('active');
+            applyToolMode();
             setStatus('Ready');
             return;
         }
@@ -1243,6 +1248,16 @@
                 if (hit && hit._measure && typeof _measureRowMenu === 'function') {
                     ev.preventDefault();
                     _measureRowMenu(ev, hit._measure._mid);
+                    return;
+                }
+                // Any other markup under the cursor -> a restyle/delete menu, so
+                // an existing object can be recolored/resized without hunting for
+                // the Select tool + pickers.
+                const obj = fabricCanvas.findTarget(ev, false) ||
+                    fabricCanvas.getObjects().slice().reverse().find(o => !o.excludeFromExport && o.containsPoint && o.containsPoint(new fabric.Point(p.x, p.y)));
+                if (obj && !obj.excludeFromExport && !obj._editTextGuide) {
+                    ev.preventDefault();
+                    _objectRestyleMenu(ev, obj);
                 }
             });
         }
@@ -2098,6 +2113,9 @@
         _isRestoring = false;
         fabricCanvas.setActiveObject(text);
         text.enterEditing();
+        // Explicitly focus fabric's hidden textarea so the FIRST keystrokes are
+        // captured (they were being swallowed / scrolling the page instead).
+        try { if (text.hiddenTextarea) text.hiddenTextarea.focus(); } catch (_) {}
         // Force an immediate paint so the caret/box shows without needing a
         // scroll to trigger a repaint (the "invisible until repaint" bug).
         fabricCanvas.requestRenderAll();
@@ -3719,6 +3737,52 @@
         setTimeout(() => document.addEventListener('click', close, { once: true }), 0);
     }
 
+    // Right-click restyle menu for a regular markup (shape/text/ink/stamp): pick
+    // a new color, stroke width, or opacity, or delete it - the object-restyle
+    // path that works without hunting for Select + the pickers.
+    function _objectRestyleMenu(e, obj) {
+        document.querySelectorAll('.measure-ctx').forEach(n => n.remove());
+        // Select it so the pickers also target it and handles show.
+        try { setActiveTool('select'); fabricCanvas.setActiveObject(obj); fabricCanvas.requestRenderAll(); } catch (_) {}
+        const menu = document.createElement('div');
+        menu.className = 'measure-ctx';
+        menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:99999;`;
+        const strokeable = obj.stroke !== undefined && obj.stroke !== null && !['i-text','text','textbox'].includes(obj.type);
+        menu.innerHTML =
+            '<button data-act="color">Change color</button>' +
+            (strokeable ? '<button data-act="width">Line width...</button>' : '') +
+            '<button data-act="opacity">Opacity...</button>' +
+            '<button data-act="dup">Duplicate</button>' +
+            '<button data-act="del" class="danger">Delete</button>';
+        document.body.appendChild(menu);
+        const close = () => { menu.remove(); document.removeEventListener('keydown', onEsc, true); };
+        const onEsc = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); } };
+        menu.querySelectorAll('button').forEach(b => b.addEventListener('click', async () => {
+            const act = b.dataset.act; close();
+            if (act === 'color') {
+                const c = await customPrompt('New color (hex, e.g. #e03131):', '#e03131', obj.stroke || obj.fill || '#000000');
+                if (c && /^#?[0-9a-fA-F]{6}$/.test(c.trim())) {
+                    const hex = c.trim().startsWith('#') ? c.trim() : '#' + c.trim();
+                    if (strokeable) obj.set({ stroke: hex }); else obj.set({ fill: hex });
+                    fabricCanvas.requestRenderAll(); saveAnnotationState(); saveCurrentAnnotations();
+                }
+            } else if (act === 'width') {
+                const w = await customPrompt('Line width (1-40):', '4', String(obj.strokeWidth || 2));
+                const n = parseInt(w, 10); if (n > 0) { obj.set({ strokeWidth: Math.min(40, n), strokeUniform: true }); obj.setCoords(); fabricCanvas.requestRenderAll(); saveAnnotationState(); saveCurrentAnnotations(); }
+            } else if (act === 'opacity') {
+                const o = await customPrompt('Opacity % (5-100):', '60', String(Math.round((obj.opacity || 1) * 100)));
+                const n = parseInt(o, 10); if (n >= 5 && n <= 100) { obj.set({ opacity: n / 100 }); fabricCanvas.requestRenderAll(); saveAnnotationState(); saveCurrentAnnotations(); }
+            } else if (act === 'dup') {
+                obj.clone((cl) => { cl.set({ left: (obj.left || 0) + 16, top: (obj.top || 0) + 16 }); fabricCanvas.add(cl); fabricCanvas.setActiveObject(cl); fabricCanvas.requestRenderAll(); saveAnnotationState(); saveCurrentAnnotations(); });
+            } else if (act === 'del') {
+                _isRestoring = true; fabricCanvas.remove(obj); _isRestoring = false;
+                fabricCanvas.requestRenderAll(); saveAnnotationState(); saveCurrentAnnotations();
+            }
+        }));
+        document.addEventListener('keydown', onEsc, true);
+        setTimeout(() => document.addEventListener('click', close, { once: true }), 0);
+    }
+
     // Find the live fabric shape carrying a given measurement id on the CURRENT
     // page (measurements on other pages must be opened by navigating there).
     function _findMeasureShape(mid) {
@@ -4769,8 +4833,24 @@
                 el.addEventListener('click', async (ev) => {
                     // Don't navigate while ANY markup tool is armed (B2): the click
                     // is meant for the canvas (place a stamp, start a shape, etc).
-                    // Covers tools that arm via menus (Stamp) as well as data-tools.
                     if (_isMarkupModeActive()) { ev.stopPropagation(); return; }
+                    // Markups win hit-priority over links: if a selectable markup
+                    // sits under this click, select it instead of navigating (a
+                    // rect over a ToC entry was unselectable - the link fired).
+                    try {
+                        const cr = fabricCanvas.upperCanvasEl.getBoundingClientRect();
+                        const sx = fabricCanvas.getWidth() / cr.width, sy = fabricCanvas.getHeight() / cr.height;
+                        const cp = new fabric.Point((ev.clientX - cr.left) * sx, (ev.clientY - cr.top) * sy);
+                        const under = fabricCanvas.getObjects().slice().reverse().find(o =>
+                            !o.excludeFromExport && o.selectable && o.containsPoint && o.containsPoint(cp));
+                        if (under) {
+                            ev.stopPropagation();
+                            setActiveTool('select');
+                            fabricCanvas.setActiveObject(under);
+                            fabricCanvas.requestRenderAll();
+                            return;
+                        }
+                    } catch (_) {}
                     ev.stopPropagation();
                     if (a.url) { window.open(a.url, '_blank', 'noopener'); return; }
                     try {
