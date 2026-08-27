@@ -805,6 +805,13 @@
             window._measureSort = e.target.value; if (window.renderMeasureList) window.renderMeasureList();
         });
         document.getElementById('scaleChip')?.addEventListener('click', () => window.openSetScaleDialog && window.openSetScaleDialog());
+        // A10: mirror the paint-bar font picker into the state holder (#fontFamily)
+        // that new text reads, so choosing a font BEFORE typing takes effect.
+        const pbFont = document.getElementById('pbFontFamily');
+        if (pbFont && dom.fontFamily) {
+            pbFont.value = dom.fontFamily.value;
+            pbFont.addEventListener('change', () => { dom.fontFamily.value = pbFont.value; });
+        }
         // Tool Chest: save the current style as a named preset (S9).
         document.getElementById('toolChestSave')?.addEventListener('click', async () => {
             const name = await customPrompt('Name this tool preset (e.g. "Wall - red 3px"):', 'Preset name', '');
@@ -1901,7 +1908,10 @@
         if (dom.canvasWrapper) dom.canvasWrapper.classList.toggle('markup-active', state.activeTool !== 'select');
 
         // Show/hide paint bar for draw/highlight tools
-        const isPaintTool = ['draw', 'highlight', 'eraser', 'shape'].includes(state.activeTool);
+        // A10: Text joins the paint tools so its color/size/font row shows the
+        // moment the tool is armed - you can style BEFORE typing, and there's no
+        // canvas jump when the first box mounts (the row was already there).
+        const isPaintTool = ['draw', 'highlight', 'eraser', 'shape', 'text'].includes(state.activeTool);
         dom.paintBar.classList.toggle('visible', isPaintTool);
         // Close any open tool dropdown once a tool is armed, so it can't hang open
         // over the paint bar and occlude the color/size controls (A1). Deferred so
@@ -1912,6 +1922,12 @@
         // Show the Whiteout toggle only while the eraser is active
         const eraserOptions = document.getElementById('eraserOptions');
         if (eraserOptions) eraserOptions.style.display = state.activeTool === 'eraser' ? 'flex' : 'none';
+
+        // A10: font picker in the paint bar is only relevant to the Text tool.
+        const showFont = state.activeTool === 'text';
+        const fSec = document.getElementById('pbFontSection'), fSep = document.getElementById('pbFontSep');
+        if (fSec) fSec.style.display = showFont ? 'flex' : 'none';
+        if (fSep) fSep.style.display = showFont ? 'block' : 'none';
 
         // The color/size/font strip is retired: the TEXT formatting bar
         // (shown when text is selected/edited) carries all those controls.
@@ -11037,8 +11053,10 @@ ${sample}`;
         if (!obj) return;
         const t = obj.type;
         if (t === 'i-text' || t === 'text' || t === 'textbox') {
-            dom.textFormatBar.style.display = 'flex';
-            syncTextFormatBar(obj);
+            // A10: while the Text tool is armed the paint bar already carries the
+            // styling controls (and reserves its height), so don't ALSO pop the
+            // separate format bar - that second row is what jumped the canvas.
+            if (state.activeTool !== 'text') { dom.textFormatBar.style.display = 'flex'; syncTextFormatBar(obj); }
         } else if (t === 'image') {
             dom.imageEditBar.style.display = 'flex';
             syncImageEditBar(obj);
