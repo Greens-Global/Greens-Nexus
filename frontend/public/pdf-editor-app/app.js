@@ -1073,7 +1073,17 @@
             if (e && e.target && e.target._measure && typeof _remeasureShape === 'function') {
                 _remeasureShape(e.target);
             }
+            // A dragged caption gets/updates its leader line back to the anchor (M22).
+            if (e && e.target && e.target._measureCaption && typeof _updateLeaderFor === 'function') {
+                _updateLeaderFor(e.target);
+            }
             saveAnnotationState();
+        });
+        // Live leader while dragging a caption.
+        fabricCanvas.on('object:moving', (e) => {
+            if (e && e.target && e.target._measureCaption && typeof _updateLeaderFor === 'function') {
+                _updateLeaderFor(e.target);
+            }
         });
         fabricCanvas.on('object:added', (e) => {
             const o = e && e.target;
@@ -2401,12 +2411,60 @@
     }
 
     function measureLabel(text, x, y) {
-        const t = new fabric.Text(text, { left: x, top: y, fontSize: 14, fill: '#ffffff',
+        // Auto-nudge so a new caption doesn't land exactly on an existing one (M22).
+        const pos = _avoidLabelOverlap(x, y);
+        const t = new fabric.Text(text, { left: pos.x, top: pos.y, fontSize: 14, fill: '#ffffff',
             backgroundColor: 'rgba(0,0,0,0.72)', fontFamily: 'sans-serif', padding: 3,
-            originX: 'center', originY: 'center', selectable: false, visible: !_measureLabelsHidden });
+            originX: 'center', originY: 'center',
+            // Draggable so the user can pull an overlapping label aside; a leader
+            // line then connects it back to the measurement (M22).
+            selectable: true, hasControls: false, hasBorders: true, lockScalingX: true, lockScalingY: true, lockRotation: true,
+            visible: !_measureLabelsHidden });
+        t._measureCaption = true;
+        t._anchor = { x, y };   // where the label belongs (for the leader line)
         // Follow the active layer so the caption hides/saves with its markup (M31).
         t._layerId = state.activeLayer;
         return t;
+    }
+
+    // Nudge a new label position if it would sit right on top of an existing
+    // measurement caption. Simple spiral of small offsets until clear.
+    function _avoidLabelOverlap(x, y) {
+        if (!fabricCanvas) return { x, y };
+        const near = (ax, ay) => {
+            let clash = false;
+            fabricCanvas.forEachObject((o) => {
+                if (o._measureCaption && Math.abs(o.left - ax) < 22 && Math.abs(o.top - ay) < 14) clash = true;
+            });
+            return clash;
+        };
+        if (!near(x, y)) return { x, y };
+        const steps = [[0,-18],[0,18],[26,0],[-26,0],[0,-36],[0,36],[26,-18],[-26,18]];
+        for (const [dx, dy] of steps) if (!near(x + dx, y + dy)) return { x: x + dx, y: y + dy };
+        return { x: x, y: y + 18 };
+    }
+
+    // Draw/refresh the leader line from a caption to its anchor when the caption
+    // has been dragged away from where it belongs (M22).
+    function _updateLeaderFor(lbl) {
+        if (!lbl || !lbl._anchor) return;
+        // Remove any existing leader for this label (by live ref, or by mid after
+        // a reload where the ref was lost).
+        const old = fabricCanvas.getObjects().find(o => o._isLeader &&
+            (o._leaderFor === lbl || (lbl._midLink && o._decorFor === lbl._midLink)));
+        if (old) { _isRestoring = true; fabricCanvas.remove(old); _isRestoring = false; }
+        const dx = lbl.left - lbl._anchor.x, dy = lbl.top - lbl._anchor.y;
+        // Only draw a leader once the label is a meaningful distance from anchor.
+        if (Math.hypot(dx, dy) < 24) return;
+        const leader = new fabric.Line([lbl._anchor.x, lbl._anchor.y, lbl.left, lbl.top], {
+            stroke: 'rgba(0,0,0,0.55)', strokeWidth: 1, strokeDashArray: [3, 2],
+            selectable: false, evented: false, objectCaching: false });
+        leader._leaderFor = lbl;                 // live ref (not serialized)
+        leader._measureDecor = true;
+        leader._decorFor = lbl._midLink;         // so it's cleaned up with the measurement
+        leader._isLeader = true;
+        leader._layerId = lbl._layerId;
+        _isRestoring = true; fabricCanvas.add(leader); leader.moveTo(0); _isRestoring = false;
     }
 
     // Decorative angle arc + short extension marks at the vertex (M25). Tagged
@@ -6211,7 +6269,8 @@
         fabric.Object.prototype.toObject = function (props) {
             return orig.call(this, ['_pdfFontName', '_pdfWeight', '_pdfStyle', '_isTextCover', '_isCommentMark', '_isEraserPath',
                                     '_isSignature', '_isRedact', '_layerId', '_measure', '_measurePt', '_midLink',
-                                    '_measureDecor', '_decorFor', '_cutoutFor', 'selectable', 'evented'].concat(props || []));
+                                    '_measureDecor', '_decorFor', '_cutoutFor', '_measureCaption', '_anchor', '_isLeader',
+                                    'selectable', 'evented'].concat(props || []));
         };
     })();
 
