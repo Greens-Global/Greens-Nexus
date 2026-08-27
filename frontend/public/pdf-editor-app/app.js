@@ -6314,7 +6314,7 @@
             return orig.call(this, ['_pdfFontName', '_pdfWeight', '_pdfStyle', '_isTextCover', '_isCommentMark', '_isEraserPath',
                                     '_isSignature', '_isRedact', '_layerId', '_measure', '_measurePt', '_midLink',
                                     '_measureDecor', '_decorFor', '_cutoutFor', '_measureCaption', '_anchor', '_isLeader',
-                                    'selectable', 'evented'].concat(props || []));
+                                    '_isStamp', 'selectable', 'evented'].concat(props || []));
         };
     })();
 
@@ -7651,23 +7651,39 @@
             allPages = !!res.allPages;
         }
 
-        const text = new fabric.Text(stampText, {
-            left: fabricCanvas.width / 2,
-            top: fabricCanvas.height / 2,
-            originX: 'center',
-            originY: 'center',
-            fontSize: 60,
-            fontFamily: 'Arial',
-            fill: hexToRgba(stampColor, 0.4),
-            fontWeight: 'bold',
-            angle: -35,
-            selectable: true,
+        // B1: a real stamp - a bordered badge placed at the center of the CURRENT
+        // view, in the chosen color at full strength, upright, and immediately
+        // selected with full move/scale/rotate handles so the user drags it into
+        // place. (Was a fixed page-center 35deg translucent-grey watermark that
+        // ignored the color swatch and had no handles.)
+        const vw = fabricCanvas.getWidth(), vh = fabricCanvas.getHeight();
+        // Size the stamp to the view, not the whole page: ~28% of view width.
+        const fontSize = Math.max(22, Math.min(48, Math.round(vw * 0.05)));
+        const label = new fabric.Text(stampText, {
+            originX: 'center', originY: 'center',
+            fontSize, fontFamily: 'Arial', fill: stampColor, fontWeight: 'bold',
+            textAlign: 'center',
         });
+        const padX = fontSize * 0.6, padY = fontSize * 0.35;
+        const box = new fabric.Rect({
+            originX: 'center', originY: 'center',
+            width: label.width + padX * 2, height: label.height + padY * 2,
+            rx: 6, ry: 6, fill: hexToRgba(stampColor, 0.08),
+            stroke: stampColor, strokeWidth: Math.max(2, Math.round(fontSize / 12)),
+        });
+        const stamp = new fabric.Group([box, label], {
+            left: vw / 2, top: vh / 2, originX: 'center', originY: 'center',
+            selectable: true, hasControls: true, hasBorders: true, lockUniScaling: false,
+        });
+        stamp._isStamp = true;
+        stamp.setControlsVisibility({ mtr: true });   // ensure the rotate handle shows
+        const text = stamp;   // keep the downstream all-pages code working
 
-        fabricCanvas.add(text);
-        fabricCanvas.setActiveObject(text);
+        fabricCanvas.add(stamp);
+        fabricCanvas.setActiveObject(stamp);
         fabricCanvas.renderAll();
         setActiveTool('select');
+        setStatus('Stamp placed - drag to move, corner handles to resize, top handle to rotate');
 
         if (allPages && state.totalPages > 1) {
             // Persist the stamp onto every OTHER page's stored annotations. The
