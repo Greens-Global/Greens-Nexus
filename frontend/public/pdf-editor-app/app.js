@@ -586,6 +586,12 @@
             updateSwatchActive();
             applyBrushColor();
         });
+        // A1 REAL FIX: replace the fragile native <input type=color> swatches with
+        // a custom popover of preset colors (+ a native fallback for "more"). The
+        // native OS picker mis-behaved in the iframe - its dismiss click leaked to
+        // the canvas and it applied nothing. This popover stops propagation on all
+        // its own interactions, so nothing reaches the canvas, and applies on click.
+        _initColorPopover();
 
         // Color swatches
         document.querySelectorAll('.swatch').forEach((swatch) => {
@@ -1523,6 +1529,36 @@
     }
 
     // ── Undo / Redo ──
+    // A malformed IText per-character styles map makes fabric's stylesToArray
+    // throw ("Cannot read properties of undefined (reading 'end')") inside
+    // toJSON/toObject - which aborted saveAnnotationState and silently destroyed
+    // the undo stack (A5/A6 root cause). Repair any bad styles map before we
+    // serialize so the snapshot always succeeds.
+    function _sanitizeTextStyles() {
+        if (!fabricCanvas) return;
+        fabricCanvas.getObjects().forEach((o) => {
+            if ((o.type === 'i-text' || o.type === 'text' || o.type === 'textbox')) {
+                const s = o.styles;
+                if (s == null || typeof s !== 'object') { o.styles = {}; return; }
+                // Drop any line/char entry that isn't a plain object (the shape
+                // stylesToArray walks - a bad entry there is what throws).
+                for (const line of Object.keys(s)) {
+                    if (s[line] == null || typeof s[line] !== 'object') { delete s[line]; continue; }
+                    for (const ch of Object.keys(s[line])) {
+                        if (s[line][ch] == null || typeof s[line][ch] !== 'object') delete s[line][ch];
+                    }
+                }
+            }
+        });
+    }
+    function _safeCanvasJSON() {
+        try { return fabricCanvas.toJSON(); }
+        catch (e) {
+            console.warn('toJSON failed, repairing text styles and retrying:', e && e.message);
+            _sanitizeTextStyles();
+            try { return fabricCanvas.toJSON(); } catch (e2) { console.warn('toJSON still failing:', e2 && e2.message); return null; }
+        }
+    }
     function saveAnnotationState() {
         // Skip if we're in the middle of restoring annotations (loadFromJSON fires object:added)
         if (_isRestoring) return;
@@ -1530,14 +1566,15 @@
         _scheduleThumbRefresh();   // reflect the new/changed markup in thumbnails (B8)
         const page = state.currentPage;
         if (!state.undoStacks[page]) state.undoStacks[page] = [];
+        _sanitizeTextStyles();   // ensure serialization can't throw (A5/A6)
         // Seed a baseline snapshot representing the canvas *before* this action so
         // the very first annotation on a page can be undone (undo needs length > 1).
         if (state.undoStacks[page].length === 0) {
-            const baseline = fabricCanvas.toJSON();
-            baseline.objects = [];
-            state.undoStacks[page].push(JSON.stringify(baseline));
+            const baseline = _safeCanvasJSON();
+            if (baseline) { baseline.objects = []; state.undoStacks[page].push(JSON.stringify(baseline)); }
         }
-        const snap = fabricCanvas.toJSON();
+        const snap = _safeCanvasJSON();
+        if (!snap) { updateUndoRedoButtons(); return; }   // never abort silently
         snap.__zoom = state.zoom; // snapshot is only valid at this zoom
         state.undoStacks[page].push(JSON.stringify(snap));
         // Limit stack size
@@ -1754,6 +1791,10 @@
         // Show/hide paint bar for draw/highlight tools
         const isPaintTool = ['draw', 'highlight', 'eraser', 'shape'].includes(state.activeTool);
         dom.paintBar.classList.toggle('visible', isPaintTool);
+        // Close any open tool dropdown once a tool is armed, so it can't hang open
+        // over the paint bar and occlude the color/size controls (A1). Deferred so
+        // it runs AFTER the tool button's own menu-toggle on the same click.
+        if (isPaintTool) setTimeout(() => document.querySelectorAll('.dropdown-menu.open').forEach(m => m.classList.remove('open')), 0);
         dom.mainContainer.classList.toggle('with-paint-bar', isPaintTool);
 
         // Show the Whiteout toggle only while the eraser is active
@@ -10056,6 +10097,74 @@
             clearTimeout(timer);
             timer = setTimeout(() => fn.apply(this, args), delay);
         };
+    }
+
+    // A1: one shared custom color popover, opened by the swatch triggers. Every
+    // interaction inside it calls stopPropagation so no click reaches the canvas.
+    let _colorPop = null;
+    const _COLOR_PRESETS = ['#000000','#ffffff','#e03131','#f08c00','#f59f00','#2f9e44','#1971c2','#1098ad',
+                            '#7048e8','#e64980','#495057','#868e96','#ffe066','#a9e34b','#4dabf7','#ffa8a8'];
+    function _recentColors() {
+        try { return JSON.parse(localStorage.getItem('pdfEditorRecentColors') || '[]'); } catch (_) { return []; }
+    }
+    function _pushRecent(hex) {
+        let r = _recentColors().filter(c => c.toLowerCase() !== hex.toLowerCase());
+        r.unshift(hex); r = r.slice(0, 8);
+        try { localStorage.setItem('pdfEditorRecentColors', JSON.stringify(r)); } catch (_) {}
+    }
+    function _pickColor(hex) {
+        dom.colorPicker.value = hex;
+        _pushRecent(hex);
+        updateSwatchActive();
+        applyBrushColor();
+        // Mirror into the paint-bar "current" chip if present.
+        const cur = document.getElementById('pbColorCurrent'); if (cur) cur.style.background = hex;
+        _closeColorPop();
+    }
+    function _closeColorPop() { if (_colorPop) { _colorPop.remove(); _colorPop = null; } }
+    function _openColorPop(anchor) {
+        _closeColorPop();
+        const pop = document.createElement('div');
+        pop.className = 'color-pop';
+        const swatch = (hex, extraTitle) => `<button type="button" class="cp-sw" data-hex="${hex}" title="${hex}${extraTitle || ''}" style="background:${hex}"></button>`;
+        const recents = _recentColors();
+        pop.innerHTML =
+            '<div class="cp-grid">' + _COLOR_PRESETS.map(c => swatch(c)).join('') + '</div>' +
+            (recents.length ? '<div class="cp-label">Recent</div><div class="cp-grid">' + recents.map(c => swatch(c)).join('') + '</div>' : '') +
+            '<div class="cp-more"><label>Custom <input type="color" class="cp-native" value="' + dom.colorPicker.value + '"></label></div>';
+        // Every mousedown/click inside the popover is consumed so it can't reach
+        // the canvas and can't be seen as an "outside click" by other handlers.
+        pop.addEventListener('mousedown', (e) => e.stopPropagation());
+        pop.addEventListener('click', (e) => e.stopPropagation());
+        document.body.appendChild(pop);
+        const r = anchor.getBoundingClientRect();
+        pop.style.left = Math.min(r.left, window.innerWidth - 210) + 'px';
+        pop.style.top = (r.bottom + 6) + 'px';
+        pop.querySelectorAll('.cp-sw').forEach(b => b.addEventListener('click', () => _pickColor(b.dataset.hex)));
+        const native = pop.querySelector('.cp-native');
+        native.addEventListener('input', () => _pickColor(native.value));
+        native.addEventListener('click', (e) => e.stopPropagation());
+        _colorPop = pop;
+        // Close on the NEXT outside mousedown (deferred so this open click doesn't dismiss it).
+        setTimeout(() => document.addEventListener('mousedown', _onColorOutside, { once: true }), 0);
+    }
+    function _onColorOutside(e) {
+        if (_colorPop && !_colorPop.contains(e.target) && !e.target.closest('.swatch-custom')) _closeColorPop();
+        else if (_colorPop) setTimeout(() => document.addEventListener('mousedown', _onColorOutside, { once: true }), 0);
+    }
+    function _initColorPopover() {
+        // Replace the native <input type=color> triggers with our popover.
+        document.querySelectorAll('.swatch-custom').forEach((trigger) => {
+            // Neutralize the inner native input so it doesn't open the OS dialog.
+            const nativeIn = trigger.querySelector('input[type="color"]');
+            if (nativeIn) { nativeIn.style.pointerEvents = 'none'; }
+            trigger.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
+            trigger.addEventListener('click', (e) => {
+                e.preventDefault(); e.stopPropagation();
+                if (_colorPop) { _closeColorPop(); return; }
+                _openColorPop(trigger);
+            });
+        });
     }
 
     function updateSwatchActive() {
