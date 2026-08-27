@@ -27,6 +27,17 @@ def _nz(v):
     return v if v not in ("", None) else None
 
 
+def _require_asana_enabled():
+    """Sever (Aug 27): every manual Asana endpoint - not just the background
+    loops asana_sync's own gate covers - refuses to run while the integration
+    is off, so a manager can no longer trigger a live pull/push/import from
+    the API even though the code and Manage > Two-way Sync panel are still
+    there. NEXUS_ASANA_ENABLED=true restores them exactly as before."""
+    import asana_sync
+    if not asana_sync.is_asana_enabled():
+        raise HTTPException(403, "Asana integration is currently disabled.")
+
+
 # ── Saved views (per user) ───────────────────────────────────────────────────
 def saved_view_to_dict(s: models.TaskSavedView) -> dict:
     return {"id": s.id, "ownerId": _nz(s.owner_email), "name": s.name, "view": s.view or "list",
@@ -79,7 +90,7 @@ class AsanaTokenBody(BaseModel):
     token: str
 
 
-@router.post("/task-asana-projects", dependencies=[Depends(require_manager)])
+@router.post("/task-asana-projects", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_projects(body: AsanaTokenBody):
     """List the (non-archived) projects the token can see, across all workspaces,
     so the Import UI can offer a picker instead of asking for raw GIDs."""
@@ -114,7 +125,7 @@ class AsanaImportBody(BaseModel):
     attach_max_mb: float = 5.0
 
 
-@router.post("/task-asana-import", dependencies=[Depends(require_manager)])
+@router.post("/task-asana-import", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_import(body: AsanaImportBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """One-shot Asana -> Nexus import, running the SAME engine as the two-way
     Pull (asana_sync.import_project).
@@ -681,7 +692,7 @@ def _sync_config_dict(cfg) -> dict:
             "manualDeleteSync": bool(cfg.manual_delete_sync)}
 
 
-@router.get("/asana-sync/config", dependencies=[Depends(require_manager)])
+@router.get("/asana-sync/config", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def get_asana_sync_config(db: Session = Depends(get_db)):
     import asana_sync
     cfg = asana_sync.get_config(db)
@@ -691,7 +702,7 @@ def get_asana_sync_config(db: Session = Depends(get_db)):
     return {**_sync_config_dict(cfg), "projectMap": maps}
 
 
-@router.put("/asana-sync/config", dependencies=[Depends(require_manager)])
+@router.put("/asana-sync/config", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def set_asana_sync_config(body: AsanaSyncConfigBody, db: Session = Depends(get_db)):
     import asana_sync
     cfg = asana_sync.get_config(db)
@@ -729,7 +740,7 @@ def set_asana_sync_config(body: AsanaSyncConfigBody, db: Session = Depends(get_d
     return _sync_config_dict(cfg)
 
 
-@router.put("/asana-sync/projects", dependencies=[Depends(require_manager)])
+@router.put("/asana-sync/projects", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def set_asana_project_map(body: AsanaProjectMapBody, db: Session = Depends(get_db)):
     from routers.task_util import now_iso
     rows = []
@@ -950,7 +961,7 @@ def _run_import_all(job_id: str, token: str, workspace_gid: str, user: dict):
         db.close()
 
 
-@router.post("/asana-sync/import-all", dependencies=[Depends(require_manager)])
+@router.post("/asana-sync/import-all", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_import_all(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Start importing EVERY non-archived Asana project the stored token can see
     and return immediately with a job to poll.
@@ -1077,7 +1088,7 @@ def resume_stalled_import():
         db.close()
 
 
-@router.post("/asana-sync/import-all/cancel", dependencies=[Depends(require_manager)])
+@router.post("/asana-sync/import-all/cancel", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_import_all_cancel(db: Session = Depends(get_db)):
     """Ask a running import to stop at the next project boundary.
 
@@ -1099,7 +1110,7 @@ def asana_sync_import_all_cancel(db: Session = Depends(get_db)):
     return import_job_to_dict(job)
 
 
-@router.get("/asana-sync/import-all/status", dependencies=[Depends(require_manager)])
+@router.get("/asana-sync/import-all/status", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_import_all_status(db: Session = Depends(get_db)):
     """Latest job, for the progress bar. Read from the DB rather than process
     memory: dev runs 8 gunicorn workers, so the worker answering this poll is
@@ -1116,7 +1127,7 @@ def asana_sync_import_all_status(db: Session = Depends(get_db)):
     return import_job_to_dict(job)
 
 
-@router.post("/asana-sync/purge-orphans", dependencies=[Depends(require_manager)])
+@router.post("/asana-sync/purge-orphans", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_purge_orphans(apply: bool = False, db: Session = Depends(get_db)):
     """Clear sync rows stranded by project deletes that predate the purge in
     delete_project - dead task links, orphaned linked tasks, and map rows whose
@@ -1126,7 +1137,7 @@ def asana_sync_purge_orphans(apply: bool = False, db: Session = Depends(get_db))
     return asana_sync.sweep_orphans(db, apply=apply)
 
 
-@router.post("/asana-sync/pull", dependencies=[Depends(require_manager)])
+@router.post("/asana-sync/pull", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_pull(db: Session = Depends(get_db)):
     import asana_sync
     from asana_import import ImportError_
@@ -1202,7 +1213,7 @@ def _start_background_pull(db, label, run):
     return {"started": True}
 
 
-@router.post("/asana-sync/pull-new", dependencies=[Depends(require_manager)])
+@router.post("/asana-sync/pull-new", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_pull_new(db: Session = Depends(get_db)):
     """ADDITIVE pull ("pull what's not there, only"): create Nexus tasks for Asana
     tasks that have no Nexus counterpart yet, and leave EVERY existing task 100%
@@ -1214,7 +1225,7 @@ def asana_sync_pull_new(db: Session = Depends(get_db)):
         db, "pull-new", lambda s: asana_sync.pull(s, force_full=True, create_only=True))
 
 
-@router.post("/asana-sync/pull-personal", dependencies=[Depends(require_manager)])
+@router.post("/asana-sync/pull-personal", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_pull_personal(db: Session = Depends(get_db)):
     """ADDITIVE pull of the tasks that sit in NO Asana project - the ones that only
     exist in someone's Asana "My Tasks". Every other inbound path walks projects and
@@ -1225,7 +1236,7 @@ def asana_sync_pull_personal(db: Session = Depends(get_db)):
         db, "pull-personal", lambda s: asana_sync.pull_personal_tasks(s, create_only=True))
 
 
-@router.post("/asana-sync/rescue-attachments", dependencies=[Depends(require_manager)])
+@router.post("/asana-sync/rescue-attachments", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_rescue_attachments(db: Session = Depends(get_db)):
     """Rescue attachment files still hosted on Asana before the subscription
     ends (asanausercontent.com signed URLs and app.asana.com external-host
@@ -1263,7 +1274,7 @@ def asana_sync_rescue_attachments(db: Session = Depends(get_db)):
     return {"started": True}
 
 
-@router.get("/asana-sync/rescue-status", dependencies=[Depends(require_manager)])
+@router.get("/asana-sync/rescue-status", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_rescue_status(db: Session = Depends(get_db)):
     """Progress of the attachment rescue: the in-memory counters of the run on
     THIS worker process (a run started on another gunicorn worker shows only
@@ -1286,7 +1297,7 @@ def asana_sync_rescue_status(db: Session = Depends(get_db)):
             **asana_rescue.db_progress(db)}
 
 
-@router.post("/asana-sync/push-all", dependencies=[Depends(require_manager)])
+@router.post("/asana-sync/push-all", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_push_all(db: Session = Depends(get_db)):
     import asana_sync
     from asana_import import ImportError_
@@ -1296,7 +1307,7 @@ def asana_sync_push_all(db: Session = Depends(get_db)):
         raise HTTPException(400, f"Asana push failed - check the token. ({e})")
 
 
-@router.get("/asana-sync/assignee-check", dependencies=[Depends(require_manager)])
+@router.get("/asana-sync/assignee-check", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_assignee_check(db: Session = Depends(get_db)):
     """Why assignees are or are not reaching Asana.
 
@@ -1308,7 +1319,7 @@ def asana_sync_assignee_check(db: Session = Depends(get_db)):
     return asana_sync.assignee_diagnosis(db)
 
 
-@router.post("/asana-sync/dedupe", dependencies=[Depends(require_manager)])
+@router.post("/asana-sync/dedupe", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_dedupe(apply: bool = False, db: Session = Depends(get_db)):
     """Merge Nexus tasks that all point at the same Asana task - the leftovers
     from the pre-fix Pull, which could create a second Nexus task for a gid it
@@ -1317,7 +1328,7 @@ def asana_sync_dedupe(apply: bool = False, db: Session = Depends(get_db)):
     return asana_sync.dedupe_tasks(db, apply=apply)
 
 
-@router.get("/asana-sync/workspaces", dependencies=[Depends(require_manager)])
+@router.get("/asana-sync/workspaces", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_workspaces(db: Session = Depends(get_db)):
     """The workspaces this token can see, so the Workspace GID can be picked
     instead of typed.
@@ -1339,7 +1350,7 @@ def asana_sync_workspaces(db: Session = Depends(get_db)):
         raise HTTPException(400, f"Could not list workspaces - check the token. ({e})")
 
 
-@router.get("/asana-sync/asana-projects", dependencies=[Depends(require_manager)])
+@router.get("/asana-sync/asana-projects", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def asana_sync_asana_projects(db: Session = Depends(get_db)):
     """List Asana projects using the STORED sync token (so the mapping UI can offer
     a picker instead of raw GIDs). Scoped to the configured workspace if set."""
@@ -1367,7 +1378,7 @@ class AsanaWebhookBody(BaseModel):
     target_base: Optional[str] = None
 
 
-@router.get("/asana-sync/webhooks", dependencies=[Depends(require_manager)])
+@router.get("/asana-sync/webhooks", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def list_asana_webhooks(db: Session = Depends(get_db)):
     import asana_sync
     rows = (db.query(models.AsanaWebhook)
@@ -1378,7 +1389,7 @@ def list_asana_webhooks(db: Session = Depends(get_db)):
             "isSyncWorker": asana_sync.is_sync_worker()}
 
 
-@router.post("/asana-sync/webhooks", dependencies=[Depends(require_manager)])
+@router.post("/asana-sync/webhooks", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def register_asana_webhooks(body: AsanaWebhookBody, db: Session = Depends(get_db)):
     import asana_sync
     from asana_import import ImportError_
@@ -1388,7 +1399,7 @@ def register_asana_webhooks(body: AsanaWebhookBody, db: Session = Depends(get_db
         raise HTTPException(400, f"Webhook registration failed. ({e})")
 
 
-@router.delete("/asana-sync/webhooks", dependencies=[Depends(require_manager)])
+@router.delete("/asana-sync/webhooks", dependencies=[Depends(require_manager), Depends(_require_asana_enabled)])
 def delete_asana_webhooks(db: Session = Depends(get_db)):
     import asana_sync
     return asana_sync.delete_webhooks(db)

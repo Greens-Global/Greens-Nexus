@@ -1,8 +1,9 @@
 // Task Module - rich project List view (ported 1:1 from the export's
-// NexusTaskListView). Spreadsheet-style grid: Actions · Task · Assignee ·
-// Project · Due · Estimate · Actual · Priority · Status · Team · +Column,
-// with inline pill-menu editing, per-row action icons, select-all, collapsible
-// groups, and add/remove custom-field columns - all wired to the TasksContext.
+// NexusTaskListView). Spreadsheet-style grid: Task · Assignee · Project ·
+// Due · Estimate · Actual · Priority · Status · Team · +Column, with inline
+// pill-menu editing, a complete toggle inline in the Task cell (My Tasks
+// style, not its own column), select-all, collapsible groups, and add/remove
+// custom-field columns - all wired to the TasksContext.
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -17,10 +18,10 @@ import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STAT
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect } from '../components';
 import { emailToName, rootZoom } from '../../lib/utils';
+import { matchPeople, onEnterPickFirst } from '../../lib/peopleSearch';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
-  { key: 'actions', label: 'Actions', width: 72 },
   { key: 'task', label: 'Task', width: 280, grow: true },
   { key: 'assignee', label: 'Person', width: 120 },
   { key: 'project', label: 'Project', width: 132 },
@@ -37,9 +38,9 @@ const BASE_COLS = [
   { key: 'timeline', label: 'Timeline', width: 148, center: true },
 ];
 // Columns that can be hidden via the eye menu (task itself always shows).
-const HIDEABLE = ['actions', 'assignee', 'project', 'due', 'estimate', 'actual', 'priority', 'status', 'team', 'timeline'];
-// Column key -> the sort key its header drives. Anything absent (checkbox,
-// actions) has no meaningful order and stays a plain label. These are the same
+const HIDEABLE = ['assignee', 'project', 'due', 'estimate', 'actual', 'priority', 'status', 'team', 'timeline'];
+// Column key -> the sort key its header drives. Anything absent (checkbox)
+// has no meaningful order and stays a plain label. These are the same
 // keys the toolbar's Sort menu writes, so a header click and a Sort pick are
 // one state, not two competing ones.
 const COL_SORT_KEY = {
@@ -222,7 +223,7 @@ function AssigneeCell({ value, people, onSelect, compact }) {
   useClickOutside([ref, panelRef], () => { setOpen(false); setQ(''); }, open);
   const name = value ? (people.find((p) => p.email === value)?.name || emailToName(value)) : null;
   const pick = (em) => { onSelect(em); setOpen(false); setQ(''); };
-  const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
+  const filtered = matchPeople(people, q);
   return (
     <div ref={ref} style={{ position: 'relative', ...(compact ? { width: '100%' } : {}) }}>
       {/* The cell value itself is the dropdown trigger - clicking it opens the
@@ -237,7 +238,9 @@ function AssigneeCell({ value, people, onSelect, compact }) {
       {open && (
         <PortalDropdown anchorRef={ref} panelRef={panelRef} width={240}>
           <div className="nx-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
-            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…" style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+              onKeyDown={onEnterPickFirst(filtered, (p) => pick(p.email))}
+              style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
             <div onClick={() => pick(null)} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
             {filtered.map((p) => (
               <div key={p.email} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent' }}>
@@ -249,14 +252,6 @@ function AssigneeCell({ value, people, onSelect, compact }) {
           </div>
         </PortalDropdown>
       )}
-    </div>
-  );
-}
-
-function ActionIcons({ t, store }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 1, color: NX.faint }}>
-      <button title="Complete" onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 5, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={13} /> : <Circle size={13} />}</button>
     </div>
   );
 }
@@ -323,13 +318,15 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
           </button>
         </div>
         ),
-        // actions
-        actions: (
-        <div style={{ ...cellPad, justifyContent: 'center' }}><ActionIcons t={t} store={store} /></div>
-        ),
-        // task
+        // task - the complete toggle rides inline, first in the cell, same as
+        // My Tasks (MyTasksView.jsx's TaskRow) rather than its own Actions
+        // column.
         task: (
         <div style={{ ...cellPad, gap: 6 }}>
+          <button title="Complete" onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }}
+            style={{ ...btn('ghost'), padding: 0, flexShrink: 0, color: t.completed ? NX.green : NX.faint }}>
+            {t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}
+          </button>
           {t.isMilestone && <Diamond size={12} style={{ color: NX.purple, flexShrink: 0 }} />}
           <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
           {/* A subtask only appears as its own row in a person-scoped list (My
@@ -343,9 +340,9 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
           )}
           {/* Icon + count, present only when there's something to show. Shared
               with My Tasks (components.jsx) so a task cannot look emptier on one
-              screen than the other. No longer buttons in ActionIcons: those
-              opened the drawer/file-picker regardless of whether the task had
-              anything to show, which is what a plain indicator avoids. */}
+              screen than the other - a plain indicator rather than buttons
+              that opened the drawer/file-picker regardless of whether the
+              task had anything to show. */}
           <TaskCountBadges t={t} store={store} />
         </div>
         ),
@@ -415,7 +412,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // due
         due: (
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
-          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)} title="Due Date" style={{ fontSize: 12, width: '100%' }} />
+          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)} title="Due Date" compact style={{ fontSize: 12, width: '100%' }} />
         </div>
         ),
         // estimate
@@ -718,7 +715,7 @@ function FieldCell({ field, value, onChange, people = [] }) {
     );
   }
   if (field.type === 'date') {
-    return <DateField value={value || ''} onChange={onChange} color={NX.dim} style={{ fontSize: 12, width: '100%' }} />;
+    return <DateField value={value || ''} onChange={onChange} color={NX.dim} compact style={{ fontSize: 12, width: '100%' }} />;
   }
   if (field.type === 'number') {
     return <input type="number" className="rl-num" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} placeholder="-"

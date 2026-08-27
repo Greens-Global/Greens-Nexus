@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Search, X, UserCog } from "lucide-react";
 import { api } from "../api";
+import { matchPeople, onEnterPickFirst } from "../lib/peopleSearch";
 
 // Picker for starting an Act As session (Jul 2026). The eligible list is
 // already filtered server-side to roles strictly below the caller's own -
@@ -21,11 +22,7 @@ export default function ActAsModal({ onClose, onStart }) {
     return () => { cancelled = true; };
   }, []);
 
-  const filtered = useMemo(() => {
-    const query = q.trim().toLowerCase();
-    if (!query) return people;
-    return people.filter(p => p.name.toLowerCase().includes(query) || p.email.toLowerCase().includes(query));
-  }, [people, q]);
+  const filtered = useMemo(() => matchPeople(people, q), [people, q]);
 
   async function pick(person) {
     if (starting) return;
@@ -57,6 +54,7 @@ export default function ActAsModal({ onClose, onStart }) {
           <div style={{ position: 'relative' }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
             <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…"
+              onKeyDown={onEnterPickFirst(filtered, pick)}
               style={{ width: '100%', padding: '8px 10px 8px 30px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'Inter, sans-serif', fontSize: 13, background: 'var(--bg)', color: 'var(--ink)', boxSizing: 'border-box' }} />
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', margin: '8px 2px 4px', lineHeight: 1.4 }}>

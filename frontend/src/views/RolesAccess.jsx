@@ -7,6 +7,7 @@ import { InviteExternalModal, ExternalPersonSection, ExternalBadge, inviteOutcom
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
+import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -640,8 +641,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
 
   // Company/department scoping happens upstream (the universal selector in the
   // tab strip hands this tab already-scoped people); only search lives here.
-  const filtered = useMemo(() => people.filter(p =>
-    !q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase())), [people, q]);
+  const filtered = useMemo(() => matchPeople(people, q), [people, q]);
 
   useEffect(() => {
     if (!person) { setEff(null); return; }
@@ -700,7 +700,9 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
         <div data-tour="people-search" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <div style={{ position: 'relative', flex: 1 }}>
             <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search anyone…" style={{ ...input, paddingLeft: 34 }} />
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search anyone…"
+              onKeyDown={onEnterPickFirst(filtered, (p) => setPerson(p.email))}
+              style={{ ...input, paddingLeft: 34 }} />
           </div>
           <button className="secondary-btn" onClick={() => setInviteOpen(true)}
             title="Invite a partner-company person as a Microsoft guest - they appear here like anyone else"
@@ -1419,7 +1421,7 @@ function AssignModal({ role, onClose, onAssigned, onErr }) {
   // dialog stays open and you can add several people in a row without reopening.
   const [added, setAdded] = useState(() => new Set((role.members || []).map(e => (e || '').toLowerCase())));
   const people = useMemo(() => (dir || []).map(p => ({ email: (p.email || p.workEmail || '').toLowerCase(), name: p.display_name || p.name || p.fullName || p.email || p.workEmail || '' })).filter(p => p.email), [dir]);
-  const filtered = people.filter(p => !q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase()));
+  const filtered = matchPeople(people, q);
   const addedThisSitting = [...added].filter(e => !(role.members || []).map(m => (m || '').toLowerCase()).includes(e)).length;
 
   async function assign(p) {
@@ -1435,7 +1437,9 @@ function AssignModal({ role, onClose, onAssigned, onErr }) {
       <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept. Pick as many people as you like - this stays open until you close it.</div>
       <div style={{ position: 'relative', marginBottom: 10 }}>
         <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-        <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…" style={{ ...input, paddingLeft: 34 }} />
+        <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…"
+          onKeyDown={onEnterPickFirst(filtered, assign)}
+          style={{ ...input, paddingLeft: 34 }} />
       </div>
       <div style={{ maxHeight: 340, overflow: 'auto' }}>
         {!dir ? <Spinner /> : filtered.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 16, textAlign: 'center' }}>No matches.</div>

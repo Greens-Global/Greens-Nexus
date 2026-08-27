@@ -3,10 +3,10 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Square, CheckSquare, CheckCircle2, CornerDownRight } from 'lucide-react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl, personScoped, rootParent, effectiveProjectId } from './lib';
-import { NX, FONT, btn, CONTROL_H, CONTROL_FS, input as inputStyle, colorForKey } from './theme';
+import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId } from './lib';
+import { NX, FONT, btn, CONTROL_H, CONTROL_FS, input as inputStyle } from './theme';
 import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField, TaskCountBadges, SearchSelect } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
 import MobileTaskBar from './MobileTaskBar';
@@ -16,7 +16,8 @@ import TaskDetailDrawer from './TaskDetailDrawer';
 import { CalendarView, DashboardView } from './views/extras';
 import { FilesView } from './views/more';
 import BoardView from './views/board';
-import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
+import { useTableColumns, TableHead, ResetColumnsButton, useTableValue, useTableSetting } from './tableCols';
+import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 
 const VIEW_TABS = [
   { key: 'list', label: 'List', icon: ListIcon },
@@ -62,10 +63,8 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
   const ref = useRef(null);
   useClickOutside(ref, () => setOpen(false), open);
   const toggle = (email) => onChange(value.includes(email) ? value.filter((e) => e !== email) : [...value, email]);
-  const filtered = (q.trim()
-    ? people.filter((u) => `${u.name} ${u.email}`.toLowerCase().includes(q.trim().toLowerCase()))
-    : people
-  ).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+  const filtered = q.trim() ? matchPeople(people, q)
+    : people.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add collaborators" style={{ ...btn('ghost'), padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -89,6 +88,7 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
       {open && (
         <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 208, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50 }}>
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+            onKeyDown={onEnterPickFirst(filtered, (u) => toggle(u.email))}
             style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
           <div style={{ maxHeight: 200, overflowY: 'auto', padding: 4 }}>
             {filtered.map((u) => (
@@ -118,7 +118,7 @@ function projectOptions(projects) {
 // `band` = this row sits on an odd index inside its group, so it gets the
 // zebra tint. Banding is what lets the eye follow a row all the way out to the
 // Collaborators/Projects columns on a wide screen.
-function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST_COLS }) {
+function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST_COLS, isMobilePortrait = false }) {
   // A subtask's project is its parent's; the project cell then names the parent
   // (click-through) rather than offering a select that would re-home the subtask.
   const parent = t.parentTaskId ? rootParent(t, store.taskById) : null;
@@ -137,8 +137,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
   const cells = {
     title: (
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-        <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, flexShrink: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckSquare size={17} /> : <Square size={17} />}</button>
-        <span title={store.statusMeta?.[t.status]?.label || t.status} style={{ width: 9, height: 9, borderRadius: 3, background: store.statusMeta?.[t.status]?.color || NX.faint, flexShrink: 0 }} />
+        <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, flexShrink: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
         {/* Same badges the Task List shows. Without them the same task looked
             emptier here than there, which is the kind of difference that reads
@@ -147,8 +146,15 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
       </div>
     ),
     dueOn: (
-      <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)}
-        title="Due Date" style={{ fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' }} />
+      // Portrait phones drop Collaborators/Projects (see baseCols in
+      // MyTasksView), which leaves Due Date as the last column - flush it to
+      // the row's right edge instead of the left-aligned default, so it isn't
+      // stranded in a sea of empty space between it and the name column.
+      <div style={isMobilePortrait ? { display: 'flex', justifyContent: 'flex-end', width: '100%' } : undefined}>
+        <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)}
+          title="Due Date" compact
+          style={t.dueOn ? { fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' } : undefined} />
+      </div>
     ),
     collaborators: (
       <CollaboratorPicker value={t.followerIds || []} people={people} onChange={(v) => store.updateTask(t.id, { followerIds: v })} />
@@ -171,74 +177,22 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
     ),
   };
   return (
-    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 8, padding: '5px 16px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}
+    // NX.border2 (#eef0f3) is nearly invisible against the zebra band
+    // (#f8fafc) they sit between - fine as a subtle rule under a row full of
+    // text, but the Due Date/Collaborators columns are mostly blank, so
+    // there's nothing else to read the row boundary from and the divider
+    // needs to actually show up. NX.border is the same 1px line, darker.
+    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}
       onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)} onMouseLeave={(e) => (e.currentTarget.style.background = rowBg)}>
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>
   );
 }
 
-function AddTaskRow({ people, projects, onAdd, defaults = {}, cols = LIST_COLS }) {
-  const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState('');
-  const [dueOn, setDueOn] = useState(defaults.dueOn || '');
-  const [followerIds, setFollowerIds] = useState([]);
-  const [projectId, setProjectId] = useState(defaults.projectId || '');
-  const reset = () => { setTitle(''); setDueOn(defaults.dueOn || ''); setFollowerIds([]); setProjectId(defaults.projectId || ''); setEditing(false); };
-  // A task added under a group inherits that group's context (bucket due date,
-  // project, status, priority) - the row's own edits win over the defaults.
-  const commit = () => {
-    if (!title.trim()) return;
-    onAdd({
-      title: title.trim(), followerIds,
-      dueOn: dueOn || defaults.dueOn || null,
-      projectId: projectId || defaults.projectId || null,
-      status: defaults.status, priority: defaults.priority, teamId: defaults.teamId,
-    });
-    reset();
-  };
-  if (!editing) {
-    return (
-      <button onClick={() => setEditing(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', padding: '5px 16px 5px 40px', color: NX.faint }}>
-        <Plus size={13} /> Add Task...
-      </button>
-    );
-  }
-  const addCells = {
-    title: (
-      <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') reset(); }}
-        placeholder="Task Name" style={{ ...inputStyle, padding: '5px 8px', fontSize: 13, borderColor: NX.blue }} />
-    ),
-    dueOn: (
-      <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} placeholder="Due Date" style={{ ...inputStyle, padding: '4px 6px', fontSize: 12, width: 'fit-content' }} />
-    ),
-    collaborators: (
-      <CollaboratorPicker value={followerIds} people={people} onChange={setFollowerIds} anchor="Add" />
-    ),
-    project: (
-      <SearchSelect value={projectId} placeholder="No project" searchPlaceholder="Search projects…"
-        emptyText="No projects yet." options={projectOptions(projects)} onPick={setProjectId}
-        buttonStyle={{ ...inputStyle, padding: '4px 6px', fontSize: 13, maxWidth: '100%', cursor: 'pointer', justifyContent: 'space-between' }} />
-    ),
-  };
-  return (
-    <div style={{ padding: '6px 16px 6px 32px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 8 }}>
-        {/* Keyed like TaskRow so the inline add form's fields stay under the
-            headers they belong to when the columns are rearranged. */}
-        {cols.map((c) => <Fragment key={c.key}>{addCells[c.key]}</Fragment>)}
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
-        <button onClick={reset} style={{ ...btn('ghost'), fontSize: 11, padding: '4px 8px' }}>Cancel</button>
-        <button onClick={commit} disabled={!title.trim()} style={{ ...btn('primary'), fontSize: 11, padding: '5px 10px', opacity: title.trim() ? 1 : 0.4 }}>Add Task</button>
-      </div>
-    </div>
-  );
-}
 
 export default function MyTasksView() {
   const store = useTasks();
-  const { tasks, projects, myEmail, createTask, nameOf } = store;
+  const { tasks, projects, myEmail, nameOf } = store;
   // View / grouping / sort ride in the user's profile with their columns -
   // coming back to a screen you have to re-set every time is the same
   // complaint as re-hiding columns every morning.
@@ -246,8 +200,13 @@ export default function MyTasksView() {
   const [group, setGroup] = useTableValue('mytasks', 'group', 'date');
   const [filters, setFilters] = useState(EMPTY_FILTER);
   const [sort, setSort] = useTableValue('mytasks', 'sort', DEFAULT_SORT);
+  // Portrait phones only - landscape still has the room for all four. Only
+  // Name/Due Date fit without every row wrapping or Name shrinking to
+  // nothing, so Collaborators/Projects drop rather than squeeze.
+  const isMobilePortrait = useIsMobile('(max-width: 640px) and (orientation: portrait)');
+  const baseCols = isMobilePortrait ? LIST_COLS.filter((c) => c.key === 'title' || c.key === 'dueOn') : LIST_COLS;
   const { cols: listCols, template, startResize, resetWidth, widths, wrapRef, dragProps } =
-    useTableColumns({ table: 'mytasks', cols: LIST_COLS });
+    useTableColumns({ table: 'mytasks', cols: baseCols });
   // Person / Project / Collaborator sorts order by the NAME on screen, not the
   // email or uuid underneath it - these are the resolvers that do that.
   const sortCtx = useMemo(
@@ -295,9 +254,15 @@ export default function MyTasksView() {
   const groups = useMemo(() => groupTasks(mine, group, ctx), [mine, group, nameOf, store.projectName, store.teamName, store.taskById]);
   const boardTasks = useMemo(() => sortTasks(allMine, sort, [], sortCtx), [allMine, sort, sortCtx]);
 
-  const addTask = ({ title, dueOn, followerIds, projectId, status, priority, teamId }) =>
-    createTask({ title, assigneeIds: myEmail ? [myEmail] : [], status: status || 'not_started', priority: priority || 'medium', type: 'task', dueOn: dueOn || '', followerIds, projectId: projectId || '', teamId: teamId || '' }).catch(() => {});
-
+  // Collapsed group keys, persisted per person like the rest of this table's
+  // settings (view/group/sort) - see richlist.jsx's identical pattern.
+  const [collapsedList, setCollapsedList] = useTableSetting('mytasks', 'collapsed', []);
+  const collapsed = useMemo(() => new Set(collapsedList), [collapsedList]);
+  const toggleGroup = (k) => {
+    const n = new Set(collapsed);
+    n.has(k) ? n.delete(k) : n.add(k);
+    setCollapsedList([...n]);
+  };
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', height: '100%', background: NX.canvas }}>
@@ -351,32 +316,34 @@ export default function MyTasksView() {
           <div className={isMobile ? 'nx-edge-card' : undefined} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface }}>
             {/* Fixed-width columns (Due date/Collaborators/Projects) don't shrink
                 below their content size - scroll horizontally on narrow
-                viewports instead of getting clipped by the card's rounded corners. */}
+                viewports instead of getting clipped by the card's rounded corners.
+                Portrait phones drop to just Name/Due Date (see baseCols above),
+                which fit this width on their own - the 560px floor calibrated for
+                all four columns would otherwise force a pointless horizontal
+                scrollbar on a screen with nothing to its right. */}
             <div style={{ overflowX: 'auto' }}>
-              <div ref={wrapRef} style={{ minWidth: 560, '--nx-grid': template }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', gap: 8, padding: '6px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+              <div ref={wrapRef} style={{ minWidth: isMobilePortrait ? 0 : 560, '--nx-grid': template }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', gap: 8, padding: '6px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
                   {listCols.map((c) => (
                     <TableHead key={c.key} label={c.label} sortKey={c.key} sort={sort} setSort={setSort}
                       sortReset={{ key: 'manual', dir: 'asc' }} style={{ color: NX.dim }}
+                      align={isMobilePortrait && c.key === 'dueOn' ? 'flex-end' : undefined}
                       drag={dragProps(c.key)}
                       onResizeStart={startResize(c.key, widths[c.key] ?? c.width ?? 150)}
                       onResizeReset={() => resetWidth(c.key)} />
                   ))}
                 </div>
                 {groups.map((g) => {
-                  const gc = g.color || colorForKey(g.key);
+                  const isCol = collapsed.has(g.key);
                   return (
                     /* Group header = a tinted full-width band (kit grammar) so
-                       groups read at a glance against white task rows - the
-                       color rides a quiet dot, never rails or colored text. */
+                       groups read at a glance against white task rows. */
                     <div key={g.key}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', background: NX.surface2, borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5, fontWeight: 700, color: NX.ink }}>
-                        <ChevronDown size={14} style={{ color: NX.faint }} />
-                        <span style={{ width: 9, height: 9, borderRadius: 3, background: gc, flexShrink: 0 }} />
+                      <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 16px', border: 'none', background: NX.surface2, boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, fontWeight: 700, color: NX.ink, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
+                        <ChevronDown size={14} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
                         {g.label} <span style={{ color: NX.faint, fontWeight: 600, fontSize: 12 }}>{g.tasks.length} item{g.tasks.length !== 1 ? 's' : ''}</span>
-                      </div>
-                      {g.tasks.map((t, i) => <TaskRow key={t.id} t={t} people={people} projects={projects} store={store} onOpen={setOpenId} band={i % 2 === 1} cols={listCols} />)}
-                      <AddTaskRow key={`add-${group}-${g.key}`} people={people} projects={projects} onAdd={addTask} defaults={groupAddDefaults(group, g.key)} cols={listCols} />
+                      </button>
+                      {!isCol && g.tasks.map((t, i) => <TaskRow key={t.id} t={t} people={people} projects={projects} store={store} onOpen={setOpenId} band={i % 2 === 1} cols={listCols} isMobilePortrait={isMobilePortrait} />)}
                     </div>
                   );
                 })}

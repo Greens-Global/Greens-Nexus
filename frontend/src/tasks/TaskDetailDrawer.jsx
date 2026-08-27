@@ -19,23 +19,62 @@ import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer } from './components';
+import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import ProjectPicker from './ProjectPicker';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 function recurrenceLabel(r) {
   if (!r || !r.freq) return 'Does not repeat';
   let base;
   if (r.freq === 'daily') base = 'Every day';
-  else if (r.freq === 'weekly') base = `Every week on ${DAYS[r.dayOfWeek ?? 1]}`;
+  else if (r.freq === 'weekly') {
+    // daysOfWeek is the real field; dayOfWeek (singular) is a one-item
+    // fallback for a series created before multi-day weekly existed.
+    const days = r.daysOfWeek ?? (r.dayOfWeek != null ? [r.dayOfWeek] : [1]);
+    base = `Every week on ${days.map((d) => DAY_ABBR[d]).join(', ')}`;
+  }
   else if (r.freq === 'monthly') base = `Every month on day ${r.dayOfMonth ?? 1}`;
   else if (r.freq === 'yearly') base = 'Every year';
+  else if (r.freq === 'periodic') {
+    const n = r.daysAfterCompletion ?? 1;
+    base = `${n} day${n === 1 ? '' : 's'} after completion`;
+  }
+  else if (r.freq === 'custom') {
+    const n = r.interval ?? 1;
+    const unit = { day: 'day', week: 'week', month: 'month', year: 'year' }[r.unit] || 'week';
+    base = `Every ${n} ${unit}${n === 1 ? '' : 's'}`;
+    if (r.unit === 'week' && r.daysOfWeek?.length) base += ` on ${r.daysOfWeek.map((d) => DAY_ABBR[d]).join(', ')}`;
+  }
   else return 'Does not repeat';
   if (r.until) base += ` until ${r.until}`;
   else if (r.count) base += ` × ${r.count}`;
   return base;
+}
+
+/** "On these days" - the S M T W T F S row Weekly and Custom(week) share
+ *  inside the Recurrence popover. Multi-toggle, stays open (no close-on-pick)
+ *  since more than one day is usually wanted. */
+function RecurDayPicker({ value, onToggle }) {
+  return (
+    <div style={{ display: 'flex', gap: 3 }}>
+      {DAY_ABBR.map((d, i) => {
+        const on = value.includes(i);
+        return (
+          <button key={d} type="button" title={DAYS[i]} onClick={() => onToggle(i)}
+            style={{
+              width: 24, height: 24, borderRadius: '50%', border: `1px solid ${on ? NX.primary : NX.border}`,
+              background: on ? NX.primary : 'transparent', color: on ? '#fff' : NX.dim,
+              fontSize: 10.5, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: FONT,
+            }}>{d[0]}</button>
+        );
+      })}
+    </div>
+  );
 }
 
 // ── tiny inline primitives ───────────────────────────────────────────────────
@@ -153,7 +192,7 @@ function MenuItem({ icon, onClick, danger, children }) {
 // Defaults to Overview, so every existing caller behaves exactly as before.
 export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab = 'overview' }) {
   const store = useTasks();
-  const { taskById, tasks, teams, projects, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment } = store;
+  const { taskById, tasks, teams, projects, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment, offerUndo } = store;
   const people = usePeople();
 
   const [activeId, setActiveId] = useState(taskId);
@@ -201,7 +240,22 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   // My Tasks used for its Task Visibility column before that column was removed
   // in favor of this indicator.
   const shared = (task.followerIds || []).length > 0 || !!task.projectId;
-  const patch = (p) => updateTask(activeId, p);
+  // The whole drawer autosaves - no Save button, every field commits on
+  // change - so a saved edit needs its own confirmation the way an explicit
+  // Save click gets one for free. Reuses the same undo-toast plumbing
+  // completing/deleting a task already offers (TasksContext.jsx): captures
+  // each touched key's PRIOR value before the write, then a single Undo
+  // restores all of them together. Fires optimistically, matching how the
+  // edit itself already appears in the UI before the network round trip
+  // finishes - a failed save is surfaced separately by updateTask's own
+  // alert, so this doesn't also need to handle that case.
+  const patch = (p) => {
+    const prev = {};
+    for (const k of Object.keys(p)) prev[k] = task[k];
+    const result = updateTask(activeId, p);
+    offerUndo('Changes saved', () => updateTask(activeId, prev).catch(() => {}));
+    return result;
+  };
 
   const counts = {
     comments: (task.commentIds || []).length,
@@ -268,10 +322,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {/* On a phone this collapses to its circle-check icon - the label is
                 the widest thing in the header and crowds out the actions. */}
-            <button onClick={() => store.toggleComplete(task)} title={task.completed ? 'Completed' : 'Mark complete'}
+            <button onClick={() => store.toggleComplete(task)} title={task.completed ? 'Completed' : 'Mark Complete'}
               style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: task.completed ? NX.green : NX.dim }}>
               {task.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
-              {!isMobile && (task.completed ? 'Completed' : 'Mark complete')}
+              {!isMobile && (task.completed ? 'Completed' : 'Mark Complete')}
             </button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -378,13 +432,12 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
 // search box on one and not the other. One body, used by both triggers.
 function CollaboratorMenuBody({ people, selected, onToggle }) {
   const [q, setQ] = useState('');
-  const filtered = q.trim()
-    ? people.filter((u) => `${u.name} ${u.email}`.toLowerCase().includes(q.trim().toLowerCase()))
-    : people;
+  const filtered = q.trim() ? matchPeople(people, q) : people;
   return (
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
       <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+        onKeyDown={onEnterPickFirst(filtered, (u) => onToggle(u.email))}
         style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
       <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
         {filtered.map((u) => (
@@ -601,7 +654,8 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       </Row>
 
       <Row label="Due Date">
-        <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} style={{ ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 }} />
+        <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} compact
+          style={task.dueOn ? { ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 } : undefined} />
       </Row>
 
       <Row label="Project">
@@ -693,22 +747,73 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
 
       <Row label="Recurrence">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
-          <Pop width={200} trigger={(t) => <button onClick={() => { setRecStep('root'); t(); }} style={{ ...btn('ghost'), padding: '5px 8px', fontSize: 12 }}><Repeat size={13} /> {recurrenceLabel(task.recurrence)}</button>}>
+          <Pop width={220} trigger={(t) => <button onClick={() => { setRecStep('root'); t(); }} style={{ ...btn('ghost'), padding: '5px 8px', fontSize: 12 }}><Repeat size={13} /> {recurrenceLabel(task.recurrence)}</button>}>
             {(close) => {
-              if (recStep === 'weekly') return (<>
-                <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
-                {DAYS.map((d, i) => <MenuItem key={d} onClick={() => { pickFreq({ freq: 'weekly', dayOfWeek: i }); close(); }}>{d}</MenuItem>)}
-              </>);
+              if (recStep === 'weekly') {
+                const cur = task.recurrence?.freq === 'weekly' ? task.recurrence : {};
+                const days = cur.daysOfWeek ?? (cur.dayOfWeek != null ? [cur.dayOfWeek] : [1]);
+                const toggle = (i) => pickFreq({ freq: 'weekly', daysOfWeek: days.includes(i) ? days.filter((x) => x !== i) : [...days, i].sort() });
+                return (<>
+                  <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
+                  <div style={{ padding: '4px 10px 8px' }}>
+                    <div style={{ fontSize: 11, color: NX.faint, marginBottom: 6 }}>On these days</div>
+                    <RecurDayPicker value={days} onToggle={toggle} />
+                  </div>
+                </>);
+              }
               if (recStep === 'monthly') return (<>
                 <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
                 {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <MenuItem key={d} onClick={() => { pickFreq({ freq: 'monthly', dayOfMonth: d }); close(); }}>Day {d}</MenuItem>)}
               </>);
+              if (recStep === 'periodic') return (<>
+                <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
+                {[1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 30, 45, 60, 90].map((d) => (
+                  <MenuItem key={d} onClick={() => { pickFreq({ freq: 'periodic', daysAfterCompletion: d }); close(); }}>
+                    {d} day{d === 1 ? '' : 's'} after completion
+                  </MenuItem>
+                ))}
+              </>);
+              if (recStep === 'custom') {
+                const cur = task.recurrence?.freq === 'custom' ? task.recurrence : {};
+                const unit = cur.unit || 'week';
+                const interval = cur.interval || 1;
+                const days = cur.daysOfWeek ?? (cur.dayOfWeek != null ? [cur.dayOfWeek] : [1]);
+                const applyCustom = (partial) => {
+                  const next = { unit, interval, ...partial };
+                  const rec = { freq: 'custom', unit: next.unit, interval: next.interval };
+                  if (next.unit === 'week') rec.daysOfWeek = next.daysOfWeek ?? days;
+                  pickFreq(rec);
+                };
+                return (<>
+                  <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
+                  <div style={{ padding: '4px 10px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      <span style={{ color: NX.faint }}>Every</span>
+                      <input type="number" min="1" step="1" value={interval}
+                        onChange={(e) => applyCustom({ interval: Math.max(1, Number(e.target.value) || 1) })}
+                        style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 12 }} />
+                      <select value={unit} onChange={(e) => applyCustom({ unit: e.target.value })} style={recSel}>
+                        <option value="day">Day{interval === 1 ? '' : 's'}</option>
+                        <option value="week">Week{interval === 1 ? '' : 's'}</option>
+                        <option value="month">Month{interval === 1 ? '' : 's'}</option>
+                        <option value="year">Year{interval === 1 ? '' : 's'}</option>
+                      </select>
+                    </div>
+                    {unit === 'week' && (<>
+                      <div style={{ fontSize: 11, color: NX.faint }}>On these days</div>
+                      <RecurDayPicker value={days} onToggle={(i) => applyCustom({ unit: 'week', daysOfWeek: days.includes(i) ? days.filter((x) => x !== i) : [...days, i].sort() })} />
+                    </>)}
+                  </div>
+                </>);
+              }
               return (<>
                 <MenuItem onClick={() => { setRecEndMode('never'); setRecurrence(null); close(); }}>Does not repeat</MenuItem>
-                <MenuItem onClick={() => { pickFreq({ freq: 'daily' }); close(); }}>Every day</MenuItem>
-                <MenuItem onClick={() => setRecStep('weekly')}>Every week</MenuItem>
-                <MenuItem onClick={() => setRecStep('monthly')}>Every month</MenuItem>
-                <MenuItem onClick={() => { pickFreq({ freq: 'yearly' }); close(); }}>Every year</MenuItem>
+                <MenuItem onClick={() => { pickFreq({ freq: 'daily' }); close(); }}>Daily</MenuItem>
+                <MenuItem onClick={() => setRecStep('weekly')}>Weekly</MenuItem>
+                <MenuItem onClick={() => setRecStep('monthly')}>Monthly</MenuItem>
+                <MenuItem onClick={() => { pickFreq({ freq: 'yearly' }); close(); }}>Yearly</MenuItem>
+                <MenuItem onClick={() => setRecStep('periodic')}>Periodically</MenuItem>
+                <MenuItem onClick={() => setRecStep('custom')}>Custom</MenuItem>
               </>);
             }}
           </Pop>

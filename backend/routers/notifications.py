@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 import httpx
 from database import get_db
-from auth import get_current_user, company_of, company_scope, company_ok
+from auth import get_current_user, company_of, company_scope
 from models import NexusNotification, NexusRole
 
 _AZURE_TENANT_ID    = os.getenv("AZURE_TENANT_ID", "")

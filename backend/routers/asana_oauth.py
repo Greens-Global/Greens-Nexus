@@ -13,7 +13,7 @@ Tokens are never returned to the client by any of these.
 """
 import urllib.parse
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -24,7 +24,20 @@ from app_url import app_url
 from auth import get_current_user
 from database import get_db
 
-router = APIRouter(prefix="/asana-oauth", tags=["Asana"], dependencies=[Depends(get_current_user)])
+
+def _require_enabled():
+    """Sever (Aug 27): every one of these personal-connection endpoints
+    refuses to run while the integration is off - status/check/start/
+    disconnect/coverage all live here, and none of them are gated by
+    is_sync_worker() the way the background loops are. Kept mounted (a 404
+    storm off a stale bookmark is worse than a clean 403) but inert.
+    NEXUS_ASANA_ENABLED=true restores them exactly as before."""
+    if not asana_sync.is_asana_enabled():
+        raise HTTPException(403, "Asana integration is currently disabled.")
+
+
+router = APIRouter(prefix="/asana-oauth", tags=["Asana"],
+                   dependencies=[Depends(get_current_user), Depends(_require_enabled)])
 public_router = APIRouter(prefix="/asana-oauth", tags=["Asana"])
 
 
@@ -182,6 +195,11 @@ def _back(result: str, detail: str = ""):
 @public_router.get("/callback")
 def callback(code: str = "", state: str = "", error: str = "",
              db: Session = Depends(get_db)):
+    # Sever (Aug 27): a stale authorize link (browser tab left open, bookmark)
+    # must not be able to complete a connection and save a grant - no code
+    # exchange, no state consumed, nothing written.
+    if not asana_sync.is_asana_enabled():
+        return _back("disabled", "Asana integration is currently disabled.")
     # Asana sends ?error=access_denied when the user clicks Deny.
     if error:
         return _back("denied")

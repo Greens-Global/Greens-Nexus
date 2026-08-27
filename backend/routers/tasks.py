@@ -28,6 +28,7 @@ from routers.task_util import (
     is_manager, visible_project_ids, task_is_visible, wall_tasks,
     project_for_task, require_project_role, require_task_role, create_comment,
     task_assignees, set_task_assignees,
+    purge_task_permanently, asana_push_deleted,
 )
 from task_notify import notify_task_event
 from task_files import data_url_to_storage
@@ -273,6 +274,25 @@ def _wall_task(db: Session, user: dict, task_id: str) -> models.Task:
     t = _get_task(db, task_id)
     auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
     return t
+
+
+def _trash_retention_days() -> int:
+    """Single source of truth for the Trash's grace window - GET /tasks/deleted
+    reads it to show a countdown, task_trash.py reads its own copy (same env
+    var) to decide when to actually purge."""
+    from task_trash import _retention_days
+    return _retention_days()
+
+
+def _iso_plus_days(iso: str, days: int) -> str:
+    """`iso` (an ISO timestamp) + N days, for "this gets purged on ___" -
+    best-effort: an unparsable timestamp just returns "" rather than 500ing a
+    list of otherwise-fine trashed tasks over one bad row."""
+    try:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        return (dt + timedelta(days=days)).isoformat()
+    except (ValueError, AttributeError):
+        return ""
 
 
 # ── Field validation ─────────────────────────────────────────────────────────
@@ -526,36 +546,6 @@ def _asana_push(task_id: str, actor_email: str = "") -> None:
         pass
 
 
-def _asana_linked_gids(db: Session, task_ids: list) -> list:
-    """Asana gids for tasks about to be deleted, read BEFORE the rows go
-    (deleting them takes their AsanaTaskLink rows too). Fully guarded."""
-    try:
-        from asana_sync import linked_gids
-        return linked_gids(db, task_ids)
-    except Exception:
-        return []
-
-
-def _asana_queue_delete(db: Session, gids: list, title: str, code: str, actor: str) -> None:
-    """Record deletions owed to Asana, in the caller's transaction so the
-    tombstone commits with the delete. Fully guarded."""
-    try:
-        from asana_sync import queue_task_delete
-        queue_task_delete(db, gids, title, code, actor)
-    except Exception:
-        pass
-
-
-def _asana_push_deleted() -> None:
-    """Fire-and-forget drain of the queued deletions. No-op outside the sync
-    worker, where "Push all" drains them instead. Fully guarded."""
-    try:
-        from asana_sync import on_task_deleted
-        on_task_deleted()
-    except Exception:
-        pass
-
-
 def _asana_push_comment_edit(comment_id: str) -> None:
     """Fire-and-forget outbound push of an edited comment body. Fully guarded -
     the edit is already committed and must never fail on the sync."""
@@ -607,11 +597,19 @@ def _apply_completion(t: models.Task, new_completed: bool, prev_completed: bool)
 
 
 # ── Recurrence: occurrence generation ────────────────────────────────────────
-# recurrence = {freq, interval, dayOfWeek?, dayOfMonth?, until?, count?}
-# dayOfWeek is the frontend index (0=Sunday..6=Saturday); until/count are the
-# end condition. `count` on an instance means "occurrences remaining, this one
-# inclusive" - it is decremented each time the next occurrence is spawned, so a
-# series with count=N produces exactly N tasks.
+# recurrence = {freq, interval, daysOfWeek?, dayOfMonth?, unit?,
+#               daysAfterCompletion?, until?, count?}
+#   freq: daily | weekly | monthly | yearly | periodic | custom
+#   daysOfWeek: frontend-index list (0=Sunday..6=Saturday) - weekly, and custom
+#               with unit='week'. `dayOfWeek` (singular) is read as a one-item
+#               fallback for series created before multi-day weekly existed.
+#   unit: day|week|month|year - custom only, borrows the matching freq's cadence.
+#   periodic ignores everything above except daysAfterCompletion: the next due
+#   date is N days after THIS occurrence's completed_at, not a calendar date -
+#   see the base_iso branch in _spawn_next_occurrence below.
+# until/count are the end condition. `count` on an instance means "occurrences
+# remaining, this one inclusive" - decremented each time the next occurrence is
+# spawned, so a series with count=N produces exactly N tasks.
 def _add_months(d: date, n: int) -> date:
     m = d.month - 1 + n
     y = d.year + m // 12
@@ -619,33 +617,47 @@ def _add_months(d: date, n: int) -> date:
     return date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
 
 
+def _next_weekly_due(base: date, rec: dict, interval: int) -> date:
+    """Nearest of one or more selected weekdays after `base`, then jumped
+    forward (interval - 1) more weeks for an "every N weeks" cadence. Multiple
+    days (daysOfWeek) is what Custom's "On these days" checkboxes need past a
+    single weekday; plain Weekly sends one-item lists through the same path."""
+    days = rec.get("daysOfWeek")
+    if not days and rec.get("dayOfWeek") is not None:
+        days = [rec.get("dayOfWeek")]           # legacy single-day series
+    if not days:
+        return base + timedelta(weeks=interval)
+    targets = {(int(d) - 1) % 7 for d in days}  # frontend Sun=0 → Python Mon=0
+    nxt = base + timedelta(days=1)
+    while nxt.weekday() not in targets:
+        nxt += timedelta(days=1)
+    return nxt + timedelta(weeks=interval - 1)
+
+
 def _next_due(base_iso: str, rec: dict) -> str:
-    """Next due date (YYYY-MM-DD) after `base_iso`, per the recurrence rule."""
+    """Next due date (YYYY-MM-DD) after `base_iso`, per the recurrence rule.
+    Never called for freq='periodic' - that one has no calendar cadence to
+    compute here (see _spawn_next_occurrence)."""
     try:
         base = datetime.strptime((base_iso or "")[:10], "%Y-%m-%d").date()
     except ValueError:
         base = date.today()
     freq = rec.get("freq")
     interval = max(1, int(rec.get("interval") or 1))
-    if freq == "weekly":
-        dow = rec.get("dayOfWeek")
-        if dow is None:
-            return (base + timedelta(weeks=interval)).isoformat()
-        target = (int(dow) - 1) % 7          # frontend Sun=0 → Python Mon=0
-        nxt = base + timedelta(days=1)
-        while nxt.weekday() != target:
-            nxt += timedelta(days=1)
-        return (nxt + timedelta(weeks=interval - 1)).isoformat()
-    if freq == "monthly":
+    # Custom borrows day/week/month/year cadence from `unit` instead of `freq`.
+    cadence = rec.get("unit") or "day" if freq == "custom" else freq
+    if cadence in ("weekly", "week"):
+        return _next_weekly_due(base, rec, interval).isoformat()
+    if cadence in ("monthly", "month"):
         nxt = _add_months(base, interval)
         dom = rec.get("dayOfMonth")
         if dom:
             day = min(int(dom), calendar.monthrange(nxt.year, nxt.month)[1])
             nxt = date(nxt.year, nxt.month, day)
         return nxt.isoformat()
-    if freq == "yearly":
+    if cadence in ("yearly", "year"):
         return _add_months(base, 12 * interval).isoformat()
-    # daily (and any unknown freq) → advance whole days
+    # daily/day (and any unknown cadence) → advance whole days
     return (base + timedelta(days=interval)).isoformat()
 
 
@@ -661,8 +673,17 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
     if count is not None and int(count) <= 1:
         return None  # this was the final occurrence
 
-    base_iso = t.due_on or (t.completed_at or now_iso())[:10]
-    next_due = _next_due(base_iso, rec)
+    if rec.get("freq") == "periodic":
+        # Completion-relative by definition: the next occurrence is N days
+        # after THIS one was finished, not N days after its (possibly much
+        # earlier) due date - due_on would defeat the whole point of
+        # "Periodically" existing as separate from a calendar-based freq.
+        days = max(1, int(rec.get("daysAfterCompletion") or 1))
+        base = datetime.strptime((t.completed_at or now_iso())[:10], "%Y-%m-%d").date()
+        next_due = (base + timedelta(days=days)).isoformat()
+    else:
+        base_iso = t.due_on or (t.completed_at or now_iso())[:10]
+        next_due = _next_due(base_iso, rec)
     until = rec.get("until")
     if until and next_due > until:
         return None  # past the series end date
@@ -1402,6 +1423,17 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
 @router.delete("/{task_id}", status_code=204)
 def delete_task(task_id: str, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Move to Trash - REVERSIBLE (Aug 27). Marks the task instead of dropping
+    the row, so POST /tasks/{id}/restore can bring it back exactly as it was
+    for NEXUS_TASK_TRASH_RETENTION_DAYS (default 90) - see GET /tasks/deleted
+    and task_util.purge_task_permanently for what happens after that window.
+
+    Parent/dependency links still detach immediately, same as before soft
+    delete existed: a trashed task is invisible to every query (the
+    do_orm_execute hook in database.py), so a dangling blockedByIds/
+    subtaskIds entry left pointing at it would read as a broken reference on
+    the tasks LEFT BEHIND, not as "this one's in the trash". Restore brings
+    the task itself back, not those severed links."""
     t = _get_task(db, task_id)
     import auth   # company wall: another company's task is 404
     auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
@@ -1409,9 +1441,10 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
     # the task's SUBTASKS with it (below), which may be assigned to other
     # people - deleting your own task can therefore remove someone else's.
     require_task_role(db, user, t, "editor")
-    # Captured before the row is gone - notify_task_event("deleted") runs in
-    # the background AFTER this response, by which point db.delete(t) below
-    # has already removed it, so there'd be nothing left to look up.
+    # Captured before the row is hidden - notify_task_event("deleted") runs in
+    # the background AFTER this response, by which point the global
+    # soft-delete filter already hides it, so there'd be nothing left to
+    # look up.
     deleted_snapshot = {
         "code": t.code, "title": t.title, "status": t.status, "priority": t.priority,
         "assignee_email": t.assignee_email or "", "assignee_emails": task_assignees(t),
@@ -1433,41 +1466,95 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
             other.blocking_ids = [x for x in other.blocking_ids if x != task_id]; changed = True
         if changed:
             other.modified_at = now_iso()
-    # delete subtasks
+    # trash subtasks alongside their parent - a subtask can also be trashed on
+    # its own later (this endpoint doesn't care whether its parent is trashed),
+    # so trash_purge_loop purges each row independently rather than assuming
+    # only top-level trashed tasks need walking.
     subs = db.query(models.Task).filter(models.Task.parent_task_id == task_id).all()
     gone_ids = [task_id] + [sub.id for sub in subs]
-    # Tombstone every id being deleted, in this same transaction - a delta
-    # fetch (GET /tasks/delta) otherwise can't tell "deleted" apart from
-    # "unchanged, just not modified in this window". Same reasoning as the
-    # Asana pending-delete queue below.
+    # Tombstone every id going to trash, in this same transaction - a delta
+    # fetch (GET /tasks/delta) otherwise can't tell "gone" apart from
+    # "unchanged, just not modified in this window".
     deleted_stamp = now_iso()
     for gid in gone_ids:
         db.add(models.TaskDeleteLog(id=gen_id(), task_id=gid, deleted_at=deleted_stamp))
-    # Asana counterparts of exactly the rows being deleted here, captured while
-    # the links still exist - once they're gone nothing can re-derive them, so
-    # unlike every other outbound change a lost deletion is lost for good.
-    asana_gids = _asana_linked_gids(db, gone_ids)
-    for sub in subs:
-        db.delete(sub)
-    db.query(models.TaskComment).filter(models.TaskComment.task_id == task_id).delete()
-    db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == task_id).delete()
-    # A link left pointing at a deleted task blocks that Asana task from ever
-    # re-linking (_link_by_asana finds it, the task behind it is gone, and
-    # _apply_inbound bails) - so the links go when the tasks do.
-    db.query(models.AsanaTaskLink).filter(
-        models.AsanaTaskLink.nexus_task_id.in_(gone_ids)).delete(synchronize_session=False)
+    for row in [t, *subs]:
+        row.deleted_at = deleted_stamp
+        row.deleted_by = user["email"]
+        row.modified_at = deleted_stamp
     log_activity(db, type="deleted", actor_email=user["email"], entity_id=task_id,
-                 entity_code=t.code, entity_title=t.title, detail="deleted this task")
-    # Queued in THIS transaction so the tombstone lands with the delete. The
-    # actual Asana call happens after the commit (a failing one must never roll
-    # back the Nexus delete) and, off the sync worker, not at all until someone
-    # runs Push all.
-    _asana_queue_delete(db, asana_gids, t.title, t.code, user["email"])
-    db.delete(t)
+                 entity_code=t.code, entity_title=t.title, detail="moved this task to Trash")
     db.commit()
-    _asana_push_deleted()
     fire_task_event(task_id, "deleted")
     background_tasks.add_task(notify_task_event, task_id, "deleted", user["email"], snapshot=deleted_snapshot)
+
+
+@router.get("/deleted")
+def list_deleted_tasks(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Trash - manager-only, workspace-wide (task visibility is per-project and
+    a trashed task's own project may no longer be inferable at a glance, so
+    this doesn't try to scope it the way GET /tasks does). Newest-deleted
+    first."""
+    days = _trash_retention_days()
+    rows = wall_tasks(db, user, (db.query(models.Task).execution_options(include_deleted=True)
+            .filter(models.Task.deleted_at != "")
+            .order_by(models.Task.deleted_at.desc()).all()))   # company wall first
+    out = []
+    for t in rows:
+        d = task_to_dict(t)
+        d["deletedAt"] = t.deleted_at or ""
+        d["deletedBy"] = t.deleted_by or ""
+        purge_at = _iso_plus_days(t.deleted_at, days) if t.deleted_at else ""
+        d["purgeAt"] = purge_at
+        out.append(d)
+    return out
+
+
+@router.post("/{task_id}/restore")
+def restore_task(task_id: str, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Put a trashed task - and any subtasks trashed alongside it - back,
+    exactly as they were. Parent/dependency links severed at delete time are
+    NOT re-attached (delete_task's docstring explains why they were cut);
+    reconnect them by hand if the task needs them again."""
+    t = (db.query(models.Task).execution_options(include_deleted=True)
+           .filter(models.Task.id == task_id).first())
+    if not t:
+        raise HTTPException(404, "Task not found")
+    import auth   # company wall: another company's trashed task is 404
+    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    if not t.deleted_at:
+        return task_to_dict(t)
+    subs = (db.query(models.Task).execution_options(include_deleted=True)
+              .filter(models.Task.parent_task_id == task_id, models.Task.deleted_at != "").all())
+    now = now_iso()
+    for row in [t, *subs]:
+        row.deleted_at = ""
+        row.deleted_by = ""
+        row.modified_at = now
+    log_activity(db, type="restored", actor_email=user["email"], entity_id=task_id,
+                 entity_code=t.code, entity_title=t.title, detail="restored this task from Trash")
+    db.commit()
+    db.refresh(t)
+    # A restore reappears in the next delta fetch the same way any other
+    # update does (modified_at just moved past `since`) - no special-cased
+    # "undelete" event for clients to handle.
+    fire_task_event(task_id, "restored")
+    return task_to_dict(t)
+
+
+@router.delete("/{task_id}/permanent", status_code=204)
+def delete_task_permanent(task_id: str, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Empty one item from Trash early, instead of waiting out the retention
+    window. Irreversible - unlike DELETE /tasks/{id}, there is no undo."""
+    t = (db.query(models.Task).execution_options(include_deleted=True)
+           .filter(models.Task.id == task_id).first())
+    if t:
+        import auth   # company wall: another company's trashed task is 404
+        auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    if not purge_task_permanently(db, task_id, actor_email=user["email"]):
+        raise HTTPException(404, "That task isn't in the trash")
+    db.commit()
+    asana_push_deleted()
 
 
 class BulkUpdate(BaseModel):
