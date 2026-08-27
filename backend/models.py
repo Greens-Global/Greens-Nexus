@@ -328,6 +328,7 @@ class Requisition(Base):
     id = Column(String, primary_key=True)
     employee_name = Column(String, nullable=False)
     employee_email = Column(String, default="")   # added for auth-based scoping
+    company_id = Column(String, default="", index=True)   # multi-company walls: requester's HrEntity
     employee_dept = Column(String, nullable=False)
     item = Column(String, nullable=False)
     quantity = Column(Integer, default=1)
