@@ -6,8 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
-  Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check,
+  Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check, AlertTriangle,
 } from 'lucide-react';
+import DataQualityTab from './DataQualityTab';
 import { useTasks } from './TasksContext';
 import { api } from '../api';
 import {
@@ -71,6 +72,9 @@ const SWATCHES = [NX.blue, NX.green, NX.amber, NX.red, NX.purple, NX.teal, NX.pi
 // ── Sub-tabs registry ─────────────────────────────────────────────────────────
 const SUBTABS = [
   { key: 'tasklist', label: 'Task List', icon: List },
+  // Company-wide, manager-only: every open task missing a due date, project,
+  // priority, or team in one list, editable inline (Neil, Aug 2026).
+  { key: 'dataQuality', label: 'Data Quality', icon: AlertTriangle },
   // Asana severed (Aug 27): the tab is gone so the import/setup/two-way-sync
   // controls are unreachable. AsanaImportTab below and the whole backend are
   // deliberately kept - restoring the link is this line plus
@@ -109,12 +113,14 @@ export default function ManageView() {
         })}
       </div>
 
-      {/* Body - the Task List is full-bleed (wide, self-scrolling table); the rest
-          keep the centered admin column. */}
+      {/* Body - the Task List and Data Quality are full-bleed (wide,
+          self-scrolling tables); the rest keep the centered admin column. */}
       {tab === 'tasklist' ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <TasksWorkspace title="Task List" />
         </div>
+      ) : tab === 'dataQuality' ? (
+        <DataQualityTab store={store} />
       ) : (
         <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
           <div style={{ maxWidth: 940, margin: '0 auto' }}>
