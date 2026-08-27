@@ -1621,13 +1621,31 @@
         }
         // Clear redo stack on new action
         state.redoStacks[page] = [];
+        // A5: record the page in a global order log so undo can reach an edit
+        // made on a page you've since navigated away from.
+        _undoOrder.push(page);
+        if (_undoOrder.length > 500) _undoOrder.shift();
         updateUndoRedoButtons();
     }
+    const _undoOrder = [];   // chronological page log for cross-page undo (A5)
 
     function undo() {
-        const page = state.currentPage;
-        const stack = state.undoStacks[page];
+        let page = state.currentPage;
+        let stack = state.undoStacks[page];
+        // A5: nothing to undo on THIS page - jump to the most recently edited
+        // page that still has history and undo there, so paging away doesn't
+        // strand a mistake.
         if (!stack || stack.length <= 1) {
+            let target = null;
+            for (let i = _undoOrder.length - 1; i >= 0; i--) {
+                const p = _undoOrder[i];
+                if (state.undoStacks[p] && state.undoStacks[p].length > 1) { target = p; break; }
+            }
+            if (target != null && target !== state.currentPage) {
+                goToPage(target);
+                setTimeout(() => undo(), 250);   // undo once the page is rendered
+                return;
+            }
             if (_docUndoStack.length) undoDocChange(); // e.g. undo a crop
             return;
         }
@@ -1689,8 +1707,11 @@
 
     function updateUndoRedoButtons() {
         const page = state.currentPage;
-        dom.undoBtn.disabled = (!state.undoStacks[page] || state.undoStacks[page].length <= 1)
-            && _docUndoStack.length === 0;
+        const localUndo = state.undoStacks[page] && state.undoStacks[page].length > 1;
+        // A5: undo stays enabled if ANY page has history (cross-page undo).
+        const anyUndo = localUndo || Object.keys(state.undoStacks).some(p =>
+            state.undoStacks[p] && state.undoStacks[p].length > 1);
+        dom.undoBtn.disabled = !anyUndo && _docUndoStack.length === 0;
         dom.redoBtn.disabled = !state.redoStacks[page] || state.redoStacks[page].length === 0;
     }
 
@@ -1813,8 +1834,12 @@
             dom.cropConfirmBar.style.display = 'none';
         }
 
-        // If image tool, open file picker immediately
+        // If image tool, open file picker immediately (A7: also give a hint and
+        // let a canvas click re-open the picker if the user cancelled).
         if (tool === 'image') {
+            applyToolMode();
+            setStatus('Insert image: choose a PNG or JPG to place on the page');
+            dom.imageInput.value = '';   // allow re-selecting the same file
             dom.imageInput.click();
             return;
         }

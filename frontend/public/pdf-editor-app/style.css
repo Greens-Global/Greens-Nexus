@@ -3694,8 +3694,10 @@ html[data-theme="light"] {
 /* S8: search options + results list */
 .search-opt { border: 1px solid var(--border); background: var(--bg-input, #fff); color: inherit; border-radius: 5px; font-size: 12px; font-weight: 700; padding: 2px 6px; cursor: pointer; min-width: 26px; }
 .search-opt.active { background: #1971c2; color: #fff; border-color: #1971c2; }
-.search-results { position: absolute; z-index: 60; max-height: 320px; overflow-y: auto; width: 320px; background: var(--bg-panel, #fff); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.18); right: 16px; }
-.search-bar { position: relative; }
+/* Results panel floats under the (fixed) search bar - fixed too, so it never
+   pushes the app layout. Do NOT override .search-bar's own position:fixed here
+   (that made the whole bar flow inline and shove the UI up ~32px on file drop). */
+.search-results { position: fixed; z-index: 9998; max-height: 320px; overflow-y: auto; width: 320px; background: var(--bg-panel, #fff); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.18); right: 16px; top: 92px; }
 .sr-page { position: sticky; top: 0; background: var(--bg-hover, #eef); font-size: 11px; font-weight: 700; padding: 5px 10px; color: var(--text-secondary); }
 .sr-row { padding: 7px 10px; font-size: 12.5px; cursor: pointer; border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sr-row:hover { background: var(--bg-hover); }
