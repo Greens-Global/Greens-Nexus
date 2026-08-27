@@ -588,17 +588,17 @@
 
     <!-- Search Bar -->
     <div class="search-bar" id="searchBar" style="display:none;">
-        <input type="text" id="searchInput" placeholder="Search text in PDF...">
-        <span id="searchInfo">0/0</span>
-        <button id="searchPrev" class="nav-btn">&#9650;</button>
-        <button id="searchNext" class="nav-btn">&#9660;</button>
+        <input type="text" id="searchInput" aria-label="Search text in PDF" placeholder="Search text in PDF...">
+        <span id="searchInfo" aria-live="polite">0/0</span>
+        <button id="searchPrev" class="nav-btn" title="Previous Match (Shift+Enter)" aria-label="Previous Match">&#9650;</button>
+        <button id="searchNext" class="nav-btn" title="Next Match (Enter)" aria-label="Next Match">&#9660;</button>
         <button id="searchClose" class="icon-btn" title="Close Search" aria-label="Close Search">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
     </div>
 
     <!-- Split Modal -->
-    <div class="modal-overlay" id="splitModal" style="display:none;">
+    <div class="modal-overlay" id="splitModal" role="dialog" aria-modal="true" aria-label="Split PDF" style="display:none;">
         <div class="modal">
             <div class="modal-header">
                 <span>Split / Extract Pages</span>
@@ -619,7 +619,7 @@
     </div>
 
     <!-- Signature Modal -->
-    <div class="modal-overlay" id="signatureModal" style="display:none;">
+    <div class="modal-overlay" id="signatureModal" role="dialog" aria-modal="true" aria-label="Create Signature" style="display:none;">
         <div class="modal signature-modal">
             <div class="modal-header">
                 <span>Add Signature</span>
@@ -650,7 +650,7 @@
 
     <!-- OCR Progress -->
     <div class="ocr-progress" id="ocrProgress" style="display:none;">
-        <span id="ocrStatus">Initializing OCR...</span>
+        <span id="ocrStatus" role="status" aria-live="polite">Initializing OCR...</span>
         <div class="progress-bar-bg"><div class="progress-bar-fill" id="ocrProgressBar"></div></div>
         <button id="ocrCancelBtn" class="crop-btn cancel">Cancel</button>
     </div>
@@ -670,7 +670,7 @@
     <input type="file" id="imageInput" accept="image/*" style="display:none">
 
     <!-- AI Text Edit Modal -->
-    <div class="modal-overlay" id="aiEditModal" style="display:none;">
+    <div class="modal-overlay" id="aiEditModal" role="dialog" aria-modal="true" aria-label="AI Edit" style="display:none;">
         <div class="modal ai-edit-modal">
             <div class="modal-header">
                 <span>

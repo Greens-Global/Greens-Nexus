@@ -211,6 +211,7 @@
       imgMenu.style.left = r.left + 'px';
       imgMenu.classList.toggle('open');
     }, 'image');
+    imgBtn.id = 'imgExportBtn'; // addressable for the central aria-expanded sync
     const imgMenu = document.createElement('div');
     imgMenu.className = 'dropdown-menu';
     imgMenu.id = 'imgExportMenu';
@@ -374,7 +375,7 @@
   layersPanel.innerHTML =
     '<div class="layers-head"><span>Layers</span><button class="icon-btn" id="layersClose" title="Close">✕</button></div>' +
     '<div class="layers-hint">Each layer is one set of markups (e.g. "Layer 2"). Click a layer to draw on it; the eye hides it. Hidden layers are not saved into the PDF.</div>' +
-    '<button class="layers-add" id="layersAdd">+ New layer</button>' +
+    '<button class="layers-add" id="layersAdd">+ New Layer</button>' +
     '<div class="layers-list" id="layersList"></div>';
   function toggleLayersPanel(force) {
     const on = force !== undefined ? force : layersPanel.style.display !== 'flex';
@@ -657,6 +658,17 @@
   // app.js's single-key shortcuts (t/d/h/…) arm a tool directly on the canvas;
   // open the tab that hosts that tool's button too, or the cursor draws while
   // the chrome shows nothing active and the tool's options stay unreachable.
+  // Visible close for the contextual bar — its styles existed but the button
+  // was never created, leaving Escape (keyboard-only) and re-clicking the
+  // panel item as the only exits.
+  const ctxClose = document.createElement('button');
+  ctxClose.className = 'adobe-ctx-close';
+  ctxClose.title = 'Close Tool Bar';
+  ctxClose.setAttribute('aria-label', 'Close Tool Bar');
+  ctxClose.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  ctxClose.addEventListener('click', () => close());
+  ctxBar.appendChild(ctxClose);
+
   const KEY_TOOL = { t: 'text', d: 'draw', h: 'highlight', r: 'shape', e: 'eraser', i: 'image', c: 'crop' };
   window.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1112,7 +1124,7 @@
 
   const histBtn = document.createElement('button');
   histBtn.className = 'tool-btn';
-  histBtn.title = 'Recent files';
+  histBtn.title = 'Recent Files';
   histBtn.innerHTML =
     '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
   const histMenu = document.createElement('div');
@@ -1121,7 +1133,7 @@
   document.body.appendChild(histMenu);
   histBtn.addEventListener('click', () => {
     const r = getRecents();
-    histMenu.innerHTML = '<div class="dropdown-group-label">Recent files</div>';
+    histMenu.innerHTML = '<div class="dropdown-group-label">Recent Files</div>';
     if (!r.length) {
       const none = document.createElement('div');
       none.className = 'dropdown-group-label';
@@ -1159,6 +1171,26 @@
   });
   const searchBtnRef = el('#searchToggle');
   if (searchBtnRef) searchBtnRef.after(histBtn); else right.appendChild(histBtn);
+  // ── aria-expanded, kept truthful centrally ──────────────────────────────────
+  // Per-handler toggles only fired on OPEN; outside-click and force-close paths
+  // left a stale "true". One class-observer per menu syncs its trigger on every
+  // change, whatever path closed it.
+  const ARIA_MENU_TRIGGERS = {
+    shapeMenu: '#shapeTool', drawMenu: '#drawTool', highlightMenu: '#highlightTool',
+    imgExportMenu: '#imgExportBtn', exportMenu: '#exportBtn', saveMenu: '#downloadBtn',
+    recentMenu: '#recentBtn',
+  };
+  for (const [menuId, trigSel] of Object.entries(ARIA_MENU_TRIGGERS)) {
+    const m = document.getElementById(menuId);
+    const trig = el(trigSel);
+    if (!m || !trig) continue;
+    trig.setAttribute('aria-haspopup', 'menu');
+    trig.setAttribute('aria-expanded', String(m.classList.contains('open')));
+    new MutationObserver(() =>
+      trig.setAttribute('aria-expanded', String(m.classList.contains('open')))
+    ).observe(m, { attributes: true, attributeFilter: ['class'] });
+  }
+
   // Hidden per request: Recent files (clock) button is not shown in the toolbar.
   // All its logic is kept above so it can be re-enabled by removing this line.
   histBtn.style.display = 'none';
@@ -1213,7 +1245,7 @@
   closeDoc.className = 'tool-btn close-doc-btn';
   closeDoc.title = 'Close this document and return to Home';
   closeDoc.innerHTML =
-    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Close file</span>';
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Close File</span>';
   closeDoc.style.display = 'none';
   closeDoc.addEventListener('click', () => {
     if (!window.confirm('Close this document? Unsaved changes will be lost.')) return;

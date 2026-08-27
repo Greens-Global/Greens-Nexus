@@ -22,7 +22,7 @@
     --success: #4caf50;
     --warning: #ff9800;
     --danger: #f44336;
-    --toolbar-height: 46px;
+    --toolbar-height: 52px; /* the real bar height (min-height below); derived values use this */
     --sidebar-width: 180px;
     --status-height: 26px;
     --radius: 6px;
@@ -654,7 +654,7 @@ header.toolbar {
 }
 
 .thumbnail-item:hover {
-    border-color: var(--bg-hover);
+    border-color: var(--border); /* --bg-hover was invisible on the dark panel */
 }
 
 .thumbnail-item.active {
@@ -974,7 +974,7 @@ header.toolbar {
    ============================ */
 .toast {
     position: fixed;
-    bottom: 40px;
+    bottom: 96px; /* clear of the crop bar and progress overlays parked at 40px */
     left: 50%;
     transform: translateX(-50%);
     background: var(--bg-tertiary);
@@ -992,6 +992,7 @@ header.toolbar {
 .toast.show {
     opacity: 1;
 }
+.toast { z-index: 10050; } /* above every overlay - save confirmations were invisible behind them */
 
 /* Context menu for eraser/delete */
 .context-overlay {
@@ -1297,7 +1298,7 @@ header.toolbar {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow);
-    z-index: 9999;
+    z-index: 7000; /* menus sit BELOW modals - they rendered on top of them */
     min-width: 150px;
     padding: 4px 0;
 }
@@ -1334,7 +1335,7 @@ header.toolbar {
    ============================ */
 .search-bar {
     position: fixed;
-    top: 56px;
+    top: calc(var(--toolbar-height) + 4px); /* derived - was a third hardcoded bar height */
     right: 16px;
     display: flex;
     align-items: center;
@@ -1382,7 +1383,7 @@ header.toolbar {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 400;
+    z-index: 8000; /* above menus and the eraser context overlay */
 }
 
 .modal {
@@ -1883,7 +1884,9 @@ header.toolbar {
 
 /* macOS title bar inset adjustment */
 @media (prefers-color-scheme: dark) {
-    :root {
+    /* Respect an explicit light choice - forcing dark form controls under
+       data-theme="light" mismatched the rest of the UI. */
+    :root:not([data-theme="light"]) {
         color-scheme: dark;
     }
 }
@@ -2057,7 +2060,7 @@ header.toolbar {
    Export All progress bar
    ============================ */
 #exportAllProgress {
-    z-index: 9998;
+    z-index: 9500; /* above modals, below full-screen overlays */
 }
 
 /* ============================
@@ -2226,7 +2229,7 @@ html[data-theme="light"] #themeToggle .icon-moon { display: none; }
     --bg-hover:     #32324d;
     --text-primary: #ececf5;
     --text-secondary:#9a9ab4;
-    --accent:       #7c5cfc;
+    --accent:       #6f4df6; /* darkened from #7c5cfc: white 11-13px labels were 4.38:1 (AA fail) */
     --accent-2:     #b15cff;
     --accent-hover: #9b7dff;
     --border:       #2b2b42;
@@ -2913,7 +2916,7 @@ html[data-theme="light"] {
    outline so it's obvious you're on it, and the icon enlarges as a focal cue. */
 .welcome-card:hover {
     transform: translateY(-3px);
-    border-color: var(--wk-ink, #0f172a);
+    border-color: var(--accent); /* --wk-ink is a Nexus-portal token absent here */
     box-shadow: 0 14px 30px rgba(0,0,0,0.18);
 }
 .welcome-card:hover .welcome-card-ic {
@@ -3022,7 +3025,7 @@ html[data-theme="light"] {
 
 /* ── Text-anchored comment quote (redline) ───────────────────────────────── */
 .comment-ref {
-    border-left: 3px solid #e53935;
+    border-left: 3px solid var(--danger);
     padding: 3px 8px;
     margin-bottom: 5px;
     font-size: 11.5px;
@@ -3054,7 +3057,7 @@ html[data-theme="light"] {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #7c5cfc 0%, #1E7A3C 130%);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 130%);
     border-radius: 27%;
     box-shadow: 0 2px 8px rgba(124, 92, 252, 0.35);
     flex-shrink: 0;
@@ -3181,7 +3184,7 @@ html[data-theme="light"] {
 }
 .layer-eye.on { color: var(--accent); }
 .layer-eye:hover, .layer-del:hover { background: var(--bg-hover); color: var(--text-primary); }
-.layer-del:hover { color: #e53935; }
+.layer-del:hover { color: var(--danger); }
 /* Primary "add" action, pinned at the top under the description so it's the
    first, most obvious thing - the list scrolls below it. */
 .layers-add {
@@ -3313,8 +3316,8 @@ html[data-theme="light"] {
 /* ── Idiot-proofing round: dirty save, links, print ──────────────────────── */
 /* Unsaved changes: the Save button turns warning-orange with a dot */
 .save-pdf-btn.dirty {
-    background: #e07300 !important;
-    border-color: #e07300 !important;
+    background: #b45309 !important;
+    border-color: #b45309 !important;
 }
 .save-pdf-btn.dirty::after {
     content: '●';
@@ -3332,7 +3335,7 @@ html[data-theme="light"] {
 /* ── Outline / bookmarks panel ───────────────────────────────────────────── */
 .outline-panel {
     position: absolute;
-    left: 148px; top: 0; bottom: 0;
+    left: var(--sidebar-width, 180px); /* was hardcoded 148px against a 180px resizable sidebar */ top: 0; bottom: 0;
     width: 250px;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border);
@@ -3394,21 +3397,21 @@ html[data-theme="light"] {
   display: flex; align-items: center; justify-content: center; padding: 24px;
 }
 .word-preview-modal {
-  background: #fff; color: #1a1a1a; border-radius: 12px; overflow: hidden;
+  background: var(--bg-secondary); color: var(--text-primary); border-radius: 12px; overflow: hidden;
   width: min(920px, 96vw); height: min(88vh, 1000px);
   display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.4);
 }
 .word-preview-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 12px 16px; border-bottom: 1px solid #e5e7eb; background: #f8fafc;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--bg-secondary);
 }
-.word-preview-title { font-weight: 600; font-size: 14px; color: #111827;
+.word-preview-title { font-weight: 600; font-size: 14px; color: var(--text-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .word-preview-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .wp-btn { border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px;
   font-weight: 600; cursor: pointer; font-family: inherit; }
-.wp-cancel { background: #eef0f4; color: #374151; }
-.wp-cancel:hover { background: #e2e5ea; }
+.wp-cancel { background: var(--bg-tertiary); color: var(--text-primary); }
+.wp-cancel:hover { background: var(--bg-hover); }
 .wp-download { background: #185abd; color: #fff; }
 .wp-download:hover { background: #1349a0; }
 .word-preview-body { flex: 1; overflow: auto; background: #edeef2; padding: 24px; }
@@ -3437,7 +3440,7 @@ html[data-theme="light"] {
 }
 @keyframes cs-fade { from { opacity: 0; } to { opacity: 1; } }
 .cs-card {
-  background: #fff; color: #1a1a2e; border-radius: 18px;
+  background: var(--bg-secondary); color: var(--text-primary); border-radius: 18px;
   width: min(400px, 92vw); padding: 32px 30px 26px; text-align: center;
   box-shadow: 0 24px 70px rgba(0,0,0,0.35);
   animation: cs-pop 0.22s cubic-bezier(0.34,1.56,0.64,1);
@@ -3446,22 +3449,22 @@ html[data-theme="light"] {
 .cs-icon {
   width: 60px; height: 60px; margin: 0 auto 16px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; color: #fff;
-  background: linear-gradient(135deg, #6a5cff, #9b6cff);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   box-shadow: 0 8px 22px rgba(106,92,255,0.4);
 }
 .cs-icon svg { width: 30px; height: 30px; }
 .cs-badge {
   display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
-  text-transform: uppercase; color: #6a5cff; background: rgba(106,92,255,0.12);
+  text-transform: uppercase; color: var(--accent); background: rgba(106,92,255,0.12);
   padding: 4px 12px; border-radius: 999px; margin-bottom: 12px;
 }
 .cs-title { font-size: 19px; font-weight: 700; margin: 0 0 8px; }
-.cs-blurb { font-size: 14px; color: #4b4b63; margin: 0 0 14px; line-height: 1.5; }
-.cs-note { font-size: 13px; color: #7a7a90; margin: 0 0 22px; line-height: 1.55; }
+.cs-blurb { font-size: 14px; color: var(--text-secondary); margin: 0 0 14px; line-height: 1.5; }
+.cs-note { font-size: 13px; color: var(--text-secondary); margin: 0 0 22px; line-height: 1.55; }
 .cs-btn {
   border: none; border-radius: 10px; padding: 11px 30px; font-size: 14px;
   font-weight: 600; cursor: pointer; color: #fff; font-family: inherit;
-  background: linear-gradient(135deg, #6a5cff, #9b6cff);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   box-shadow: 0 6px 16px rgba(106,92,255,0.35); transition: transform 0.12s;
 }
 .cs-btn:hover { transform: translateY(-1px); }
@@ -3488,32 +3491,32 @@ html[data-theme="light"] {
   animation: cs-fade 0.18s ease;
 }
 .i2p-modal {
-  background: #fff; color: #1a1a2e; border-radius: 16px;
+  background: var(--bg-secondary); color: var(--text-primary); border-radius: 16px;
   width: min(620px, 94vw); max-height: 86vh; display: flex; flex-direction: column;
   box-shadow: 0 24px 70px rgba(0,0,0,0.35); overflow: hidden;
   animation: cs-pop 0.22s cubic-bezier(0.34,1.56,0.64,1);
 }
 .i2p-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 20px; border-bottom: 1px solid #eceef3;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
 }
 .i2p-title { font-size: 17px; font-weight: 700; }
-.i2p-x { border: none; background: none; font-size: 17px; color: #888; cursor: pointer; border-radius: 6px; padding: 4px 8px; }
-.i2p-x:hover { background: #f1f2f6; color: #333; }
+.i2p-x { border: none; background: none; font-size: 17px; color: var(--text-secondary); cursor: pointer; border-radius: 6px; padding: 4px 8px; }
+.i2p-x:hover { background: var(--bg-hover); color: var(--text-primary); }
 .i2p-body { padding: 18px 20px; overflow-y: auto; flex: 1; }
-.i2p-empty { color: #8a8a9a; font-size: 14px; text-align: center; padding: 32px 12px; }
+.i2p-empty { color: var(--text-secondary); font-size: 14px; text-align: center; padding: 32px 12px; }
 .i2p-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; }
-.i2p-cell { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid #e6e8ef; background: #f7f8fb; aspect-ratio: 3/4; }
+.i2p-cell { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--bg-tertiary); aspect-ratio: 3/4; }
 .i2p-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .i2p-n { position: absolute; top: 5px; left: 5px; background: rgba(0,0,0,0.6); color: #fff; font-size: 11px; font-weight: 700; border-radius: 5px; padding: 1px 6px; }
 .i2p-del { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border: none; border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff; cursor: pointer; font-size: 12px; line-height: 1; }
 .i2p-del:hover { background: #d4506e; }
-.i2p-foot { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid #eceef3; }
-.i2p-count { color: #8a8a9a; font-size: 13px; margin-right: auto; }
+.i2p-foot { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--border); }
+.i2p-count { color: var(--text-secondary); font-size: 13px; margin-right: auto; }
 .i2p-btn { border: none; border-radius: 9px; padding: 9px 18px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
-.i2p-add { background: #eef0f4; color: #374151; }
-.i2p-add:hover { background: #e2e5ea; }
-.i2p-create { background: linear-gradient(135deg, #6a5cff, #9b6cff); color: #fff; box-shadow: 0 6px 16px rgba(106,92,255,0.32); }
+.i2p-add { background: var(--bg-tertiary); color: var(--text-primary); }
+.i2p-add:hover { background: var(--bg-hover); }
+.i2p-create { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; box-shadow: 0 6px 16px rgba(106,92,255,0.32); }
 .i2p-create:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
 .i2p-create:not(:disabled):hover { transform: translateY(-1px); }
 
@@ -3566,4 +3569,54 @@ html[data-theme="light"] {
 
 .toast-action:hover {
     text-decoration: underline;
+}
+
+/* ============================
+   Conflict repairs (deep-audit UI pass)
+   ============================ */
+/* Tall modals (Fill Form builds one input per field) pushed their footer
+   buttons off-screen on short windows - scroll inside instead. */
+.modal {
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+}
+.modal-header, .modal-footer {
+    flex-shrink: 0;
+}
+.modal-body {
+    overflow-y: auto;
+}
+
+/* Long statuses clipped mid-word under the file info. */
+.status-bar #statusText {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.status-bar #fileInfo {
+    flex-shrink: 0;
+}
+
+/* Hover-only action clusters were invisible to keyboard focus. */
+.thumbnail-item:focus-within .thumb-actions,
+.comment-item:focus-within .comment-actions {
+    opacity: 1;
+}
+
+/* Controls that had hover but no disabled treatment. */
+.nav-btn:disabled,
+.icon-btn:disabled,
+.ctx-btn:disabled,
+.dropdown-item:disabled,
+.paint-eraser-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* 10px white on 0.6 black over a white page was ~3:1. */
+.thumbnail-label {
+    background: rgba(0, 0, 0, 0.75);
 }

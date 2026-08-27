@@ -4262,6 +4262,9 @@
                 dom.sidebar.style.width = newWidth + 'px';
                 dom.sidebar.style.minWidth = newWidth + 'px';
                 dom.sidebar.style.transition = 'none';
+                // Keep the token in sync so panels positioned off the sidebar
+                // edge (the Bookmarks panel) track the drag.
+                document.documentElement.style.setProperty('--sidebar-width', newWidth + 'px');
             }
         });
 
@@ -4331,6 +4334,14 @@
             const item = document.createElement('div');
             item.className = 'thumbnail-item' + (i === state.currentPage ? ' active' : '');
             item.dataset.page = i;
+            // Keyboard access: thumbnails were mouse/drag only — a keyboard
+            // user could not jump to a page from the panel at all.
+            item.tabIndex = 0;
+            item.setAttribute('role', 'button');
+            item.setAttribute('aria-label', 'Page ' + i);
+            item.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToPage(i); }
+            });
 
             // ── Drag & Drop ──
             item.draggable = true;
@@ -6397,7 +6408,7 @@
             dom.searchInfo.textContent = '1/' + searchResults.length;
             await goToSearchResult(0);
         } else {
-            dom.searchInfo.textContent = '0/0';
+            dom.searchInfo.textContent = 'No matches';
             // Distinguish "no match" from "no text at all" (scanned pages)
             try {
                 const p1 = await state.pdfDoc.getPage(state.currentPage);
@@ -9140,7 +9151,7 @@ Replacement:`;
             const pdfFile = new File([bytes], (file.name || 'document').replace(/\.docx?$/i, '') + '.pdf',
                 { type: 'application/pdf' });
             await loadPDF(pdfFile);
-            setStatus('Word converted to PDF - click "Download" (top left) to save it');
+            setStatus('Word converted to PDF - click "Save" (top right) to keep it');
             showToast('Converted - click "Download" to save the PDF');
         } catch (err) {
             console.error(err);
@@ -9580,7 +9591,7 @@ Replacement:`;
                 .join('');
             wrap = false;
         } else {
-            bodyHtml = '<p style="color:#888">Preview unavailable - you can still download.</p>';
+            bodyHtml = '<p style="color:#6b7280">Preview unavailable - you can still download.</p>';
             try {
                 if (!window.mammoth) await loadScript('libs/mammoth.browser.min.js').catch(() => {});
                 if (window.mammoth) {
