@@ -220,5 +220,74 @@ class ConfiguredDeskTests(unittest.TestCase):
         self.assertIn(AGENT, ticket_notify.ticket_agents(self.db))
 
 
+class MultiCompanyDeskTests(unittest.TestCase):
+    """Company-scoped rosters (Aug 2026): a ticket's own company_id picks its
+    desk from agentEmailsByCompany first, falling through to the flat
+    agentEmails list and then administrators - same fallback chain as before,
+    just with a company-specific rung added on top."""
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self.addCleanup(self.db.close)
+        for m in (models.NexusEmployee, models.TaskTicket, models.NexusRole,
+                  models.NexusSetting, models.TaskActivity):
+            self.db.query(m).delete()
+        self.db.commit()
+        self.db.add(models.NexusRole(email=ADMIN, role="administrator"))
+        self.db.commit()
+        self.co_a, self.co_b = "company-a", "company-b"
+
+    def _ticket(self, company_id, **kw):
+        kw.setdefault("requester_email", REQUESTER)
+        kw.setdefault("approval_status", "none")
+        t = models.TaskTicket(id=str(uuid.uuid4()), code="TKT-3", subject="S", type="bug",
+                              status="new", company_id=company_id, created_at="", modified_at="", **kw)
+        self.db.add(t)
+        self.db.commit()
+        return t
+
+    def test_a_companys_own_roster_is_used_for_its_tickets(self):
+        ticket_notify.save_settings(self.db, {"agentEmailsByCompany": {self.co_a: [AGENT]}}, "x")
+        cfg = ticket_notify.get_settings(self.db)
+        self.assertEqual(ticket_notify.ticket_agents(self.db, cfg, company_id=self.co_a), [AGENT])
+
+    def test_a_different_companys_ticket_is_not_routed_to_it(self):
+        """The whole point: Company A's roster must not page Company B."""
+        ticket_notify.save_settings(self.db, {"agentEmailsByCompany": {self.co_a: [AGENT]}}, "x")
+        cfg = ticket_notify.get_settings(self.db)
+        got = dict(ticket_notify._recipients_for(self.db, self._ticket(self.co_b), "created", cfg))
+        self.assertNotIn(AGENT, got)
+        self.assertIn(ADMIN, got)   # co_b has no roster of its own -> falls back to administrators
+
+    def test_a_company_with_no_roster_falls_back_to_the_flat_list(self):
+        ticket_notify.save_settings(
+            self.db, {"agentEmails": [FALLBACK], "agentEmailsByCompany": {self.co_a: [AGENT]}}, "x")
+        cfg = ticket_notify.get_settings(self.db)
+        self.assertEqual(ticket_notify.ticket_agents(self.db, cfg, company_id=self.co_b), [FALLBACK])
+
+    def test_no_company_id_behaves_exactly_like_before(self):
+        """Every existing caller that never passes company_id must see the
+        old, single flat-list behaviour untouched."""
+        ticket_notify.save_settings(
+            self.db, {"agentEmails": [FALLBACK], "agentEmailsByCompany": {self.co_a: [AGENT]}}, "x")
+        cfg = ticket_notify.get_settings(self.db)
+        self.assertEqual(ticket_notify.ticket_agents(self.db, cfg), [FALLBACK])
+
+    def test_all_agents_is_the_union_across_every_company(self):
+        ticket_notify.save_settings(
+            self.db, {"agentEmails": [FALLBACK],
+                      "agentEmailsByCompany": {self.co_a: [AGENT], self.co_b: [OWNER]}}, "x")
+        cfg = ticket_notify.get_settings(self.db)
+        self.assertEqual(set(ticket_notify.all_agents(self.db, cfg)), {FALLBACK, AGENT, OWNER})
+
+    def test_on_desk_recognizes_a_company_only_agent(self):
+        """An agent staffed on ONE company's desk, and nowhere else, must still
+        register as "on the desk" for queue-visibility purposes."""
+        import routers.tickets as tickets_router
+        ticket_notify.save_settings(self.db, {"agentEmailsByCompany": {self.co_a: [AGENT]}}, "x")
+        self.assertTrue(tickets_router._on_desk(self.db, {"email": AGENT}))
+        self.assertFalse(tickets_router._on_desk(self.db, {"email": "nobody@greensglobal.com"}))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -40,11 +40,14 @@ export default function TicketManageView() {
         })}
       </div>
 
+      {/* Full-bleed, deliberately NOT the centered admin column ManageView uses
+          (Pranshu, Aug 27) - this module's settings are card grids/wide tables
+          (per-company desk cards, the delivery log), not a single stack of
+          short label/input pairs, so a 940px cap just wasted the rest of a
+          wide monitor instead of helping anyone read a form. */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
-        <div style={{ maxWidth: 940, margin: '0 auto' }}>
-          {tab === 'desk' && <TicketDeskSettings />}
-          {tab === 'notify' && <TicketNotifySettings />}
-        </div>
+        {tab === 'desk' && <TicketDeskSettings />}
+        {tab === 'notify' && <TicketNotifySettings />}
       </div>
     </div>
   );
