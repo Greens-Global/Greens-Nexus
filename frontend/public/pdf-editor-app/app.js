@@ -655,8 +655,10 @@
         }
 
         // Undo / Redo
-        dom.undoBtn.addEventListener('click', undo);
-        dom.redoBtn.addEventListener('click', redo);
+        // Call with no args - undo()/redo() take an optional internal page param,
+        // so the click MouseEvent must not be forwarded as that argument.
+        dom.undoBtn.addEventListener('click', () => undo());
+        dom.redoBtn.addEventListener('click', () => redo());
 
         // Image input
         dom.imageInput.addEventListener('change', handleImageSelect);
@@ -1680,25 +1682,34 @@
     const _undoOrder = [];   // chronological page log - the single global timeline (A5)
     const _redoOrder = [];   // pages available to redo, in reverse-chronological order
 
-    function undo() {
+    let _undoNavigating = false;   // suppress order-mutation during an undo-jump
+    function undo(_forcedPage) {
         // A5: a SINGLE chronological timeline. The most recent action anywhere is
         // the last entry in _undoOrder - undo that, jumping to its page first if
-        // needed, regardless of which page you're currently viewing.
-        const targetPage = _undoOrder.length ? _undoOrder[_undoOrder.length - 1] : state.currentPage;
+        // needed. The jump is bundled into THIS press (one click = one action):
+        // we navigate, then finish the undo after render via _forcedPage, without
+        // re-consulting the order (so navigation side effects can't derail it).
+        const targetPage = _forcedPage != null ? _forcedPage
+            : (_undoOrder.length ? _undoOrder[_undoOrder.length - 1] : state.currentPage);
         let stack = state.undoStacks[targetPage];
         if (!stack || stack.length <= 1) {
             // Stale order entry (stack already drained) - drop it and retry.
-            if (_undoOrder.length) { _undoOrder.pop(); if (_undoOrder.length) return undo(); }
+            if (_forcedPage == null && _undoOrder.length) { _undoOrder.pop(); if (_undoOrder.length) return undo(); }
             if (_docUndoStack.length) undoDocChange(); // e.g. undo a crop
             return;
         }
         if (targetPage !== state.currentPage) {
+            _undoNavigating = true;
             goToPage(targetPage);
-            setTimeout(() => undo(), 250);   // undo once the page is rendered
+            // Finish the SAME undo after the page renders - one press, jump bundled.
+            setTimeout(() => { _undoNavigating = false; undo(targetPage); }, 220);
             return;
         }
         const page = targetPage;
-        _undoOrder.pop();                 // consume this action from the timeline
+        // Remove this page's most-recent entry from the timeline (not blindly the
+        // last, which after a jump could differ).
+        const oi = _undoOrder.lastIndexOf(page);
+        if (oi >= 0) _undoOrder.splice(oi, 1);
         _redoOrder.push(page);            // it becomes redoable
 
         const current = stack.pop();
