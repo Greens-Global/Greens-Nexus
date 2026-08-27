@@ -3679,5 +3679,15 @@ html[data-theme="light"] {
 /* S11: general markups list rows */
 .markup-row { cursor: pointer; }
 .markup-kind { flex: 0 0 auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: #fff; background: #6b7280; border-radius: 4px; padding: 1px 5px; }
+/* S8: search options + results list */
+.search-opt { border: 1px solid var(--border); background: var(--bg-input, #fff); color: inherit; border-radius: 5px; font-size: 12px; font-weight: 700; padding: 2px 6px; cursor: pointer; min-width: 26px; }
+.search-opt.active { background: #1971c2; color: #fff; border-color: #1971c2; }
+.search-results { position: absolute; z-index: 60; max-height: 320px; overflow-y: auto; width: 320px; background: var(--bg-panel, #fff); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.18); right: 16px; }
+.search-bar { position: relative; }
+.sr-page { position: sticky; top: 0; background: var(--bg-hover, #eef); font-size: 11px; font-weight: 700; padding: 5px 10px; color: var(--text-secondary); }
+.sr-row { padding: 7px 10px; font-size: 12.5px; cursor: pointer; border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr-row:hover { background: var(--bg-hover); }
+.sr-row.active { background: rgba(25,113,194,.14); font-weight: 600; }
+.sr-empty { padding: 14px; text-align: center; color: var(--text-secondary); font-size: 12.5px; }
 /* N1: PDF links stop intercepting clicks while a markup/measure tool is armed */
 .markup-active .pdf-link { pointer-events: none !important; }

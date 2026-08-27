@@ -731,6 +731,28 @@
                 navigateSearch(e.shiftKey ? -1 : 1);
             }
         });
+        // S8: match-case / whole-word toggles + results-list toggle.
+        const toggleOpt = (id, apply) => {
+            const b = document.getElementById(id);
+            if (!b) return;
+            b.addEventListener('click', () => {
+                const on = b.getAttribute('aria-pressed') !== 'true';
+                b.setAttribute('aria-pressed', on ? 'true' : 'false');
+                b.classList.toggle('active', on);
+                apply(on);
+            });
+        };
+        toggleOpt('searchCase', (on) => { _searchCase = on; searchText(); });
+        toggleOpt('searchWord', (on) => { _searchWord = on; searchText(); });
+        document.getElementById('searchListToggle')?.addEventListener('click', () => {
+            const panel = document.getElementById('searchResultsPanel');
+            const b = document.getElementById('searchListToggle');
+            const show = panel.style.display === 'none';
+            panel.style.display = show ? 'block' : 'none';
+            b.setAttribute('aria-pressed', show ? 'true' : 'false');
+            b.classList.toggle('active', show);
+            if (show) _renderSearchResults();
+        });
 
         // AI Panel
         dom.aiToggleBtn.addEventListener('click', toggleAiPanel);
@@ -7981,6 +8003,8 @@
     // ── Text Search ──
     let searchResults = [];
     let searchCurrentIdx = -1;
+    let _searchCase = false;   // match case (S8)
+    let _searchWord = false;   // whole word (S8)
 
     function toggleSearchBar() {
         const isVisible = dom.searchBar.style.display !== 'none';
@@ -7997,6 +8021,8 @@
 
     function closeSearchBar() {
         dom.searchBar.style.display = 'none';
+        const rp = document.getElementById('searchResultsPanel');
+        if (rp) rp.style.display = 'none';
         clearSearchHighlights();
         searchResults = [];
         searchCurrentIdx = -1;
@@ -8012,7 +8038,8 @@
     let _searchGen = 0;
     async function searchText() {
         const gen = ++_searchGen;
-        const query = dom.searchInput.value.trim().toLowerCase();
+        const rawQuery = dom.searchInput.value.trim();
+        const query = _searchCase ? rawQuery : rawQuery.toLowerCase();
         searchResults = [];
         searchCurrentIdx = -1;
         clearSearchHighlights();
@@ -8034,17 +8061,25 @@
             const textContent = await page.getTextContent();
             if (gen !== _searchGen) return; // a newer search superseded us
 
+            const isWordChar = (ch) => /[A-Za-z0-9_]/.test(ch);
             textContent.items.forEach((item, idx) => {
-                const text = item.str.toLowerCase();
+                const raw = item.str;
+                const text = _searchCase ? raw : raw.toLowerCase();
                 let startIdx = 0;
                 while ((startIdx = text.indexOf(query, startIdx)) !== -1) {
-                    searchResults.push({
-                        page: pageNum,
-                        itemIndex: idx,
-                        item: item,
-                        matchStart: startIdx,
-                        matchLength: query.length,
-                    });
+                    // Whole-word: require non-word boundaries around the match (S8).
+                    const before = startIdx > 0 ? text[startIdx - 1] : '';
+                    const after = text[startIdx + query.length] || '';
+                    const wordOk = !_searchWord || (!isWordChar(before) && !isWordChar(after));
+                    if (wordOk) {
+                        // Snippet with a little context for the results list.
+                        const s = Math.max(0, startIdx - 20), e = Math.min(raw.length, startIdx + query.length + 20);
+                        searchResults.push({
+                            page: pageNum, itemIndex: idx, item,
+                            matchStart: startIdx, matchLength: query.length,
+                            snippet: (s > 0 ? '…' : '') + raw.slice(s, e) + (e < raw.length ? '…' : ''),
+                        });
+                    }
                     startIdx += query.length;
                 }
             });
@@ -8077,6 +8112,42 @@
 
         setStatus(searchResults.length ? searchResults.length + ' result(s) found'
                                        : 'No matches for "' + query + '"');
+        // Keep the results list in sync if it's open (S8).
+        const rp = document.getElementById('searchResultsPanel');
+        if (rp && rp.style.display !== 'none') _renderSearchResults();
+    }
+
+    // Results list grouped by page, each row jumps to that hit (S8).
+    function _renderSearchResults() {
+        const panel = document.getElementById('searchResultsPanel');
+        if (!panel) return;
+        if (!searchResults.length) {
+            panel.innerHTML = '<div class="sr-empty">No results.</div>';
+            return;
+        }
+        const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => (
+            { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+        let html = '';
+        let lastPage = null;
+        searchResults.forEach((r, i) => {
+            if (r.page !== lastPage) {
+                const n = searchResults.filter(x => x.page === r.page).length;
+                html += `<div class="sr-page">Page ${r.page} · ${n} hit${n > 1 ? 's' : ''}</div>`;
+                lastPage = r.page;
+            }
+            const snip = escH(r.snippet || '');
+            html += `<div class="sr-row${i === searchCurrentIdx ? ' active' : ''}" data-i="${i}">${snip}</div>`;
+        });
+        panel.innerHTML = html;
+        panel.querySelectorAll('.sr-row[data-i]').forEach((row) => {
+            row.addEventListener('click', async () => {
+                const i = parseInt(row.getAttribute('data-i'), 10);
+                searchCurrentIdx = i;
+                dom.searchInfo.textContent = (i + 1) + '/' + searchResults.length;
+                await goToSearchResult(i);
+                _renderSearchResults();
+            });
+        });
     }
 
     async function navigateSearch(direction) {

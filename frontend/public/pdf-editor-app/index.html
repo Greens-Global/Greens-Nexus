@@ -21,7 +21,7 @@
         base-uri 'self';
         form-action 'none';">
     <title>PDF Tools</title>
-    <link rel="stylesheet" href="style.css?v=20260828h">
+    <link rel="stylesheet" href="style.css?v=20260828i">
     <!-- PDF.js for rendering PDFs -->
     <script defer src="libs/pdf.min.js"></script>
     <!-- pdf-lib for modifying/exporting PDFs -->
@@ -610,12 +610,15 @@
         <span id="statusText"></span>
         <button id="scaleChip" class="scale-chip" style="display:none;" title="Click to set the drawing scale"></button>
         <span id="fileInfo"></span>
-        <span id="buildStamp" title="Editor bundle version - if this is stale, hard-reload" style="margin-left:auto;opacity:0.5;font-size:10px;">build 20260828h</span>
+        <span id="buildStamp" title="Editor bundle version - if this is stale, hard-reload" style="margin-left:auto;opacity:0.5;font-size:10px;">build 20260828i</span>
     </footer>
 
     <!-- Search Bar -->
     <div class="search-bar" id="searchBar" style="display:none;">
         <input type="text" id="searchInput" placeholder="Search text in PDF...">
+        <button id="searchCase" class="search-opt" title="Match case" aria-pressed="false">Aa</button>
+        <button id="searchWord" class="search-opt" title="Whole word" aria-pressed="false">|W|</button>
+        <button id="searchListToggle" class="search-opt" title="Show all results" aria-pressed="false">&#9776;</button>
         <span id="searchInfo">0/0</span>
         <button id="searchPrev" class="nav-btn">&#9650;</button>
         <button id="searchNext" class="nav-btn">&#9660;</button>
@@ -623,6 +626,8 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
     </div>
+    <!-- Search results list (S8) -->
+    <div class="search-results" id="searchResultsPanel" style="display:none;"></div>
 
     <!-- Split Modal -->
     <div class="modal-overlay" id="splitModal" role="dialog" aria-modal="true" aria-label="Split PDF" style="display:none;">
@@ -737,7 +742,7 @@
 
     </div><!-- end .page-wrapper -->
 
-    <script defer src="app.js?v=20260828h"></script>
-    <script defer src="adobe-ui.js?v=20260828h"></script>
+    <script defer src="app.js?v=20260828i"></script>
+    <script defer src="adobe-ui.js?v=20260828i"></script>
 </body>
 </html>
