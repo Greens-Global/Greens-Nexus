@@ -535,6 +535,12 @@
         // Tools
         document.querySelectorAll('[data-tool]').forEach((btn) => {
             btn.addEventListener('click', () => {
+                // A3: re-clicking the already-active tool disarms it (back to
+                // Select), like Bluebeam. Never toggle Select itself off.
+                if (btn.dataset.tool !== 'select' && btn.classList.contains('active')) {
+                    setActiveTool('select');
+                    return;
+                }
                 // Any tool the user clicks needs the single-page editable Fabric
                 // canvas; in continuous-scroll mode that canvas is frozen, so
                 // Select (and the others) did nothing on the default scroll view
@@ -873,6 +879,17 @@
             setStatus('Measure tool off');
             return;
         }
+        // A4: Escape while ANY markup tool is armed returns to Select AND clears
+        // the ribbon button highlight - visual and functional state must agree
+        // (before, Escape hid the properties row but left the tool live + button
+        // highlighted, so the next click still drew).
+        if (e.key === 'Escape' && state.activeTool && state.activeTool !== 'select') {
+            e.preventDefault();
+            setActiveTool('select');
+            document.getElementById('measureTool')?.classList.remove('active');
+            setStatus('Ready');
+            return;
+        }
 
         if (e.key === 'F1' || (ctrl && e.key === '/')) {
             e.preventDefault();
@@ -962,8 +979,13 @@
         const file = e.dataTransfer.files[0];
         if (file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
             _openOrMergeFile(file);   // same open-as-new / merge prompt as the Open button
+        } else if (file && (file.type.startsWith('image/') || /\.(png|jpe?g)$/i.test(file.name))) {
+            // The drop zone promises image->PDF; honor it (was rejecting images).
+            const imgs = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/') || /\.(png|jpe?g)$/i.test(f.name));
+            if (typeof convertImagesToPdf === 'function') convertImagesToPdf(imgs);
+            else showToast('Could not convert that image');
         } else if (file) {
-            showToast('Please drop a valid PDF file');
+            showToast('Drop a PDF, or a PNG/JPG image to convert into a PDF');
         }
     }
 
@@ -1168,6 +1190,22 @@
 
         // Handle text tool click
         fabricCanvas.on('mouse:down', handleCanvasClick);
+
+        // When text editing ends: drop an empty box (no orphan "Type here"), and
+        // snapshot a box that got content so it's undoable (A6). Fires for both
+        // the Text tool and Edit Text.
+        fabricCanvas.on('text:editing:exited', (e) => {
+            const o = e && e.target;
+            if (!o) return;
+            const empty = !o.text || !o.text.trim();
+            if (empty && o._isNewText) {
+                _isRestoring = true; fabricCanvas.remove(o); _isRestoring = false;
+                fabricCanvas.requestRenderAll();
+                return;
+            }
+            o._isNewText = false;
+            saveAnnotationState();   // now it's real content - make it undoable
+        });
 
         // Right-click a measurement on the canvas -> the same context menu as the
         // list row (M7: Edit / Duplicate / Copy / Delete).
@@ -1614,6 +1652,8 @@
             fabricCanvas.renderAll();
             applyToolMode();
             saveCurrentAnnotations(); // re-tag with the CURRENT zoom, coords now match
+            _scheduleThumbRefresh();  // A2: refresh the thumbnail so undone markups clear
+            if (window.renderMeasureList) window.renderMeasureList();
         });
         updateUndoRedoButtons();
     }
@@ -1641,6 +1681,8 @@
             fabricCanvas.renderAll();
             applyToolMode();
             saveCurrentAnnotations();
+            _scheduleThumbRefresh();  // A2
+            if (window.renderMeasureList) window.renderMeasureList();
         });
         updateUndoRedoButtons();
     }
@@ -1837,8 +1879,12 @@
                 fabricCanvas.defaultCursor = 'text';
                 fabricCanvas.selection = false;
                 fabricCanvas.forEachObject((obj) => {
-                    obj.selectable = false;
-                    obj.evented = false;
+                    // Existing text stays editable so you can click it to re-edit
+                    // (text was write-once before); everything else is inert so a
+                    // click on empty canvas creates a new box.
+                    const isText = obj.type === 'i-text' || obj.type === 'text' || obj.type === 'textbox';
+                    obj.selectable = isText;
+                    obj.evented = isText;
                 });
                 break;
 
@@ -1968,10 +2014,20 @@
 
         const pointer = fabricCanvas.getPointer(opt.e);
 
-        // Don't add text if clicking on existing object
-        if (opt.target) return;
+        // Clicking an EXISTING text box enters editing (text was write-once
+        // before - a click just selected it and swallowed keystrokes).
+        if (opt.target) {
+            const t = opt.target.type;
+            if ((t === 'i-text' || t === 'text' || t === 'textbox') && opt.target.enterEditing) {
+                fabricCanvas.setActiveObject(opt.target);
+                opt.target.enterEditing();
+                if (opt.target.selectAll) opt.target.selectAll();
+                fabricCanvas.requestRenderAll();
+            }
+            return;
+        }
 
-        const text = new fabric.IText('Type here', {
+        const text = new fabric.IText('', {
             left: pointer.x,
             top: pointer.y,
             fontSize: parseInt(dom.sizePicker.value, 10) + 14,
@@ -1980,11 +2036,16 @@
             editable: true,
             cursorColor: dom.colorPicker.value,
         });
+        text._isNewText = true;   // so an empty one can be auto-removed on blur (A6)
 
+        _isRestoring = true;      // don't snapshot the empty placeholder yet
         fabricCanvas.add(text);
+        _isRestoring = false;
         fabricCanvas.setActiveObject(text);
         text.enterEditing();
-        text.selectAll();
+        // Force an immediate paint so the caret/box shows without needing a
+        // scroll to trigger a repaint (the "invisible until repaint" bug).
+        fabricCanvas.requestRenderAll();
     }
 
     // ── Shape Tool (rect / circle / triangle / line / arrow / cloud) ──
