@@ -603,6 +603,15 @@ class NexusGroup(Base):
     # role to someone with NO manager set copies this onto their People card -
     # per-person Manager stays the source of truth and can always be overridden.
     default_manager_email = Column(String, default="")
+    # Multi-company walls (Aug 2026): a group tied to a company_id is a
+    # COMPANY-SCOPED role - its capability applies within that company, and being
+    # a member confines the person to it (auth.company_scope). '' = an org-wide
+    # group (the pre-walls behavior). One person can hold several such groups to
+    # carry a different role in each company.
+    company_id      = Column(String, default="")   # HrEntity.id, or '' for org-wide
+    # Members of a group flagged is_global_admin=1 are GLOBAL ADMINS: unrestricted
+    # across every company - the only role that sees past the company walls.
+    is_global_admin = Column(Integer, default=0)
 
 
 class NexusGroupMember(Base):
