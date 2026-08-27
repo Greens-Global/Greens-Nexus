@@ -335,6 +335,13 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     filter would still ship all of them to an employee's browser. Default is
     unchanged, so the Tickets module is unaffected."""
     rows = db.query(models.TaskTicket).all()
+    # Company wall (Aug 2026): once armed, the desk queue is confined to the
+    # caller's own companies - a ticket carries the requester's company_id, and a
+    # Global Admin (scope None) still sees them all. Off = unchanged.
+    import auth
+    _cscope = auth.company_scope(user, db)
+    if _cscope is not None:
+        rows = [t for t in rows if (t.company_id or "") in _cscope]
     # Without the desk grant the scope is forced, not requested: the unscoped
     # list IS the agent queue, so honouring `mine` only when asked would leave
     # the whole company's tickets one query parameter away from any employee.

@@ -22,7 +22,8 @@ models.Base.metadata.create_all(bind=database.engine)
 from sqlalchemy import text as _text
 with database.engine.connect() as _c:
     for _sql in ("ALTER TABLE nexus_groups ADD COLUMN company_id TEXT DEFAULT ''",
-                 "ALTER TABLE nexus_groups ADD COLUMN is_global_admin INTEGER DEFAULT 0"):
+                 "ALTER TABLE nexus_groups ADD COLUMN is_global_admin INTEGER DEFAULT 0",
+                 "ALTER TABLE tasks ADD COLUMN company_id TEXT DEFAULT ''"):
         try:
             _c.execute(_text(_sql)); _c.commit()
         except Exception:
@@ -35,6 +36,7 @@ AMGR = "walls.amgr@greensglobal.com"       # company A, via a company-scoped rol
 BEMP = "walls.bemp@greensglobal.com"       # company B employee
 GA_GROUP = "grp-walls-globaladmins"
 AROLE = "grp-walls-a-manager"
+TGRANT = "grp-walls-tasks"
 
 
 class CompanyWallsTests(unittest.TestCase):
@@ -65,6 +67,11 @@ class CompanyWallsTests(unittest.TestCase):
             # his employee row has no company set.
             db.add(models.NexusGroup(id=AROLE, name="Alpha - Manager", company_id=COA))
             db.add(models.NexusGroupMember(group_id=AROLE, email=AMGR))
+            # Give the two employees a Tasks/Tickets grant so they can hit those
+            # endpoints (the company wall applies AFTER the grant check).
+            db.add(models.NexusGroup(id=TGRANT, name="Desk", allowed_modules="tasks:editor,tickets:editor"))
+            db.add(models.NexusGroupMember(group_id=TGRANT, email=AEMP))
+            db.add(models.NexusGroupMember(group_id=TGRANT, email=BEMP))
             db.commit()
         finally:
             db.close()
@@ -90,8 +97,10 @@ class CompanyWallsTests(unittest.TestCase):
                .filter(models.NexusEmployee.work_email.like("walls.%")).delete(synchronize_session=False))
             db.query(models.NexusRole).filter(models.NexusRole.email.like("walls.%")).delete(synchronize_session=False)
             db.query(models.HrEntity).filter(models.HrEntity.id.in_([COA, COB])).delete(synchronize_session=False)
-            db.query(models.NexusGroup).filter(models.NexusGroup.id.in_([GA_GROUP, AROLE])).delete(synchronize_session=False)
-            db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_([GA_GROUP, AROLE])).delete(synchronize_session=False)
+            db.query(models.NexusGroup).filter(models.NexusGroup.id.in_([GA_GROUP, AROLE, TGRANT])).delete(synchronize_session=False)
+            db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_([GA_GROUP, AROLE, TGRANT])).delete(synchronize_session=False)
+            db.query(models.Task).filter(models.Task.id.like("task-walls%")).delete(synchronize_session=False)
+            db.query(models.TaskTicket).filter(models.TaskTicket.id.like("tkt-walls%")).delete(synchronize_session=False)
             db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete(synchronize_session=False)
             db.commit()
         finally:
@@ -153,6 +162,52 @@ class CompanyWallsTests(unittest.TestCase):
             self.assertEqual(auth.company_scope({"email": BEMP, "level": 1}, db), {COB})
         finally:
             db.close()
+
+    def _mk_task(self, tid, company, creator):
+        db = database.SessionLocal()
+        try:
+            db.add(models.Task(id=tid, code=tid, title=f"Task {tid}", company_id=company,
+                               created_by=creator, owner_email=creator, access_level="org"))
+            db.commit()
+        finally:
+            db.close()
+
+    def _mk_ticket(self, tid, company, requester):
+        db = database.SessionLocal()
+        try:
+            db.add(models.TaskTicket(id=tid, code=tid, subject=f"Ticket {tid}", company_id=company,
+                                     requester_email=requester, status="new"))
+            db.commit()
+        finally:
+            db.close()
+
+    def _get_ids(self, path, as_email):
+        os.environ["NEXUS_DEV_EMAIL"] = as_email
+        r = self.client.get(path)
+        self.assertEqual(r.status_code, 200, r.text)
+        data = r.json()
+        rows = data.get("tasks", data) if isinstance(data, dict) else data
+        return {x.get("id") for x in rows}
+
+    def test_armed_tasks_are_company_walled(self):
+        self._mk_task("task-walls-a", COA, AEMP)
+        self._mk_task("task-walls-b", COB, BEMP)
+        self._arm(True)
+        a = self._get_ids("/tasks", AEMP)
+        self.assertIn("task-walls-a", a); self.assertNotIn("task-walls-b", a)
+        b = self._get_ids("/tasks", BEMP)
+        self.assertIn("task-walls-b", b); self.assertNotIn("task-walls-a", b)
+        g = self._get_ids("/tasks", GLOBAL)          # Global Admin sees both
+        self.assertTrue({"task-walls-a", "task-walls-b"} <= g)
+
+    def test_armed_tickets_are_company_walled(self):
+        self._mk_ticket("tkt-walls-a", COA, AEMP)
+        self._mk_ticket("tkt-walls-b", COB, BEMP)
+        self._arm(True)
+        a = self._get_ids("/task-tickets", AEMP)
+        self.assertIn("tkt-walls-a", a); self.assertNotIn("tkt-walls-b", a)
+        g = self._get_ids("/task-tickets", GLOBAL)
+        self.assertTrue({"tkt-walls-a", "tkt-walls-b"} <= g)
 
     def test_global_admins_group_supersedes_level(self):
         # Before any Global Admins group: level 4 is the bootstrap global admin.

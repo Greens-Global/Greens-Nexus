@@ -46,6 +46,12 @@ class Task(Base):
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)
     access_level      = Column(String, default="org")      # org|restricted
+    # Multi-company walls (Aug 2026): the HrEntity company this task belongs to,
+    # stamped from its creator at creation. The company wall (auth.company_scope
+    # via task_util.wall_tasks) keeps a task out of every other company's lists.
+    # Blank on legacy/sync rows - task_util.task_company then derives it from the
+    # owner/creator's company so nothing falls through the wall untagged.
+    company_id        = Column(String, default="", index=True)
     project_id        = Column(String, default="", index=True)  # primary - drives section/access/Asana sync
     project_ids       = Column(JSON, default=list)         # EXTRA projects, Nexus-only (never synced to Asana,
                                                              # which stays keyed on project_id alone) - lets a task

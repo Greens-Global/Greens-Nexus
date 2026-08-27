@@ -586,7 +586,15 @@ def hr_scope(user: dict, db: Session):
     assignment - the family office collaborates across companies daily; scope
     covers the HR-admin surfaces (People, Time, Leave, payroll, monitoring).
     Callers hide company=='' (untagged) people from scoped admins and answer
-    404 (not 403) for out-of-scope ids so existence doesn't leak."""
+    404 (not 403) for out-of-scope ids so existence doesn't leak.
+
+    When the multi-company walls are ARMED, this defers to company_scope() so
+    People obeys the same tenant boundary as every other module - a level-4
+    *company* admin is then confined to their companies, and only a Global Admin
+    is unrestricted (the pre-walls level>=4 bypass held only for the old
+    single-org world)."""
+    if _company_walls_on(db):
+        return company_scope(user, db)
     if user.get("level", 0) >= 4:
         return None
     from models import NexusAccessScope

@@ -554,6 +554,7 @@ def _run_migrations():
             # Multi-company walls: company-scoped roles + Global-Admin flag
             "ALTER TABLE nexus_groups ADD COLUMN company_id TEXT DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN is_global_admin INTEGER DEFAULT 0",
+            "ALTER TABLE tasks ADD COLUMN company_id TEXT DEFAULT ''",
             # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
             "ALTER TABLE hr_candidates ADD COLUMN company TEXT DEFAULT ''",
             # Open shifts (Teams-style, Aug 26): unassigned slot count
@@ -1192,6 +1193,7 @@ def _run_migrations():
         # Multi-company walls: company-scoped roles + Global-Admin flag
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS company_id TEXT DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_global_admin INTEGER DEFAULT 0",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS company_id TEXT DEFAULT ''",
         # Company-scoped People admins: candidates carry the hiring company (Neil, Aug 25)
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS company TEXT DEFAULT ''",
         # Open shifts (Teams-style, Aug 26): unassigned slot count
