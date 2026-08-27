@@ -1410,6 +1410,55 @@
         updateUndoRedoButtons();
     }
 
+    // Rotate a page's stored annotations by `deg` (90/180/270, CW) so markups
+    // follow the page instead of being discarded (M4). Fabric coordinates are in
+    // canvas px at the capture zoom; for 90 CW on a W x H canvas a point (x,y) ->
+    // (H - y, x) and the canvas becomes H x W. Measurements keep their values -
+    // geomPx (length/area) is rotation-invariant; only positions + angles move.
+    async function _rotatePageAnnotations(pageNum, deg) {
+        const entry = state.annotations[pageNum];
+        if (!entry) return;
+        const data = entry.fabricData || entry;
+        if (!data.objects || !data.objects.length) return;
+        const zoom = entry.zoom || 1;
+        // Pre-rotation canvas dimensions from the CURRENT pdf.js page (still the
+        // old orientation at this point) at the capture zoom.
+        let W, H;
+        try {
+            const pj = await state.pdfDoc.getPage(pageNum);
+            const vp = pj.getViewport({ scale: zoom });
+            W = vp.width; H = vp.height;
+        } catch (_) { return; }   // can't map without dimensions - leave as-is
+        const times = ((deg / 90) % 4 + 4) % 4;
+        if (!times) return;
+        // Enliven the objects so fabric's own geometry model does the transform,
+        // then rotate each about the canvas center-mapping for a 90 CW step. Doing
+        // it on live objects (not raw JSON) avoids the local-vs-absolute coordinate
+        // traps of line x1/y1 and polygon points.
+        const objs = await new Promise((res) => fabric.util.enlivenObjects(data.objects, res));
+        for (let t = 0; t < times; t++) {
+            const mapPt = (x, y) => ({ x: H - y, y: x });   // 90 CW on W x H canvas
+            objs.forEach((o) => {
+                if (!o) return;
+                const c = o.getCenterPoint();          // absolute center, all types
+                const nc = mapPt(c.x, c.y);
+                o.angle = ((o.angle || 0) + 90) % 360;  // rotate orientation
+                o.setPositionByOrigin(new fabric.Point(nc.x, nc.y), 'center', 'center');
+                o.setCoords();
+            });
+            [W, H] = [H, W];
+        }
+        // Re-serialize with the same custom props the export list carries so
+        // _measure etc. survive. toObject was patched globally to include them.
+        const rotated = objs.filter(Boolean).map(o => o.toObject());
+        const newData = { ...data, objects: rotated };
+        if (entry.fabricData) entry.fabricData = newData; else state.annotations[pageNum] = newData;
+        // Drop this page's undo/redo history: the pre-rotation snapshots are in
+        // the old coordinate space. (Rotate itself is undoable via pushDocSnapshot.)
+        delete state.undoStacks[pageNum];
+        delete state.redoStacks[pageNum];
+    }
+
     // ── Undo / Redo ──
     function saveAnnotationState() {
         // Skip if we're in the middle of restoring annotations (loadFromJSON fires object:added)
@@ -7328,10 +7377,11 @@
             const newBytes = await pdfLibDoc.save();
             state.pdfBytes = newBytes.slice().buffer;
 
-            // Clear annotations for this page (coordinates invalid after rotation)
-            delete state.annotations[state.currentPage];
-            delete state.undoStacks[state.currentPage];
-            delete state.redoStacks[state.currentPage];
+            // Rotate this page's annotations 90 deg CW to follow the page (M4)
+            // instead of deleting them. Measurements keep their values (geomPx is
+            // rotation-invariant); only positions/angles change. Must run BEFORE
+            // state.pdfDoc is replaced, since it reads the pre-rotation viewport.
+            await _rotatePageAnnotations(state.currentPage, 90);
 
             const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
             if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
