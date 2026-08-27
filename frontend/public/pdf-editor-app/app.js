@@ -1065,6 +1065,13 @@
             // still holds the ENCRYPTED original, so any tool that re-loads it with
             // pdf-lib (Unlock, save, merge...) needs this to actually decrypt.
             state.pdfPassword = pdfPassword || null;
+            // Probe whether pdf-lib can actually operate on this file. A
+            // permissions-locked PDF opens for VIEWING in pdf.js but its content
+            // streams stay encrypted, so any structural op (rotate/add/merge/
+            // watermark/...) throws "No password given" at save time. Detect it
+            // once here and gate the whole Organize ribbon behind a banner instead
+            // of letting the user collect a different library error per button.
+            state.organizeLocked = await _probeStructuralLock(arrayBuffer, pdfPassword);
             if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
             // Tear down any continuous view from a previous document so the new
             // one builds fresh (it's now kept hidden between edits, not destroyed).
@@ -1108,6 +1115,9 @@
                 const b = document.getElementById(id);
                 if (b) b.disabled = false;
             }
+            // Must run AFTER every button is re-enabled above, or a locked PDF's
+            // structural tools would be switched back on right after we gate them.
+            _applyOrganizeLock();   // gate structural tools if the PDF is locked
             dom.searchToggle.disabled = false;
             // Show the search bar by default so users can search without knowing
             // Ctrl+F (Pranshu). It stays docked top-right; the x still closes it.
@@ -5939,6 +5949,7 @@
 
     // ── Add Blank Page ──
     async function addBlankPage() {
+        if (_guardStructural()) return;
         _exitScrollForOp();
         if (!state.pdfBytes) return;
 
@@ -5950,6 +5961,8 @@
                 <option value="same">Same as current page</option>
                 <option value="a4">A4 (210 × 297 mm)</option>
                 <option value="letter">Letter (8.5 × 11 in)</option>
+                <option value="legal">Legal (8.5 × 14 in)</option>
+                <option value="tabloid">Tabloid (11 × 17 in)</option>
                 <option value="a3">A3 (297 × 420 mm)</option>
             </select>
             <label class="stamp-date-row" style="padding:10px 0 0;">
@@ -5969,7 +5982,7 @@
             const pdfLibDoc = await PDFLib.PDFDocument.load(bytesToLoad, { ignoreEncryption: true });
 
             const currentPdfPage = pdfLibDoc.getPages()[state.currentPage - 1];
-            const SIZES = { a4: [595.28, 841.89], letter: [612, 792], a3: [841.89, 1190.55] };
+            const SIZES = { a4: [595.28, 841.89], letter: [612, 792], legal: [612, 1008], tabloid: [792, 1224], a3: [841.89, 1190.55] };
             let { width, height } = currentPdfPage.getSize();
             if (v.size !== 'same') [width, height] = SIZES[v.size];
             if (v.land && height > width) [width, height] = [height, width];
@@ -6201,6 +6214,7 @@
         if (fromPage === toPage) return;
         if (fromPage < 1 || fromPage > state.totalPages) return;
         if (toPage < 1 || toPage > state.totalPages) return;
+        if (_guardStructural()) return;
 
         pushDocSnapshot('Reorder pages');
         setStatus('Reordering pages...');
@@ -6289,6 +6303,7 @@
             showToast('Cannot delete the only page');
             return;
         }
+        if (_guardStructural()) return;
 
         pushDocSnapshot('Delete page');
         setStatus('Deleting page...');
@@ -8163,6 +8178,7 @@
     async function rotatePage() {
         _exitScrollForOp();
         if (!state.pdfBytes) return;
+        if (_guardStructural()) return;
 
         setStatus('Rotating page...');
 
@@ -8958,21 +8974,85 @@
     // ═══════════════════════════════════════════════════
     //  DOCUMENT TOOLS — watermark, page numbers, compress, forms
     // ═══════════════════════════════════════════════════
+    // True if pdf-lib cannot round-trip this document (encrypted content streams
+    // it can't decrypt), meaning structural Organize ops would fail/blank it.
+    async function _probeStructuralLock(arrayBuffer, password) {
+        try {
+            const bytes = new Uint8Array(arrayBuffer.slice(0));
+            const opts = { ignoreEncryption: true };
+            if (password) opts.password = password;
+            const doc = await PDFLib.PDFDocument.load(bytes, opts);
+            // A save that succeeds means we can write structural changes.
+            await doc.save({ updateFieldAppearances: false });
+            return false;   // operable
+        } catch (e) {
+            console.warn('Structural ops locked for this PDF:', e && e.message);
+            return true;    // locked - gate the ribbon
+        }
+    }
+
+    // Enable/disable the structural (Organize) tools + show a banner when the
+    // loaded PDF can't be edited structurally.
+    function _applyOrganizeLock() {
+        const locked = !!state.organizeLocked;
+        const ids = ['rotateBtn', 'addPageBtn', 'addImagePageBtn', 'mergeBtn', 'splitBtn',
+                     'watermarkBtn', 'pageNumBtn', 'nupBtn', 'rmBlankBtn'];
+        ids.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = locked || b.dataset._forceDisabled === '1'; });
+        let banner = document.getElementById('organizeLockBanner');
+        if (locked) {
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'organizeLockBanner';
+                banner.className = 'organize-lock-banner';
+                banner.textContent = '🔒 This PDF is password/permissions-protected - structural page editing (rotate, add, merge, watermark, page numbers, N-up, remove blank) is disabled. You can still view, annotate and measure.';
+                (dom.editorArea || document.body).prepend(banner);
+            }
+            banner.style.display = 'block';
+        } else if (banner) {
+            banner.style.display = 'none';
+        }
+    }
+
+    // Guard the entry of any structural op. Returns true if the op must abort
+    // (locked doc) - callers `if (_guardStructural()) return;` before mutating.
+    function _guardStructural() {
+        if (state.organizeLocked) {
+            setStatus('Structural editing is disabled on this protected PDF');
+            showToast('This PDF is protected - page editing is disabled');
+            return true;
+        }
+        return false;
+    }
+
     async function _reloadFromBytes(newBytes, msg, skipSave) {
-        markDirty();
+        // TRANSACTIONAL: validate the NEW bytes fully (parse + a real page render)
+        // BEFORE we destroy or swap the current document. A structural op that
+        // partially failed (e.g. on an encrypted PDF whose content can't be copied)
+        // used to be swapped straight in - blanking every page while Save sat armed.
+        // Now a failed op leaves the live document untouched and throws.
+        let pdf;
+        try {
+            pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
+            if (!pdf.numPages) throw new Error('Result has no pages');
+            // Touch the first page so a document that parses but can't render
+            // (decrypt failure) is caught here, not after the swap.
+            await pdf.getPage(1);
+        } catch (e) {
+            if (pdf && pdf.destroy) { try { pdf.destroy(); } catch (_) {} }
+            throw new Error('The operation could not be completed on this document (' + (e && e.message || 'unknown error') + '). Your document is unchanged.');
+        }
+        // New bytes are good - now it's safe to swap.
         if (!skipSave) saveCurrentAnnotations(); // keep markups on the visible page
         if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} } // L4: free worker memory
-        // The page set changed - drop any hidden continuous view so it rebuilds
-        // fresh next time (pages are kept hidden between edits, not destroyed).
         if (typeof destroyScrollView === 'function') destroyScrollView();
         _savedScrollTop = null;
         state.pdfBytes = newBytes.slice().buffer;
-        const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
         state.pdfDoc = pdf;
         state.totalPages = pdf.numPages;
         dom.totalPages.textContent = state.totalPages;
         dom.pageInput.max = state.totalPages;
         dom.fileInfo.textContent = `${state.fileName} | ${state.totalPages} page(s)`;
+        markDirty();   // only NOW is the document actually changed
         await generateThumbnails();
         renderPage(Math.min(state.currentPage, state.totalPages));
         if (msg) { setStatus(msg); showToast(msg); }
@@ -9049,6 +9129,7 @@
     async function addWatermarkTool() {
         _exitScrollForOp();
         if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
+        if (_guardStructural()) return;
         const v = await _toolModal('Add watermark', `
             <label class="modal-label">Watermark text:</label>
             <input type="text" class="modal-input" data-k="text" value="CONFIDENTIAL" maxlength="60">
@@ -9144,7 +9225,7 @@
             const where = v.scope === 'all' ? 'all pages'
                         : n === 1 ? '1 page' : n + ' pages';
             await _reloadFromBytes(await doc.save(), 'Watermark added to ' + where);
-        } catch (err) { console.error(err); showToast('Watermark failed'); }
+        } catch (err) { console.error(err); setStatus('Watermark failed - document unchanged'); showToast('Watermark could not be applied to this PDF'); }
     }
 
     // Parse a page-range string like "1-3, 5, 8" into a Set of 0-based indexes,
@@ -9171,6 +9252,7 @@
     async function addPageNumbersTool() {
         _exitScrollForOp();
         if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
+        if (_guardStructural()) return;
         const v = await _toolModal('Add page numbers', `
             <label class="modal-label">Position:</label>
             <select class="modal-input" data-k="pos">
@@ -9244,7 +9326,7 @@
                 page.drawText(label, { x, y, size, font, color: PDFLib.rgb(0.25, 0.25, 0.28) });
             });
             await _reloadFromBytes(await doc.save(), 'Page numbers added to ' + total + ' page' + (total > 1 ? 's' : ''));
-        } catch (err) { console.error(err); showToast('Page numbers failed'); }
+        } catch (err) { console.error(err); setStatus('Page numbers failed - document unchanged'); showToast('Page numbers could not be applied to this PDF'); }
     }
 
     // ── Compress ──
@@ -9976,6 +10058,7 @@
     async function removeBlankPagesTool() {
         _exitScrollForOp();
         if (!state.pdfDoc) return;
+        if (_guardStructural()) return;
         setStatus('Scanning for blank pages...');
         try {
             const blanks = [];
@@ -9999,16 +10082,25 @@
                 if (ink < 20) blanks.push(p); // needs to be VERY empty to count as blank
             }
             if (!blanks.length) { showToast('No blank pages found'); setStatus('No blank pages found'); return; }
-            if (blanks.length >= state.totalPages) { showToast('Every page looks blank — nothing removed'); return; }
-            if (!window.confirm('Remove ' + blanks.length + ' blank page(s)? (pages ' + blanks.join(', ') + ')')) return;
+            if (blanks.length >= state.totalPages) { showToast('Every page looks blank — nothing removed'); setStatus('Ready'); return; }
+            // In-page confirm with the exact page list (window.confirm can be
+            // dropped in an iframe, so it fired with no dialog before).
+            const choice = await _choiceModal('Remove blank pages',
+                'Found ' + blanks.length + ' page' + (blanks.length > 1 ? 's' : '') + ' that look blank: page' +
+                (blanks.length > 1 ? 's ' : ' ') + blanks.join(', ') + '. Remove ' + (blanks.length > 1 ? 'them' : 'it') +
+                '? This cannot be undone after you Download.',
+                [{ key: 'remove', label: 'Remove ' + blanks.length + ' page' + (blanks.length > 1 ? 's' : '') }]);
+            if (choice !== 'remove') { setStatus('Ready'); return; }
             saveCurrentAnnotations();
             pushDocSnapshot('Remove blank pages');
             const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             blanks.sort((a, b) => b - a).forEach(p => doc.removePage(p - 1));
+            const out = await doc.save();
+            // _reloadFromBytes validates before swapping - only clear state on success.
             state.annotations = {}; state.undoStacks = {}; state.redoStacks = {};
             state.currentPage = 1;
-            await _reloadFromBytes(await doc.save(), 'Removed ' + blanks.length + ' blank page(s)');
-        } catch (err) { console.error(err); showToast('Remove blank pages failed'); }
+            await _reloadFromBytes(out, 'Removed ' + blanks.length + ' blank page(s)');
+        } catch (err) { console.error(err); setStatus('Remove blank pages failed - document unchanged'); showToast('Could not remove blank pages'); }
     }
     window.removeBlankPagesTool = removeBlankPagesTool;
 
@@ -10016,6 +10108,7 @@
     async function nUpTool() {
         _exitScrollForOp();
         if (!state.pdfBytes) return;
+        if (_guardStructural()) return;
         const v = await _toolModal('Multiple pages per sheet (N-up)', `
             <label class="modal-label">Pages per sheet:</label>
             <select class="modal-input" data-k="n">
@@ -12441,6 +12534,8 @@ Replacement:`;
             pdfDoc: () => state.pdfDoc,
             pdfBytes: () => state.pdfBytes,
             author: async () => { const d = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true }); return d.getAuthor(); },
+            setLock: (v) => { state.organizeLocked = !!v; _applyOrganizeLock(); return !!state.organizeLocked; },
+            guardStructural: () => _guardStructural(),
         };
     }
 
