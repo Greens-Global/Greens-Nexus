@@ -615,6 +615,8 @@
             if (fabricCanvas && fabricCanvas.isDrawingMode) {
                 applyBrushColor();
             }
+            // Object restyle: change the opacity of a SELECTED markup too.
+            applyOpacityToSelection(Math.max(0.05, Math.min(1, (parseInt(dom.opacityPicker.value, 10) || 100) / 100)));
         });
 
         // Sidebar toggle
@@ -1155,6 +1157,18 @@
         fabricCanvas.on('object:moving', (e) => {
             if (e && e.target && e.target._measureCaption && typeof _updateLeaderFor === 'function') {
                 _updateLeaderFor(e.target);
+            }
+        });
+        // A9: as a callout note grows, grow its body rect/ellipse so text never
+        // spills below the border.
+        fabricCanvas.on('text:changed', (e) => {
+            const t = e && e.target;
+            if (t && t._calloutBody) {
+                const needH = (t.height || 0) + 16;
+                const body = t._calloutBody;
+                if (body.type === 'ellipse') { if (needH / 2 > body.ry) { body.set({ ry: needH / 2 }); body.setCoords(); } }
+                else if (needH > (body.height || 0)) { body.set({ height: needH }); body.setCoords(); }
+                fabricCanvas.requestRenderAll();
             }
         });
         fabricCanvas.on('object:added', (e) => {
@@ -2054,16 +2068,24 @@
             return;
         }
 
-        const text = new fabric.IText('', {
+        // A9: use a Textbox (wraps + grows in height) with its width clamped to
+        // the page edge, so text no longer runs off the right side and clips. A
+        // bare IText never wrapped.
+        const margin = 8;
+        const maxW = Math.max(60, fabricCanvas.getWidth() - pointer.x - margin);
+        const text = new fabric.Textbox('', {
             left: pointer.x,
             top: pointer.y,
+            width: Math.min(240, maxW),
             fontSize: parseInt(dom.sizePicker.value, 10) + 14,
             fontFamily: dom.fontFamily.value,
             fill: dom.colorPicker.value,
             editable: true,
             cursorColor: dom.colorPicker.value,
+            splitByGrapheme: false,
         });
         text._isNewText = true;   // so an empty one can be auto-removed on blur (A6)
+        text._maxRight = fabricCanvas.getWidth() - margin;   // clamp reference
 
         _isRestoring = true;      // don't snapshot the empty placeholder yet
         fabricCanvas.add(text);
@@ -4146,6 +4168,9 @@
                 left: bx + 10, top: by + 8, width: bw - 20, fontSize: Math.max(12, strokeWidth * 6),
                 fill: stroke, fontFamily: 'sans-serif', editable: true, splitByGrapheme: false,
             });
+            // A9: grow the callout body to fit the note so text can't spill below
+            // the border. Linked so a text:changed handler can resize the box.
+            txt._calloutBody = body; body._calloutText = txt;
             _isRestoring = true;
             fabricCanvas.add(body);
             fabricCanvas.add(tail);
@@ -10338,6 +10363,17 @@
         const sel = _strokeableSelection();
         if (!sel.length) return;
         sel.forEach(o => o.set({ stroke: color }));
+        fabricCanvas.requestRenderAll();
+        saveAnnotationState(); saveCurrentAnnotations();
+    }
+    // Object restyle: opacity applies to ANY selected markup (not just strokeable).
+    function applyOpacityToSelection(alpha) {
+        if (!fabricCanvas) return;
+        const act = fabricCanvas.getActiveObjects ? fabricCanvas.getActiveObjects() : [];
+        const list = act.length ? act : (fabricCanvas.getActiveObject() ? [fabricCanvas.getActiveObject()] : []);
+        const sel = list.filter(o => o && !o._editTextGuide && !o.excludeFromExport);
+        if (!sel.length) return;
+        sel.forEach(o => o.set({ opacity: alpha }));
         fabricCanvas.requestRenderAll();
         saveAnnotationState(); saveCurrentAnnotations();
     }
