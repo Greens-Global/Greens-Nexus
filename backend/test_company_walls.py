@@ -102,6 +102,7 @@ class CompanyWallsTests(unittest.TestCase):
             db.query(models.Task).filter(models.Task.id.like("task-walls%")).delete(synchronize_session=False)
             db.query(models.TaskTicket).filter(models.TaskTicket.id.like("tkt-walls%")).delete(synchronize_session=False)
             db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete(synchronize_session=False)
+            db.query(models.AuditLog).filter(models.AuditLog.action.like("company_walls_%")).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -208,6 +209,23 @@ class CompanyWallsTests(unittest.TestCase):
         self.assertIn("tkt-walls-a", a); self.assertNotIn("tkt-walls-b", a)
         g = self._get_ids("/task-tickets", GLOBAL)
         self.assertTrue({"tkt-walls-a", "tkt-walls-b"} <= g)
+
+    def test_arm_switch_endpoint_arms_and_audits(self):
+        os.environ["NEXUS_DEV_EMAIL"] = GLOBAL   # administrator = bootstrap global admin
+        r = self.client.put("/access-scopes/config/walls", json={"on": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self._flush()
+        g = self.client.get("/access-scopes/config/walls")
+        self.assertTrue(g.json()["on"])
+        # Armed: a scoped user is now confined in the directory.
+        self.assertNotIn(BEMP, self._dir_emails(AEMP))
+        # An audit row was written.
+        db = database.SessionLocal()
+        try:
+            self.assertTrue(db.query(models.AuditLog)
+                            .filter(models.AuditLog.action == "company_walls_armed").first())
+        finally:
+            db.close()
 
     def test_global_admins_group_supersedes_level(self):
         # Before any Global Admins group: level 4 is the bootstrap global admin.
