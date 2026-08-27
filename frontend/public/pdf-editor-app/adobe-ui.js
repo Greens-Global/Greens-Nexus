@@ -348,7 +348,7 @@
     mMenu.className = 'dropdown-menu';
     mMenu.id = 'measureMenu';
     const MMODES = [
-      ['setscale',   '⚖ Set scale directly (1 in = 10 ft)', true],  // action, not a kind
+      ['setscale',   '⚖ Set scale directly...', true],  // action, not a kind (label reflects live scale via updateMeasureMenuLabels)
       ['embedscale', '🧾 Use embedded scale (from the PDF)', true],
       ['mcalibrate', '📐 Calibrate by drawing a known line'],
       ['storescale', '📌 Store scale in this page', true],
@@ -402,6 +402,9 @@
         document.getElementById('shapeMenu')?.classList.remove('open');
         window.setShapeKind && window.setShapeKind(kind);
         measureBtn.classList.add('active');
+        // The shape tool is the engine host, but visually the MEASURE button is
+        // the active one - don't leave Shapes highlighted (N4).
+        shapeToolForMeasure.classList.remove('active');
         mMenu.querySelectorAll('.dropdown-item[data-kind]').forEach(x => {
           if (['setscale'].includes(x.dataset.kind)) return;
           x.textContent = (x.dataset.kind === kind ? '✓ ' : '') + x.textContent.replace(/^✓ /, '');
@@ -410,6 +413,15 @@
       mMenu.appendChild(it);
     }
     document.body.appendChild(mMenu);
+    // Let app.js refresh the scale/lock menu labels to reflect the live state
+    // (M6/M29): the Set scale item shows the current scale; Lock shows on/off.
+    window.updateMeasureMenuLabels = function (info) {
+      const setItem = mMenu.querySelector('.dropdown-item[data-kind="setscale"]');
+      if (setItem) setItem.textContent = info && info.scaleText
+        ? '⚖ ' + info.scaleText : '⚖ Set scale directly...';
+      const lockItem = mMenu.querySelector('.dropdown-item[data-kind="lockscale"]');
+      if (lockItem) lockItem.textContent = (info && info.locked ? '🔒 Scale locked - click to unlock' : '🔓 Lock scale');
+    };
     measureBtn.addEventListener('click', () => {
       const r = measureBtn.getBoundingClientRect();
       mMenu.style.top = r.bottom + 4 + 'px';

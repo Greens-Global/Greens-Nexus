@@ -801,12 +801,17 @@
                 return;
             }
         }
-        // A measure tool is armed but nothing drawn yet: Escape disarms the tool
-        // and returns to Select, instead of exiting Assemble / hiding the ribbon.
+        // A measure tool is armed but nothing drawn yet: Escape disarms the
+        // measure engine in place and returns to the Select cursor WITHOUT
+        // touching the Assemble ribbon (M10). We flip tool state directly rather
+        // than via setActiveTool, whose button path collapses the ribbon.
         if (e.key === 'Escape' && state.activeTool === 'shape' && _MEASURE_KINDS.includes(shapeKind)) {
             e.preventDefault();
             document.getElementById('measureTool')?.classList.remove('active');
-            setActiveTool('select');
+            shapeKind = 'rect';                // leave the measure engine
+            state.activeTool = 'select';
+            document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === 'select'));
+            applyToolMode();
             setStatus('Measure tool off');
             return;
         }
@@ -1094,6 +1099,24 @@
 
         // Handle text tool click
         fabricCanvas.on('mouse:down', handleCanvasClick);
+
+        // Right-click a measurement on the canvas -> the same context menu as the
+        // list row (M7: Edit / Duplicate / Copy / Delete).
+        if (fabricCanvas.upperCanvasEl) {
+            fabricCanvas.upperCanvasEl.addEventListener('contextmenu', (ev) => {
+                const p = fabricCanvas.getPointer(ev);
+                let hit = null;
+                fabricCanvas.forEachObject((o) => { if (o._measure && o.containsPoint && o.containsPoint(new fabric.Point(p.x, p.y))) hit = o; });
+                if (!hit) {
+                    // Also match a measurement whose polygon encloses the click.
+                    fabricCanvas.forEachObject((o) => { if (!hit && o._measure && o.points && _pointInPoly(p, _absVerts(o))) hit = o; });
+                }
+                if (hit && hit._measure && typeof _measureRowMenu === 'function') {
+                    ev.preventDefault();
+                    _measureRowMenu(ev, hit._measure._mid);
+                }
+            });
+        }
 
         // Handle shape drawing
         fabricCanvas.on('mouse:down', handleShapeStart);
@@ -1600,6 +1623,11 @@
     function applyToolMode() {
         if (!fabricCanvas) return;
 
+        // While any tool other than Select is active, PDF link overlays must not
+        // intercept clicks (N1: mid-measurement clicks were jumping to hyperlinked
+        // sheets). A wrapper class flips their pointer-events off via CSS.
+        if (dom.canvasWrapper) dom.canvasWrapper.classList.toggle('markup-active', state.activeTool !== 'select');
+
         // Show/hide paint bar for draw/highlight tools
         const isPaintTool = ['draw', 'highlight', 'eraser', 'shape'].includes(state.activeTool);
         dom.paintBar.classList.toggle('visible', isPaintTool);
@@ -1816,6 +1844,9 @@
         // point instead of selecting an existing markup).
         if (_MEASURE_KINDS && _MEASURE_KINDS.includes(k) && state.activeTool === 'shape') {
             try { applyToolMode(); } catch (_) {}
+            // The Measure button is the visually-active one, not Shapes (N4).
+            document.getElementById('shapeTool')?.classList.remove('active');
+            document.getElementById('measureTool')?.classList.add('active');
         }
     };
     window.setShapeStyle = (s) => { shapeStyle = s; };
@@ -1978,10 +2009,19 @@
     }
     _updateScaleChip = function () {
         const chip = document.getElementById('scaleChip');
-        if (!chip) return;
-        chip.style.display = (state && state.pdfDoc) ? 'inline-flex' : 'none';
-        chip.textContent = _scaleChipText();
-        chip.classList.toggle('scale-chip-unset', !measureScale);
+        if (chip) {
+            chip.style.display = (state && state.pdfDoc) ? 'inline-flex' : 'none';
+            chip.textContent = _scaleChipText();
+            chip.classList.toggle('scale-chip-unset', !measureScale);
+        }
+        // Keep the Measure menu's scale + lock labels honest (M6/M29).
+        if (window.updateMeasureMenuLabels) {
+            const perInch = measureScale ? measureScale * 72 : 0;
+            const scaleText = measureScale
+                ? 'Scale: 1 in = ' + (perInch >= 100 ? perInch.toFixed(0) : perInch.toFixed(2)) + ' ' + measureUnit + ' (click to change)'
+                : 'Set scale directly...';
+            window.updateMeasureMenuLabels({ scaleText, locked: _scaleLocked });
+        }
     };
     // Guard the two scale-setting entry points against an accidental change.
     function _scaleChangeAllowed() {
@@ -2260,9 +2300,12 @@
     }
 
     function measureLabel(text, x, y) {
-        return new fabric.Text(text, { left: x, top: y, fontSize: 14, fill: '#ffffff',
+        const t = new fabric.Text(text, { left: x, top: y, fontSize: 14, fill: '#ffffff',
             backgroundColor: 'rgba(0,0,0,0.72)', fontFamily: 'sans-serif', padding: 3,
             originX: 'center', originY: 'center', selectable: false, visible: !_measureLabelsHidden });
+        // Follow the active layer so the caption hides/saves with its markup (M31).
+        t._layerId = state.activeLayer;
+        return t;
     }
 
     // Decorative angle arc + short extension marks at the vertex (M25). Tagged
@@ -2281,7 +2324,7 @@
             path.push({ x: b.x + Math.cos(ang) * r, y: b.y + Math.sin(ang) * r });
         }
         const arc = new fabric.Polyline(path, { stroke: color, strokeWidth: 1.5, fill: '', selectable: false, evented: false, objectCaching: false });
-        arc._measureDecor = true; arc._decorFor = mid;
+        arc._measureDecor = true; arc._decorFor = mid; arc._layerId = state.activeLayer;
         _isRestoring = true; fabricCanvas.add(arc); _isRestoring = false;
     }
 
@@ -2291,7 +2334,7 @@
         const circ = new fabric.Circle({ left: center.x, top: center.y, radius: radiusPx,
             originX: 'center', originY: 'center', stroke: color, strokeWidth: 1.2,
             fill: '', strokeDashArray: [4, 3], selectable: false, evented: false, objectCaching: false });
-        circ._measureDecor = true; circ._decorFor = mid;
+        circ._measureDecor = true; circ._decorFor = mid; circ._layerId = state.activeLayer;
         _isRestoring = true; fabricCanvas.add(circ); _isRestoring = false;
     }
 
@@ -2498,13 +2541,21 @@
         if (!v) return;
         const pv = parseFloat(v.pageVal), rv = parseFloat(v.realVal);
         if (!(pv > 0) || !(rv > 0)) { showToast('Enter valid numbers on both sides'); return; }
-        if (v.precision !== undefined) _measurePrecision = Math.max(0, Math.min(6, parseInt(v.precision, 10) || 2));
+        // Apply precision immediately and re-render (N3).
+        if (v.precision !== undefined) {
+            _measurePrecision = Math.max(0, Math.min(6, parseInt(v.precision, 10) || 2));
+            _recomputeAllOnPage();   // relabels every measurement at the new precision
+        }
+        const newScale = (1 / PT_PER_MM / UNIT_MM[v.pageUnit]) * (rv / pv);
+        // N2: if the scale value is unchanged (e.g. the user only touched
+        // precision), don't fire the "scale changed - recalculate?" prompt.
+        const scaleUnchanged = measureScale != null && v.realUnit === measureUnit
+            && Math.abs(newScale - measureScale) < 1e-9;
+        if (scaleUnchanged) { _updateScaleChip(); showToast('Updated'); return; }
         if (v.scope === 'all') {
             // Set the same scale on every page (M6 "apply to all").
-            const pagePerPx = 1 / PT_PER_MM / UNIT_MM[v.pageUnit];
-            const sc = pagePerPx * (rv / pv);
-            for (let i = 1; i <= (state.totalPages || 1); i++) _pageScales[i] = { scale: sc, unit: v.realUnit };
-            measureScale = sc; measureUnit = v.realUnit;
+            for (let i = 1; i <= (state.totalPages || 1); i++) _pageScales[i] = { scale: newScale, unit: v.realUnit };
+            measureScale = newScale; measureUnit = v.realUnit;
             _recomputeAllOnPage(); _updateScaleChip();
             showToast('Scale applied to all ' + (state.totalPages || 1) + ' pages');
         } else {
@@ -2700,6 +2751,8 @@
             // Kind-specific continuation text so it doesn't contradict the arming
             // hint (M19). Backspace removes the last point (M20).
             const cont = {
+                mlength:  'Length: click the second point to finish (Shift = straight/45 deg)',
+                mradius:  'Radius: click the edge to finish',
                 mpolylen: 'Polyline: click the next point - double-click or Enter to finish, Backspace to undo, Esc to cancel',
                 mperim:   'Perimeter: click the next corner - double-click or Enter to close, Backspace to undo, Esc to cancel',
                 marea:    'Area: click the next corner - double-click or Enter to close, Backspace to undo, Esc to cancel',
@@ -2944,11 +2997,16 @@
         // avoids double-counting (live + saved) and guarantees the page number
         // is the annotation key, not a stale value stored on the object.
         try { if (fabricCanvas) saveCurrentAnnotations(); } catch (_) {}
+        // Exclude measurements on hidden or deleted layers - they won't be saved
+        // into the PDF, so the on-screen takeoff must not count them (M31).
+        const hidden = new Set(state.layers.filter(l => !l.visible).map(l => l.id));
+        const live = new Set(state.layers.map(l => l.id));
+        const skipLayer = (o) => o._layerId !== undefined && (hidden.has(o._layerId) || !live.has(o._layerId));
         const rows = [];
         for (const [pgStr, entry] of Object.entries(state.annotations || {})) {
             const pg = parseInt(pgStr, 10);
             const objs = (entry && (entry.fabricData || entry).objects) || [];
-            objs.forEach((o) => { if (o._measure) rows.push({ ...o._measure, page: pg }); });
+            objs.forEach((o) => { if (o._measure && !skipLayer(o)) rows.push({ ...o._measure, page: pg }); });
         }
         rows.sort((a, b) => (a.page - b.page));
         return rows;
@@ -2959,12 +3017,18 @@
         if (m.area) return '²';
         return '';
     }
+    // Currency formatting with thousands separators (N5).
+    function _fmtMoney(n) {
+        return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
     function _fmtVal(m) {
         const P = _mPrecision();
         if (m.kind === 'mcount') return String(m.value);           // plain integer
         if (m.kind === 'mangle') return m.value.toFixed(P) + '°';  // unit already '°'
         if (m.kind === 'mradius') return 'R ' + m.value.toFixed(P) + ' ' + m.unit
             + ' / Ø ' + (m.diameter || m.value * 2).toFixed(P) + ' ' + m.unit;   // M14: unit on Ø
+        if (m.cubic) return m.value.toFixed(P) + ' ' + m.unit + '³'
+            + (m.depth ? ' (d ' + m.depth + ' ' + m.unit + ')' : '');            // M23: show depth in the list too
         return m.value.toFixed(P) + ' ' + m.unit + _unitSuffix(m);
     }
 
@@ -2977,11 +3041,20 @@
             body.innerHTML = '<div class="measure-empty">No measurements yet. Use the Measure tool for length, perimeter, area, angle, radius, volume or count.</div>';
             return;
         }
+        const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => (
+            { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+        const P = _mPrecision();
+        const sortMode = window._measureSort || 'page';
+        const filt = (window._measureFilter || '').toLowerCase();
+        const matches = (m) => !filt || (m.type + ' ' + (m.subject || '') + ' ' + (m.label || '') + ' p' + m.page).toLowerCase().includes(filt);
+        // The filter narrows the list AND the subtotals/totals/cost (M32), so what
+        // you see summed always matches the rows shown. `filteredRows` is the set.
+        const filteredRows = rows.filter(matches);
         // Groups keyed by Subject + TYPE + unit, so the same Subject on different
         // measurement types stays distinguishable (M15). Angles/radii are never
         // summed - we show count and min/max/avg instead (M11).
         const totals = {};
-        rows.forEach((m) => {
+        filteredRows.forEach((m) => {
             const grp = (m.subject || m.type);
             const uSuf = m.unit + _unitSuffix(m);
             const key = grp + '|' + m.type + '|' + uSuf;
@@ -2993,14 +3066,8 @@
             if (m.scaleAt != null) t.scales.add(+m.scaleAt.toFixed(6));
             if (m.unitCost != null) { t.hasCost = true; t.cost += m.value * m.unitCost; }
         });
-        const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => (
-            { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-        const P = _mPrecision();
         // Per-page subtotals + sortable rows. Sort key from the panel (default page).
-        const sortMode = window._measureSort || 'page';
-        const filt = (window._measureFilter || '').toLowerCase();
-        let shown = rows.map((m, i) => ({ m, i })).filter(({ m }) =>
-            !filt || (m.type + ' ' + (m.subject || '') + ' ' + (m.label || '') + ' p' + m.page).toLowerCase().includes(filt));
+        let shown = rows.map((m, i) => ({ m, i })).filter(({ m }) => matches(m));
         shown.sort((A, B) => {
             if (sortMode === 'type') return A.m.type.localeCompare(B.m.type) || A.m.page - B.m.page;
             if (sortMode === 'subject') return (A.m.subject || '').localeCompare(B.m.subject || '') || A.m.page - B.m.page;
@@ -3011,7 +3078,7 @@
         let lastPage = null;
         shown.forEach(({ m, i }) => {
             if (sortMode === 'page' && m.page !== lastPage) {
-                const pageRows = rows.filter(r => r.page === m.page);
+                const pageRows = filteredRows.filter(r => r.page === m.page);
                 html += `<div class="measure-subtotal">Sheet ${m.page} - ${pageRows.length} item${pageRows.length > 1 ? 's' : ''}</div>`;
                 lastPage = m.page;
             }
@@ -3038,12 +3105,12 @@
                 val = t.count === 1 ? t.min.toFixed(P) + u
                     : `min ${t.min.toFixed(P)} / max ${t.max.toFixed(P)} / avg ${(t.sum / t.count).toFixed(P)}${u}`;
             } else val = t.sum.toFixed(P) + ' ' + t.unit;
-            const cost = t.hasCost ? ` <span class="measure-cost">$${t.cost.toFixed(2)}</span>` : '';
+            const cost = t.hasCost ? ` <span class="measure-cost">${_fmtMoney(t.cost)}</span>` : '';
             html += `<div class="measure-total-row"><span>${escH(label)} (${t.count})${mixed}</span><b>${val}${cost}</b></div>`;
         });
         // Grand total cost across every group that has costs.
         const grand = Object.values(totals).reduce((s, t) => s + (t.hasCost ? t.cost : 0), 0);
-        if (grand > 0) html += `<div class="measure-total-row measure-grand"><span>Estimated cost</span><b>$${grand.toFixed(2)}</b></div>`;
+        if (grand > 0) html += `<div class="measure-total-row measure-grand"><span>Estimated cost</span><b>${_fmtMoney(grand)}</b></div>`;
         body.innerHTML = html;
         body.querySelectorAll('.measure-row[data-mid]').forEach((row) => {
             row.addEventListener('click', () => {
@@ -4019,9 +4086,13 @@
         const hidden = new Set(state.layers.filter(l => !l.visible).map(l => l.id));
         fabricCanvas.forEachObject((o) => {
             if (o.excludeFromExport) return;
-            o.visible = !(o._layerId !== undefined && hidden.has(o._layerId));
+            const layerHidden = o._layerId !== undefined && hidden.has(o._layerId);
+            // A measurement caption also stays hidden when labels are globally off.
+            const labelHidden = o._midLink && o.type === 'text' && _measureLabelsHidden;
+            o.visible = !layerHidden && !labelHidden;
         });
         fabricCanvas.renderAll();
+        if (window.renderMeasureList) window.renderMeasureList();   // list follows layer changes (M31)
     }
     window.pdfLayers = {
         list: () => state.layers.map(l => ({ ...l, active: l.id === state.activeLayer })),
@@ -4104,6 +4175,8 @@
                 const [vx2, vy2] = viewport.convertToViewportPoint(x2, y1);
                 const el = document.createElement('div');
                 el.className = 'pdf-link';
+                // Links must not steal clicks while a markup/measure tool is armed
+                // (N1) - the wrapper class gates their pointer-events via CSS.
                 el.style.cssText = 'position:absolute;cursor:pointer;z-index:40;' +
                     'left:' + Math.min(vx1, vx2) + 'px;top:' + Math.min(vy1, vy2) + 'px;' +
                     'width:' + Math.abs(vx2 - vx1) + 'px;height:' + Math.abs(vy2 - vy1) + 'px;';
@@ -7920,7 +7993,9 @@
             // Keyboard: Escape cancels, Enter confirms; focus the first field
             overlay.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') { e.preventDefault(); done(false); }
-                else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); done(true); }
+                // Enter submits - except from a textarea or a <select> (M30: Enter
+                // on a dropdown was submitting the Set Scale dialog).
+                else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'SELECT') { e.preventDefault(); done(true); }
             });
             const first = overlay.querySelector('input, select, textarea');
             if (first) first.focus();

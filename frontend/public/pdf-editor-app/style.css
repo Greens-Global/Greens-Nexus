@@ -3676,3 +3676,5 @@ html[data-theme="light"] {
 .measure-cost { color: #2f9e44; font-weight: 700; margin-left: 6px; }
 .measure-grand { border-top: 1px dashed var(--border); margin-top: 4px; padding-top: 6px; font-weight: 800; }
 .measure-grand b { color: #2f9e44; }
+/* N1: PDF links stop intercepting clicks while a markup/measure tool is armed */
+.markup-active .pdf-link { pointer-events: none !important; }
