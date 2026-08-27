@@ -647,7 +647,7 @@ def my_timesheet(start: str = "", end: str = "",
 
 # ── Manager / HR endpoints ────────────────────────────────────────────────────
 
-def _team_rows(db: Session, start: str, end: str, only_emails=None) -> list:
+def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixed: bool = False) -> list:
     rmin = _round_min(db)   # round like the pay engine so review == paid
     q = db.query(TimePunch).filter(TimePunch.voided == 0)
     if only_emails is not None:
@@ -674,14 +674,26 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None) -> list:
     # the sidebar, and search. No-punch people get a zero row (days={}), which
     # renders as N.A. Salaried leadership with time_tracking_exempt, and fixed
     # (non-hourly) pay types, stay out - they are not on the hourly timesheet.
-    def _is_hourly(em: str) -> bool:
+    def _in_roster(em: str) -> bool:
         r = _rates.get(em)
+        # time_tracking_exempt = opted off the clock entirely; always excluded.
+        if r is not None and getattr(r, "time_tracking_exempt", 0):
+            return False
+        # Fixed-salary people live on the MONTHLY salaried view, so the hourly
+        # roster normally leaves them out. The TEAM list passes include_fixed=True
+        # so payroll sees EVERY person (hourly + salaried) consistently, instead of
+        # only the salaried who happened to punch this period - that inconsistency
+        # is why Charmi (fixed, punches outside this period) and Sahil (fixed, no
+        # punches) vanished while Neil (fixed, punched in-period) still showed
+        # (Charmi, Aug 28). Exports/billable keep include_fixed=False = hourly only.
+        if include_fixed:
+            return True
         if r is None:
             return True   # no rate row yet = treated as hourly (default)
-        return (getattr(r, "pay_type", None) or "hourly") != "fixed" and not getattr(r, "time_tracking_exempt", 0)
+        return (getattr(r, "pay_type", None) or "hourly") != "fixed"
 
     roster = {(e.work_email or "").lower() for e in db.query(NexusEmployee).all()
-              if e.work_email and _is_hourly((e.work_email or "").lower())}
+              if e.work_email and _in_roster((e.work_email or "").lower())}
     if only_emails is not None:
         roster &= set(only_emails)
 
@@ -699,6 +711,9 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None) -> list:
             # Pending employee time-edits waiting on this approver - so the team list
             # flags who needs review without the approver opening every timecard.
             "pendingEdits": sum(1 for p in plist if p.edit_status == "pending" and p.pending_at),
+            # Salaried people appear on the team list too (include_fixed) - the UI
+            # badges them and opens their MONTHLY timecard instead of the hourly one.
+            "payType": (getattr(_rates.get(email), "pay_type", None) or "hourly") if _rates.get(email) else "hourly",
             "days": days,
         })
     return rows
@@ -707,7 +722,9 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None) -> list:
 @router.get("/team")
 def team_timesheet(start: str = "", end: str = "",
                    user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    rows = _team_rows(db, start, end, only_emails=_visible_emails(db, user))
+    # include_fixed: the team list shows salaried people too, so payroll sees the
+    # whole team consistently (Charmi, Aug 28), not only salaried who punched.
+    rows = _team_rows(db, start, end, only_emails=_visible_emails(db, user), include_fixed=True)
     # Legacy whole-range approvals (kept for old rows) …
     approvals = {a.employee_email: a for a in db.query(TimeApproval)
                  .filter(TimeApproval.period_start == start, TimeApproval.period_end == end,

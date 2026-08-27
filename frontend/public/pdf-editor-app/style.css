@@ -1,3 +1,14 @@
+/* Respect users who prefer reduced motion: cut animations/transitions so the
+   UI doesn't move or fade for them (accessibility). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ============================
    CSS Reset & Variables
    ============================ */
@@ -86,6 +97,26 @@ header.toolbar {
     display: none;
 }
 
+/* Toolbar hide/show (Pranshu): collapse the tool rows for more viewing space.
+   The main toolbar's left + center tools hide; the right section keeps the
+   toggle so the user can bring it back. The Adobe-style context bar (grouped
+   tool options) collapses too. The chevron flips to point down when hidden. */
+.toolbar-toggle {
+    margin-left: 2px;
+}
+body.toolbar-collapsed .toolbar-left,
+body.toolbar-collapsed .toolbar-center,
+body.toolbar-collapsed #toolOptions,
+body.toolbar-collapsed .adobe-ctx-bar {
+    display: none !important;
+}
+body.toolbar-collapsed .toolbar {
+    border-bottom-color: transparent;
+}
+body.toolbar-collapsed .toolbar-toggle svg {
+    transform: rotate(180deg);
+}
+
 .toolbar-left,
 .toolbar-center,
 .toolbar-right {
@@ -111,16 +142,16 @@ header.toolbar {
     font-weight: 700;
     font-size: 13px;
     color: var(--accent);
-    margin-right: 6px;
+    margin: 0 10px 0 2px;
     white-space: nowrap;
     flex-shrink: 0;
 }
 
 .separator {
     width: 1px;
-    height: 24px;
+    height: 32px;
     background: var(--border);
-    margin: 0 3px;
+    margin: 0 6px;
     flex-shrink: 0;
 }
 
@@ -253,7 +284,7 @@ header.toolbar {
     width: 18px;
     height: 18px;
     border-radius: 3px;
-    border: 1.5px solid var(--border);
+    border: 1px solid var(--border);
     cursor: pointer;
     transition: transform 0.1s, border-color 0.15s;
     flex-shrink: 0;
@@ -328,21 +359,38 @@ header.toolbar {
    Paint Options Bar
    ============================ */
 .paint-bar {
-    display: none;
+    /* A10: always occupy 40px (visibility, not display) so showing/hiding the
+       bar never reflows the canvas down ~36px under the cursor. */
+    display: flex;
+    visibility: hidden;
     align-items: center;
     gap: 8px;
-    padding: 4px 12px;
+    padding: 6px 14px;
     background: var(--bg-tertiary);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
     overflow-x: auto;
     scrollbar-width: none;
-    height: 36px;
-    min-height: 36px;
+    height: 40px;
+    min-height: 40px;
 }
+/* Dropdown menus (tool pickers) sit above the paint/tool-options bars so every
+   item stays reachable (the color occlusion is solved by the custom popover, so
+   the bars no longer need to out-stack the menus). */
+/* A1: custom color popover (replaces the fragile native picker) */
+.color-pop { position: fixed; z-index: 100000; background: var(--bg-panel, #fff); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.22); padding: 10px; width: 196px; }
+.color-pop .cp-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+.color-pop .cp-sw { width: 20px; height: 20px; border-radius: 5px; border: 1px solid rgba(0,0,0,.2); cursor: pointer; padding: 0; }
+.color-pop .cp-sw:hover { transform: scale(1.12); }
+.color-pop .cp-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-secondary); margin: 8px 0 4px; }
+.color-pop .cp-more { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; font-size: 12.5px; }
+.color-pop .cp-more label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.color-pop .cp-native { width: 34px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 5px; cursor: pointer; }
+/* Match every other slider in the app (was default native width + accent). */
+.paint-bar input[type="range"] { width: 90px; accent-color: var(--accent); }
 
 .paint-bar.visible {
-    display: flex;
+    visibility: visible;
 }
 
 .paint-section {
@@ -362,7 +410,7 @@ header.toolbar {
 
 .paint-sep {
     width: 1px;
-    height: 24px;
+    height: 20px;
     background: var(--border);
     flex-shrink: 0;
 }
@@ -466,6 +514,7 @@ header.toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 4px;
     padding: 8px 10px;
     font-size: 13px;
     font-weight: 600;
@@ -473,12 +522,15 @@ header.toolbar {
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
 }
+/* The title absorbs the free space so the two icon buttons group at the right
+   edge instead of the bookmarks icon drifting toward the middle. */
+.sidebar-header > span { flex: 1; }
 
 /* View Mode Switcher */
 .view-mode-bar {
     display: flex;
     gap: 2px;
-    padding: 4px 8px;
+    padding: 4px 10px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
 }
@@ -511,7 +563,7 @@ header.toolbar {
 .thumbnail-list {
     flex: 1;
     overflow-y: auto;
-    padding: 8px;
+    padding: 10px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -556,7 +608,7 @@ header.toolbar {
     flex-direction: row;
     align-items: center;
     gap: 8px;
-    padding: 4px 6px;
+    padding: 5px 8px;
     border-radius: 4px;
     background: var(--bg-tertiary);
     overflow: visible;
@@ -666,11 +718,11 @@ header.toolbar {
 }
 
 .thumbnail-item.drag-over-top {
-    border-top: 3px solid var(--accent);
+    border-top: 2px solid var(--accent);
 }
 
 .thumbnail-item.drag-over-bottom {
-    border-bottom: 3px solid var(--accent);
+    border-bottom: 2px solid var(--accent);
 }
 
 .thumbnail-item:active {
@@ -680,6 +732,16 @@ header.toolbar {
 .thumbnail-item canvas {
     width: 100%;
     display: block;
+    /* Sharpen scaled-down page thumbnails instead of a soft blur. */
+    image-rendering: -webkit-optimize-contrast;
+}
+
+.thumb-loading {
+    padding: 16px 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-align: center;
+    opacity: 0.75;
 }
 
 .thumbnail-label {
@@ -689,7 +751,7 @@ header.toolbar {
     right: 0;
     text-align: center;
     font-size: 10px;
-    padding: 2px;
+    padding: 3px 6px;
     background: rgba(0, 0, 0, 0.6);
     color: #fff;
 }
@@ -795,7 +857,11 @@ header.toolbar {
 }
 
 .nav-btn {
-    padding: 4px 12px;
+    height: 28px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border: 1px solid var(--border);
@@ -853,7 +919,9 @@ header.toolbar {
 
 #pdfCanvas {
     display: block;
-    box-shadow: var(--shadow);
+    /* Crisp 1px edge line + softer depth shadow so the white page reads sharply
+       against the dark canvas background instead of a soft blur. */
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.35), 0 4px 16px rgba(0,0,0,0.45);
     border-radius: 2px;
 }
 
@@ -894,7 +962,10 @@ header.toolbar {
     overflow: auto;
     display: flex;
     justify-content: center;
-    align-items: flex-start;
+    /* Center a short page so it doesn't leave a dead white band below it
+       (Pranshu). safe-start keeps a tall/scrolling document pinned to the top
+       so its first page is never clipped above the scroll area. */
+    align-items: safe center;
     padding: 20px;
 }
 
@@ -906,6 +977,9 @@ header.toolbar {
 .canvas-scroll-wrapper::-webkit-scrollbar-thumb {
     background: var(--bg-hover);
     border-radius: 4px;
+    /* Inset the thumb from the track edges for a cleaner, less heavy scrollbar. */
+    border: 2px solid var(--bg-primary);
+    background-clip: padding-box;
 }
 
 /* ============================
@@ -1265,6 +1339,10 @@ header.toolbar {
     z-index: 9999;
     min-width: 150px;
     padding: 4px 0;
+    /* A14: a tall menu (e.g. Measure, ~18 items) must scroll, not run off the
+       bottom of a short viewport with items unreachable. */
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
 }
 
 .dropdown-menu.open {
@@ -1317,7 +1395,7 @@ header.toolbar {
     background: var(--bg-primary);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: calc(var(--radius) - 3px);
     padding: 5px 8px;
     font-size: 13px;
     outline: none;
@@ -1354,8 +1432,12 @@ header.toolbar {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    width: 380px;
-    max-width: 90vw;
+    /* Pop-ups cover ~60% of the screen (Pranshu), clamped so they stay usable:
+       never narrower than 340px, never wider than 720px on large monitors. */
+    width: clamp(340px, 60vw, 720px);
+    max-width: 92vw;
+    max-height: 88vh;
+    overflow-y: auto;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
 }
 
@@ -1363,7 +1445,7 @@ header.toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px;
+    padding: 14px 16px;
     border-bottom: 1px solid var(--border);
     font-weight: 600;
     font-size: 14px;
@@ -1385,7 +1467,7 @@ header.toolbar {
     background: var(--bg-primary);
     color: var(--text-primary);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius);
     padding: 8px 10px;
     font-size: 14px;
     outline: none;
@@ -1393,6 +1475,7 @@ header.toolbar {
 
 .modal-input:focus {
     border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .modal-hint {
@@ -1405,7 +1488,7 @@ header.toolbar {
     display: flex;
     gap: 8px;
     justify-content: flex-end;
-    padding: 12px 16px;
+    padding: 14px 16px;
     border-top: 1px solid var(--border);
 }
 
@@ -1454,20 +1537,21 @@ header.toolbar {
    ============================ */
 .search-highlight {
     position: absolute;
-    /* Faint fill so the text stays fully readable, with a clear thin border
-       so the match is still easy to spot. */
-    background: rgba(255, 235, 59, 0.22);
-    border: 1px solid rgba(255, 193, 7, 0.7);
+    /* Clear yellow fill so matches are obvious at a glance (Pranshu: matches
+       were barely visible). mix-blend keeps the underlying text readable. */
+    background: rgba(255, 214, 0, 0.5);
+    border: 1px solid rgba(240, 170, 0, 0.85);
     border-radius: 3px;
+    mix-blend-mode: multiply;
     pointer-events: none;
     z-index: 50;
 }
 
 .search-highlight.active {
-    /* Current match: a touch stronger + orange border so it stands out from
-       the other matches, but still light enough to read through. */
-    background: rgba(255, 152, 0, 0.28);
-    border-color: rgba(255, 138, 0, 0.9);
+    /* Current match: strong orange so it clearly stands out from the rest. */
+    background: rgba(255, 145, 0, 0.6);
+    border-color: rgba(230, 110, 0, 1);
+    box-shadow: 0 0 0 2px rgba(255, 145, 0, 0.35);
 }
 
 /* ============================
@@ -1858,6 +1942,7 @@ header.toolbar {
    ============================ */
 .dropdown-group-label {
     padding: 4px 14px 2px;
+    margin-top: 4px;
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -1996,7 +2081,7 @@ header.toolbar {
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin-bottom: 4px;
+    margin-bottom: 8px;
 }
 
 .ai-edit-preview {
@@ -2284,7 +2369,6 @@ html[data-theme="light"] {
 /* Status bar: subtle top divider + muted gradient */
 .status-bar {
     background: linear-gradient(180deg, var(--bg-primary), var(--bg-secondary));
-    border-top: 1px solid var(--border);
 }
 
 /* Sidebar depth */
@@ -2315,7 +2399,7 @@ html[data-theme="light"] {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 6px 14px;
+    padding: 8px 14px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
@@ -2333,7 +2417,7 @@ html[data-theme="light"] {
 }
 .adobe-ctx-close:hover { background: var(--bg-hover); color: var(--text-primary); }
 .adobe-ctx-title { font-size: 13px; font-weight: 800; letter-spacing: 0.2px; }
-.adobe-ctx-groups { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.adobe-ctx-groups { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .adobe-ctx-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 .adobe-tools-panel {
@@ -2345,20 +2429,62 @@ html[data-theme="light"] {
     padding: 12px 10px;
 }
 .adobe-tools-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     font-size: 10.5px;
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.8px;
     color: var(--text-secondary);
-    padding: 0 8px 10px;
+    padding: 2px 6px 12px 10px;
 }
+.adobe-tools-collapse {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.14s, color 0.14s;
+}
+.adobe-tools-collapse:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* Collapsed: hide the whole tools panel for more document viewing space. */
+.adobe-tools-panel.collapsed { display: none; }
+
+/* Floating tab to re-open the tools panel when collapsed. */
+.adobe-tools-reopen {
+    position: absolute;
+    top: 14px;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 40px;
+    border: 1px solid var(--border);
+    border-right: none;
+    border-radius: 8px 0 0 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    z-index: 40;
+    box-shadow: -2px 0 8px rgba(0,0,0,0.12);
+    transition: color 0.14s, background 0.14s;
+}
+.adobe-tools-reopen:hover { color: var(--text-primary); background: var(--bg-hover); }
 .adobe-tool-item {
     display: flex;
     align-items: center;
     gap: 10px;
     width: 100%;
     padding: 9px 10px;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
     border: none;
     border-radius: 10px;
     background: transparent;
@@ -2368,7 +2494,9 @@ html[data-theme="light"] {
     font-family: inherit;
 }
 .adobe-tool-item:hover { background: var(--bg-hover); }
-.adobe-tool-item.active { background: var(--bg-tertiary); outline: 1.5px solid var(--accent); }
+/* Inset ring follows the 10px radius and stays inside the box, unlike a square
+   outline that clipped the corners and could touch the panel edge. */
+.adobe-tool-item.active { background: var(--bg-tertiary); box-shadow: inset 0 0 0 1px var(--accent); }
 .adobe-tool-ic {
     display: inline-flex;
     align-items: center;
@@ -2379,10 +2507,11 @@ html[data-theme="light"] {
     flex-shrink: 0;
 }
 .adobe-tool-tx { min-width: 0; display: block; }
-.adobe-tool-tx b { display: block; font-size: 12.5px; font-weight: 700; }
+.adobe-tool-tx b { display: block; font-size: 12.5px; font-weight: 700; line-height: 1.3; margin-bottom: 1px; }
 .adobe-tool-tx small {
     display: block;
     font-size: 10.5px;
+    line-height: 1.3;
     color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
@@ -2392,6 +2521,8 @@ html[data-theme="light"] {
     .adobe-tools-panel { width: 64px; }
     .adobe-tool-tx { display: none; }
     .adobe-tools-head { display: none; }
+    /* Center the icon in the collapsed rail (no text beside it). */
+    .adobe-tool-item { justify-content: center; padding: 9px; }
 }
 
 /* ── Floating page bar (Acrobat-style pill over the document) ───────────── */
@@ -2408,7 +2539,6 @@ html[data-theme="light"] {
     border-radius: 999px;
     background: var(--bg-secondary);
     box-shadow: 0 6px 24px rgba(0,0,0,0.45);
-    border-bottom: 1px solid var(--border);
 }
 .page-nav .nav-btn {
     border: none;
@@ -2427,15 +2557,28 @@ html[data-theme="light"] {
 .page-nav .nav-btn:hover { background: var(--bg-hover); }
 .page-nav .page-info { gap: 5px; padding: 0 6px; }
 .page-nav .page-info .page-sep { color: var(--text-secondary); font-size: 12px; }
-.page-nav #pageInput { border: 1px solid transparent; background: var(--bg-tertiary); border-radius: 7px; }
+.page-nav #pageInput { border: 1px solid transparent; background: var(--bg-tertiary); border-radius: 7px; height: 30px; padding: 0 4px; }
 .page-nav .zoom-controls {
     margin-left: 0;
     gap: 2px;
     padding-left: 8px;
     border-left: 1px solid var(--border);
 }
-.page-nav #zoomFit { font-size: 11.5px; font-weight: 600; }
 .page-nav #zoomLevel { min-width: 44px; }
+/* Compact icon buttons for Fit-width / Fit-page / Scroll (were wide text
+   labels). Square, icon-centered - saves toolbar space. */
+.page-nav .nav-icon-btn {
+    min-width: 30px;
+    width: 30px;
+    padding: 0;
+    color: var(--text-secondary);
+}
+.page-nav .nav-icon-btn:hover { color: var(--text-primary); }
+/* Active view mode (e.g. Scroll on) reads as pressed. */
+.page-nav .nav-icon-btn.active {
+    background: var(--accent);
+    color: #fff;
+}
 @media (max-width: 600px) {
     .page-nav { flex-wrap: nowrap; bottom: 10px; }
 }
@@ -2489,7 +2632,7 @@ html[data-theme="light"] {
 .thumbnail-list.view-icons {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    gap: 10px;
     padding: 10px;
     align-content: start;
 }
@@ -2549,6 +2692,8 @@ html[data-theme="light"] {
     background: var(--bg-tertiary);
     border-radius: 8px;
     padding: 6px 11px;
+    min-height: 28px;
+    line-height: 1;
 }
 .adobe-ctx-group .tool-btn span { display: inline; }
 .adobe-ctx-group .tool-btn:hover:not(:disabled) {
@@ -2585,9 +2730,9 @@ html[data-theme="light"] {
 .welcome-btn.primary:hover { background: var(--accent-hover); }
 
 /* ── Contextual bar: tinted title chip + smoother look ──────────────────── */
-.adobe-ctx-bar { box-shadow: 0 2px 8px rgba(0,0,0,0.18); }
+.adobe-ctx-bar { box-shadow: 0 1px 3px rgba(0,0,0,0.10); }
 .adobe-ctx-title {
-    padding: 4px 12px;
+    padding: 6px 12px;
     border-radius: 999px;
     background: color-mix(in srgb, currentColor 14%, transparent);
     font-size: 12.5px;
@@ -2600,10 +2745,15 @@ html[data-theme="light"] {
 
 /* ── Professional top bar ────────────────────────────────────────────────── */
 .toolbar {
+    /* height:auto lets min-height:52px take effect - the base rule sets a fixed
+       46px height that otherwise squeezes the buttons against the edges. */
+    height: auto;
     min-height: 52px;
     padding: 0 14px;
     background: linear-gradient(180deg, var(--bg-secondary), color-mix(in srgb, var(--bg-secondary) 92%, #000));
-    box-shadow: 0 1px 0 var(--border), 0 3px 10px rgba(0,0,0,0.22);
+    /* Only the depth shadow - the solid border-bottom is the single crisp edge
+       (the old 0 1px 0 layer painted a doubled hairline). */
+    box-shadow: 0 3px 10px rgba(0,0,0,0.22);
     align-items: center;
 }
 /* Open + Close show their labels — primary document actions read as buttons */
@@ -2625,7 +2775,7 @@ html[data-theme="light"] {
     border: 1px solid var(--border);
     background: var(--bg-tertiary);
     width: 32px;
-    height: 30px;
+    height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2665,8 +2815,8 @@ html[data-theme="light"] {
 .toolbar-right .tool-btn:not(.save-pdf-btn) {
     border: 1px solid transparent;
     border-radius: 8px;
-    width: 34px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2694,8 +2844,8 @@ html[data-theme="light"] {
     cursor: pointer;
     padding: 0;
 }
-.ctx-history-btn:first-child { border-radius: 7px 0 0 7px; border-right: none; }
-.ctx-history-btn:last-child { border-radius: 0 7px 7px 0; }
+.ctx-history-btn:first-child { border-radius: 8px 0 0 8px; border-right: none; }
+.ctx-history-btn:last-child { border-radius: 0 8px 8px 0; }
 .ctx-history-btn:hover:not(:disabled) { background: var(--bg-hover); }
 .ctx-history-btn:disabled { opacity: 0.35; cursor: default; }
 
@@ -2753,7 +2903,9 @@ html[data-theme="light"] {
     justify-content: center;
     gap: 0;
     width: 100%;
-    padding: clamp(16px, 1.6vw, 22px) 24px;
+    /* Tighter vertical padding so the dropzone isn't a tall near-empty box
+       (Pranshu); horizontal padding (width) is unchanged. */
+    padding: clamp(10px, 1vw, 14px) 24px;
     background:
         radial-gradient(120% 100% at 50% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
         var(--bg-secondary);
@@ -2790,14 +2942,14 @@ html[data-theme="light"] {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 52px;
-    height: 52px;
-    margin: 0 0 11px;
-    border-radius: 15px;
+    width: 46px;
+    height: 46px;
+    margin: 0 0 8px;
+    border-radius: 14px;
     background: color-mix(in srgb, var(--accent) 14%, var(--bg-primary));
     color: var(--accent);
 }
-.welcome-drop-ic svg { width: 26px; height: 26px; }
+.welcome-drop-ic svg { width: 24px; height: 24px; }
 
 .welcome-drop-txt {
     display: flex;
@@ -2809,8 +2961,8 @@ html[data-theme="light"] {
 .welcome-drop-s { font-size: 13.5px; }
 
 .welcome-drop-btn {
-    margin: 14px 0 0;
-    padding: 12px 38px;
+    margin: 10px 0 0;
+    padding: 11px 38px;
     border-radius: 12px;
     /* Slightly darker at the bottom for depth, so the primary action pops
        against the tinted panel instead of blending into the accent wash. */
@@ -2827,12 +2979,30 @@ html[data-theme="light"] {
 }
 
 .welcome-drop-hint {
-    margin: 12px 0 0;
+    margin: 9px auto 0;
     font-size: 12.5px;
     color: var(--text-secondary);
     opacity: 0.7;
-    max-width: none;
+    /* Keep the hint on one line (no wasted second row). It only wraps if the
+       viewport is genuinely too narrow to fit it. */
+    max-width: 100%;
+    text-align: center;
+    line-height: 1.4;
     white-space: nowrap;
+}
+/* Allow wrapping only on truly narrow screens so it never overflows the card. */
+@media (max-width: 640px) {
+    .welcome-drop-hint { white-space: normal; }
+}
+
+/* Keyboard focus rings - the landing buttons had only the near-invisible UA
+   default against their tinted backgrounds (audit finding). Purely additive. */
+.welcome-card:focus-visible,
+.welcome-drop:focus-visible,
+.welcome-edit-btn:focus-visible,
+.welcome-dir-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
 }
 
 .welcome-drop:hover,
@@ -2892,16 +3062,17 @@ html[data-theme="light"] {
     box-shadow: 0 4px 12px rgba(0,0,0,0.12);
     transition: transform 0.18s cubic-bezier(.2,.7,.3,1), box-shadow 0.18s;
 }
-.welcome-card-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.welcome-card-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .welcome-card-tx { font-size: 14px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; line-height: 1.2; }
 .welcome-card-desc { font-size: 11.5px; color: var(--text-secondary); line-height: 1.3; }
 .welcome-card-caret { font-size: 10px; opacity: 0.5; }
 
 /* Stack the two panels on narrow widths (phones, split editor) */
 @media (max-width: 860px) {
-    .welcome-shell { grid-template-columns: 1fr; }
-    .welcome-drop { padding: 26px 18px; }
-    .welcome-drop-ic { width: 64px; height: 64px; }
+    /* .welcome-shell is already a flex column, so grid-template-columns was a
+       no-op - removed. Keep the drop/icon sizes in step with the tightened base. */
+    .welcome-drop { padding: 14px 18px; }
+    .welcome-drop-ic { width: 52px; height: 52px; }
 }
 /* When the whole landing is cramped (narrow iframe / phone), one card per row. */
 @media (max-width: 560px) {
@@ -2997,8 +3168,8 @@ html[data-theme="light"] {
 .stamp-date-row {
     display: flex;
     align-items: center;
-    gap: 7px;
-    padding: 7px 14px;
+    gap: 8px;
+    padding: 8px 14px;
     font-size: 12px;
     color: var(--text-primary);
     cursor: pointer;
@@ -3063,7 +3234,8 @@ html[data-theme="light"] {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 12px;
+    padding: 6px 12px;
+    min-height: 28px;
     border-radius: 8px;
     border: 1px solid var(--border);
     background: var(--bg-tertiary);
@@ -3185,7 +3357,7 @@ html[data-theme="light"] {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    border: 1.5px solid var(--border);
+    border: 1px solid var(--border);
     display: inline-block;
     background: #000;
 }
@@ -3475,3 +3647,78 @@ html[data-theme="light"] {
 .i2p-create { background: linear-gradient(135deg, #6a5cff, #9b6cff); color: #fff; box-shadow: 0 6px 16px rgba(106,92,255,0.32); }
 .i2p-create:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
 .i2p-create:not(:disabled):hover { transform: translateY(-1px); }
+
+/* Measurements list + totals panel (takeoff) - floats bottom-right. */
+.measure-list-panel {
+    position: fixed; right: 16px; bottom: 56px;
+    width: 280px; max-height: 60vh;
+    display: flex; flex-direction: column;
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+    z-index: 300; overflow: hidden;
+}
+.measure-list-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; font-weight: 700; font-size: 13px;
+    border-bottom: 1px solid var(--border); background: var(--bg-tertiary);
+}
+.measure-list-actions { display: flex; gap: 4px; }
+.measure-list-actions .icon-btn { font-size: 11px; font-weight: 700; padding: 3px 7px; }
+.measure-list-body { overflow-y: auto; padding: 6px 4px; }
+.measure-empty { padding: 16px 12px; font-size: 12px; color: var(--text-secondary); text-align: center; line-height: 1.4; }
+.measure-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12.5px; border-radius: 6px; cursor: pointer; }
+.measure-row:hover { background: var(--bg-hover); }
+.measure-swatch { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(0,0,0,0.15) inset; }
+.measure-row-type { flex: 1; font-weight: 600; }
+.measure-row-page { color: var(--text-secondary); font-size: 11px; }
+.measure-row-val { font-variant-numeric: tabular-nums; }
+.measure-totals-head { margin: 8px 10px 4px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-secondary); }
+.measure-total-row { display: flex; justify-content: space-between; padding: 4px 10px; font-size: 12.5px; gap: 8px; }
+.measure-total-row b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Measurement list tools (filter + sort) */
+.measure-list-tools { display: flex; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.measure-filter-input { flex: 1; min-width: 0; padding: 4px 8px; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input, #fff); color: inherit; }
+.measure-sort-select { padding: 4px 6px; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input, #fff); color: inherit; }
+.measure-row-head { font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: .5px; color: var(--text-secondary); cursor: default; }
+.measure-row-head:hover { background: none; }
+.measure-subtotal { padding: 6px 10px 2px; font-size: 10.5px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .4px; }
+.measure-flag { color: #e8590c; font-weight: 700; font-size: 11px; }
+/* Right-click context menu on a measurement row */
+.measure-ctx { background: var(--bg-panel, #fff); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 4px; min-width: 150px; }
+.measure-ctx button { display: block; width: 100%; text-align: left; padding: 7px 10px; font-size: 13px; border: none; background: none; border-radius: 5px; cursor: pointer; color: inherit; }
+.measure-ctx button:hover { background: var(--bg-hover); }
+.measure-ctx button.danger { color: #e03131; }
+/* Live scale chip in the status bar (M6) */
+.scale-chip { display: inline-flex; align-items: center; gap: 6px; margin: 0 10px; padding: 2px 10px; font-size: 11.5px; font-weight: 600; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-hover, #eef); color: inherit; cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.scale-chip:hover { border-color: #1971c2; }
+.scale-chip-unset { color: #e8590c; border-color: #e8590c; }
+.measure-cost { color: #2f9e44; font-weight: 700; margin-left: 6px; }
+.measure-grand { border-top: 1px dashed var(--border); margin-top: 4px; padding-top: 6px; font-weight: 800; }
+.measure-grand b { color: #2f9e44; }
+/* S11: general markups list rows */
+.markup-row { cursor: pointer; }
+.markup-kind { flex: 0 0 auto; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: #fff; background: #6b7280; border-radius: 4px; padding: 1px 5px; }
+/* S8: search options + results list */
+.search-opt { border: 1px solid var(--border); background: var(--bg-input, #fff); color: inherit; border-radius: 5px; font-size: 12px; font-weight: 700; padding: 2px 6px; cursor: pointer; min-width: 26px; }
+.search-opt.active { background: #1971c2; color: #fff; border-color: #1971c2; }
+/* Results panel floats under the (fixed) search bar - fixed too, so it never
+   pushes the app layout. Do NOT override .search-bar's own position:fixed here
+   (that made the whole bar flow inline and shove the UI up ~32px on file drop). */
+.search-results { position: fixed; z-index: 9998; max-height: 320px; overflow-y: auto; width: 320px; background: var(--bg-panel, #fff); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.18); right: 16px; top: 92px; }
+.sr-page { position: sticky; top: 0; background: var(--bg-hover, #eef); font-size: 11px; font-weight: 700; padding: 5px 10px; color: var(--text-secondary); }
+.sr-row { padding: 7px 10px; font-size: 12.5px; cursor: pointer; border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr-row:hover { background: var(--bg-hover); }
+.sr-row.active { background: rgba(25,113,194,.14); font-weight: 600; }
+.sr-empty { padding: 14px; text-align: center; color: var(--text-secondary); font-size: 12.5px; }
+/* S9: Tool Chest presets */
+.tool-chest { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.tool-chest-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--text-secondary); }
+.tool-chest-chips { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
+.tool-chest-empty { font-size: 11px; color: var(--text-secondary); }
+.tool-chest-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; border: 1px solid var(--border); background: var(--bg-input, #fff); color: inherit; border-radius: 12px; padding: 2px 9px; cursor: pointer; }
+.tool-chest-chip.active { border-color: #1971c2; box-shadow: 0 0 0 1px #1971c2 inset; }
+.tool-chest-chip .tc-dot { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.15) inset; }
+.tool-chest-add { font-size: 11.5px; font-weight: 600; border: 1px dashed var(--border); background: none; color: inherit; border-radius: 12px; padding: 2px 9px; cursor: pointer; }
+.tool-chest-add:hover { border-color: #1971c2; color: #1971c2; }
+/* N1: PDF links stop intercepting clicks while a markup/measure tool is armed */
+.markup-active .pdf-link { pointer-events: none !important; }

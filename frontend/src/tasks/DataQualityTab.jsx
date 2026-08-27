@@ -92,9 +92,27 @@ function GapRow({ t, gaps, store, onOpen }) {
   );
 }
 
+// A chip that's a live filter, not a label - the base pill styling stays the
+// same shape whether it's the neutral "N tasks with gaps" one or one of the
+// amber "N missing X" ones; only the selected state and pointer feedback move.
+function FilterChip({ label, active, color, tint, onClick }) {
+  return (
+    <button type="button" onClick={onClick} style={{
+      ...chip(active ? '#fff' : color, active ? color : tint),
+      border: 'none', cursor: 'pointer', fontFamily: FONT,
+      boxShadow: active ? `0 0 0 2px ${color}55` : 'none',
+    }}>{label}</button>
+  );
+}
+
 export default function DataQualityTab({ store }) {
   const { tasks } = store;
   const [openId, setOpenId] = useState(null);
+  // null = every gap type (the default, "N tasks with gaps" chip). Set to a
+  // GAP_DEFS key to narrow the list to just that gap - Neil's original ask
+  // ("filter by all tasks with no due date") for each field, from one screen
+  // instead of four separate saved filters.
+  const [filterKey, setFilterKey] = useState(null);
 
   // Completed work is done - a finished task missing a due date isn't a
   // process gap anyone needs to chase down.
@@ -108,7 +126,11 @@ export default function DataQualityTab({ store }) {
     return out.sort((a, b) => String(a.t.title || '').localeCompare(String(b.t.title || ''), 'en', { sensitivity: 'base' }));
   }, [tasks]);
 
+  // Counts always reflect the FULL gap set, not the current filter - so every
+  // chip's number stays put while you click between them, instead of the row
+  // you just filtered to reading "0 missing X" everywhere else.
   const countFor = (key) => rows.reduce((n, r) => n + (r.gaps.some((g) => g.key === key) ? 1 : 0), 0);
+  const filteredRows = filterKey ? rows.filter((r) => r.gaps.some((g) => g.key === filterKey)) : rows;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -119,13 +141,16 @@ export default function DataQualityTab({ store }) {
         </div>
         <div style={{ fontSize: 13, color: NX.dim, marginBottom: 12 }}>
           Every open task, company-wide, missing a Due Date, Project, Priority, or Team - fix any of them
-          right here without opening the task.
+          right here without opening the task. Click a count below to narrow the list to just that gap.
         </div>
         {rows.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-            <span style={{ ...chip(NX.dim, NX.border2), fontWeight: 700 }}>{rows.length} task{rows.length === 1 ? '' : 's'} with gaps</span>
+            <FilterChip label={`${rows.length} task${rows.length === 1 ? '' : 's'} with gaps`}
+              active={!filterKey} color={NX.dim} tint={NX.border2} onClick={() => setFilterKey(null)} />
             {GAP_DEFS.map((g) => countFor(g.key) > 0 && (
-              <span key={g.key} style={chip(NX.amber, 'rgba(217,119,6,0.12)')}>{countFor(g.key)} missing {g.label}</span>
+              <FilterChip key={g.key} label={`${countFor(g.key)} missing ${g.label}`}
+                active={filterKey === g.key} color={NX.amber} tint="rgba(217,119,6,0.12)"
+                onClick={() => setFilterKey((k) => (k === g.key ? null : g.key))} />
             ))}
           </div>
         )}
@@ -144,7 +169,7 @@ export default function DataQualityTab({ store }) {
             }}>
               <span>Task</span><span>Missing</span><span>Due Date</span><span>Project</span><span>Priority</span><span>Team</span>
             </div>
-            {rows.map(({ t, gaps }) => <GapRow key={t.id} t={t} gaps={gaps} store={store} onOpen={setOpenId} />)}
+            {filteredRows.map(({ t, gaps }) => <GapRow key={t.id} t={t} gaps={gaps} store={store} onOpen={setOpenId} />)}
           </>
         )}
       </div>

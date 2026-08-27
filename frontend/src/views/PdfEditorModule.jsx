@@ -26,11 +26,17 @@ const nexusTheme = () =>
 // Nexus - computed once at module scope, which is fine because later changes go
 // over postMessage (see below); putting live theme in src would remount the
 // iframe and discard the open document.
-const EDITOR_SRC = `/pdf-editor-app/index.html?v=${import.meta.env.VITE_BUILD_ID || 'dev'}`
+// Cache-bust the iframe. In production use the stable build id (so the editor
+// caches well); in dev fall back to a per-load timestamp so a hard refresh
+// always pulls the latest editor code instead of a stale cached index.html
+// (which was serving old app.js/style.css even after bumping their ?v=).
+const EDITOR_BUILD = import.meta.env.VITE_BUILD_ID || `dev-${Date.now()}`;
+const EDITOR_SRC = `/pdf-editor-app/index.html?v=${EDITOR_BUILD}`
   + `&theme=${nexusTheme()}`;
 
 export default function PdfEditorModule() {
   const [hasDoc, setHasDoc] = useState(false);
+  const [ready, setReady] = useState(false);   // iframe finished loading
   const frameRef = useRef(null);
 
   // Keep the engine's theme locked to Nexus's (owner request Jul 30: consistent
@@ -84,12 +90,23 @@ export default function PdfEditorModule() {
           </div>
         </header>
       )}
+      {/* Loading cover: hide the iframe until it has fully loaded, so the user
+          never sees the editor flash a half-rendered / bfcache state for a
+          moment when entering the module. Fades out once onLoad fires. */}
+      {!ready && (
+        <div className="pdf-editor-loading" aria-hidden="true">
+          <span className="pdf-editor-spinner" />
+          <span>Loading PDF Tools…</span>
+        </div>
+      )}
       <iframe
         ref={frameRef}
         src={EDITOR_SRC}
         title="PDF Tools"
         allow="clipboard-write"
+        style={{ opacity: ready ? 1 : 0 }}
         onLoad={() => {
+          setReady(true);
           // Re-assert on load: the mount-time push can land before the engine
           // has attached its listener.
           try {

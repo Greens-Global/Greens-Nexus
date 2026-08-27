@@ -544,6 +544,7 @@ export default function RolesAccess({ embedded = false }) {
       {sub === 'groups' && (
         !groups ? <Spinner /> : (
           <>
+            <CompanyWallsPanel toastOk={toastOk} toastErr={toastErr} />
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
               <button className="primary-btn" data-tour="new-group" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditGroup(null)}><Plus size={15} /> New group</button>
             </div>
@@ -552,6 +553,11 @@ export default function RolesAccess({ embedded = false }) {
                 <div key={g.id} style={{ background: 'var(--card)', border: '1px dashed var(--line-strong,var(--line))', borderRadius: 14, padding: '14px 16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                     <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>+ {g.name}</span>
+                    {g.is_global_admin
+                      ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(230,50%,55%,0.14)', color: 'hsl(230,45%,50%)' }}>Global Admins</span>
+                      : g.company_id
+                        ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))' }}>{companies.find(c => c.id === g.company_id)?.name || 'Company role'}</span>
+                        : null}
                     <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{(g.members || []).length} {(g.members || []).length === 1 ? 'person' : 'people'}</span>
                     <button className="secondary-btn" style={{ padding: '5px 9px' }} onClick={() => setEditGroup(g)} title="Edit group"><Pencil size={13} /></button>
                     <button className="secondary-btn" style={{ padding: '5px 9px' }} onClick={() => onDeleteGroup(g)} title="Delete group"><Trash2 size={13} /></button>
@@ -1305,17 +1311,65 @@ function RoleEditor({ role, jobRoles = [], onClose, onSaved, onErr }) {
 }
 
 // ── group editor (additive groups: name + module bundle, no tier) ─────────────
+// ── Company walls: the master arm switch (multi-company isolation) ────────────
+function CompanyWallsPanel({ toastOk, toastErr }) {
+  const [state, setState] = useState(null);   // {on, globalAdminGroups, globalAdmins}
+  const [busy, setBusy] = useState(false);
+  const load = () => api.getCompanyWalls().then(setState).catch(() => setState(null));
+  useEffect(() => { load(); }, []);
+  if (state === null) return null;   // hidden for non-admins / when unavailable
+  const noGlobals = !state.globalAdmins;
+  async function toggle() {
+    const on = !state.on;
+    const msg = on
+      ? `Turn the company walls ON? Every company becomes private - people, tasks and tickets only show within someone's own company, and only Global Admins see across.${noGlobals ? '\n\nHeads up: no Global Admins are set yet. Mark a group "Global Admins" and add yourself first, or you could lose your org-wide view.' : ''}`
+      : 'Turn the company walls OFF? Everyone goes back to seeing across all companies.';
+    if (!await dialog.confirm(msg, { title: on ? 'Arm company walls' : 'Disarm company walls', confirmText: on ? 'Arm walls' : 'Disarm' })) return;
+    setBusy(true);
+    try { await api.setCompanyWalls(on); toastOk(on ? 'Company walls armed.' : 'Company walls disarmed.'); load(); }
+    catch (e) { toastErr(e?.message || 'Could not change the walls.'); }
+    setBusy(false);
+  }
+  return (
+    <div style={{ border: `1px solid ${state.on ? 'hsl(var(--color-green))' : 'var(--line)'}`, background: state.on ? 'hsla(var(--color-green),0.05)' : 'var(--card)', borderRadius: 14, padding: '14px 18px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+      <div style={{ flex: 1, minWidth: 260 }}>
+        <div style={{ fontWeight: 800, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Shield size={15} /> Company walls
+          {state.on ? <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-green))' }}>ON</span>
+            : <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>OFF</span>}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+          {state.on ? 'Each company is private - staff only see their own company.' : 'Off - everyone sees across all companies.'}
+          {` · ${state.globalAdmins} global admin${state.globalAdmins === 1 ? '' : 's'}`}
+          {noGlobals && <span style={{ color: '#b45309', fontWeight: 600 }}> · none set yet</span>}
+        </div>
+      </div>
+      <button className={state.on ? 'secondary-btn' : 'primary-btn'} disabled={busy} onClick={toggle} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />}
+        {state.on ? 'Disarm' : 'Arm walls'}
+      </button>
+    </div>
+  );
+}
+
+
 function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
   const [name, setName] = useState(group?.name || '');
   const [bundle, setBundle] = useState(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])));
+  const [companyId, setCompanyId] = useState(group?.company_id || '');
+  const [globalAdmin, setGlobalAdmin] = useState(!!group?.is_global_admin);
+  const [companies, setCompanies] = useState([]);
   const [busy, setBusy] = useState(false);
+  useEffect(() => { api.getEntities().then(list => setCompanies(list || [])).catch(() => setCompanies([])); }, []);
   const initialBundle = useMemo(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])), [group]);
-  const dirty = name !== (group?.name || '') || JSON.stringify(bundle) !== JSON.stringify(initialBundle);
+  const dirty = name !== (group?.name || '') || JSON.stringify(bundle) !== JSON.stringify(initialBundle)
+    || companyId !== (group?.company_id || '') || globalAdmin !== !!group?.is_global_admin;
 
   async function save() {
     if (!name.trim()) return onErr('Name is required.');
     setBusy(true);
-    const body = { name: name.trim(), allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })) };
+    const body = { name: name.trim(), allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })),
+      company_id: globalAdmin ? '' : companyId, is_global_admin: globalAdmin };
     try {
       const saved = group ? await api.updateGroup(group.id, body) : await api.createGroup(body);
       onSaved(saved);
@@ -1327,6 +1381,24 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label style={fieldLabel}>Name
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Accounting - Viewer" style={input} /></label>
+        {/* Multi-company walls: bind this group to a company (a per-company role) or
+            mark it the Global Admins group (members see past every company wall). */}
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={{ ...fieldLabel, flex: 1, minWidth: 220, opacity: globalAdmin ? 0.5 : 1 }}>Company (per-company role)
+            <select value={companyId} onChange={e => setCompanyId(e.target.value)} disabled={globalAdmin} style={input}>
+              <option value="">Org-wide (no company)</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select></label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, padding: '9px 0' }}>
+            <input type="checkbox" checked={globalAdmin} onChange={e => setGlobalAdmin(e.target.checked)} />
+            Global Admins (sees every company)
+          </label>
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: -6 }}>
+          {globalAdmin ? 'Members are unrestricted across all companies - the only role that sees past the walls.'
+            : companyId ? 'Members are confined to this company once the walls are armed.'
+            : 'Org-wide group - members are placed by their own company (or the Global Admins group).'}
+        </div>
         <div>
           <div style={{ ...sectLabel, marginTop: 4 }}>Modules this group grants</div>
           <BundleEditor bundle={bundle} setBundle={setBundle} inheritSources={jobRoles || []} />

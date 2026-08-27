@@ -66,6 +66,8 @@ def _require_ticket_participant(db: Session, user: dict, t) -> None:
     """A ticket's own requester/watchers/assignee may read and comment on it
     without any module grant - it is their support request. Everyone else needs
     the desk grant."""
+    import auth   # company wall: another company's ticket is 404 (before any grant)
+    auth.assert_company(getattr(t, "company_id", "") or "", user, db)
     if _has_desk_grant(user, db):
         return
     if (user.get("email") or "").lower() in _ticket_participants(t):
@@ -335,6 +337,13 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     filter would still ship all of them to an employee's browser. Default is
     unchanged, so the Tickets module is unaffected."""
     rows = db.query(models.TaskTicket).all()
+    # Company wall (Aug 2026): once armed, the desk queue is confined to the
+    # caller's own companies - a ticket carries the requester's company_id, and a
+    # Global Admin (scope None) still sees them all. Off = unchanged.
+    import auth
+    _cscope = auth.company_scope(user, db)
+    if _cscope is not None:
+        rows = [t for t in rows if (t.company_id or "") in _cscope]
     # Without the desk grant the scope is forced, not requested: the unscoped
     # list IS the agent queue, so honouring `mine` only when asked would leave
     # the whole company's tickets one query parameter away from any employee.
@@ -466,6 +475,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first()
     if not t:
         raise HTTPException(404, "Ticket not found")
+    import auth   # company wall: another company's ticket is 404
+    auth.assert_company(t.company_id or "", user, db)
     data = body.model_dump(exclude_unset=True)
     reopen_reason = data.pop("reopen_reason", "") or ""   # not a column - see TicketUpdate
     scope = _ticket_edit_scope(db, t, user)

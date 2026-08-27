@@ -16,6 +16,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -24,7 +25,7 @@ from database import get_db
 from auth import get_current_user, require_manager, require_any_module_grant
 from routers.task_util import (
     now_iso, gen_id, fire_task_event, task_notify, log_activity, email_list,
-    is_manager, visible_project_ids, task_is_visible,
+    is_manager, visible_project_ids, task_is_visible, wall_tasks,
     project_for_task, require_project_role, require_task_role, create_comment,
     task_assignees, set_task_assignees,
     purge_task_permanently, asana_push_deleted,
@@ -263,6 +264,15 @@ def _get_task(db: Session, task_id: str) -> models.Task:
     t = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not t:
         raise HTTPException(404, "Task not found")
+    return t
+
+
+def _wall_task(db: Session, user: dict, task_id: str) -> models.Task:
+    """Fetch a task by id AND enforce the company wall - another company's task is
+    404 (never 403). Use in every per-task endpoint (sub-resources included)."""
+    import auth
+    t = _get_task(db, task_id)
+    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
     return t
 
 
@@ -686,6 +696,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
     nid = gen_id()
     nxt = models.Task(
         id=nid,
+        company_id=getattr(t, "company_id", "") or "",   # inherit the parent's company
         code=_next_code(db),
         title=t.title,
         description=t.description or "",
@@ -734,7 +745,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
 
 @router.get("")
 def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = db.query(models.Task).all()
+    rows = wall_tasks(db, user, db.query(models.Task).all())   # company wall first
     if is_manager(user):
         return [task_to_dict(t) for t in rows]
     # Pass the USER dict, not just the email: the helpers scope external
@@ -789,7 +800,7 @@ def export_tasks_excel(
     except ImportError:
         raise HTTPException(500, "openpyxl not installed - run: pip install openpyxl")
 
-    rows = db.query(models.Task).all()
+    rows = wall_tasks(db, user, db.query(models.Task).all())   # company wall first
     if not is_manager(user):
         visible = visible_project_ids(db, user)
         rows = [t for t in rows if task_is_visible(t, user, visible)]
@@ -999,7 +1010,7 @@ def search_everything(q: str = "", limit: int = 6,
     manager = is_manager(user)
     visible = None if manager else visible_project_ids(db, user)
 
-    tasks = [t for t in db.query(models.Task).all()
+    tasks = [t for t in wall_tasks(db, user, db.query(models.Task).all())
              if (term in (t.title or "").lower() or term in (t.code or "").lower())
              and not t.completed
              and (manager or task_is_visible(t, user, visible))]
@@ -1093,7 +1104,7 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
 
     manager = is_manager(user)
     visible = None if manager else visible_project_ids(db, user)
-    rows = [t for t in db.query(models.Task).all()
+    rows = [t for t in wall_tasks(db, user, db.query(models.Task).all())
             if manager or task_is_visible(t, user, visible)]
     project_names = {p.id: p.name for p in db.query(models.TaskProject).all()}
 
@@ -1177,7 +1188,7 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
     q = db.query(models.Task)
     if since:
         q = q.filter(models.Task.modified_at > since)
-    rows = q.all()
+    rows = wall_tasks(db, user, q.all())   # company wall first
     if not is_manager(user):
         visible_projects = visible_project_ids(db, user)
         rows = [t for t in rows if task_is_visible(t, user, visible_projects)]
@@ -1207,8 +1218,15 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     # than needing a later PATCH to tidy it.
     validate_task_payload(db, body.__dict__, task_id=tid)
     access_level = body.access_level or (project.access_level if project else None) or "org"
+    # Company wall: stamp the creator's company so the task is fixed on their side
+    # of the wall even if they later change companies (task_util.task_company falls
+    # back to deriving it for legacy/sync rows that were never stamped).
+    _creator = (db.query(models.NexusEmployee.company)
+                .filter(func.lower(models.NexusEmployee.work_email) == user["email"].lower()).first())
+    company_id = (_creator.company if _creator else "") or ""
     t = models.Task(
         id=tid,
+        company_id=company_id,
         code=body.code or _next_code(db),
         title=body.title,
         description=body.description or "",
@@ -1291,6 +1309,9 @@ _MODIFIED_FIELD_LABELS = {"title": "Title changed", "description": "Description 
 def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _get_task(db, task_id)
+    # Company wall: another company's task is 404 (before the role check).
+    import auth
+    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
     # The assignee counts on their OWN task - see require_task_role.
     require_task_role(db, user, t, "editor")
     data = upd.model_dump(exclude_unset=True)
@@ -1414,6 +1435,8 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
     the tasks LEFT BEHIND, not as "this one's in the trash". Restore brings
     the task itself back, not those severed links."""
     t = _get_task(db, task_id)
+    import auth   # company wall: another company's task is 404
+    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
     # The assignee counts on their own task here too. Note this cascade takes
     # the task's SUBTASKS with it (below), which may be assigned to other
     # people - deleting your own task can therefore remove someone else's.
@@ -1473,9 +1496,9 @@ def list_deleted_tasks(user: dict = Depends(require_manager), db: Session = Depe
     this doesn't try to scope it the way GET /tasks does). Newest-deleted
     first."""
     days = _trash_retention_days()
-    rows = (db.query(models.Task).execution_options(include_deleted=True)
+    rows = wall_tasks(db, user, (db.query(models.Task).execution_options(include_deleted=True)
             .filter(models.Task.deleted_at != "")
-            .order_by(models.Task.deleted_at.desc()).all())
+            .order_by(models.Task.deleted_at.desc()).all()))   # company wall first
     out = []
     for t in rows:
         d = task_to_dict(t)
@@ -1497,6 +1520,8 @@ def restore_task(task_id: str, user: dict = Depends(require_manager), db: Sessio
            .filter(models.Task.id == task_id).first())
     if not t:
         raise HTTPException(404, "Task not found")
+    import auth   # company wall: another company's trashed task is 404
+    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
     if not t.deleted_at:
         return task_to_dict(t)
     subs = (db.query(models.Task).execution_options(include_deleted=True)
@@ -1521,6 +1546,11 @@ def restore_task(task_id: str, user: dict = Depends(require_manager), db: Sessio
 def delete_task_permanent(task_id: str, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     """Empty one item from Trash early, instead of waiting out the retention
     window. Irreversible - unlike DELETE /tasks/{id}, there is no undo."""
+    t = (db.query(models.Task).execution_options(include_deleted=True)
+           .filter(models.Task.id == task_id).first())
+    if t:
+        import auth   # company wall: another company's trashed task is 404
+        auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
     if not purge_task_permanently(db, task_id, actor_email=user["email"]):
         raise HTTPException(404, "That task isn't in the trash")
     db.commit()
@@ -1670,12 +1700,12 @@ class CommentUpdate(BaseModel):
 
 
 @router.get("/{task_id}/comments")
-def list_comments(task_id: str, db: Session = Depends(get_db)):
+def list_comments(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     # 404 rather than an empty list for a task that isn't there: "no comments"
     # and "no such task" are different answers, and returning the first for the
     # second made a drawer left open on a deleted task look merely empty. POST
     # and PATCH on the same id already 404.
-    _get_task(db, task_id)
+    _wall_task(db, user, task_id)   # company wall
     rows = db.query(models.TaskComment).filter(models.TaskComment.task_id == task_id).all()
     return [comment_to_dict(c) for c in rows]
 
@@ -1773,7 +1803,8 @@ class AttachmentCreate(BaseModel):
 
 
 @router.get("/{task_id}/attachments")
-def list_attachments(task_id: str, db: Session = Depends(get_db)):
+def list_attachments(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _wall_task(db, user, task_id)   # company wall
     rows = db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == task_id).all()
     return [attachment_to_dict(a) for a in rows]
 
@@ -1852,7 +1883,8 @@ def global_activity(limit: int = 500, db: Session = Depends(get_db)):
 
 
 @router.get("/{task_id}/activity")
-def task_activity(task_id: str, db: Session = Depends(get_db)):
+def task_activity(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _wall_task(db, user, task_id)   # company wall
     # "Created from Asana" / "Updated from Asana" are the sync's own bookkeeping,
     # logged once per inbound apply. On a task's own timeline they say nothing a
     # reader wants: the very next row is the real story ("changed the due date to
