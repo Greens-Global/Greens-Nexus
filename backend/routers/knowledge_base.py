@@ -517,8 +517,12 @@ def delete_tag(tag_id: str, user: dict = Depends(require_level(3)), db: Session 
 
 
 @router.get("/documents/{doc_id}")
-def get_document(doc_id: str, db: Session = Depends(get_db)):
+def get_document(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     d = _get_or_404(doc_id, db)
+    # Company wall: a company's private SOP is 404 to other companies (owner-derived,
+    # shared_when_blank so untagged-owner docs stay shared org-wide).
+    import auth
+    auth.assert_company(auth.company_of(d.owner_email or "", db), user, db, shared_when_blank=True)
     d.views = (d.views or 0) + 1
     db.commit()
     db.refresh(d)

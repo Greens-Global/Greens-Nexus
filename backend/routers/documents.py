@@ -766,6 +766,9 @@ def get_document(did: str, user: dict = Depends(get_current_user), db: Session =
     row = db.query(Document).filter(Document.id == did).first()
     if not row:
         raise HTTPException(404, "Document not found")
+    # Company wall: another company's document is 404 (owner-derived).
+    import auth
+    auth.assert_company(auth.company_of(row.owner_email or "", db), user, db)
     statuses = _sign_statuses(db, [row])
     return _ser_document(row, statuses.get(row.sign_request_id, ""))
 

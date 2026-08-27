@@ -473,6 +473,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first()
     if not t:
         raise HTTPException(404, "Ticket not found")
+    import auth   # company wall: another company's ticket is 404
+    auth.assert_company(t.company_id or "", user, db)
     data = body.model_dump(exclude_unset=True)
     reopen_reason = data.pop("reopen_reason", "") or ""   # not a column - see TicketUpdate
     scope = _ticket_edit_scope(db, t, user)

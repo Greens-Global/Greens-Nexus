@@ -765,6 +765,8 @@ def add_to_cart(body: CartAddBody, user: dict = Depends(get_current_user), db: S
     item = db.query(Item).filter(Item.id == body.item_id).first()
     if not item:
         raise HTTPException(404, "Item not found")
+    import auth   # company wall: can't request another company's item
+    auth.assert_company(getattr(item, "company_id", "") or "", user, db)
     if item.ownership_type != "transient":
         raise HTTPException(400, "Only transient items can be added to cart")
     if item.status != "available":
@@ -801,6 +803,8 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_ite
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
         raise HTTPException(404, "Item not found")
+    import auth   # company wall: can't edit another company's item
+    auth.assert_company(getattr(item, "company_id", "") or "", user, db)
     # P1-14: validate any new catalogue photo URL originates from our storage bucket.
     if body.photo_url is not None:
         _validate_photo_url(body.photo_url, "photo_url")

@@ -271,6 +271,16 @@ class CompanyWallsTests(unittest.TestCase):
         g = self._get_ids("/knowledge-base/documents", GLOBAL)
         self.assertTrue({"kb-walls-a", "kb-walls-b", "kb-walls-shared"} <= g)
 
+    def test_per_id_fetch_across_wall_is_404(self):
+        # A company-B KB doc must be 404 (not 403 - existence must not leak) to a
+        # company-A caller, but visible to a Global Admin.
+        self._mk_kb("kb-walls-b", BEMP)
+        self._arm(True)
+        os.environ["NEXUS_DEV_EMAIL"] = AEMP
+        self.assertEqual(self.client.get("/knowledge-base/documents/kb-walls-b").status_code, 404)
+        os.environ["NEXUS_DEV_EMAIL"] = GLOBAL
+        self.assertEqual(self.client.get("/knowledge-base/documents/kb-walls-b").status_code, 200)
+
     def test_arm_switch_endpoint_arms_and_audits(self):
         os.environ["NEXUS_DEV_EMAIL"] = GLOBAL   # administrator = bootstrap global admin
         r = self.client.put("/access-scopes/config/walls", json={"on": True})

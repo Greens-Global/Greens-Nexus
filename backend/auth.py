@@ -721,6 +721,21 @@ def company_ok(record_company: str, scope, shared_when_blank: bool = False) -> b
     return rc in scope
 
 
+def assert_company(record_company: str, user: dict, db: Session, shared_when_blank: bool = False) -> None:
+    """Per-record company gate for fetch-by-id and mutation endpoints. Raises 404
+    (NOT 403 - existence must not leak across the wall) if the caller's company
+    scope does not admit this record. The pattern every {id} handler uses:
+
+        row = db.query(Model).filter(Model.id == rid).first()
+        if not row: raise HTTPException(404, ...)
+        assert_company(row.company_id, user, db)   # 404 if out of company
+
+    No-op when the walls are off or the caller is a Global Admin."""
+    from fastapi import HTTPException
+    if not company_ok(record_company, company_scope(user, db), shared_when_blank):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 def company_of_email_map(db: Session) -> dict:
     """{work_email(lower) -> HrEntity company} for every employee, built once so a
     module list can derive each row's company from an owner/creator email without

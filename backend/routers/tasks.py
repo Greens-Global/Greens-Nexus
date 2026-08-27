@@ -1279,6 +1279,9 @@ _MODIFIED_FIELD_LABELS = {"title": "Title changed", "description": "Description 
 def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _get_task(db, task_id)
+    # Company wall: another company's task is 404 (before the role check).
+    import auth
+    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
     # The assignee counts on their OWN task - see require_task_role.
     require_task_role(db, user, t, "editor")
     data = upd.model_dump(exclude_unset=True)
@@ -1391,6 +1394,8 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
 def delete_task(task_id: str, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _get_task(db, task_id)
+    import auth   # company wall: another company's task is 404
+    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
     # The assignee counts on their own task here too. Note this cascade takes
     # the task's SUBTASKS with it (below), which may be assigned to other
     # people - deleting your own task can therefore remove someone else's.
