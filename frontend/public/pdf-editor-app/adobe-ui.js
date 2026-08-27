@@ -332,8 +332,8 @@
     const HMODES = [
       ['text', '🖍 Highlight text (exact words)'],
       ['free', '✏️ Freehand highlight'],
-      ['underline', 'U̲ Underline text'],
-      ['strike', 'S̶ Strikethrough text'],
+      ['underline', '↧ Underline text'],
+      ['strike', '⊘ Strikethrough text'],
     ];
     for (const [mode, label] of HMODES) {
       const it = document.createElement('button');

@@ -1159,6 +1159,12 @@
                 _updateLeaderFor(e.target);
             }
         });
+        // A21: live angle readout while rotating, and Shift snaps to 15 deg.
+        fabricCanvas.on('object:rotating', (e) => {
+            const o = e && e.target; if (!o) return;
+            if (e.e && e.e.shiftKey) { o.angle = Math.round(o.angle / 15) * 15; }
+            setStatus('Rotation: ' + Math.round((o.angle % 360 + 360) % 360) + '°' + (e.e && e.e.shiftKey ? ' (snap 15)' : ' - hold Shift to snap'));
+        });
         // A9: as a callout note grows, grow its body rect/ellipse so text never
         // spills below the border.
         fabricCanvas.on('text:changed', (e) => {

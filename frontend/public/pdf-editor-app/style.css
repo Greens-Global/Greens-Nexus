@@ -359,7 +359,10 @@ body.toolbar-collapsed .toolbar-toggle svg {
    Paint Options Bar
    ============================ */
 .paint-bar {
-    display: none;
+    /* A10: always occupy 40px (visibility, not display) so showing/hiding the
+       bar never reflows the canvas down ~36px under the cursor. */
+    display: flex;
+    visibility: hidden;
     align-items: center;
     gap: 8px;
     padding: 6px 14px;
@@ -387,7 +390,7 @@ body.toolbar-collapsed .toolbar-toggle svg {
 .paint-bar input[type="range"] { width: 90px; accent-color: var(--accent); }
 
 .paint-bar.visible {
-    display: flex;
+    visibility: visible;
 }
 
 .paint-section {
@@ -1336,6 +1339,10 @@ body.toolbar-collapsed .toolbar-toggle svg {
     z-index: 9999;
     min-width: 150px;
     padding: 4px 0;
+    /* A14: a tall menu (e.g. Measure, ~18 items) must scroll, not run off the
+       bottom of a short viewport with items unreachable. */
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
 }
 
 .dropdown-menu.open {
