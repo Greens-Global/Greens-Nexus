@@ -56,14 +56,15 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
     finally { setOcrBusy(false); }
   };
 
-  // Same four required fields as the desktop Create-a-Task form - the rule has
-  // to hold on mobile too or it's only a suggestion. Project is pre-filled and
-  // hidden when the sheet was opened from inside one.
+  // Same three required fields as the desktop Create-a-Task form (title,
+  // assignee, due date - see CreateTaskModal's `missing`) - Project is
+  // optional there too. Project is pre-filled and hidden when the sheet was
+  // opened from inside one.
   const [projectId, setProjectId] = useState(defaults.projectId || '');
   const lockedProject = !!defaults.projectId;
 
   const draft = () => ({ title: title.trim(), dueOn, assigneeIds });
-  const canCreate = !!(title.trim() && assigneeIds.length && dueOn && (lockedProject || projectId)) && !busy;
+  const canCreate = !!(title.trim() && assigneeIds.length && dueOn) && !busy;
 
   const submit = async () => {
     if (!canCreate) return;
@@ -101,7 +102,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
 
         {!lockedProject && (
           <div>
-            <span style={fieldLabel}><FolderKanban size={13} /> Project <span style={{ color: NX.red }}>*</span></span>
+            <span style={fieldLabel}><FolderKanban size={13} /> Project</span>
             <SearchSelect value={projectId} placeholder="Select a project…" searchPlaceholder="Search projects…"
               buttonStyle={{ ...sel, justifyContent: 'space-between' }} emptyText="No projects yet."
               options={[{ id: '', label: 'No project' },

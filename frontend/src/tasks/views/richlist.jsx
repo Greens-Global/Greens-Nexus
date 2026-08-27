@@ -17,6 +17,7 @@ import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STAT
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect } from '../components';
 import { emailToName, rootZoom } from '../../lib/utils';
+import { matchPeople, onEnterPickFirst } from '../../lib/peopleSearch';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
@@ -222,7 +223,7 @@ function AssigneeCell({ value, people, onSelect, compact }) {
   useClickOutside([ref, panelRef], () => { setOpen(false); setQ(''); }, open);
   const name = value ? (people.find((p) => p.email === value)?.name || emailToName(value)) : null;
   const pick = (em) => { onSelect(em); setOpen(false); setQ(''); };
-  const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
+  const filtered = matchPeople(people, q);
   return (
     <div ref={ref} style={{ position: 'relative', ...(compact ? { width: '100%' } : {}) }}>
       {/* The cell value itself is the dropdown trigger - clicking it opens the
@@ -237,7 +238,9 @@ function AssigneeCell({ value, people, onSelect, compact }) {
       {open && (
         <PortalDropdown anchorRef={ref} panelRef={panelRef} width={240}>
           <div className="nx-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
-            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…" style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+              onKeyDown={onEnterPickFirst(filtered, (p) => pick(p.email))}
+              style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
             <div onClick={() => pick(null)} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
             {filtered.map((p) => (
               <div key={p.email} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent' }}>

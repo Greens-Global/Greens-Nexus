@@ -110,15 +110,20 @@ def _hide_soft_deleted(state):
     if state.execution_options.get("include_deleted", False):
         return
     from sqlalchemy.orm import with_loader_criteria   # local: models imports us
-    from models import NexusEmployee
+    from models import NexusEmployee, Task
+    # NULL as well as "" - a row that existed before the column was added
+    # reads back NULL on databases that do not backfill.
+    _live = lambda cls: (cls.deleted_at == "") | (cls.deleted_at.is_(None))
     state.statement = state.statement.options(
-        with_loader_criteria(
-            NexusEmployee,
-            # NULL as well as "" - a row that existed before the column was
-            # added reads back NULL on databases that do not backfill.
-            lambda cls: (cls.deleted_at == "") | (cls.deleted_at.is_(None)),
-            include_aliases=True,
-        )
+        with_loader_criteria(NexusEmployee, _live, include_aliases=True),
+        # Task trash (Aug 27): same reasoning as NexusEmployee above, and even
+        # more load-bearing - GET /tasks alone does `db.query(Task).all()` with
+        # nothing else in the codebase filtering deleted_at, so a per-call-site
+        # filter would leak a trashed task into some list the moment a 91st
+        # reader forgot to add it. Escape hatch is the same
+        # .execution_options(include_deleted=True), used by the Deleted Tasks
+        # tab, the restore endpoint, and trash_purge_loop.
+        with_loader_criteria(Task, _live, include_aliases=True),
     )
 
 

@@ -75,6 +75,13 @@ class Task(Base):
     modified_at       = Column(String, default="")
     created_by        = Column(String, default="")         # email
     synced_with_asana = Column(Boolean, default=False)
+    # Soft delete (Aug 27), same pattern as NexusEmployee: empty = live, an ISO
+    # timestamp = trashed. Hidden everywhere automatically (see the
+    # do_orm_execute hook in database.py) rather than each call site
+    # remembering to filter. Restorable via POST /tasks/{id}/restore for 90
+    # days, after which trash_purge_loop (main.py) removes it for good.
+    deleted_at        = Column(String, default="", index=True)
+    deleted_by        = Column(String, default="")         # email of whoever deleted it
 
 
 class PurchaseRequest(Base):
@@ -3571,5 +3578,29 @@ class TaskTablePref(Base):
     id          = Column(String, primary_key=True)   # uuid
     owner_email = Column(String, index=True, unique=True, nullable=False)
     prefs       = Column(JSON, default=dict)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class UserTourState(Base):
+    """Which guided walkthroughs (GuidedTour.jsx) a person has already seen -
+    one row per person, JSON blob keyed by tour id, same shape as
+    TaskTablePref above. Server-side and per-person on purpose: this used to
+    be a localStorage flag keyed by email, which meant "seen" lived in ONE
+    browser - the same person signing in on a different browser or machine
+    got the auto-tour again every time. A row here follows the person instead
+    of the device.
+
+    seen shape: {"<tour id>": "<ISO timestamp first dismissed>"}
+
+    Purely personal, no admin gate: every read/write is scoped to owner_email.
+
+    New table - create_all builds it, so no migration line is needed. It DOES
+    need `ALTER TABLE user_tour_state ENABLE ROW LEVEL SECURITY` on dev and
+    prod as part of the release (CLAUDE.md)."""
+    __tablename__ = "user_tour_state"
+    id          = Column(String, primary_key=True)   # uuid
+    owner_email = Column(String, index=True, unique=True, nullable=False)
+    seen        = Column(JSON, default=dict)
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")

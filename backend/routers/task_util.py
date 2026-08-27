@@ -19,7 +19,8 @@ import httpx
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from models import TaskNotification, TaskActivity, NexusRole, NexusNotification, TaskProject, TaskTeam, Task, TaskComment
+from models import (TaskNotification, TaskActivity, NexusRole, NexusNotification, TaskProject,
+                    TaskTeam, Task, TaskComment, TaskAttachment, AsanaTaskLink)
 
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
@@ -498,3 +499,76 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
             run_after(notify_task_event, task.id, "mentioned", actor,
                       comment_body=text, mentioned=mentioned)
     return c
+
+
+# ── Trash (Aug 27) ────────────────────────────────────────────────────────────
+# Moved here from routers/tasks.py's old hard-delete cascade so
+# purge_task_permanently (below) and any future caller share one copy.
+def asana_linked_gids(db: Session, task_ids: list) -> list:
+    """Asana gids for tasks about to be purged, read BEFORE the rows go
+    (purging them takes their AsanaTaskLink rows too). Fully guarded."""
+    try:
+        from asana_sync import linked_gids
+        return linked_gids(db, task_ids)
+    except Exception:
+        return []
+
+
+def asana_queue_delete(db: Session, gids: list, title: str, code: str, actor: str) -> None:
+    """Record deletions owed to Asana, in the caller's transaction so the
+    tombstone commits with the purge. Fully guarded."""
+    try:
+        from asana_sync import queue_task_delete
+        queue_task_delete(db, gids, title, code, actor)
+    except Exception:
+        pass
+
+
+def asana_push_deleted() -> None:
+    """Fire-and-forget drain of the queued deletions. No-op outside the sync
+    worker, where "Push all" drains them instead. Fully guarded."""
+    try:
+        from asana_sync import on_task_deleted
+        on_task_deleted()
+    except Exception:
+        pass
+
+
+def purge_task_permanently(db: Session, task_id: str, actor_email: str = "") -> bool:
+    """Permanently remove an already-TRASHED task and everything under it - the
+    full cascade delete_task ran immediately before soft delete existed:
+    subtasks, comments, attachments, its Asana link. Returns False if the id
+    doesn't exist or was never trashed (live tasks are never purged from here).
+
+    Shared by POST /tasks/{id}/permanent-delete (a manager emptying trash
+    early) and task_trash.trash_purge_loop (the automatic 90-day sweep), so
+    the cascade can never drift between the two paths.
+
+    Queues the Asana-side delete (asana_queue_delete) but does not drain it -
+    that call happens after the commit (a failing one must never roll back the
+    purge), so call asana_push_deleted() once after you commit. It is a no-op
+    off the sync worker / while Asana is severed, exactly as it always was.
+    The task's own soft-delete tombstone (TaskDeleteLog, written when it was
+    first trashed) already told delta clients it was gone - nothing to add.
+
+    Does NOT commit - the caller does, so a sweep purging several tasks can
+    commit once per row without this function needing to know about that."""
+    t = (db.query(Task).execution_options(include_deleted=True)
+           .filter(Task.id == task_id).first())
+    if not t or not t.deleted_at:
+        return False
+    subs = (db.query(Task).execution_options(include_deleted=True)
+              .filter(Task.parent_task_id == task_id).all())
+    gone_ids = [task_id] + [s.id for s in subs]
+    # Asana counterparts of exactly the rows going away, read BEFORE the
+    # AsanaTaskLink rows themselves are deleted below.
+    gids = asana_linked_gids(db, gone_ids)
+    asana_queue_delete(db, gids, t.title, t.code, actor_email or t.deleted_by or "")
+    log_activity(db, type="purged", actor_email=actor_email or t.deleted_by or "",
+                entity_id=task_id, entity_code=t.code, entity_title=t.title,
+                detail="permanently deleted this task")
+    db.query(TaskComment).filter(TaskComment.task_id.in_(gone_ids)).delete(synchronize_session=False)
+    db.query(TaskAttachment).filter(TaskAttachment.task_id.in_(gone_ids)).delete(synchronize_session=False)
+    db.query(AsanaTaskLink).filter(AsanaTaskLink.nexus_task_id.in_(gone_ids)).delete(synchronize_session=False)
+    db.query(Task).execution_options(include_deleted=True).filter(Task.id.in_(gone_ids)).delete(synchronize_session=False)
+    return True

@@ -7,7 +7,7 @@
 // Tickets used to live here behind a Task | Ticket toggle - it's now its own
 // top-level module (views/Tickets.jsx), so this file is Task-only.
 import { useEffect, useState } from 'react';
-import { Home, CheckCircle2, FolderKanban, Briefcase, Users, Settings, X, PlayCircle, LayoutTemplate } from 'lucide-react';
+import { Home, CheckCircle2, FolderKanban, Briefcase, Users, Settings, X } from 'lucide-react';
 import TasksWorkspace from '../tasks/TasksWorkspace';
 import HomeView from '../tasks/HomeView';
 import MyTasksView from '../tasks/MyTasksView';
@@ -27,23 +27,24 @@ import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
 import PersonView from '../tasks/PersonView';
 import { EMPTY_FILTER } from '../tasks/lib';
 import { buildTaskTourSteps } from '../tasks/taskTourSteps';
+import { api } from '../api';
 
-// Remembered per person, not per browser: on a shared machine the second
-// person to sign in has not seen the tour, and inheriting somebody else's
-// "already seen" would silently skip it for them.
-const tourSeenKey = (email) => `nexus.taskTour.seen.${(email || 'anon').toLowerCase()}`;
+// Tour id this module reports to the server (routers/user_tours.py). "Seen"
+// is per person, not per browser or machine - see GET/POST /tours.
+const TASK_TOUR_ID = 'task';
 
 // Module tabs - matches the export's NexusModuleTabs exactly (no "All tasks").
+// Templates has no tab of its own (moved under Projects, Aug 27) - it's reached
+// via the "Templates" entry point on the Projects screen instead.
 const MODULE_TABS = [
   { key: 'home', label: 'Home', icon: Home },
   { key: 'mine', label: 'My Tasks', icon: CheckCircle2 },
   { key: 'projects', label: 'Projects', icon: FolderKanban },
   { key: 'portfolios', label: 'Portfolios', icon: Briefcase },
-  { key: 'templates', label: 'Templates', icon: LayoutTemplate },
   { key: 'teams', label: 'Teams', icon: Users },
 ];
-// Task-mode subs. 'tasks' = a project's task list drilled in from Projects;
-// it has no module tab of its own, matching the export.
+// Task-mode subs. 'tasks' (a drilled-in project's task list) and 'templates'
+// (reached from Projects) have no module tab of their own.
 const TASK_SUBS = ['home', 'mine', 'projects', 'portfolios', 'templates', 'teams', 'tasks'];
 const DEFAULT_SUB = 'home';
 const ALL_SUBS = [...TASK_SUBS, 'manage'];
@@ -96,20 +97,24 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   };
 
   // First visit runs the tour on its own; after that it is the button only.
-  // Held until myEmail resolves, otherwise the flag is written against 'anon'
-  // and the real person is marked as having seen a tour they never got.
+  // Held until myEmail resolves, otherwise the check would race the identity
+  // load. "Seen" is read from the server (per person, not per browser) - see
+  // routers/user_tours.py.
   useEffect(() => {
     if (!myEmail) return;
-    let seen = true;
-    try { seen = !!localStorage.getItem(tourSeenKey(myEmail)); } catch { /* private mode */ }
-    if (!seen) setTour(true);
+    let cancelled = false;
+    api.getToursSeen()
+      .then(({ seen }) => { if (!cancelled && !seen?.[TASK_TOUR_ID]) setTour(true); })
+      .catch(() => { /* can't confirm "seen" - skip the auto-tour rather than risk nagging on every flaky load */ });
+    return () => { cancelled = true; };
   }, [myEmail]);
 
   const closeTour = () => {
     setTour(false);
     // Written on close, not on finish: someone who dismisses it has decided,
-    // and re-offering it on their next visit would be nagging.
-    try { localStorage.setItem(tourSeenKey(myEmail), new Date().toISOString()); } catch { /* private mode */ }
+    // and re-offering it on their next visit would be nagging. Best-effort -
+    // a failed write just means the tour offers itself again next login.
+    api.markTourSeen(TASK_TOUR_ID).catch(() => {});
   };
 
   // Header search lands here. The drawer is hosted at THIS level rather than
@@ -127,13 +132,18 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     // Header search "and N more": the dropdown caps at 20, so the full result
     // set lives here - the workspace with the same words in its search box.
     const openSearch = (e) => { const q = (e.detail?.q || '').trim(); if (q) setSearchAll(q); };
+    // Fired by the profile dropdown's "Tour" row (TopHeader), shown only while
+    // the Task module is the active view.
+    const openTour = () => setTour(true);
     window.addEventListener('nexus:open-task', openTask);
     window.addEventListener('nexus:tasks-person', openPerson);
     window.addEventListener('nexus:tasks-search', openSearch);
+    window.addEventListener('nexus:tasks-tour', openTour);
     return () => {
       window.removeEventListener('nexus:open-task', openTask);
       window.removeEventListener('nexus:tasks-person', openPerson);
       window.removeEventListener('nexus:tasks-search', openSearch);
+      window.removeEventListener('nexus:tasks-tour', openTour);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -172,12 +182,6 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
           {!onManage && (!isMobile || !hasMobileBar) && (
             <span data-tour="task-create"><CreateMenu onNavigate={go} taskDefaults={taskDefaults} /></span>
           )}
-          {!onManage && (
-            <button onClick={() => setTour(true)} title="A guided walkthrough of the Task module - nothing is changed while it runs."
-              className="secondary-btn nx-iconbtn" style={{ fontFamily: FONT }}>
-              <PlayCircle size={14} /> <span className="nx-btn-label">Tour</span>
-            </button>
-          )}
           {onManage ? (
             <button className="primary-btn nx-iconbtn" onClick={() => go('home')} title="Exit" style={{ fontFamily: FONT }}>
               <X size={14} /> <span className="nx-btn-label">Exit</span>
@@ -192,13 +196,14 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
 
       {/* Module tabs - hidden on Manage. Desktop renders them centered in the
           top header; phones keep the in-page strip (ModuleTabs handles both).
-          'tasks' (a drilled-in project task list) highlights Projects,
-          matching the old strip. */}
+          'tasks' (a drilled-in project task list) and 'templates' (reached
+          from the Projects screen) both highlight Projects, since neither has
+          a tab of its own. */}
       {!onManage && (
         <div data-tour="task-tabs">
           <ModuleTabs
             tabs={MODULE_TABS.map(({ key, label, icon }) => ({ key, label, Icon: icon }))}
-            active={sub === 'tasks' ? 'projects' : sub}
+            active={(sub === 'tasks' || sub === 'templates') ? 'projects' : sub}
             onChange={go} />
         </div>
       )}

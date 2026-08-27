@@ -7,6 +7,7 @@ import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
 import { rootZoom } from '../lib/utils';
+import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import { useTasks } from './TasksContext';
 import PersonHover from '../components/PersonHoverCard';
 // Photos live in lib/peoplePhotos so the header avatar shares this one cache.
@@ -779,7 +780,7 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
   // user before the People directory has loaded / when it's empty). Still show
   // them - derive a display name from the email - rather than the placeholder.
   const chosen = sel || (value ? { email: value, name: emailToName(value) } : null);
-  const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
+  const filtered = matchPeople(people, q);
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
@@ -792,7 +793,9 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
       </button>
       {open && !disabled && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…" style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+            onKeyDown={onEnterPickFirst(filtered, (p) => { onChange(p.email); setOpen(false); })}
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
           <div onClick={() => { onChange(null); setOpen(false); }} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
           {filtered.map((p) => (
             <div key={p.email} onClick={() => { onChange(p.email); setOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent' }}>
@@ -816,8 +819,11 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   const ref = useRef(null);
   const emails = Array.isArray(value) ? value : [];
   const personFor = (em) => people.find((p) => p.email === em) || { email: em, name: emailToName(em) };
-  const filtered = (q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people)
-    .slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+  // Unfiltered (no query) still wants A-Z, so it's the flat directory order,
+  // not "first name prefix" ranking - matchPeople only ranks when there's a
+  // query to rank against; the alphabetical fallback lives here.
+  const filtered = q ? matchPeople(people, q)
+    : people.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
   const toggle = (em) => onChange(emails.includes(em) ? emails.filter((x) => x !== em) : [...emails, em]);
   return (
     <div ref={ref} style={{ position: 'relative' }}>
@@ -862,7 +868,9 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
       </button>
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…" style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+            onKeyDown={onEnterPickFirst(filtered, (p) => toggle(p.email))}
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
           {filtered.map((p) => {
             const on = emails.includes(p.email);
             return (

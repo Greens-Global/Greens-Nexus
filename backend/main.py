@@ -565,6 +565,10 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN geofence_source TEXT DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN geofence_set_by TEXT DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN geofence_set_at TEXT DEFAULT ''",
+            # Task trash (Aug 27): soft delete, same shape as nexus_employees /
+            # items - see models.Task and the do_orm_execute hook in database.py.
+            "ALTER TABLE tasks ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN deleted_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1200,6 +1204,10 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_source TEXT DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_by TEXT DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_at TEXT DEFAULT ''",
+        # Task trash (Aug 27): soft delete, same shape as nexus_employees /
+        # items - see models.Task and the do_orm_execute hook in database.py.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_by TEXT DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -1692,6 +1700,19 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(attachment_migration_loop()))
         except Exception as e:
             print(f"[startup] attachment backlog migration skipped: {e}")
+        # Task trash (Aug 27): permanently purges tasks soft-deleted 90+ days
+        # ago. Sync-worker gated for the same reason as the screenshot
+        # retention sweep above - a laptop must never permanently delete live
+        # task data.
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker5
+            if _is_sync_worker5():
+                from task_trash import trash_purge_loop
+                _tasks.append(_a.create_task(trash_purge_loop()))
+            else:
+                print("[startup] task trash purge sweep skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] task trash purge sweep skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:
@@ -1982,6 +2003,9 @@ app.include_router(client_errors.router)  # Client-side error intake -> audit tr
 
 from routers import task_prefs             # noqa: E402
 app.include_router(task_prefs.router)     # Per-user column arrangement for the Task module's lists
+
+from routers import user_tours             # noqa: E402
+app.include_router(user_tours.router)     # Per-user guided-tour "seen" state (server-side, follows the person not the browser)
 
 from routers import auth_bff               # noqa: E402  BFF login (dual-mode)
 app.include_router(auth_bff.router)        # /auth/login|callback|logout|me - inert without NEXUS_BFF_CLIENT_SECRET

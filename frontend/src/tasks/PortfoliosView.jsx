@@ -1,7 +1,7 @@
 // Task Module - Portfolios. Grid of portfolio cards with a task rollup, plus a
 // per-portfolio detail view (member projects + add/remove/reorder). Ported from
 // the export's PortfoliosPage/PortfolioDetailPage into Nexus inline-style idiom.
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Briefcase, Plus, Search, Pencil, Trash2, FolderKanban, ArrowLeft, ArrowRight,
   AlertTriangle, ArrowUp, ArrowDown, X, Archive, ArchiveRestore, ChevronRight, ArrowUpRight,
@@ -30,6 +30,80 @@ function ProgressBar({ pct, color, height = 8 }) {
   return (
     <div style={{ flex: 1, height, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
       <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: color }} />
+    </div>
+  );
+}
+
+// The COLLAPSED list row's Projects cell: one row, clipped to the Projects
+// column's actual rendered width, with a "+N more projects" pill for
+// whatever doesn't fit. Replaces a flex-wrap list, which let a portfolio with
+// 20 projects (Accounting) stretch its row 4-5 lines tall while its
+// neighbors stayed one line.
+//
+// Measured against the real DOM rather than estimated from the column's px
+// value the way richlist.jsx's Person-cell overlap is (a shared-number
+// estimate that deliberately skips per-row ResizeObservers because a task
+// list can run to hundreds of rows) - project NAME lengths vary too much for
+// one estimate to land within a pill or two, and a portfolio list is short
+// enough (tens, not hundreds, of rows) that one observer per row doesn't
+// cost what it would there.
+//
+// EXPANDED rows (below, in the parent) are untouched by this - full list,
+// one project per row, same as before.
+function ProjectOverflowRow({ projects }) {
+  const containerRef = useRef(null);
+  const itemRefs = useRef([]);
+  const moreRef = useRef(null);
+  const [visibleCount, setVisibleCount] = useState(projects.length);
+  const [, bumpTick] = useState(0);   // re-render trigger for the ResizeObserver below
+
+  // No dependency array on purpose: re-measures every render (this row's own
+  // setVisibleCount included), and converges because the guard below skips
+  // the state write once the computed count stops changing.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container || !projects.length) return;
+    const gap = 5;
+    const moreWidth = moreRef.current?.offsetWidth || 90;   // best guess before it's ever rendered
+    let used = 0, fit = projects.length;
+    for (let i = 0; i < projects.length; i++) {
+      const w = itemRefs.current[i]?.offsetWidth || 0;
+      const next = used + (i > 0 ? gap : 0) + w;
+      const reserve = (projects.length - (i + 1)) > 0 ? gap + moreWidth : 0;
+      if (next + reserve > container.clientWidth) { fit = i; break; }
+      used = next;
+    }
+    const clamped = Math.max(1, fit);
+    if (clamped !== visibleCount) setVisibleCount(clamped);
+  });
+
+  // Column resize / window resize changes the container's width with no prop
+  // change, so nothing above would otherwise re-run.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => bumpTick((t) => t + 1));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const extra = projects.length - visibleCount;
+  return (
+    <div ref={containerRef} style={{ position: 'relative', display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 5, minWidth: 0, overflow: 'hidden' }}>
+      {projects.map((p, i) => (
+        <span key={p.id} ref={(el) => { itemRefs.current[i] = el; }}
+          style={{
+            ...chip(NX.dim, NX.surface2), flexShrink: 0, whiteSpace: 'nowrap',
+            ...(i >= visibleCount ? { position: 'absolute', top: 0, left: 0, visibility: 'hidden', pointerEvents: 'none' } : null),
+          }}>
+          {p.name}
+        </span>
+      ))}
+      {extra > 0 && (
+        <span ref={moreRef} style={{ fontSize: 11.5, fontWeight: 600, color: NX.faint, flexShrink: 0, whiteSpace: 'nowrap' }}>
+          +{extra} more project{extra === 1 ? '' : 's'}
+        </span>
+      )}
     </div>
   );
 }
@@ -170,11 +244,7 @@ export default function PortfoliosView({ onNavigate }) {
                           <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700 }}>{r.pct}%</span>
                         </div>
                           ),
-                          projects: (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minWidth: 0 }}>
-                          {memberProjects.map((p) => <span key={p.id} style={chip(NX.dim, NX.surface2)}>{p.name}</span>)}
-                        </div>
-                          ),
+                          projects: <ProjectOverflowRow projects={memberProjects} />,
                           actions: (
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }} onClick={(e) => e.stopPropagation()}>
                           <button title="Open Portfolio" onClick={() => setDetailId(pf.id)} style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><ArrowUpRight size={14} /></button>
@@ -249,11 +319,15 @@ export default function PortfoliosView({ onNavigate }) {
 
 // ── Add / edit modal ─────────────────────────────────────────────────────────
 function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpdate, onDelete, afterDelete }) {
+  const { myEmail } = useTasks();
   const isEdit = !!portfolio;
   const [name, setName] = useState(portfolio?.name || '');
   const [description, setDescription] = useState(portfolio?.description || '');
   const [color] = useState(portfolio?.color || NX.purple);
-  const [ownerId, setOwnerId] = useState(portfolio?.ownerId || null);
+  // New portfolios default the owner to whoever's creating it - same
+  // reasoning as CreateTaskModal's task owner default - still freely
+  // changeable below.
+  const [ownerId, setOwnerId] = useState(portfolio?.ownerId || (isEdit ? null : myEmail) || null);
   const [projectIds, setProjectIds] = useState(portfolio?.projectIds || []);
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);

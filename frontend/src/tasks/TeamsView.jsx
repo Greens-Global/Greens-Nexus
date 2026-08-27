@@ -165,6 +165,14 @@ function TeamCard({ team, teamProjects, nameOf, taskCount, onOpen }) {
   const members = team.memberIds || [];
   const shown = members.slice(0, 6);
   const extra = members.length - shown.length;
+  // Same cap-and-count as the Teammates stack below: a team with 20+ projects
+  // (Accounting, Development, IT...) turned every card into a full-length
+  // project list, so cards in the same grid row ended up wildly different
+  // heights. Capped at 6 with a "+N more" pill instead of a nested scroll
+  // area inside the card - the whole card already opens the team's full
+  // detail (onOpen), so "+N more" needs no click handler of its own.
+  const shownProjects = teamProjects.slice(0, 6);
+  const extraProjects = teamProjects.length - shownProjects.length;
   return (
     <div onClick={onOpen} style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 14, padding: 16, cursor: 'pointer', transition: 'border-color 0.13s' }}
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = NX.primary; }}
@@ -197,12 +205,21 @@ function TeamCard({ team, teamProjects, nameOf, taskCount, onOpen }) {
               <span style={{ display: 'inline-flex', fontSize: 11, fontWeight: 600, color: NX.faint, background: NX.surface2, borderRadius: 999, padding: '2px 8px' }}>
                 No project
               </span>
-            ) : teamProjects.map((p) => (
-              <span key={p.id} title={p.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', fontSize: 11, fontWeight: 600, color: NX.dim, background: NX.surface2, borderRadius: 999, padding: '2px 8px' }}>
-                <FolderKanban size={11} style={{ flexShrink: 0 }} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-              </span>
-            ))}
+            ) : (
+              <>
+                {shownProjects.map((p) => (
+                  <span key={p.id} title={p.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', fontSize: 11, fontWeight: 600, color: NX.dim, background: NX.surface2, borderRadius: 999, padding: '2px 8px' }}>
+                    <FolderKanban size={11} style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                  </span>
+                ))}
+                {extraProjects > 0 && (
+                  <span style={{ display: 'inline-flex', fontSize: 11, fontWeight: 600, color: NX.faint, padding: '2px 8px' }}>
+                    +{extraProjects} more project{extraProjects === 1 ? '' : 's'}
+                  </span>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>
