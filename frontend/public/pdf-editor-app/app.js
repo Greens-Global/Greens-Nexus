@@ -2061,22 +2061,11 @@
     }
     function handleCountClick(opt) {
         if (state.activeTool !== 'shape' || shapeKind !== 'count') return;
-        if (opt.target && opt.target._countMark) return; // don't stack on an existing marker
+        // S2: the old Shapes Count is unified with Measure > Count so there's ONE
+        // tally in the Markups list. Delegate to the measure count engine.
+        if (opt.target && (opt.target._countMark || opt.target._measurePt)) return;
         const p = fabricCanvas.getPointer(opt.e);
-        const color = dom.colorPicker.value;
-        const n = countNextNumber();
-        const R = Math.max(10, (parseInt(dom.sizePicker.value, 10) || 2) * 4);
-        const circle = new fabric.Circle({ radius: R, left: 0, top: 0, originX: 'center', originY: 'center',
-            fill: color, stroke: '#ffffff', strokeWidth: 2 });
-        const label = new fabric.Text(String(n), { left: 0, top: 0, originX: 'center', originY: 'center',
-            fontSize: R, fill: '#ffffff', fontWeight: 'bold', fontFamily: 'sans-serif' });
-        const grp = new fabric.Group([circle, label], { left: p.x, top: p.y, originX: 'center', originY: 'center' });
-        grp._countMark = true; grp._countNum = n;
-        fabricCanvas.add(grp);
-        grp.setCoords();
-        saveAnnotationState();
-        saveCurrentAnnotations();
-        setStatus('Count: ' + n + ' marked - click to add the next, or switch tools to stop');
+        placeCountMarker(p);
     }
 
     // ── Measurement / Dimension (Bluebeam-style, with scale calibration) ────────
@@ -8476,6 +8465,10 @@
         const v = await _toolModal('Add watermark', `
             <label class="modal-label">Watermark text:</label>
             <input type="text" class="modal-input" data-k="text" value="CONFIDENTIAL" maxlength="60">
+            <!-- Live preview (S3) -->
+            <div style="margin-top:10px;height:70px;border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:repeating-conic-gradient(#f4f4f6 0% 25%, #fff 0% 50%) 50% / 16px 16px;">
+                <span id="wmPreview" style="font-weight:700;font-family:Arial;white-space:nowrap;">CONFIDENTIAL</span>
+            </div>
             <label class="modal-label" style="margin-top:10px;">Apply to:</label>
             <select class="modal-input" data-k="scope">
                 <option value="all">All pages</option>
@@ -8485,17 +8478,39 @@
             <input type="text" class="modal-input" data-k="range" placeholder="e.g. 1-3, 5, 8" style="margin-top:6px;display:none;">
             <label class="stamp-date-row" style="padding:10px 0 0;"><span>Color</span>
                 <input type="color" data-k="color" value="#9e9e9e"></label>
-            <label class="stamp-date-row" style="padding:8px 0 0;"><span>Strength</span>
-                <input type="range" data-k="op" min="5" max="60" value="18" style="flex:1;"></label>
-            <label class="stamp-date-row" style="padding:8px 0 0;">
-                <input type="checkbox" data-k="diag" checked><span>Diagonal</span></label>`, 'Add Watermark',
-            // Show the range input only when "Specific pages" is chosen.
+            <label class="stamp-date-row" style="padding:8px 0 0;"><span>Opacity</span>
+                <input type="range" data-k="op" min="5" max="100" value="18" style="flex:1;"><span id="wmOpVal" style="width:38px;text-align:right;">18%</span></label>
+            <label class="stamp-date-row" style="padding:8px 0 0;"><span>Rotation</span>
+                <input type="range" data-k="angle" min="-90" max="90" value="45" style="flex:1;"><span id="wmAngVal" style="width:42px;text-align:right;">45&deg;</span></label>
+            <label class="stamp-date-row" style="padding:8px 0 0;"><span>Size</span>
+                <select class="modal-input" data-k="sizeMode" style="flex:1;">
+                    <option value="fit">Fit to page (large)</option>
+                    <option value="med">Medium</option>
+                    <option value="small">Small (footer style)</option>
+                </select></label>`, 'Add Watermark',
             (root) => {
                 const sc = root.querySelector('[data-k="scope"]');
                 const rg = root.querySelector('[data-k="range"]');
-                if (sc && rg) sc.addEventListener('change', () => {
-                    rg.style.display = sc.value === 'range' ? 'block' : 'none';
-                });
+                if (sc && rg) sc.addEventListener('change', () => { rg.style.display = sc.value === 'range' ? 'block' : 'none'; });
+                // Live preview wiring (S3).
+                const pv = root.querySelector('#wmPreview');
+                const txt = root.querySelector('[data-k="text"]');
+                const col = root.querySelector('[data-k="color"]');
+                const op = root.querySelector('[data-k="op"]');
+                const ang = root.querySelector('[data-k="angle"]');
+                const opVal = root.querySelector('#wmOpVal');
+                const angVal = root.querySelector('#wmAngVal');
+                const refresh = () => {
+                    if (!pv) return;
+                    pv.textContent = txt.value || 'CONFIDENTIAL';
+                    pv.style.color = col.value;
+                    pv.style.opacity = (parseInt(op.value, 10) / 100).toFixed(2);
+                    pv.style.transform = 'rotate(' + (-parseInt(ang.value, 10)) + 'deg)';
+                    if (opVal) opVal.textContent = op.value + '%';
+                    if (angVal) angVal.innerHTML = ang.value + '&deg;';
+                };
+                [txt, col, op, ang].forEach(el => { el.addEventListener('input', refresh); });
+                refresh();
             });
         if (!v || !v.text.trim()) return;
 
@@ -8519,21 +8534,23 @@
             const c = hexToRgb(v.color);
             const text = _winAnsi(v.text.trim());
             const pages = doc.getPages();
+            const angDeg = Math.max(-90, Math.min(90, parseInt(v.angle, 10) || 0));
+            const ang = angDeg * Math.PI / 180;
+            const sizeFrac = v.sizeMode === 'small' ? 0.28 : v.sizeMode === 'med' ? 0.45 : 0.62;
             for (let pi = 0; pi < pages.length; pi++) {
                 if (!targetIdx.has(pi)) continue;
                 const page = pages[pi];
                 const { width, height } = page.getSize();
-                const target = (v.diag ? Math.hypot(width, height) : width) * 0.62;
-                const size = Math.max(18, Math.min(160, target / Math.max(1, font.widthOfTextAtSize(text, 100) / 100)));
+                const target = Math.hypot(width, height) * sizeFrac;
+                const size = Math.max(12, Math.min(200, target / Math.max(1, font.widthOfTextAtSize(text, 100) / 100)));
                 const tw = font.widthOfTextAtSize(text, size);
-                const ang = v.diag ? Math.atan2(height, width) : 0;
                 const cx = width / 2, cy = height / 2;
                 page.drawText(text, {
                     x: cx - (tw / 2) * Math.cos(ang), y: cy - (tw / 2) * Math.sin(ang) - size * 0.36,
                     size, font,
                     color: PDFLib.rgb(c.r / 255, c.g / 255, c.b / 255),
-                    opacity: parseInt(v.op, 10) / 100,
-                    rotate: PDFLib.degrees(ang * 180 / Math.PI),
+                    opacity: Math.max(0.05, Math.min(1, parseInt(v.op, 10) / 100)),
+                    rotate: PDFLib.degrees(angDeg),
                 });
             }
             const n = targetIdx.size;
@@ -8572,16 +8589,42 @@
             <select class="modal-input" data-k="pos">
                 <option value="bc">Bottom center</option>
                 <option value="br">Bottom right</option>
+                <option value="bl">Bottom left</option>
                 <option value="tr">Top right</option>
+                <option value="tc">Top center</option>
             </select>
-            <label class="modal-label" style="margin-top:10px;">Style:</label>
+            <label class="modal-label" style="margin-top:10px;">Format:</label>
             <select class="modal-input" data-k="fmt">
                 <option value="n">1</option>
                 <option value="pn">Page 1</option>
                 <option value="nn">1 / ${state.totalPages}</option>
+                <option value="pnofn">Page 1 of ${state.totalPages}</option>
             </select>
-            <label class="modal-label" style="margin-top:10px;">Start counting from:</label>
-            <input type="number" class="modal-input" data-k="start" value="1" min="1" max="9999">`, 'Add Numbers');
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;">
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Start at
+                    <input type="number" class="modal-input" data-k="start" value="1" min="0" max="9999" style="width:80px;">
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Font size
+                    <input type="number" class="modal-input" data-k="size" value="10" min="6" max="48" style="width:80px;">
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Margin (pt)
+                    <input type="number" class="modal-input" data-k="margin" value="24" min="4" max="120" style="width:80px;">
+                </label>
+            </div>
+            <label class="modal-label" style="margin-top:10px;">Apply to pages:</label>
+            <select class="modal-input" data-k="scope">
+                <option value="all">All pages</option>
+                <option value="skipfirst">All except the first page</option>
+                <option value="range">A range...</option>
+            </select>
+            <input type="text" class="modal-input" data-k="range" placeholder="e.g. 2-10, 12" style="margin-top:6px;display:none;">`,
+            'Add Numbers', (overlay) => {
+                const scopeSel = overlay.querySelector('[data-k="scope"]');
+                const rangeInp = overlay.querySelector('[data-k="range"]');
+                scopeSel && scopeSel.addEventListener('change', () => {
+                    rangeInp.style.display = scopeSel.value === 'range' ? 'block' : 'none';
+                });
+            });
         if (!v) return;
         pushDocSnapshot('Page numbers');
         setStatus('Adding page numbers...');
@@ -8589,18 +8632,31 @@
             const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             const font = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
             const pages = doc.getPages();
-            const start = parseInt(v.start, 10) || 1;
+            const start = parseInt(v.start, 10); const startN = Number.isFinite(start) ? start : 1;
+            const size = Math.max(6, Math.min(48, parseInt(v.size, 10) || 10));
+            const margin = Math.max(4, Math.min(120, parseInt(v.margin, 10) || 24));
+            // Which pages get a number (1-based indices).
+            const include = new Set();
+            if (v.scope === 'range') { parsePageRange(v.range, pages.length).forEach(p => include.add(p)); }
+            else { for (let p = 1; p <= pages.length; p++) if (!(v.scope === 'skipfirst' && p === 1)) include.add(p); }
+            const total = include.size;
+            let seq = 0;
             pages.forEach((page, i) => {
+                const pageNo = i + 1;
+                if (!include.has(pageNo)) return;
+                seq++;
+                const n = startN + seq - 1;
+                const label = v.fmt === 'pn' ? 'Page ' + n
+                    : v.fmt === 'nn' ? n + ' / ' + (startN + total - 1)
+                    : v.fmt === 'pnofn' ? 'Page ' + n + ' of ' + (startN + total - 1)
+                    : String(n);
                 const { width, height } = page.getSize();
-                const n = start + i;
-                const label = v.fmt === 'pn' ? 'Page ' + n : v.fmt === 'nn' ? n + ' / ' + (start + pages.length - 1) : String(n);
-                const size = 10;
                 const tw = font.widthOfTextAtSize(label, size);
-                const x = v.pos === 'bc' ? (width - tw) / 2 : width - tw - 28;
-                const y = v.pos === 'tr' ? height - 24 : 16;
+                const x = /c$/.test(v.pos) ? (width - tw) / 2 : /l$/.test(v.pos) ? margin : width - tw - margin;
+                const y = v.pos.startsWith('t') ? height - margin : Math.max(8, margin - 8);
                 page.drawText(label, { x, y, size, font, color: PDFLib.rgb(0.25, 0.25, 0.28) });
             });
-            await _reloadFromBytes(await doc.save(), 'Page numbers added');
+            await _reloadFromBytes(await doc.save(), 'Page numbers added to ' + total + ' page' + (total > 1 ? 's' : ''));
         } catch (err) { console.error(err); showToast('Page numbers failed'); }
     }
 

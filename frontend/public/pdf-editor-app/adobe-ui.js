@@ -77,7 +77,8 @@
       ['arrow', '→ Arrow'], ['arrow2', '↔ Double arrow'],
       ['cloud', '☁ Cloud (revision)'], ['callout', '💬 Text callout (arrow + note)'],
       ['ellipsecallout', '🗨 Speech bubble'],
-      ['count', '① Count (click to tally items)'],
+      // Count removed from Shapes (S2): it was a rival to Measure > Count and the
+      // two didn't share a tally, so users double-counted. Use Measure > Count.
       // Redact removed from Shapes (S1): one mis-click below Rectangle risked
       // irreversible loss. It now has its own tool with an explicit confirm.
       // Measure & Scale: calibrate once against a known distance on the plan,
