@@ -1951,6 +1951,9 @@
         }
 
         applyToolMode();
+        // Clear a stale status line on tool change (e.g. a 'Count "Doors"...' hint
+        // lingering into unrelated work) unless the new tool set its own hint.
+        if (tool === 'select') setStatus('Ready');
     }
 
     function applyToolMode() {
@@ -3094,7 +3097,7 @@
                   </select>
                 </label>
             </div>
-            <p class="modal-hint" style="margin:12px 0 0;">Prefer to measure a known distance instead? Use "Calibrate scale".</p>`,
+            <p class="modal-hint" style="margin:12px 0 0;">Prefer to measure a known distance instead? Use "Calibrate by drawing a known line".</p>`,
             'Set Scale', (overlay) => {
                 // Preset dropdown fills the four fields.
                 const presetSel = overlay.querySelector('[data-k="preset"]');
@@ -3304,8 +3307,8 @@
 
         // Measurement tools need a scale first.
         if (!measureScale) {
-            showToast('Set the scale first: pick "Calibrate scale" and draw a known distance');
-            setStatus('Measurement needs a scale - use "Calibrate scale" first');
+            showToast('Set the scale first: pick "Calibrate by drawing a known line"');
+            setStatus('Measurement needs a scale - use "Calibrate by drawing a known line" first');
             return;
         }
 
@@ -11179,6 +11182,22 @@ ${sample}`;
     // when the user switches ribbon groups (B3).
     window.hideEditorContextBars = function () { try { hideContextualBars(); } catch (_) {} };
 
+    // Turn a raw embedded PDF font id (e.g. "PDFExact-g_d0_", "ABCDEF+Arial-Bold")
+    // into a friendly label for the font dropdown.
+    function _friendlyFontName(raw) {
+        if (!raw) return 'Original font';
+        let s = String(raw).replace(/^[A-Z]{6}\+/, '');      // drop subset prefix
+        // Known family keywords.
+        const known = ['Arial', 'Helvetica', 'Times', 'Courier', 'Georgia', 'Verdana', 'Calibri', 'Cambria', 'Garamond', 'Tahoma', 'Impact'];
+        for (const k of known) if (new RegExp(k, 'i').test(s)) {
+            const bold = /bold/i.test(s), ital = /ital|obli/i.test(s);
+            return k + (bold ? ' Bold' : '') + (ital ? ' Italic' : '');
+        }
+        // Opaque internal id (PDFExact-g_d0_ etc.) -> generic label.
+        if (/^[A-Za-z]+Exact|_g_|_d\d|[0-9a-f]{6,}/.test(s)) return 'Embedded font';
+        return s.replace(/[-_]+/g, ' ').trim() || 'Original font';
+    }
+
     // Sync bar state to match the selected text object's current properties
     function syncTextFormatBar(obj) {
         dom.tbBold.classList.toggle('active', obj.fontWeight === 'bold');
@@ -11194,7 +11213,7 @@ ${sample}`;
         if (sel && ![...sel.options].some(o => o.value === fam)) {
             const opt = document.createElement('option');
             opt.value = fam;
-            opt.textContent = fam + (obj._pdfFontName ? ' (original)' : '');
+            opt.textContent = _friendlyFontName(fam) + (obj._pdfFontName ? ' (original)' : '');
             opt.dataset.injected = '1';
             sel.insertBefore(opt, sel.firstChild);
         }
