@@ -731,15 +731,23 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
       isDirty={dirty}
       onSave={valid ? save : undefined}
       footer={<>
-        <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        {/* Archive sits beside Save at full button size rather than as a
-            checkbox buried in the body - it is a lifecycle action, not a
-            property, and it was routinely missed down there. Save-and-archive
-            in one press: the toggle goes through the same save path, so team
-            membership and every other edit in the form land with it. */}
+        {/* Archive sits at the opposite end from Cancel/Save (marginRight:
+            auto splits the footer's flex-end row into a left island and a
+            right group) - a lifecycle action reads as separate from the
+            save/cancel pair, not one more choice in that row. Red because
+            archiving, while reversible, is still "take this out of active
+            use" - Unarchive stays green (a restore, not a warning).
+            Save-and-archive in one press: the toggle goes through the same
+            save path, so team membership and every other edit in the form
+            land with it. */}
         {form.id && (
           <button
-            style={{ ...btn('outline'), color: form.archived ? NX.green : NX.dim, opacity: saving ? 0.5 : 1, pointerEvents: saving ? 'none' : 'auto' }}
+            style={{
+              ...btn('outline'), marginRight: 'auto',
+              color: form.archived ? NX.green : NX.red,
+              borderColor: form.archived ? NX.border : NX.red,
+              opacity: saving ? 0.5 : 1, pointerEvents: saving ? 'none' : 'auto',
+            }}
             title={form.archived
               ? 'Restore this project to the active list'
               : 'Archive - keeps the project and its tasks, hides it from the active list and from project pickers'}
@@ -747,6 +755,7 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
             <Archive size={15} />{form.archived ? 'Unarchive' : 'Archive'}
           </button>
         )}
+        <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: valid && !saving ? 1 : 0.5, pointerEvents: valid && !saving ? 'auto' : 'none' }} onClick={() => save()}>{saving ? 'Creating…' : form.id ? 'Save Changes' : 'Create Project'}</button>
       </>}
     >

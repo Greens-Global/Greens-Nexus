@@ -3,7 +3,7 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Square, CheckSquare, CheckCircle2, CornerDownRight } from 'lucide-react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, input as inputStyle } from './theme';
@@ -118,7 +118,7 @@ function projectOptions(projects) {
 // `band` = this row sits on an odd index inside its group, so it gets the
 // zebra tint. Banding is what lets the eye follow a row all the way out to the
 // Collaborators/Projects columns on a wide screen.
-function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST_COLS }) {
+function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST_COLS, isMobilePortrait = false }) {
   // A subtask's project is its parent's; the project cell then names the parent
   // (click-through) rather than offering a select that would re-home the subtask.
   const parent = t.parentTaskId ? rootParent(t, store.taskById) : null;
@@ -137,7 +137,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
   const cells = {
     title: (
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-        <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, flexShrink: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckSquare size={17} /> : <Square size={17} />}</button>
+        <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, flexShrink: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
         {/* Same badges the Task List shows. Without them the same task looked
             emptier here than there, which is the kind of difference that reads
@@ -146,8 +146,15 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
       </div>
     ),
     dueOn: (
-      <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)}
-        title="Due Date" style={{ fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' }} />
+      // Portrait phones drop Collaborators/Projects (see baseCols in
+      // MyTasksView), which leaves Due Date as the last column - flush it to
+      // the row's right edge instead of the left-aligned default, so it isn't
+      // stranded in a sea of empty space between it and the name column.
+      <div style={isMobilePortrait ? { display: 'flex', justifyContent: 'flex-end', width: '100%' } : undefined}>
+        <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)}
+          title="Due Date" compact
+          style={t.dueOn ? { fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' } : undefined} />
+      </div>
     ),
     collaborators: (
       <CollaboratorPicker value={t.followerIds || []} people={people} onChange={(v) => store.updateTask(t.id, { followerIds: v })} />
@@ -193,8 +200,13 @@ export default function MyTasksView() {
   const [group, setGroup] = useTableValue('mytasks', 'group', 'date');
   const [filters, setFilters] = useState(EMPTY_FILTER);
   const [sort, setSort] = useTableValue('mytasks', 'sort', DEFAULT_SORT);
+  // Portrait phones only - landscape still has the room for all four. Only
+  // Name/Due Date fit without every row wrapping or Name shrinking to
+  // nothing, so Collaborators/Projects drop rather than squeeze.
+  const isMobilePortrait = useIsMobile('(max-width: 640px) and (orientation: portrait)');
+  const baseCols = isMobilePortrait ? LIST_COLS.filter((c) => c.key === 'title' || c.key === 'dueOn') : LIST_COLS;
   const { cols: listCols, template, startResize, resetWidth, widths, wrapRef, dragProps } =
-    useTableColumns({ table: 'mytasks', cols: LIST_COLS });
+    useTableColumns({ table: 'mytasks', cols: baseCols });
   // Person / Project / Collaborator sorts order by the NAME on screen, not the
   // email or uuid underneath it - these are the resolvers that do that.
   const sortCtx = useMemo(
@@ -304,13 +316,18 @@ export default function MyTasksView() {
           <div className={isMobile ? 'nx-edge-card' : undefined} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface }}>
             {/* Fixed-width columns (Due date/Collaborators/Projects) don't shrink
                 below their content size - scroll horizontally on narrow
-                viewports instead of getting clipped by the card's rounded corners. */}
+                viewports instead of getting clipped by the card's rounded corners.
+                Portrait phones drop to just Name/Due Date (see baseCols above),
+                which fit this width on their own - the 560px floor calibrated for
+                all four columns would otherwise force a pointless horizontal
+                scrollbar on a screen with nothing to its right. */}
             <div style={{ overflowX: 'auto' }}>
-              <div ref={wrapRef} style={{ minWidth: 560, '--nx-grid': template }}>
+              <div ref={wrapRef} style={{ minWidth: isMobilePortrait ? 0 : 560, '--nx-grid': template }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', gap: 8, padding: '6px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
                   {listCols.map((c) => (
                     <TableHead key={c.key} label={c.label} sortKey={c.key} sort={sort} setSort={setSort}
                       sortReset={{ key: 'manual', dir: 'asc' }} style={{ color: NX.dim }}
+                      align={isMobilePortrait && c.key === 'dueOn' ? 'flex-end' : undefined}
                       drag={dragProps(c.key)}
                       onResizeStart={startResize(c.key, widths[c.key] ?? c.width ?? 150)}
                       onResizeReset={() => resetWidth(c.key)} />
@@ -326,7 +343,7 @@ export default function MyTasksView() {
                         <ChevronDown size={14} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
                         {g.label} <span style={{ color: NX.faint, fontWeight: 600, fontSize: 12 }}>{g.tasks.length} item{g.tasks.length !== 1 ? 's' : ''}</span>
                       </button>
-                      {!isCol && g.tasks.map((t, i) => <TaskRow key={t.id} t={t} people={people} projects={projects} store={store} onOpen={setOpenId} band={i % 2 === 1} cols={listCols} />)}
+                      {!isCol && g.tasks.map((t, i) => <TaskRow key={t.id} t={t} people={people} projects={projects} store={store} onOpen={setOpenId} band={i % 2 === 1} cols={listCols} isMobilePortrait={isMobilePortrait} />)}
                     </div>
                   );
                 })}

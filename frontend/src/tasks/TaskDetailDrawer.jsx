@@ -192,7 +192,7 @@ function MenuItem({ icon, onClick, danger, children }) {
 // Defaults to Overview, so every existing caller behaves exactly as before.
 export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab = 'overview' }) {
   const store = useTasks();
-  const { taskById, tasks, teams, projects, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment } = store;
+  const { taskById, tasks, teams, projects, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment, offerUndo } = store;
   const people = usePeople();
 
   const [activeId, setActiveId] = useState(taskId);
@@ -240,7 +240,22 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   // My Tasks used for its Task Visibility column before that column was removed
   // in favor of this indicator.
   const shared = (task.followerIds || []).length > 0 || !!task.projectId;
-  const patch = (p) => updateTask(activeId, p);
+  // The whole drawer autosaves - no Save button, every field commits on
+  // change - so a saved edit needs its own confirmation the way an explicit
+  // Save click gets one for free. Reuses the same undo-toast plumbing
+  // completing/deleting a task already offers (TasksContext.jsx): captures
+  // each touched key's PRIOR value before the write, then a single Undo
+  // restores all of them together. Fires optimistically, matching how the
+  // edit itself already appears in the UI before the network round trip
+  // finishes - a failed save is surfaced separately by updateTask's own
+  // alert, so this doesn't also need to handle that case.
+  const patch = (p) => {
+    const prev = {};
+    for (const k of Object.keys(p)) prev[k] = task[k];
+    const result = updateTask(activeId, p);
+    offerUndo('Changes saved', () => updateTask(activeId, prev).catch(() => {}));
+    return result;
+  };
 
   const counts = {
     comments: (task.commentIds || []).length,
@@ -307,10 +322,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {/* On a phone this collapses to its circle-check icon - the label is
                 the widest thing in the header and crowds out the actions. */}
-            <button onClick={() => store.toggleComplete(task)} title={task.completed ? 'Completed' : 'Mark complete'}
+            <button onClick={() => store.toggleComplete(task)} title={task.completed ? 'Completed' : 'Mark Complete'}
               style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: task.completed ? NX.green : NX.dim }}>
               {task.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
-              {!isMobile && (task.completed ? 'Completed' : 'Mark complete')}
+              {!isMobile && (task.completed ? 'Completed' : 'Mark Complete')}
             </button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -639,7 +654,8 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       </Row>
 
       <Row label="Due Date">
-        <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} style={{ ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 }} />
+        <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} compact
+          style={task.dueOn ? { ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 } : undefined} />
       </Row>
 
       <Row label="Project">

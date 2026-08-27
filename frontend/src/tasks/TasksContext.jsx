@@ -438,6 +438,7 @@ export function TasksProvider({ children }) {
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,
     markNotificationRead, markAllNotificationsRead, refresh: loadCore,
+    offerUndo,
     ...actions,
   };
   return (

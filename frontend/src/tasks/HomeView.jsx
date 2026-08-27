@@ -3,7 +3,7 @@
 // stats + Customize, over a reorderable grid of widgets (My tasks · Projects ·
 // Teams · Team members · Notifications), persisted to localStorage.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, CheckCircle2, Users, LayoutGrid, Plus, Circle, CalendarDays, FolderKanban, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
+import { ChevronDown, ChevronRight, CheckCircle2, LayoutGrid, Plus, Circle, CalendarDays, FolderKanban, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { fmtDate, taskIdFromUrl, taskAssignees } from './lib';
 import { NX, FONT, btn, card, PRIORITY_ORDER } from './theme';
@@ -114,7 +114,6 @@ export default function HomeView({ onNavigate }) {
   const completed = myTasks.filter((t) => t.completed);
   const upcoming = myTasks.filter((t) => !t.completed && (!t.dueOn || (t.dueOn >= todayISO() && t.dueOn <= rangeEnd)));
   const shown = tab === 'Upcoming' ? upcoming : tab === 'Overdue' ? overdue : completed;
-  const collaborators = useMemo(() => { const s = new Set(); for (const t of myTasks) for (const f of (t.followerIds || [])) if (f !== myEmail) s.add(f); return s.size; }, [myTasks, myEmail]);
   const myTeams = useMemo(() => teams.filter((d) => (d.memberIds || []).includes(myEmail)), [teams, myEmail]);
   const teamMembers = useMemo(() => { const s = new Set(); myTeams.forEach((d) => (d.memberIds || []).forEach((id) => s.add(id))); return [...s]; }, [myTeams]);
   const recentProjects = projects.slice(0, 4);
@@ -461,16 +460,11 @@ export default function HomeView({ onNavigate }) {
       {/* Desktop: workload counts left, range · stats · Customize right. Mobile:
           the range button takes the full first line so stats + Customize wrap. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: isMobile ? 12 : 20 }}>
-        {/* Counts only. The greeting and the date both went: neither told the
-            reader anything they didn't know, and they pushed the two numbers
-            that actually matter into a subtitle. With both gone this can be
-            empty (nothing upcoming, nothing overdue) - the flex row still lays
-            out correctly, the right-hand controls just sit alone. */}
-        <div style={{ minWidth: 0, fontSize: 15, fontWeight: 700, letterSpacing: -0.2 }}>
-          {upcoming.length > 0 && <span style={{ color: NX.blue }}>{upcoming.length} upcoming</span>}
-          {upcoming.length > 0 && overdue.length > 0 && <span style={{ color: NX.faint }}> · </span>}
-          {overdue.length > 0 && <span style={{ color: NX.red }}>{overdue.length} overdue</span>}
-        </div>
+        {/* The greeting, the date, and the upcoming/overdue counts all went -
+            none told the reader anything they didn't know. This spacer stays
+            (rather than being deleted outright) so the space-between row
+            below still puts the right-hand controls where they belong. */}
+        <div style={{ minWidth: 0 }} />
         {/* Header holds ONE page-level control (Customize) - the range picker
             and task stats moved into the "My tasks" card they actually scope,
             so switching to Tickets no longer swaps header anatomies. */}
@@ -495,12 +489,6 @@ export default function HomeView({ onNavigate }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '0 0 14px' }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>My tasks</h2>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12.5, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <CheckCircle2 size={14} style={{ color: NX.green }} /> {completed.length} completed
-          </span>
-          <span style={{ fontSize: 12.5, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <Users size={14} style={{ color: NX.faint }} /> {collaborators} collaborator{collaborators === 1 ? '' : 's'}
-          </span>
           <div ref={rangeRef} style={{ position: 'relative' }}>
             <button onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 12.5 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
             {rangeOpen && (

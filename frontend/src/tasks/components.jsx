@@ -57,7 +57,11 @@ export function PriorityChip({ priority }) {
 export function MobileFab({ onClick, title = 'Create' }) {
   return (
     <button onClick={onClick} title={title} aria-label={title} style={{
-      position: 'fixed', left: '50%', bottom: 18, transform: 'translateX(-50%)',
+      // Every caller (ProjectsView/PortfoliosView/TemplatesView) lives inside
+      // the Task module, which now always shows its own bottom tab bar on
+      // mobile (MobileNav.jsx's TASK_ACTIONS) - float above it, same as
+      // MobileTaskBar.jsx's identical offset.
+      position: 'fixed', left: '50%', bottom: 'calc(64px + env(safe-area-inset-bottom) + 18px)', transform: 'translateX(-50%)',
       width: 58, height: 52, borderRadius: 16, border: `1px solid ${NX.border}`,
       background: NX.primary, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
       boxShadow: '0 10px 30px rgba(0,0,0,0.22)', zIndex: 2500, cursor: 'pointer', fontFamily: FONT,
@@ -332,7 +336,14 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
   );
 }
 
-export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled }) {
+// `compact` = a table/list cell rather than a form field (My Tasks, the rich
+// Task List, the Task Detail drawer's Due Date row, Data Quality): an unset
+// date shows Asana's own empty-state - a calendar glyph inside a dashed
+// circle, clickable to set one - instead of a text placeholder + separate
+// icon. A date once set shows as plain text, same as before. Form inputs
+// (Create/Edit Task, filters, recurrence end date) keep the old look, since a
+// tiny circle reads as broken sitting inside a full-width boxed field.
+export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false }) {
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
   const btnRef = useRef(null);
@@ -341,22 +352,41 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
     const r = btnRef.current?.getBoundingClientRect();
     if (r) { setRect(r); setOpen(true); }
   };
+  const toggle = (e) => { if (disabled) return; e.stopPropagation(); open ? setOpen(false) : openCal(); };
+
+  if (compact && !value) {
+    return (
+      <span style={{ position: 'relative', display: 'inline-flex', ...style }}>
+        <button ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled} onClick={toggle}
+          style={{
+            width: 24, height: 24, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
+            background: 'transparent', color: NX.faint, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 0, cursor: disabled ? 'default' : 'pointer', flexShrink: 0,
+          }}
+        ><CalendarDays size={13} strokeWidth={2} /></button>
+        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} />}
+      </span>
+    );
+  }
+
   return (
     <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, ...style }}>
       <button
         ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled}
-        onClick={(e) => { e.stopPropagation(); open ? setOpen(false) : openCal(); }}
+        onClick={toggle}
         style={{
           flex: 1, textAlign: 'left', border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
           fontFamily: FONT, fontSize: 'inherit', fontWeight: 'inherit', whiteSpace: 'nowrap',
           color: color || (value ? NX.ink : NX.faint),
         }}
       >{value ? fmtDate(value) : placeholder}</button>
-      <CalendarDays
-        size={15} strokeWidth={2} color={NX.faint}
-        style={{ flexShrink: 0, cursor: disabled ? 'default' : 'pointer' }}
-        onClick={(e) => { if (disabled) return; e.stopPropagation(); open ? setOpen(false) : openCal(); }}
-      />
+      {!(compact && value) && (
+        <CalendarDays
+          size={15} strokeWidth={2} color={NX.faint}
+          style={{ flexShrink: 0, cursor: disabled ? 'default' : 'pointer' }}
+          onClick={toggle}
+        />
+      )}
       {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} />}
     </span>
   );

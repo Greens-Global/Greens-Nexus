@@ -216,15 +216,19 @@ export default function PortfoliosView({ onNavigate }) {
                       onResizeReset={() => resetWidth(c.key)} />
                   ))}
                 </div>
-                {visible.map((pf) => {
+                {visible.map((pf, idx) => {
                   const accent = pf.color || NX.purple;
                   const r = rollup(pf.projectIds);
                   const isOpen = expandedIds.has(pf.id);
                   const memberProjects = (pf.projectIds || []).map((id) => projectById(id)).filter(Boolean);
+                  // Alternating row shading, same as the Task List and Projects
+                  // list - banding is what lets the eye ride a row out to its
+                  // Tasks/Progress/Projects columns.
+                  const rowBg = idx % 2 === 1 ? NX.zebra : 'transparent';
                   return (
                     <div key={pf.id} style={{ borderBottom: `1px solid ${NX.border2}`, opacity: pf.archived ? 0.62 : 1 }}>
-                      <div onClick={() => toggleExpanded(pf.id)} style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer' }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                      <div onClick={() => toggleExpanded(pf.id)} style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer', background: rowBg }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = rowBg; }}>
                         {/* Keyed and rendered in the header's order - a row that
                             renders cells in a fixed sequence puts every value
                             under the wrong heading once columns can be dragged. */}

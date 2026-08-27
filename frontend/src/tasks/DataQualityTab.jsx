@@ -67,7 +67,8 @@ function GapRow({ t, gaps, store, onOpen }) {
       </div>
       <div onClick={(e) => e.stopPropagation()}>
         <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })}
-          title="Due Date" style={{ fontSize: 12.5, padding: '3px 6px', background: has('dueOn') ? 'rgba(217,119,6,0.08)' : 'transparent', borderRadius: 6 }} />
+          title="Due Date" compact
+          style={{ fontSize: 12.5, padding: '3px 6px', background: has('dueOn') ? 'rgba(217,119,6,0.08)' : 'transparent', borderRadius: 6 }} />
       </div>
       <div onClick={(e) => e.stopPropagation()}>
         <SearchSelect value={t.projectId || ''} placeholder="No project" searchPlaceholder="Search projects…"

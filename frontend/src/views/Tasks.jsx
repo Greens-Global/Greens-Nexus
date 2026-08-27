@@ -195,16 +195,19 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
       </div>
 
       {/* Module tabs - hidden on Manage. Desktop renders them centered in the
-          top header; phones keep the in-page strip (ModuleTabs handles both).
-          'tasks' (a drilled-in project task list) and 'templates' (reached
-          from the Projects screen) both highlight Projects, since neither has
-          a tab of its own. */}
+          top header. Phones get a fixed bottom tab bar instead (Asana-app
+          style: icon over label - see MobileNav.jsx's TASK_ACTIONS, driven by
+          the URL's activeSub so it needs no wiring here), so the in-page
+          fallback ModuleTabs would otherwise render is suppressed with
+          mobileInline={false}. 'tasks' (a drilled-in project task list) and
+          'templates' (reached from the Projects screen) both highlight
+          Projects, since neither has a tab of its own. */}
       {!onManage && (
         <div data-tour="task-tabs">
           <ModuleTabs
             tabs={MODULE_TABS.map(({ key, label, icon }) => ({ key, label, Icon: icon }))}
             active={(sub === 'tasks' || sub === 'templates') ? 'projects' : sub}
-            onChange={go} />
+            onChange={go} mobileInline={!isMobile} />
         </div>
       )}
 
@@ -246,8 +249,11 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
       {/* A task opened from header search - hosted here so it works from any tab. */}
       {searchTaskId && <TaskDetailDrawer taskId={searchTaskId} onClose={() => setSearchTaskId(null)} />}
       {/* Create moved into the navbar on mobile (see the Create menu above); the
-          My Tasks / workspace screens still create via their MobileTaskBar +. */}
-      <ReportBugButton bottom={isMobile && hasMobileBar ? 84 : undefined} />
+          My Tasks / workspace screens still create via their MobileTaskBar +.
+          +64 whenever the module's own bottom tab bar is showing (everywhere
+          except Manage, which has no bar of its own) so this floats above it
+          too, same reasoning as MobileTaskBar's bottom offset. */}
+      <ReportBugButton bottom={isMobile ? (hasMobileBar ? 84 : 14) + (onManage ? 0 : 64) : undefined} />
       {tour && (
         <GuidedTour
           steps={buildTaskTourSteps({ go, canManage, isMobile })}
