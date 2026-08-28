@@ -64,8 +64,8 @@ def fire_task_event(task_id: str = "", kind: str = "") -> None:
 
 # ── Notifications (module's own bell → task_notifications) ───────────────────
 def task_notify(db: Session, *, kind: str, for_email: str, title: str, body: str = "",
-                task_id: str = "", department_id: str = "", request_id: str = "",
-                nexus_action: dict | None = None) -> None:
+                task_id: str = "", ticket_id: str = "", department_id: str = "",
+                request_id: str = "", nexus_action: dict | None = None) -> None:
     """Create one in-app notification. `for_email` is a specific address or the
     literal "admins" to fan out to every administrator (resolved client-side).
     Server-side only - employees can't POST notifications directly.
@@ -81,25 +81,32 @@ def task_notify(db: Session, *, kind: str, for_email: str, title: str, body: str
     to find the task the card just named. Tasks.jsx opens the drawer for a
     navigate event carrying a taskId, so this is what makes "View task" open
     the task. Central so new call sites get it without remembering.
+
+    `ticket_id` is the same deal for the Ticket module, and for the same
+    reason - every ticket call site wrote a bare {"view": "tickets"}, so "View
+    ticket" reached the list and left you to find the ticket the card had just
+    named by its number. TicketsView.jsx opens its drawer on a ticketId.
     """
     target = for_email if for_email == "admins" else (for_email or "").lower()
     if not target:
         return
     db.add(TaskNotification(
         id=gen_id(), kind=kind, title=title, body=body, for_email=target,
-        request_id=request_id, department_id=department_id, task_id=task_id,
+        request_id=request_id or ticket_id, department_id=department_id, task_id=task_id,
         read=False, created_at=now_iso(),
     ))
     recipients = admin_emails(db) if target == "admins" else [target]
     action = dict(nexus_action) if nexus_action else None
     if action and task_id and not action.get("taskId"):
         action["taskId"] = task_id
+    if action and ticket_id and not action.get("ticketId"):
+        action["ticketId"] = ticket_id
     action_json = json.dumps(action) if action else ""
     now = now_iso()
     for recipient in recipients:
         db.add(NexusNotification(
             id=gen_id(), type=f"task_{kind}", recipient=recipient, title=title, body=body,
-            ref_id=task_id or request_id, item_name="", requested_by="", action=action_json,
+            ref_id=task_id or ticket_id or request_id, item_name="", requested_by="", action=action_json,
             actioned=False, read_by="", created_at=now,
         ))
 
