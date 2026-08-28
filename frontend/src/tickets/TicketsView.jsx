@@ -12,6 +12,7 @@ import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import { filesFromPaste } from '../tasks/lib';
+import { takePendingOpen } from '../lib/pendingOpen';
 import { supabase } from '../lib/supabase';
 import { startScreenRecording } from '../lib/screenRecorder';
 import { stashDraft, appendDraftFile, takeDraft, peekDraft, setDraftUiMounted, finishRecording } from './recordingDraft';
@@ -366,6 +367,21 @@ export default function TicketsView() {
     params.delete('ticket');
     const rest = params.toString();
     window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
+  }, []);
+
+  // The in-app equivalent of that ?ticket= link: the notification bell's "View
+  // ticket" navigates here and then fires this, because a mount-time query
+  // param cannot reach a module that is already mounted (clicking a second
+  // notification while sitting on this screen). Same shape as the Task
+  // module's `nexus:open-task` - see views/Tasks.jsx.
+  useEffect(() => {
+    const openTicket = (e) => { const id = e.detail?.ticketId; if (id) setOpenId(id); };
+    window.addEventListener('nexus:open-ticket', openTicket);
+    // This module is lazy(), so on a first visit the event above has already
+    // fired by the time we get here - the bell leaves the id behind for us.
+    const pending = takePendingOpen('ticket');
+    if (pending) setOpenId(pending);
+    return () => window.removeEventListener('nexus:open-ticket', openTicket);
   }, []);
 
   // Column widths (list view) - persisted so a resize survives a reload.

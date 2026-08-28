@@ -7,6 +7,7 @@
 // Tickets used to live here behind a Task | Ticket toggle - it's now its own
 // top-level module (views/Tickets.jsx), so this file is Task-only.
 import { useEffect, useState } from 'react';
+import { takePendingOpen } from '../lib/pendingOpen';
 import { Home, CheckCircle2, FolderKanban, Briefcase, Users, Settings, X } from 'lucide-react';
 import TasksWorkspace from '../tasks/TasksWorkspace';
 import HomeView from '../tasks/HomeView';
@@ -136,6 +137,10 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     // the Task module is the active view.
     const openTour = () => setTour(true);
     window.addEventListener('nexus:open-task', openTask);
+    // Lazy module: on a first visit the bell's event fired before this mounted,
+    // so it also left the id behind. See lib/pendingOpen.js.
+    const pending = takePendingOpen('task');
+    if (pending) setSearchTaskId(pending);
     window.addEventListener('nexus:tasks-person', openPerson);
     window.addEventListener('nexus:tasks-search', openSearch);
     window.addEventListener('nexus:tasks-tour', openTour);

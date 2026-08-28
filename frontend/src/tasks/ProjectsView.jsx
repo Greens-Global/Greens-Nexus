@@ -3,12 +3,12 @@
 // project. Ported from the export's ProjectsPage/ProjectOverview into the Nexus
 // inline-style idiom.
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, LayoutGrid, List, Copy, LayoutTemplate, ArrowLeft } from 'lucide-react';
+import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, Copy, LayoutTemplate, ArrowLeft } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject, projectToForm} from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab, SearchSelect } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab, SearchSelect, ViewToggle } from './components';
 import TasksWorkspace from './TasksWorkspace';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import { CustomFieldInput } from './TaskDetailDrawer';
@@ -62,10 +62,6 @@ function projectStatusFor(stats) {
 // because comparing rollups down a column is what people actually come here to
 // do and a 4-across grid makes that a scavenger hunt.
 const VIEW_KEY = 'nexus.projects.view';
-const VIEW_TABS = [
-  { key: 'grid', icon: LayoutGrid, label: 'Grid' },
-  { key: 'list', icon: List, label: 'List' },
-];
 // One template for the header and every row, so the columns cannot drift apart.
 // Teams and Owner are the first to go on a narrow screen - the name, how far
 // along it is, and its status are what the row is for.
@@ -115,8 +111,9 @@ export default function ProjectsView({ onNavigate }) {
   const [templating, setTemplating] = useState(null);    // project being saved as a template | null
   // Grid or list, in the user's profile with everything else they set here -
   // it used to be a per-browser choice, so the same person got the grid on one
-  // machine and the list on another.
-  const [view, setView] = useTableValue('projects', 'view', 'grid');
+  // machine and the list on another. Anyone who has already picked keeps their
+  // pick; only a first visit lands on the list.
+  const [view, setView] = useTableValue('projects', 'view', 'list');
   const switchView = (v) => setView(v);
   // One-time migration of the old per-browser choice, so nobody's preference is
   // silently reset by the move. Runs once, then the local copy is retired.
@@ -253,8 +250,6 @@ export default function ProjectsView({ onNavigate }) {
               {(f.options || []).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           ))}
-          {/* List view only - the grid has no columns to restore. */}
-          {!isMobile && view === 'list' && <ResetColumnsButton style={{ marginLeft: 'auto' }} />}
           {/* Mobile has no room for a labelled header button (New Project already
               gave that spot to the floating +), so Templates rides here instead,
               icon-only like the view toggle it sits beside. */}
@@ -264,19 +259,17 @@ export default function ProjectsView({ onNavigate }) {
               <LayoutTemplate size={15} />
             </button>
           )}
-          {/* Same segmented control the task views use, so the two screens do
-              not each invent their own switcher. */}
-          <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, marginLeft: view === 'list' && !isMobile ? 0 : 'auto', flexShrink: 0 }}>
-            {VIEW_TABS.map((tb) => (
-              <button key={tb.key} onClick={() => switchView(tb.key)} title={`${tb.label} View`}
-                aria-pressed={view === tb.key}
-                style={{
-                  ...btn('ghost'), padding: isMobile ? '5px 8px' : '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
-                  background: view === tb.key ? NX.surface : 'transparent',
-                  color: view === tb.key ? NX.ink : NX.dim,
-                  boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-                }}><tb.icon size={15} />{!isMobile && ` ${tb.label}`}</button>
-            ))}
+          {/* Right-hand cluster. The switcher belongs on the far edge whatever
+              else is in the row, so the group owns the auto margin - hanging it
+              off ResetColumnsButton put the switcher mid-row on any profile
+              that had never resized a column, since that button renders null
+              until it has something to reset. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginLeft: 'auto', flexShrink: 0 }}>
+            {/* List view only - the grid has no columns to restore. */}
+            {!isMobile && view === 'list' && <ResetColumnsButton />}
+            {/* The shared switcher, so Projects, Portfolios, Teams and Templates
+                cannot drift apart on padding, radius or active state. */}
+            <ViewToggle view={view} onChange={switchView} isMobile={isMobile} />
           </div>
         </div>
       </div>
@@ -435,7 +428,7 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
   // Alphabetical A-Z by default, so the header shows what the list is actually
   // doing rather than leaving the order implicit.
   const [sort, setSort] = useTableValue('projects', 'sort', PROJECTS_DEFAULT_SORT);
-  const { cols: listCols, template, startResize, resetWidth, widths, wrapRef, dragProps } =
+  const { cols: listCols, template, startResize, resetWidth, autofitWidth, widths, wrapRef, dragProps } =
     useTableColumns({ table: 'projects', cols: LIST_COLS_WIDE });
   const cols = isMobile ? LIST_COLS : 'var(--nx-grid)';
   const rows = useMemo(() => {
@@ -472,7 +465,8 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
               <TableHead key={c.key} label={c.label} sortKey={c.sort} sort={sort} setSort={setSort}
                 drag={dragProps(c.key, !c.fixed)}
                 onResizeStart={startResize(c.key, widths[c.key] ?? c.width ?? 190)}
-                onResizeReset={() => resetWidth(c.key)} />
+                onResizeReset={() => resetWidth(c.key)}
+              onResizeAutofit={() => autofitWidth(c.key)} />
             ))}
           </div>
         )}

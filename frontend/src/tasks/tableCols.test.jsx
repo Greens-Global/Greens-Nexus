@@ -13,7 +13,7 @@ vi.mock('../api', () => ({
 }));
 
 import { api } from '../api';
-import { nextSort, applyOrder, useTableColumns, TableHead, useTableSetting, useTableValue, __setTablePrefsCache } from './tableCols';
+import { nextSort, applyOrder, useTableColumns, TableHead, useTableSetting, useTableValue, useHasTablePrefs, resetAllTablePrefs, ResetColumnsButton, __setTablePrefsCache } from './tableCols';
 
 describe('nextSort', () => {
   it('cycles unsorted -> asc -> desc -> reset', () => {
@@ -241,6 +241,92 @@ describe('useTableSetting', () => {
     render(<Harness />);
     fireEvent.click(screen.getByText('go'));
     expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('t', { hidden: ['a', 'b'] });
+  });
+});
+
+// The reset control and the view/sort a person left a screen on share ONE
+// per-table document, and conflating them is what put a "Reset Columns" button
+// above a list whose columns had never been touched - all the person had done
+// was switch to the grid.
+function HasHarness() {
+  return <span data-testid="has">{String(useHasTablePrefs())}</span>;
+}
+
+describe('useHasTablePrefs', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    act(() => __setTablePrefsCache({}));
+  });
+
+  it('is false for a person who has customized nothing', () => {
+    render(<HasHarness />);
+    expect(screen.getByTestId('has').textContent).toBe('false');
+  });
+
+  it('stays false when all they did was switch view, group or sort', () => {
+    act(() => __setTablePrefsCache({
+      projects: { view: 'grid' },
+      mytasks: { group: 'date', sort: { key: 'due', dir: 'asc' }, collapsed: ['done'] },
+    }));
+    render(<HasHarness />);
+    expect(screen.getByTestId('has').textContent).toBe('false');
+  });
+
+  it('is true once a column has been moved, resized or hidden', () => {
+    for (const prefs of [{ order: ['due', 'name'] }, { widths: { name: 320 } }, { hidden: ['owner'] }]) {
+      act(() => __setTablePrefsCache({ richlist: prefs }));
+      const { unmount } = render(<HasHarness />);
+      expect(screen.getByTestId('has').textContent).toBe('true');
+      unmount();
+    }
+  });
+
+  it('ignores an empty order or widths - a cleared arrangement is no arrangement', () => {
+    act(() => __setTablePrefsCache({ projects: { order: [], widths: {} } }));
+    render(<HasHarness />);
+    expect(screen.getByTestId('has').textContent).toBe('false');
+  });
+
+  it('renders no reset button until there is something to reset', () => {
+    const { unmount } = render(<ResetColumnsButton />);
+    expect(screen.queryByText('Reset Columns')).not.toBeInTheDocument();
+    unmount();
+
+    act(() => __setTablePrefsCache({ projects: { widths: { name: 300 } } }));
+    render(<ResetColumnsButton />);
+    expect(screen.getByText('Reset Columns')).toBeInTheDocument();
+  });
+});
+
+describe('resetAllTablePrefs', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    act(() => __setTablePrefsCache({}));
+  });
+
+  it('restores the columns but keeps the view, group and sort', async () => {
+    act(() => __setTablePrefsCache({
+      projects: { order: ['due', 'name'], widths: { name: 320 }, view: 'grid' },
+      mytasks: { hidden: ['owner'], group: 'date', sort: { key: 'due', dir: 'desc' } },
+    }));
+    render(<HasHarness />);
+
+    await act(async () => { await resetAllTablePrefs(); });
+
+    // The button's own reason to exist is gone...
+    expect(screen.getByTestId('has').textContent).toBe('false');
+    // ...but nobody has been thrown back to a view they did not choose.
+    expect(api.resetAllTaskTablePrefs).toHaveBeenCalled();
+    expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('projects', { view: 'grid' });
+    expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('mytasks', { group: 'date', sort: { key: 'due', dir: 'desc' } });
+  });
+
+  it('sends nothing back for a table that was only ever column state', async () => {
+    act(() => __setTablePrefsCache({ projects: { order: ['due', 'name'] } }));
+    await act(async () => { await resetAllTablePrefs(); });
+    expect(api.saveTaskTablePrefs).not.toHaveBeenCalled();
   });
 });
 

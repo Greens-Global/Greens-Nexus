@@ -6,6 +6,7 @@ import { useRequisitions }   from '../contexts/RequisitionContext';
 import { useMsal }           from '@azure/msal-react';
 import { useRole }           from '../contexts/RoleContext';
 import { api }               from '../api';
+import { setPendingOpen }    from '../lib/pendingOpen';
 
 // Resolved dynamically from MSAL account - see myName below
 
@@ -498,8 +499,21 @@ export default function NotificationBell({ onNavigate }) {
       // to find the task the card had just named. Deferred like the header
       // search does it - the Task module may not be mounted yet, and it owns
       // the drawer.
+      // Both halves matter: setPendingOpen serves a module still downloading
+      // its chunk (it drains the note on mount), the event serves one that is
+      // already up. See lib/pendingOpen.js.
       const taskId = n.action?.taskId;
-      if (taskId) setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId } })), 0);
+      if (taskId) {
+        setPendingOpen('task', taskId);
+        setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId } })), 0);
+      }
+      // Tickets, same idea - the card names a ticket by its number, so landing
+      // on the Tickets list and leaving you to find it is the same miss.
+      const ticketId = n.action?.ticketId;
+      if (ticketId) {
+        setPendingOpen('ticket', ticketId);
+        setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } })), 0);
+      }
     }
   }
 
@@ -861,7 +875,25 @@ export default function NotificationBell({ onNavigate }) {
                       )}
                       {n.action && n.action.kind !== 'allocate' && onNavigate && (
                         <button
-                          onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); onNavigate(n.action.view, n.action.sub); }}
+                          onClick={e => {
+                            e.stopPropagation(); markRead(n.id); setOpen(false);
+                            onNavigate(n.action.view, n.action.sub);
+                            // The card's own click (handleUpdateClick) opens the task
+                            // the card is about; this button stops propagation, so it
+                            // never reached that and "View task" landed on My Tasks
+                            // with the task left to find. Same deferred dispatch, for
+                            // the same reason: the Task module may not be mounted yet
+                            // and it owns the drawer.
+                            const { taskId, ticketId } = n.action;
+                            if (taskId) {
+                              setPendingOpen('task', taskId);
+                              setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId } })), 0);
+                            }
+                            if (ticketId) {
+                              setPendingOpen('ticket', ticketId);
+                              setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } })), 0);
+                            }
+                          }}
                           style={{ marginTop: 8, background: 'none', border: 'none', padding: 0, fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-blue))', cursor: 'pointer', fontFamily: 'Inter, sans-serif', letterSpacing: '.01em' }}>
                           {n.action.label}
                         </button>
