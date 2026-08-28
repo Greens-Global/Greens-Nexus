@@ -205,7 +205,7 @@ export default function MyTasksView() {
   // nothing, so Collaborators/Projects drop rather than squeeze.
   const isMobilePortrait = useIsMobile('(max-width: 640px) and (orientation: portrait)');
   const baseCols = isMobilePortrait ? LIST_COLS.filter((c) => c.key === 'title' || c.key === 'dueOn') : LIST_COLS;
-  const { cols: listCols, template, startResize, resetWidth, widths, wrapRef, dragProps } =
+  const { cols: listCols, template, startResize, resetWidth, autofitWidth, widths, wrapRef, dragProps } =
     useTableColumns({ table: 'mytasks', cols: baseCols });
   // Person / Project / Collaborator sorts order by the NAME on screen, not the
   // email or uuid underneath it - these are the resolvers that do that.
@@ -330,7 +330,8 @@ export default function MyTasksView() {
                       align={isMobilePortrait && c.key === 'dueOn' ? 'flex-end' : undefined}
                       drag={dragProps(c.key)}
                       onResizeStart={startResize(c.key, widths[c.key] ?? c.width ?? 150)}
-                      onResizeReset={() => resetWidth(c.key)} />
+                      onResizeReset={() => resetWidth(c.key)}
+              onResizeAutofit={() => autofitWidth(c.key)} />
                   ))}
                 </div>
                 {groups.map((g) => {

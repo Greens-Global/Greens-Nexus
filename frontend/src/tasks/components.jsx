@@ -2,7 +2,8 @@
 import { useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
-  ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus } from 'lucide-react';
+  ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus,
+  LayoutGrid, List } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
@@ -1130,6 +1131,36 @@ export function AttachmentViewer({ att, onClose }) {
         <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
       </div>
       <div onClick={(e) => e.stopPropagation()}>{body}</div>
+    </div>
+  );
+}
+
+// ── Grid / list switcher ─────────────────────────────────────────────────────
+// List first: it is the default on every screen that uses this, so the control
+// reads in the same order as the choice people land on.
+export const VIEW_TABS = [
+  { key: 'list', icon: List, label: 'List' },
+  { key: 'grid', icon: LayoutGrid, label: 'Grid' },
+];
+
+/** The segmented Grid|List control shared by Projects, Portfolios, Teams and
+ *  Templates. It started as one copy inside ProjectsView; the moment a second
+ *  screen wanted it, keeping it there would have meant four switchers drifting
+ *  apart in padding, radius and active-state shadow. Callers own the `view`
+ *  value (all four persist it per user via useTableValue), this owns the look. */
+export function ViewToggle({ view, onChange, isMobile = false, style }) {
+  return (
+    <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, flexShrink: 0, ...style }}>
+      {VIEW_TABS.map((tb) => (
+        <button key={tb.key} onClick={() => onChange(tb.key)} title={`${tb.label} View`}
+          aria-pressed={view === tb.key}
+          style={{
+            ...btn('ghost'), padding: isMobile ? '5px 8px' : '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
+            background: view === tb.key ? NX.surface : 'transparent',
+            color: view === tb.key ? NX.ink : NX.dim,
+            boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+          }}><tb.icon size={15} />{!isMobile && ` ${tb.label}`}</button>
+      ))}
     </div>
   );
 }

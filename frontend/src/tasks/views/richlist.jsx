@@ -4,7 +4,7 @@
 // pill-menu editing, a complete toggle inline in the Task cell (My Tasks
 // style, not its own column), select-all, collapsible groups, and add/remove
 // custom-field columns - all wired to the TasksContext.
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   CheckCircle2, Circle, Diamond, ChevronDown, Check, Minus, Plus, Trash2, Folder,
@@ -16,6 +16,7 @@ import {
 import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, rootParent, effectiveProjectId, cfKey, taskAssignees } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
+import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
 import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect } from '../components';
 import { emailToName, rootZoom } from '../../lib/utils';
 import { matchPeople, onEnterPickFirst } from '../../lib/peopleSearch';
@@ -272,7 +273,7 @@ function projOptsFor(options, projectId, store) {
   return [...options, { id: projectId, label: `${store.projectName(projectId) || projectId} (archived)` }];
 }
 
-function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSel, onOpen, groupColor, onDragStartRow, onDragEndRow, onRowDragOver, onRowDrop, onRowDragLeave, dropEdge = null, band = false, personWidth = 120, projectOptions = [] }) {
+function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSel, onPick, onOpen, groupColor, onDragStartRow, onDragEndRow, onRowDragOver, onRowDrop, onRowDragLeave, dropEdge = null, band = false, personWidth = 120, projectOptions = [] }) {
   // Only a person-scoped list hands a subtask to this row; then its parent and
   // its parent's project are what the title/project cells show.
   const parent = t.parentTaskId ? rootParent(t, store.taskById) : null;
@@ -313,7 +314,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // checkbox
         checkbox: (
         <div style={{ ...cellPad, justifyContent: 'center', padding: '2px 4px' }}>
-          <button onClick={(e) => { e.stopPropagation(); toggleSel(t.id); }} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${selected ? NX.primary : NX.border}`, background: selected ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
+          <button onClick={(e) => { e.stopPropagation(); onPick(t.id, e); }} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${selected ? NX.primary : NX.border}`, background: selected ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
             {selected && <Check size={11} strokeWidth={3} color="#fff" />}
           </button>
         </div>
@@ -478,7 +479,12 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
     );
   };
   return (
-    <div onClick={() => onOpen(t.id)} data-task-row draggable
+    <div onClick={(e) => {
+      // Ctrl/cmd or shift means "pick rows", not "open this one" - the same
+      // split Excel and every file manager make. A bare click still opens.
+      if (e.shiftKey || e.ctrlKey || e.metaKey) { e.preventDefault(); onPick(t.id, e); return; }
+      onOpen(t.id);
+    }} data-task-row data-row-id={t.id} draggable
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
       onDragEnd={() => onDragEndRow?.()}
       onDragOver={onRowDragOver} onDrop={onRowDrop} onDragLeave={onRowDragLeave}
@@ -905,7 +911,7 @@ export function ListColumnControls({ hidden, setHidden, customFields, createCust
   );
 }
 
-export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
+export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, setSelected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
   // Completed ships collapsed: it is the one section that only grows, and on a
   // real project it buried the work still to do under a few hundred finished
   // rows. Opening it is remembered (an empty list is a stored value, not
@@ -991,7 +997,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     () => [...visibleCols, ...customFields.map((f) => ({ key: f.id, width: 150 }))],
     [visibleCols, customFields],
   );
-  const { cols, widths, template, startResize, resetWidth, wrapRef, dragProps } = useTableColumns({
+  const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps } = useTableColumns({
     table: 'richlist', cols: gridCols, trailing: '12px',
   });
   // Handed to every row so the Person stack can spread to the column's width.
@@ -1037,6 +1043,80 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     return () => io.disconnect();
   }, [renderBudget, totalRows]);
   const visibleIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
+  // Where a range is measured from, and the end that last moved. Kept here
+  // rather than with the selection itself because they are meaningless without
+  // the row ORDER, and the order is this component's business - it is what
+  // grouping and sorting produce.
+  const [anchorId, setAnchorId] = useState(null);
+  const [focusId, setFocusId] = useState(null);
+  // Refs so the key handler below can stay bound once instead of re-subscribing
+  // on every selection change.
+  const selRef = useRef({ selected, visibleIds, anchorId, focusId });
+  selRef.current = { selected, visibleIds, anchorId, focusId };
+
+  const pickRow = useCallback((id, e) => {
+    const cur = selRef.current;
+    const next = selectionAfterClick({
+      selected: cur.selected, orderedIds: cur.visibleIds, id,
+      anchorId: cur.anchorId, focusId: cur.focusId,
+      shift: e?.shiftKey, ctrl: e?.ctrlKey || e?.metaKey,
+    });
+    setSelected(next.selected);
+    setAnchorId(next.anchorId);
+    setFocusId(next.focusId);
+  }, [setSelected]);
+
+  // Shift+arrow walks the far end of the range, Excel-style. Bound to the
+  // window rather than to a focused row: the list has no roving focus, and
+  // adding one would fight the inline editors in every cell. The guards below
+  // are what keep that honest - it must never eat a keystroke meant for a text
+  // field, and it leaves the key to the browser whenever the range cannot move
+  // (no anchor yet, or already against an end), so a plain scroll still works.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!e.shiftKey || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      const cur = selRef.current;
+      const next = selectionAfterArrow({
+        selected: cur.selected, orderedIds: cur.visibleIds,
+        anchorId: cur.anchorId, focusId: cur.focusId,
+        dir: e.key === 'ArrowDown' ? 1 : -1,
+      });
+      if (!next.movedTo) return;   // nothing to extend - let the page scroll
+      e.preventDefault();
+      setSelected(next.selected);
+      setFocusId(next.focusId);
+      // The row it grew onto may be below the fold, and the browser will not
+      // scroll for us now that the default is prevented.
+      // JSON.stringify quotes and escapes it into a valid CSS attribute
+      // selector without reaching for CSS.escape, which not every environment
+      // this renders in provides.
+      // Optional call, not just optional chaining on the element: scrollIntoView
+      // is missing in some environments (jsdom among them), and a throw here
+      // would take the whole keystroke down with it.
+      document.querySelector(`[data-row-id=${JSON.stringify(next.movedTo)}]`)
+        ?.scrollIntoView?.({ block: 'nearest' });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [setSelected]);
+
+  // Shift-clicking a range drag-selects the text across it in every browser.
+  // Suppressed only while shift is actually down, so ordinary text selection in
+  // the list is untouched.
+  useEffect(() => {
+    const sync = (e) => { document.body.style.userSelect = e.shiftKey ? 'none' : ''; };
+    window.addEventListener('keydown', sync);
+    window.addEventListener('keyup', sync);
+    return () => {
+      window.removeEventListener('keydown', sync);
+      window.removeEventListener('keyup', sync);
+      document.body.style.userSelect = '';
+    };
+  }, []);
   const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const someSel = !allSel && visibleIds.some((id) => selected.has(id));
   const toggleGroup = (k) => {
@@ -1112,7 +1192,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
         }}>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
         {active && <Arrow size={12} strokeWidth={2.5} style={{ flexShrink: 0, color: NX.primary }} />}
-        <ColResizer onMouseDown={startResize(colKey, widths[colKey] ?? width)} onReset={() => resetWidth(colKey)} />
+        <ColResizer onMouseDown={startResize(colKey, widths[colKey] ?? width)} onReset={() => resetWidth(colKey)} onAutofit={() => autofitWidth(colKey)} />
       </div>
     );
   };
@@ -1186,7 +1266,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                 <div style={{ border: `1px solid ${isDropTarget ? gc : NX.border}`, borderRadius: 12, background: NX.surface, boxShadow: isDropTarget ? `0 0 0 2px ${gc}55` : 'none', transition: 'box-shadow 0.12s' }}>
                   {groupHeader}
                   {g.tasks.slice(0, groupBudgets[gi] ?? g.tasks.length).map((t, ri) => (
-                    <TaskRow key={t.id} t={t} band={ri % 2 === 1} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen}
+                    <TaskRow key={t.id} t={t} band={ri % 2 === 1} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onPick={pickRow} onOpen={onOpen}
                       personWidth={personWidth} groupColor={gc} projectOptions={projectOptions} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); setDropRow(null); }}
                       onRowDragOver={manualSort ? rowDragOver(t) : undefined}
                       onRowDrop={manualSort ? rowDrop(g, t) : undefined}

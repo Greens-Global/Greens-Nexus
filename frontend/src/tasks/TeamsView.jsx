@@ -2,7 +2,7 @@
 // PROJECTS) + a member-request inbox for admins. A team can serve ANY NUMBER of
 // projects, as Asana does it; pinning it to one meant a duplicate card per
 // project. Not the project's People-module department, which is set elsewhere.
-import { useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
 import {
   Users, X, Trash2, Check, Clock, UserPlus, ArrowLeft, ChevronRight,
   FolderKanban, ListChecks,
@@ -10,9 +10,10 @@ import {
   Wrench, FlaskConical, ShieldCheck, Rocket, PenTool, Landmark, Truck,
   Headphones, HeartPulse,
 } from 'lucide-react';
-import { NX, FONT, btn, input as inputStyle, STATUS_META } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, ChipMultiSelect, useIsMobile } from './components';
+import { NX, FONT, btn, input as inputStyle, STATUS_META, card, chip } from './theme';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, ChipMultiSelect, useIsMobile, ViewToggle } from './components';
 import { useTasks } from './TasksContext';
+import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import { topLevel, teamProjectIds, taskInProject } from './lib';
 import { CalendarView } from './views/extras';
 import { emailToName } from '../lib/utils';
@@ -43,10 +44,17 @@ export default function TeamsView({ onNavigate }) {
   const { teams, projects, memberRequests, tasks, nameOf, teamName, deleteTeam, decideMemberRequest } = useTasks();
   const [editing, setEditing] = useState(null); // team object, or {} for new, or null
   const [detailId, setDetailId] = useState(null);
+  const isMobile = useIsMobile();
+  // List by default, same as Projects/Portfolios/Templates, and stored per user
+  // rather than per browser so the choice follows the person.
+  const [view, setView] = useTableValue('teams', 'view', 'list');
 
-  const projectsOf = (team) => teamProjectIds(team)
+  // Stable across renders: TeamList sorts by project count inside a useMemo
+  // keyed on this, so a fresh function each render would re-sort every row on
+  // every keystroke elsewhere in the tree.
+  const projectsOf = useCallback((team) => teamProjectIds(team)
     .map((id) => projects.find((p) => p.id === id))
-    .filter(Boolean);
+    .filter(Boolean), [projects]);
 
   const taskCountByTeam = useMemo(() => {
     const m = {};
@@ -84,7 +92,13 @@ export default function TeamsView({ onNavigate }) {
           this page is for browsing/editing existing ones. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: `1px solid ${NX.border}`, flexWrap: 'wrap', background: NX.surface, flexShrink: 0 }}>
         <div style={{ fontSize: 17, fontWeight: 700 }}>Teams</div>
-        <div style={{ fontSize: 13, color: NX.dim }}>Teams group members and their work within a project.</div>
+        {!isMobile && <div style={{ fontSize: 13, color: NX.dim }}>Teams group members and their work within a project.</div>}
+        {/* Right-hand cluster - see ProjectsView for why the group, and not
+            ResetColumnsButton, carries the auto margin. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginLeft: 'auto', flexShrink: 0 }}>
+          {!isMobile && view === 'list' && <ResetColumnsButton />}
+          <ViewToggle view={view} onChange={setView} isMobile={isMobile} />
+        </div>
       </div>
 
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '16px 16px 76px' }}>
@@ -132,19 +146,27 @@ export default function TeamsView({ onNavigate }) {
           </div>
         )}
 
-        {/* Team grid */}
+        {/* Teams - list or card grid */}
         {teams.length === 0 ? (
           <EmptyState icon={Users} title="No Teams Yet" hint="Create a team to group members and their work." />
         ) : (
-          // alignItems:start stops a card from stretching to the tallest one in
-          // its row. That was survivable when projects wrapped into 3-4 lines;
-          // with one per row, Accounting's 20 projects would have left every
-          // other card in that row as an empty white column.
-          <div style={{ display: 'grid', gap: 14, alignItems: 'start', gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))' }}>
-            {sortedTeams.map((d) => (
-              <TeamCard key={d.id} team={d} teamProjects={projectsOf(d)} nameOf={nameOf} taskCount={taskCountByTeam[d.id] || 0} onOpen={() => setDetailId(d.id)} />
-            ))}
-          </div>
+          view === 'list' ? (
+            <TeamList
+              teams={sortedTeams} projectsOf={projectsOf} nameOf={nameOf}
+              taskCountByTeam={taskCountByTeam} isMobile={isMobile}
+              onOpen={(id) => setDetailId(id)}
+            />
+          ) : (
+            // alignItems:start stops a card from stretching to the tallest one
+            // in its row. That was survivable when projects wrapped into 3-4
+            // lines; with one per row, Accounting's 20 projects would have left
+            // every other card in that row as an empty white column.
+            <div style={{ display: 'grid', gap: 14, alignItems: 'start', gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))' }}>
+              {sortedTeams.map((d) => (
+                <TeamCard key={d.id} team={d} teamProjects={projectsOf(d)} nameOf={nameOf} taskCount={taskCountByTeam[d.id] || 0} onOpen={() => setDetailId(d.id)} />
+              ))}
+            </div>
+          )
         )}
       </div>
 
@@ -155,6 +177,166 @@ export default function TeamsView({ onNavigate }) {
           onDelete={editing.id ? () => { if (confirm(`Delete "${editing.name}"? This can't be undone.`)) { deleteTeam(editing.id); setEditing(null); } } : null}
         />
       )}
+    </div>
+  );
+}
+
+// ── List ─────────────────────────────────────────────────────────────────────
+// Team | Members | Projects | Tasks, in the same bordered-card table the
+// Projects and Portfolios lists use (zebra bands, hover restoring to the row's
+// own band rather than to transparent, so an odd row does not flash lighter on
+// mouse-out). Mobile drops to name + a counts line, because four columns on a
+// phone leaves nothing legible in any of them.
+// Mobile: name on one line, the counts beneath it. Four columns on a phone
+// leaves nothing legible in any of them.
+const TEAM_LIST_COLS = '1fr';
+// Desktop columns in grid order, with the sort key each header drives. Team and
+// Projects are elastic; Members and Tasks are fixed until someone drags them.
+const TEAM_LIST_COLS_WIDE = [
+  { key: 'team',     label: 'Team',     sort: 'team',     template: 'minmax(0,2fr)' },
+  { key: 'members',  label: 'Members',  sort: 'members',  width: 150 },
+  { key: 'projects', label: 'Projects', sort: 'projects', template: 'minmax(0,2fr)' },
+  { key: 'tasks',    label: 'Tasks',    sort: 'tasks',    width: 90 },
+];
+// A-Z by name, so the header shows what the list is actually doing rather than
+// leaving the order implicit. Stable identity: a fresh object each render would
+// re-run consumers' memos.
+const TEAMS_DEFAULT_SORT = { key: 'team', dir: 'asc' };
+
+// ── List ─────────────────────────────────────────────────────────────────────
+// Team | Members | Projects | Tasks, in the same bordered-card table the
+// Projects and Portfolios lists use, on the same column kit (tableCols): drag a
+// header to move a column, drag its right edge to resize, click it to sort.
+// Zebra bands, with hover restoring to the row's own band rather than to
+// transparent so an odd row does not flash lighter on mouse-out.
+export function TeamList({ teams, projectsOf, nameOf, taskCountByTeam, isMobile, onOpen }) {
+  const [sort, setSort] = useTableValue('teams', 'sort', TEAMS_DEFAULT_SORT);
+  const { cols: listCols, template, startResize, resetWidth, autofitWidth, widths, wrapRef, dragProps } =
+    useTableColumns({ table: 'teams', cols: TEAM_LIST_COLS_WIDE });
+  const cols = isMobile ? TEAM_LIST_COLS : 'var(--nx-grid)';
+
+  // Counts are what the numeric columns sort by; the name sorts
+  // case-insensitively, so "apex" and "Apex" land together rather than in two
+  // blocks. `null` sort is the order `teams` arrives in (A-Z from the parent),
+  // which is where a third click on a header returns to.
+  const rows = useMemo(() => {
+    if (isMobile || !sort?.key) return teams;
+    const val = (t) => {
+      switch (sort.key) {
+        case 'members':  return (t.memberIds || []).length;
+        case 'projects': return projectsOf(t).length;
+        case 'tasks':    return taskCountByTeam[t.id] || 0;
+        default:         return (t.name || '').toLowerCase();
+      }
+    };
+    const dir = sort.dir === 'desc' ? -1 : 1;
+    return teams.slice().sort((a, b) => {
+      const x = val(a), y = val(b);
+      if (typeof x === 'number' && typeof y === 'number') return (x - y) * dir;
+      return String(x).localeCompare(String(y), 'en', { sensitivity: 'base' }) * dir;
+    });
+  }, [teams, sort, isMobile, projectsOf, taskCountByTeam]);
+
+  return (
+    <div ref={wrapRef} style={{ ...card, padding: 0, overflow: 'hidden', '--nx-grid': template }}>
+      {!isMobile && (
+        <div style={{
+          display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center',
+          padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2,
+          fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.faint,
+        }}>
+          {listCols.map((c) => (
+            <TableHead key={c.key} label={c.label} sortKey={c.sort} sort={sort} setSort={setSort}
+              drag={dragProps(c.key, !c.fixed)}
+              onResizeStart={startResize(c.key, widths[c.key] ?? c.width ?? 150)}
+              onResizeReset={() => resetWidth(c.key)}
+              onResizeAutofit={() => autofitWidth(c.key)} />
+          ))}
+        </div>
+      )}
+      {rows.map((team, idx) => {
+        const Icon = deptIcon(team.icon);
+        const color = team.color || NX.blue;
+        const members = team.memberIds || [];
+        const teamProjects = projectsOf(team);
+        const taskCount = taskCountByTeam[team.id] || 0;
+        const shownMembers = members.slice(0, 5);
+        const extraMembers = members.length - shownMembers.length;
+        const shownProjects = teamProjects.slice(0, 3);
+        const extraProjects = teamProjects.length - shownProjects.length;
+        const rowBg = idx % 2 === 1 ? NX.zebra : 'transparent';
+        return (
+          <div key={team.id} onClick={() => onOpen(team.id)}
+            style={{
+              display: 'grid', gridTemplateColumns: cols,
+              gap: isMobile ? 6 : 12, alignItems: 'center',
+              padding: isMobile ? '11px 12px' : '10px 16px', borderBottom: `1px solid ${NX.border2}`,
+              cursor: 'pointer', background: rowBg,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = rowBg; }}>
+
+            {/* Cells are keyed and rendered in the HEADER's order, not in source
+                order - once columns can be dragged, a row that renders them in a
+                fixed sequence puts every value under the wrong heading. Mobile
+                has no header to follow, so it renders the name cell plus a
+                counts line instead. */}
+            {isMobile ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <span style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${color}1f`, color }}>
+                    <Icon size={14} />
+                  </span>
+                  <span title={team.name} style={{ minWidth: 0, fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
+                </div>
+                <div style={{ fontSize: 12, color: NX.faint }}>
+                  {members.length} member{members.length === 1 ? '' : 's'}
+                  {' · '}{teamProjects.length} project{teamProjects.length === 1 ? '' : 's'}
+                  {' · '}{taskCount} task{taskCount === 1 ? '' : 's'}
+                </div>
+              </>
+            ) : listCols.map((c) => <Fragment key={c.key}>{({
+              team: (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <span style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${color}1f`, color }}>
+                    <Icon size={14} />
+                  </span>
+                  <span title={team.name} style={{ minWidth: 0, fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
+                </div>
+              ),
+              members: (
+                <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                  {members.length === 0
+                    ? <span style={{ fontSize: 12, color: NX.faint }}>-</span>
+                    : (
+                      <Fragment>
+                        {shownMembers.map((email) => (
+                          <span key={email} style={{ marginRight: -6, border: `2px solid ${NX.surface}`, borderRadius: '50%', display: 'inline-flex' }}>
+                            <Avatar email={email} name={nameOf(email)} size={24} card={false} />
+                          </span>
+                        ))}
+                        {extraMembers > 0 && <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 600, color: NX.dim }}>+{extraMembers}</span>}
+                      </Fragment>
+                    )}
+                </div>
+              ),
+              projects: (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, overflow: 'hidden' }}>
+                  {teamProjects.length === 0
+                    ? <span style={{ fontSize: 12, color: NX.faint }}>-</span>
+                    : shownProjects.map((pr) => (
+                        <span key={pr.id} title={pr.name} style={{ ...chip(NX.dim, NX.border2), flexShrink: 0, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{pr.name}</span>
+                      ))}
+                  {extraProjects > 0 && (
+                    <span title={teamProjects.map((pr) => pr.name).join(', ')} style={{ ...chip(NX.dim, NX.border2), flexShrink: 0 }}>+{extraProjects}</span>
+                  )}
+                </div>
+              ),
+              tasks: <span style={{ fontSize: 13, color: NX.dim }}>{taskCount}</span>,
+            })[c.key]}</Fragment>)}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import RichListView, { peopleStackLayout, taskProjectOptions } from './richlist';
@@ -233,5 +233,143 @@ describe('peopleStackLayout', () => {
     const a = peopleStackLayout(120, 10).shown;
     const b = peopleStackLayout(260, 10).shown;
     expect(b).toBeGreaterThan(a);
+  });
+});
+
+
+// ── Range selection ─────────────────────────────────────────────────────────
+// rowSelection.test.js pins the algebra; these pin the wiring - that a modified
+// click reaches it instead of opening the task, that the row order the range
+// walks is the GROUPED order the person is looking at, and that the arrow keys
+// stay out of the way of typing.
+describe('RichListView range selection', () => {
+  const three = [
+    { ...mockTasks[0], id: 'a', title: 'Alpha', status: 'not_started' },
+    { ...mockTasks[0], id: 'b', title: 'Bravo', status: 'not_started' },
+    { ...mockTasks[0], id: 'c', title: 'Charlie', status: 'not_started' },
+  ];
+  const threeStore = { ...store, tasks: three, taskById: Object.fromEntries(three.map((t) => [t.id, t])) };
+
+  // The list does not own the selection - the workspace does - so the test has
+  // to hold it too, or nothing would come back after a click.
+  function Harness({ onOpen = () => {}, onSelected }) {
+    const [selected, setSelected] = useState(new Set());
+    onSelected?.(selected);
+    return (
+      <RichListView
+        visible={three} group="status" ctx={ctx} store={threeStore} people={[]}
+        selected={selected} setSelected={setSelected} toggleSel={() => {}}
+        onOpen={onOpen} onSelectAll={() => {}} lockedProjectId=""
+        hidden={new Set()} setHidden={() => {}}
+      />
+    );
+  }
+
+  let latest;
+  const renderSel = (onOpen) => {
+    latest = new Set();
+    render(<Harness onOpen={onOpen} onSelected={(s) => { latest = s; }} />);
+  };
+  const row = (title) => screen.getByText(title).closest('[data-row-id]');
+  const ids = () => [...latest].sort();
+
+  it('opens the task on a plain click, and selects nothing', () => {
+    const onOpen = vi.fn();
+    renderSel(onOpen);
+
+    fireEvent.click(row('Bravo'));
+
+    expect(onOpen).toHaveBeenCalledWith('b');
+    expect(ids()).toEqual([]);
+  });
+
+  it('ctrl+click selects instead of opening', () => {
+    const onOpen = vi.fn();
+    renderSel(onOpen);
+
+    fireEvent.click(row('Bravo'), { ctrlKey: true });
+
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(ids()).toEqual(['b']);
+  });
+
+  it('cmd+click does the same, for the Mac half of the office', () => {
+    renderSel();
+    fireEvent.click(row('Charlie'), { metaKey: true });
+    expect(ids()).toEqual(['c']);
+  });
+
+  it('ctrl+click adds a second row without dropping the first', () => {
+    renderSel();
+
+    fireEvent.click(row('Alpha'), { ctrlKey: true });
+    fireEvent.click(row('Charlie'), { ctrlKey: true });
+
+    expect(ids()).toEqual(['a', 'c']);
+  });
+
+  it('ctrl+click a selected row takes it back out', () => {
+    renderSel();
+
+    fireEvent.click(row('Alpha'), { ctrlKey: true });
+    fireEvent.click(row('Alpha'), { ctrlKey: true });
+
+    expect(ids()).toEqual([]);
+  });
+
+  it('shift+click takes everything between the two rows', () => {
+    const onOpen = vi.fn();
+    renderSel(onOpen);
+
+    fireEvent.click(row('Alpha'), { ctrlKey: true });
+    fireEvent.click(row('Charlie'), { shiftKey: true });
+
+    expect(ids()).toEqual(['a', 'b', 'c']);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it('shift+arrow walks the far end of the range', () => {
+    renderSel();
+
+    fireEvent.click(row('Alpha'), { ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'ArrowDown', shiftKey: true });
+    expect(ids()).toEqual(['a', 'b']);
+
+    fireEvent.keyDown(window, { key: 'ArrowDown', shiftKey: true });
+    expect(ids()).toEqual(['a', 'b', 'c']);
+
+    fireEvent.keyDown(window, { key: 'ArrowUp', shiftKey: true });
+    expect(ids()).toEqual(['a', 'b']);
+  });
+
+  it('ignores shift+arrow until a click has said where to measure from', () => {
+    renderSel();
+
+    fireEvent.keyDown(window, { key: 'ArrowDown', shiftKey: true });
+
+    expect(ids()).toEqual([]);
+  });
+
+  it('leaves a plain arrow key alone, so the page still scrolls', () => {
+    renderSel();
+
+    fireEvent.click(row('Alpha'), { ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+
+    expect(ids()).toEqual(['a']);
+  });
+
+  it('does not hijack shift+arrow while someone is typing', () => {
+    renderSel();
+    fireEvent.click(row('Alpha'), { ctrlKey: true });
+
+    // Shift+Arrow in a text field is select-a-character - taking it would make
+    // every inline editor in the list unusable.
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    fireEvent.keyDown(input, { key: 'ArrowDown', shiftKey: true });
+
+    expect(ids()).toEqual(['a']);
+    input.remove();
   });
 });

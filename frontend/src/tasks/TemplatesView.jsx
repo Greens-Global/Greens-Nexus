@@ -19,14 +19,15 @@
 //
 // Dates ride as day OFFSETS from the template's anchor day, so the create form
 // asks for one start date and every task re-anchors to it.
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   LayoutTemplate, Plus, Search, Copy, Trash2, Pencil, Archive, Globe, Lock,
   FolderKanban, CalendarDays, ListChecks, Users, RefreshCw, AlertTriangle,
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
+import { useTableValue } from './tableCols';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, useIsMobile, MobileFab, SearchSelect } from './components';
+import { Avatar, EmptyState, Modal, usePeople, useIsMobile, MobileFab, SearchSelect, ViewToggle } from './components';
 import { formatDate } from '../lib/datetime';
 
 const VISIBILITY_OPTS = [
@@ -535,6 +536,134 @@ function DeleteTemplateModal({ template, onClose, onConfirm }) {
 }
 
 // ── The Templates screen ─────────────────────────────────────────────────────
+// -- List ---------------------------------------------------------------------
+// Template | Contents | Source | Owner | actions, in the bordered-card table
+// the Projects, Portfolios and Teams lists use. The card's warning about a
+// template saved in the older format survives here as an amber icon beside the
+// name rather than a banner - a full-width callout inside a table row is what
+// turned the list back into a card grid. Mobile keeps the name, a counts line
+// and Use Template, since five columns on a phone leaves none of them legible.
+const TPL_LIST_COLS = 'minmax(0,2fr) minmax(0,1.4fr) minmax(0,1.3fr) minmax(0,1fr) 150px';
+function TemplateList({ rows, isMobile, nameOf, recapturing, onRecapture, onEdit, onDelete, onUse }) {
+  return (
+    <div className="nx-gutter" style={{ padding: isMobile ? 12 : 16 }}>
+      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+        {!isMobile && (
+          <div style={{
+            display: 'grid', gridTemplateColumns: TPL_LIST_COLS, gap: 12, alignItems: 'center',
+            padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2,
+            fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.faint,
+          }}>
+            <span>Template</span><span>Contents</span><span>Source</span><span>Owner</span><span />
+          </div>
+        )}
+        {rows.map((t, idx) => {
+          const dcolor = t.color || NX.purple;
+          const rowBg = idx % 2 === 1 ? NX.zebra : 'transparent';
+          const busy = recapturing === t.id;
+          return (
+            <div key={t.id}
+              style={{
+                display: 'grid', gridTemplateColumns: isMobile ? '1fr' : TPL_LIST_COLS,
+                gap: isMobile ? 8 : 12, alignItems: 'center',
+                padding: isMobile ? '11px 12px' : '10px 16px', borderBottom: `1px solid ${NX.border2}`,
+                background: rowBg, opacity: t.archived ? 0.62 : 1,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = rowBg; }}>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                <span style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${dcolor}1f`, color: dcolor }}>
+                  <LayoutTemplate size={14} />
+                </span>
+                <span title={t.description || t.name} style={{ minWidth: 0, fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                {t.outdated && (
+                  <span title={t.sourceProjectId
+                    ? 'Saved in an older format, so it carries no custom fields or statuses. Re-capture it from the actions on this row.'
+                    : 'Saved in an older format, so it carries no custom fields or statuses. Save the project as a template again to refresh it.'}
+                    style={{ display: 'inline-flex', flexShrink: 0, color: NX.amber }}><AlertTriangle size={13} /></span>
+                )}
+                {t.category && <span style={{ ...chip(dcolor, `${dcolor}1a`), flexShrink: 0 }}>{t.category}</span>}
+                {t.accessLevel === 'restricted' && <span style={{ ...chip(NX.dim, NX.border2), flexShrink: 0 }}><Lock size={11} />Only Me</span>}
+                {t.archived && <span style={{ ...chip(NX.faint, NX.border2), flexShrink: 0 }}><Archive size={11} />Archived</span>}
+              </div>
+
+              {isMobile ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: NX.faint }}>
+                    {t.taskCount} task{t.taskCount === 1 ? '' : 's'}
+                    {t.fieldCount > 0 ? ` · ${t.fieldCount} field${t.fieldCount === 1 ? '' : 's'}` : ''}
+                    {t.useCount > 0 ? ` · Used ${t.useCount}x` : ''}
+                  </span>
+                  <button style={{ ...btn('primary'), marginLeft: 'auto', padding: '6px 11px', fontSize: 12.5 }}
+                    onClick={() => onUse(t)}><Copy size={13} />Use Template</button>
+                </div>
+              ) : (
+                <Fragment>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12, color: NX.dim, minWidth: 0 }}>
+                    <span title={`${t.taskCount} task${t.taskCount === 1 ? '' : 's'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <ListChecks size={13} />{t.taskCount}
+                    </span>
+                    {t.sectionCount > 0 && (
+                      <span title={`${t.sectionCount} section${t.sectionCount === 1 ? '' : 's'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <FolderKanban size={13} />{t.sectionCount}
+                      </span>
+                    )}
+                    {t.fieldCount > 0 && (
+                      <span title={`${t.fieldCount} field${t.fieldCount === 1 ? '' : 's'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <ListChecks size={13} />{t.fieldCount}
+                      </span>
+                    )}
+                    {t.hasDates && (
+                      <span title="Dates are stored as day offsets and re-anchor to the start date you pick"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <CalendarDays size={13} />Dated
+                      </span>
+                    )}
+                    {t.useCount > 0 && (
+                      <span title={`Used ${t.useCount} time${t.useCount === 1 ? '' : 's'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Users size={13} />{t.useCount}x
+                      </span>
+                    )}
+                  </div>
+
+                  <div title={t.sourceProjectName || undefined} style={{ minWidth: 0, fontSize: 12, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {t.sourceProjectName
+                      ? `${t.sourceProjectName}${t.createdAt ? ` · ${formatDate(t.createdAt)}` : ''}`
+                      : '-'}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    {t.ownerId ? (
+                      <Fragment>
+                        <Avatar email={t.ownerId} name={nameOf(t.ownerId)} size={22} />
+                        <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(t.ownerId)}</span>
+                      </Fragment>
+                    ) : <span style={{ fontSize: 12, color: NX.faint }}>No owner</span>}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'flex-end' }}>
+                    {t.sourceProjectId && (
+                      <button
+                        title={`Re-read "${t.sourceProjectName || 'the source project'}" and replace what this template contains`}
+                        disabled={busy} onClick={() => onRecapture(t)}
+                        style={{ ...btn('ghost'), padding: 5, borderRadius: 7, opacity: busy ? 0.5 : 1 }}><RefreshCw size={13} /></button>
+                    )}
+                    <button title="Edit Template" onClick={() => onEdit(t)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Pencil size={13} /></button>
+                    <button title="Delete Template" onClick={() => onDelete(t)} style={{ ...btn('ghost'), padding: 5, color: NX.red, borderRadius: 7 }}><Trash2 size={13} /></button>
+                    <button title="Use Template" style={{ ...btn('primary'), marginLeft: 6, padding: '6px 11px', fontSize: 12.5 }}
+                      onClick={() => onUse(t)}><Copy size={13} />Use</button>
+                  </div>
+                </Fragment>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function TemplatesView({ onNavigate }) {
   const isMobile = useIsMobile();
   const { projectTemplates, nameOf, deleteProjectTemplate, recaptureProjectTemplate } = useTasks();
@@ -554,6 +683,9 @@ export default function TemplatesView({ onNavigate }) {
   const [using, setUsing] = useState(null);          // template being used
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  // List by default, same as Projects/Portfolios/Teams, and stored per user
+  // rather than per browser so the choice follows the person.
+  const [view, setView] = useTableValue('templates', 'view', 'list');
 
   const categories = useMemo(
     () => [...new Set((projectTemplates || []).map((t) => t.category).filter(Boolean))].sort(),
@@ -610,6 +742,7 @@ export default function TemplatesView({ onNavigate }) {
             <option value="archived">Archived Templates</option>
             <option value="all">All Templates</option>
           </select>
+          <ViewToggle view={view} onChange={setView} isMobile={isMobile} style={{ marginLeft: 'auto' }} />
         </div>
       </div>
 
@@ -621,6 +754,13 @@ export default function TemplatesView({ onNavigate }) {
             hint={search.trim() || category ? undefined : 'Save a project as a template and it will show up here, ready to build the next one from.'}
           />
         ) : (
+          view === 'list' ? (
+            <TemplateList
+              rows={rows} isMobile={isMobile} nameOf={nameOf}
+              recapturing={recapturing} onRecapture={recapture}
+              onEdit={setEditing} onDelete={setDeleting} onUse={setUsing}
+            />
+          ) : (
           <div className="nx-gutter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))', gap: 14, padding: '16px 16px 76px' }}>
             {rows.map((t) => {
               const dcolor = t.color || NX.purple;
@@ -727,6 +867,7 @@ export default function TemplatesView({ onNavigate }) {
               );
             })}
           </div>
+          )
         )}
       </div>
 
