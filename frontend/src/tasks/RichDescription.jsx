@@ -19,6 +19,7 @@ import { NX, FONT } from './theme';
 import { Avatar } from './components';
 import { useClickOutside } from './components';
 import { api } from '../api';
+import { matchPeople } from '../lib/peopleSearch';
 
 // Highlight, as a local mark. @tiptap/extension-highlight would be a new
 // dependency for one mark; StarterKit already ships everything else the toolbar
@@ -165,8 +166,7 @@ export default function RichDescription({
   const people = useMemo(() => mentionPeople || [], [mentionPeople]);
   const matches = useMemo(() => {
     if (!mention) return [];
-    const q = mention.query.toLowerCase();
-    return people.filter((p) => `${p.name} ${p.email}`.toLowerCase().includes(q)).slice(0, 6);
+    return matchPeople(people, mention.query, { limit: 6 });
   }, [mention, people]);
 
   const scanForMention = useCallback((ed) => {

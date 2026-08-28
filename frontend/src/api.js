@@ -384,6 +384,11 @@ export const api = {
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),
   bulkUpdateTasks: (ids, patch) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, patch }) }),
+  // Trash (Aug 27): deleteTask above now moves to Trash - it's restorable for
+  // 90 days (see task_trash.py) via these three, Manage > Deleted Tasks only.
+  getDeletedTasks: () => req("/tasks/deleted"),
+  restoreTask: (id) => req(`/tasks/${id}/restore`, { method: "POST" }),
+  purgeTaskNow: (id) => req(`/tasks/${id}/permanent`, { method: "DELETE" }),
   // Tasks as .xlsx. reqBlob, not a plain link: the endpoint is bearer-
   // authenticated. Blank filter values are dropped so the server sees "no
   // constraint" rather than an empty-string match.
@@ -1426,6 +1431,12 @@ export const api = {
   saveTaskTablePrefs:  (table, data)  => req(`/task-prefs/${encodeURIComponent(table)}`, { method: "PUT", body: JSON.stringify(data) }),
   resetTaskTablePrefs: (table)        => req(`/task-prefs/${encodeURIComponent(table)}`, { method: "DELETE" }),
   resetAllTaskTablePrefs: ()          => req("/task-prefs", { method: "DELETE" }),
+
+  // Guided-tour "seen" state - server-side so it follows the PERSON, not the
+  // browser (a localStorage flag re-triggered the auto-tour on every new
+  // browser/machine for the same user).
+  getToursSeen:  ()      => req("/tours"),
+  markTourSeen:  (tour)  => req(`/tours/${encodeURIComponent(tour)}/seen`, { method: "POST" }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

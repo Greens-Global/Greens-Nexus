@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
-  Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check, AlertTriangle,
+  Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check, AlertTriangle, RotateCcw,
 } from 'lucide-react';
 import DataQualityTab from './DataQualityTab';
 import { useTasks } from './TasksContext';
@@ -87,6 +87,7 @@ const SUBTABS = [
   { key: 'templates', label: 'Templates', icon: FileText },
   { key: 'intake', label: 'Intake Forms', icon: Inbox },
   { key: 'taskNotify', label: 'Task Notifications', icon: Mail },
+  { key: 'trash', label: 'Deleted Tasks', icon: Trash2 },
   { key: 'activity', label: 'Activity Log', icon: ActivityIcon },
   { key: 'reporting', label: 'Reporting', icon: BarChart3 },
 ];
@@ -132,6 +133,7 @@ export default function ManageView() {
             {tab === 'templates' && <TemplatesTab store={store} />}
             {tab === 'intake' && <IntakeTab store={store} />}
             {tab === 'taskNotify' && <TaskNotifySettings />}
+            {tab === 'trash' && <DeletedTasksTab store={store} />}
             {tab === 'activity' && <ActivityTab store={store} />}
             {tab === 'reporting' && <ReportingTab store={store} />}
           </div>
@@ -1672,9 +1674,95 @@ function IntakeModal({ projects, onClose, onSave }) {
   );
 }
 
+// ── 5.5 Deleted Tasks (Trash, Aug 27) ────────────────────────────────────────
+function DeletedTasksTab({ store }) {
+  const { nameOf, projectName } = store;
+  const [rows, setRows] = useState(null);   // null = loading
+  const [busyId, setBusyId] = useState('');
+  const [err, setErr] = useState('');
+
+  const load = () => {
+    api.getDeletedTasks()
+      .then((r) => setRows(Array.isArray(r) ? r : []))
+      .catch(() => setRows([]));
+  };
+  useEffect(() => { load(); }, []);
+
+  // Whole days left before trash_purge_loop removes it for good - floors to 0
+  // rather than going negative once the sweep is running a little behind.
+  const daysLeft = (purgeAt) => {
+    if (!purgeAt) return null;
+    return Math.max(0, Math.ceil((new Date(purgeAt).getTime() - Date.now()) / 86400000));
+  };
+
+  const restore = async (t) => {
+    setBusyId(t.id); setErr('');
+    try {
+      await api.restoreTask(t.id);
+      setRows((rs) => rs.filter((r) => r.id !== t.id));
+    } catch (e) {
+      setErr(e.message || 'Could not restore that task.');
+    } finally {
+      setBusyId('');
+    }
+  };
+
+  const purgeNow = async (t) => {
+    if (!window.confirm(`Permanently delete "${t.title}"?\n\nThis can't be undone - it won't be in Trash any more to restore from.`)) return;
+    setBusyId(t.id); setErr('');
+    try {
+      await api.purgeTaskNow(t.id);
+      setRows((rs) => rs.filter((r) => r.id !== t.id));
+    } catch (e) {
+      setErr(e.message || 'Could not delete that task.');
+    } finally {
+      setBusyId('');
+    }
+  };
+
+  return (
+    <div>
+      <SectionHead title="Deleted Tasks"
+        hint="Deleted tasks stay here for 90 days and can be restored - after that they're removed for good." />
+      {err && <div style={{ marginBottom: 12, fontSize: 12.5, color: NX.red }}>{err}</div>}
+      {rows === null ? (
+        <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>Loading…</div>
+      ) : rows.length === 0 ? (
+        <EmptyState icon={Trash2} title="Trash Is Empty"
+          hint="Tasks you delete will show up here for 90 days before they're gone for good." />
+      ) : (
+        <div style={{ ...card, padding: 6 }}>
+          {rows.map((t) => {
+            const left = daysLeft(t.purgeAt);
+            const busy = busyId === t.id;
+            return (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 10px', borderRadius: 8, opacity: busy ? 0.6 : 1 }}>
+                <span style={{ ...iconBadge, color: NX.dim }}><Trash2 size={14} /></span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
+                  <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {t.projectId ? `${projectName(t.projectId)} · ` : ''}
+                    Deleted by {t.deletedBy ? nameOf(t.deletedBy) : 'someone'} · {fmtDateTime(t.deletedAt)}
+                  </div>
+                </div>
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: left !== null && left <= 7 ? NX.red : NX.faint, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  {left === null ? '' : left === 0 ? 'Purges today' : `${left}d left`}
+                </span>
+                <IconButton icon={RotateCcw} title="Restore" onClick={() => restore(t)} />
+                <IconButton icon={Trash2} title="Delete Forever" danger onClick={() => purgeNow(t)} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 6. Activity log ───────────────────────────────────────────────────────────
 const ACTIVITY_ICON = {
   created: Plus, updated: Pencil, completed: CheckCircle2, deleted: Trash2,
+  restored: RotateCcw, purged: Trash2,
   status_changed: ArrowRightLeft, priority_changed: Flag, assignee_changed: User,
   due: Calendar, commented: MessageSquare, automation: Zap,
 };

@@ -3,6 +3,7 @@ import {
   Package, User, ClipboardList, ShoppingCart, Users, FileText, History,
   Building2, Plug, ListChecks, FileCheck, Shield, ClipboardCheck, Folder,
   MessageSquare, PackageSearch, Calendar, Circle, Camera,
+  Home, CheckCircle2, FolderKanban, Briefcase,
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 
@@ -37,6 +38,16 @@ const INVENTORY_ALLOCATOR_ACTIONS = [
   { sub: 'myitems',  label: 'My Items',  Icon: User },
   { sub: 'handover', label: 'Hand Over', Icon: Camera },
 ];
+// Task module's own module-tab strip (Home/My Tasks/Projects/Portfolios/Teams,
+// views/Tasks.jsx MODULE_TABS) - Asana app style: icon-over-label, fixed to
+// the bottom instead of the swipeable top strip desktop uses.
+const TASK_ACTIONS = [
+  { sub: 'home',       label: 'Home',       Icon: Home },
+  { sub: 'mine',       label: 'My Tasks',   Icon: CheckCircle2 },
+  { sub: 'projects',   label: 'Projects',   Icon: FolderKanban },
+  { sub: 'portfolios', label: 'Portfolios', Icon: Briefcase },
+  { sub: 'teams',      label: 'Teams',      Icon: Users },
+];
 
 export default function MobileNav({ activeView, activeSub }) {
   const { can } = useRole();
@@ -62,6 +73,18 @@ export default function MobileNav({ activeView, activeSub }) {
     // subs (permanent / active-checkouts) land on the Checkouts screen.
     if (!effSub) effSub = 'catalog';
     else if (['permanent', 'active-checkouts', 'checkouts-completed'].includes(effSub)) effSub = 'checkouts';
+  } else if (activeView === 'tasks') {
+    // Manage has its own internal tab strip (ManageView.jsx) - no bar there,
+    // same as the desktop module-tab strip hiding on it (views/Tasks.jsx
+    // `!onManage`). A drilled-into-project task list ('tasks') highlights
+    // Projects, matching the desktop strip.
+    if (effSub === 'manage') {
+      actions = null;
+    } else {
+      actions = TASK_ACTIONS;
+      if (!effSub) effSub = 'home';
+      else if (effSub === 'tasks') effSub = 'projects';
+    }
   }
 
   if (!dynActions && !actions) return null;

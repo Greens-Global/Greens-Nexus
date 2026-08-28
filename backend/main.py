@@ -572,6 +572,26 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN geofence_source TEXT DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN geofence_set_by TEXT DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN geofence_set_at TEXT DEFAULT ''",
+            # Task trash (Aug 27): soft delete, same shape as nexus_employees /
+            # items - see models.Task and the do_orm_execute hook in database.py.
+            "ALTER TABLE tasks ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN deleted_by VARCHAR DEFAULT ''",
+            # "View task" on a notification written before Aug 27, 2026 landed
+            # on My Tasks instead of opening the task: task_notify only started
+            # folding the id into the click action that day (task_util.py), so
+            # every older row carries a bare {"view": "tasks", "sub": "mine"}.
+            # The id was never lost - ref_id has held it all along - so this
+            # copies it across rather than leaving the back catalogue broken.
+            # Matched on the serialised text: every row here was written by
+            # json.dumps, so the separators are fixed, and a row that somehow
+            # does not match is simply left alone. Idempotent via the taskId
+            # guard. Ticket notifications live under the same "tasks" view, so
+            # the match pins sub="mine" - what every task notification uses and
+            # no ticket one does - rather than relying on their empty ref_id.
+            "UPDATE nexus_notifications SET action = json_set(action, '$.taskId', ref_id) "
+            "WHERE COALESCE(ref_id, '') != '' "
+            "AND COALESCE(action, '') LIKE '{%\"view\": \"tasks\", \"sub\": \"mine\"%' "
+            "AND action NOT LIKE '%\"taskId\"%' AND json_valid(action)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1214,6 +1234,18 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_source TEXT DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_by TEXT DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_at TEXT DEFAULT ''",
+        # Task trash (Aug 27): soft delete, same shape as nexus_employees /
+        # items - see models.Task and the do_orm_execute hook in database.py.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_by TEXT DEFAULT ''",
+        # Same backfill as the SQLite list above - see the note there for why
+        # the match is on the serialised text rather than on parsed JSON. The
+        # cast in SET runs only for rows the WHERE already matched, so a row
+        # holding something other than a JSON object can never reach it.
+        "UPDATE nexus_notifications SET action = (action::jsonb || jsonb_build_object('taskId', ref_id))::text "
+        "WHERE COALESCE(ref_id, '') <> '' "
+        "AND COALESCE(action, '') LIKE '{%\"view\": \"tasks\", \"sub\": \"mine\"%' "
+        "AND action NOT LIKE '%\"taskId\"%'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -1706,6 +1738,19 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(attachment_migration_loop()))
         except Exception as e:
             print(f"[startup] attachment backlog migration skipped: {e}")
+        # Task trash (Aug 27): permanently purges tasks soft-deleted 90+ days
+        # ago. Sync-worker gated for the same reason as the screenshot
+        # retention sweep above - a laptop must never permanently delete live
+        # task data.
+        try:
+            from asana_sync import is_sync_worker as _is_sync_worker5
+            if _is_sync_worker5():
+                from task_trash import trash_purge_loop
+                _tasks.append(_a.create_task(trash_purge_loop()))
+            else:
+                print("[startup] task trash purge sweep skipped (not the sync worker)")
+        except Exception as e:
+            print(f"[startup] task trash purge sweep skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:
@@ -1996,6 +2041,9 @@ app.include_router(client_errors.router)  # Client-side error intake -> audit tr
 
 from routers import task_prefs             # noqa: E402
 app.include_router(task_prefs.router)     # Per-user column arrangement for the Task module's lists
+
+from routers import user_tours             # noqa: E402
+app.include_router(user_tours.router)     # Per-user guided-tour "seen" state (server-side, follows the person not the browser)
 
 from routers import auth_bff               # noqa: E402  BFF login (dual-mode)
 app.include_router(auth_bff.router)        # /auth/login|callback|logout|me - inert without NEXUS_BFF_CLIENT_SECRET

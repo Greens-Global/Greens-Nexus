@@ -1706,14 +1706,23 @@ html { overflow-x: hidden; }
   .header-right { margin-left: auto; }
 
   /* The centered search bar has no business on a phone - .header-search-left
-     replaces it (see TopHeader). But .header-center was still being LAID OUT:
+     replaces it (see TopHeader). .header-center was still being LAID OUT:
      measured 91px of overlap with the absolutely-centered NEXUS wordmark at
      390, 768 AND 900px, with its .search-bar child pushed clean off-screen
      (x=416 inside a 390px viewport). That is the jumble of a rounded search box
      with NEXUS printed over it.
-     Scoped with :not(.has-tabs) so a module that puts its tab strip in the
-     header (ModuleTabs) keeps it - only the search placement is dropped. */
-  .header-center:not(.has-tabs) { display: none; }
+     Unconditional, matching ModuleTabs.jsx's own documented contract ("below
+     900px the header center is hidden, so <ModuleTabs> renders the in-page
+     strip itself"). A :not(.has-tabs) exemption used to keep a module's
+     header-published tab strip (.hdr-tabs) visible here too - but every such
+     module ALSO renders that same strip as its in-page .scroll-tabs fallback,
+     so the exemption just reproduced the identical overlap-with-NEXUS bug this
+     rule exists to prevent, one layer down (Sagar, Aug 27).
+     !important because .header-center.has-tabs (below, ~L3080) is a later,
+     more-specific (two classes vs one) unscoped rule that sets display:flex -
+     without it that rule wins on specificity regardless of media query or
+     source order, and the tab strip silently reappears here on mobile. */
+  .header-center { display: none !important; }
 }
 
 /* Below ~420px the left icons (menu + back + search) grow close enough to the

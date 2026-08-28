@@ -1,9 +1,10 @@
 // Task Module - rich project List view (ported 1:1 from the export's
-// NexusTaskListView). Spreadsheet-style grid: Actions · Task · Assignee ·
-// Project · Due · Estimate · Actual · Priority · Status · Team · +Column,
-// with inline pill-menu editing, per-row action icons, select-all, collapsible
-// groups, and add/remove custom-field columns - all wired to the TasksContext.
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+// NexusTaskListView). Spreadsheet-style grid: Task · Assignee · Project ·
+// Due · Estimate · Actual · Priority · Status · Team · +Column, with inline
+// pill-menu editing, a complete toggle inline in the Task cell (My Tasks
+// style, not its own column), select-all, collapsible groups, and add/remove
+// custom-field columns - all wired to the TasksContext.
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   CheckCircle2, Circle, Diamond, ChevronDown, Check, Minus, Plus, Trash2, Folder,
@@ -15,12 +16,13 @@ import {
 import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, rootParent, effectiveProjectId, cfKey, taskAssignees } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
+import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
 import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect } from '../components';
 import { emailToName, rootZoom } from '../../lib/utils';
+import { matchPeople, onEnterPickFirst } from '../../lib/peopleSearch';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
-  { key: 'actions', label: 'Actions', width: 72 },
   { key: 'task', label: 'Task', width: 280, grow: true },
   { key: 'assignee', label: 'Person', width: 120 },
   { key: 'project', label: 'Project', width: 132 },
@@ -37,9 +39,9 @@ const BASE_COLS = [
   { key: 'timeline', label: 'Timeline', width: 148, center: true },
 ];
 // Columns that can be hidden via the eye menu (task itself always shows).
-const HIDEABLE = ['actions', 'assignee', 'project', 'due', 'estimate', 'actual', 'priority', 'status', 'team', 'timeline'];
-// Column key -> the sort key its header drives. Anything absent (checkbox,
-// actions) has no meaningful order and stays a plain label. These are the same
+const HIDEABLE = ['assignee', 'project', 'due', 'estimate', 'actual', 'priority', 'status', 'team', 'timeline'];
+// Column key -> the sort key its header drives. Anything absent (checkbox)
+// has no meaningful order and stays a plain label. These are the same
 // keys the toolbar's Sort menu writes, so a header click and a Sort pick are
 // one state, not two competing ones.
 const COL_SORT_KEY = {
@@ -222,7 +224,7 @@ function AssigneeCell({ value, people, onSelect, compact }) {
   useClickOutside([ref, panelRef], () => { setOpen(false); setQ(''); }, open);
   const name = value ? (people.find((p) => p.email === value)?.name || emailToName(value)) : null;
   const pick = (em) => { onSelect(em); setOpen(false); setQ(''); };
-  const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
+  const filtered = matchPeople(people, q);
   return (
     <div ref={ref} style={{ position: 'relative', ...(compact ? { width: '100%' } : {}) }}>
       {/* The cell value itself is the dropdown trigger - clicking it opens the
@@ -237,7 +239,9 @@ function AssigneeCell({ value, people, onSelect, compact }) {
       {open && (
         <PortalDropdown anchorRef={ref} panelRef={panelRef} width={240}>
           <div className="nx-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
-            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…" style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+              onKeyDown={onEnterPickFirst(filtered, (p) => pick(p.email))}
+              style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
             <div onClick={() => pick(null)} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
             {filtered.map((p) => (
               <div key={p.email} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent' }}>
@@ -249,14 +253,6 @@ function AssigneeCell({ value, people, onSelect, compact }) {
           </div>
         </PortalDropdown>
       )}
-    </div>
-  );
-}
-
-function ActionIcons({ t, store }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 1, color: NX.faint }}>
-      <button title="Complete" onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 5, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={13} /> : <Circle size={13} />}</button>
     </div>
   );
 }
@@ -277,7 +273,7 @@ function projOptsFor(options, projectId, store) {
   return [...options, { id: projectId, label: `${store.projectName(projectId) || projectId} (archived)` }];
 }
 
-function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSel, onOpen, groupColor, onDragStartRow, onDragEndRow, onRowDragOver, onRowDrop, onRowDragLeave, dropEdge = null, band = false, personWidth = 120, projectOptions = [] }) {
+function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSel, onPick, onOpen, groupColor, onDragStartRow, onDragEndRow, onRowDragOver, onRowDrop, onRowDragLeave, dropEdge = null, band = false, personWidth = 120, projectOptions = [] }) {
   // Only a person-scoped list hands a subtask to this row; then its parent and
   // its parent's project are what the title/project cells show.
   const parent = t.parentTaskId ? rootParent(t, store.taskById) : null;
@@ -318,18 +314,20 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // checkbox
         checkbox: (
         <div style={{ ...cellPad, justifyContent: 'center', padding: '2px 4px' }}>
-          <button onClick={(e) => { e.stopPropagation(); toggleSel(t.id); }} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${selected ? NX.primary : NX.border}`, background: selected ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
+          <button onClick={(e) => { e.stopPropagation(); onPick(t.id, e); }} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${selected ? NX.primary : NX.border}`, background: selected ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
             {selected && <Check size={11} strokeWidth={3} color="#fff" />}
           </button>
         </div>
         ),
-        // actions
-        actions: (
-        <div style={{ ...cellPad, justifyContent: 'center' }}><ActionIcons t={t} store={store} /></div>
-        ),
-        // task
+        // task - the complete toggle rides inline, first in the cell, same as
+        // My Tasks (MyTasksView.jsx's TaskRow) rather than its own Actions
+        // column.
         task: (
         <div style={{ ...cellPad, gap: 6 }}>
+          <button title="Complete" onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }}
+            style={{ ...btn('ghost'), padding: 0, flexShrink: 0, color: t.completed ? NX.green : NX.faint }}>
+            {t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}
+          </button>
           {t.isMilestone && <Diamond size={12} style={{ color: NX.purple, flexShrink: 0 }} />}
           <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
           {/* A subtask only appears as its own row in a person-scoped list (My
@@ -343,9 +341,9 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
           )}
           {/* Icon + count, present only when there's something to show. Shared
               with My Tasks (components.jsx) so a task cannot look emptier on one
-              screen than the other. No longer buttons in ActionIcons: those
-              opened the drawer/file-picker regardless of whether the task had
-              anything to show, which is what a plain indicator avoids. */}
+              screen than the other - a plain indicator rather than buttons
+              that opened the drawer/file-picker regardless of whether the
+              task had anything to show. */}
           <TaskCountBadges t={t} store={store} />
         </div>
         ),
@@ -415,7 +413,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // due
         due: (
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
-          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)} title="Due Date" style={{ fontSize: 12, width: '100%' }} />
+          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)} title="Due Date" compact style={{ fontSize: 12, width: '100%' }} />
         </div>
         ),
         // estimate
@@ -481,7 +479,12 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
     );
   };
   return (
-    <div onClick={() => onOpen(t.id)} data-task-row draggable
+    <div onClick={(e) => {
+      // Ctrl/cmd or shift means "pick rows", not "open this one" - the same
+      // split Excel and every file manager make. A bare click still opens.
+      if (e.shiftKey || e.ctrlKey || e.metaKey) { e.preventDefault(); onPick(t.id, e); return; }
+      onOpen(t.id);
+    }} data-task-row data-row-id={t.id} draggable
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
       onDragEnd={() => onDragEndRow?.()}
       onDragOver={onRowDragOver} onDrop={onRowDrop} onDragLeave={onRowDragLeave}
@@ -718,7 +721,7 @@ function FieldCell({ field, value, onChange, people = [] }) {
     );
   }
   if (field.type === 'date') {
-    return <DateField value={value || ''} onChange={onChange} color={NX.dim} style={{ fontSize: 12, width: '100%' }} />;
+    return <DateField value={value || ''} onChange={onChange} color={NX.dim} compact style={{ fontSize: 12, width: '100%' }} />;
   }
   if (field.type === 'number') {
     return <input type="number" className="rl-num" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} placeholder="-"
@@ -908,7 +911,7 @@ export function ListColumnControls({ hidden, setHidden, customFields, createCust
   );
 }
 
-export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
+export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, setSelected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
   // Completed ships collapsed: it is the one section that only grows, and on a
   // real project it buried the work still to do under a few hundred finished
   // rows. Opening it is remembered (an empty list is a stored value, not
@@ -994,7 +997,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     () => [...visibleCols, ...customFields.map((f) => ({ key: f.id, width: 150 }))],
     [visibleCols, customFields],
   );
-  const { cols, widths, template, startResize, resetWidth, wrapRef, dragProps } = useTableColumns({
+  const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps } = useTableColumns({
     table: 'richlist', cols: gridCols, trailing: '12px',
   });
   // Handed to every row so the Person stack can spread to the column's width.
@@ -1040,6 +1043,80 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
     return () => io.disconnect();
   }, [renderBudget, totalRows]);
   const visibleIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
+  // Where a range is measured from, and the end that last moved. Kept here
+  // rather than with the selection itself because they are meaningless without
+  // the row ORDER, and the order is this component's business - it is what
+  // grouping and sorting produce.
+  const [anchorId, setAnchorId] = useState(null);
+  const [focusId, setFocusId] = useState(null);
+  // Refs so the key handler below can stay bound once instead of re-subscribing
+  // on every selection change.
+  const selRef = useRef({ selected, visibleIds, anchorId, focusId });
+  selRef.current = { selected, visibleIds, anchorId, focusId };
+
+  const pickRow = useCallback((id, e) => {
+    const cur = selRef.current;
+    const next = selectionAfterClick({
+      selected: cur.selected, orderedIds: cur.visibleIds, id,
+      anchorId: cur.anchorId, focusId: cur.focusId,
+      shift: e?.shiftKey, ctrl: e?.ctrlKey || e?.metaKey,
+    });
+    setSelected(next.selected);
+    setAnchorId(next.anchorId);
+    setFocusId(next.focusId);
+  }, [setSelected]);
+
+  // Shift+arrow walks the far end of the range, Excel-style. Bound to the
+  // window rather than to a focused row: the list has no roving focus, and
+  // adding one would fight the inline editors in every cell. The guards below
+  // are what keep that honest - it must never eat a keystroke meant for a text
+  // field, and it leaves the key to the browser whenever the range cannot move
+  // (no anchor yet, or already against an end), so a plain scroll still works.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!e.shiftKey || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = e.target;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      const cur = selRef.current;
+      const next = selectionAfterArrow({
+        selected: cur.selected, orderedIds: cur.visibleIds,
+        anchorId: cur.anchorId, focusId: cur.focusId,
+        dir: e.key === 'ArrowDown' ? 1 : -1,
+      });
+      if (!next.movedTo) return;   // nothing to extend - let the page scroll
+      e.preventDefault();
+      setSelected(next.selected);
+      setFocusId(next.focusId);
+      // The row it grew onto may be below the fold, and the browser will not
+      // scroll for us now that the default is prevented.
+      // JSON.stringify quotes and escapes it into a valid CSS attribute
+      // selector without reaching for CSS.escape, which not every environment
+      // this renders in provides.
+      // Optional call, not just optional chaining on the element: scrollIntoView
+      // is missing in some environments (jsdom among them), and a throw here
+      // would take the whole keystroke down with it.
+      document.querySelector(`[data-row-id=${JSON.stringify(next.movedTo)}]`)
+        ?.scrollIntoView?.({ block: 'nearest' });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [setSelected]);
+
+  // Shift-clicking a range drag-selects the text across it in every browser.
+  // Suppressed only while shift is actually down, so ordinary text selection in
+  // the list is untouched.
+  useEffect(() => {
+    const sync = (e) => { document.body.style.userSelect = e.shiftKey ? 'none' : ''; };
+    window.addEventListener('keydown', sync);
+    window.addEventListener('keyup', sync);
+    return () => {
+      window.removeEventListener('keydown', sync);
+      window.removeEventListener('keyup', sync);
+      document.body.style.userSelect = '';
+    };
+  }, []);
   const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const someSel = !allSel && visibleIds.some((id) => selected.has(id));
   const toggleGroup = (k) => {
@@ -1115,7 +1192,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
         }}>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
         {active && <Arrow size={12} strokeWidth={2.5} style={{ flexShrink: 0, color: NX.primary }} />}
-        <ColResizer onMouseDown={startResize(colKey, widths[colKey] ?? width)} onReset={() => resetWidth(colKey)} />
+        <ColResizer onMouseDown={startResize(colKey, widths[colKey] ?? width)} onReset={() => resetWidth(colKey)} onAutofit={() => autofitWidth(colKey)} />
       </div>
     );
   };
@@ -1189,7 +1266,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                 <div style={{ border: `1px solid ${isDropTarget ? gc : NX.border}`, borderRadius: 12, background: NX.surface, boxShadow: isDropTarget ? `0 0 0 2px ${gc}55` : 'none', transition: 'box-shadow 0.12s' }}>
                   {groupHeader}
                   {g.tasks.slice(0, groupBudgets[gi] ?? g.tasks.length).map((t, ri) => (
-                    <TaskRow key={t.id} t={t} band={ri % 2 === 1} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen}
+                    <TaskRow key={t.id} t={t} band={ri % 2 === 1} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onPick={pickRow} onOpen={onOpen}
                       personWidth={personWidth} groupColor={gc} projectOptions={projectOptions} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); setDropRow(null); }}
                       onRowDragOver={manualSort ? rowDragOver(t) : undefined}
                       onRowDrop={manualSort ? rowDrop(g, t) : undefined}
