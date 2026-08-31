@@ -8,7 +8,7 @@
 // top-level module (views/Tickets.jsx), so this file is Task-only.
 import { useEffect, useState } from 'react';
 import { takePendingOpen } from '../lib/pendingOpen';
-import { Home, CheckCircle2, FolderKanban, Briefcase, Users, Settings, X } from 'lucide-react';
+import { Home, CheckCircle2, FolderKanban, Briefcase, Users, Settings } from 'lucide-react';
 import TasksWorkspace from '../tasks/TasksWorkspace';
 import HomeView from '../tasks/HomeView';
 import MyTasksView from '../tasks/MyTasksView';
@@ -21,7 +21,7 @@ import ReportBugButton from '../tasks/ReportBug';
 import CreateMenu from '../tasks/CreateMenu';
 import { useIsMobile } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
-import { NX, FONT } from '../tasks/theme';
+import { NX, FONT, btn as btnStyle } from '../tasks/theme';
 import ModuleTabs from '../components/ModuleTabs';
 import GuidedTour from '../components/GuidedTour';
 import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
@@ -53,7 +53,7 @@ const ALL_SUBS = [...TASK_SUBS, 'manage'];
 function SubView({ sub, projectId, returnTo, onNavigate, onExitManage }) {
   switch (sub) {
     case 'home':       return <HomeView onNavigate={onNavigate} />;
-    case 'mine':       return <MyTasksView onOpenTask={(id) => onNavigate('open-task', id)} />;
+    case 'mine':       return <MyTasksView onOpenTask={(id) => onNavigate('open-task', id)} onNavigate={onNavigate} />;
     /* Back returns to wherever the drill-in STARTED (Home widgets link into
        projects too) - a hardcoded 'projects' stranded people who came from
        Home with a back button that went somewhere they'd never been. */
@@ -161,6 +161,13 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   // My Tasks and a project's task workspace render their own floating MobileTaskBar.
   const hasMobileBar = sub === 'mine' || sub === 'tasks';
 
+  // Bottom-right corner, stacked: Report a Bug sits on the floor, the create
+  // "+" rides above it. Derived from one base so a change to either offset
+  // cannot slide them into each other - they overlapped for exactly that
+  // reason before, each carrying its own hand-tuned number.
+  const bugBottom = isMobile ? (hasMobileBar ? 84 : 14) + (onManage ? 0 : 64) : 14;
+  const fabBottom = bugBottom + 46;
+
   // Sub-view navigation. A project drill-in (from Projects) targets the generic
   // task list locked to that project; a within-module tab jump switches sub.
   const subNavigate = (a, b) => {
@@ -179,26 +186,6 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   // Jakarta Sans, var(--text-primary)/var(--text-secondary), a 2.5px rounded
   return (
     <div className="nx-tasks" style={{ fontFamily: FONT, display: 'flex', flexDirection: 'column', height: '100%', background: NX.canvas }}>
-      {/* Primary bar - Create + Manage. */}
-      <div className="nx-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)', flexShrink: 0 }}>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Navbar Create menu. On mobile it's shown on the screens that don't
-              have their own MobileTaskBar + (My Tasks / workspace keep the bar's +). */}
-          {!onManage && (!isMobile || !hasMobileBar) && (
-            <span data-tour="task-create"><CreateMenu onNavigate={go} taskDefaults={taskDefaults} /></span>
-          )}
-          {onManage ? (
-            <button className="primary-btn nx-iconbtn" onClick={() => go('home')} title="Exit" style={{ fontFamily: FONT }}>
-              <X size={14} /> <span className="nx-btn-label">Exit</span>
-            </button>
-          ) : canManage ? (
-            <button data-tour="task-manage" className="secondary-btn nx-iconbtn" onClick={() => go('manage')} title="Manage" style={{ fontFamily: FONT }}>
-              <Settings size={14} /> <span className="nx-btn-label">Manage</span>
-            </button>
-          ) : null}
-        </div>
-      </div>
-
       {/* Module tabs - hidden on Manage. Desktop renders them centered in the
           top header. Phones get a fixed bottom tab bar instead (Asana-app
           style: icon over label - see MobileNav.jsx's TASK_ACTIONS, driven by
@@ -207,12 +194,33 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
           mobileInline={false}. 'tasks' (a drilled-in project task list) and
           'templates' (reached from the Projects screen) both highlight
           Projects, since neither has a tab of its own. */}
+      {/* One bar: module tabs on the left, Manage on the right. The tabs moved
+          down out of the app's top header (Sagar, Sept 1 2026) into the row
+          that used to carry "+ Create" and Manage alone - that row was nearly
+          empty on every screen, and the tabs fill it instead of costing a
+          second one. Create is the floating "+" below, so Manage is all that
+          shares the row. Hidden on Manage, which has no module tabs and
+          carries its own Exit on its sub-tab strip. */}
       {!onManage && (
-        <div data-tour="task-tabs">
-          <ModuleTabs
-            tabs={MODULE_TABS.map(({ key, label, icon }) => ({ key, label, Icon: icon }))}
-            active={(sub === 'tasks' || sub === 'templates') ? 'projects' : sub}
-            onChange={go} mobileInline={!isMobile} />
+        <div className="nx-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)', flexShrink: 0 }}>
+          {/* Phones get the module's tabs from MobileNav's bottom bar instead,
+              so the strip is only rendered from ~641px up. */}
+          <div data-tour="task-tabs" style={{ flex: 1, minWidth: 0 }}>
+            {!isMobile && (
+              <ModuleTabs inline
+                tabs={MODULE_TABS.map(({ key, label, icon }) => ({ key, label, Icon: icon }))}
+                active={(sub === 'tasks' || sub === 'templates') ? 'projects' : sub}
+                onChange={go} />
+            )}
+          </div>
+          {/* Outside the tab strip's own scroller, so it cannot scroll away on
+              a narrow window the way Manage used to. */}
+          {canManage && (
+            <button data-tour="task-manage" className="nx-iconbtn" onClick={() => go('manage')} title="Manage"
+              style={{ ...btnStyle('outline'), flexShrink: 0 }}>
+              <Settings size={14} /> <span className="nx-btn-label">Manage</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -223,6 +231,14 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
           instead of letting the sub-view's own body scroll. */}
       {/* data-tour tracks the active tab, so the guided tour can spotlight
           "this whole screen" without every sub-view needing its own hook. */}
+      {/* Floating create, over every sub-view. Suppressed on Manage (nothing
+          there is created this way) and on the two screens whose own
+          MobileTaskBar already carries a "+", which would otherwise put two
+          floating create buttons on one phone screen. */}
+      {!onManage && (!isMobile || !hasMobileBar) && (
+        <span data-tour="task-create"><CreateMenu onNavigate={go} taskDefaults={taskDefaults} bottom={fabBottom} /></span>
+      )}
+
       <div style={{ flex: 1, minHeight: 0 }} data-tour={`task-screen-${sub}`}>
         {searchAll ? (
           <TasksWorkspace
@@ -253,12 +269,11 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
       </div>
       {/* A task opened from header search - hosted here so it works from any tab. */}
       {searchTaskId && <TaskDetailDrawer taskId={searchTaskId} onClose={() => setSearchTaskId(null)} />}
-      {/* Create moved into the navbar on mobile (see the Create menu above); the
-          My Tasks / workspace screens still create via their MobileTaskBar +.
-          +64 whenever the module's own bottom tab bar is showing (everywhere
-          except Manage, which has no bar of its own) so this floats above it
-          too, same reasoning as MobileTaskBar's bottom offset. */}
-      <ReportBugButton bottom={isMobile ? (hasMobileBar ? 84 : 14) + (onManage ? 0 : 64) : undefined} />
+      {/* Report a Bug keeps the corner; the create "+" stacks above it (see
+          fabBottom). +64 whenever the module's own bottom tab bar is showing
+          (everywhere except Manage, which has no bar of its own) so this floats
+          above it too, same reasoning as MobileTaskBar's bottom offset. */}
+      <ReportBugButton bottom={bugBottom} />
       {tour && (
         <GuidedTour
           steps={buildTaskTourSteps({ go, canManage, isMobile })}

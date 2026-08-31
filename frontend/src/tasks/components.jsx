@@ -615,7 +615,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
                      borderRadius: 8, marginBottom: 14 }}>{error}</div>
       )}
 
-      <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Invite with email</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Invite With Email</div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'flex-start' }}>
         <div style={{ flex: 1 }}>
           <PersonSelect value={inviteEmail} onChange={(em) => setInviteEmail(em || '')}
@@ -628,7 +628,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
       {/* Teams get access as a unit - everyone on the team inherits it, which is
           how a whole department is granted a project in one step instead of
           inviting each person. */}
-      <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Add a team</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Add a Team</div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'flex-start' }}>
         <div style={{ flex: 1 }}>
           <TeamPicker teams={availableTeams} value={inviteTeam} onChange={setInviteTeam}
@@ -638,7 +638,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
         <button type="button" disabled={busy || !inviteTeam} onClick={addTeam} style={btn('primary')}>Add</button>
       </div>
 
-      <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Access settings</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Access Settings</div>
       <select value={project.accessLevel || 'org'} disabled={busy}
         onChange={(e) => run(() => updateProject(project.id, { access_level: e.target.value }))}
         style={{ ...inputStyle, width: '100%', marginBottom: 16 }}>
@@ -647,7 +647,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
       </select>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>Who has access</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>Who Has Access</span>
       </div>
       <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderBottom: `1px solid ${NX.border}` }}>
@@ -930,7 +930,11 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
 // where finding one meant scrolling a list you cannot type into.
 //
 // Options are `{ id, label }`; `keywords` on an option adds extra searchable
-// text (an email, say) that is matched but not displayed.
+// text (an email, say) that is matched but not displayed. An option marked
+// `header: true` is a group caption instead: it renders as a small label, is
+// not clickable, and drops out of a search (its members carry their own
+// searchable text, and a caption left stranded above no results reads as a
+// group that came back empty).
 export function SearchSelect({
   options, onPick, placeholder = 'Select...', searchPlaceholder = 'Search...',
   emptyText = 'Nothing to choose from.', buttonStyle, renderOption, menuMinWidth = 260,
@@ -941,7 +945,7 @@ export function SearchSelect({
   const ref = useRef(null);
   const query = q.trim().toLowerCase();
   const shown = query
-    ? options.filter((o) => `${o.label || ''} ${o.keywords || ''}`.toLowerCase().includes(query))
+    ? options.filter((o) => !o.header && `${o.label || ''} ${o.keywords || ''}`.toLowerCase().includes(query))
     : options;
   const close = () => { setOpen(false); setQ(''); };
   // Two roles in one control. Given `value` it is a FIELD: the trigger shows
@@ -970,7 +974,12 @@ export function SearchSelect({
         <SelectMenu anchorRef={ref} onClose={close} minWidth={menuMinWidth}>
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
             style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
-          {shown.map((o) => (
+          {shown.map((o) => (o.header ? (
+            <div key={o.id} style={{
+              padding: '9px 12px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em',
+              textTransform: 'uppercase', color: NX.faint, cursor: 'default', userSelect: 'none',
+            }}>{o.label}</div>
+          ) : (
             <div key={o.id} onClick={() => { onPick(o.id); close(); }}
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink }}
               onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }}
@@ -980,7 +989,7 @@ export function SearchSelect({
               )}
               {value !== undefined && o.id === value && <Check size={14} style={{ color: NX.blue, flexShrink: 0 }} />}
             </div>
-          ))}
+          )))}
           {shown.length === 0 && (
             <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
               {query ? `No matches for “${q.trim()}”.` : emptyText}

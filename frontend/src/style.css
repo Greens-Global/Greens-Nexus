@@ -2605,7 +2605,6 @@ button, [role="button"], select { touch-action: manipulation; }
 /* Tablets / iPad - tighter tabs, less page gutter. */
 @media (max-width: 900px) {
   .nx-ptab { padding: 10px 12px !important; font-size: 0.9rem !important; }
-  .nx-primary-bar { padding: 0 12px !important; }
   .nx-module-tabs { padding: 0 12px !important; }
   .nx-module-tab { padding: 10px 9px !important; font-size: 13px !important; gap: 6px !important; }
   .nx-page { padding: 16px 16px 76px !important; }
@@ -2613,6 +2612,7 @@ button, [role="button"], select { touch-action: manipulation; }
 
 /* Phones - icon-only Create/Manage, compact navbar, full-bleed cards. */
 @media (max-width: 640px) {
+  .nx-primary-bar { padding: 0 12px !important; }
   /* Create / Manage / Exit collapse to their icon. */
   .nx-tasks .nx-btn-label { display: none; }
   .nx-tasks .nx-iconbtn {
@@ -2623,7 +2623,6 @@ button, [role="button"], select { touch-action: manipulation; }
   }
 
   /* Navbar: both rows shrink so the whole header fits one screen. */
-  .nx-primary-bar { padding: 0 8px !important; gap: 2px !important; }
   .nx-ptab { padding: 8px 10px !important; font-size: 0.85rem !important; }
   .nx-module-tabs { padding: 0 6px !important; gap: 0 !important; }
   .nx-module-tab { padding: 9px 8px !important; font-size: 12px !important; gap: 5px !important; }
@@ -3212,26 +3211,43 @@ button, [role="button"], select { touch-action: manipulation; }
     border-bottom: 1px solid var(--line);
     padding-bottom: 1px;
   }
-  .module-tab-inline-btn {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    background: none;
-    border: none;
-    padding: 10px 14px;
-    font-family: var(--wk-font);
-    font-size: 13.5px;
-    font-weight: 600;
-    color: var(--muted);
-    white-space: nowrap;
-    flex-shrink: 0;
-    cursor: pointer;
-    transition: color .15s;
-  }
-  .module-tab-inline-btn.active {
-    color: var(--ink);
-    box-shadow: inset 0 -2.5px 0 var(--wk-brand);
-  }
+}
+
+/* Hoisted out of the max-width:900px block above so the strip can also be
+   rendered at desktop width by a module that asks for it (ModuleTabs' `inline`
+   prop - the Task module puts its tabs in its own bar rather than the app
+   header). Inert at any width where the container is display:none, so lifting
+   these changes nothing for the modules that still publish to the header. */
+.module-tab-inline-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  padding: 10px 14px;
+  font-family: var(--wk-font);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: color .15s;
+}
+.module-tab-inline-btn.active {
+  color: var(--ink);
+  box-shadow: inset 0 -2.5px 0 var(--wk-brand);
+}
+
+/* Always in-page, at every width. The owning bar draws the divider and the
+   spacing, so this variant carries neither. */
+.module-tabs-inline--always {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+  overflow-x: auto;
 }
 
 /* ── Home (dk- namespace = the designed home surface) ───────────────────── */
@@ -4047,3 +4063,61 @@ button, [role="button"], select { touch-action: manipulation; }
   .app-tile { width: 74px; }
 }
 [data-theme="dark"] .dash-grid .dash-card-sub { color: var(--text-muted); }
+
+/* ── Task module: floating create button ──────────────────────────────────────
+   Replaced the "+ Create" dropdown that sat in a bar of its own above every
+   page header (Sagar, Sept 1 2026). The button is the state: "+" turns 45deg
+   into "x" while its options are open. */
+.nx-fab {
+  box-shadow: 0 6px 16px rgba(23, 26, 38, .18), 0 2px 4px rgba(23, 26, 38, .10);
+  transition: box-shadow .18s cubic-bezier(.16, 1, .3, 1),
+              transform .18s cubic-bezier(.16, 1, .3, 1),
+              filter .18s ease;
+}
+.nx-fab:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+  box-shadow: 0 10px 24px rgba(23, 26, 38, .22), 0 3px 6px rgba(23, 26, 38, .12);
+}
+.nx-fab:active { transform: translateY(0); }
+.nx-fab:focus-visible {
+  outline: 2px solid var(--wk-brand, #2b45e1);
+  outline-offset: 3px;
+}
+.nx-fab-icon { transition: transform .2s cubic-bezier(.16, 1, .3, 1); }
+
+/* Each option is a labelled pill - an icon alone would make the user guess. */
+.nx-fab-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 15px 9px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(23, 26, 38, .14);
+  animation: nx-fab-in .26s cubic-bezier(.16, 1, .3, 1) both;
+  transition: border-color .15s ease, transform .15s ease;
+}
+.nx-fab-item:hover { border-color: var(--wk-brand, #2b45e1); transform: translateX(-2px); }
+.nx-fab-item:focus-visible {
+  outline: 2px solid var(--wk-brand, #2b45e1);
+  outline-offset: 2px;
+}
+
+@keyframes nx-fab-in {
+  from { opacity: 0; transform: translateY(6px) scale(.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nx-fab, .nx-fab-icon, .nx-fab-item { transition: none; }
+  .nx-fab-item { animation: none; }
+  .nx-fab:hover, .nx-fab-item:hover { transform: none; }
+}

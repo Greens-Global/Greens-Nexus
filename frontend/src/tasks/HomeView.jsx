@@ -331,7 +331,7 @@ export default function HomeView({ onNavigate }) {
     if (key === 'urgent') return widgetBox(
       <>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Urgent tasks</h2>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Urgent Tasks</h2>
           {moreBtn(() => onNavigate('projects'))}
         </div>
         {urgentProjects.length === 0 ? <p style={{ padding: '16px 0', fontSize: 13, color: NX.faint }}>No projects with open tasks - nothing is on fire.</p> : (
@@ -366,7 +366,7 @@ export default function HomeView({ onNavigate }) {
       return widgetBox(
         <>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Completed this week</h2>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Completed This Week</h2>
             <span style={{ fontSize: 13, color: NX.faint }}>{weekTotal} task{weekTotal === 1 ? '' : 's'}</span>
           </div>
           <div role="button" tabIndex={0} title="Open your completed tasks"
@@ -390,7 +390,7 @@ export default function HomeView({ onNavigate }) {
     if (key === 'week') return widgetBox(
       <>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Week ahead</h2>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Week Ahead</h2>
           {moreBtn(() => { setTab('Upcoming'); onNavigate('mine'); })}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -415,7 +415,7 @@ export default function HomeView({ onNavigate }) {
       return widgetBox(
         <>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>By priority</h2>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>By Priority</h2>
             <span style={{ fontSize: 13, color: NX.faint }}>{openMine.length} open</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -487,7 +487,7 @@ export default function HomeView({ onNavigate }) {
           composed group even at full-bleed width. */}
       <div style={{ ...card, borderRadius: 16, padding: 20, marginBottom: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '0 0 14px' }}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>My tasks</h2>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>My Tasks</h2>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div ref={rangeRef} style={{ position: 'relative' }}>
             <button onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 12.5 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>

@@ -1,8 +1,13 @@
-// Task Module - "+ Create" quick-create menu in the primary bar, beside Manage.
-// Ported from the export's NexusCreateMenu (Task / Project / Portfolio),
-// styled with Nexus's shared .primary-btn class to match the SOP module's
-// "+ New SOP" reference button. Ticket used to be a quick-create item here -
-// it now lives in the Tickets module's own "+ New Ticket" button.
+// Task Module - the floating "+" create button, bottom-right on every screen.
+//
+// Was a "+ Create" dropdown in a bar of its own above the page header (with a
+// mobile-only FAB variant). That bar held two controls and cost a whole row on
+// every page, so the row was merged into each page's header and the create
+// action became this one floating button (Sagar, Sept 1 2026).
+//
+// The button IS the state: "+" rotates 45 degrees into "x" while the options
+// are open, so one control both opens and closes the menu and its current
+// meaning is legible without a label.
 import { useEffect, useRef, useState } from 'react';
 import { Plus, ListChecks, FolderKanban, Briefcase, LayoutTemplate } from 'lucide-react';
 import { useTasks } from './TasksContext';
@@ -21,20 +26,24 @@ const ITEMS = [
   { key: 'portfolio', label: 'Portfolio', icon: Briefcase },
 ];
 
-// `fab` renders the mobile floating action button instead of the "+ Create"
-// dropdown. Either way, tapping it opens the same Task / Project / Portfolio
-// quick-create menu - the FAB just anchors it above the button.
-export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} }) {
+// `bottom` is supplied by the module shell, which stacks this above the
+// "Report a Bug" pill from a single base offset - see Tasks.jsx's fabBottom.
+const FAB_RIGHT = 16;
+const FAB_SIZE = 56;
+
+export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60 }) {
   const { createTeam, projects } = useTasks();
   const [open, setOpen] = useState(false);
   const [show, setShow] = useState(null); // 'task' | 'project' | 'portfolio' | 'department' | null
   const ref = useRef(null);
 
+  // Escape closes, like every other dismissible layer in the module. The scrim
+  // below handles pointer dismissal, so there is no outside-click listener.
   useEffect(() => {
     if (!open) return;
-    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, [open]);
 
   const label = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
@@ -59,43 +68,45 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
   };
 
   return (
-    <div ref={ref} style={{ position: fab ? 'static' : 'relative' }}>
-      {fab ? (
-        // Sits above the "Report a Bug" pill so the two don't overlap.
-        <button onClick={() => setOpen((o) => !o)} title="Create" aria-label="Create" style={{
-          position: 'fixed', right: 16, bottom: 74, zIndex: 2500,
-          width: 52, height: 52, borderRadius: '50%', border: 'none', cursor: 'pointer',
-          background: NX.primary, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.28)', fontFamily: FONT,
-        }}><Plus size={24} /></button>
-      ) : (
-        <button className="primary-btn nx-iconbtn" onClick={() => setOpen((o) => !o)} title="Create" style={{ fontFamily: FONT }}>
-          <Plus size={16} /> <span className="nx-btn-label">Create</span>
-        </button>
+    <div ref={ref}>
+      {/* Catches the click that closes the menu, and separates the options from
+          the page behind them. Transparent enough that the page is still read
+          as present rather than replaced - this is a menu, not a modal. */}
+      {open && (
+        <div onClick={() => setOpen(false)} aria-hidden="true" style={{
+          position: 'fixed', inset: 0, zIndex: 2490, background: 'rgba(23,26,38,0.10)',
+        }} />
       )}
 
       {open && (
-        <div style={{
-          // FAB: fixed menu sitting just above the floating button (bottom 74 + 52 + gap).
-          // Desktop: dropdown anchored under the "+ Create" trigger.
-          ...(fab
-            ? { position: 'fixed', right: 16, bottom: 134, width: 200, zIndex: 2600 }
-            : { position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 176, zIndex: 200 }),
-          background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
-          boxShadow: '0 12px 32px rgba(0,0,0,0.16)', overflow: 'hidden', padding: 4,
+        <div role="menu" aria-label="Create" style={{
+          position: 'fixed', right: FAB_RIGHT, bottom: bottom + FAB_SIZE + 12, zIndex: 2600,
+          display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8,
         }}>
-          {ITEMS.map(({ key, label: l, icon: Icon, nav }) => (
-            <button key={key} onClick={() => { setOpen(false); if (nav) onNavigate?.(nav); else setShow(key); }} style={{
-              display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px',
-              border: 'none', background: 'transparent', borderRadius: 7, cursor: 'pointer',
-              fontSize: 13.5, fontWeight: 500, color: NX.ink, fontFamily: FONT, textAlign: 'left',
-            }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover || NX.border2; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-            ><Icon size={15} /> {l}</button>
+          {ITEMS.map(({ key, label: l, icon: Icon, nav }, i) => (
+            <button key={key} role="menuitem" className="nx-fab-item"
+              onClick={() => { setOpen(false); if (nav) onNavigate?.(nav); else setShow(key); }}
+              // Staggered from the button outwards, so the menu reads as coming
+              // OUT of the "+" rather than appearing all at once.
+              style={{ animationDelay: `${(ITEMS.length - 1 - i) * 40}ms` }}
+            ><Icon size={16} style={{ color: NX.primary, flexShrink: 0 }} /> {l}</button>
           ))}
         </div>
       )}
+
+      <button onClick={() => setOpen((o) => !o)} className="nx-fab"
+        aria-expanded={open} aria-haspopup="menu"
+        title={open ? 'Close' : 'Create'} aria-label={open ? 'Close create menu' : 'Create'}
+        style={{
+          position: 'fixed', right: FAB_RIGHT, bottom, zIndex: 2600,
+          width: FAB_SIZE, height: FAB_SIZE, borderRadius: '50%', border: 'none', cursor: 'pointer',
+          background: NX.primary, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: FONT, padding: 0,
+        }}>
+        {/* One icon, rotated - not two icons swapped. The 45 degree turn IS the
+            + becoming an x, so the control never blinks between two glyphs. */}
+        <Plus size={26} style={{ transform: open ? 'rotate(45deg)' : 'none' }} className="nx-fab-icon" />
+      </button>
 
       {show === 'task' && <CreateTaskModal defaults={taskDefaults} onClose={() => setShow(null)} lockedProjectId={taskDefaults.projectId || ''} />}
 

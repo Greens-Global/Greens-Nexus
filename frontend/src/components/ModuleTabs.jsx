@@ -40,9 +40,15 @@ export function useHeaderTabs() {
 
 // mobileInline=false suppresses the <=900px in-page fallback for modules that
 // already have their own phone chrome (e.g. Item Management's bottom bar).
-export default function ModuleTabs({ tabs, active, onChange, mobileInline = true }) {
+//
+// inline=true keeps the strip IN THE PAGE at every width and publishes nothing
+// to the header, so the module can place its own tabs (the Task module renders
+// them in its own bar, below the header, rather than in the header centre).
+// Publishing is skipped rather than ignored: a module that draws its own strip
+// and also published one would show the same tabs twice on desktop.
+export default function ModuleTabs({ tabs, active, onChange, mobileInline = true, inline = false }) {
   const ctx = useContext(HeaderTabsContext);
-  const setEntry = ctx?.setEntry;
+  const setEntry = inline ? null : ctx?.setEntry;
 
   // onChange is almost always a fresh closure each render - keep it in a ref
   // so publishing only re-fires when the tab set or selection actually change.
@@ -64,9 +70,9 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   }, [setEntry]);
 
   // <=900px fallback - same markup contract as the old in-page strips.
-  if (!mobileInline) return null;
+  if (!inline && !mobileInline) return null;
   return (
-    <div className="scroll-tabs module-tabs-inline">
+    <div className={`scroll-tabs module-tabs-inline${inline ? ' module-tabs-inline--always' : ''}`}>
       {tabs.map(({ key, label, Icon, badge }) => (
         <button
           key={key}
