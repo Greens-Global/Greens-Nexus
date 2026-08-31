@@ -3,7 +3,7 @@ import { X, Camera, Loader2, Sun, Moon, Palette, Check, PanelLeft, Globe2 } from
 import { api } from '../api';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
-import { ZONE_OPTIONS, MAX_ZONES, currentZoneKeys, setZoneKeys } from '../lib/worldClockZones';
+import { ZONE_GROUPS, MAX_ZONES, currentZones, setZones, zoneLabel } from '../lib/worldClockZones';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
 
@@ -24,14 +24,17 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const [error,   setError]   = useState('');
   const [status,  setStatus]  = useState('');
   const [photoOpen, setPhotoOpen] = useState(false);
-  const [zoneKeys, setZoneKeysLocal] = useState(() => currentZoneKeys());
+  // Fixed 3 slots, '' = unset - a dropdown per slot rather than a checklist
+  // of ~400 zones (Pranshu, Sep 1: "make it a drop down").
+  const [zoneSlots, setZoneSlots] = useState(() => {
+    const cur = currentZones();
+    return [0, 1, 2].map((i) => cur[i] || '');
+  });
 
-  function toggleZone(key) {
-    const next = zoneKeys.includes(key)
-      ? zoneKeys.filter((k) => k !== key)
-      : (zoneKeys.length >= MAX_ZONES ? zoneKeys : [...zoneKeys, key]);
-    setZoneKeysLocal(next);
-    setZoneKeys(next);
+  function setSlot(i, tz) {
+    const next = [...zoneSlots]; next[i] = tz;
+    setZoneSlots(next);
+    setZones(next);
   }
 
   useEffect(() => {
@@ -161,18 +164,18 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
             Pick up to {MAX_ZONES} time zones to show on your Dashboard greeting.
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {ZONE_OPTIONS.map((z) => {
-              const checked = zoneKeys.includes(z.key);
-              const disabled = !checked && zoneKeys.length >= MAX_ZONES;
-              return (
-                <button key={z.key} onClick={() => toggleZone(z.key)} disabled={disabled}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 10px', borderRadius: 8, border: 'none', background: 'none', color: disabled ? 'var(--muted)' : 'var(--ink)', fontSize: 13, fontFamily: 'inherit', cursor: disabled ? 'default' : 'pointer', textAlign: 'left', opacity: disabled ? 0.55 : 1 }}>
-                  {z.label}
-                  {checked && <Check size={13} style={{ marginLeft: 'auto', color: 'var(--ink)' }} />}
-                </button>
-              );
-            })}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {zoneSlots.map((val, i) => (
+              <select key={i} value={val} onChange={(e) => setSlot(i, e.target.value)}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'inherit' }}>
+                <option value="">— None —</option>
+                {Object.entries(ZONE_GROUPS).map(([region, tzs]) => (
+                  <optgroup key={region} label={region.replace(/_/g, ' ')}>
+                    {tzs.map((tz) => <option key={tz} value={tz}>{zoneLabel(tz)}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            ))}
           </div>
         </div>
         </div>
