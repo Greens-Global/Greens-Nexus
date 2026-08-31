@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, LargeBinary, String, Text, UniqueConstraint
 from database import Base
 
 
@@ -3629,3 +3629,32 @@ class UserTourState(Base):
     seen        = Column(JSON, default=dict)
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
+
+
+class LinkIcon(Base):
+    """Cached site logo for an External Links tile, keyed by hostname.
+
+    The tiles used to fetch every logo LIVE from icon.horse on each render.
+    With 50+ links that is 50+ simultaneous requests to a free service, from
+    one office egress IP, for every employee, on every page view - and
+    icon.horse rate-limits per IP. Most tiles came back HTTP 429 and fell
+    through to the generic lucide glyph, which is why the grid looked like it
+    was missing its images and why it looked DIFFERENT every time (Charmi/Neil,
+    Aug 31). Fetched once per domain into this table, then served from our own
+    origin, the storm is 50 requests total rather than 50 per person per view.
+
+    A domain with no logo anywhere is cached too (data NULL, source 'none'), or
+    a dead lookup would be retried on every single render forever. `fetched_at`
+    lets a stale row be refreshed without a schema change.
+
+    New table - create_all builds it, so no migration line is needed. It DOES
+    need `ALTER TABLE link_icons ENABLE ROW LEVEL SECURITY` on dev and prod as
+    part of the release (CLAUDE.md)."""
+    __tablename__ = "link_icons"
+    domain       = Column(String, primary_key=True)   # hostname, lowercased
+    content_type = Column(String, default="")         # image/png, image/x-icon, …
+    data         = Column(LargeBinary)                # bytes, or NULL when none was found
+    source       = Column(String, default="")         # icon.horse | google | none
+    size_bytes   = Column(Integer, default=0)
+    fetched_at   = Column(String, default="")         # UTC ISO
+    error        = Column(String, default="")         # last failure, for diagnosis
