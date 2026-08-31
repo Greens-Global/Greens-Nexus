@@ -10,6 +10,8 @@ notification should hand-roll HTML.
 """
 from html import escape
 
+from mail_text import Rich, rich_to_email_html
+
 from ticket_code import ticket_no
 
 TICKET_STATUS_META = {
@@ -33,13 +35,22 @@ def _status_badge(status: str) -> str:
     )
 
 
+def _cell(value) -> str:
+    """A Rich value is already safe email HTML (mail_text.rich_to_email_html);
+    anything else is escaped, so a row that forgets to convert stays safe."""
+    if isinstance(value, Rich):
+        return str(value) or "-"
+    return escape(str(value)) if value not in (None, "") else "-"
+
+
 def _rows_table(rows: list[tuple[str, str]]) -> str:
     trs = "".join(
         f"<tr>"
         f"<td style='padding:8px 0;border-bottom:1px solid #f0f1f3;font-size:12.5px;"
         f"color:#6b7280;width:150px;vertical-align:top'>{escape(label)}</td>"
         f"<td style='padding:8px 0;border-bottom:1px solid #f0f1f3;font-size:13.5px;"
-        f"color:#1f2937;vertical-align:top'>{escape(str(value)) if value not in (None, '') else '-'}</td>"
+        f"color:#1f2937;vertical-align:top'>"
+        f"{_cell(value)}</td>"
         f"</tr>"
         for label, value in rows
     )
@@ -190,7 +201,7 @@ def created_email_requester(*, t: dict, base_url: str, logo_url: str) -> tuple[s
         heading="Your ticket has been submitted",
         intro="Thanks - we've received your request and it's now in the queue for triage.",
         rows=[
-            ("Description", t.get("description") or "-"),
+            ("Description", rich_to_email_html(t.get("description"))),
             ("Department", t.get("departmentName") or "-"),
             ("Category", t.get("typeLabel") or "-"),
             ("Priority", PRIORITY_LABEL.get(t.get("priority"), t.get("priority"))),
@@ -211,7 +222,7 @@ def created_email_triage(*, t: dict, base_url: str, logo_url: str) -> tuple[str,
         heading="A new ticket needs to be assigned",
         intro="This ticket has been raised and is waiting for someone to be assigned to it.",
         rows=[
-            ("Description", t.get("description") or "-"),
+            ("Description", rich_to_email_html(t.get("description"))),
             ("Department", t.get("departmentName") or "-"),
             ("Category", t.get("typeLabel") or "-"),
             ("Priority", PRIORITY_LABEL.get(t.get("priority"), t.get("priority"))),
@@ -230,7 +241,7 @@ def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
         heading="This ticket is waiting for your approval",
         intro="You are listed as the approver for this request. Please review it and approve or reject so work can proceed.",
         rows=[
-            ("Description", t.get("description") or "-"),
+            ("Description", rich_to_email_html(t.get("description"))),
             ("Department", t.get("departmentName") or "-"),
             ("Category", t.get("typeLabel") or "-"),
             ("Priority", PRIORITY_LABEL.get(t.get("priority"), t.get("priority"))),
