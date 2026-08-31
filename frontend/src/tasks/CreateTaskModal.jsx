@@ -15,8 +15,33 @@ import RichDescription from './RichDescription';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+// Common day-after-completion counts for Periodically's dropdown - covers the
+// realistic range (same-day chores through quarterly-ish) without forcing a
+// free-text field for what's usually a round number.
+const PERIODIC_DAY_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 30, 45, 60, 90];
 const label = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
 const field = { marginBottom: 0 };
+
+/** "On these days" - the S M T W T F S row Weekly and Custom(week) share. */
+function DaysOfWeekPicker({ value, onChange }) {
+  const toggle = (i) => onChange(value.includes(i) ? value.filter((d) => d !== i) : [...value, i].sort());
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {DAY_LETTERS.map((l, i) => {
+        const on = value.includes(i);
+        return (
+          <button key={i} type="button" onClick={() => toggle(i)} title={DAYS[i]}
+            style={{
+              width: 28, height: 28, borderRadius: '50%', border: `1px solid ${on ? NX.primary : NX.border}`,
+              background: on ? NX.primary : 'transparent', color: on ? '#fff' : NX.dim,
+              fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, padding: 0,
+            }}>{l}</button>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '' }) {
   const store = useTasks();
@@ -50,7 +75,13 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     dueOn: editing?.dueOn ?? defaults.dueOn ?? '',
     estimateHrs: editing?.estimateHours ? String(Math.floor(editing.estimateHours)) : '',
     estimateMin: editing?.estimateHours && editing.estimateHours % 1 ? String(Math.round((editing.estimateHours % 1) * 60)) : '',
-    recurFreq: editing?.recurrence?.freq ?? 'none', recurDow: editing?.recurrence?.dayOfWeek ?? 1, recurDom: editing?.recurrence?.dayOfMonth ?? 1,
+    recurFreq: editing?.recurrence?.freq ?? 'none', recurDom: editing?.recurrence?.dayOfMonth ?? 1,
+    // daysOfWeek is the real field; dayOfWeek (singular) is read as a one-item
+    // fallback for a series created before multi-day weekly existed.
+    recurDaysOfWeek: editing?.recurrence?.daysOfWeek
+      ?? (editing?.recurrence?.dayOfWeek != null ? [editing.recurrence.dayOfWeek] : [1]),
+    recurDaysAfter: editing?.recurrence?.daysAfterCompletion ?? 7,
+    recurUnit: editing?.recurrence?.unit ?? 'week', recurInterval: editing?.recurrence?.interval ?? 1,
     recurEnd: editing?.recurrence?.until ? 'on' : editing?.recurrence?.count ? 'after' : 'never',
     recurUntil: editing?.recurrence?.until ?? '', recurCount: editing?.recurrence?.count != null ? String(editing.recurrence.count) : '',
     followerIds: editing?.followerIds ?? defaults.followerIds ?? [],
@@ -103,9 +134,22 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
 
   const recurrence = () => {
     if (form.recurFreq === 'none') return null;
-    const r = { freq: form.recurFreq, interval: 1 };
-    if (form.recurFreq === 'weekly') r.dayOfWeek = Number(form.recurDow);
-    if (form.recurFreq === 'monthly') r.dayOfMonth = Number(form.recurDom);
+    const r = { freq: form.recurFreq };
+    if (form.recurFreq === 'weekly') {
+      r.daysOfWeek = form.recurDaysOfWeek.length ? form.recurDaysOfWeek : [1];
+    } else if (form.recurFreq === 'monthly') {
+      r.dayOfMonth = Number(form.recurDom);
+    } else if (form.recurFreq === 'periodic') {
+      // Completion-relative, not a calendar cadence - no `interval` here, see
+      // backend routers/tasks.py _spawn_next_occurrence.
+      r.daysAfterCompletion = Number(form.recurDaysAfter) || 1;
+    } else if (form.recurFreq === 'custom') {
+      r.unit = form.recurUnit;
+      r.interval = Math.max(1, Number(form.recurInterval) || 1);
+      if (form.recurUnit === 'week') r.daysOfWeek = form.recurDaysOfWeek.length ? form.recurDaysOfWeek : [1];
+      if (form.recurUnit === 'month') r.dayOfMonth = Number(form.recurDom);
+    }
+    if (form.recurFreq !== 'periodic' && form.recurFreq !== 'custom') r.interval = 1;
     if (form.recurEnd === 'on' && form.recurUntil) r.until = form.recurUntil;
     if (form.recurEnd === 'after' && form.recurCount) r.count = Math.max(1, Number(form.recurCount));
     return r;
@@ -278,18 +322,18 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             <label style={label}>Recurrence</label>
             <select value={form.recurFreq} onChange={(e) => setRecurFreq(e.target.value)} style={sel}>
               <option value="none">Does not repeat</option>
-              <option value="daily">Every day</option>
-              <option value="weekly">Every week</option>
-              <option value="monthly">Every month</option>
-              <option value="yearly">Every year</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+              <option value="periodic">Periodically</option>
+              <option value="custom">Custom</option>
             </select>
           </div>
           {form.recurFreq === 'weekly' && (
             <div style={field}>
-              <label style={label}>Day of Week</label>
-              <select value={form.recurDow} onChange={(e) => set('recurDow', e.target.value)} style={sel}>
-                {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
-              </select>
+              <label style={label}>On These Days</label>
+              <DaysOfWeekPicker value={form.recurDaysOfWeek} onChange={(v) => set('recurDaysOfWeek', v)} />
             </div>
           )}
           {form.recurFreq === 'monthly' && (
@@ -299,6 +343,45 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
                 {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>Day {d}</option>)}
               </select>
             </div>
+          )}
+          {form.recurFreq === 'periodic' && (
+            <div style={field}>
+              <label style={label}>Days After Completion</label>
+              <select value={form.recurDaysAfter} onChange={(e) => set('recurDaysAfter', e.target.value)} style={sel}>
+                {PERIODIC_DAY_OPTIONS.map((d) => <option key={d} value={d}>{d} day{d === 1 ? '' : 's'}</option>)}
+              </select>
+            </div>
+          )}
+          {form.recurFreq === 'custom' && (
+            <>
+              <div style={field}>
+                <label style={label}>Every</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input type="number" min="1" step="1" value={form.recurInterval}
+                    onChange={(e) => set('recurInterval', e.target.value)} style={{ ...input, width: 70 }} />
+                  <select value={form.recurUnit} onChange={(e) => set('recurUnit', e.target.value)} style={sel}>
+                    <option value="day">Day{Number(form.recurInterval) === 1 ? '' : 's'}</option>
+                    <option value="week">Week{Number(form.recurInterval) === 1 ? '' : 's'}</option>
+                    <option value="month">Month{Number(form.recurInterval) === 1 ? '' : 's'}</option>
+                    <option value="year">Year{Number(form.recurInterval) === 1 ? '' : 's'}</option>
+                  </select>
+                </div>
+              </div>
+              {form.recurUnit === 'week' && (
+                <div style={field}>
+                  <label style={label}>On These Days</label>
+                  <DaysOfWeekPicker value={form.recurDaysOfWeek} onChange={(v) => set('recurDaysOfWeek', v)} />
+                </div>
+              )}
+              {form.recurUnit === 'month' && (
+                <div style={field}>
+                  <label style={label}>Day of Month</label>
+                  <select value={form.recurDom} onChange={(e) => set('recurDom', e.target.value)} style={sel}>
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>Day {d}</option>)}
+                  </select>
+                </div>
+              )}
+            </>
           )}
           {form.recurFreq !== 'none' && (
             <div style={field}>

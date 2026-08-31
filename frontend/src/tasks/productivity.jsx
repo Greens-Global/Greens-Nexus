@@ -11,6 +11,7 @@ import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, useIsMobile, DateField } from './components';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { emailToName, rootZoom } from '../lib/utils';
+import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 
 const SORT_OPTIONS = [
   { key: 'manual', label: 'Manual' }, { key: 'dueOn', label: 'Due Date' },
@@ -109,8 +110,8 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
   const [collabQuery, setCollabQuery] = useState('');
   const [projectQuery, setProjectQuery] = useState('');
   const searchInput = { ...inputStyle, padding: '6px 9px', fontSize: 12.5, marginBottom: 6 };
-  const shownPeople = people.filter((u) => u.name.toLowerCase().includes(assigneeQuery.toLowerCase()));
-  const shownCollabs = people.filter((u) => u.name.toLowerCase().includes(collabQuery.toLowerCase()));
+  const shownPeople = matchPeople(people, assigneeQuery);
+  const shownCollabs = matchPeople(people, collabQuery);
   const collaboratorIds = filters.collaboratorIds || [];
   const shownProjects = projects.filter((p) => p.name.toLowerCase().includes(projectQuery.toLowerCase()));
   return (
@@ -134,7 +135,9 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
             items={filters.assigneeIds.map((id) => ({ id, label: people.find((u) => u.email === id)?.name || emailToName(id) }))}
             onRemove={(id) => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, id) })}
           />
-          <input value={assigneeQuery} onChange={(e) => setAssigneeQuery(e.target.value)} placeholder="Search people…" style={searchInput} />
+          <input value={assigneeQuery} onChange={(e) => setAssigneeQuery(e.target.value)} placeholder="Search people…"
+            onKeyDown={onEnterPickFirst(shownPeople, (u) => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, u.email) }))}
+            style={searchInput} />
           <div style={{ maxHeight: 108, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
             {shownPeople.map((u) => (
               <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
@@ -155,7 +158,9 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
           items={collaboratorIds.map((id) => ({ id, label: people.find((u) => u.email === id)?.name || emailToName(id) }))}
           onRemove={(id) => setFilters({ ...filters, collaboratorIds: toggle(collaboratorIds, id) })}
         />
-        <input value={collabQuery} onChange={(e) => setCollabQuery(e.target.value)} placeholder="Search people…" style={searchInput} />
+        <input value={collabQuery} onChange={(e) => setCollabQuery(e.target.value)} placeholder="Search people…"
+          onKeyDown={onEnterPickFirst(shownCollabs, (u) => setFilters({ ...filters, collaboratorIds: toggle(collaboratorIds, u.email) }))}
+          style={searchInput} />
         <div style={{ maxHeight: 108, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
           {shownCollabs.map((u) => (
             <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>

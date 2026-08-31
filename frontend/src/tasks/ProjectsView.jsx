@@ -3,12 +3,12 @@
 // project. Ported from the export's ProjectsPage/ProjectOverview into the Nexus
 // inline-style idiom.
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, LayoutGrid, List, Copy, LayoutTemplate, ArrowLeft } from 'lucide-react';
+import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, Copy, LayoutTemplate, ArrowLeft } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject, projectToForm} from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab, SearchSelect } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab, SearchSelect, ViewToggle } from './components';
 import TasksWorkspace from './TasksWorkspace';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import { CustomFieldInput } from './TaskDetailDrawer';
@@ -62,10 +62,6 @@ function projectStatusFor(stats) {
 // because comparing rollups down a column is what people actually come here to
 // do and a 4-across grid makes that a scavenger hunt.
 const VIEW_KEY = 'nexus.projects.view';
-const VIEW_TABS = [
-  { key: 'grid', icon: LayoutGrid, label: 'Grid' },
-  { key: 'list', icon: List, label: 'List' },
-];
 // One template for the header and every row, so the columns cannot drift apart.
 // Teams and Owner are the first to go on a narrow screen - the name, how far
 // along it is, and its status are what the row is for.
@@ -89,7 +85,7 @@ export default function ProjectsView({ onNavigate }) {
   const isMobile = useIsMobile();
   const store = useTasks();
   const { projects, portfolios, tasks, nameOf, portfolioById, teams, customFields,
-    createProject, updateProject, deleteProject } = store;
+    createProject, updateProject, deleteProject, myEmail } = store;
   const people = usePeople();
   // Project-scoped select fields (Location, etc.) - each gets its own filter
   // dropdown. Multiselect/text/etc. project fields are out of scope for now;
@@ -110,13 +106,14 @@ export default function ProjectsView({ onNavigate }) {
   const setFieldFilter = (fieldId, optionId) =>
     setFieldFilters((f) => (optionId ? { ...f, [fieldId]: optionId } : Object.fromEntries(Object.entries(f).filter(([k]) => k !== fieldId))));
   const [editing, setEditing] = useState(null);    // form object | null
-  const [deleting, setDeleting] = useState(null);  // { project, mapped, alsoAsana, busy, err } | null
+  const [deleting, setDeleting] = useState(null);  // { project, busy, err } | null
   const [duplicating, setDuplicating] = useState(null);  // project being copied | null
   const [templating, setTemplating] = useState(null);    // project being saved as a template | null
   // Grid or list, in the user's profile with everything else they set here -
   // it used to be a per-browser choice, so the same person got the grid on one
-  // machine and the list on another.
-  const [view, setView] = useTableValue('projects', 'view', 'grid');
+  // machine and the list on another. Anyone who has already picked keeps their
+  // pick; only a first visit lands on the list.
+  const [view, setView] = useTableValue('projects', 'view', 'list');
   const switchView = (v) => setView(v);
   // One-time migration of the old per-browser choice, so nobody's preference is
   // silently reset by the move. Runs once, then the local copy is retired.
@@ -183,23 +180,23 @@ export default function ProjectsView({ onNavigate }) {
     return <TasksWorkspace lockedProjectId={openProject.id} title={openProject.name} onBack={() => setOpenId(null)} />;
   }
 
-  const startCreate = () => setEditing({ ...EMPTY_FORM });
+  // New projects default the owner to whoever's creating it - same reasoning
+  // as CreateTaskModal's task owner default - still freely changeable below.
+  const startCreate = () => setEditing({ ...EMPTY_FORM, ownerId: myEmail || null });
   const startEdit = (p) => setEditing(projectToForm(p));
 
-  // Deleting is permanent and takes the project's tasks and Asana sync state with
-  // it, so it gets a real dialog - and for a synced project it must ask the one
-  // question only the operator can answer: does the Asana project go too?
-  const remove = async (p) => {
-    let mapped = false;
-    try { mapped = !!(await api.getTaskProjectAsanaLink(p.id)).mapped; } catch { /* unmapped or no access */ }
-    setDeleting({ project: p, mapped, alsoAsana: false, busy: false, err: '' });
-  };
+  // Deleting is permanent, so it gets a real confirmation dialog. Used to also
+  // ask "does the Asana project go too?" for a synced project - dropped with
+  // Asana severed (Aug 27): the backend now refuses a live delete-in-Asana
+  // call anyway, so offering the choice was a dead end. The project's own
+  // Asana link/mapping is still cleared locally either way (deleteProject).
+  const remove = (p) => setDeleting({ project: p, busy: false, err: '' });
 
   const confirmRemove = async () => {
-    const { project, alsoAsana } = deleting;
+    const { project } = deleting;
     setDeleting((d) => ({ ...d, busy: true, err: '' }));
     try {
-      await deleteProject(project.id, { deleteInAsana: alsoAsana });
+      await deleteProject(project.id, { deleteInAsana: false });
       setDeleting(null);
     } catch (e) {
       setDeleting((d) => ({ ...d, busy: false, err: e.message || 'Could not delete the project.' }));
@@ -215,13 +212,27 @@ export default function ProjectsView({ onNavigate }) {
             <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 800, letterSpacing: '-0.02em' }}>Projects</div>
             {!isMobile && <div style={{ fontSize: 13.5, color: NX.dim, marginTop: 4 }}>Every project in the workspace with live task rollups.</div>}
           </div>
-          {/* Desktop keeps the labelled button; on mobile a floating + at the
-              bottom of the screen creates a project instead (see MobileFab below). */}
-          {!isMobile && <button style={{ ...btn('primary'), padding: '10px 18px', fontSize: 13.5, borderRadius: 10 }} onClick={startCreate}><Plus size={16} />New Project</button>}
+          {/* Desktop keeps the labelled buttons; on mobile a floating + at the
+              bottom of the screen creates a project instead (see MobileFab below),
+              and Templates rides the icon-only button below next to search. */}
+          {!isMobile && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button title="Browse and manage reusable project blueprints"
+                style={{ ...btn('outline'), padding: '10px 16px', fontSize: 13.5, borderRadius: 10 }}
+                onClick={() => onNavigate?.('templates')}><LayoutTemplate size={16} />Templates</button>
+              <button style={{ ...btn('primary'), padding: '10px 18px', fontSize: 13.5, borderRadius: 10 }} onClick={startCreate}><Plus size={16} />New Project</button>
+            </div>
+          )}
         </div>
-        {/* Search · Show archived - one line on mobile */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginTop: isMobile ? 10 : 16, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
-          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 0, maxWidth: isMobile ? 'none' : 420 }}>
+        {/* Search · filters · view toggle - wraps on mobile rather than forcing
+            one line: the archive filter, any custom-field filter (e.g.
+            Location), and the view toggle all refuse to shrink (flexShrink:0),
+            so a forced nowrap row put all the squeeze onto the search box
+            alone, crushing it to a sliver. Search takes its own full row on
+            mobile (flex-basis 100%) so nothing else can share it and shrink
+            it; the filters/toggle wrap onto the row(s) below. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginTop: isMobile ? 10 : 16, flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : '1 1 260px', minWidth: 0, maxWidth: isMobile ? 'none' : 420 }}>
             <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search projects…"
               style={{ ...inputStyle, paddingLeft: 40, paddingTop: isMobile ? 8 : 10, paddingBottom: isMobile ? 8 : 10, borderRadius: 999 }} />
@@ -239,21 +250,26 @@ export default function ProjectsView({ onNavigate }) {
               {(f.options || []).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           ))}
-          {/* List view only - the grid has no columns to restore. */}
-          {!isMobile && view === 'list' && <ResetColumnsButton style={{ marginLeft: 'auto' }} />}
-          {/* Same segmented control the task views use, so the two screens do
-              not each invent their own switcher. */}
-          <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, marginLeft: view === 'list' && !isMobile ? 0 : 'auto', flexShrink: 0 }}>
-            {VIEW_TABS.map((tb) => (
-              <button key={tb.key} onClick={() => switchView(tb.key)} title={`${tb.label} View`}
-                aria-pressed={view === tb.key}
-                style={{
-                  ...btn('ghost'), padding: isMobile ? '5px 8px' : '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
-                  background: view === tb.key ? NX.surface : 'transparent',
-                  color: view === tb.key ? NX.ink : NX.dim,
-                  boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-                }}><tb.icon size={15} />{!isMobile && ` ${tb.label}`}</button>
-            ))}
+          {/* Mobile has no room for a labelled header button (New Project already
+              gave that spot to the floating +), so Templates rides here instead,
+              icon-only like the view toggle it sits beside. */}
+          {isMobile && (
+            <button title="Templates" onClick={() => onNavigate?.('templates')}
+              style={{ ...btn('outline'), padding: '7px 9px', borderRadius: 9 }}>
+              <LayoutTemplate size={15} />
+            </button>
+          )}
+          {/* Right-hand cluster. The switcher belongs on the far edge whatever
+              else is in the row, so the group owns the auto margin - hanging it
+              off ResetColumnsButton put the switcher mid-row on any profile
+              that had never resized a column, since that button renders null
+              until it has something to reset. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginLeft: 'auto', flexShrink: 0 }}>
+            {/* List view only - the grid has no columns to restore. */}
+            {!isMobile && view === 'list' && <ResetColumnsButton />}
+            {/* The shared switcher, so Projects, Portfolios, Teams and Templates
+                cannot drift apart on padding, radius or active state. */}
+            <ViewToggle view={view} onChange={switchView} isMobile={isMobile} />
           </div>
         </div>
       </div>
@@ -390,7 +406,6 @@ export default function ProjectsView({ onNavigate }) {
       {deleting && (
         <DeleteProjectModal
           state={deleting}
-          setState={setDeleting}
           onConfirm={confirmRemove}
           onClose={() => setDeleting(null)}
         />
@@ -413,7 +428,7 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
   // Alphabetical A-Z by default, so the header shows what the list is actually
   // doing rather than leaving the order implicit.
   const [sort, setSort] = useTableValue('projects', 'sort', PROJECTS_DEFAULT_SORT);
-  const { cols: listCols, template, startResize, resetWidth, widths, wrapRef, dragProps } =
+  const { cols: listCols, template, startResize, resetWidth, autofitWidth, widths, wrapRef, dragProps } =
     useTableColumns({ table: 'projects', cols: LIST_COLS_WIDE });
   const cols = isMobile ? LIST_COLS : 'var(--nx-grid)';
   const rows = useMemo(() => {
@@ -450,11 +465,17 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
               <TableHead key={c.key} label={c.label} sortKey={c.sort} sort={sort} setSort={setSort}
                 drag={dragProps(c.key, !c.fixed)}
                 onResizeStart={startResize(c.key, widths[c.key] ?? c.width ?? 190)}
-                onResizeReset={() => resetWidth(c.key)} />
+                onResizeReset={() => resetWidth(c.key)}
+              onResizeAutofit={() => autofitWidth(c.key)} />
             ))}
           </div>
         )}
-        {rows.map(({ project: p, stats }) => {
+        {rows.map(({ project: p, stats }, idx) => {
+          // Zebra band on alternate rows, same token/behavior as the Task
+          // list (richlist.jsx): hover restores to the row's own band rather
+          // than to transparent, so an odd row doesn't flash lighter on
+          // mouse-out.
+          const rowBg = idx % 2 === 1 ? NX.zebra : 'transparent';
           const pf = p.portfolioId ? portfolioById(p.portfolioId) : null;
           const dcolor = p.color || NX.blue;
           const meta = PROJECT_STATUS_META[projectStatusFor(stats)];
@@ -483,10 +504,10 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
               style={{
                 display: 'grid', gridTemplateColumns: cols, gap: isMobile ? 6 : 12, alignItems: 'center',
                 padding: isMobile ? '11px 12px' : '10px 16px', borderBottom: `1px solid ${NX.border2}`,
-                cursor: 'pointer', opacity: p.archived ? 0.62 : 1,
+                cursor: 'pointer', opacity: p.archived ? 0.62 : 1, background: rowBg,
               }}
               onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+              onMouseLeave={(e) => (e.currentTarget.style.background = rowBg)}>
 
               {/* Cells are keyed and rendered in the header's order, not in
                   source order - once columns can be dragged, a row that renders
@@ -579,9 +600,8 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
 }
 
 
-function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
-  const { project, mapped, alsoAsana, busy, err } = state;
-  const set = (patch) => setState((d) => ({ ...d, ...patch }));
+function DeleteProjectModal({ state, onConfirm, onClose }) {
+  const { project, busy, err } = state;
 
   return (
     <Modal
@@ -592,7 +612,7 @@ function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
           <button onClick={onClose} disabled={busy} style={btn('outline')}>Cancel</button>
           <button onClick={onConfirm} disabled={busy}
             style={{ ...btn('primary'), background: NX.red, borderColor: NX.red, opacity: busy ? 0.6 : 1 }}>
-            {busy ? 'Deleting…' : (alsoAsana ? 'Delete in both' : 'Delete from Nexus')}
+            {busy ? 'Deleting…' : 'Delete'}
           </button>
         </>
       )}
@@ -601,32 +621,6 @@ function DeleteProjectModal({ state, setState, onConfirm, onClose }) {
         This permanently deletes the project, <strong>all of its tasks</strong> (subtasks, comments and
         attachments included), and its teams. This can’t be undone.
       </p>
-
-      {mapped ? (
-        <>
-          <p style={{ fontSize: 13, color: NX.dim, marginBottom: 10 }}>
-            This project is synced with Asana. Its sync mapping and task links are cleared either way,
-            so you can import it again from scratch and re-map it.
-          </p>
-          {[
-            { key: false, label: 'Keep the Asana project', desc: 'Deletes the Nexus copy only. The Asana project stays exactly as it is - import it again whenever you want.' },
-            { key: true, label: 'Delete it in Asana too', desc: 'Also deletes the Asana project. Asana keeps it in your trash for 30 days, but nothing will be left here to re-import.' },
-          ].map((opt) => (
-            <button key={String(opt.key)} type="button" onClick={() => set({ alsoAsana: opt.key })}
-              style={{
-                display: 'block', width: '100%', textAlign: 'left', marginBottom: 8, cursor: 'pointer',
-                padding: '10px 12px', borderRadius: 10, fontFamily: FONT,
-                border: `1px solid ${alsoAsana === opt.key ? (opt.key ? NX.red : NX.primary) : NX.border}`,
-                background: alsoAsana === opt.key ? (opt.key ? 'rgba(220,38,38,0.08)' : NX.hover) : 'transparent',
-              }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700, color: opt.key ? NX.red : NX.ink }}>{opt.label}</div>
-              <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{opt.desc}</div>
-            </button>
-          ))}
-        </>
-      ) : (
-        <p style={{ fontSize: 12.5, color: NX.faint }}>This project isn’t synced with Asana.</p>
-      )}
 
       {err && <div style={{ marginTop: 10, fontSize: 12.5, color: NX.red }}>{err}</div>}
     </Modal>
@@ -731,15 +725,23 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
       isDirty={dirty}
       onSave={valid ? save : undefined}
       footer={<>
-        <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        {/* Archive sits beside Save at full button size rather than as a
-            checkbox buried in the body - it is a lifecycle action, not a
-            property, and it was routinely missed down there. Save-and-archive
-            in one press: the toggle goes through the same save path, so team
-            membership and every other edit in the form land with it. */}
+        {/* Archive sits at the opposite end from Cancel/Save (marginRight:
+            auto splits the footer's flex-end row into a left island and a
+            right group) - a lifecycle action reads as separate from the
+            save/cancel pair, not one more choice in that row. Red because
+            archiving, while reversible, is still "take this out of active
+            use" - Unarchive stays green (a restore, not a warning).
+            Save-and-archive in one press: the toggle goes through the same
+            save path, so team membership and every other edit in the form
+            land with it. */}
         {form.id && (
           <button
-            style={{ ...btn('outline'), color: form.archived ? NX.green : NX.dim, opacity: saving ? 0.5 : 1, pointerEvents: saving ? 'none' : 'auto' }}
+            style={{
+              ...btn('outline'), marginRight: 'auto',
+              color: form.archived ? NX.green : NX.red,
+              borderColor: form.archived ? NX.border : NX.red,
+              opacity: saving ? 0.5 : 1, pointerEvents: saving ? 'none' : 'auto',
+            }}
             title={form.archived
               ? 'Restore this project to the active list'
               : 'Archive - keeps the project and its tasks, hides it from the active list and from project pickers'}
@@ -747,6 +749,7 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
             <Archive size={15} />{form.archived ? 'Unarchive' : 'Archive'}
           </button>
         )}
+        <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: valid && !saving ? 1 : 0.5, pointerEvents: valid && !saving ? 'auto' : 'none' }} onClick={() => save()}>{saving ? 'Creating…' : form.id ? 'Save Changes' : 'Create Project'}</button>
       </>}
     >
@@ -945,14 +948,16 @@ const START_MODES = [
 ];
 
 export function ProjectCreateModal({ onClose, onCreated, defaults }) {
-  const { portfolios, projects, projectTemplates } = useTasks();
+  const { portfolios, projects, projectTemplates, myEmail } = useTasks();
   const people = usePeople();
   const isMobile = useIsMobile();
   const [mode, setMode] = useState(null);          // null = the three-choice list
   const [template, setTemplate] = useState(null);  // picked template
   const [copyFrom, setCopyFrom] = useState(null);  // picked project
   const [pickQ, setPickQ] = useState('');          // filters the step-two list
-  const [form, setForm] = useState(() => ({ ...EMPTY_FORM, ...(defaults || {}) }));
+  // Owner defaults to the creator - same as CreateTaskModal's task owner
+  // default - still freely changeable in the form below.
+  const [form, setForm] = useState(() => ({ ...EMPTY_FORM, ownerId: myEmail || null, ...(defaults || {}) }));
   const done = (p) => { onCreated && onCreated(p); onClose(); };
 
   // Picking a template seeds the form with its suggested name/description/color

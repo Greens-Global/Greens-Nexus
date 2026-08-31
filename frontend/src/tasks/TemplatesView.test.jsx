@@ -49,6 +49,7 @@ vi.mock('../api', () => ({
   api: new Proxy({}, { get: () => vi.fn(async () => []) }),
 }));
 
+import { __setTablePrefsCache } from './tableCols';
 import TemplatesView, { SaveTemplateModal, UseTemplateModal, DuplicateProjectModal } from './TemplatesView';
 import { ProjectCreateModal } from './ProjectsView';
 
@@ -65,6 +66,9 @@ const template = (over = {}) => ({
 beforeEach(() => {
   store.projectTemplates = [];
   store.projects = [];
+  // Grid/list lives in the table-prefs cache, which is module-level - without
+  // this, a test that switches to the grid leaves every later one there.
+  __setTablePrefsCache({});
   vi.clearAllMocks();
 });
 
@@ -74,9 +78,25 @@ describe('TemplatesView render-smoke', () => {
     expect(screen.getByText('No Templates Yet')).toBeInTheDocument();
   });
 
-  it('renders a card per template with its rollup', () => {
+  it('renders a row per template with its rollup', () => {
     store.projectTemplates = [template(), template({ id: 't2', name: 'Onboarding', taskCount: 1, sectionCount: 0, category: 'HR', useCount: 0 })];
     render(<TemplatesView />);
+
+    // The screen opens on the list, so this is what a first visit actually
+    // gets. Counts ride as titles here - the row shows the bare number.
+    expect(screen.getByText('Unit Turnover')).toBeInTheDocument();
+    expect(screen.getByText('Onboarding')).toBeInTheDocument();
+    expect(screen.getByTitle('24 tasks')).toBeInTheDocument();
+    expect(screen.getByTitle('4 sections')).toBeInTheDocument();
+    expect(screen.getByTitle('1 task')).toBeInTheDocument();     // singular, not "1 tasks"
+    expect(screen.getByTitle('Used 3 times')).toBeInTheDocument();
+  });
+
+  it('renders a card per template with its rollup in the grid view', () => {
+    store.projectTemplates = [template(), template({ id: 't2', name: 'Onboarding', taskCount: 1, sectionCount: 0, category: 'HR', useCount: 0 })];
+    render(<TemplatesView />);
+
+    fireEvent.click(screen.getByTitle('Grid View'));
 
     expect(screen.getByText('Unit Turnover')).toBeInTheDocument();
     expect(screen.getByText('Onboarding')).toBeInTheDocument();

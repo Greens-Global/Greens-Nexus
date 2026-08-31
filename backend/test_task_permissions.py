@@ -314,6 +314,18 @@ class HeaderSearchTests(unittest.TestCase):
 
         self.assertEqual(titles[0], "Rebrand the footer")
 
+    def test_a_completed_task_is_not_offered(self):
+        """A struck-through, checked-off row in search results reads as noise,
+        not a find - work that's done is not what a search bar is for."""
+        self.db.add(models.Task(id="t-done", code="TASK-4", title="Rebrand old banner",
+                                project_id="p-open", access_level="org", completed=True,
+                                created_at=now_iso(), modified_at=now_iso()))
+        self.db.commit()
+
+        titles = [t["title"] for t in self._search("rebrand")["tasks"]]
+
+        self.assertNotIn("Rebrand old banner", titles)
+
 
 class PersonProfileTests(unittest.TestCase):
     """GET /tasks/people/{email} backs a person's page. Two of its four task
@@ -483,7 +495,14 @@ class AssigneeOwnTaskTests(unittest.TestCase):
     def test_an_assignee_can_delete_their_own_task(self):
         delete_task(self.mine.id, BackgroundTasks(), user=OUTSIDER, db=self.db)
 
-        self.assertIsNone(self.db.get(models.Task, self.mine.id))
+        # Trashed (Aug 27), not gone: hidden from a normal query (database.py's
+        # global soft-delete filter) but still there via the same
+        # include_deleted escape hatch the restore endpoint uses.
+        self.assertIsNone(self.db.query(models.Task).filter(models.Task.id == self.mine.id).first())
+        row = (self.db.query(models.Task).execution_options(include_deleted=True)
+                 .filter(models.Task.id == self.mine.id).first())
+        self.assertIsNotNone(row)
+        self.assertTrue(row.deleted_at)
 
     def test_an_assignee_cannot_delete_somebody_elses_task(self):
         with self.assertRaises(HTTPException) as ctx:
@@ -504,7 +523,11 @@ class AssigneeOwnTaskTests(unittest.TestCase):
 
         delete_task(self.mine.id, BackgroundTasks(), user=OUTSIDER, db=self.db)
 
-        self.assertIsNone(self.db.get(models.Task, child.id))
+        self.assertIsNone(self.db.query(models.Task).filter(models.Task.id == child.id).first())
+        row = (self.db.query(models.Task).execution_options(include_deleted=True)
+                 .filter(models.Task.id == child.id).first())
+        self.assertIsNotNone(row)
+        self.assertTrue(row.deleted_at)
 
     def test_bulk_lets_an_assignee_act_on_their_own_and_no_further(self):
         rows = bulk_update(BulkUpdate(ids=[self.mine.id], patch={"completed": True}),

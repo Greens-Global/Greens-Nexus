@@ -2,11 +2,13 @@
 import { useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
-  ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus } from 'lucide-react';
+  ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus,
+  LayoutGrid, List } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
 import { rootZoom } from '../lib/utils';
+import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import { useTasks } from './TasksContext';
 import PersonHover from '../components/PersonHoverCard';
 // Photos live in lib/peoplePhotos so the header avatar shares this one cache.
@@ -56,7 +58,11 @@ export function PriorityChip({ priority }) {
 export function MobileFab({ onClick, title = 'Create' }) {
   return (
     <button onClick={onClick} title={title} aria-label={title} style={{
-      position: 'fixed', left: '50%', bottom: 18, transform: 'translateX(-50%)',
+      // Every caller (ProjectsView/PortfoliosView/TemplatesView) lives inside
+      // the Task module, which now always shows its own bottom tab bar on
+      // mobile (MobileNav.jsx's TASK_ACTIONS) - float above it, same as
+      // MobileTaskBar.jsx's identical offset.
+      position: 'fixed', left: '50%', bottom: 'calc(64px + env(safe-area-inset-bottom) + 18px)', transform: 'translateX(-50%)',
       width: 58, height: 52, borderRadius: 16, border: `1px solid ${NX.border}`,
       background: NX.primary, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
       boxShadow: '0 10px 30px rgba(0,0,0,0.22)', zIndex: 2500, cursor: 'pointer', fontFamily: FONT,
@@ -331,7 +337,14 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
   );
 }
 
-export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled }) {
+// `compact` = a table/list cell rather than a form field (My Tasks, the rich
+// Task List, the Task Detail drawer's Due Date row, Data Quality): an unset
+// date shows Asana's own empty-state - a calendar glyph inside a dashed
+// circle, clickable to set one - instead of a text placeholder + separate
+// icon. A date once set shows as plain text, same as before. Form inputs
+// (Create/Edit Task, filters, recurrence end date) keep the old look, since a
+// tiny circle reads as broken sitting inside a full-width boxed field.
+export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false }) {
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
   const btnRef = useRef(null);
@@ -340,22 +353,41 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
     const r = btnRef.current?.getBoundingClientRect();
     if (r) { setRect(r); setOpen(true); }
   };
+  const toggle = (e) => { if (disabled) return; e.stopPropagation(); open ? setOpen(false) : openCal(); };
+
+  if (compact && !value) {
+    return (
+      <span style={{ position: 'relative', display: 'inline-flex', ...style }}>
+        <button ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled} onClick={toggle}
+          style={{
+            width: 24, height: 24, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
+            background: 'transparent', color: NX.faint, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 0, cursor: disabled ? 'default' : 'pointer', flexShrink: 0,
+          }}
+        ><CalendarDays size={13} strokeWidth={2} /></button>
+        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} />}
+      </span>
+    );
+  }
+
   return (
     <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, ...style }}>
       <button
         ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled}
-        onClick={(e) => { e.stopPropagation(); open ? setOpen(false) : openCal(); }}
+        onClick={toggle}
         style={{
           flex: 1, textAlign: 'left', border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
           fontFamily: FONT, fontSize: 'inherit', fontWeight: 'inherit', whiteSpace: 'nowrap',
           color: color || (value ? NX.ink : NX.faint),
         }}
       >{value ? fmtDate(value) : placeholder}</button>
-      <CalendarDays
-        size={15} strokeWidth={2} color={NX.faint}
-        style={{ flexShrink: 0, cursor: disabled ? 'default' : 'pointer' }}
-        onClick={(e) => { if (disabled) return; e.stopPropagation(); open ? setOpen(false) : openCal(); }}
-      />
+      {!(compact && value) && (
+        <CalendarDays
+          size={15} strokeWidth={2} color={NX.faint}
+          style={{ flexShrink: 0, cursor: disabled ? 'default' : 'pointer' }}
+          onClick={toggle}
+        />
+      )}
       {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} />}
     </span>
   );
@@ -779,7 +811,7 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
   // user before the People directory has loaded / when it's empty). Still show
   // them - derive a display name from the email - rather than the placeholder.
   const chosen = sel || (value ? { email: value, name: emailToName(value) } : null);
-  const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
+  const filtered = matchPeople(people, q);
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
@@ -792,7 +824,9 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
       </button>
       {open && !disabled && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…" style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+            onKeyDown={onEnterPickFirst(filtered, (p) => { onChange(p.email); setOpen(false); })}
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
           <div onClick={() => { onChange(null); setOpen(false); }} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
           {filtered.map((p) => (
             <div key={p.email} onClick={() => { onChange(p.email); setOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent' }}>
@@ -816,8 +850,11 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   const ref = useRef(null);
   const emails = Array.isArray(value) ? value : [];
   const personFor = (em) => people.find((p) => p.email === em) || { email: em, name: emailToName(em) };
-  const filtered = (q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people)
-    .slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+  // Unfiltered (no query) still wants A-Z, so it's the flat directory order,
+  // not "first name prefix" ranking - matchPeople only ranks when there's a
+  // query to rank against; the alphabetical fallback lives here.
+  const filtered = q ? matchPeople(people, q)
+    : people.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
   const toggle = (em) => onChange(emails.includes(em) ? emails.filter((x) => x !== em) : [...emails, em]);
   return (
     <div ref={ref} style={{ position: 'relative' }}>
@@ -862,7 +899,9 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
       </button>
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…" style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+            onKeyDown={onEnterPickFirst(filtered, (p) => toggle(p.email))}
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
           {filtered.map((p) => {
             const on = emails.includes(p.email);
             return (
@@ -1092,6 +1131,36 @@ export function AttachmentViewer({ att, onClose }) {
         <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
       </div>
       <div onClick={(e) => e.stopPropagation()}>{body}</div>
+    </div>
+  );
+}
+
+// ── Grid / list switcher ─────────────────────────────────────────────────────
+// List first: it is the default on every screen that uses this, so the control
+// reads in the same order as the choice people land on.
+export const VIEW_TABS = [
+  { key: 'list', icon: List, label: 'List' },
+  { key: 'grid', icon: LayoutGrid, label: 'Grid' },
+];
+
+/** The segmented Grid|List control shared by Projects, Portfolios, Teams and
+ *  Templates. It started as one copy inside ProjectsView; the moment a second
+ *  screen wanted it, keeping it there would have meant four switchers drifting
+ *  apart in padding, radius and active-state shadow. Callers own the `view`
+ *  value (all four persist it per user via useTableValue), this owns the look. */
+export function ViewToggle({ view, onChange, isMobile = false, style }) {
+  return (
+    <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, flexShrink: 0, ...style }}>
+      {VIEW_TABS.map((tb) => (
+        <button key={tb.key} onClick={() => onChange(tb.key)} title={`${tb.label} View`}
+          aria-pressed={view === tb.key}
+          style={{
+            ...btn('ghost'), padding: isMobile ? '5px 8px' : '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
+            background: view === tb.key ? NX.surface : 'transparent',
+            color: view === tb.key ? NX.ink : NX.dim,
+            boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+          }}><tb.icon size={15} />{!isMobile && ` ${tb.label}`}</button>
+      ))}
     </div>
   );
 }

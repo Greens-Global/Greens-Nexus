@@ -46,6 +46,12 @@ class Task(Base):
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)
     access_level      = Column(String, default="org")      # org|restricted
+    # Multi-company walls (Aug 2026): the HrEntity company this task belongs to,
+    # stamped from its creator at creation. The company wall (auth.company_scope
+    # via task_util.wall_tasks) keeps a task out of every other company's lists.
+    # Blank on legacy/sync rows - task_util.task_company then derives it from the
+    # owner/creator's company so nothing falls through the wall untagged.
+    company_id        = Column(String, default="", index=True)
     project_id        = Column(String, default="", index=True)  # primary - drives section/access/Asana sync
     project_ids       = Column(JSON, default=list)         # EXTRA projects, Nexus-only (never synced to Asana,
                                                              # which stays keyed on project_id alone) - lets a task
@@ -75,6 +81,13 @@ class Task(Base):
     modified_at       = Column(String, default="")
     created_by        = Column(String, default="")         # email
     synced_with_asana = Column(Boolean, default=False)
+    # Soft delete (Aug 27), same pattern as NexusEmployee: empty = live, an ISO
+    # timestamp = trashed. Hidden everywhere automatically (see the
+    # do_orm_execute hook in database.py) rather than each call site
+    # remembering to filter. Restorable via POST /tasks/{id}/restore for 90
+    # days, after which trash_purge_loop (main.py) removes it for good.
+    deleted_at        = Column(String, default="", index=True)
+    deleted_by        = Column(String, default="")         # email of whoever deleted it
 
 
 class PurchaseRequest(Base):
@@ -322,6 +335,7 @@ class Requisition(Base):
     id = Column(String, primary_key=True)
     employee_name = Column(String, nullable=False)
     employee_email = Column(String, default="")   # added for auth-based scoping
+    company_id = Column(String, default="", index=True)   # multi-company walls: requester's HrEntity
     employee_dept = Column(String, nullable=False)
     item = Column(String, nullable=False)
     quantity = Column(Integer, default=1)
@@ -388,6 +402,11 @@ class NexusNotification(Base):
     action      = Column(String, default="")              # serialised JSON for action button
     actioned    = Column(Boolean, default=False)
     read_by     = Column(String, default="")              # comma-separated emails
+    # Multi-company walls: the company this notification belongs to (its
+    # originator's HrEntity). A manager broadcast (recipient='') is shown only to
+    # managers in this company once the walls are armed; '' = org-wide (legacy) =
+    # Global-Admin-only when armed. Stamped by _notify / create_notification.
+    company     = Column(String, default="", index=True)
     created_at  = Column(String, nullable=False)
 
 
@@ -448,6 +467,10 @@ class Item(Base):
     __tablename__ = "items"
     id             = Column(String, primary_key=True)
     serial_number  = Column(String, default="")               # static per-unit identity (GG-#####); the CSV import upsert key
+    # Multi-company walls: the HrEntity company that owns this item, stamped from
+    # its creator. Walled per company once armed; '' (legacy/shared) is
+    # Global-Admin-only when armed.
+    company_id     = Column(String, default="", index=True)
     name           = Column(String, nullable=False)
     item_type      = Column(String, default="Other")          # Devices|Tools|Vehicles|Equipment|Keys|Other
     make           = Column(String, default="")
@@ -603,6 +626,15 @@ class NexusGroup(Base):
     # role to someone with NO manager set copies this onto their People card -
     # per-person Manager stays the source of truth and can always be overridden.
     default_manager_email = Column(String, default="")
+    # Multi-company walls (Aug 2026): a group tied to a company_id is a
+    # COMPANY-SCOPED role - its capability applies within that company, and being
+    # a member confines the person to it (auth.company_scope). '' = an org-wide
+    # group (the pre-walls behavior). One person can hold several such groups to
+    # carry a different role in each company.
+    company_id      = Column(String, default="")   # HrEntity.id, or '' for org-wide
+    # Members of a group flagged is_global_admin=1 are GLOBAL ADMINS: unrestricted
+    # across every company - the only role that sees past the company walls.
+    is_global_admin = Column(Integer, default=0)
 
 
 class NexusGroupMember(Base):
@@ -3571,5 +3603,29 @@ class TaskTablePref(Base):
     id          = Column(String, primary_key=True)   # uuid
     owner_email = Column(String, index=True, unique=True, nullable=False)
     prefs       = Column(JSON, default=dict)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class UserTourState(Base):
+    """Which guided walkthroughs (GuidedTour.jsx) a person has already seen -
+    one row per person, JSON blob keyed by tour id, same shape as
+    TaskTablePref above. Server-side and per-person on purpose: this used to
+    be a localStorage flag keyed by email, which meant "seen" lived in ONE
+    browser - the same person signing in on a different browser or machine
+    got the auto-tour again every time. A row here follows the person instead
+    of the device.
+
+    seen shape: {"<tour id>": "<ISO timestamp first dismissed>"}
+
+    Purely personal, no admin gate: every read/write is scoped to owner_email.
+
+    New table - create_all builds it, so no migration line is needed. It DOES
+    need `ALTER TABLE user_tour_state ENABLE ROW LEVEL SECURITY` on dev and
+    prod as part of the release (CLAUDE.md)."""
+    __tablename__ = "user_tour_state"
+    id          = Column(String, primary_key=True)   # uuid
+    owner_email = Column(String, index=True, unique=True, nullable=False)
+    seen        = Column(JSON, default=dict)
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")

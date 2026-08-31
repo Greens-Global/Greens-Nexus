@@ -586,7 +586,15 @@ def hr_scope(user: dict, db: Session):
     assignment - the family office collaborates across companies daily; scope
     covers the HR-admin surfaces (People, Time, Leave, payroll, monitoring).
     Callers hide company=='' (untagged) people from scoped admins and answer
-    404 (not 403) for out-of-scope ids so existence doesn't leak."""
+    404 (not 403) for out-of-scope ids so existence doesn't leak.
+
+    When the multi-company walls are ARMED, this defers to company_scope() so
+    People obeys the same tenant boundary as every other module - a level-4
+    *company* admin is then confined to their companies, and only a Global Admin
+    is unrestricted (the pre-walls level>=4 bypass held only for the old
+    single-org world)."""
+    if _company_walls_on(db):
+        return company_scope(user, db)
     if user.get("level", 0) >= 4:
         return None
     from models import NexusAccessScope
@@ -594,3 +602,146 @@ def hr_scope(user: dict, db: Session):
             .filter(NexusAccessScope.email == user["email"].lower(),
                     NexusAccessScope.module_id == "hr").all())
     return {r.scope_id for r in rows} or None
+
+
+# ── Multi-company walls (Aug 2026) ───────────────────────────────────────────
+# A parent company (Greens Global) sits over several sub-companies that must be
+# sealed from one another: a person in one company cannot see or interact with
+# people, tasks, or activity in another. `company_scope()` is the single tenant
+# primitive every module intersects; `is_global_admin()` is the ONLY thing that
+# sees past the walls. The whole system is OFF until an admin arms it, so nothing
+# changes for the existing single-org setup until companies + Global Admins exist.
+
+def _company_walls_on(db: Session) -> bool:
+    """Master switch for the confidentiality wall. OFF until an admin sets the
+    NexusSetting key 'company_walls' to 'on' - so every module behaves exactly
+    as before until you deliberately turn tenancy on. Cached (settings TTL)."""
+    import cache
+    from models import NexusSetting
+    hit = cache.settings_config.get("company_walls")
+    if hit is None:
+        row = db.query(NexusSetting).filter(NexusSetting.key == "company_walls").first()
+        hit = (row.value or "").strip().lower() if row else ""
+        cache.settings_config.set("company_walls", hit)
+    return hit in ("on", "1", "true", "yes")
+
+
+def is_global_admin(user: dict, db: Session) -> bool:
+    """True for the small set of people who see across every company. A Global
+    Admin is a member of any Access Group flagged is_global_admin=1.
+
+    BOOTSTRAP SAFETY: until such a group actually has members, top-level roles
+    (level >= 4) stand in as global - so setting the walls up can never lock the
+    first admin out of their own org. Once the Global Admins group is populated,
+    ONLY its members are unrestricted (per the rule: seniority alone never grants
+    cross-company reach)."""
+    from models import NexusGroup, NexusGroupMember
+    ga_ids = [g.id for g in db.query(NexusGroup.id).filter(NexusGroup.is_global_admin == 1).all()]
+    if ga_ids:
+        mine = (db.query(NexusGroupMember.group_id)
+                .filter(NexusGroupMember.email == user["email"].lower(),
+                        NexusGroupMember.group_id.in_(ga_ids)).first())
+        if mine:
+            return True
+        populated = (db.query(NexusGroupMember.group_id)
+                     .filter(NexusGroupMember.group_id.in_(ga_ids)).first())
+        if populated:
+            return False   # group is live → level no longer implies global
+    return int(user.get("level", 0)) >= 4   # not configured yet → safe bootstrap
+
+
+def company_scope(user: dict, db: Session):
+    """THE tenant boundary. Which HrEntity companies may this caller see and act
+    within? Returns:
+      - None   → unrestricted (walls off, or the caller is a Global Admin)
+      - set()  → nothing (walls on, not a global admin, no company) - fail closed
+      - {ids}  → confined to exactly these companies
+
+    A person's companies = their home company (nexus_employees.company) ∪ any
+    entity access-scopes they hold ∪ the companies of the company-scoped role
+    groups they belong to. Every module intersects this set; a set() result means
+    the caller is walled off from everything (the compliance-correct default for a
+    person who has been armed but not placed in a company)."""
+    if not _company_walls_on(db):
+        return None
+    if is_global_admin(user, db):
+        return None
+    from sqlalchemy import func
+    from models import NexusAccessScope, NexusGroup, NexusGroupMember, NexusEmployee
+    email = user["email"].lower()
+    companies: set[str] = set()
+    emp = (db.query(NexusEmployee)
+           .filter(func.lower(NexusEmployee.work_email) == email).first())
+    if emp and (emp.company or "").strip():
+        companies.add(emp.company.strip())
+    for r in (db.query(NexusAccessScope.scope_id)
+              .filter(NexusAccessScope.email == email,
+                      NexusAccessScope.scope_type == "entity").all()):
+        if (r.scope_id or "").strip():
+            companies.add(r.scope_id.strip())
+    grp_ids = [m.group_id for m in (db.query(NexusGroupMember.group_id)
+               .filter(NexusGroupMember.email == email).all())]
+    if grp_ids:
+        for g in (db.query(NexusGroup.company_id)
+                  .filter(NexusGroup.id.in_(grp_ids),
+                          NexusGroup.company_id != "").all()):
+            if (g.company_id or "").strip():
+                companies.add(g.company_id.strip())
+    return companies
+
+
+def company_of(email_or_user, db: Session) -> str:
+    """The HrEntity company an actor belongs to (their nexus_employees.company) -
+    used to STAMP the company onto records they create, so those records land on
+    the actor's side of the wall. '' when unknown/untagged."""
+    from sqlalchemy import func
+    from models import NexusEmployee
+    email = ((email_or_user.get("email") if isinstance(email_or_user, dict) else email_or_user) or "").lower()
+    if not email:
+        return ""
+    row = (db.query(NexusEmployee.company)
+           .filter(func.lower(NexusEmployee.work_email) == email).first())
+    return (row.company if row else "") or ""
+
+
+def company_ok(record_company: str, scope, shared_when_blank: bool = False) -> bool:
+    """Does the caller's company scope admit a record whose company is
+    `record_company`? scope None (walls off / Global Admin) always admits;
+    otherwise the record's company must be in the scope set. Untagged ('')
+    records are Global-Admin-only by default (the compliance-safe choice for
+    per-company data) - pass shared_when_blank=True for modules that are
+    legitimately shared org-wide (e.g. the knowledge base), where an untagged
+    record is visible to everyone. The one-liner every module's list filter uses:
+    `[r for r in rows if company_ok(r.company_id, scope)]`."""
+    if scope is None:
+        return True
+    rc = record_company or ""
+    if not rc:
+        return shared_when_blank
+    return rc in scope
+
+
+def assert_company(record_company: str, user: dict, db: Session, shared_when_blank: bool = False) -> None:
+    """Per-record company gate for fetch-by-id and mutation endpoints. Raises 404
+    (NOT 403 - existence must not leak across the wall) if the caller's company
+    scope does not admit this record. The pattern every {id} handler uses:
+
+        row = db.query(Model).filter(Model.id == rid).first()
+        if not row: raise HTTPException(404, ...)
+        assert_company(row.company_id, user, db)   # 404 if out of company
+
+    No-op when the walls are off or the caller is a Global Admin."""
+    from fastapi import HTTPException
+    if not company_ok(record_company, company_scope(user, db), shared_when_blank):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+def company_of_email_map(db: Session) -> dict:
+    """{work_email(lower) -> HrEntity company} for every employee, built once so a
+    module list can derive each row's company from an owner/creator email without
+    a per-row query. Used by modules that gate on an owner email instead of a
+    stamped company_id (property, documents, KB, ...)."""
+    from models import NexusEmployee
+    return {(e.work_email or "").lower(): (e.company or "")
+            for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all()
+            if e.work_email}

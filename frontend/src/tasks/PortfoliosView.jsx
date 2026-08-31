@@ -1,7 +1,7 @@
 // Task Module - Portfolios. Grid of portfolio cards with a task rollup, plus a
 // per-portfolio detail view (member projects + add/remove/reorder). Ported from
 // the export's PortfoliosPage/PortfolioDetailPage into Nexus inline-style idiom.
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Briefcase, Plus, Search, Pencil, Trash2, FolderKanban, ArrowLeft, ArrowRight,
   AlertTriangle, ArrowUp, ArrowDown, X, Archive, ArchiveRestore, ChevronRight, ArrowUpRight,
@@ -9,7 +9,7 @@ import {
 import { useTasks } from './TasksContext';
 import { taskStats, topLevel } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab, ChipMultiSelect } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab, ChipMultiSelect, ViewToggle } from './components';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 
 // Columns in grid order, with the sort key each header drives. A portfolio's
@@ -34,6 +34,80 @@ function ProgressBar({ pct, color, height = 8 }) {
   );
 }
 
+// The COLLAPSED list row's Projects cell: one row, clipped to the Projects
+// column's actual rendered width, with a "+N more projects" pill for
+// whatever doesn't fit. Replaces a flex-wrap list, which let a portfolio with
+// 20 projects (Accounting) stretch its row 4-5 lines tall while its
+// neighbors stayed one line.
+//
+// Measured against the real DOM rather than estimated from the column's px
+// value the way richlist.jsx's Person-cell overlap is (a shared-number
+// estimate that deliberately skips per-row ResizeObservers because a task
+// list can run to hundreds of rows) - project NAME lengths vary too much for
+// one estimate to land within a pill or two, and a portfolio list is short
+// enough (tens, not hundreds, of rows) that one observer per row doesn't
+// cost what it would there.
+//
+// EXPANDED rows (below, in the parent) are untouched by this - full list,
+// one project per row, same as before.
+function ProjectOverflowRow({ projects }) {
+  const containerRef = useRef(null);
+  const itemRefs = useRef([]);
+  const moreRef = useRef(null);
+  const [visibleCount, setVisibleCount] = useState(projects.length);
+  const [, bumpTick] = useState(0);   // re-render trigger for the ResizeObserver below
+
+  // No dependency array on purpose: re-measures every render (this row's own
+  // setVisibleCount included), and converges because the guard below skips
+  // the state write once the computed count stops changing.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container || !projects.length) return;
+    const gap = 5;
+    const moreWidth = moreRef.current?.offsetWidth || 90;   // best guess before it's ever rendered
+    let used = 0, fit = projects.length;
+    for (let i = 0; i < projects.length; i++) {
+      const w = itemRefs.current[i]?.offsetWidth || 0;
+      const next = used + (i > 0 ? gap : 0) + w;
+      const reserve = (projects.length - (i + 1)) > 0 ? gap + moreWidth : 0;
+      if (next + reserve > container.clientWidth) { fit = i; break; }
+      used = next;
+    }
+    const clamped = Math.max(1, fit);
+    if (clamped !== visibleCount) setVisibleCount(clamped);
+  });
+
+  // Column resize / window resize changes the container's width with no prop
+  // change, so nothing above would otherwise re-run.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => bumpTick((t) => t + 1));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const extra = projects.length - visibleCount;
+  return (
+    <div ref={containerRef} style={{ position: 'relative', display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 5, minWidth: 0, overflow: 'hidden' }}>
+      {projects.map((p, i) => (
+        <span key={p.id} ref={(el) => { itemRefs.current[i] = el; }}
+          style={{
+            ...chip(NX.dim, NX.surface2), flexShrink: 0, whiteSpace: 'nowrap',
+            ...(i >= visibleCount ? { position: 'absolute', top: 0, left: 0, visibility: 'hidden', pointerEvents: 'none' } : null),
+          }}>
+          {p.name}
+        </span>
+      ))}
+      {extra > 0 && (
+        <span ref={moreRef} style={{ fontSize: 11.5, fontWeight: 600, color: NX.faint, flexShrink: 0, whiteSpace: 'nowrap' }}>
+          +{extra} more project{extra === 1 ? '' : 's'}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function PortfoliosView({ onNavigate }) {
   const isMobile = useIsMobile();
   const store = useTasks();
@@ -46,7 +120,12 @@ export default function PortfoliosView({ onNavigate }) {
   const [detailId, setDetailId] = useState(null);
   const [expandedIds, setExpandedIds] = useState(() => new Set());
   const [sort, setSort] = useTableValue('portfolios', 'sort', PF_DEFAULT_SORT);
-  const { cols: pfCols, template, startResize, resetWidth, widths, wrapRef, dragProps } =
+  // List by default here and on Projects/Teams/Templates: comparing rollups
+  // down a column is what this screen is for, and a card grid makes that a
+  // scavenger hunt. Stored per user with the sort and column widths, so the
+  // choice follows the person rather than the browser.
+  const [view, setView] = useTableValue('portfolios', 'view', 'list');
+  const { cols: pfCols, template, startResize, resetWidth, autofitWidth, widths, wrapRef, dragProps } =
     useTableColumns({ table: 'portfolios', cols: PF_COLS });
   const toggleExpanded = (id) => setExpandedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -122,14 +201,29 @@ export default function PortfoliosView({ onNavigate }) {
             <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} style={{ cursor: 'pointer' }} />
             {isMobile ? 'Archived' : 'Show archived'}
           </label>
-          {!isMobile && <ResetColumnsButton />}
+          {/* Right-hand cluster - see ProjectsView for why the group, and not
+              ResetColumnsButton, carries the auto margin. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginLeft: 'auto', flexShrink: 0 }}>
+            {!isMobile && view === 'list' && <ResetColumnsButton />}
+            <ViewToggle view={view} onChange={setView} isMobile={isMobile} />
+          </div>
         </div>
       </div>
 
-      {/* Body - table with expandable rows (Portfolio | Tasks | Progress | Projects) */}
+      {/* Body - list of expandable rows (Portfolio | Tasks | Progress | Projects), or the card grid */}
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: '16px 16px 76px' }}>
         {visible.length === 0 ? (
           <EmptyState icon={Briefcase} title="No Portfolios Yet" hint="Group projects into a portfolio to track their combined progress." />
+        ) : view === 'grid' ? (
+          <div style={{ display: 'grid', gap: 14, alignItems: 'start', gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))' }}>
+            {visible.map((pf) => (
+              <PortfolioCard
+                key={pf.id} portfolio={pf} rollup={rollup(pf.projectIds)}
+                memberProjects={(pf.projectIds || []).map((id) => projectById(id)).filter(Boolean)}
+                onOpen={() => setDetailId(pf.id)} onEdit={() => setEditing(pf)}
+              />
+            ))}
+          </div>
         ) : (
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
             <div className="nx-scroll" style={{ overflowX: 'auto' }}>
@@ -139,18 +233,23 @@ export default function PortfoliosView({ onNavigate }) {
                     <TableHead key={c.key} label={c.label} sortKey={c.sort} sort={sort} setSort={setSort}
                       drag={dragProps(c.key, !c.fixed)}
                       onResizeStart={startResize(c.key, widths[c.key] ?? c.width ?? 200)}
-                      onResizeReset={() => resetWidth(c.key)} />
+                      onResizeReset={() => resetWidth(c.key)}
+              onResizeAutofit={() => autofitWidth(c.key)} />
                   ))}
                 </div>
-                {visible.map((pf) => {
+                {visible.map((pf, idx) => {
                   const accent = pf.color || NX.purple;
                   const r = rollup(pf.projectIds);
                   const isOpen = expandedIds.has(pf.id);
                   const memberProjects = (pf.projectIds || []).map((id) => projectById(id)).filter(Boolean);
+                  // Alternating row shading, same as the Task List and Projects
+                  // list - banding is what lets the eye ride a row out to its
+                  // Tasks/Progress/Projects columns.
+                  const rowBg = idx % 2 === 1 ? NX.zebra : 'transparent';
                   return (
                     <div key={pf.id} style={{ borderBottom: `1px solid ${NX.border2}`, opacity: pf.archived ? 0.62 : 1 }}>
-                      <div onClick={() => toggleExpanded(pf.id)} style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer' }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                      <div onClick={() => toggleExpanded(pf.id)} style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer', background: rowBg }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = rowBg; }}>
                         {/* Keyed and rendered in the header's order - a row that
                             renders cells in a fixed sequence puts every value
                             under the wrong heading once columns can be dragged. */}
@@ -170,11 +269,7 @@ export default function PortfoliosView({ onNavigate }) {
                           <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700 }}>{r.pct}%</span>
                         </div>
                           ),
-                          projects: (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minWidth: 0 }}>
-                          {memberProjects.map((p) => <span key={p.id} style={chip(NX.dim, NX.surface2)}>{p.name}</span>)}
-                        </div>
-                          ),
+                          projects: <ProjectOverflowRow projects={memberProjects} />,
                           actions: (
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }} onClick={(e) => e.stopPropagation()}>
                           <button title="Open Portfolio" onClick={() => setDetailId(pf.id)} style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><ArrowUpRight size={14} /></button>
@@ -247,13 +342,85 @@ export default function PortfoliosView({ onNavigate }) {
   );
 }
 
+// ── Grid card ────────────────────────────────────────────────────────────────
+// The grid's answer to a list row: same four facts (name, task rollup,
+// progress, member projects) in the card idiom Teams and Templates use, so
+// switching views changes the shape without changing what is on screen. The
+// projects list is capped for the reason TeamCard caps its own - one portfolio
+// with 20 projects otherwise sets the height of every card in its row.
+function PortfolioCard({ portfolio: pf, rollup: r, memberProjects, onOpen, onEdit }) {
+  const accent = pf.color || NX.purple;
+  const shown = memberProjects.slice(0, 6);
+  const extra = memberProjects.length - shown.length;
+  return (
+    <div onClick={onOpen} style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 14, padding: 16, cursor: 'pointer', transition: 'border-color 0.13s', opacity: pf.archived ? 0.62 : 1 }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = NX.primary; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = NX.border; }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <span style={{ width: 42, height: 42, borderRadius: 12, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${accent}1a`, color: accent }}>
+          <Briefcase size={21} />
+        </span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span title={pf.name} style={{ minWidth: 0, fontSize: 15.5, fontWeight: 700, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pf.name}</span>
+            {pf.archived && <span style={{ ...chip(NX.dim, NX.border2), flexShrink: 0 }}>Archived</span>}
+          </div>
+          <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>
+            {memberProjects.length} project{memberProjects.length === 1 ? '' : 's'}
+            {' · '}{r.completed}/{r.total} task{r.total === 1 ? '' : 's'} done
+          </div>
+        </div>
+        {/* Edit stays a button rather than riding the card's own click, which
+            opens the portfolio - two different destinations from one target. */}
+        <button title="Edit Portfolio" onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          style={{ ...btn('ghost'), padding: 5, color: NX.faint, flexShrink: 0 }}><Pencil size={14} /></button>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14 }}>
+        <ProgressBar pct={r.pct} color={accent} />
+        <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700 }}>{r.pct}%</span>
+      </div>
+      {r.overdue > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 7, fontSize: 11.5, fontWeight: 600, color: NX.red }}>
+          <AlertTriangle size={12} />{r.overdue} overdue
+        </div>
+      )}
+
+      <div style={{ marginTop: 14 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 7 }}>Projects</div>
+        {memberProjects.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+            {shown.map((p) => (
+              <span key={p.id} title={p.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', fontSize: 11, fontWeight: 600, color: NX.dim, background: NX.surface2, borderRadius: 999, padding: '2px 8px' }}>
+                <FolderKanban size={11} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              </span>
+            ))}
+            {extra > 0 && (
+              <span style={{ display: 'inline-flex', fontSize: 11, fontWeight: 600, color: NX.faint, padding: '2px 8px' }}>
+                +{extra} more project{extra === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Add / edit modal ─────────────────────────────────────────────────────────
 function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpdate, onDelete, afterDelete }) {
+  const { myEmail } = useTasks();
   const isEdit = !!portfolio;
   const [name, setName] = useState(portfolio?.name || '');
   const [description, setDescription] = useState(portfolio?.description || '');
   const [color] = useState(portfolio?.color || NX.purple);
-  const [ownerId, setOwnerId] = useState(portfolio?.ownerId || null);
+  // New portfolios default the owner to whoever's creating it - same
+  // reasoning as CreateTaskModal's task owner default - still freely
+  // changeable below.
+  const [ownerId, setOwnerId] = useState(portfolio?.ownerId || (isEdit ? null : myEmail) || null);
   const [projectIds, setProjectIds] = useState(portfolio?.projectIds || []);
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);

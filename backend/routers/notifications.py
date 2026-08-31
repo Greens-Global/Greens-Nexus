@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 import httpx
 from database import get_db
-from auth import get_current_user
+from auth import get_current_user, company_of, company_scope
 from models import NexusNotification, NexusRole
 
 _AZURE_TENANT_ID    = os.getenv("AZURE_TENANT_ID", "")
@@ -65,6 +65,7 @@ def create_notification(n: NotificationIn, user: dict = Depends(get_current_user
         action       = json.dumps(n.action) if n.action else "",
         actioned     = False,
         read_by      = "",
+        company      = company_of(user, db),   # company wall: sender's company
         created_at   = datetime.now(timezone.utc).isoformat(),
     )
     db.add(row)
@@ -87,11 +88,21 @@ def get_notifications(user: dict = Depends(get_current_user), db: Session = Depe
     email = user["email"]
     is_manager = user.get("level", 0) >= 3
     # SQL-level filter: personal notifications for this user, PLUS broadcasts
-    # (recipient="") only when the caller is a manager or above.
-    from sqlalchemy import or_
+    # (recipient="") only when the caller is a manager or above. Company wall:
+    # once armed, a scoped manager sees only broadcasts from their own companies
+    # (untagged/legacy broadcasts become Global-Admin-only); off = unchanged.
+    from sqlalchemy import or_, and_
     q = db.query(NexusNotification)
     if is_manager:
-        q = q.filter(or_(NexusNotification.recipient == "", NexusNotification.recipient == email))
+        scope = company_scope(user, db)
+        if scope is None:
+            q = q.filter(or_(NexusNotification.recipient == "", NexusNotification.recipient == email))
+        else:
+            conds = [NexusNotification.recipient == email]
+            if scope:
+                conds.append(and_(NexusNotification.recipient == "",
+                                  NexusNotification.company.in_(list(scope))))
+            q = q.filter(or_(*conds))
     else:
         q = q.filter(NexusNotification.recipient == email)
     rows = (

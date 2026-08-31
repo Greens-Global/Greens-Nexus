@@ -24,6 +24,11 @@ import { api } from '../api';
 import { NX } from './theme';
 
 const MIN_W = 60;
+// Breathing room either side of the widest cell, and a ceiling: one pathological
+// title should not push a column past half the screen and shove every other
+// column out of reach.
+const AUTOFIT_PAD = 16;
+const AUTOFIT_MAX_W = 640;
 const CACHE_KEY = 'nexus.taskTablePrefs';
 
 // ── The user's saved arrangement, shared by every table on screen ───────────
@@ -39,6 +44,18 @@ const writeCache = (prefs) => {
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(prefs)); } catch { /* private mode */ }
 };
 const emit = () => listeners.forEach((fn) => fn(cache));
+
+// One per-table bag holds two unrelated kinds of thing, and only the first is
+// what "Reset Columns" is about:
+//   COLUMN_KEYS  - how the columns are arranged (order, widths, hidden)
+//   the rest     - where the person left the screen (view, group, sort,
+//                  collapsed sections), which a column reset must not touch
+// Counting the whole bag made the button appear the moment someone switched to
+// the grid or sorted a header, offering to restore an arrangement they had
+// never made.
+const COLUMN_KEYS = ['order', 'widths', 'hidden'];
+const isSet = (v) => (Array.isArray(v) ? v.length > 0 : !!v && typeof v === 'object' && Object.keys(v).length > 0);
+const hasColumnPrefs = (all) => Object.values(all || {}).some((t) => COLUMN_KEYS.some((k) => isSet(t?.[k])));
 
 function loadPrefs() {
   if (cache) return Promise.resolve(cache);
@@ -72,12 +89,26 @@ function clearTable(table) {
   api.resetTaskTablePrefs(table).catch(() => {});
 }
 
-/** Put every list in the module back to its default columns. */
+/** Put every list in the module back to its default columns - and ONLY its
+ *  columns. The view, grouping, sort and collapsed sections share this document
+ *  but are not what the button offers to restore; wiping them sent someone who
+ *  straightened one column back to the default view on every screen at once.
+ *
+ *  The server holds one document per person with no partial delete, so this
+ *  drops it and puts the non-column half straight back. A failed restore costs
+ *  the remembered view, never the reset the person asked for. */
 export function resetAllTablePrefs() {
-  cache = {};
+  const keep = {};
+  for (const [table, prefs] of Object.entries(cache || {})) {
+    const rest = Object.fromEntries(Object.entries(prefs || {}).filter(([k]) => !COLUMN_KEYS.includes(k)));
+    if (Object.keys(rest).length) keep[table] = rest;
+  }
+  cache = keep;
   writeCache(cache);
   emit();
-  return api.resetAllTaskTablePrefs().catch(() => {});
+  return api.resetAllTaskTablePrefs()
+    .then(() => Promise.all(Object.entries(keep).map(([table, prefs]) => api.saveTaskTablePrefs(table, prefs))))
+    .catch(() => {});
 }
 
 // Test seam: lets a test start from a known document without a server.
@@ -86,14 +117,19 @@ export function __setTablePrefsCache(next) {
   emit();
 }
 
-/** True once this person has arranged ANY table. Drives the reset control,
- *  which is clutter above a list nobody has customized. */
+/** True once this person has arranged the COLUMNS of any table - moved one,
+ *  resized one, hidden one. Drives the reset control, which is clutter above a
+ *  list nobody has customized, and a puzzle above one where all they did was
+ *  switch to the grid. */
 export function useHasTablePrefs() {
-  const [has, setHas] = useState(() => Object.keys(cache || readCache() || {}).length > 0);
+  const [has, setHas] = useState(() => hasColumnPrefs(cache || readCache()));
   useEffect(() => {
-    const fn = (all) => setHas(Object.keys(all || {}).length > 0);
+    const fn = (all) => setHas(hasColumnPrefs(all));
     listeners.add(fn);
-    loadPrefs().then(fn);
+    // Read the CURRENT cache when the load settles, not the snapshot the
+    // promise captured: an in-flight load that lands after a reset would
+    // otherwise put the stale document straight back on screen.
+    loadPrefs().then(() => fn(cache));
     return () => listeners.delete(fn);
   }, []);
   return has;
@@ -104,7 +140,7 @@ function useTablePrefs(table) {
   useEffect(() => {
     const fn = (all) => setPrefs((all || {})[table] || {});
     listeners.add(fn);
-    loadPrefs().then(fn);
+    loadPrefs().then(() => fn(cache));   // current cache, not the captured one
     return () => listeners.delete(fn);
   }, [table]);
   return prefs;
@@ -195,18 +231,36 @@ export function useTableColumns({ table, cols, trailing = '' }) {
   // variable. The header and every row read var(--nx-grid), so the browser
   // reflows the grid with ZERO React re-renders - that is what keeps a resize
   // smooth with a hundred rows on screen. State is saved once, on release.
+  // Second press on the same edge inside this window = autofit. Held in a ref
+  // on the hook, which survives a re-render, because the handle's DOM node does
+  // not: a table whose header is an inline component (views/richlist.jsx) tears
+  // the whole header down and rebuilds it on any render, and the browser only
+  // raises `dblclick` when both clicks land on the SAME node.
+  const lastPress = useRef({ key: null, at: 0 });
+  const DOUBLE_MS = 400;
+
   const startResize = useCallback((key, startWidth) => (e) => {
     e.preventDefault();
     e.stopPropagation();
+    const now = Date.now();
+    if (lastPress.current.key === key && now - lastPress.current.at < DOUBLE_MS) {
+      lastPress.current = { key: null, at: 0 };
+      autofitRef.current?.(key);
+      return;   // a double-click is not the start of a drag
+    }
+    lastPress.current = { key, at: now };
     const startX = e.clientX;
-    let latest = startWidth, raf = 0;
+    let latest = startWidth, raf = 0, moved = false;
     const apply = () => {
       raf = 0;
       const el = wrapRef.current;
       if (el) el.style.setProperty('--nx-grid', templateFrom({ ...widthsRef.current, [key]: latest }));
     };
     const onMove = (ev) => {
-      latest = Math.max(MIN_W, startWidth + (ev.clientX - startX));
+      const next = Math.max(MIN_W, startWidth + (ev.clientX - startX));
+      if (next === latest) return;
+      latest = next;
+      moved = true;
       if (!raf) raf = requestAnimationFrame(apply);
     };
     const onUp = () => {
@@ -214,12 +268,69 @@ export function useTableColumns({ table, cols, trailing = '' }) {
       window.removeEventListener('mouseup', onUp);
       if (raf) cancelAnimationFrame(raf);
       document.body.style.userSelect = '';
-      patchTable(table, { widths: { ...widthsRef.current, [key]: latest } });
+      // A press that never moved is not a resize. Writing the unchanged width
+      // anyway pinned columns nobody had touched, and - because saving
+      // re-renders - it was what replaced this very handle between the two
+      // clicks of a double-click.
+      if (moved) patchTable(table, { widths: { ...widthsRef.current, [key]: latest } });
     };
     document.body.style.userSelect = 'none';
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }, [templateFrom, table]);
+
+  /** Size a column to the widest thing in it, the way double-clicking a column
+   *  edge does in a spreadsheet.
+   *
+   *  Measured by asking the browser rather than by guessing from string
+   *  lengths: the column is set to `max-content` for one synchronous layout,
+   *  every rendered cell in it is read, and the template is put straight back.
+   *  Nothing repaints in between - the write, the reads and the restore all
+   *  happen before the frame is committed - so there is no flicker.
+   *
+   *  Each row is its OWN grid sharing one template, so under max-content each
+   *  resolves to its own content width and the widest of them is the answer.
+   *  The header row is measured too, so autofitting can never clip the label.
+   *
+   *  Only rendered rows can be measured, and this list hands rows out from a
+   *  budget that grows as you scroll (views/richlist.jsx), so on a long list
+   *  this fits what has been rendered rather than all 2,400 rows. That is the
+   *  usual spreadsheet behavior too, and the alternative - laying out every row
+   *  off-screen to measure it - is exactly the freeze that budget exists to
+   *  prevent. */
+  // Set below, once autofitWidth exists - startResize is declared first and
+  // needs to call it without taking it as a dependency.
+  const autofitRef = useRef(null);
+
+  const autofitWidth = useCallback((key) => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const idx = colsRef.current.findIndex((c) => c.key === key);
+    if (idx < 0) return;
+    const widthOf = (c) => {
+      const w = widthsRef.current[c.key];
+      if (w) return `${w}px`;
+      return c.template || (c.width ? `${c.width}px` : 'minmax(0,1fr)');
+    };
+    const probe = colsRef.current.map((c, i) => (i === idx ? 'max-content' : widthOf(c)));
+    if (trailing) probe.push(trailing);
+
+    const before = wrap.style.getPropertyValue('--nx-grid');
+    wrap.style.setProperty('--nx-grid', probe.join(' '));
+    // Every grid that follows the template carries it in its inline style, so
+    // this finds the header and the rows without each table having to tag them.
+    let widest = 0;
+    for (const row of wrap.querySelectorAll('[style*="var(--nx-grid)"]')) {
+      const cell = row.children[idx];
+      if (cell) widest = Math.max(widest, cell.getBoundingClientRect().width);
+    }
+    wrap.style.setProperty('--nx-grid', before);
+
+    if (!widest) return;   // nothing rendered in that column - leave it alone
+    const next = Math.round(Math.min(Math.max(widest + AUTOFIT_PAD, MIN_W), AUTOFIT_MAX_W));
+    patchTable(table, { widths: { ...widthsRef.current, [key]: next } });
+  }, [table, trailing]);
+  autofitRef.current = autofitWidth;
 
   const resetWidth = useCallback((key) => {
     const next = { ...widthsRef.current };
@@ -267,7 +378,7 @@ export function useTableColumns({ table, cols, trailing = '' }) {
 
   const resetTable = useCallback(() => clearTable(table), [table]);
 
-  return { cols: orderedCols, widths, template, startResize, resetWidth, wrapRef, dragProps, resetTable, dragKey };
+  return { cols: orderedCols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps, resetTable, dragKey };
 }
 
 // ── Sorting ─────────────────────────────────────────────────────────────────
@@ -283,14 +394,14 @@ export function nextSort(prev, key, reset = null) {
 
 // ── Header pieces ───────────────────────────────────────────────────────────
 /** The drag handle on a header cell's right edge. */
-export function ColResizer({ onMouseDown, onReset }) {
+export function ColResizer({ onMouseDown, onReset, onAutofit }) {
   const [hover, setHover] = useState(false);
   return (
     <div onMouseDown={onMouseDown} onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => { e.stopPropagation(); onReset?.(); }}
+      onDoubleClick={(e) => { e.stopPropagation(); (onAutofit || onReset)?.(); }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       draggable={false} onDragStart={(e) => e.preventDefault()}
-      title="Drag to resize, double-click to reset"
+      title={onAutofit ? 'Drag to resize, double-click to fit the content' : 'Drag to resize, double-click to reset'}
       style={{
         position: 'absolute', top: 0, right: -6, bottom: 0, width: 12, zIndex: 2,
         cursor: 'col-resize', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -306,7 +417,7 @@ export function ColResizer({ onMouseDown, onReset }) {
  *  behavior stays identical. */
 export function TableHead({
   label, sortKey, sort, setSort, sortReset = null,
-  onResizeStart, onResizeReset, align = 'flex-start', style, title, drag,
+  onResizeStart, onResizeReset, onResizeAutofit, align = 'flex-start', style, title, drag,
 }) {
   const [hover, setHover] = useState(false);
   const active = sortKey && sort?.key === sortKey;
@@ -335,7 +446,7 @@ export function TableHead({
       ) : null}
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
       {active && <Arrow size={12} strokeWidth={2.5} style={{ flexShrink: 0, color: NX.primary }} />}
-      {onResizeStart && <ColResizer onMouseDown={onResizeStart} onReset={onResizeReset} />}
+      {onResizeStart && <ColResizer onMouseDown={onResizeStart} onReset={onResizeReset} onAutofit={onResizeAutofit} />}
     </div>
   );
 }

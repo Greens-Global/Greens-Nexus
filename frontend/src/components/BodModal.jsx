@@ -58,7 +58,6 @@ const ordinal = (n) => {
   if (v >= 11 && v <= 13) return `${n}th`;
   return `${n}${['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
 };
-const fmtWorked = (min) => `${Math.floor(min / 60)}hrs:${String(min % 60).padStart(2, '0')}mins`;
 const todayLocalKey = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 
 // Phones skip the BOD/EOD message far more than desktop users do, so on a
@@ -95,7 +94,6 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
-  const [workedMin, setWorkedMin] = useState(0);      // EOD only - total worked today, for the Line 3 tally
   const [isMobile, setIsMobile] = useState(isMobileViewport);
 
   useEffect(() => {
@@ -147,7 +145,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     return () => { live = false; };
   }, [mode]);
 
-  function buildHtml(workedMin = 0) {
+  function buildHtml() {
     // The message itself stays first-person as the EMPLOYEE ("I'm on a
     // break…") - that's whose punch this is. This line must therefore name
     // who actually typed it, not read as if the admin were the one on break.
@@ -157,21 +155,20 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     // Three-line header (spec, Jul 24):
     //   End of Day
     //   Fri, July 24th, 2026
-    //   12:50 AM (8hrs:30mins)     ← the tally is total worked today, EOD only
+    //   12:50 AM
     const now = new Date();
     const ordinal = (n) => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
     // Locale pinned to en-US so the post reads the same for everyone regardless
     // of the sender's browser locale. Date line format: "Fri, July 24th, 2026".
     const dateStr = `${now.toLocaleDateString('en-US', { weekday: 'short' })}, ${now.toLocaleDateString('en-US', { month: 'long' })} ${ordinal(now.getDate())}, ${now.getFullYear()}`;
     const timeStr = formatTime(now);
-    const tally = mode === 'eod' && workedMin > 0 ? ` (${fmtWorked(workedMin)})` : '';
     // Lists are auto-numbered "1. …" - strip any numbering people typed
     // themselves so lines don't come out as "1. 1) Task".
     const normalize = (s) => s.split('\n').map(t => t.trim().replace(/^\d+[).:]?\s*/, '')).filter(Boolean);
     const numbered = (lines) => lines.map((t, i) => `${i + 1}. ${esc(t)}`).join('<br/>');
     const taskLines = normalize(tasks);
     const pendingLines = mode === 'eod' ? normalize(pending) : [];
-    return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${tally}${onBehalf}<br/><br/>${esc(message)}`
+    return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${onBehalf}<br/><br/>${esc(message)}`
       + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${numbered(taskLines)}` : '')
       + (pendingLines.length ? `<br/><br/><b>Pending Tasks</b><br/>${numbered(pendingLines)}` : '');
   }
@@ -180,49 +177,6 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     if (busy) return;
     if (!message.trim() && !M.optionalMessage) { toastErr(M.reasonOnly ? 'Add a short reason.' : `Write a short ${M.title.toLowerCase()} message.`); return; }
     setBusy(true);
-    // EOD tally: total minutes worked today, straight from the server's punch
-    // math (same figure the Time Clock "Worked today" card shows). Best-effort -
-    // a failed fetch just posts the message without the tally.
-    let workedMin = 0;
-    if (mode === 'eod') {
-      try {
-        const st = await api.timeStatus();
-        const key = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-        // The EOD posts BEFORE the out-punch is written, so the server summary
-        // counts the still-open session as zero. Recompute today's total from
-        // the raw punches, timing the open session up to "now". Sessions are
-        // attributed to the local date of their in-punch (server semantics).
-        const all = Object.values(st?.days || {}).flatMap(d => d.punches || [])
-          .filter(p => !p.voided).sort((a, b) => String(a.at).localeCompare(String(b.at)));
-        const utc = (s) => Date.parse(/[Zz]|[+-]\d\d:?\d\d$/.test(s) ? s : s + 'Z');
-        let ms = 0, openIn = null, openInDate = '', openBreak = null, brkMs = 0;
-        for (const p of all) {
-          const t = utc(p.at);
-          // A new 'in' always (re)opens the session - mirrors the backend's
-          // _day_summaries, which does the same unconditionally and just flags
-          // the abandoned one as "missing_out". Gating this on `openIn == null`
-          // meant a single forgotten punch-out anywhere in the trailing 7 days
-          // left `openIn`/`openInDate` stuck on that stale day forever after:
-          // every later 'in' was silently ignored, so `openInDate` could never
-          // match today's `key` again and the tally stayed 0 - for anyone with
-          // one missed punch-out in the window, not just that one day.
-          if (p.kind === 'in') { openIn = t; openInDate = p.localDate; openBreak = null; brkMs = 0; }
-          else if (p.kind === 'break_start') { if (openIn != null && openBreak == null) openBreak = t; }
-          else if (p.kind === 'break_end') { if (openBreak != null) { brkMs += t - openBreak; openBreak = null; } }
-          else if (p.kind === 'out' && openIn != null) {
-            if (openBreak != null) { brkMs += t - openBreak; openBreak = null; }
-            if (openInDate === key) ms += Math.max(0, t - openIn - brkMs);
-            openIn = null; brkMs = 0;
-          }
-        }
-        if (openIn != null && openInDate === key) {
-          const nowMs = Date.now();
-          if (openBreak != null) brkMs += nowMs - openBreak;
-          ms += Math.max(0, nowMs - openIn - brkMs);
-        }
-        workedMin = Math.round(ms / 60000);
-      } catch { /* tally is optional */ }
-    }
     const targetId = bound?.id || '';
     const targetName = bound?.name || '';
     // The browser only COMPOSES; the SERVER delivers (teams_post.py) using the
@@ -236,7 +190,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
         // ALWAYS send the composed message. If our chat lookup blipped (targetId
         // empty), the SERVER resolves the person's bound chat and posts it - a
         // transient client failure can no longer silently drop the Teams post.
-        html: buildHtml(workedMin),
+        html: buildHtml(),
         sent: false, send_error: '',
         tz_offset_min: new Date().getTimezoneOffset(),
       });

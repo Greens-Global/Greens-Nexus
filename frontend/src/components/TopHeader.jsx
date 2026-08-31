@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, DoorOpen, Archive } from "lucide-react";
+import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, DoorOpen, Archive, PlayCircle } from "lucide-react";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
@@ -529,6 +529,18 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                   settings with the rest of "your" settings instead of loose in
                   the top-level menu). Help stays here. */}
               {helpKey && <PageHelp pageKey={helpKey} label={helpLabel} variant="row" onActivate={() => setOpen(false)} />}
+              {/* Task module's guided walkthrough. Moved out of the module's own
+                  header (was cluttering the primary bar next to Manage) into
+                  here, right under page help - only meaningful while the Task
+                  module is the active view, so it's gated on activeView rather
+                  than shown everywhere. Tasks.jsx owns the tour state; this just
+                  asks it to open via the same nexus:tasks-* event pattern the
+                  module already uses for header search. */}
+              {activeView === 'tasks' && (
+                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:tasks-tour')); }}>
+                  <PlayCircle size={14} /> Tour
+                </button>
+              )}
 
               {/* Act As (Jul 2026): visible to Manager/IT Admin/Global Admin (or an
                   'act-as' Access Group grant). Exit is always shown while a session

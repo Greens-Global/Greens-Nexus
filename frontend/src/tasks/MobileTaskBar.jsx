@@ -46,7 +46,10 @@ export default function MobileTaskBar({ views, view, setView, onCreate, filterSh
   return (
     <>
       <div style={{
-        position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 18,
+        // Floats above the module's own bottom tab bar (Home/My Tasks/Projects/…
+        // - MobileNav.jsx's TASK_ACTIONS), which reserves 64px + the safe-area
+        // inset at the true screen bottom (see .main-content in style.css).
+        position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(64px + env(safe-area-inset-bottom) + 18px)',
         width: 'min(58vw, 320px)', height: 52,
         background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 16,
         boxShadow: '0 10px 30px rgba(0,0,0,0.22)', display: 'flex', alignItems: 'stretch', zIndex: 2500, overflow: 'hidden',

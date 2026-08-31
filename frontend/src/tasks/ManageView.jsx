@@ -6,8 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
-  Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check,
+  Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check, AlertTriangle, RotateCcw,
 } from 'lucide-react';
+import DataQualityTab from './DataQualityTab';
 import { useTasks } from './TasksContext';
 import { api } from '../api';
 import {
@@ -27,6 +28,16 @@ const iconBadge = { width: 32, height: 32, flexShrink: 0, borderRadius: 9, displ
 
 function Field({ label, children }) {
   return <div style={{ marginBottom: 14 }}><label style={fieldLabel}>{label}</label>{children}</div>;
+}
+
+// A team's dozen-plus projects or a field's dozen-plus options used to print
+// every single one, which read as a wall of text instead of a summary and
+// pushed rows across five wrapped lines. Capped with a "+N more" tail - full
+// detail still lives one click away in the row's own Edit modal.
+const LIST_CAP = 6;
+function capList(items, max = LIST_CAP) {
+  if (items.length <= max) return items.join(', ');
+  return `${items.slice(0, max).join(', ')} +${items.length - max} more`;
 }
 
 function SectionHead({ title, hint, action }) {
@@ -61,6 +72,9 @@ const SWATCHES = [NX.blue, NX.green, NX.amber, NX.red, NX.purple, NX.teal, NX.pi
 // ── Sub-tabs registry ─────────────────────────────────────────────────────────
 const SUBTABS = [
   { key: 'tasklist', label: 'Task List', icon: List },
+  // Company-wide, manager-only: every open task missing a due date, project,
+  // priority, or team in one list, editable inline (Neil, Aug 2026).
+  { key: 'dataQuality', label: 'Data Quality', icon: AlertTriangle },
   // Asana severed (Aug 27): the tab is gone so the import/setup/two-way-sync
   // controls are unreachable. AsanaImportTab below and the whole backend are
   // deliberately kept - restoring the link is this line plus
@@ -73,6 +87,7 @@ const SUBTABS = [
   { key: 'templates', label: 'Templates', icon: FileText },
   { key: 'intake', label: 'Intake Forms', icon: Inbox },
   { key: 'taskNotify', label: 'Task Notifications', icon: Mail },
+  { key: 'trash', label: 'Deleted Tasks', icon: Trash2 },
   { key: 'activity', label: 'Activity Log', icon: ActivityIcon },
   { key: 'reporting', label: 'Reporting', icon: BarChart3 },
 ];
@@ -99,12 +114,14 @@ export default function ManageView() {
         })}
       </div>
 
-      {/* Body - the Task List is full-bleed (wide, self-scrolling table); the rest
-          keep the centered admin column. */}
+      {/* Body - the Task List and Data Quality are full-bleed (wide,
+          self-scrolling tables); the rest keep the centered admin column. */}
       {tab === 'tasklist' ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <TasksWorkspace title="Task List" />
         </div>
+      ) : tab === 'dataQuality' ? (
+        <DataQualityTab store={store} />
       ) : (
         <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
           <div style={{ maxWidth: 940, margin: '0 auto' }}>
@@ -116,6 +133,7 @@ export default function ManageView() {
             {tab === 'templates' && <TemplatesTab store={store} />}
             {tab === 'intake' && <IntakeTab store={store} />}
             {tab === 'taskNotify' && <TaskNotifySettings />}
+            {tab === 'trash' && <DeletedTasksTab store={store} />}
             {tab === 'activity' && <ActivityTab store={store} />}
             {tab === 'reporting' && <ReportingTab store={store} />}
           </div>
@@ -962,7 +980,7 @@ function TeamsTab({ store }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>{d.name}</div>
                 <div style={{ fontSize: 12, color: NX.faint, marginTop: 1 }}>
-                  {(teamProjectIds(d).map(projectName).filter(Boolean).join(', ') || 'No project')} · {members.length} member{members.length === 1 ? '' : 's'} · {taskCountByTeam[d.id] || 0} task{(taskCountByTeam[d.id] || 0) === 1 ? '' : 's'}
+                  {(capList(teamProjectIds(d).map(projectName).filter(Boolean)) || 'No project')} · {members.length} member{members.length === 1 ? '' : 's'} · {taskCountByTeam[d.id] || 0} task{(taskCountByTeam[d.id] || 0) === 1 ? '' : 's'}
                 </div>
               </div>
               <IconButton icon={Pencil} title="Edit Team" onClick={() => setEditing(d)} />
@@ -1189,16 +1207,19 @@ function FieldsTab({ store }) {
             {f.description && <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{f.description}</div>}
             {OPTION_TYPES.includes(f.type) && !!(f.options || []).length && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
-                {(f.options || []).map((o) => {
+                {(f.options || []).slice(0, LIST_CAP).map((o) => {
                   const opt = typeof o === 'string' ? { id: o, label: o, color: NX.dim } : o;
                   return <span key={opt.id} style={chip(opt.color || NX.dim, `${opt.color || NX.dim}1a`)}>{opt.label}</span>;
                 })}
+                {(f.options || []).length > LIST_CAP && (
+                  <span style={chip(NX.dim, NX.border2)}>+{(f.options || []).length - LIST_CAP} more</span>
+                )}
               </div>
             )}
             {(f.appliesTo || []).includes('task') && (
               <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
                 {(f.projectIds || []).length
-                  ? (f.projectIds || []).map(projectName).filter(Boolean).join(', ')
+                  ? capList((f.projectIds || []).map(projectName).filter(Boolean))
                   : 'Every project'}
               </div>
             )}
@@ -1425,7 +1446,7 @@ function StatusesTab({ store }) {
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.label}</div>
             <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
               {(s.projectIds || []).length
-                ? (s.projectIds || []).map(projectName).filter(Boolean).join(', ')
+                ? capList((s.projectIds || []).map(projectName).filter(Boolean))
                 : 'Every project'}
             </div>
           </div>
@@ -1653,9 +1674,95 @@ function IntakeModal({ projects, onClose, onSave }) {
   );
 }
 
+// ── 5.5 Deleted Tasks (Trash, Aug 27) ────────────────────────────────────────
+function DeletedTasksTab({ store }) {
+  const { nameOf, projectName } = store;
+  const [rows, setRows] = useState(null);   // null = loading
+  const [busyId, setBusyId] = useState('');
+  const [err, setErr] = useState('');
+
+  const load = () => {
+    api.getDeletedTasks()
+      .then((r) => setRows(Array.isArray(r) ? r : []))
+      .catch(() => setRows([]));
+  };
+  useEffect(() => { load(); }, []);
+
+  // Whole days left before trash_purge_loop removes it for good - floors to 0
+  // rather than going negative once the sweep is running a little behind.
+  const daysLeft = (purgeAt) => {
+    if (!purgeAt) return null;
+    return Math.max(0, Math.ceil((new Date(purgeAt).getTime() - Date.now()) / 86400000));
+  };
+
+  const restore = async (t) => {
+    setBusyId(t.id); setErr('');
+    try {
+      await api.restoreTask(t.id);
+      setRows((rs) => rs.filter((r) => r.id !== t.id));
+    } catch (e) {
+      setErr(e.message || 'Could not restore that task.');
+    } finally {
+      setBusyId('');
+    }
+  };
+
+  const purgeNow = async (t) => {
+    if (!window.confirm(`Permanently delete "${t.title}"?\n\nThis can't be undone - it won't be in Trash any more to restore from.`)) return;
+    setBusyId(t.id); setErr('');
+    try {
+      await api.purgeTaskNow(t.id);
+      setRows((rs) => rs.filter((r) => r.id !== t.id));
+    } catch (e) {
+      setErr(e.message || 'Could not delete that task.');
+    } finally {
+      setBusyId('');
+    }
+  };
+
+  return (
+    <div>
+      <SectionHead title="Deleted Tasks"
+        hint="Deleted tasks stay here for 90 days and can be restored - after that they're removed for good." />
+      {err && <div style={{ marginBottom: 12, fontSize: 12.5, color: NX.red }}>{err}</div>}
+      {rows === null ? (
+        <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>Loading…</div>
+      ) : rows.length === 0 ? (
+        <EmptyState icon={Trash2} title="Trash Is Empty"
+          hint="Tasks you delete will show up here for 90 days before they're gone for good." />
+      ) : (
+        <div style={{ ...card, padding: 6 }}>
+          {rows.map((t) => {
+            const left = daysLeft(t.purgeAt);
+            const busy = busyId === t.id;
+            return (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 10px', borderRadius: 8, opacity: busy ? 0.6 : 1 }}>
+                <span style={{ ...iconBadge, color: NX.dim }}><Trash2 size={14} /></span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
+                  <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {t.projectId ? `${projectName(t.projectId)} · ` : ''}
+                    Deleted by {t.deletedBy ? nameOf(t.deletedBy) : 'someone'} · {fmtDateTime(t.deletedAt)}
+                  </div>
+                </div>
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: left !== null && left <= 7 ? NX.red : NX.faint, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  {left === null ? '' : left === 0 ? 'Purges today' : `${left}d left`}
+                </span>
+                <IconButton icon={RotateCcw} title="Restore" onClick={() => restore(t)} />
+                <IconButton icon={Trash2} title="Delete Forever" danger onClick={() => purgeNow(t)} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 6. Activity log ───────────────────────────────────────────────────────────
 const ACTIVITY_ICON = {
   created: Plus, updated: Pencil, completed: CheckCircle2, deleted: Trash2,
+  restored: RotateCcw, purged: Trash2,
   status_changed: ArrowRightLeft, priority_changed: Flag, assignee_changed: User,
   due: Calendar, commented: MessageSquare, automation: Zap,
 };

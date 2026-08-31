@@ -63,6 +63,10 @@ def _serialize(group: NexusGroup, db: Session) -> dict:
         "description": getattr(group, "description", "") or "",
         "monitoring_exempt": bool(getattr(group, "monitoring_exempt", False)),
         "bod_exempt": bool(getattr(group, "bod_exempt", False)),
+        # Multi-company walls: a company_id makes this a per-company ROLE; the
+        # is_global_admin flag makes its members Global Admins (see the walls).
+        "company_id": getattr(group, "company_id", "") or "",
+        "is_global_admin": bool(getattr(group, "is_global_admin", False)),
     }
 
 
@@ -97,6 +101,8 @@ class GroupCreate(BaseModel):
     member_emails: Optional[list[str]] = []
     monitoring_exempt: Optional[bool] = False
     bod_exempt: Optional[bool] = False
+    company_id: Optional[str] = ""            # HrEntity.id -> a per-company role
+    is_global_admin: Optional[bool] = False   # members see past the company walls
 
 class GroupUpdate(BaseModel):
     name: Optional[str] = None
@@ -104,6 +110,8 @@ class GroupUpdate(BaseModel):
     allowed_modules: Optional[list[ModuleGrant]] = None
     monitoring_exempt: Optional[bool] = None
     bod_exempt: Optional[bool] = None
+    company_id: Optional[str] = None
+    is_global_admin: Optional[bool] = None
 
 class MembersUpdate(BaseModel):
     emails: list[str]
@@ -151,6 +159,8 @@ def create_group(body: GroupCreate, user: dict = Depends(require_administrator),
         allowed_modules=_modules_csv(body.allowed_modules),
         monitoring_exempt=1 if body.monitoring_exempt else 0,
         bod_exempt=1 if body.bod_exempt else 0,
+        company_id=(body.company_id or "").strip(),
+        is_global_admin=1 if body.is_global_admin else 0,
         created_by=user["email"],
         created_at=now,
     )
@@ -185,6 +195,10 @@ def update_group(group_id: str, body: GroupUpdate, user: dict = Depends(require_
         group.monitoring_exempt = 1 if body.monitoring_exempt else 0
     if body.bod_exempt is not None:
         group.bod_exempt = 1 if body.bod_exempt else 0
+    if body.company_id is not None:
+        group.company_id = (body.company_id or "").strip()
+    if body.is_global_admin is not None:
+        group.is_global_admin = 1 if body.is_global_admin else 0
 
     db.commit()
     return _serialize(group, db)

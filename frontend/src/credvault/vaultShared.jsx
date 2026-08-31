@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { api } from "../api";
 import { usePeopleDirectory } from "../lib/queries";
+import { matchPeople } from "../lib/peopleSearch";
 
 // ---------- Config ----------
 export const DEPT_ICONS = {
@@ -924,18 +925,25 @@ function EmployeePicker({ value, onChange, onEnter, error, placeholder, autoFocu
   }, [open]);
 
   const q = value.trim().toLowerCase();
-  const matches = useMemo(() => {
-    const list = people || [];
-    if (!q) return list;
-    return list.filter((p) => p.name?.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q));
-  }, [people, q]);
+  const matches = useMemo(() => matchPeople(people || [], q), [people, q]);
 
   return (
     <div style={{ position: "relative" }} ref={ref}>
       <input value={value}
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        onKeyDown={(e) => { if (e.key === "Enter") onEnter?.(); if (e.key === "Escape") setOpen(false); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            // A suggestion showing means Enter picks it - same "takes the
+            // first search result" contract as every other people picker.
+            // No suggestions (e.g. a free-typed address for someone not in
+            // the directory - this field explicitly supports that) falls
+            // through to the parent's submit.
+            if (open && matches.length > 0) { e.preventDefault(); onChange(matches[0].email); setOpen(false); return; }
+            onEnter?.();
+          }
+          if (e.key === "Escape") setOpen(false);
+        }}
         placeholder={placeholder} autoFocus={autoFocus}
         className={`cv-ipt${error ? " cv-ipt-error" : ""}`} autoComplete="off" />
       {open && matches.length > 0 && (

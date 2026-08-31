@@ -3,7 +3,7 @@
 // stats + Customize, over a reorderable grid of widgets (My tasks · Projects ·
 // Teams · Team members · Notifications), persisted to localStorage.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, CheckCircle2, Users, LayoutGrid, Plus, Circle, CalendarDays, FolderKanban, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
+import { ChevronDown, ChevronRight, CheckCircle2, LayoutGrid, Plus, Circle, CalendarDays, FolderKanban, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { fmtDate, taskIdFromUrl, taskAssignees } from './lib';
 import { NX, FONT, btn, card, PRIORITY_ORDER } from './theme';
@@ -114,7 +114,6 @@ export default function HomeView({ onNavigate }) {
   const completed = myTasks.filter((t) => t.completed);
   const upcoming = myTasks.filter((t) => !t.completed && (!t.dueOn || (t.dueOn >= todayISO() && t.dueOn <= rangeEnd)));
   const shown = tab === 'Upcoming' ? upcoming : tab === 'Overdue' ? overdue : completed;
-  const collaborators = useMemo(() => { const s = new Set(); for (const t of myTasks) for (const f of (t.followerIds || [])) if (f !== myEmail) s.add(f); return s.size; }, [myTasks, myEmail]);
   const myTeams = useMemo(() => teams.filter((d) => (d.memberIds || []).includes(myEmail)), [teams, myEmail]);
   const teamMembers = useMemo(() => { const s = new Set(); myTeams.forEach((d) => (d.memberIds || []).forEach((id) => s.add(id))); return [...s]; }, [myTeams]);
   const recentProjects = projects.slice(0, 4);
@@ -237,8 +236,6 @@ export default function HomeView({ onNavigate }) {
               <div key={t.id} data-task-row onClick={() => setOpenId(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border2}`, padding: '8px 6px', margin: '0 -6px', borderRadius: 6, fontSize: 13, cursor: 'pointer', transition: 'background 0.12s' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
                 <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={16} /> : <Circle size={16} />}</button>
-                {/* status color tick - monday-style at-a-glance state */}
-                <span title={store.statusMeta[t.status]?.label || t.status} style={{ width: 8, height: 8, borderRadius: 2, background: store.statusMeta[t.status]?.color || NX.faint, flexShrink: 0 }} />
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
                 {t.dueOn && <span style={{ fontSize: 12, fontWeight: 600, color: dueColor(t.dueOn, t.completed) }}>{fmtUS(t.dueOn)}</span>}
               </div>
@@ -463,16 +460,11 @@ export default function HomeView({ onNavigate }) {
       {/* Desktop: workload counts left, range · stats · Customize right. Mobile:
           the range button takes the full first line so stats + Customize wrap. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: isMobile ? 12 : 20 }}>
-        {/* Counts only. The greeting and the date both went: neither told the
-            reader anything they didn't know, and they pushed the two numbers
-            that actually matter into a subtitle. With both gone this can be
-            empty (nothing upcoming, nothing overdue) - the flex row still lays
-            out correctly, the right-hand controls just sit alone. */}
-        <div style={{ minWidth: 0, fontSize: 15, fontWeight: 700, letterSpacing: -0.2 }}>
-          {upcoming.length > 0 && <span style={{ color: NX.blue }}>{upcoming.length} upcoming</span>}
-          {upcoming.length > 0 && overdue.length > 0 && <span style={{ color: NX.faint }}> · </span>}
-          {overdue.length > 0 && <span style={{ color: NX.red }}>{overdue.length} overdue</span>}
-        </div>
+        {/* The greeting, the date, and the upcoming/overdue counts all went -
+            none told the reader anything they didn't know. This spacer stays
+            (rather than being deleted outright) so the space-between row
+            below still puts the right-hand controls where they belong. */}
+        <div style={{ minWidth: 0 }} />
         {/* Header holds ONE page-level control (Customize) - the range picker
             and task stats moved into the "My tasks" card they actually scope,
             so switching to Tickets no longer swaps header anatomies. */}
@@ -497,12 +489,6 @@ export default function HomeView({ onNavigate }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '0 0 14px' }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>My tasks</h2>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12.5, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <CheckCircle2 size={14} style={{ color: NX.green }} /> {completed.length} completed
-          </span>
-          <span style={{ fontSize: 12.5, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <Users size={14} style={{ color: NX.faint }} /> {collaborators} collaborator{collaborators === 1 ? '' : 's'}
-          </span>
           <div ref={rangeRef} style={{ position: 'relative' }}>
             <button onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 12.5 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
             {rangeOpen && (
@@ -513,28 +499,41 @@ export default function HomeView({ onNavigate }) {
           </div>
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: isMobile ? 10 : 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: isMobile ? 6 : 16 }}>
         {[
           { label: 'Priority', n: priorityMine.length, of: openMine.length, unit: 'open', Icon: Flag, chip: '#06c698', bg: '#e4f5ee', go: () => onNavigate('mine'), title: 'Open my tasks' },
           { label: 'Upcoming', n: upcoming.length, of: myTasks.length, unit: 'tasks', Icon: CalendarDays, chip: '#0998c3', bg: '#dff3fc', go: () => setTab('Upcoming'), title: 'Show upcoming' },
           { label: 'Overdue', n: overdue.length, of: myTasks.length, unit: 'tasks', Icon: Clock, chip: '#7c6af0', bg: '#eae6fc', go: () => setTab('Overdue'), title: 'Show overdue' },
           { label: 'Completed', n: completed.length, of: myTasks.length, unit: 'tasks', Icon: CheckCircle2, chip: '#fc6363', bg: '#fde8e3', go: () => setTab('Completed'), title: 'Show completed' },
         ].map(({ label, n, of, unit, Icon, chip, bg, go, title }) => (
-          /* Horizontal anatomy - chip left, text right. A vertical (chip-on-top)
-             tile is a ~180px pattern; stretched across a wide column it reads
-             as empty wash. Horizontal stays balanced at any width. */
+          /* Horizontal anatomy (chip left, text right) at desktop width - a
+             vertical (chip-on-top) tile stretched across a wide column reads
+             as empty wash there. Mobile flips to that same chip-on-top
+             anatomy deliberately: 4 across a phone width leaves each tile too
+             narrow for icon+text side by side, so it goes vertical and
+             compact instead - smaller chip, tighter type, no unit word. */
           <button key={label} onClick={go} title={title}
-            style={{ background: bg, border: 'none', borderRadius: 16, padding: '16px 18px', cursor: 'pointer', textAlign: 'left', fontFamily: FONT, display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, transition: 'transform .15s, box-shadow .15s' }}
+            style={{
+              background: bg, border: 'none', borderRadius: isMobile ? 12 : 16,
+              padding: isMobile ? '10px 4px' : '16px 18px', cursor: 'pointer',
+              textAlign: isMobile ? 'center' : 'left', fontFamily: FONT,
+              display: 'flex', alignItems: 'center',
+              flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 6 : 14,
+              minWidth: 0, transition: 'transform .15s, box-shadow .15s',
+            }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(29,33,57,.10)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}>
-            <span style={{ width: 44, height: 44, borderRadius: 13, background: chip, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Icon size={20} />
+            <span style={{
+              width: isMobile ? 26 : 44, height: isMobile ? 26 : 44, borderRadius: isMobile ? 8 : 13,
+              background: chip, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <Icon size={isMobile ? 13 : 20} />
             </span>
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-              <span style={{ fontSize: 13.5, color: NX.dim }}>{label}</span>
-              <span style={{ fontSize: 24, fontWeight: 800, color: NX.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: isMobile ? 'center' : 'stretch', gap: 3, minWidth: 0 }}>
+              <span style={{ fontSize: isMobile ? 10.5 : 13.5, color: NX.dim, lineHeight: 1.15 }}>{label}</span>
+              <span style={{ fontSize: isMobile ? 15 : 24, fontWeight: 800, color: NX.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                 {n}
-                <span style={{ fontSize: 14, fontWeight: 600, color: NX.dim }}> /{of} {unit}</span>
+                <span style={{ fontSize: isMobile ? 10.5 : 14, fontWeight: 600, color: NX.dim }}> /{of}{!isMobile ? ` ${unit}` : ''}</span>
               </span>
             </span>
           </button>
@@ -557,20 +556,23 @@ export default function HomeView({ onNavigate }) {
 
       {/* min(340px, 100%) so a column can never be wider than the viewport.
           Autofit = masonry packing (CSS columns) so short and tall widgets
-          fill the page without holes; source order is still the saved order. */}
+          fill the page without holes; source order is still the saved order.
+          Masonry is a multi-column trick - on mobile the grid is already down
+          to one column (a single 340px-min track is all that fits), so there
+          is nothing beside a widget for it to pack against, and a stale
+          measured span (e.g. from a taller pre-data skeleton) just shows up
+          as dead space before the next widget instead. Plain stacking with a
+          fixed gap sidesteps that - every widget is simply its own height. */}
       <div className="nx-card-grid"
         onDragOver={customizing ? (e) => e.preventDefault() : undefined}
         onDrop={customizing ? (e) => { e.preventDefault(); if (dragKey) { reorder(dragKey, null); } setDragKey(null); setOverKey(null); } : undefined}
         style={{
           display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))',
           columnGap: 16,
-          /* autofit = row-order masonry: 8px auto-rows, each cell spans its
-             measured height, so short widgets tuck up into vertical gaps while
-             the left-to-right order stays the saved order */
-          ...(autofit ? { gridAutoRows: 8, rowGap: 0 } : { rowGap: 16, alignItems: 'start' }),
+          ...(autofit && !isMobile ? { gridAutoRows: 8, rowGap: 0 } : { rowGap: 16, alignItems: 'start' }),
         }}>
         {widgets.map((key) => (
-          <MasonryCell key={key} masonry={autofit}
+          <MasonryCell key={key} masonry={autofit && !isMobile}
             draggable={customizing}
             onDragStart={customizing ? () => setDragKey(key) : undefined}
             /* dragover fires continuously - functional setState with a same-value

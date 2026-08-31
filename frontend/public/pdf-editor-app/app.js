@@ -39,6 +39,8 @@
 
     // ── Dirty tracking: orange Save + guard against losing unsaved work ──
     let _isDirty = false;
+    let _suppressRasterWarn = false;   // "don't warn again" for the redaction-flatten notice (S5)
+    let _stampCascade = 0;             // offsets successive stamps so they don't blob (A2)
     function markDirty(d = true) {
         _isDirty = d;
         const btn = document.getElementById('downloadBtn');
@@ -207,7 +209,6 @@
         setupTooltips();
         setupSignature();
         setupTheme();
-        setStatus('Ready - Open a PDF to get started');
     }
 
     // ── Instant custom tooltips (replace slow native title tooltips) ──
@@ -494,7 +495,14 @@
         dom.prevPage.addEventListener('click', () => goToPage(state.currentPage - 1));
         dom.nextPage.addEventListener('click', () => goToPage(state.currentPage + 1));
         dom.pageInput.addEventListener('change', () => {
-            goToPage(parseInt(dom.pageInput.value, 10));
+            const n = parseInt(dom.pageInput.value, 10);
+            // Invalid or out-of-range input: snap the box back to the current
+            // page instead of leaving stale/bad text sitting in it.
+            if (!Number.isFinite(n) || n < 1 || n > state.totalPages) {
+                dom.pageInput.value = state.currentPage;
+                return;
+            }
+            goToPage(n);
         });
 
         // Zoom
@@ -502,12 +510,46 @@
         dom.zoomOut.addEventListener('click', () => setZoom(state.zoom - 0.15));
         dom.zoomFit.addEventListener('click', fitToWidth);
         document.getElementById('zoomFitPage')?.addEventListener('click', fitToPage);
+        // Ctrl/Cmd + mouse wheel zooms the document (like every desktop viewer),
+        // instead of the browser zooming the whole page.
+        dom.canvasScrollWrapper?.addEventListener('wheel', (e) => {
+            if (!(e.ctrlKey || e.metaKey) || !state.pdfDoc) return;
+            e.preventDefault();
+            setZoom(state.zoom + (e.deltaY < 0 ? 0.1 : -0.1));
+        }, { passive: false });
         document.getElementById('scrollModeBtn')?.addEventListener('click', () => setScrollMode(!window.isScrollMode()));
+
+        // Toolbar hide/show (Pranshu): collapse the tool rows to give the
+        // document more vertical room. The main toolbar (Open/Save + tools) stays
+        // as a slim bar; a second click restores everything.
+        document.getElementById('toolbarToggle')?.addEventListener('click', () => {
+            const collapsed = document.body.classList.toggle('toolbar-collapsed');
+            const btn = document.getElementById('toolbarToggle');
+            if (btn) {
+                btn.title = collapsed ? 'Show toolbar' : 'Hide toolbar (more viewing space)';
+                btn.setAttribute('aria-label', collapsed ? 'Show toolbar' : 'Hide toolbar');
+            }
+        });
         document.getElementById('printBtn')?.addEventListener('click', printPdf);
 
         // Tools
         document.querySelectorAll('[data-tool]').forEach((btn) => {
-            btn.addEventListener('click', () => setActiveTool(btn.dataset.tool));
+            btn.addEventListener('click', () => {
+                // A3: re-clicking the already-active tool disarms it (back to
+                // Select), like Bluebeam. Never toggle Select itself off.
+                if (btn.dataset.tool !== 'select' && btn.classList.contains('active')) {
+                    setActiveTool('select');
+                    return;
+                }
+                // Any tool the user clicks needs the single-page editable Fabric
+                // canvas; in continuous-scroll mode that canvas is frozen, so
+                // Select (and the others) did nothing on the default scroll view
+                // (Pranshu). Leave scroll mode on an explicit tool click - not on
+                // the internal setActiveTool('select') resets, which must not
+                // yank the user out of scrolling.
+                if (window.isScrollMode && window.isScrollMode()) _exitScrollForOp();
+                setActiveTool(btn.dataset.tool);
+            });
         });
 
         // Tool options - size slider
@@ -550,11 +592,17 @@
             updateSwatchActive();
             applyBrushColor();
         });
+        // A1 REAL FIX: replace the fragile native <input type=color> swatches with
+        // a custom popover of preset colors (+ a native fallback for "more"). The
+        // native OS picker mis-behaved in the iframe - its dismiss click leaked to
+        // the canvas and it applied nothing. This popover stops propagation on all
+        // its own interactions, so nothing reaches the canvas, and applies on click.
+        _initColorPopover();
 
         // Color swatches
         document.querySelectorAll('.swatch').forEach((swatch) => {
             swatch.addEventListener('click', () => {
-                if (!swatch.dataset.color) return; // custom-picker swatch has no preset colour
+                if (!swatch.dataset.color) return; // custom-picker swatch has no preset color
                 dom.colorPicker.value = swatch.dataset.color;
                 updateSwatchActive();
                 applyBrushColor();
@@ -567,6 +615,8 @@
             if (fabricCanvas && fabricCanvas.isDrawingMode) {
                 applyBrushColor();
             }
+            // Object restyle: change the opacity of a SELECTED markup too.
+            applyOpacityToSelection(Math.max(0.05, Math.min(1, (parseInt(dom.opacityPicker.value, 10) || 100) / 100)));
         });
 
         // Sidebar toggle
@@ -605,8 +655,10 @@
         }
 
         // Undo / Redo
-        dom.undoBtn.addEventListener('click', undo);
-        dom.redoBtn.addEventListener('click', redo);
+        // Call with no args - undo()/redo() take an optional internal page param,
+        // so the click MouseEvent must not be forwarded as that argument.
+        dom.undoBtn.addEventListener('click', () => undo());
+        dom.redoBtn.addEventListener('click', () => redo());
 
         // Image input
         dom.imageInput.addEventListener('change', handleImageSelect);
@@ -696,6 +748,28 @@
                 navigateSearch(e.shiftKey ? -1 : 1);
             }
         });
+        // S8: match-case / whole-word toggles + results-list toggle.
+        const toggleOpt = (id, apply) => {
+            const b = document.getElementById(id);
+            if (!b) return;
+            b.addEventListener('click', () => {
+                const on = b.getAttribute('aria-pressed') !== 'true';
+                b.setAttribute('aria-pressed', on ? 'true' : 'false');
+                b.classList.toggle('active', on);
+                apply(on);
+            });
+        };
+        toggleOpt('searchCase', (on) => { _searchCase = on; searchText(); });
+        toggleOpt('searchWord', (on) => { _searchWord = on; searchText(); });
+        document.getElementById('searchListToggle')?.addEventListener('click', () => {
+            const panel = document.getElementById('searchResultsPanel');
+            const b = document.getElementById('searchListToggle');
+            const show = panel.style.display === 'none';
+            panel.style.display = show ? 'block' : 'none';
+            b.setAttribute('aria-pressed', show ? 'true' : 'false');
+            b.classList.toggle('active', show);
+            if (show) _renderSearchResults();
+        });
 
         // AI Panel
         dom.aiToggleBtn.addEventListener('click', toggleAiPanel);
@@ -724,6 +798,30 @@
         document.getElementById('sanitizeBtn')?.addEventListener('click', sanitizePdfTool);
         document.getElementById('rmBlankBtn')?.addEventListener('click', removeBlankPagesTool);
         document.getElementById('nupBtn')?.addEventListener('click', nUpTool);
+        document.getElementById('measureListClose')?.addEventListener('click', () => window.toggleMeasureList());
+        document.getElementById('measureExportBtn')?.addEventListener('click', () => window.exportMeasurements());
+        document.getElementById('measureFilter')?.addEventListener('input', (e) => {
+            window._measureFilter = e.target.value; if (window.renderMeasureList) window.renderMeasureList();
+        });
+        document.getElementById('measureSort')?.addEventListener('change', (e) => {
+            window._measureSort = e.target.value; if (window.renderMeasureList) window.renderMeasureList();
+        });
+        document.getElementById('scaleChip')?.addEventListener('click', () => window.openSetScaleDialog && window.openSetScaleDialog());
+        // A10: mirror the paint-bar font picker into the state holder (#fontFamily)
+        // that new text reads, so choosing a font BEFORE typing takes effect.
+        const pbFont = document.getElementById('pbFontFamily');
+        if (pbFont && dom.fontFamily) {
+            pbFont.value = dom.fontFamily.value;
+            pbFont.addEventListener('change', () => { dom.fontFamily.value = pbFont.value; });
+        }
+        // Tool Chest: save the current style as a named preset (S9).
+        document.getElementById('toolChestSave')?.addEventListener('click', async () => {
+            const name = await customPrompt('Name this tool preset (e.g. "Wall - red 3px"):', 'Preset name', '');
+            if (!name) return;
+            window.saveToolPreset(name);
+            window.renderToolChest();
+            showToast('Preset "' + name + '" saved');
+        });
 
         // Keyboard shortcuts
         document.addEventListener('keydown', handleKeyboard);
@@ -733,12 +831,32 @@
     function handleKeyboard(e) {
         if (!state.pdfDoc) return;
 
-        // Don't intercept when typing in input fields or editing Fabric text
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-        if (fabricCanvas) {
-            const activeObj = fabricCanvas.getActiveObject();
-            if (activeObj && activeObj.isEditing) return;
+        // Don't intercept when typing in a form field, a contentEditable, OR
+        // fabric's hidden text-editing textarea. The tagName check alone missed
+        // fabric's textarea in some paths, so global single-letter shortcuts fired
+        // while typing (e.g. "Georgia" armed the Image tool) and Enter could be
+        // swallowed. Also bail whenever a fabric object is being edited.
+        // If a fabric text object is being edited, let fabric own the keystrokes
+        // (Enter = newline for a Textbox, letters = typing) - only intercept the
+        // commit keys. This must come BEFORE the form-field guard, because the
+        // edit target IS fabric's hidden textarea.
+        const editingObj = fabricCanvas && fabricCanvas.getActiveObject && fabricCanvas.getActiveObject();
+        if (editingObj && editingObj.isEditing) {
+            const commit = (e.key === 'Escape') || (e.key === 'Enter' && (e.metaKey || e.ctrlKey));
+            if (commit) {
+                e.preventDefault(); e.stopImmediatePropagation();
+                editingObj.exitEditing();
+                fabricCanvas.discardActiveObject();
+                fabricCanvas.requestRenderAll();
+                hideContextualBars();
+                setStatus('Ready');
+            }
+            return;   // plain Enter, letters, etc. go to fabric (Enter = newline)
         }
+        // Otherwise, don't steal keys from a real form field (fixes the font
+        // select's letters firing single-letter tool shortcuts).
+        const tag = e.target && e.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target && e.target.isContentEditable)) return;
 
         const ctrl = e.ctrlKey || e.metaKey;
 
@@ -747,10 +865,69 @@
             if (e.key === 'Enter') { e.preventDefault(); polyFinish(); return; }
             if (e.key === 'Escape') { e.preventDefault(); polyCancel(); return; }
         }
-        // Measurement: Enter finishes, Escape cancels the in-progress measurement.
+        // Measurement in progress: Enter finishes, Escape cancels ONLY the
+        // measurement (never the ribbon - M10), Backspace removes the last point.
         if (measureKind) {
             if (e.key === 'Enter') { e.preventDefault(); measureFinish(); return; }
-            if (e.key === 'Escape') { e.preventDefault(); measureCancel(); return; }
+            // stopPropagation so the ribbon's window-level Escape can't also fire.
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); measureCancel(); setStatus('Measurement cancelled'); return; }
+            if (e.key === 'Backspace' && measurePts.length) {
+                e.preventDefault(); measurePts.pop(); measureRedraw();
+                setStatus(measurePts.length ? 'Removed last point - ' + measurePts.length + ' left' : 'Click to start again');
+                return;
+            }
+        }
+        // Arrow keys nudge the selected markup(s) (Shift = 10px steps).
+        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) && fabricCanvas) {
+            const objs = fabricCanvas.getActiveObjects ? fabricCanvas.getActiveObjects() : [];
+            const sel = objs.length ? objs : (fabricCanvas.getActiveObject() ? [fabricCanvas.getActiveObject()] : []);
+            if (sel.length) {
+                e.preventDefault();
+                const step = e.shiftKey ? 10 : 1;
+                const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+                const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+                sel.forEach(o => { o.set({ left: (o.left || 0) + dx, top: (o.top || 0) + dy }); o.setCoords(); });
+                fabricCanvas.requestRenderAll();
+                saveAnnotationState(); saveCurrentAnnotations();
+                return;
+            }
+        }
+        // A measure tool is armed but nothing drawn yet: Escape disarms the
+        // measure engine in place and returns to the Select cursor WITHOUT
+        // touching the Assemble ribbon (M10). We flip tool state directly rather
+        // than via setActiveTool, whose button path collapses the ribbon.
+        if (e.key === 'Escape' && state.activeTool === 'shape' && _MEASURE_KINDS.includes(shapeKind)) {
+            e.preventDefault();
+            // Stop the event reaching the ribbon's own Escape handler (it would
+            // collapse Assemble). We disarm the tool here, so by the time that
+            // handler ran isMeasureActive() would already be false - hence stopping
+            // propagation, not relying on the guard, is what fixes M10.
+            // stopImmediatePropagation covers the case where both handlers sit on
+            // the same target and registration order would otherwise decide.
+            e.stopImmediatePropagation();
+            document.getElementById('measureTool')?.classList.remove('active');
+            shapeKind = 'rect';                // leave the measure engine
+            state.activeTool = 'select';
+            document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === 'select'));
+            applyToolMode();
+            setStatus('Measure tool off');
+            return;
+        }
+        // A4: Escape while ANY markup tool is armed returns to Select AND clears
+        // the ribbon button highlight - WITHOUT collapsing the Assemble ribbon
+        // (setActiveTool's button path collapses it). We flip tool state directly
+        // and stop the event so the ribbon's own Escape handler never fires.
+        if (e.key === 'Escape' && state.activeTool && state.activeTool !== 'select') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (fabricCanvas && fabricCanvas.getActiveObject && fabricCanvas.getActiveObject()) fabricCanvas.discardActiveObject();
+            shapeKind = 'rect';
+            state.activeTool = 'select';
+            document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === 'select'));
+            document.getElementById('measureTool')?.classList.remove('active');
+            applyToolMode();
+            setStatus('Ready');
+            return;
         }
 
         if (e.key === 'F1' || (ctrl && e.key === '/')) {
@@ -779,10 +956,15 @@
             if (fabricCanvas) {
                 const active = fabricCanvas.getActiveObjects();
                 if (active.length > 0) {
-                    active.forEach((obj) => fabricCanvas.remove(obj));
+                    let hadMeasure = false;
+                    active.forEach((obj) => {
+                        if (obj._measure) { hadMeasure = true; _removeMeasureExtras(obj._measure._mid); }
+                        fabricCanvas.remove(obj);
+                    });
                     fabricCanvas.discardActiveObject();
                     fabricCanvas.renderAll();
                     saveAnnotationState();
+                    if (hadMeasure && window.renderMeasureList) window.renderMeasureList();
                 }
             }
         } else if (!ctrl && !e.altKey) {
@@ -800,9 +982,33 @@
     }
 
     // ── File Handling ──
-    function handleFileSelect(e) {
+    async function handleFileSelect(e) {
         const file = e.target.files[0];
-        if (file) loadPDF(file);
+        e.target.value = ''; // allow re-picking the same file later
+        if (!file) return;
+        await _openOrMergeFile(file);
+    }
+
+    // Shared by the Open button AND drag-and-drop: if a document is already
+    // open, ask whether to REPLACE it (open as new) or MERGE the picked file in,
+    // so a drop never silently discards unsaved edits.
+    async function _openOrMergeFile(file) {
+        const hasDoc = !!(state.pdfDoc && state.pdfBytes);
+        if (hasDoc) {
+            const choice = await _choiceModal('Open PDF', 'A document is already open. What would you like to do?', [
+                { key: 'new',   label: 'Open as new PDF' },
+                { key: 'merge', label: 'Merge into current PDF' },
+            ]);
+            if (!choice) return;                       // cancelled
+            if (choice === 'merge') { await mergeFilesIntoDoc([file]); return; }
+        }
+        loadPDF(file);
+    }
+
+    // Merge one or more picked files into the currently open document, reusing
+    // the same engine as the Merge button (so Open→Merge and Merge stay in sync).
+    async function mergeFilesIntoDoc(files) {
+        await handleMergeSelect({ target: { files, value: '' } });
     }
 
     function handleFileDrop(e) {
@@ -811,14 +1017,23 @@
         dom.dropZone.classList.remove('drag-over');
         const file = e.dataTransfer.files[0];
         if (file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
-            loadPDF(file);
+            _openOrMergeFile(file);   // same open-as-new / merge prompt as the Open button
+        } else if (file && (file.type.startsWith('image/') || /\.(png|jpe?g)$/i.test(file.name))) {
+            // The drop zone promises image->PDF; honor it (was rejecting images).
+            const imgs = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/') || /\.(png|jpe?g)$/i.test(f.name));
+            if (typeof convertImagesToPdf === 'function') convertImagesToPdf(imgs);
+            else showToast('Could not convert that image');
         } else if (file) {
-            showToast('Please drop a valid PDF file');
+            showToast('Drop a PDF, or a PNG/JPG image to convert into a PDF');
         }
     }
 
     async function loadPDF(file) {
         setStatus('Loading PDF...');
+        // Snapshot the currently-open document so a failed open doesn't leave
+        // state.pdfBytes (new, bad) disagreeing with state.pdfDoc (old) - which
+        // would make a later save/merge use the wrong bytes.
+        const _prevBytes = state.pdfBytes, _prevName = state.fileName;
         state.fileName = file.name;
 
         try {
@@ -851,6 +1066,10 @@
             // pdf-lib (Unlock, save, merge...) needs this to actually decrypt.
             state.pdfPassword = pdfPassword || null;
             if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
+            // Tear down any continuous view from a previous document so the new
+            // one builds fresh (it's now kept hidden between edits, not destroyed).
+            if (typeof destroyScrollView === 'function') destroyScrollView();
+            _savedScrollTop = null;
             state.pdfDoc = pdf;
             state.totalPages = pdf.numPages;
             state.currentPage = 1;
@@ -890,6 +1109,12 @@
                 if (b) b.disabled = false;
             }
             dom.searchToggle.disabled = false;
+            // Show the search bar by default so users can search without knowing
+            // Ctrl+F (Pranshu). It stays docked top-right; the x still closes it.
+            if (dom.searchBar) {
+                dom.searchBar.style.display = 'flex';
+                if (dom.searchInfo) dom.searchInfo.textContent = '0/0';
+            }
             dom.aiToggleBtn.disabled = false;
             dom.totalPages.textContent = state.totalPages;
             dom.pageInput.max = state.totalPages;
@@ -931,6 +1156,10 @@
                 setStatus('Opened a repaired copy of a damaged PDF');
                 return await loadPDF(new File([fixed], (file && file.name) || 'repaired.pdf', { type: 'application/pdf' }));
             } catch (err2) {
+                // Total failure: restore the previous document's bytes so state
+                // stays consistent (state.pdfDoc still points at the old doc).
+                state.pdfBytes = _prevBytes;
+                state.fileName = _prevName;
                 setStatus('Error loading PDF: ' + err.message);
                 showToast('This PDF could not be opened (damaged beyond repair)');
             }
@@ -951,7 +1180,39 @@
         // Save state on object modifications
         fabricCanvas.on('object:modified', (e) => {
             if (e && e.target && e.target.excludeFromExport) return; // crop box etc.
+            // Reshaping/moving a measurement must recompute its value (M3).
+            if (e && e.target && e.target._measure && typeof _remeasureShape === 'function') {
+                _remeasureShape(e.target);
+            }
+            // A dragged caption gets/updates its leader line back to the anchor (M22).
+            if (e && e.target && e.target._measureCaption && typeof _updateLeaderFor === 'function') {
+                _updateLeaderFor(e.target);
+            }
             saveAnnotationState();
+        });
+        // Live leader while dragging a caption.
+        fabricCanvas.on('object:moving', (e) => {
+            if (e && e.target && e.target._measureCaption && typeof _updateLeaderFor === 'function') {
+                _updateLeaderFor(e.target);
+            }
+        });
+        // A21: live angle readout while rotating, and Shift snaps to 15 deg.
+        fabricCanvas.on('object:rotating', (e) => {
+            const o = e && e.target; if (!o) return;
+            if (e.e && e.e.shiftKey) { o.angle = Math.round(o.angle / 15) * 15; }
+            setStatus('Rotation: ' + Math.round((o.angle % 360 + 360) % 360) + '°' + (e.e && e.e.shiftKey ? ' (snap 15)' : ' - hold Shift to snap'));
+        });
+        // A9: as a callout note grows, grow its body rect/ellipse so text never
+        // spills below the border.
+        fabricCanvas.on('text:changed', (e) => {
+            const t = e && e.target;
+            if (t && t._calloutBody) {
+                const needH = (t.height || 0) + 16;
+                const body = t._calloutBody;
+                if (body.type === 'ellipse') { if (needH / 2 > body.ry) { body.set({ ry: needH / 2 }); body.setCoords(); } }
+                else if (needH > (body.height || 0)) { body.set({ height: needH }); body.setCoords(); }
+                fabricCanvas.requestRenderAll();
+            }
         });
         fabricCanvas.on('object:added', (e) => {
             const o = e && e.target;
@@ -967,6 +1228,7 @@
                 cropRect = null;
                 clearCropDimOverlay();
                 updateCropDims();
+                if (typeof _syncCropApply === 'function') _syncCropApply();
             }
             updateUndoRedoButtons();
         });
@@ -985,6 +1247,52 @@
 
         // Handle text tool click
         fabricCanvas.on('mouse:down', handleCanvasClick);
+
+        // When text editing ends: drop an empty box (no orphan "Type here"), and
+        // snapshot a box that got content so it's undoable (A6). Fires for both
+        // the Text tool and Edit Text.
+        fabricCanvas.on('text:editing:exited', (e) => {
+            const o = e && e.target;
+            if (!o) return;
+            const empty = !o.text || !o.text.trim();
+            if (empty && o._isNewText) {
+                _isRestoring = true; fabricCanvas.remove(o); _isRestoring = false;
+                fabricCanvas.requestRenderAll();
+                return;
+            }
+            o._isNewText = false;
+            saveAnnotationState();   // now it's real content - make it undoable
+        });
+
+        // Right-click a measurement on the canvas -> the same context menu as the
+        // list row (M7: Edit / Duplicate / Copy / Delete).
+        if (fabricCanvas.upperCanvasEl) {
+            fabricCanvas.upperCanvasEl.addEventListener('contextmenu', (ev) => {
+                // Compute the click point in canvas space from the raw DOM event
+                // (getPointer expects a fabric-wrapped event; on a bare contextmenu
+                // it can misfire). Account for the CSS<->backing-store scale.
+                const el = fabricCanvas.upperCanvasEl;
+                const r = el.getBoundingClientRect();
+                const sx = (fabricCanvas.getWidth() || r.width) / r.width;
+                const sy = (fabricCanvas.getHeight() || r.height) / r.height;
+                const p = { x: (ev.clientX - r.left) * sx, y: (ev.clientY - r.top) * sy };
+                const hit = _measureHitAt(p);
+                if (hit && hit._measure && typeof _measureRowMenu === 'function') {
+                    ev.preventDefault();
+                    _measureRowMenu(ev, hit._measure._mid);
+                    return;
+                }
+                // Any other markup under the cursor -> a restyle/delete menu, so
+                // an existing object can be recolored/resized without hunting for
+                // the Select tool + pickers.
+                const obj = fabricCanvas.findTarget(ev, false) ||
+                    fabricCanvas.getObjects().slice().reverse().find(o => !o.excludeFromExport && o.containsPoint && o.containsPoint(new fabric.Point(p.x, p.y)));
+                if (obj && !obj.excludeFromExport && !obj._editTextGuide) {
+                    ev.preventDefault();
+                    _objectRestyleMenu(ev, obj);
+                }
+            });
+        }
 
         // Handle shape drawing
         fabricCanvas.on('mouse:down', handleShapeStart);
@@ -1095,6 +1403,8 @@
 
         state.currentPage = pageNum;
         dom.pageInput.value = pageNum;
+        // Each sheet can carry its own stored scale (Store Scale in Page).
+        _applyStoredScaleForPage(pageNum);
 
         setStatus(`Rendering page ${pageNum}...`);
 
@@ -1178,11 +1488,16 @@
                     const tx = item.transform;
                     const [vx, vy] = viewport.convertToViewportPoint(tx[4], tx[5]);
 
-                    // tx[3] is the font size in PDF user-space units.
-                    // Multiplied by zoom → exact font size in display pixels.
-                    // Keep it fractional (no rounding) so the edited text matches the
-                    // original size precisely and exports back at the exact point size.
-                    const fontSizePx = Math.max(Math.abs(tx[3]) * state.zoom, 6);
+                    // Font size in PDF user-space units. Use the full vertical
+                    // scale of the text matrix - hypot(tx[1], tx[3]) - NOT tx[3]
+                    // alone: when the matrix carries any skew/scale (common), tx[3]
+                    // under-reports and the edit box came up SMALLER than the
+                    // original glyphs, so double-click appeared to shrink the word
+                    // (Pranshu). This matches how search highlights measure size.
+                    // Multiplied by zoom -> exact size in display pixels, kept
+                    // fractional so the edit matches and exports at the true size.
+                    const fontUnits = Math.hypot(tx[1] || 0, tx[3] || 0) || Math.abs(tx[3]);
+                    const fontSizePx = Math.max(fontUnits * state.zoom, 6);
 
                     // Hit-detection box: use item.height (line height) when available for
                     // a generous clickable area, but fall back to fontSizePx.
@@ -1261,39 +1576,156 @@
         updateUndoRedoButtons();
     }
 
+    // Rotate a page's stored annotations by `deg` (90/180/270, CW) so markups
+    // follow the page instead of being discarded (M4). Fabric coordinates are in
+    // canvas px at the capture zoom; for 90 CW on a W x H canvas a point (x,y) ->
+    // (H - y, x) and the canvas becomes H x W. Measurements keep their values -
+    // geomPx (length/area) is rotation-invariant; only positions + angles move.
+    async function _rotatePageAnnotations(pageNum, deg) {
+        const entry = state.annotations[pageNum];
+        if (!entry) return;
+        const data = entry.fabricData || entry;
+        if (!data.objects || !data.objects.length) return;
+        const zoom = entry.zoom || 1;
+        // Pre-rotation canvas dimensions from the CURRENT pdf.js page (still the
+        // old orientation at this point) at the capture zoom.
+        let W, H;
+        try {
+            const pj = await state.pdfDoc.getPage(pageNum);
+            const vp = pj.getViewport({ scale: zoom });
+            W = vp.width; H = vp.height;
+        } catch (_) { return; }   // can't map without dimensions - leave as-is
+        const times = ((deg / 90) % 4 + 4) % 4;
+        if (!times) return;
+        // Enliven the objects so fabric's own geometry model does the transform,
+        // then rotate each about the canvas center-mapping for a 90 CW step. Doing
+        // it on live objects (not raw JSON) avoids the local-vs-absolute coordinate
+        // traps of line x1/y1 and polygon points.
+        const objs = await new Promise((res) => fabric.util.enlivenObjects(data.objects, res));
+        for (let t = 0; t < times; t++) {
+            const mapPt = (x, y) => ({ x: H - y, y: x });   // 90 CW on W x H canvas
+            objs.forEach((o) => {
+                if (!o) return;
+                const c = o.getCenterPoint();          // absolute center, all types
+                const nc = mapPt(c.x, c.y);
+                o.angle = ((o.angle || 0) + 90) % 360;  // rotate orientation
+                o.setPositionByOrigin(new fabric.Point(nc.x, nc.y), 'center', 'center');
+                o.setCoords();
+            });
+            [W, H] = [H, W];
+        }
+        // Re-serialize with the same custom props the export list carries so
+        // _measure etc. survive. toObject was patched globally to include them.
+        const rotated = objs.filter(Boolean).map(o => o.toObject());
+        const newData = { ...data, objects: rotated };
+        if (entry.fabricData) entry.fabricData = newData; else state.annotations[pageNum] = newData;
+        // Drop this page's undo/redo history: the pre-rotation snapshots are in
+        // the old coordinate space. (Rotate itself is undoable via pushDocSnapshot.)
+        delete state.undoStacks[pageNum];
+        delete state.redoStacks[pageNum];
+    }
+
+    // Debounced thumbnail refresh so markups appear in the strip (B8) without
+    // re-rendering every thumbnail on each stroke.
+    let _thumbRefreshT = null;
+    function _scheduleThumbRefresh() {
+        if (_thumbRefreshT) clearTimeout(_thumbRefreshT);
+        _thumbRefreshT = setTimeout(() => { _thumbRefreshT = null; try { generateThumbnails(); } catch (_) {} }, 900);
+    }
+
     // ── Undo / Redo ──
+    // A malformed IText per-character styles map makes fabric's stylesToArray
+    // throw ("Cannot read properties of undefined (reading 'end')") inside
+    // toJSON/toObject - which aborted saveAnnotationState and silently destroyed
+    // the undo stack (A5/A6 root cause). Repair any bad styles map before we
+    // serialize so the snapshot always succeeds.
+    function _sanitizeTextStyles() {
+        if (!fabricCanvas) return;
+        fabricCanvas.getObjects().forEach((o) => {
+            if ((o.type === 'i-text' || o.type === 'text' || o.type === 'textbox')) {
+                const s = o.styles;
+                if (s == null || typeof s !== 'object') { o.styles = {}; return; }
+                // Drop any line/char entry that isn't a plain object (the shape
+                // stylesToArray walks - a bad entry there is what throws).
+                for (const line of Object.keys(s)) {
+                    if (s[line] == null || typeof s[line] !== 'object') { delete s[line]; continue; }
+                    for (const ch of Object.keys(s[line])) {
+                        if (s[line][ch] == null || typeof s[line][ch] !== 'object') delete s[line][ch];
+                    }
+                }
+            }
+        });
+    }
+    function _safeCanvasJSON() {
+        try { return fabricCanvas.toJSON(); }
+        catch (e) {
+            console.warn('toJSON failed, repairing text styles and retrying:', e && e.message);
+            _sanitizeTextStyles();
+            try { return fabricCanvas.toJSON(); } catch (e2) { console.warn('toJSON still failing:', e2 && e2.message); return null; }
+        }
+    }
     function saveAnnotationState() {
         // Skip if we're in the middle of restoring annotations (loadFromJSON fires object:added)
         if (_isRestoring) return;
         markDirty();
+        _scheduleThumbRefresh();   // reflect the new/changed markup in thumbnails (B8)
         const page = state.currentPage;
         if (!state.undoStacks[page]) state.undoStacks[page] = [];
+        _sanitizeTextStyles();   // ensure serialization can't throw (A5/A6)
         // Seed a baseline snapshot representing the canvas *before* this action so
         // the very first annotation on a page can be undone (undo needs length > 1).
         if (state.undoStacks[page].length === 0) {
-            const baseline = fabricCanvas.toJSON();
-            baseline.objects = [];
-            state.undoStacks[page].push(JSON.stringify(baseline));
+            const baseline = _safeCanvasJSON();
+            if (baseline) { baseline.objects = []; state.undoStacks[page].push(JSON.stringify(baseline)); }
         }
-        const snap = fabricCanvas.toJSON();
+        const snap = _safeCanvasJSON();
+        if (!snap) { updateUndoRedoButtons(); return; }   // never abort silently
         snap.__zoom = state.zoom; // snapshot is only valid at this zoom
         state.undoStacks[page].push(JSON.stringify(snap));
         // Limit stack size
         if (state.undoStacks[page].length > 50) {
             state.undoStacks[page].shift();
         }
-        // Clear redo stack on new action
+        // Clear redo stack on new action (both per-page and the global order).
         state.redoStacks[page] = [];
+        _redoOrder.length = 0;
+        // A5: record the page in the global chronological timeline.
+        _undoOrder.push(page);
+        if (_undoOrder.length > 500) _undoOrder.shift();
         updateUndoRedoButtons();
     }
+    const _undoOrder = [];   // chronological page log - the single global timeline (A5)
+    const _redoOrder = [];   // pages available to redo, in reverse-chronological order
 
-    function undo() {
-        const page = state.currentPage;
-        const stack = state.undoStacks[page];
+    let _undoNavigating = false;   // suppress order-mutation during an undo-jump
+    function undo(_forcedPage) {
+        // A5: a SINGLE chronological timeline. The most recent action anywhere is
+        // the last entry in _undoOrder - undo that, jumping to its page first if
+        // needed. The jump is bundled into THIS press (one click = one action):
+        // we navigate, then finish the undo after render via _forcedPage, without
+        // re-consulting the order (so navigation side effects can't derail it).
+        const targetPage = _forcedPage != null ? _forcedPage
+            : (_undoOrder.length ? _undoOrder[_undoOrder.length - 1] : state.currentPage);
+        let stack = state.undoStacks[targetPage];
         if (!stack || stack.length <= 1) {
+            // Stale order entry (stack already drained) - drop it and retry.
+            if (_forcedPage == null && _undoOrder.length) { _undoOrder.pop(); if (_undoOrder.length) return undo(); }
             if (_docUndoStack.length) undoDocChange(); // e.g. undo a crop
             return;
         }
+        if (targetPage !== state.currentPage) {
+            _undoNavigating = true;
+            goToPage(targetPage);
+            // Finish the SAME undo after the page renders - one press, jump bundled.
+            setTimeout(() => { _undoNavigating = false; undo(targetPage); }, 220);
+            return;
+        }
+        const page = targetPage;
+        // Remove this page's most-recent entry from the timeline (not blindly the
+        // last, which after a jump could differ).
+        const oi = _undoOrder.lastIndexOf(page);
+        if (oi >= 0) _undoOrder.splice(oi, 1);
+        _redoOrder.push(page);            // it becomes redoable
 
         const current = stack.pop();
         if (!state.redoStacks[page]) state.redoStacks[page] = [];
@@ -1315,14 +1747,29 @@
             fabricCanvas.renderAll();
             applyToolMode();
             saveCurrentAnnotations(); // re-tag with the CURRENT zoom, coords now match
+            _scheduleThumbRefresh();  // A2: refresh the thumbnail so undone markups clear
+            if (window.renderMeasureList) window.renderMeasureList();
         });
         updateUndoRedoButtons();
     }
 
     function redo() {
-        const page = state.currentPage;
-        const redoStack = state.redoStacks[page];
-        if (!redoStack || redoStack.length === 0) return;
+        // A5: redo follows the global timeline too - the last undone action is
+        // the last entry in _redoOrder.
+        const targetPage = _redoOrder.length ? _redoOrder[_redoOrder.length - 1] : state.currentPage;
+        const redoStack = state.redoStacks[targetPage];
+        if (!redoStack || redoStack.length === 0) {
+            if (_redoOrder.length) { _redoOrder.pop(); if (_redoOrder.length) return redo(); }
+            return;
+        }
+        if (targetPage !== state.currentPage) {
+            goToPage(targetPage);
+            setTimeout(() => redo(), 250);
+            return;
+        }
+        const page = targetPage;
+        _redoOrder.pop();
+        _undoOrder.push(page);   // redone -> back on the undo timeline
 
         const next = redoStack.pop();
         if (!state.undoStacks[page]) state.undoStacks[page] = [];
@@ -1342,15 +1789,16 @@
             fabricCanvas.renderAll();
             applyToolMode();
             saveCurrentAnnotations();
+            _scheduleThumbRefresh();  // A2
+            if (window.renderMeasureList) window.renderMeasureList();
         });
         updateUndoRedoButtons();
     }
 
     function updateUndoRedoButtons() {
-        const page = state.currentPage;
-        dom.undoBtn.disabled = (!state.undoStacks[page] || state.undoStacks[page].length <= 1)
-            && _docUndoStack.length === 0;
-        dom.redoBtn.disabled = !state.redoStacks[page] || state.redoStacks[page].length === 0;
+        // A5: enabled state follows the global timeline.
+        dom.undoBtn.disabled = _undoOrder.length === 0 && _docUndoStack.length === 0;
+        dom.redoBtn.disabled = _redoOrder.length === 0;
     }
 
     // ── Page Navigation ──
@@ -1408,6 +1856,22 @@
     }
 
     function _maybeScrollZoom() { if (window.isScrollMode && window.isScrollMode()) { window.rerenderScrollForZoom(); return true; } return false; }
+    // Apply a freshly computed zoom to whichever view is active. In continuous
+    // scroll the single-page canvas is frozen, so renderPage() would do nothing
+    // (that was the "Fit does nothing" bug) - re-render the scroll view instead.
+    function _applyFitZoom(newZoom) {
+        const oldZoom = state.zoom;
+        state.zoom = Math.max(0.25, Math.min(4, newZoom));
+        dom.zoomLevel.textContent = Math.round(state.zoom * 100) + '%';
+        rescaleCanvasObjects(state.zoom / oldZoom);
+        saveCurrentAnnotations();
+        if (window.isScrollMode && window.isScrollMode()) {
+            window.rerenderScrollForZoom();   // resize every scroll page to the new zoom
+        } else {
+            renderPage(state.currentPage);
+        }
+    }
+
     function fitToPage() {
         if (!state.pdfDoc) return;
         requestAnimationFrame(() => {
@@ -1416,13 +1880,7 @@
                 const availW = dom.editorArea.clientWidth - 60;
                 const availH = dom.canvasScrollWrapper.clientHeight - 30;
                 if (availW <= 0 || availH <= 0) return;
-                const newZoom = Math.min(availW / viewport.width, availH / viewport.height);
-                const oldZoom = state.zoom;
-                state.zoom = Math.max(0.25, Math.min(4, newZoom));
-                dom.zoomLevel.textContent = Math.round(state.zoom * 100) + '%';
-                rescaleCanvasObjects(state.zoom / oldZoom);
-                saveCurrentAnnotations();
-                renderPage(state.currentPage);
+                _applyFitZoom(Math.min(availW / viewport.width, availH / viewport.height));
             });
         });
     }
@@ -1436,25 +1894,43 @@
                 const viewport = page.getViewport({ scale: 1 });
                 const containerWidth = dom.editorArea.clientWidth - 60; // padding
                 if (containerWidth <= 0) return; // layout not ready, skip
-                const newZoom = containerWidth / viewport.width;
-                const oldZoom = state.zoom;
-                state.zoom = Math.max(0.25, Math.min(4, newZoom));
-                dom.zoomLevel.textContent = Math.round(state.zoom * 100) + '%';
-                rescaleCanvasObjects(state.zoom / oldZoom);
-                saveCurrentAnnotations();
-                renderPage(state.currentPage);
+                _applyFitZoom(containerWidth / viewport.width);
             });
         });
+    }
+
+    // Per-tool remembered size (Bluebeam keeps properties per tool). Text wants a
+    // large default (font pt); draw/shape/highlight want a small stroke width.
+    const _toolSizeDefaults = { text: 20, draw: 4, shape: 2, highlight: 12, eraser: 10 };
+    const _toolSize = { ...(_toolSizeDefaults) };
+    let _prevSizeTool = null;
+    function _rememberAndApplyToolSize(tool) {
+        if (!dom.sizePicker) return;
+        // Save the outgoing tool's current size.
+        if (_prevSizeTool && _toolSize[_prevSizeTool] !== undefined) _toolSize[_prevSizeTool] = parseInt(dom.sizePicker.value, 10) || _toolSize[_prevSizeTool];
+        // Apply the incoming tool's remembered size.
+        if (_toolSize[tool] !== undefined) {
+            dom.sizePicker.value = _toolSize[tool];
+            if (dom.sizeValue) dom.sizeValue.textContent = _toolSize[tool];
+            const pb = document.getElementById('pbSizeSlider'), pv = document.getElementById('pbSizeVal');
+            if (pb) pb.value = _toolSize[tool]; if (pv) pv.textContent = _toolSize[tool];
+        }
+        _prevSizeTool = tool;
     }
 
     // ── Tool Management ──
     function setActiveTool(tool) {
         state.activeTool = tool;
+        _rememberAndApplyToolSize(tool);   // per-tool size (text pt vs stroke width)
 
         // Update button states
         document.querySelectorAll('[data-tool]').forEach((btn) => {
             btn.classList.toggle('active', btn.dataset.tool === tool);
         });
+        // The Measure button has no data-tool; clear its active state whenever a
+        // different tool is chosen (it re-highlights when a measure kind is picked).
+        const mBtn = document.getElementById('measureTool');
+        if (mBtn && tool !== 'shape') mBtn.classList.remove('active');
 
         // Clean up crop if switching away from crop tool
         if (tool !== 'crop' && cropRect) {
@@ -1464,31 +1940,65 @@
             dom.cropConfirmBar.style.display = 'none';
         }
 
-        // If image tool, open file picker immediately
+        // If image tool, open file picker immediately (A7: also give a hint and
+        // let a canvas click re-open the picker if the user cancelled).
         if (tool === 'image') {
+            applyToolMode();
+            setStatus('Insert image: choose a PNG or JPG to place on the page');
+            dom.imageInput.value = '';   // allow re-selecting the same file
             dom.imageInput.click();
             return;
         }
 
         applyToolMode();
+        // Clear a stale status line on tool change (e.g. a 'Count "Doors"...' hint
+        // lingering into unrelated work) unless the new tool set its own hint.
+        if (tool === 'select') setStatus('Ready');
     }
 
     function applyToolMode() {
         if (!fabricCanvas) return;
 
+        // While any tool other than Select is active, PDF link overlays must not
+        // intercept clicks (N1: mid-measurement clicks were jumping to hyperlinked
+        // sheets). A wrapper class flips their pointer-events off via CSS.
+        if (dom.canvasWrapper) dom.canvasWrapper.classList.toggle('markup-active', state.activeTool !== 'select');
+
         // Show/hide paint bar for draw/highlight tools
-        const isPaintTool = ['draw', 'highlight', 'eraser', 'shape'].includes(state.activeTool);
+        // A10: Text joins the paint tools so its color/size/font row shows the
+        // moment the tool is armed - you can style BEFORE typing, and there's no
+        // canvas jump when the first box mounts (the row was already there).
+        const isPaintTool = ['draw', 'highlight', 'eraser', 'shape', 'text'].includes(state.activeTool);
         dom.paintBar.classList.toggle('visible', isPaintTool);
+        // Close any open tool dropdown once a tool is armed, so it can't hang open
+        // over the paint bar and occlude the color/size controls (A1). Deferred so
+        // it runs AFTER the tool button's own menu-toggle on the same click.
+        if (isPaintTool) setTimeout(() => document.querySelectorAll('.dropdown-menu.open').forEach(m => m.classList.remove('open')), 0);
         dom.mainContainer.classList.toggle('with-paint-bar', isPaintTool);
 
         // Show the Whiteout toggle only while the eraser is active
         const eraserOptions = document.getElementById('eraserOptions');
         if (eraserOptions) eraserOptions.style.display = state.activeTool === 'eraser' ? 'flex' : 'none';
 
-        // The colour/size/font strip is retired: the TEXT formatting bar
+        // A10: font picker in the paint bar is only relevant to the Text tool.
+        const showFont = state.activeTool === 'text';
+        const fSec = document.getElementById('pbFontSection'), fSep = document.getElementById('pbFontSep');
+        if (fSec) fSec.style.display = showFont ? 'flex' : 'none';
+        if (fSep) fSep.style.display = showFont ? 'block' : 'none';
+
+        // The color/size/font strip is retired: the TEXT formatting bar
         // (shown when text is selected/edited) carries all those controls.
         const toolOptions = document.getElementById('toolOptions');
         if (toolOptions) toolOptions.style.display = 'none';
+
+        // Unmount the text/image contextual bar when the tool changes, unless the
+        // new tool is Select (where a text selection legitimately keeps it) - B3.
+        // Prevents the formatting row lingering after a tool/ribbon switch and the
+        // ~36px layout jump it caused (B7).
+        if (state.activeTool !== 'select') {
+            if (fabricCanvas.getActiveObject()) { _isRestoring = true; fabricCanvas.discardActiveObject(); _isRestoring = false; }
+            hideContextualBars();
+        }
 
         // Reset modes
         clearEraserCursor();
@@ -1512,8 +2022,12 @@
                 fabricCanvas.defaultCursor = 'text';
                 fabricCanvas.selection = false;
                 fabricCanvas.forEachObject((obj) => {
-                    obj.selectable = false;
-                    obj.evented = false;
+                    // Existing text stays editable so you can click it to re-edit
+                    // (text was write-once before); everything else is inert so a
+                    // click on empty canvas creates a new box.
+                    const isText = obj.type === 'i-text' || obj.type === 'text' || obj.type === 'textbox';
+                    obj.selectable = isText;
+                    obj.evented = isText;
                 });
                 break;
 
@@ -1558,7 +2072,9 @@
                     fabricCanvas.isDrawingMode = true;
                     fabricCanvas.freeDrawingBrush = new fabric.PencilBrush(fabricCanvas);
                     const hlOpacity = Math.min(parseInt(dom.opacityPicker.value, 10) / 100, 0.4);
-                    fabricCanvas.freeDrawingBrush.color = hexToRgba(dom.colorPicker.value, hlOpacity);
+                    // A11: a highlighter is translucent - black (the default) makes
+                    // an ugly grey bar, so default it to yellow like text-highlight.
+                    fabricCanvas.freeDrawingBrush.color = hexToRgba(_highlightColor(), hlOpacity);
                     fabricCanvas.freeDrawingBrush.width = Math.max(20, parseInt(dom.sizePicker.value, 10) * 3);
                 } else {
                     // Text-snap modes: drag over text, marks snap to the words.
@@ -1585,7 +2101,7 @@
                 fabricCanvas.forEachObject((obj) => { obj.selectable = false; obj.evented = false; });
 
                 if (_eraserWhiteout) {
-                    // Whiteout mode: paint the sampled background colour over content
+                    // Whiteout mode: paint the sampled background color over content
                     // (covers original PDF text / images — like a redaction/whiteout).
                     fabricCanvas.isDrawingMode = true;
                     fabricCanvas.freeDrawingBrush = new fabric.PencilBrush(fabricCanvas);
@@ -1614,6 +2130,7 @@
                     obj.evented = false;
                 });
                 dom.cropConfirmBar.style.display = 'flex';
+                _syncCropApply();   // starts disabled until a rectangle is drawn (B9)
                 break;
 
             case 'edittext':
@@ -1642,23 +2159,54 @@
 
         const pointer = fabricCanvas.getPointer(opt.e);
 
-        // Don't add text if clicking on existing object
-        if (opt.target) return;
+        // Clicking an EXISTING text box enters editing (text was write-once
+        // before - a click just selected it and swallowed keystrokes).
+        if (opt.target) {
+            const t = opt.target.type;
+            if ((t === 'i-text' || t === 'text' || t === 'textbox') && opt.target.enterEditing) {
+                fabricCanvas.setActiveObject(opt.target);
+                opt.target.enterEditing();
+                if (opt.target.selectAll) opt.target.selectAll();
+                fabricCanvas.requestRenderAll();
+            }
+            return;
+        }
 
-        const text = new fabric.IText('Type here', {
+        // A9: use a Textbox (wraps + grows in height) with its width clamped to
+        // the page edge, so text no longer runs off the right side and clips. A
+        // bare IText never wrapped.
+        const margin = 8;
+        const maxW = Math.max(60, fabricCanvas.getWidth() - pointer.x - margin);
+        const text = new fabric.Textbox('', {
             left: pointer.x,
             top: pointer.y,
-            fontSize: parseInt(dom.sizePicker.value, 10) + 14,
+            width: Math.min(240, maxW),
+            // Size slider = font size directly for text (was size+14, which made
+            // the paint-bar SIZE and the text bar's font size disagree, e.g. 30->44).
+            fontSize: Math.max(8, parseInt(dom.sizePicker.value, 10) || 20),
             fontFamily: dom.fontFamily.value,
             fill: dom.colorPicker.value,
             editable: true,
             cursorColor: dom.colorPicker.value,
+            // Whole bounding box is grabbable for moving (not just the glyphs).
+            perPixelTargetFind: false,
+            lockScalingFlip: true,
+            splitByGrapheme: false,
         });
+        text._isNewText = true;   // so an empty one can be auto-removed on blur (A6)
+        text._maxRight = fabricCanvas.getWidth() - margin;   // clamp reference
 
+        _isRestoring = true;      // don't snapshot the empty placeholder yet
         fabricCanvas.add(text);
+        _isRestoring = false;
         fabricCanvas.setActiveObject(text);
         text.enterEditing();
-        text.selectAll();
+        // Explicitly focus fabric's hidden textarea so the FIRST keystrokes are
+        // captured (they were being swallowed / scrolling the page instead).
+        try { if (text.hiddenTextarea) text.hiddenTextarea.focus(); } catch (_) {}
+        // Force an immediate paint so the caret/box shows without needing a
+        // scroll to trigger a repaint (the "invisible until repaint" bug).
+        fabricCanvas.requestRenderAll();
     }
 
     // ── Shape Tool (rect / circle / triangle / line / arrow / cloud) ──
@@ -1667,8 +2215,43 @@
     let shapeKind = 'rect';
     let shapeStyle = 'solid'; // solid | dashed | dotted
     // Exposed so the UI layer's Shape dropdown can pick the shape type/style.
-    window.setShapeKind = (k) => { shapeKind = k; };
+    window.setShapeKind = (k) => {
+        // Switching tools (or re-picking one) must abandon any half-drawn
+        // measurement - otherwise the leftover points + preview leak into the
+        // next tool and it finishes a bogus shape from the old anchor.
+        if (k !== shapeKind) { try { measureCancel(); } catch (_) {} }
+        shapeKind = k;
+        // One-line hint per measure tool so the click sequence + snapping is discoverable.
+        const hints = {
+            mangle:  'Angle: click first ray end, then the vertex, then the second ray end',
+            mradius: 'Radius: click the center, then the edge (shows radius + diameter)',
+            mvolume: 'Volume: outline the area, double-click to finish, then enter a depth',
+            mcount:  'Count "' + _countGroup + '": click to drop markers - set the group name via Measure > Count group',
+            mdynfill:'Dynamic fill: click inside an enclosed room to auto-measure its area',
+            mlength: 'Length: click two points. Hold Shift for straight/45 deg; snaps to nearby ends',
+            mpolylen:'Polyline length: click points along a run, double-click to finish (one total)',
+            mperim:  'Perimeter: click points, double-click to close. Shift = ortho, snaps to ends',
+            marea:   'Area: click points, double-click to close. Shift = ortho, snaps to ends',
+            mcutout: 'Area cutout: click inside an area, then outline the void, double-click to subtract',
+        };
+        if (hints[k]) setStatus(hints[k]);
+        // Re-apply tool mode so freshly-finished measurements become
+        // non-selectable while a measure tool is armed (M18: a click starts a
+        // point instead of selecting an existing markup).
+        if (_MEASURE_KINDS && _MEASURE_KINDS.includes(k) && state.activeTool === 'shape') {
+            try { applyToolMode(); } catch (_) {}
+            // The Measure button is the visually-active one, not Shapes (N4).
+            document.getElementById('shapeTool')?.classList.remove('active');
+            document.getElementById('measureTool')?.classList.add('active');
+        }
+    };
     window.setShapeStyle = (s) => { shapeStyle = s; };
+    // Activate the shape tool for the measure engine WITHOUT opening the Shapes
+    // dropdown (M9). Leaves scroll mode first so the edit canvas is live.
+    window.activateShapeToolForMeasure = () => {
+        if (window.isScrollMode && window.isScrollMode()) _exitScrollForOp();
+        setActiveTool('shape');
+    };
     const shapeDash = (w) => shapeStyle === 'dashed' ? [w * 3.5, w * 2.5]
         : shapeStyle === 'dotted' ? [Math.max(1, w * 0.5), w * 2.2] : null;
 
@@ -1772,22 +2355,11 @@
     }
     function handleCountClick(opt) {
         if (state.activeTool !== 'shape' || shapeKind !== 'count') return;
-        if (opt.target && opt.target._countMark) return; // don't stack on an existing marker
+        // S2: the old Shapes Count is unified with Measure > Count so there's ONE
+        // tally in the Markups list. Delegate to the measure count engine.
+        if (opt.target && (opt.target._countMark || opt.target._measurePt)) return;
         const p = fabricCanvas.getPointer(opt.e);
-        const color = dom.colorPicker.value;
-        const n = countNextNumber();
-        const R = Math.max(10, (parseInt(dom.sizePicker.value, 10) || 2) * 4);
-        const circle = new fabric.Circle({ radius: R, left: 0, top: 0, originX: 'center', originY: 'center',
-            fill: color, stroke: '#ffffff', strokeWidth: 2 });
-        const label = new fabric.Text(String(n), { left: 0, top: 0, originX: 'center', originY: 'center',
-            fontSize: R, fill: '#ffffff', fontWeight: 'bold', fontFamily: 'sans-serif' });
-        const grp = new fabric.Group([circle, label], { left: p.x, top: p.y, originX: 'center', originY: 'center' });
-        grp._countMark = true; grp._countNum = n;
-        fabricCanvas.add(grp);
-        grp.setCoords();
-        saveAnnotationState();
-        saveCurrentAnnotations();
-        setStatus('Count: ' + n + ' marked - click to add the next, or switch tools to stop');
+        placeCountMarker(p);
     }
 
     // ── Measurement / Dimension (Bluebeam-style, with scale calibration) ────────
@@ -1796,27 +2368,408 @@
     // real units. Stored per-document; persists until re-calibrated or a new doc.
     let measureScale = null;   // number (units per page-pixel) | null = uncalibrated
     let measureUnit = 'ft';    // display unit label
+    let _scaleLocked = false;  // when true, Calibrate/Set Scale are blocked
+    // Per-page stored scales: page number -> { scale, unit }. "Store Scale in
+    // Page" saves here so each sheet keeps its own calibration across page
+    // switches, save, and reload.
+    const _pageScales = {};
+    // Live-scale chip updater; reassigned to the real implementation below. A
+    // let-with-stub avoids a temporal-dead-zone error from callers that run
+    // during the first page render.
+    let _updateScaleChip = function () {};
+    function _applyStoredScaleForPage(pg) {
+        const s = _pageScales[pg];
+        if (s) { measureScale = s.scale; measureUnit = s.unit; }
+        else { measureScale = null; }   // each sheet is independent (M2)
+        if (typeof _updateScaleChip === 'function') _updateScaleChip();
+    }
+    // Express the live scale as a readable "1 in = X ft" plus unit + precision +
+    // lock, for the toolbar chip (M6). measureScale is real-units per page-pixel;
+    // page-pixels are PDF points, so 1 inch = 72 px.
+    function _scaleChipText() {
+        if (!measureScale) return 'No scale - click to set';
+        const perInch = measureScale * 72;   // real units represented by 1 inch on the page
+        const shown = perInch >= 100 ? perInch.toFixed(0) : perInch.toFixed(2);
+        return '1 in = ' + shown + ' ' + measureUnit + '  ·  ' + measureUnit + '  ·  ' + _mPrecision() + 'dp' + (_scaleLocked ? '  🔒' : '');
+    }
+    _updateScaleChip = function () {
+        const chip = document.getElementById('scaleChip');
+        if (chip) {
+            chip.style.display = (state && state.pdfDoc) ? 'inline-flex' : 'none';
+            chip.textContent = _scaleChipText();
+            chip.classList.toggle('scale-chip-unset', !measureScale);
+        }
+        // Keep the Measure menu's scale + lock labels honest (M6/M29).
+        if (window.updateMeasureMenuLabels) {
+            const perInch = measureScale ? measureScale * 72 : 0;
+            const scaleText = measureScale
+                ? 'Scale: 1 in = ' + (perInch >= 100 ? perInch.toFixed(0) : perInch.toFixed(2)) + ' ' + measureUnit + ' (click to change)'
+                : 'Set scale directly...';
+            window.updateMeasureMenuLabels({ scaleText, locked: _scaleLocked });
+        }
+    };
+    // Guard the two scale-setting entry points against an accidental change.
+    function _scaleChangeAllowed() {
+        if (_scaleLocked) {
+            showToast('Scale is locked - unlock it from the Measure menu to change it');
+            setStatus('Scale is locked');
+            return false;
+        }
+        return true;
+    }
+    window.toggleScaleLock = function () {
+        _scaleLocked = !_scaleLocked;
+        showToast(_scaleLocked ? 'Scale locked - it will not change accidentally' : 'Scale unlocked');
+        setStatus(_scaleLocked ? 'Scale: LOCKED' : 'Scale: unlocked');
+        _updateScaleChip();
+        return _scaleLocked;
+    };
+    window.storeScaleInPage = function () {
+        if (!measureScale) { showToast('Set a scale first, then store it'); return; }
+        _pageScales[state.currentPage] = { scale: measureScale, unit: measureUnit };
+        showToast('Scale stored on page ' + state.currentPage + ' - it will reload with this sheet');
+        setStatus('Scale stored in page ' + state.currentPage);
+        _updateScaleChip();
+    };
+    // ISO 32000 defines a page /VP viewport with a /Measure dict (the "embedded
+    // scale"). Read it via pdf-lib if present so a drawing that already carries a
+    // scale can be used without re-calibrating.
+    window.useEmbeddedScale = async function () {
+        if (!_scaleChangeAllowed()) return;
+        try {
+            const src = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
+            const page = src.getPage(state.currentPage - 1);
+            const vp = page.node.lookup(PDFLib.PDFName.of('VP'));
+            const found = _readEmbeddedMeasure(vp);
+            if (!found) { showToast('No embedded scale found in this PDF - use Calibrate or Set Scale'); return; }
+            measureScale = found.scale; measureUnit = found.unit;
+            _pageScales[state.currentPage] = { scale: measureScale, unit: measureUnit };
+            showToast('Using the PDF\'s embedded scale - measurements show in ' + measureUnit);
+            setStatus('Embedded scale loaded: measurements in ' + measureUnit);
+        } catch (e) { console.warn(e); showToast('Could not read an embedded scale from this PDF'); }
+    };
+    // Parse a /VP array's first /Measure /RL (ratio) into units-per-page-pixel.
+    function _readEmbeddedMeasure(vp) {
+        try {
+            const arr = (vp && vp.asArray) ? vp.asArray() : null;
+            if (!arr || !arr.length) return null;
+            for (const viewport of arr) {
+                const vpd = viewport && viewport.lookup ? viewport : null;
+                const measure = vpd && vpd.lookup(PDFLib.PDFName.of('Measure'));
+                const x = measure && measure.lookup && measure.lookup(PDFLib.PDFName.of('X'));
+                const xArr = x && x.asArray ? x.asArray() : null;
+                const nd = xArr && xArr[0];
+                // /X [ <numberformat> ] where the number format /C is units per point.
+                const c = nd && nd.lookup && nd.lookup(PDFLib.PDFName.of('C'));
+                const unitName = nd && nd.lookup && nd.lookup(PDFLib.PDFName.of('U'));
+                if (c && typeof c.asNumber === 'function') {
+                    // C = real units per default user-space unit (point). Convert
+                    // to per page-pixel (page px == point here).
+                    const unit = unitName && unitName.asString ? unitName.asString() : measureUnit;
+                    return { scale: c.asNumber(), unit: String(unit).replace(/[^a-zA-Z]/g, '') || measureUnit };
+                }
+            }
+        } catch (_) {}
+        return null;
+    }
     let measurePts = [];       // active measurement points (canvas px)
     let measurePreview = null; // live fabric preview
     let measureKind = null;    // 'mlength' | 'mperim' | 'marea' while collecting
     let pendingCalib = null;   // {p1, p2} awaiting the real-length prompt
+    let _cutoutTarget = null;  // the area shape a cutout is being subtracted from
+    // Measurements keep their OWN color, independent of the last drawing tool
+    // (M16). Defaults to a blueprint blue; the Edit dialog and a measure color
+    // control update it.
+    let _measureColorState = '#1971c2';
+    function _measureColor() { return _measureColorState; }
+    window.setMeasureColor = function (c) { if (c) _measureColorState = c; };
+    // Display precision (decimal places) for measurement values. 2 by default.
+    let _measurePrecision = 2;
+    function _mPrecision() { return _measurePrecision; }
+
+    // ── Tool Chest (S9): named presets of markup/measure style, saved locally.
+    // A preset captures color + thickness + optional subject + unit cost so a
+    // takeoff can reuse a consistent style with one click.
+    const _TOOLCHEST_KEY = 'pdfEditorToolChest';
+    let _toolChest = [];
+    let _activePreset = null;   // subject/cost to stamp onto the next measurements
+    function _loadToolChest() {
+        try { _toolChest = JSON.parse(localStorage.getItem(_TOOLCHEST_KEY) || '[]') || []; }
+        catch (_) { _toolChest = []; }
+    }
+    function _saveToolChest() {
+        try { localStorage.setItem(_TOOLCHEST_KEY, JSON.stringify(_toolChest)); } catch (_) {}
+    }
+    window.toolChestList = () => _toolChest.slice();
+    window.saveToolPreset = function (name) {
+        const nm = (name || '').trim();
+        if (!nm) return null;
+        const sw = parseInt(dom.sizePicker.value, 10) || 2;
+        const preset = { name: nm, color: _measureColor(), thickness: sw,
+                         subject: (_activePreset && _activePreset.subject) || '',
+                         unitCost: (_activePreset && _activePreset.unitCost) != null ? _activePreset.unitCost : null };
+        const i = _toolChest.findIndex(p => p.name === nm);
+        if (i >= 0) _toolChest[i] = preset; else _toolChest.push(preset);
+        _saveToolChest();
+        return preset;
+    };
+    window.applyToolPreset = function (name) {
+        const p = _toolChest.find(x => x.name === name);
+        if (!p) return;
+        _measureColorState = p.color || _measureColorState;
+        if (dom.sizePicker) dom.sizePicker.value = p.thickness || dom.sizePicker.value;
+        if (dom.colorPicker) dom.colorPicker.value = p.color || dom.colorPicker.value;
+        _activePreset = { subject: p.subject || '', unitCost: p.unitCost };
+        // Count sessions drop into the preset's subject too.
+        if (p.subject && window.setCountGroup) window.setCountGroup(p.subject);
+        showToast('Preset "' + p.name + '" active - new markups use it');
+        setStatus('Tool preset: ' + p.name);
+    };
+    window.deleteToolPreset = function (name) {
+        _toolChest = _toolChest.filter(p => p.name !== name);
+        _saveToolChest();
+        window.renderToolChest && window.renderToolChest();
+    };
+    window.renderToolChest = function () {
+        const wrap = document.getElementById('toolChestChips');
+        if (!wrap) return;
+        if (!_toolChest.length) { wrap.innerHTML = '<span class="tool-chest-empty">No presets yet</span>'; return; }
+        const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+        wrap.innerHTML = _toolChest.map(p => {
+            const active = _activePreset && p.subject && _activePreset.subject === p.subject;
+            return `<button class="tool-chest-chip${active ? ' active' : ''}" data-preset="${escH(p.name)}" title="Apply preset (right-click to delete)">
+                <span class="tc-dot" style="background:${escH(p.color)}"></span>${escH(p.name)}</button>`;
+        }).join('');
+        wrap.querySelectorAll('.tool-chest-chip').forEach(chip => {
+            const name = chip.getAttribute('data-preset');
+            chip.addEventListener('click', () => { window.applyToolPreset(name); window.renderToolChest(); });
+            chip.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                if (confirm('Delete preset "' + name + '"?')) window.deleteToolPreset(name);
+            });
+        });
+    };
+    _loadToolChest();
+    // Global show/hide for all measurement captions on the plan (M21).
+    let _measureLabelsHidden = false;
+    window.toggleMeasureLabels = function () {
+        _measureLabelsHidden = !_measureLabelsHidden;
+        if (fabricCanvas) {
+            fabricCanvas.forEachObject((o) => {
+                if (o._midLink && o.type === 'text') o.set({ visible: !_measureLabelsHidden });
+            });
+            fabricCanvas.requestRenderAll(); saveCurrentAnnotations();
+        }
+        showToast(_measureLabelsHidden ? 'Measurement labels hidden' : 'Measurement labels shown');
+        return _measureLabelsHidden;
+    };
+    window.setMeasurePrecision = function (n) { _measurePrecision = Math.max(0, Math.min(6, n | 0)); if (window.renderMeasureList) window.renderMeasureList(); };
 
     // Canvas px -> page px (undo the zoom) so measurements are zoom-independent.
     const toPagePx = (d) => d / (state.zoom || 1);
+
+    // ── Snapping ────────────────────────────────────────────────────────────
+    // Ortho: hold Shift to lock the segment being drawn to 0/45/90 deg off the
+    // previous point. Endpoint: snap the cursor to a nearby vertex of an existing
+    // measurement markup so chained take-offs meet exactly.
+    let _snapShift = false;   // updated from key state on every measure move/click
+    const SNAP_PX = 10;       // endpoint snap radius, in canvas px
+    function _orthoSnap(from, p) {
+        if (!from) return p;
+        const dx = p.x - from.x, dy = p.y - from.y;
+        const ang = Math.atan2(dy, dx);
+        const step = Math.PI / 4;                       // 45 deg increments
+        const snapAng = Math.round(ang / step) * step;
+        const len = Math.hypot(dx, dy);
+        return { x: from.x + Math.cos(snapAng) * len, y: from.y + Math.sin(snapAng) * len };
+    }
+    function _endpointSnap(p) {
+        // Scan existing measurement shapes on the canvas for a nearby vertex.
+        let best = null, bestD = SNAP_PX;
+        fabricCanvas.forEachObject((o) => {
+            if (!o._measure && !o._measurePt) return;
+            const verts = [];
+            if (o.type === 'line') { verts.push({ x: o.x1, y: o.y1 }, { x: o.x2, y: o.y2 }); }
+            else if (o.points && o.points.length) {
+                // Polyline/Polygon points are relative to the object's own origin.
+                const ox = o.left, oy = o.top;
+                const px0 = o.pathOffset ? o.pathOffset.x : 0, py0 = o.pathOffset ? o.pathOffset.y : 0;
+                o.points.forEach(pt => verts.push({ x: ox + (pt.x - px0), y: oy + (pt.y - py0) }));
+            } else if (o._measurePt) { verts.push({ x: o.left, y: o.top }); }
+            for (const v of verts) {
+                const d = Math.hypot(v.x - p.x, v.y - p.y);
+                if (d < bestD) { bestD = d; best = v; }
+            }
+        });
+        return best || p;
+    }
+    // Snap to Content: find the nearest dark pixel of the rendered PDF (a drawn
+    // line/edge) to the cursor, by scanning the page bitmap. Works for vector or
+    // raster content since it reads the actual rendered pixels. The page canvas
+    // is rendered at zoom*1.5 while the fabric canvas is at display size, so we
+    // scale between the two. Returns a fabric-canvas point, or the input if none.
+    let _snapContent = false;   // toggled from the measure menu
+    const CONTENT_SNAP_PX = 12; // search radius in fabric-canvas px
+    function _contentSnap(p) {
+        const pc = dom.pdfCanvas;
+        if (!pc || !pc.width) return p;
+        const sx = pc.width / (fabricCanvas.getWidth() || 1);   // page-px per fabric-px (~1.5)
+        const sy = pc.height / (fabricCanvas.getHeight() || 1);
+        const cx = Math.round(p.x * sx), cy = Math.round(p.y * sy);
+        const rx = Math.round(CONTENT_SNAP_PX * sx), ry = Math.round(CONTENT_SNAP_PX * sy);
+        const x0 = Math.max(0, cx - rx), y0 = Math.max(0, cy - ry);
+        const w = Math.min(pc.width - x0, rx * 2), h = Math.min(pc.height - y0, ry * 2);
+        if (w <= 0 || h <= 0) return p;
+        let data;
+        try { data = pc.getContext('2d').getImageData(x0, y0, w, h).data; } catch (_) { return p; }
+        let best = null, bestD = Infinity;
+        for (let yy = 0; yy < h; yy++) {
+            for (let xx = 0; xx < w; xx++) {
+                const i = (yy * w + xx) * 4;
+                // "dark enough to be a line" - low luminance, opaque.
+                if (data[i + 3] > 40 && (data[i] + data[i + 1] + data[i + 2]) < 360) {
+                    const gx = x0 + xx, gy = y0 + yy;
+                    const d = (gx - cx) * (gx - cx) + (gy - cy) * (gy - cy);
+                    if (d < bestD) { bestD = d; best = { x: gx / sx, y: gy / sy }; }
+                }
+            }
+        }
+        return best || p;
+    }
+
+    // Apply snapping to a raw pointer position given the anchor it extends from.
+    function _snapPoint(p, from) {
+        let out = _endpointSnap(p);                     // endpoint (own markups) wins
+        if (out === p && _snapContent) out = _contentSnap(p);   // then PDF content
+        if (out === p && _snapShift && from) out = _orthoSnap(from, p);  // then ortho
+        return out;
+    }
+    window.toggleSnapContent = function () {
+        _snapContent = !_snapContent;
+        showToast(_snapContent ? 'Snap to Content on - measurements snap to drawing lines'
+                               : 'Snap to Content off');
+        setStatus(_snapContent ? 'Snap to Content: ON' : 'Snap to Content: OFF');
+        return _snapContent;
+    };
+
+    // Absolute canvas-space vertices of a fabric polygon/polyline object.
+    // Fabric stores points relative to the point-set's own min corner and places
+    // the object at left/top = that min corner (default originX/Y left/top). Using
+    // pathOffset (the bbox CENTER) as the base is wrong and shifts every vertex,
+    // so anchor on the actual min of the points instead.
+    function _absVerts(o) {
+        const pts = o.points || [];
+        if (!pts.length) return [];
+        let minX = Infinity, minY = Infinity;
+        for (const pt of pts) { if (pt.x < minX) minX = pt.x; if (pt.y < minY) minY = pt.y; }
+        const m = o.calcTransformMatrix ? o.calcTransformMatrix() : null;
+        return pts.map(pt => {
+            // Local coords relative to the object's top-left origin.
+            const lx = pt.x - minX, ly = pt.y - minY;
+            if (m) {
+                // Honor any move/scale/rotate applied after creation.
+                return { x: m[0] * (pt.x - o.pathOffset.x) + m[2] * (pt.y - o.pathOffset.y) + m[4],
+                         y: m[1] * (pt.x - o.pathOffset.x) + m[3] * (pt.y - o.pathOffset.y) + m[5] };
+            }
+            return { x: o.left + lx, y: o.top + ly };
+        });
+    }
+    // Ray-casting point-in-polygon.
+    function _pointInPoly(p, verts) {
+        let inside = false;
+        for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+            const a = verts[i], b = verts[j];
+            if (((a.y > p.y) !== (b.y > p.y)) &&
+                (p.x < (b.x - a.x) * (p.y - a.y) / ((b.y - a.y) || 1e-9) + a.x)) inside = !inside;
+        }
+        return inside;
+    }
+    // Distance from point p to segment a-b, in canvas px.
+    function _distToSeg(p, a, b) {
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const len2 = dx * dx + dy * dy;
+        let t = len2 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2 : 0;
+        t = Math.max(0, Math.min(1, t));
+        const cx = a.x + t * dx, cy = a.y + t * dy;
+        return Math.hypot(p.x - cx, p.y - cy);
+    }
+    // The measurement under a point, tolerant enough for thin lines (M7). Areas/
+    // volumes: point-in-polygon; lines/polylines/perimeters/angles: within TOL of
+    // any segment; radius line: near the line; count dot: within its radius.
+    function _measureHitAt(p) {
+        const TOL = 8;
+        let best = null, bestD = Infinity;
+        fabricCanvas.forEachObject((o) => {
+            if (!o._measure) return;
+            const m = o._measure;
+            if ((m.area || m.cubic) && o.points) {
+                if (_pointInPoly(p, _absVerts(o))) { if (bestD > 0) { best = o; bestD = 0; } }
+                return;
+            }
+            if (o.type === 'line') {
+                const mtx = o.calcTransformMatrix(); const c = o.calcLinePoints();
+                const a = fabric.util.transformPoint({ x: c.x1, y: c.y1 }, mtx);
+                const b = fabric.util.transformPoint({ x: c.x2, y: c.y2 }, mtx);
+                const d = _distToSeg(p, a, b);
+                if (d < TOL && d < bestD) { best = o; bestD = d; }
+            } else if (o.points) {
+                const v = _absVerts(o);
+                for (let i = 1; i < v.length; i++) {
+                    const d = _distToSeg(p, v[i - 1], v[i]);
+                    if (d < TOL && d < bestD) { best = o; bestD = d; }
+                }
+            } else if (m.kind === 'mcount') {
+                const d = Math.hypot(p.x - o.left, p.y - o.top);
+                if (d < (o.radius || 8) + 4 && d < bestD) { best = o; bestD = d; }
+            }
+        });
+        return best;
+    }
+
+    // The Area (or Volume) measurement polygon under a point, if any.
+    function _areaShapeAt(p) {
+        let hit = null;
+        fabricCanvas.forEachObject((o) => {
+            if (hit) return;
+            if (!o._measure || !o.points) return;
+            if (o._measure.kind !== 'marea' && o._measure.kind !== 'mvolume') return;
+            if (_pointInPoly(p, _absVerts(o))) hit = o;
+        });
+        return hit;
+    }
+
+    // Length units, all expressed in millimetres (the base) so any unit can be
+    // converted to any other. PDF user space is 72 points = 1 inch = 25.4 mm.
+    const UNIT_MM = { mm: 1, cm: 10, m: 1000, in: 25.4, ft: 304.8, yd: 914.4 };
+    const PT_PER_MM = 72 / 25.4;   // points per millimetre (page px are PDF points)
+
+    // Set the scale DIRECTLY (no drawing): "pageVal pageUnit on the page = realVal
+    // realUnit in the real world" - e.g. 1 in = 10 ft. Computes measureScale
+    // (real-units-per-page-pixel) so all readouts come out in realUnit.
+    async function setScaleDirect(pageVal, pageUnit, realVal, realUnit) {
+        const pagePerPx = 1 / PT_PER_MM / UNIT_MM[pageUnit];  // pageUnits represented by 1 page px
+        const realPerPage = (realVal / pageVal);              // realUnits per 1 pageUnit
+        const newScale = pagePerPx * realPerPage;             // realUnits per page px
+        await _applyScaleChange(newScale, realUnit,
+            'Scale set: ' + pageVal + ' ' + pageUnit + ' = ' + realVal + ' ' + realUnit);
+        return;
+    }
+    window.setMeasureScaleDirect = setScaleDirect;
 
     function fmtMeasure(pagePixels, kind) {
         if (!measureScale) return '(set scale first)';
         if (kind === 'area') {
             const val = pagePixels * measureScale * measureScale; // px^2 -> unit^2
-            return val.toFixed(2) + ' ' + measureUnit + '²';
+            return _fmtNum(val) + ' ' + measureUnit + '²';
         }
         const val = pagePixels * measureScale;
-        return val.toFixed(2) + ' ' + measureUnit;
+        return _fmtNum(val) + ' ' + measureUnit;
     }
 
     function measureStyleBase() {
         const sw = parseInt(dom.sizePicker.value, 10) || 2;
-        return { stroke: dom.colorPicker.value, strokeWidth: sw, fill: 'transparent',
+        // Measurements use their own color state, NOT the last drawing tool's (M16).
+        return { stroke: _measureColor(), strokeWidth: sw, fill: 'transparent',
                  selectable: false, objectCaching: false };
     }
 
@@ -1838,9 +2791,97 @@
     }
 
     function measureLabel(text, x, y) {
-        return new fabric.Text(text, { left: x, top: y, fontSize: 14, fill: '#ffffff',
+        // Auto-nudge so a new caption doesn't land exactly on an existing one (M22).
+        const pos = _avoidLabelOverlap(x, y);
+        const t = new fabric.Text(text, { left: pos.x, top: pos.y, fontSize: 14, fill: '#ffffff',
             backgroundColor: 'rgba(0,0,0,0.72)', fontFamily: 'sans-serif', padding: 3,
-            originX: 'center', originY: 'center', selectable: false });
+            originX: 'center', originY: 'center',
+            // Draggable so the user can pull an overlapping label aside; a leader
+            // line then connects it back to the measurement (M22).
+            selectable: true, hasControls: false, hasBorders: true, lockScalingX: true, lockScalingY: true, lockRotation: true,
+            visible: !_measureLabelsHidden });
+        // A16: keep the caption inside the page - clamp its center so half its
+        // width/height can't hang off the edge and get clipped.
+        try {
+            const cw = fabricCanvas.getWidth(), ch = fabricCanvas.getHeight();
+            const hw = (t.width || 40) / 2 + 4, hh = (t.height || 16) / 2 + 4;
+            t.set({ left: Math.max(hw, Math.min(cw - hw, t.left)), top: Math.max(hh, Math.min(ch - hh, t.top)) });
+        } catch (_) {}
+        t._measureCaption = true;
+        t._anchor = { x, y };   // where the label belongs (for the leader line)
+        // Follow the active layer so the caption hides/saves with its markup (M31).
+        t._layerId = state.activeLayer;
+        return t;
+    }
+
+    // Nudge a new label position if it would sit right on top of an existing
+    // measurement caption. Simple spiral of small offsets until clear.
+    function _avoidLabelOverlap(x, y) {
+        if (!fabricCanvas) return { x, y };
+        const near = (ax, ay) => {
+            let clash = false;
+            fabricCanvas.forEachObject((o) => {
+                if (o._measureCaption && Math.abs(o.left - ax) < 22 && Math.abs(o.top - ay) < 14) clash = true;
+            });
+            return clash;
+        };
+        if (!near(x, y)) return { x, y };
+        const steps = [[0,-18],[0,18],[26,0],[-26,0],[0,-36],[0,36],[26,-18],[-26,18]];
+        for (const [dx, dy] of steps) if (!near(x + dx, y + dy)) return { x: x + dx, y: y + dy };
+        return { x: x, y: y + 18 };
+    }
+
+    // Draw/refresh the leader line from a caption to its anchor when the caption
+    // has been dragged away from where it belongs (M22).
+    function _updateLeaderFor(lbl) {
+        if (!lbl || !lbl._anchor) return;
+        // Remove any existing leader for this label (by live ref, or by mid after
+        // a reload where the ref was lost).
+        const old = fabricCanvas.getObjects().find(o => o._isLeader &&
+            (o._leaderFor === lbl || (lbl._midLink && o._decorFor === lbl._midLink)));
+        if (old) { _isRestoring = true; fabricCanvas.remove(old); _isRestoring = false; }
+        const dx = lbl.left - lbl._anchor.x, dy = lbl.top - lbl._anchor.y;
+        // Only draw a leader once the label is a meaningful distance from anchor.
+        if (Math.hypot(dx, dy) < 24) return;
+        const leader = new fabric.Line([lbl._anchor.x, lbl._anchor.y, lbl.left, lbl.top], {
+            stroke: 'rgba(0,0,0,0.55)', strokeWidth: 1, strokeDashArray: [3, 2],
+            selectable: false, evented: false, objectCaching: false });
+        leader._leaderFor = lbl;                 // live ref (not serialized)
+        leader._measureDecor = true;
+        leader._decorFor = lbl._midLink;         // so it's cleaned up with the measurement
+        leader._isLeader = true;
+        leader._layerId = lbl._layerId;
+        _isRestoring = true; fabricCanvas.add(leader); leader.moveTo(0); _isRestoring = false;
+    }
+
+    // Decorative angle arc + short extension marks at the vertex (M25). Tagged
+    // _measureDecor so it is cleaned up with its parent measurement.
+    function drawAngleArc(pts, color, mid) {
+        const [a, b, c] = pts;
+        const r = Math.min(28, Math.hypot(a.x - b.x, a.y - b.y) * 0.4, Math.hypot(c.x - b.x, c.y - b.y) * 0.4) || 20;
+        let a1 = Math.atan2(a.y - b.y, a.x - b.x);
+        let a2 = Math.atan2(c.y - b.y, c.x - b.x);
+        // Sweep the short way between the rays.
+        let d = a2 - a1; while (d <= -Math.PI) d += 2 * Math.PI; while (d > Math.PI) d -= 2 * Math.PI;
+        const steps = Math.max(6, Math.round(Math.abs(d) / (Math.PI / 24)));
+        const path = [];
+        for (let i = 0; i <= steps; i++) {
+            const ang = a1 + d * (i / steps);
+            path.push({ x: b.x + Math.cos(ang) * r, y: b.y + Math.sin(ang) * r });
+        }
+        const arc = new fabric.Polyline(path, { stroke: color, strokeWidth: 1.5, fill: '', selectable: false, evented: false, objectCaching: false });
+        arc._measureDecor = true; arc._decorFor = mid; arc._layerId = state.activeLayer;
+        _isRestoring = true; fabricCanvas.add(arc); _isRestoring = false;
+    }
+
+    // Decorative circle for a radius measurement (M26). center in canvas px,
+    // radiusPx the drawn radius in canvas px.
+    function drawRadiusCircle(center, radiusPx, color, mid) {
+        const circ = new fabric.Circle({ left: center.x, top: center.y, radius: radiusPx,
+            originX: 'center', originY: 'center', stroke: color, strokeWidth: 1.2,
+            fill: '', strokeDashArray: [4, 3], selectable: false, evented: false, objectCaching: false });
+        circ._measureDecor = true; circ._decorFor = mid; circ._layerId = state.activeLayer;
+        _isRestoring = true; fabricCanvas.add(circ); _isRestoring = false;
     }
 
     function measureRedraw(livePt) {
@@ -1848,38 +2889,416 @@
         const pts = livePt ? [...measurePts, livePt] : [...measurePts];
         if (pts.length < 2) return;
         const base = measureStyleBase();
-        const shape = (measureKind === 'marea')
+        const areaKind = (measureKind === 'marea' || measureKind === 'mvolume');
+        const shape = (measureKind === 'mcutout')
+            ? new fabric.Polygon(pts, { ...base, fill: 'rgba(245,76,76,0.18)', stroke: '#e03131' })
+            : areaKind
             ? new fabric.Polygon(pts, { ...base, fill: 'rgba(76,110,245,0.12)' })
             : new fabric.Polyline(pts, { ...base, fill: '' });
         _isRestoring = true; fabricCanvas.add(shape); measurePreview = shape; _isRestoring = false;
         fabricCanvas.renderAll();
     }
 
+    // Count tool: drop a small numbered dot. Each marker is its own measurement
+    // row (type "Count"); the Markups List tallies them.
+    // Unique id per measurement so the Markups List can select/edit the exact
+    // shape (and its linked label) even across page switches and reloads.
+    let _midSeq = 0;
+    function _newMid() { _midSeq += 1; return 'm' + _midSeq + '_' + (state.currentPage || 1); }
+    // Stamp id + editable-property defaults onto a freshly created _measure.
+    // geomPx is the scale-INDEPENDENT raw measure in page-pixels (length px,
+    // area px^2, or a fixed value like degrees) so the real value can always be
+    // recomputed as geomPx * scale^power. scaleAt records the calibration the
+    // measurement was taken under, so we can detect/flag mixed-scale totals.
+    function _tagMeasure(shape, m, geomPx) {
+        m._mid = _newMid();
+        // An active Tool Chest preset (S9) stamps its subject + unit cost onto
+        // new measurements so a takeoff stays consistent.
+        if (_activePreset) {
+            if (_activePreset.subject && m.subject === undefined) m.subject = _activePreset.subject;
+            if (_activePreset.unitCost != null && m.unitCost === undefined) m.unitCost = _activePreset.unitCost;
+        }
+        if (m.subject === undefined) m.subject = m.type;   // Bluebeam "Subject"
+        m.color = shape.stroke || _measureColor();
+        m.thickness = shape.strokeWidth || 2;
+        if (geomPx !== undefined) m.geomPx = geomPx;
+        m.scaleAt = (m.kind === 'mangle' || m.kind === 'mcount') ? null : measureScale;
+        m.scaleUnitAt = measureUnit;
+        return m;
+    }
+    // The exponent scale is raised to for a given measurement kind.
+    function _scalePow(m) { return m.cubic ? 3 : m.area ? 2 : 1; }
+    // Recompute a measurement's real value from its stored raw geometry and the
+    // CURRENT scale. Angle/count don't depend on scale. Volume keeps its depth.
+    function _recomputeMeasure(m) {
+        if (!m || m.geomPx == null) return;
+        if (m.kind === 'mangle' || m.kind === 'mcount') return;   // scale-free
+        if (!measureScale) return;
+        if (m.kind === 'mvolume') {
+            const areaNow = m.geomPx * measureScale * measureScale;   // geomPx here = area px^2
+            m.baseArea = areaNow;
+            m.value = areaNow * (m.depth || 1);
+        } else {
+            m.value = m.geomPx * Math.pow(measureScale, _scalePow(m));
+            if (m.kind === 'mradius') m.diameter = m.value * 2;
+        }
+        m.unit = measureUnit;
+        m.scaleAt = measureScale; m.scaleUnitAt = measureUnit;   // now current
+    }
+    // Recompute a measurement's raw geometry (geomPx) from the shape's CURRENT
+    // vertices after the user drags/reshapes it, then its value + label (M3).
+    // Accounts for any post-creation scale/move via the transform matrix.
+    function _remeasureShape(shape) {
+        const m = shape._measure; if (!m) return;
+        if (m.kind === 'mangle') {
+            // Recompute the angle from the polyline's 3 absolute vertices.
+            const v = _absVerts(shape);
+            if (v.length >= 3) { m.value = angleDeg([v[0], v[1], v[2]]); _relabelMeasure(m, shape); }
+            return;
+        }
+        if (m.kind === 'mcount') return;
+        if (shape.type === 'line') {
+            // Endpoints in absolute canvas space via the transform matrix.
+            const mtx = shape.calcTransformMatrix();
+            const c = shape.calcLinePoints();   // local coords relative to center
+            const a = fabric.util.transformPoint({ x: c.x1, y: c.y1 }, mtx);
+            const b = fabric.util.transformPoint({ x: c.x2, y: c.y2 }, mtx);
+            m.geomPx = toPagePx(Math.hypot(b.x - a.x, b.y - a.y));
+        } else if (shape.points) {
+            const v = _absVerts(shape);
+            if (m.area || m.cubic) m.geomPx = toPagePx(toPagePx(polyAreaPx(v)));
+            else m.geomPx = toPagePx(polyLenPx(v, m.kind === 'mperim'));
+        }
+        _recomputeMeasure(m);
+        _relabelMeasure(m, shape);
+        if (window.renderMeasureList) window.renderMeasureList();
+    }
+
+    // Refresh the on-plan caption text of a measurement to match its value.
+    function _relabelMeasure(m, shape) {
+        const lbl = fabricCanvas && fabricCanvas.getObjects().find(o => o._midLink === m._mid && o.type === 'text');
+        if (!lbl) return;
+        if (m.label) { lbl.set({ text: m.label }); return; }   // custom label wins
+        lbl.set({ text: _autoLabelText(m) });
+    }
+    // The default on-plan caption for a measurement (² / ³ / ° rendered right).
+    function _autoLabelText(m) {
+        if (m.kind === 'mcount') return String(m.value);
+        if (m.kind === 'mangle') return _fmtNum(m.value) + '°';
+        if (m.kind === 'mradius') return 'R ' + _fmtNum(m.value) + ' ' + m.unit
+            + '  (Ø ' + _fmtNum(m.diameter || m.value * 2) + ' ' + m.unit + ')';
+        if (m.cubic) return _fmtNum(m.value) + ' ' + m.unit + '³'
+            + (m.depth ? '  (d ' + m.depth + ' ' + m.unit + ')' : '');
+        const suf = m.area ? '²' : '';
+        const pre = m.kind === 'mperim' ? 'Perimeter: ' : m.kind === 'marea' ? 'Area: ' : '';
+        return pre + _fmtNum(m.value) + ' ' + m.unit + suf;
+    }
+    // Recompute every measurement on the current page against the live scale and
+    // refresh labels + the list. Returns how many were changed.
+    function _recomputeAllOnPage() {
+        if (!fabricCanvas) return 0;
+        let n = 0;
+        fabricCanvas.forEachObject((o) => {
+            if (o._measure && o._measure.geomPx != null && o._measure.kind !== 'mangle' && o._measure.kind !== 'mcount') {
+                _recomputeMeasure(o._measure); _relabelMeasure(o._measure, o); n++;
+            }
+        });
+        if (n) { fabricCanvas.requestRenderAll(); saveAnnotationState(); saveCurrentAnnotations(); }
+        if (window.renderMeasureList) window.renderMeasureList();
+        return n;
+    }
+
+    let _countSeq = 0;
+    let _countGroup = 'Count';   // the subject the current count session drops into (M27)
+    window.setCountGroup = function (name) { _countGroup = (name || 'Count').trim() || 'Count'; };
+    // A15: name + color the current count group, so counts of different kinds
+    // (columns, fixtures, ...) tally separately with their own color.
+    window.openCountGroupDialog = async function () {
+        const v = await _toolModal('Count group', `
+            <label class="modal-label">Group name (what you're counting):</label>
+            <input type="text" class="modal-input" data-k="name" value="${(_countGroup || 'Count').replace(/"/g,'&quot;')}" placeholder="e.g. Columns, Fixtures">
+            <label class="stamp-date-row" style="padding:10px 0 0;"><span>Marker color</span>
+                <input type="color" data-k="color" value="${_measureColor()}"></label>`, 'Set Group');
+        if (!v) return;
+        _countGroup = (v.name || 'Count').trim() || 'Count';
+        if (v.color) _measureColorState = v.color;
+        // A15: arm the Count tool so the next clicks actually count (before, the
+        // previously-active tool stayed live and clicks made length measurements).
+        if (window.activateShapeToolForMeasure) window.activateShapeToolForMeasure();
+        document.getElementById('shapeMenu')?.classList.remove('open');
+        window.setShapeKind && window.setShapeKind('mcount');
+        document.getElementById('measureTool')?.classList.add('active');
+        setStatus('Count "' + _countGroup + '": click to drop markers under this group');
+        showToast('Counting "' + _countGroup + '"');
+    };
+    function placeCountMarker(p) {
+        const color = _measureColor();
+        const dot = new fabric.Circle({ left: p.x, top: p.y, radius: 6, fill: color,
+            stroke: '#fff', strokeWidth: 1.5, originX: 'center', originY: 'center', selectable: true });
+        _countSeq += 1;
+        const num = new fabric.Text(String(_countSeq), { left: p.x, top: p.y - 16, fontSize: 12,
+            fill: '#fff', backgroundColor: color, fontFamily: 'sans-serif', padding: 2,
+            originX: 'center', originY: 'center', selectable: false });
+        dot._measurePt = true;   // so endpoint-snap can see it
+        dot._measure = _tagMeasure(dot, { kind: 'mcount', type: 'Count', value: 1, unit: '', area: false,
+                         page: state.currentPage, label: '', subject: _countGroup });
+        dot._measure.color = color;   // fill color, so the list swatch isn't empty (M27)
+        num._measureLabelFor = dot._measure;
+        num._midLink = dot._measure._mid;
+        fabricCanvas.add(dot); fabricCanvas.add(num);
+        saveAnnotationState(); saveCurrentAnnotations();
+        if (window.renderMeasureList) window.renderMeasureList();
+        setStatus('Count "' + _countGroup + '": ' + _countSeq + ' - click to add more, switch tools when done');
+    }
+
+    // Set Scale dialog (Bluebeam-style): type the scale directly, e.g. 1 in =
+    // 10 ft, with unit dropdowns - no need to draw a known line.
+    async function openSetScaleDialog() {
+        if (!_scaleChangeAllowed()) return;
+        _exitScrollForOp();
+        const unitOpts = (sel) => ['mm','cm','m','in','ft','yd']
+            .map(u => `<option value="${u}"${u===sel?' selected':''}>${u}</option>`).join('');
+        // Preload the CURRENT scale so the dialog reflects reality (M6). Derive a
+        // clean "1 pageUnit = realVal realUnit" from measureScale if one is set.
+        let curPageUnit = 'in', curRealUnit = measureUnit || 'ft', curRealVal = 10;
+        if (measureScale) {
+            curRealVal = +(measureScale * 72).toFixed(4);   // real units per inch
+        }
+        const presets = [
+            ['', 'Presets...'],
+            ['1|in|10|ft', '1 in = 10 ft'],
+            ['0.125|in|1|ft', '1/8" = 1\'-0"'],
+            ['0.25|in|1|ft', '1/4" = 1\'-0"'],
+            ['0.5|in|1|ft', '1/2" = 1\'-0"'],
+            ['1|in|20|ft', '1 in = 20 ft'],
+            ['1|mm|20|mm', '1:20'],
+            ['1|mm|50|mm', '1:50'],
+            ['1|mm|100|mm', '1:100'],
+        ].map(([v2, l]) => `<option value="${v2}">${l}</option>`).join('');
+        const precOpts = [0,1,2,3,4].map(n => `<option value="${n}"${n===_mPrecision()?' selected':''}>${n} dp</option>`).join('');
+        const v = await _toolModal('Set Scale', `
+            <p class="modal-hint" style="margin:0 0 10px;">Enter the drawing scale directly, or pick a preset. Example: 1 in = 10 ft means one inch on the page equals ten feet in real life.</p>
+            <select class="modal-input" data-k="preset" style="width:100%;margin-bottom:10px;">${presets}</select>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <input type="number" class="modal-input" data-k="pageVal" value="1" step="any" style="width:70px;">
+                <select class="modal-input" data-k="pageUnit" style="width:70px;">${unitOpts(curPageUnit)}</select>
+                <span style="font-weight:700;">=</span>
+                <input type="number" class="modal-input" data-k="realVal" value="${curRealVal}" step="any" style="width:90px;">
+                <select class="modal-input" data-k="realUnit" style="width:70px;">${unitOpts(curRealUnit)}</select>
+            </div>
+            <div style="display:flex;gap:14px;align-items:flex-end;margin-top:12px;flex-wrap:wrap;">
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Precision
+                  <select class="modal-input" data-k="precision" style="width:90px;">${precOpts}</select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Apply to
+                  <select class="modal-input" data-k="scope" style="width:150px;">
+                    <option value="page">This page</option>
+                    <option value="all">All pages</option>
+                  </select>
+                </label>
+            </div>
+            <p class="modal-hint" style="margin:12px 0 0;">Prefer to measure a known distance instead? Use "Calibrate by drawing a known line".</p>`,
+            'Set Scale', (overlay) => {
+                // Preset dropdown fills the four fields.
+                const presetSel = overlay.querySelector('[data-k="preset"]');
+                presetSel && presetSel.addEventListener('change', () => {
+                    if (!presetSel.value) return;
+                    const [pv, pu, rv, ru] = presetSel.value.split('|');
+                    overlay.querySelector('[data-k="pageVal"]').value = pv;
+                    overlay.querySelector('[data-k="pageUnit"]').value = pu;
+                    overlay.querySelector('[data-k="realVal"]').value = rv;
+                    overlay.querySelector('[data-k="realUnit"]').value = ru;
+                });
+            });
+        if (!v) return;
+        const pv = parseFloat(v.pageVal), rv = parseFloat(v.realVal);
+        if (!(pv > 0) || !(rv > 0)) { showToast('Enter valid numbers on both sides'); return; }
+        // Apply precision immediately and re-render (N3). Parse carefully: "0 dp"
+        // is a valid choice, so `parseInt(...) || 2` would WRONGLY snap 0 back to
+        // 2 (0 is falsy). Use the parsed value whenever it's a real number.
+        if (v.precision !== undefined) {
+            const pp = parseInt(v.precision, 10);
+            _measurePrecision = Number.isFinite(pp) ? Math.max(0, Math.min(6, pp)) : _measurePrecision;
+            _recomputeAllOnPage();   // relabels every measurement at the new precision
+        }
+        const newScale = (1 / PT_PER_MM / UNIT_MM[v.pageUnit]) * (rv / pv);
+        // N2: if the scale value is unchanged (e.g. the user only touched
+        // precision), don't fire the "scale changed - recalculate?" prompt.
+        const scaleUnchanged = measureScale != null && v.realUnit === measureUnit
+            && Math.abs(newScale - measureScale) < 1e-9;
+        if (scaleUnchanged) { _updateScaleChip(); showToast('Updated'); return; }
+        if (v.scope === 'all') {
+            // Set the same scale on every page (M6 "apply to all").
+            for (let i = 1; i <= (state.totalPages || 1); i++) _pageScales[i] = { scale: newScale, unit: v.realUnit };
+            measureScale = newScale; measureUnit = v.realUnit;
+            _recomputeAllOnPage(); _updateScaleChip();
+            showToast('Scale applied to all ' + (state.totalPages || 1) + ' pages');
+        } else {
+            await setScaleDirect(pv, v.pageUnit, rv, v.realUnit);
+        }
+    }
+    window.openSetScaleDialog = openSetScaleDialog;
+
+    // Ask the real length of the calibration line via the in-page modal and set
+    // the scale. Kept separate so handleMeasureClick stays sync.
+    async function _finishCalibration(px) {
+        if (!_scaleChangeAllowed()) return;
+        // Loop until valid or cancelled, so bad input doesn't strand a half-state
+        // with the calibration line already gone (M17).
+        let realLen = null, unit = measureUnit;
+        for (;;) {
+            const ans = await customPrompt(
+                'Enter the real length of the line you drew (number + unit), e.g. 10 ft, 5 m, 24 in:',
+                'e.g. 10 ft', realLen == null ? '10 ft' : '');
+            if (!ans) { setStatus('Calibration cancelled - scale unchanged'); return; }
+            const m = ans.trim().match(/^([\d.]+)\s*([a-zA-Z"']+)?$/);
+            if (m && parseFloat(m[1]) > 0) { realLen = parseFloat(m[1]); unit = m[2] || measureUnit; break; }
+            showToast('Could not read that - try like "10 ft". Enter again or Cancel.');
+        }
+        const newScale = realLen / toPagePx(px);   // units per page-pixel
+        await _applyScaleChange(newScale, unit, 'Calibrated: ' + realLen + ' ' + unit);
+    }
+
+    // Central scale-change path (M1/M12). Sets the scale, stores it on the page,
+    // and - if measurements already exist on this page - offers to recompute them
+    // so the totals never silently mix scales.
+    async function _applyScaleChange(newScale, newUnit, desc) {
+        const existing = fabricCanvas ? fabricCanvas.getObjects().filter(o =>
+            o._measure && o._measure.geomPx != null &&
+            o._measure.kind !== 'mangle' && o._measure.kind !== 'mcount') : [];
+        measureScale = newScale; measureUnit = newUnit;
+        _pageScales[state.currentPage] = { scale: measureScale, unit: measureUnit };
+        if (existing.length) {
+            const choice = await _choiceModal('Scale changed',
+                'You changed the scale with ' + existing.length + ' measurement' +
+                (existing.length > 1 ? 's' : '') + ' already on this page. Recalculate ' +
+                (existing.length > 1 ? 'them' : 'it') + ' to the new scale, or keep the values as originally taken?',
+                [{ key: 'recalc', label: 'Recalculate' }, { key: 'keep', label: 'Keep as taken' }]);
+            if (choice === 'recalc') {
+                const n = _recomputeAllOnPage();
+                showToast('Scale set (' + newUnit + ') - recalculated ' + n + ' measurement' + (n > 1 ? 's' : ''));
+            } else {
+                // Leave old values but mark them so mixed-scale totals can be flagged.
+                if (window.renderMeasureList) window.renderMeasureList();
+                showToast('Scale set (' + newUnit + ') - existing measurements kept as taken');
+            }
+        } else {
+            showToast('Scale set - measurements will show in ' + newUnit);
+        }
+        setStatus(desc + ' - measurements in ' + newUnit);
+        _updateScaleChip();
+    }
+
+    // ── Dynamic Fill (H2) ───────────────────────────────────────────────────
+    // Click inside an enclosed region on the plan; flood-fill the rendered page
+    // bitmap to find the room, compute its area by counting interior pixels
+    // (converted through the scale), and drop an Area measurement. This is the
+    // "paint-bucket" takeoff: no clicking each corner.
+    async function dynamicFillAt(canvasPt) {
+        if (!measureScale) { showToast('Set the scale first'); return; }
+        const pc = dom.pdfCanvas;
+        if (!pc || !pc.width) { showToast('Open a page first'); return; }
+        const sx = pc.width / (fabricCanvas.getWidth() || 1);   // page-px per fabric-px
+        const sy = pc.height / (fabricCanvas.getHeight() || 1);
+        const W = pc.width, H = pc.height;
+        let data;
+        try { data = pc.getContext('2d').getImageData(0, 0, W, H).data; } catch (_) { showToast('Cannot read the page pixels'); return; }
+        const startX = Math.round(canvasPt.x * sx), startY = Math.round(canvasPt.y * sy);
+        if (startX < 0 || startY < 0 || startX >= W || startY >= H) return;
+        const idx = (x, y) => (y * W + x) * 4;
+        // A pixel is "wall/line" (a barrier) if it's dark; interior is light.
+        const isWall = (x, y) => { const i = idx(x, y); return data[i + 3] > 40 && (data[i] + data[i + 1] + data[i + 2]) < 360; };
+        if (isWall(startX, startY)) { showToast('Click inside an open area, not on a line'); return; }
+        // Scanline flood fill over light pixels, bounded so a leak can't fill the
+        // whole sheet. Cap at ~1/3 of the page.
+        const cap = Math.floor(W * H / 3);
+        const visited = new Uint8Array(W * H);
+        const stack = [[startX, startY]];
+        let count = 0; let minX = startX, maxX = startX, minY = startY, maxY = startY;
+        setStatus('Dynamic fill: detecting the enclosed area...');
+        while (stack.length) {
+            const [x, y] = stack.pop();
+            if (x < 0 || y < 0 || x >= W || y >= H) continue;
+            const f = y * W + x;
+            if (visited[f]) continue;
+            if (isWall(x, y)) continue;
+            visited[f] = 1; count++;
+            if (count > cap) { showToast('That area is not enclosed - the fill leaked out'); setStatus('Ready'); return; }
+            if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+            stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+        }
+        if (count < 50) { showToast('That region is too small to measure'); setStatus('Ready'); return; }
+        // Interior pixel count -> page-px^2 -> real area. Each page px covers
+        // (1/sx)*(1/sy) fabric-px, and toPagePx converts fabric-px to page-px.
+        const fabricAreaPx2 = count / (sx * sy);              // area in fabric px^2
+        const pageAreaPx2 = toPagePx(toPagePx(fabricAreaPx2)); // page px^2 (undo zoom)
+        const realArea = pageAreaPx2 * measureScale * measureScale;
+        // Draw a translucent rectangle over the detected bounds as a visual marker
+        // (a full outline trace would be heavier; the bounds + label read clearly).
+        const rx = minX / sx, ry = minY / sy, rw = (maxX - minX) / sx, rh = (maxY - minY) / sy;
+        const base = measureStyleBase(); base.selectable = true;
+        const rect = new fabric.Rect({ left: rx, top: ry, width: rw, height: rh,
+            fill: 'rgba(45,158,68,0.16)', stroke: base.stroke, strokeWidth: base.strokeWidth,
+            strokeDashArray: [6, 4], selectable: true, objectCaching: false });
+        // Use polygon-style _measure but store geomPx as the true filled area so
+        // scale-recompute keeps working.
+        rect._measure = _tagMeasure(rect, { kind: 'marea', type: 'Area', value: realArea, unit: measureUnit,
+            area: true, page: state.currentPage, label: '', dynamicFill: true }, pageAreaPx2);
+        fabricCanvas.add(rect);
+        const cx = rx + rw / 2, cy = ry + rh / 2;
+        const lbl = measureLabel(_autoLabelText(rect._measure), cx, cy);
+        lbl.selectable = true; lbl._midLink = rect._measure._mid; lbl._measureLabelFor = rect._measure;
+        fabricCanvas.add(lbl);
+        fabricCanvas.requestRenderAll();
+        saveAnnotationState(); saveCurrentAnnotations();
+        if (window.renderMeasureList) window.renderMeasureList();
+        setStatus('Dynamic fill: area ' + realArea.toFixed(_mPrecision()) + ' ' + measureUnit + '²');
+    }
+
+    const _MEASURE_KINDS = ['mlength', 'mpolylen', 'mperim', 'marea', 'mcutout', 'mcalibrate', 'mangle', 'mradius', 'mvolume', 'mcount', 'mdynfill'];
+    // True while a measure tool is armed or a measurement is mid-draw - lets the
+    // ribbon's global Escape handler defer to us so it doesn't collapse (M10).
+    window.isMeasureActive = () => (state.activeTool === 'shape' && _MEASURE_KINDS.includes(shapeKind)) || !!measureKind;
+    // True whenever any markup tool (not plain select/pan) is active, so PDF link
+    // overlays don't hijack clicks meant for the canvas (B2).
+    function _isMarkupModeActive() { return state.activeTool && state.activeTool !== 'select'; }
+    // Exposed so the ribbon's Escape handler leaves the group open while a markup
+    // tool is armed (B4).
+    window.isEditorMarkupActive = _isMarkupModeActive;
+    // In-page confirm for arming Redact (S1) - window.confirm can be dropped in an
+    // iframe, so use the styled choice modal.
+    window.confirmRedact = async function () {
+        const choice = await _choiceModal('Redact content',
+            'Redaction permanently removes the content under each box when you save the PDF. This cannot be undone after download. Draw the boxes, then Save to apply. Continue?',
+            [{ key: 'go', label: 'Continue' }]);
+        return choice === 'go';
+    };
     function handleMeasureClick(opt) {
         if (state.activeTool !== 'shape') return;
-        if (!['mlength', 'mperim', 'marea', 'mcalibrate'].includes(shapeKind)) return;
-        const p = fabricCanvas.getPointer(opt.e);
+        if (!_MEASURE_KINDS.includes(shapeKind)) return;
+        _snapShift = !!(opt.e && opt.e.shiftKey);
+        const raw = fabricCanvas.getPointer(opt.e);
+        const anchor = measurePts.length ? measurePts[measurePts.length - 1] : null;
+        const p = _snapPoint(raw, anchor);
+
+        // Count: each click drops a numbered marker; no scale required.
+        if (shapeKind === 'mcount') { placeCountMarker(p); return; }
+
+        // Dynamic fill: one click inside a room auto-detects the area.
+        if (shapeKind === 'mdynfill') { dynamicFillAt(p); return; }
 
         if (shapeKind === 'mcalibrate') {
-            // Two clicks define a known distance, then prompt for its real length.
+            // Two clicks define a known distance, then ask its real length.
             measurePts.push({ x: p.x, y: p.y });
             measureRedraw();
             if (measurePts.length === 2) {
                 const px = polyLenPx(measurePts, false);
                 if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
                 measurePts = [];
-                const ans = window.prompt('Calibrate scale:\nYou drew a line. Enter its REAL length and unit, e.g. "10 ft" or "5 m":', '10 ft');
-                if (ans) {
-                    const m = ans.trim().match(/^([\d.]+)\s*([a-zA-Z"']+)?$/);
-                    if (m) {
-                        const realLen = parseFloat(m[1]);
-                        measureUnit = m[2] || measureUnit;
-                        measureScale = realLen / toPagePx(px);  // units per page-pixel
-                        setStatus('Scale set: 1 page-pixel = ' + measureScale.toFixed(4) + ' ' + measureUnit + '. Now use Length/Area/Perimeter.');
-                        showToast('Scale calibrated - measurements will show in ' + measureUnit);
-                    } else { showToast('Could not read that - try like "10 ft"'); }
-                }
                 fabricCanvas.renderAll();
+                // Use the in-page modal (not window.prompt, which browsers can
+                // silently drop inside an iframe) so the scale entry always shows.
+                _finishCalibration(px);
             } else {
                 setStatus('Calibrate: click the second end of a KNOWN distance');
             }
@@ -1888,50 +3307,239 @@
 
         // Measurement tools need a scale first.
         if (!measureScale) {
-            showToast('Set the scale first: pick "Calibrate scale" and draw a known distance');
-            setStatus('Measurement needs a scale - use "Calibrate scale" first');
+            showToast('Set the scale first: pick "Calibrate by drawing a known line"');
+            setStatus('Measurement needs a scale - use "Calibrate by drawing a known line" first');
             return;
         }
-        measureKind = (shapeKind === 'mlength') ? 'mlength' : (shapeKind === 'marea' ? 'marea' : 'mperim');
+
+        // Area cutout: first click picks the area to cut from, then the void is
+        // outlined; double-click subtracts it from that area's value.
+        if (shapeKind === 'mcutout') {
+            if (!_cutoutTarget) {
+                const hit = _areaShapeAt(p);
+                if (!hit) { showToast('Click inside an existing Area measurement first'); return; }
+                _cutoutTarget = hit;
+                measureKind = 'mcutout';
+                setStatus('Now outline the void inside the area - double-click to subtract');
+                return;
+            }
+            measureKind = 'mcutout';
+            measurePts.push({ x: p.x, y: p.y });
+            measureRedraw();
+            setStatus('Cutout: click void corners - double-click to subtract');
+            return;
+        }
+
+        measureKind = shapeKind;    // mlength | mpolylen | mperim | marea | mangle | mradius | mvolume
         measurePts.push({ x: p.x, y: p.y });
         measureRedraw();
+        // Auto-finish at the natural point count for the fixed-vertex tools.
         if (measureKind === 'mlength' && measurePts.length === 2) measureFinish();
-        else setStatus('Click to add points - double-click (or Enter) to finish, Esc to cancel');
+        else if (measureKind === 'mradius' && measurePts.length === 2) measureFinish();
+        else if (measureKind === 'mangle' && measurePts.length === 3) measureFinish();
+        else if (measureKind === 'mangle')
+            setStatus(measurePts.length === 1 ? 'Angle: click the vertex' : 'Angle: click the second ray end');
+        else {
+            // Kind-specific continuation text so it doesn't contradict the arming
+            // hint (M19). Backspace removes the last point (M20).
+            const cont = {
+                mlength:  'Length: click the second point to finish (Shift = straight/45 deg)',
+                mradius:  'Radius: click the edge to finish',
+                mpolylen: 'Polyline: click the next point - double-click or Enter to finish, Backspace to undo, Esc to cancel',
+                mperim:   'Perimeter: click the next corner - double-click or Enter to close, Backspace to undo, Esc to cancel',
+                marea:    'Area: click the next corner - double-click or Enter to close, Backspace to undo, Esc to cancel',
+                mvolume:  'Volume: click the next corner - double-click or Enter to finish, Backspace to undo, Esc to cancel',
+                mcutout:  'Cutout: click the next void corner - double-click to subtract, Backspace to undo, Esc to cancel',
+            };
+            setStatus(cont[measureKind] || 'Click to add points - double-click (or Enter) to finish, Esc to cancel');
+        }
     }
     function handleMeasureMove(opt) {
         if (!measureKind || !measurePts.length) return;
-        const p = fabricCanvas.getPointer(opt.e);
-        measureRedraw({ x: p.x, y: p.y });
+        _snapShift = !!(opt.e && opt.e.shiftKey);
+        const raw = fabricCanvas.getPointer(opt.e);
+        const p = _snapPoint(raw, measurePts[measurePts.length - 1]);
+        measureRedraw(p);
+        _updateLiveReadout(p);
+    }
+
+    // Live running readout next to the cursor while drawing (M20): running
+    // length / area / angle, plus dx/dy for the current segment.
+    let _liveReadout = null;
+    function _updateLiveReadout(p) {
+        const pts = [...measurePts, p];
+        let txt = '';
+        const prev = measurePts[measurePts.length - 1];
+        const dx = toPagePx(Math.abs(p.x - prev.x)), dy = toPagePx(Math.abs(p.y - prev.y));
+        const P = _mPrecision();
+        if (measureKind === 'mangle' && pts.length >= 3) {
+            txt = angleDeg([pts[0], pts[1], pts[2]]).toFixed(P) + '°';
+        } else if (measureKind === 'marea' || measureKind === 'mvolume' || measureKind === 'mcutout') {
+            if (measureScale && pts.length >= 3) txt = 'A ' + (toPagePx(toPagePx(polyAreaPx(pts))) * measureScale * measureScale).toFixed(P) + ' ' + measureUnit + '²';
+            else if (measureScale) txt = 'seg ' + (toPagePx(polyLenPx([prev, p], false)) * measureScale).toFixed(P) + ' ' + measureUnit;
+        } else if (measureScale) {
+            const closed = measureKind === 'mperim';
+            const total = toPagePx(polyLenPx(pts, closed)) * measureScale;
+            const seg = toPagePx(polyLenPx([prev, p], false)) * measureScale;
+            txt = total.toFixed(P) + ' ' + measureUnit + (pts.length > 2 ? '  (seg ' + seg.toFixed(P) + ')' : '');
+        }
+        if (measureScale && txt && measureKind !== 'mangle') {
+            txt += '   Δx ' + (dx * measureScale).toFixed(P) + '  Δy ' + (dy * measureScale).toFixed(P);
+        }
+        if (!txt) { _clearLiveReadout(); return; }
+        if (_liveReadout) { _isRestoring = true; fabricCanvas.remove(_liveReadout); _isRestoring = false; }
+        _liveReadout = new fabric.Text(txt, { left: p.x + 14, top: p.y - 10, fontSize: 12, fill: '#fff',
+            backgroundColor: 'rgba(25,113,194,0.92)', fontFamily: 'sans-serif', padding: 3,
+            selectable: false, evented: false, excludeFromExport: true });
+        _isRestoring = true; fabricCanvas.add(_liveReadout); _isRestoring = false;
+        fabricCanvas.requestRenderAll();
+    }
+    function _clearLiveReadout() {
+        if (_liveReadout) { _isRestoring = true; fabricCanvas.remove(_liveReadout); _isRestoring = false; _liveReadout = null; }
+    }
+    // Angle at pts[1] (vertex) between rays to pts[0] and pts[2], in degrees.
+    function angleDeg(pts) {
+        const [a, b, c] = pts;
+        const v1 = { x: a.x - b.x, y: a.y - b.y };
+        const v2 = { x: c.x - b.x, y: c.y - b.y };
+        const dot = v1.x * v2.x + v1.y * v2.y;
+        const m = Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y) || 1;
+        return Math.acos(Math.max(-1, Math.min(1, dot / m))) * 180 / Math.PI;
     }
     function measureFinish() {
         if (!measureKind) return;
+        _clearLiveReadout();
         if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
         const pts = measurePts;
-        const need = measureKind === 'marea' ? 3 : 2;
-        if (pts.length >= need) {
-            const base = measureStyleBase(); base.selectable = true;
-            let label, cx, cy;
-            if (measureKind === 'mlength') {
+        // Angle needs 3 pts; area/volume need 3; radius/length need 2.
+        const need = (measureKind === 'marea' || measureKind === 'mvolume' || measureKind === 'mangle') ? 3 : 2;
+
+        // Angle: report degrees, no scale needed.
+        if (measureKind === 'mangle') {
+            if (pts.length >= 3) {
+                const base = measureStyleBase(); base.selectable = true; base.fill = '';
+                const shape = new fabric.Polyline([pts[0], pts[1], pts[2]], base);
+                fabricCanvas.add(shape);
+                const deg = angleDeg(pts);
+                shape._measure = _tagMeasure(shape, { kind: 'mangle', type: 'Angle', value: deg, unit: '°',
+                                   area: false, page: state.currentPage, label: '' }, null);
+                drawAngleArc(pts, shape._measure.color, shape._measure._mid);   // arc (M25)
+                const lbl = measureLabel(deg.toFixed(_mPrecision()) + '°', pts[1].x + 14, pts[1].y - 14);
+                lbl.selectable = true; lbl._measureLabelFor = shape._measure; lbl._midLink = shape._measure._mid;
+                fabricCanvas.add(lbl);
+                saveAnnotationState(); saveCurrentAnnotations();
+                if (window.renderMeasureList) window.renderMeasureList();
+            }
+            measurePts = []; measureKind = null; fabricCanvas.renderAll(); setStatus('Ready'); return;
+        }
+
+        // Radius / diameter: two clicks = center + edge (radius) OR edge-to-edge.
+        // We treat it as a straight distance and report both radius and diameter.
+        if (measureKind === 'mradius') {
+            if (pts.length >= 2 && measureScale) {
+                const base = measureStyleBase(); base.selectable = true;
                 const shape = new fabric.Line([pts[0].x, pts[0].y, pts[1].x, pts[1].y], base);
                 fabricCanvas.add(shape);
-                label = fmtMeasure(toPagePx(polyLenPx(pts, false)), 'len');
-                cx = (pts[0].x + pts[1].x) / 2; cy = (pts[0].y + pts[1].y) / 2 - 12;
-            } else if (measureKind === 'mperim') {
-                const shape = new fabric.Polyline(pts, { ...base, fill: '' });
+                const radiusPx = toPagePx(polyLenPx(pts, false));   // page-px, scale-free
+                const dist = radiusPx * measureScale;               // real radius
+                shape._measure = _tagMeasure(shape, { kind: 'mradius', type: 'Radius', value: dist, unit: measureUnit,
+                                   area: false, page: state.currentPage, label: '',
+                                   diameter: dist * 2 }, radiusPx);
+                // Draw the actual circle (center = pts[0], through pts[1]) - M26.
+                drawRadiusCircle(pts[0], polyLenPx(pts, false), shape._measure.color, shape._measure._mid);
+                const cx = (pts[0].x + pts[1].x) / 2, cy = (pts[0].y + pts[1].y) / 2 - 12;
+                const lbl = measureLabel(_autoLabelText(shape._measure), cx, cy);
+                lbl.selectable = true; lbl._measureLabelFor = shape._measure; lbl._midLink = shape._measure._mid;
+                fabricCanvas.add(lbl);
+                saveAnnotationState(); saveCurrentAnnotations();
+                if (window.renderMeasureList) window.renderMeasureList();
+            } else if (!measureScale) {
+                showToast('Set the scale first');
+            }
+            measurePts = []; measureKind = null; fabricCanvas.renderAll(); setStatus('Ready'); return;
+        }
+
+        // Volume: draw the area polygon, then ask for a depth and multiply.
+        if (measureKind === 'mvolume') {
+            if (pts.length >= 3 && measureScale) { finishVolume([...pts]); }
+            else if (!measureScale) { showToast('Set the scale first'); }
+            measurePts = []; measureKind = null; fabricCanvas.renderAll(); setStatus('Ready'); return;
+        }
+
+        // Area cutout: subtract the void polygon's area from the target area's
+        // value, draw the void outline, and record it on the target for export.
+        if (measureKind === 'mcutout') {
+            if (pts.length >= 3 && _cutoutTarget && _cutoutTarget._measure) {
+                const voidAreaPx = toPagePx(toPagePx(polyAreaPx(pts)));   // page-px^2, scale-free
+                const tm = _cutoutTarget._measure;
+                // Track cutout area in page-px^2 so it survives scale changes, and
+                // reduce the stored geomPx so recompute stays correct.
+                tm.cutoutPx = (tm.cutoutPx || 0) + voidAreaPx;
+                tm.geomPx = Math.max(0, (tm.geomPx || 0) - voidAreaPx);
+                _recomputeMeasure(tm);
+                const base = measureStyleBase(); base.selectable = true;
+                // Diagonal hatch fill so a cutout reads as a void (M13).
+                const voidShape = new fabric.Polygon(pts, { ...base, fill: 'rgba(224,49,49,0.18)', stroke: '#e03131', strokeDashArray: [5, 3] });
+                voidShape._cutoutFor = tm._mid;
+                fabricCanvas.add(voidShape);
+                _relabelMeasure(tm);   // renders ² correctly on the plan (M13)
+                saveAnnotationState(); saveCurrentAnnotations();
+                if (window.renderMeasureList) window.renderMeasureList();
+                setStatus('Cutout subtracted - area is now ' + tm.value.toFixed(_mPrecision()) + ' ' + tm.unit + '²');
+            } else if (!_cutoutTarget) {
+                showToast('Pick an area to cut from first');
+            }
+            measurePts = []; measureKind = null; _cutoutTarget = null;
+            fabricCanvas.renderAll(); return;
+        }
+
+        if (pts.length >= need) {
+            const base = measureStyleBase(); base.selectable = true;
+            let cx, cy, geomPx, mKindLabel, isArea = false;
+            let shape;
+            if (measureKind === 'mlength') {
+                shape = new fabric.Line([pts[0].x, pts[0].y, pts[1].x, pts[1].y], base);
                 fabricCanvas.add(shape);
-                label = 'Perimeter: ' + fmtMeasure(toPagePx(polyLenPx(pts, true)), 'len');
+                geomPx = toPagePx(polyLenPx(pts, false));   // length in page-px
+                mKindLabel = 'Length';
+                cx = (pts[0].x + pts[1].x) / 2; cy = (pts[0].y + pts[1].y) / 2 - 12;
+            } else if (measureKind === 'mpolylen') {
+                shape = new fabric.Polyline(pts, { ...base, fill: '' });
+                fabricCanvas.add(shape);
+                geomPx = toPagePx(polyLenPx(pts, false));   // open path
+                mKindLabel = 'Polyline';
+                cx = pts[0].x; cy = pts[0].y - 14;
+            } else if (measureKind === 'mperim') {
+                // Close the outline so the counted closing side is actually drawn (M24).
+                shape = new fabric.Polygon(pts, { ...base, fill: '' });
+                fabricCanvas.add(shape);
+                geomPx = toPagePx(polyLenPx(pts, true));
+                mKindLabel = 'Perimeter';
                 cx = pts[0].x; cy = pts[0].y - 14;
             } else { // marea
-                const shape = new fabric.Polygon(pts, { ...base, fill: 'rgba(76,110,245,0.12)' });
+                shape = new fabric.Polygon(pts, { ...base, fill: 'rgba(25,113,194,0.12)' });
                 fabricCanvas.add(shape);
-                const areaUnit2 = toPagePx(toPagePx(polyAreaPx(pts))); // px^2 -> page px^2
-                label = 'Area: ' + fmtMeasure(areaUnit2, 'area');
+                geomPx = toPagePx(toPagePx(polyAreaPx(pts))); // area in page-px^2
+                mKindLabel = 'Area'; isArea = true;
                 cx = pts.reduce((s,p)=>s+p.x,0)/pts.length; cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
             }
-            const lbl = measureLabel(label, cx, cy);
+            const val = geomPx * Math.pow(measureScale, isArea ? 2 : 1);
+            shape._measure = _tagMeasure(shape, {
+                kind: measureKind,
+                type: mKindLabel,
+                value: val,
+                unit: measureUnit,
+                area: isArea,
+                page: state.currentPage,
+                label: '',
+            }, geomPx);
+            const lbl = measureLabel(_autoLabelText(shape._measure), cx, cy);
             lbl.selectable = true;
+            lbl._measureLabelFor = shape._measure;
+            lbl._midLink = shape._measure._mid;
             fabricCanvas.add(lbl);
             saveAnnotationState(); saveCurrentAnnotations();
+            if (window.renderMeasureList) window.renderMeasureList();
         }
         measurePts = []; measureKind = null;
         fabricCanvas.renderAll();
@@ -1939,9 +3547,591 @@
     }
     function measureCancel() {
         if (measurePreview) { _isRestoring = true; fabricCanvas.remove(measurePreview); _isRestoring = false; measurePreview = null; }
-        measurePts = []; measureKind = null;
+        _clearLiveReadout();
+        measurePts = []; measureKind = null; _cutoutTarget = null;
         fabricCanvas.renderAll();
     }
+
+    // Volume = polygon area x a depth the user types. Result is in cubic units of
+    // the current measure unit (e.g. ft³). Depth is entered in the same unit.
+    async function finishVolume(pts) {
+        const base = measureStyleBase(); base.selectable = true;
+        const shape = new fabric.Polygon(pts, { ...base, fill: 'rgba(25,113,194,0.12)' });
+        fabricCanvas.add(shape); fabricCanvas.renderAll();
+        const areaPagePx = toPagePx(toPagePx(polyAreaPx(pts)));      // page-px^2, scale-free
+        const area = areaPagePx * measureScale * measureScale;      // real area
+        const ans = await customPrompt(
+            'Enter the depth / thickness in ' + measureUnit + ' (e.g. 0.5):',
+            'depth in ' + measureUnit, '1');
+        if (!ans) { fabricCanvas.remove(shape); fabricCanvas.renderAll(); setStatus('Volume cancelled'); return; }
+        const depth = parseFloat(ans);
+        if (!(depth > 0)) { fabricCanvas.remove(shape); showToast('Enter a valid depth'); return; }
+        const vol = area * depth;
+        shape._measure = _tagMeasure(shape, { kind: 'mvolume', type: 'Volume', value: vol, unit: measureUnit,
+                           area: false, cubic: true, page: state.currentPage, label: '',
+                           baseArea: area, depth: depth }, areaPagePx);
+        const cx = pts.reduce((s,p)=>s+p.x,0)/pts.length, cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
+        // Label shows the depth so it's not hidden (M23).
+        const lbl = measureLabel(vol.toFixed(_mPrecision()) + ' ' + measureUnit + '³  (d ' + depth + ' ' + measureUnit + ')', cx, cy);
+        lbl.selectable = true; lbl._measureLabelFor = shape._measure; lbl._midLink = shape._measure._mid;
+        fabricCanvas.add(lbl);
+        saveAnnotationState(); saveCurrentAnnotations();
+        if (window.renderMeasureList) window.renderMeasureList();
+        setStatus('Volume: ' + vol.toFixed(_mPrecision()) + ' ' + measureUnit + '³');
+    }
+
+    // ── Markups List + Totals (Bluebeam-style takeoff panel) ────────────────────
+    // Collect every measurement across ALL pages: the current page from live
+    // fabric objects, other pages from their saved annotation JSON.
+    function collectMeasurements() {
+        // Persist the live canvas first so the current page's measurements are
+        // also in state.annotations - then read EVERYTHING from there. This
+        // avoids double-counting (live + saved) and guarantees the page number
+        // is the annotation key, not a stale value stored on the object.
+        try { if (fabricCanvas) saveCurrentAnnotations(); } catch (_) {}
+        // Exclude measurements on hidden or deleted layers - they won't be saved
+        // into the PDF, so the on-screen takeoff must not count them (M31).
+        const hidden = new Set(state.layers.filter(l => !l.visible).map(l => l.id));
+        const live = new Set(state.layers.map(l => l.id));
+        const skipLayer = (o) => o._layerId !== undefined && (hidden.has(o._layerId) || !live.has(o._layerId));
+        const rows = [];
+        for (const [pgStr, entry] of Object.entries(state.annotations || {})) {
+            const pg = parseInt(pgStr, 10);
+            const objs = (entry && (entry.fabricData || entry).objects) || [];
+            objs.forEach((o) => { if (o._measure && !skipLayer(o)) rows.push({ ...o._measure, page: pg }); });
+        }
+        rows.sort((a, b) => (a.page - b.page));
+        return rows;
+    }
+
+    // Every NON-measure annotation across all pages, for the general Markups list
+    // (S11): text, shapes, stamps, ink, highlights, images, redactions. Each row
+    // is { page, kind, label, mid, obj (live only), _idx }. Skips helpers and
+    // hidden/deleted layers so the list mirrors what will save.
+    function collectAllMarkups() {
+        try { if (fabricCanvas) saveCurrentAnnotations(); } catch (_) {}
+        const hidden = new Set(state.layers.filter(l => !l.visible).map(l => l.id));
+        const live = new Set(state.layers.map(l => l.id));
+        const skipLayer = (o) => o._layerId !== undefined && (hidden.has(o._layerId) || !live.has(o._layerId));
+        const classify = (o) => {
+            if (o._measure) return null;                        // measurements have their own list
+            if (o._measureCaption || o._measureDecor || o._isLeader) return null; // measurement helpers
+            if (o.excludeFromExport || o._isTextCover || o._isCommentMark) return null;
+            if (o._isStamp) return { kind: 'Stamp', label: _objText(o) || 'Stamp' };
+            if (o._isRedact) return { kind: 'Redaction', label: 'Redaction box' };
+            const t = o.type;
+            if (t === 'i-text' || t === 'text' || t === 'textbox') return { kind: 'Text', label: _objText(o) };
+            if (t === 'image') return { kind: 'Image', label: 'Image' };
+            if (t === 'path' || t === 'polyline' && o.fill === '') return { kind: 'Ink', label: 'Freehand' };
+            if (t === 'rect') return { kind: 'Rectangle', label: 'Rectangle' };
+            if (t === 'circle' || t === 'ellipse') return { kind: 'Ellipse', label: 'Ellipse' };
+            if (t === 'triangle') return { kind: 'Triangle', label: 'Triangle' };
+            if (t === 'line') return { kind: 'Line', label: 'Line' };
+            if (t === 'polygon') return { kind: 'Polygon', label: 'Polygon' };
+            if (t === 'polyline') return { kind: 'Polyline', label: 'Polyline' };
+            if (t === 'group') return { kind: 'Group', label: 'Group' };
+            return { kind: (t || 'Markup'), label: (t || 'Markup') };
+        };
+        const rows = [];
+        for (const [pgStr, entry] of Object.entries(state.annotations || {})) {
+            const pg = parseInt(pgStr, 10);
+            const objs = (entry && (entry.fabricData || entry).objects) || [];
+            objs.forEach((o, idx) => {
+                if (skipLayer(o)) return;
+                const c = classify(o);
+                if (c) rows.push({ page: pg, kind: c.kind, label: c.label, _idx: idx });
+            });
+        }
+        rows.sort((a, b) => (a.page - b.page));
+        return rows;
+    }
+    function _objText(o) {
+        const s = (o && (o.text != null ? o.text : ''));
+        return String(s).replace(/\s+/g, ' ').trim().slice(0, 40);
+    }
+
+    function _unitSuffix(m) {
+        if (m.cubic) return '³';
+        if (m.area) return '²';
+        return '';
+    }
+    // Number formatting with thousands separators at the current precision (N5).
+    function _fmtNum(n) {
+        const P = _mPrecision();
+        return Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: P, maximumFractionDigits: P });
+    }
+    // Currency formatting with thousands separators (N5).
+    function _fmtMoney(n) {
+        return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function _fmtVal(m) {
+        if (m.kind === 'mcount') return String(m.value);           // plain integer
+        if (m.kind === 'mangle') return _fmtNum(m.value) + '°';    // unit already '°'
+        if (m.kind === 'mradius') return 'R ' + _fmtNum(m.value) + ' ' + m.unit
+            + ' / Ø ' + _fmtNum(m.diameter || m.value * 2) + ' ' + m.unit;   // M14: unit on Ø
+        if (m.cubic) return _fmtNum(m.value) + ' ' + m.unit + '³'
+            + (m.depth ? ' (d ' + m.depth + ' ' + m.unit + ')' : '');        // M23: show depth in the list too
+        return _fmtNum(m.value) + ' ' + m.unit + _unitSuffix(m);
+    }
+
+    window.renderMeasureList = function renderMeasureList() {
+        const panel = document.getElementById('measureListPanel');
+        if (!panel) return;
+        const body = panel.querySelector('.measure-list-body');
+        const rows = collectMeasurements();
+        const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => (
+            { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+        if (!rows.length) {
+            // No measurements, but still show the general markups list (S11).
+            let mh = '<div class="measure-empty">No measurements yet. Use the Measure tool for length, perimeter, area, angle, radius, volume or count.</div>';
+            mh += _renderAllMarkupsSection(escH);
+            body.innerHTML = mh;
+            _wireMarkupRows(body);
+            return;
+        }
+        const P = _mPrecision();
+        const sortMode = window._measureSort || 'page';
+        const filt = (window._measureFilter || '').toLowerCase();
+        const matches = (m) => !filt || (m.type + ' ' + (m.subject || '') + ' ' + (m.label || '') + ' p' + m.page).toLowerCase().includes(filt);
+        // The filter narrows the list AND the subtotals/totals/cost (M32), so what
+        // you see summed always matches the rows shown. `filteredRows` is the set.
+        const filteredRows = rows.filter(matches);
+        // Groups keyed by Subject + TYPE + unit, so the same Subject on different
+        // measurement types stays distinguishable (M15). Angles/radii are never
+        // summed - we show count and min/max/avg instead (M11).
+        const totals = {};
+        filteredRows.forEach((m) => {
+            const grp = (m.subject || m.type);
+            const uSuf = m.unit + _unitSuffix(m);
+            const key = grp + '|' + m.type + '|' + uSuf;
+            totals[key] = totals[key] || { subject: grp, type: m.type, unit: uSuf, sum: 0, count: 0,
+                                           kind: m.kind, min: Infinity, max: -Infinity, scales: new Set(), cost: 0, hasCost: false };
+            const t = totals[key];
+            t.sum += m.value; t.count++;
+            t.min = Math.min(t.min, m.value); t.max = Math.max(t.max, m.value);
+            if (m.scaleAt != null) t.scales.add(+m.scaleAt.toFixed(6));
+            if (m.unitCost != null) { t.hasCost = true; t.cost += m.value * m.unitCost; }
+        });
+        // Per-page subtotals + sortable rows. Sort key from the panel (default page).
+        let shown = rows.map((m, i) => ({ m, i })).filter(({ m }) => matches(m));
+        shown.sort((A, B) => {
+            if (sortMode === 'type') return A.m.type.localeCompare(B.m.type) || A.m.page - B.m.page;
+            if (sortMode === 'subject') return (A.m.subject || '').localeCompare(B.m.subject || '') || A.m.page - B.m.page;
+            if (sortMode === 'value') return (B.m.value || 0) - (A.m.value || 0);
+            return A.m.page - B.m.page;
+        });
+        let html = '<div class="measure-row measure-row-head"><span></span><span class="measure-row-type">Item</span><span class="measure-row-page">Pg</span><span class="measure-row-val">Value</span></div>';
+        let lastPage = null;
+        // A15: collapse count markers into ONE row per (group + page) with a tally,
+        // instead of a separate "Count 1" row for every click.
+        const countSeen = new Set();
+        shown.forEach(({ m, i }) => {
+            if (sortMode === 'page' && m.page !== lastPage) {
+                // A15: count the way the rows show - count markers collapse to one
+                // row per group, so the header must not tally raw markers.
+                const onPage = filteredRows.filter(r => r.page === m.page);
+                const nonCount = onPage.filter(r => r.kind !== 'mcount').length;
+                const countGroups = new Set(onPage.filter(r => r.kind === 'mcount').map(r => r.subject || 'Count')).size;
+                const shownCount = nonCount + countGroups;
+                html += `<div class="measure-subtotal">Sheet ${m.page} - ${shownCount} item${shownCount > 1 ? 's' : ''}</div>`;
+                lastPage = m.page;
+            }
+            if (m.kind === 'mcount') {
+                const gkey = (m.subject || 'Count') + '|' + m.page;
+                if (countSeen.has(gkey)) return;   // already rendered this group
+                countSeen.add(gkey);
+                const tally = filteredRows.filter(r => r.kind === 'mcount' && (r.subject || 'Count') === (m.subject || 'Count') && r.page === m.page).length;
+                const swColor = m.color || '#e8590c';
+                html += `<div class="measure-row" data-mid="${escH(m._mid || '')}" data-i="${i}" title="Count group - right-click a marker on the plan to edit">
+                    <span class="measure-swatch" style="background:${escH(swColor)}"></span><span class="measure-row-type">${escH(m.subject || 'Count')} <span class="markup-kind">count</span></span>
+                    <span class="measure-row-page">p${m.page}</span>
+                    <span class="measure-row-val">${tally}</span>
+                </div>`;
+                return;
+            }
+            const name = m.label ? escH(m.label) : escH(m.subject || m.type);
+            const swColor = m.color || '#1971c2';
+            const dot = `<span class="measure-swatch" style="background:${escH(swColor)}"></span>`;
+            const mixed = (m.scaleAt != null && measureScale != null && Math.abs(m.scaleAt - measureScale) > 1e-6)
+                ? ' <span class="measure-flag" title="Captured under a different scale than the current one">⚠</span>' : '';
+            html += `<div class="measure-row" data-mid="${escH(m._mid || '')}" data-i="${i}" title="Click to edit; right-click for more">
+                ${dot}<span class="measure-row-type">${name}${mixed}</span>
+                <span class="measure-row-page">p${m.page}</span>
+                <span class="measure-row-val">${_fmtVal(m)}</span>
+            </div>`;
+        });
+        html += '<div class="measure-totals-head">Totals</div>';
+        Object.values(totals).forEach((t) => {
+            const mixed = t.scales.size > 1 ? ' <span class="measure-flag" title="This total mixes measurements taken at different scales">⚠ mixed scale</span>' : '';
+            const label = t.subject === t.type ? t.type : t.subject + ' - ' + t.type;
+            let val;
+            if (t.kind === 'mcount') val = String(t.count);
+            else if (t.kind === 'mangle' || t.kind === 'mradius') {
+                // Never sum angles/radii - show the range instead (M11).
+                const u = t.kind === 'mangle' ? '°' : ' ' + t.unit;
+                val = t.count === 1 ? _fmtNum(t.min) + u
+                    : `min ${_fmtNum(t.min)} / max ${_fmtNum(t.max)} / avg ${_fmtNum(t.sum / t.count)}${u}`;
+            } else val = _fmtNum(t.sum) + ' ' + t.unit;
+            const cost = t.hasCost ? ` <span class="measure-cost">${_fmtMoney(t.cost)}</span>` : '';
+            html += `<div class="measure-total-row"><span>${escH(label)} (${t.count})${mixed}</span><b>${val}${cost}</b></div>`;
+        });
+        // Grand total cost across every group that has costs.
+        const grand = Object.values(totals).reduce((s, t) => s + (t.hasCost ? t.cost : 0), 0);
+        if (grand > 0) html += `<div class="measure-total-row measure-grand"><span>Estimated cost</span><b>${_fmtMoney(grand)}</b></div>`;
+        html += _renderAllMarkupsSection(escH);
+        body.innerHTML = html;
+        body.querySelectorAll('.measure-row[data-mid]').forEach((row) => {
+            row.addEventListener('click', () => {
+                const mid = row.getAttribute('data-mid');
+                if (mid) editMeasurement(mid);
+            });
+            row.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                const mid = row.getAttribute('data-mid');
+                if (mid) _measureRowMenu(e, mid);
+            });
+        });
+        _wireMarkupRows(body);
+    };
+
+    // Build the "All Markups" section HTML (S11): every non-measure annotation,
+    // grouped by page, click-to-go. Respects the same filter box.
+    function _renderAllMarkupsSection(escH) {
+        const filt = (window._measureFilter || '').toLowerCase();
+        let markups = collectAllMarkups();
+        if (filt) markups = markups.filter(r => (r.kind + ' ' + r.label + ' p' + r.page).toLowerCase().includes(filt));
+        if (!markups.length) return '';
+        // Type tally for the header.
+        const byKind = {};
+        markups.forEach(r => { byKind[r.kind] = (byKind[r.kind] || 0) + 1; });
+        let h = '<div class="measure-totals-head">Markups (' + markups.length + ')</div>';
+        let lastPage = null;
+        markups.forEach((r) => {
+            if (r.page !== lastPage) {
+                const n = markups.filter(x => x.page === r.page).length;
+                h += `<div class="measure-subtotal">Sheet ${r.page} - ${n} markup${n > 1 ? 's' : ''}</div>`;
+                lastPage = r.page;
+            }
+            const lbl = r.label ? escH(r.label) : escH(r.kind);
+            h += `<div class="measure-row markup-row" data-mpage="${r.page}" data-midx="${r._idx}" title="Go to this markup">
+                <span class="markup-kind">${escH(r.kind)}</span>
+                <span class="measure-row-type">${lbl}</span>
+                <span class="measure-row-page">p${r.page}</span>
+            </div>`;
+        });
+        return h;
+    }
+    // Clicking an All-Markups row navigates to its page and selects the object.
+    function _wireMarkupRows(body) {
+        body.querySelectorAll('.markup-row[data-mpage]').forEach((row) => {
+            row.addEventListener('click', () => {
+                const pg = parseInt(row.getAttribute('data-mpage'), 10);
+                const idx = parseInt(row.getAttribute('data-midx'), 10);
+                _goToMarkup(pg, idx);
+            });
+        });
+    }
+    async function _goToMarkup(pg, idx) {
+        if (pg !== state.currentPage) { await goToPage(pg); await new Promise(r => setTimeout(r, 150)); }
+        // Select the object at that stored index on the (now current) page.
+        try {
+            const objs = fabricCanvas.getObjects().filter(o => !o.excludeFromExport);
+            // Prefer selecting the live object; fall back to the nth non-helper.
+            const target = fabricCanvas.getObjects()[idx] || objs[idx];
+            if (target && target.selectable) {
+                if (state.activeTool !== 'select') setActiveTool('select');
+                fabricCanvas.setActiveObject(target);
+                fabricCanvas.requestRenderAll();
+            }
+        } catch (_) {}
+        setStatus('Jumped to markup on sheet ' + pg);
+    }
+
+    // Right-click context menu on a measurement row (M7): Edit / Duplicate /
+    // Delete / Copy value.
+    function _measureRowMenu(e, mid) {
+        document.querySelectorAll('.measure-ctx').forEach(n => n.remove());
+        const menu = document.createElement('div');
+        menu.className = 'measure-ctx';
+        menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:99999;`;
+        const items = [['Edit', 'edit'], ['Duplicate', 'dup'], ['Copy value', 'copy'], ['Delete', 'del']];
+        menu.innerHTML = items.map(([lbl, act]) =>
+            `<button data-act="${act}"${act === 'del' ? ' class="danger"' : ''}>${lbl}</button>`).join('');
+        document.body.appendChild(menu);
+        // Escape closes the menu (and only the menu) - capture phase + stop so it
+        // pre-empts the measure/ribbon Escape handlers while the menu is open.
+        const onEsc = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); } };
+        const close = () => { menu.remove(); document.removeEventListener('keydown', onEsc, true); };
+        menu.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+            const act = b.dataset.act; close();
+            if (act === 'edit') editMeasurement(mid);
+            else if (act === 'del') deleteMeasurement(mid);
+            else if (act === 'dup') duplicateMeasurement(mid);
+            else if (act === 'copy') { const s = _findMeasureShape(mid); if (s) navigator.clipboard?.writeText(_fmtVal(s._measure)).then(() => showToast('Value copied')); }
+        }));
+        document.addEventListener('keydown', onEsc, true);
+        setTimeout(() => document.addEventListener('click', close, { once: true }), 0);
+    }
+
+    // Right-click restyle menu for a regular markup (shape/text/ink/stamp): pick
+    // a new color, stroke width, or opacity, or delete it - the object-restyle
+    // path that works without hunting for Select + the pickers.
+    function _objectRestyleMenu(e, obj) {
+        document.querySelectorAll('.measure-ctx').forEach(n => n.remove());
+        // Select it so the pickers also target it and handles show.
+        try { setActiveTool('select'); fabricCanvas.setActiveObject(obj); fabricCanvas.requestRenderAll(); } catch (_) {}
+        const menu = document.createElement('div');
+        menu.className = 'measure-ctx';
+        menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:99999;`;
+        const strokeable = obj.stroke !== undefined && obj.stroke !== null && !['i-text','text','textbox'].includes(obj.type);
+        menu.innerHTML =
+            '<button data-act="color">Change color</button>' +
+            (strokeable ? '<button data-act="width">Line width...</button>' : '') +
+            '<button data-act="opacity">Opacity...</button>' +
+            '<button data-act="dup">Duplicate</button>' +
+            '<button data-act="del" class="danger">Delete</button>';
+        document.body.appendChild(menu);
+        const close = () => { menu.remove(); document.removeEventListener('keydown', onEsc, true); };
+        const onEsc = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); } };
+        menu.querySelectorAll('button').forEach(b => b.addEventListener('click', async () => {
+            const act = b.dataset.act; close();
+            if (act === 'color') {
+                const c = await customPrompt('New color (hex, e.g. #e03131):', '#e03131', obj.stroke || obj.fill || '#000000');
+                if (c && /^#?[0-9a-fA-F]{6}$/.test(c.trim())) {
+                    const hex = c.trim().startsWith('#') ? c.trim() : '#' + c.trim();
+                    if (strokeable) obj.set({ stroke: hex }); else obj.set({ fill: hex });
+                    fabricCanvas.requestRenderAll(); saveAnnotationState(); saveCurrentAnnotations();
+                }
+            } else if (act === 'width') {
+                const w = await customPrompt('Line width (1-40):', '4', String(obj.strokeWidth || 2));
+                const n = parseInt(w, 10); if (n > 0) { obj.set({ strokeWidth: Math.min(40, n), strokeUniform: true }); obj.setCoords(); fabricCanvas.requestRenderAll(); saveAnnotationState(); saveCurrentAnnotations(); }
+            } else if (act === 'opacity') {
+                const o = await customPrompt('Opacity % (5-100):', '60', String(Math.round((obj.opacity || 1) * 100)));
+                const n = parseInt(o, 10); if (n >= 5 && n <= 100) { obj.set({ opacity: n / 100 }); fabricCanvas.requestRenderAll(); saveAnnotationState(); saveCurrentAnnotations(); }
+            } else if (act === 'dup') {
+                obj.clone((cl) => { cl.set({ left: (obj.left || 0) + 16, top: (obj.top || 0) + 16 }); fabricCanvas.add(cl); fabricCanvas.setActiveObject(cl); fabricCanvas.requestRenderAll(); saveAnnotationState(); saveCurrentAnnotations(); });
+            } else if (act === 'del') {
+                _isRestoring = true; fabricCanvas.remove(obj); _isRestoring = false;
+                fabricCanvas.requestRenderAll(); saveAnnotationState(); saveCurrentAnnotations();
+            }
+        }));
+        document.addEventListener('keydown', onEsc, true);
+        setTimeout(() => document.addEventListener('click', close, { once: true }), 0);
+    }
+
+    // Find the live fabric shape carrying a given measurement id on the CURRENT
+    // page (measurements on other pages must be opened by navigating there).
+    function _findMeasureShape(mid) {
+        if (!fabricCanvas) return null;
+        let hit = null;
+        fabricCanvas.forEachObject((o) => { if (o._measure && o._measure._mid === mid) hit = o; });
+        return hit;
+    }
+
+    // Edit a measurement's properties (Bluebeam-style): custom Label + Subject,
+    // color, and line thickness. Applies live to the shape + its label + the list.
+    async function editMeasurement(mid) {
+        const shape = _findMeasureShape(mid);
+        if (!shape) {
+            // The measurement lives on another page - tell the user where.
+            let onPage = null;
+            for (const [pgStr, entry] of Object.entries(state.annotations || {})) {
+                const objs = (entry && (entry.fabricData || entry).objects) || [];
+                if (objs.some(o => o._measure && o._measure._mid === mid)) { onPage = parseInt(pgStr, 10); break; }
+            }
+            if (onPage && onPage !== state.currentPage) showToast('That measurement is on page ' + onPage + ' - open that page to edit it');
+            else showToast('Could not find that measurement');
+            return;
+        }
+        const m = shape._measure;
+        const v = await _toolModal('Edit Measurement', `
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Label (shown on the plan; blank = auto)
+                <input type="text" class="modal-input" data-k="label" value="${(m.label||'').replace(/"/g,'&quot;')}" placeholder="e.g. North wall">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Subject (groups totals in the list)
+                <input type="text" class="modal-input" data-k="subject" value="${(m.subject||m.type||'').replace(/"/g,'&quot;')}">
+              </label>
+              <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;">
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Color
+                  <input type="color" class="modal-input" data-k="color" value="${m.color||'#1971c2'}" style="width:52px;height:34px;padding:2px;">
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Thickness
+                  <input type="number" class="modal-input" data-k="thickness" value="${m.thickness||2}" min="1" max="20" step="1" style="width:70px;">
+                </label>
+                ${m.kind === 'mvolume' ? `<label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Depth (${m.unit})
+                  <input type="number" class="modal-input" data-k="depth" value="${m.depth||1}" min="0" step="any" style="width:80px;">
+                </label>` : ''}
+              </div>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Unit cost (per ${(m.unit + _unitSuffix(m)) || 'item'}) - optional
+                <input type="number" class="modal-input" data-k="unitCost" value="${m.unitCost != null ? m.unitCost : ''}" min="0" step="any" placeholder="e.g. 12.50" style="width:120px;">
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="checkbox" data-k="hideLabel"${m.hideLabel ? ' checked' : ''}> Hide the label on the plan</label>
+            </div>`, 'Save', (overlay) => {
+              // Add a Delete button into the footer.
+              const footer = overlay.querySelector('.modal-footer');
+              if (footer) {
+                const del = document.createElement('button');
+                del.className = 'crop-btn cancel'; del.textContent = 'Delete'; del.dataset.act = 'delete';
+                del.style.marginRight = 'auto'; del.style.color = '#e03131';
+                footer.insertBefore(del, footer.firstChild);
+                del.addEventListener('click', () => { overlay.remove(); deleteMeasurement(mid); });
+              }
+            });
+        if (!v) return;
+        // Apply to the model.
+        m.label = (v.label || '').trim();
+        m.subject = (v.subject || m.type).trim();
+        m.color = v.color || m.color;
+        m.thickness = Math.max(1, parseInt(v.thickness, 10) || m.thickness);
+        m.hideLabel = !!v.hideLabel;
+        if (v.unitCost !== undefined) {
+            const uc = parseFloat(v.unitCost);
+            m.unitCost = (v.unitCost === '' || isNaN(uc)) ? null : uc;
+        }
+        if (m.kind === 'mvolume' && v.depth !== undefined) {
+            const d = parseFloat(v.depth);
+            if (d > 0) { m.depth = d; _recomputeMeasure(m); }
+        }
+        shape.set({ stroke: m.color, strokeWidth: m.thickness });
+        const lbl = fabricCanvas.getObjects().find(o => o._midLink === mid && o.type === 'text');
+        if (lbl) {
+            lbl.set({ visible: !m.hideLabel });
+            _relabelMeasure(m, shape);
+        }
+        fabricCanvas.requestRenderAll();
+        saveAnnotationState(); saveCurrentAnnotations();
+        if (window.renderMeasureList) window.renderMeasureList();
+        setStatus('Measurement updated');
+    }
+    window.editMeasurement = editMeasurement;
+
+    // Remove a measurement's label + decor (arc/circle) + cutouts, given its id.
+    // Used by every delete path so nothing is left orphaned on the sheet (M5/M8).
+    function _removeMeasureExtras(mid) {
+        if (!mid || !fabricCanvas) return;
+        const kill = [];
+        fabricCanvas.forEachObject((o) => {
+            if (o._midLink === mid) kill.push(o);
+            if (o._cutoutFor === mid) kill.push(o);
+            if (o._measureDecor && o._decorFor === mid) kill.push(o);
+        });
+        _isRestoring = true; kill.forEach(o => fabricCanvas.remove(o)); _isRestoring = false;
+    }
+
+    // Delete a measurement AND its linked label + any decor (arc/circle) so no
+    // orphaned caption is left painted on the sheet (M5).
+    function deleteMeasurement(mid) {
+        const shape = _findMeasureShape(mid);
+        if (!shape) { showToast('Open the page that measurement is on to delete it'); return; }
+        _removeMeasureExtras(mid);
+        _isRestoring = true; fabricCanvas.remove(shape); _isRestoring = false;
+        fabricCanvas.requestRenderAll();
+        saveAnnotationState(); saveCurrentAnnotations();
+        if (window.renderMeasureList) window.renderMeasureList();
+        setStatus('Measurement deleted');
+    }
+    window.deleteMeasurement = deleteMeasurement;
+
+    // Duplicate a measurement, offset slightly, as a fresh independent markup.
+    function duplicateMeasurement(mid) {
+        const shape = _findMeasureShape(mid);
+        if (!shape) return;
+        shape.clone((clone) => {
+            clone.set({ left: (shape.left || 0) + 16, top: (shape.top || 0) + 16 });
+            const nm = { ...shape._measure }; nm._mid = _newMid();
+            clone._measure = nm;
+            fabricCanvas.add(clone);
+            const cx = clone.left, cy = (clone.top || 0) - 12;
+            const lbl = measureLabel(_autoLabelText(nm), cx, cy);
+            lbl.selectable = true; lbl._midLink = nm._mid; lbl._measureLabelFor = nm;
+            fabricCanvas.add(lbl);
+            fabricCanvas.requestRenderAll();
+            saveAnnotationState(); saveCurrentAnnotations();
+            if (window.renderMeasureList) window.renderMeasureList();
+            setStatus('Measurement duplicated');
+        }, ['_measure']);
+    }
+    window.duplicateMeasurement = duplicateMeasurement;
+
+    // Export all measurements to a CSV the user can open in Excel (Quantity Link
+    // equivalent) - type, page, value, unit, plus the per-type totals.
+    // Shared measurement + totals tables used by both the xlsx and csv paths.
+    function _buildMeasureTables() {
+        const rows = collectMeasurements();
+        const uSuf = (m) => m.unit + (m.cubic ? '³' : m.area ? '²' : '');
+        const detail = rows.map((m) => ({
+            Type: m.type,
+            Subject: m.subject || m.type,
+            Page: m.page,
+            Value: m.kind === 'mcount' ? m.value : +m.value.toFixed(4),
+            Unit: uSuf(m),
+            'Unit cost': m.unitCost != null ? m.unitCost : '',
+            'Extended cost': m.unitCost != null ? +(m.value * m.unitCost).toFixed(2) : '',
+            Label: m.label || '',
+        }));
+        const tmap = {};
+        rows.forEach((m) => {
+            const grp = m.subject || m.type;
+            const k = grp + '|' + m.type + '|' + uSuf(m);
+            tmap[k] = tmap[k] || { Subject: grp, Type: m.type, Unit: uSuf(m), Total: 0, Count: 0, kind: m.kind, Cost: 0, hasCost: false };
+            tmap[k].Total += m.value; tmap[k].Count++;
+            if (m.unitCost != null) { tmap[k].hasCost = true; tmap[k].Cost += m.value * m.unitCost; }
+        });
+        const totals = Object.values(tmap).map((t) => ({
+            Subject: t.Subject, Type: t.Type,
+            Total: t.kind === 'mcount' ? t.Count : +t.Total.toFixed(4),
+            Unit: t.Unit, Count: t.Count,
+            'Extended cost': t.hasCost ? +t.Cost.toFixed(2) : '',
+        }));
+        return { rows, detail, totals };
+    }
+
+    // Export to a real Excel workbook (Measurements + Totals sheets) using the
+    // bundled SheetJS. Falls back to CSV if the library can't be loaded.
+    window.exportMeasurements = async function exportMeasurements() {
+        const { rows, detail, totals } = _buildMeasureTables();
+        if (!rows.length) { showToast('No measurements to export'); return; }
+        const base = (state.fileName || 'document').replace(/\.pdf$/i, '') + '_measurements';
+        try {
+            if (typeof XLSX === 'undefined') {
+                await loadScript('libs/xlsx.full.min.js')
+                    .catch(() => loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'));
+            }
+            const wb = XLSX.utils.book_new();
+            const wsD = XLSX.utils.json_to_sheet(detail, { header: ['Type', 'Subject', 'Page', 'Value', 'Unit', 'Unit cost', 'Extended cost', 'Label'] });
+            const wsT = XLSX.utils.json_to_sheet(totals, { header: ['Subject', 'Type', 'Total', 'Unit', 'Count', 'Extended cost'] });
+            XLSX.utils.book_append_sheet(wb, wsD, 'Measurements');
+            XLSX.utils.book_append_sheet(wb, wsT, 'Totals');
+            XLSX.writeFile(wb, base + '.xlsx');
+            showToast('Exported ' + rows.length + ' measurements to Excel (.xlsx)');
+        } catch (e) {
+            console.warn('xlsx export failed, falling back to CSV:', e);
+            _exportMeasurementsCsv(detail, totals, base, rows.length);
+        }
+    };
+
+    function _exportMeasurementsCsv(detail, totals, base, n) {
+        const esc = (s) => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+        let csv = 'Type,Subject,Page,Value,Unit,Unit cost,Extended cost,Label\n';
+        detail.forEach((r) => { csv += [esc(r.Type), esc(r.Subject), r.Page, r.Value, esc(r.Unit), r['Unit cost'], r['Extended cost'], esc(r.Label)].join(',') + '\n'; });
+        csv += '\nTotals\nSubject,Type,Total,Unit,Count,Extended cost\n';
+        totals.forEach((t) => { csv += [esc(t.Subject), esc(t.Type), t.Total, esc(t.Unit), t.Count, t['Extended cost']].join(',') + '\n'; });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+        a.download = base + '.csv';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+        showToast('Exported ' + n + ' measurements to CSV');
+    }
+
+    window.toggleMeasureList = function toggleMeasureList() {
+        const panel = document.getElementById('measureListPanel');
+        if (!panel) return;
+        const showing = panel.style.display !== 'none';
+        panel.style.display = showing ? 'none' : 'flex';
+        if (!showing) { window.renderMeasureList(); if (window.renderToolChest) window.renderToolChest(); }
+    };
 
     let dragKind = 'rect'; // kind locked at mousedown — menu changes mid-drag can't corrupt it
     // Build a complete arrow as ONE filled polygon path (shaft + head cut
@@ -1994,7 +4184,7 @@
         return p;
     }
 
-    // Puffy callout cloud (white fill, coloured outline) — normalized path.
+    // Puffy callout cloud (white fill, colored outline) — normalized path.
     const CLOUD_PATH = 'M 168 96 C 190 96 200 82 198 68 C 210 58 206 38 192 34 C 192 18 176 8 162 12 ' +
         'C 154 0 134 -2 124 8 C 112 -4 90 -2 82 10 C 66 2 46 8 42 24 C 24 22 10 34 12 50 ' +
         'C 0 56 0 76 12 82 C 12 96 28 106 44 102 C 52 114 74 118 86 108 C 98 120 122 120 132 108 ' +
@@ -2007,7 +4197,7 @@
         // Count is click-to-drop (handled by handleCountClick), not drag.
         if (shapeKind === 'count') return;
         // Measurement tools are click-based (handled by handleMeasureClick).
-        if (['mcalibrate', 'mlength', 'mperim', 'marea'].includes(shapeKind)) return;
+        if (_MEASURE_KINDS.includes(shapeKind)) return;
         if (opt.target) return;
 
         dragKind = shapeKind;
@@ -2018,6 +4208,9 @@
             stroke: dom.colorPicker.value,
             strokeWidth: sw,
             selectable: false,
+            // A8: honor the opacity slider for shapes (was ignored - a 46% cloud
+            // rendered fully opaque).
+            opacity: Math.max(0.05, Math.min(1, (parseInt(dom.opacityPicker.value, 10) || 100) / 100)),
             strokeDashArray: shapeDash(sw),
             strokeLineCap: shapeStyle === 'dotted' ? 'round' : 'butt',
             // Keep the border a constant visual thickness when the shape is
@@ -2133,7 +4326,7 @@
             }
         } else if (dragKind === 'cloud') {
             // Swap the dashed ghost rect for the puffy callout cloud: white
-            // body, coloured outline — scaled to the dragged box.
+            // body, colored outline — scaled to the dragged box.
             const { left, top, width, height } = currentShape;
             fabricCanvas.remove(currentShape);
             const w = Math.max(width, 40), h = Math.max(height, 26);
@@ -2181,6 +4374,9 @@
                 left: bx + 10, top: by + 8, width: bw - 20, fontSize: Math.max(12, strokeWidth * 6),
                 fill: stroke, fontFamily: 'sans-serif', editable: true, splitByGrapheme: false,
             });
+            // A9: grow the callout body to fit the note so text can't spill below
+            // the border. Linked so a text:changed handler can resize the box.
+            txt._calloutBody = body; body._calloutText = txt;
             _isRestoring = true;
             fabricCanvas.add(body);
             fabricCanvas.add(tail);
@@ -2213,6 +4409,13 @@
         drawMode = m;
         if (state.activeTool === 'draw') applyToolMode();
     };
+    // A11: the highlight color - the picked color, but black (the default swatch)
+    // becomes yellow so highlighting never produces a grey/black bar. Used by
+    // every highlight mode for consistency.
+    function _highlightColor() {
+        const c = (dom.colorPicker.value || '').toLowerCase();
+        return (c === '#000000' || c === '#000' || c === '') ? '#FFEB3B' : dom.colorPicker.value;
+    }
     let highlightMode = 'text'; // text | free | underline | strike
     window.setHighlightMode = (m) => {
         highlightMode = m;
@@ -2320,10 +4523,10 @@
             fabricCanvas.renderAll();
             return;
         }
-        // Commit in the picked colour. Untouched black defaults to marker
+        // Commit in the picked color. Untouched black defaults to marker
         // yellow for HIGHLIGHTS only — a black underline/strike is legitimate.
-        const chosen = (highlightMode === 'text' && dom.colorPicker.value === '#000000')
-            ? '#FFEB3B' : dom.colorPicker.value;
+        const chosen = (highlightMode === 'text' || highlightMode === 'free')
+            ? _highlightColor() : dom.colorPicker.value;
         const marks = _hlMakeMarks(entries, chosen, false);
         _isRestoring = true;
         for (const m of marks) fabricCanvas.add(m);
@@ -2567,7 +4770,7 @@
         mk('🖍 Highlight', () => {
             const ents = _miniBar._entries; hideMiniBar();
             if (!ents) return;
-            const chosen = dom.colorPicker.value === '#000000' ? '#FFEB3B' : dom.colorPicker.value;
+            const chosen = _highlightColor();
             _isRestoring = true;
             for (const { bbox } of ents) fabricCanvas.add(new fabric.Rect({
                 left: bbox.left - 1, top: bbox.top, width: bbox.width + 2, height: bbox.height,
@@ -2668,9 +4871,13 @@
         const hidden = new Set(state.layers.filter(l => !l.visible).map(l => l.id));
         fabricCanvas.forEachObject((o) => {
             if (o.excludeFromExport) return;
-            o.visible = !(o._layerId !== undefined && hidden.has(o._layerId));
+            const layerHidden = o._layerId !== undefined && hidden.has(o._layerId);
+            // A measurement caption also stays hidden when labels are globally off.
+            const labelHidden = o._midLink && o.type === 'text' && _measureLabelsHidden;
+            o.visible = !layerHidden && !labelHidden;
         });
         fabricCanvas.renderAll();
+        if (window.renderMeasureList) window.renderMeasureList();   // list follows layer changes (M31)
     }
     window.pdfLayers = {
         list: () => state.layers.map(l => ({ ...l, active: l.id === state.activeLayer })),
@@ -2695,7 +4902,7 @@
             const l = layerById(id); if (!l) return;
             state.activeLayer = id;
             if (!l.visible) { l.visible = true; applyLayerVisibility(); } // marking on a hidden layer makes no sense
-            if (l.color) dom.colorPicker.value = l.color; // layer colour = default ink
+            if (l.color) dom.colorPicker.value = l.color; // layer color = default ink
             setStatus('Drawing on layer: ' + l.name + ' — everything you add now belongs to it');
         },
         assignSelected: (id) => {
@@ -2753,11 +4960,33 @@
                 const [vx2, vy2] = viewport.convertToViewportPoint(x2, y1);
                 const el = document.createElement('div');
                 el.className = 'pdf-link';
+                // Links must not steal clicks while a markup/measure tool is armed
+                // (N1) - the wrapper class gates their pointer-events via CSS.
                 el.style.cssText = 'position:absolute;cursor:pointer;z-index:40;' +
                     'left:' + Math.min(vx1, vx2) + 'px;top:' + Math.min(vy1, vy2) + 'px;' +
                     'width:' + Math.abs(vx2 - vx1) + 'px;height:' + Math.abs(vy2 - vy1) + 'px;';
                 el.title = a.url || 'Go to page';
                 el.addEventListener('click', async (ev) => {
+                    // Don't navigate while ANY markup tool is armed (B2): the click
+                    // is meant for the canvas (place a stamp, start a shape, etc).
+                    if (_isMarkupModeActive()) { ev.stopPropagation(); return; }
+                    // Markups win hit-priority over links: if a selectable markup
+                    // sits under this click, select it instead of navigating (a
+                    // rect over a ToC entry was unselectable - the link fired).
+                    try {
+                        const cr = fabricCanvas.upperCanvasEl.getBoundingClientRect();
+                        const sx = fabricCanvas.getWidth() / cr.width, sy = fabricCanvas.getHeight() / cr.height;
+                        const cp = new fabric.Point((ev.clientX - cr.left) * sx, (ev.clientY - cr.top) * sy);
+                        const under = fabricCanvas.getObjects().slice().reverse().find(o =>
+                            !o.excludeFromExport && o.selectable && o.containsPoint && o.containsPoint(cp));
+                        if (under) {
+                            ev.stopPropagation();
+                            setActiveTool('select');
+                            fabricCanvas.setActiveObject(under);
+                            fabricCanvas.requestRenderAll();
+                            return;
+                        }
+                    } catch (_) {}
                     ev.stopPropagation();
                     if (a.url) { window.open(a.url, '_blank', 'noopener'); return; }
                     try {
@@ -2905,7 +5134,7 @@
     // ── Eraser Tool ──
     // Two modes on one tool (toggled via the "Whiteout" checkbox in eraser options):
     //   * default  → remove ONLY your annotations (drag over them to delete). Safe: never touches PDF text.
-    //   * whiteout → paint the sampled background colour over content (hide original text/images).
+    //   * whiteout → paint the sampled background color over content (hide original text/images).
     let _eraserBgColor = '#ffffff'; // sampled at mousedown, used as whiteout brush color
     let _eraserWhiteout = false;    // set by the Whiteout toggle
     let _eraserDragging = false;
@@ -2916,9 +5145,34 @@
         return Math.max(parseInt(dom.sizePicker.value, 10) * 2, 10) / 2;
     }
 
-    // True if the eraser circle at point p (radius r) overlaps object o's bounds.
+    // True if the eraser circle at point p (radius r) actually touches object o.
+    // A12: for lines / polylines / paths, test distance to the real geometry, not
+    // the bounding box (a diagonal line's box is huge, so box-tests deleted it
+    // from far away / past its end - the ~10px over-reach the review saw).
     function eraserTouches(o, p, r) {
-        const b = o.getBoundingRect(true, true); // absolute, calculate
+        // Line: distance to the segment.
+        if (o.type === 'line') {
+            try {
+                const m = o.calcTransformMatrix(); const c = o.calcLinePoints();
+                const a = fabric.util.transformPoint({ x: c.x1, y: c.y1 }, m);
+                const b2 = fabric.util.transformPoint({ x: c.x2, y: c.y2 }, m);
+                return _distToSeg(p, a, b2) <= r + (o.strokeWidth || 1) / 2;
+            } catch (_) {}
+        }
+        // Polyline/polygon: nearest segment.
+        if (o.points && (o.type === 'polyline' || o.type === 'polygon')) {
+            try {
+                const v = _absVerts(o);
+                const n = o.type === 'polygon' ? v.length : v.length - 1;
+                for (let i = 0; i < n; i++) {
+                    const a = v[i], b2 = v[(i + 1) % v.length];
+                    if (_distToSeg(p, a, b2) <= r + (o.strokeWidth || 1) / 2) return true;
+                }
+                return false;
+            } catch (_) {}
+        }
+        // Fallback (rects/ellipses/text/paths): bounding box + radius.
+        const b = o.getBoundingRect(true, true);
         return p.x >= b.left - r && p.x <= b.left + b.width + r &&
                p.y >= b.top  - r && p.y <= b.top  + b.height + r;
     }
@@ -2931,16 +5185,22 @@
             eraserTouches(o, p, r)
         );
         if (hit.length) {
-            hit.forEach((o) => fabricCanvas.remove(o));
+            let hadMeasure = false;
+            hit.forEach((o) => {
+                if (o._measure) { hadMeasure = true; _removeMeasureExtras(o._measure._mid); }
+                fabricCanvas.remove(o);
+            });
             fabricCanvas.renderAll();
             _eraserDidErase = true;
+            // Keep the Measurements list in sync when a measurement is erased (M8).
+            if (hadMeasure && window.renderMeasureList) window.renderMeasureList();
         }
     }
 
     function handleEraserDown(opt) {
         if (state.activeTool !== 'eraser') return;
         if (_eraserWhiteout) {
-            // Sample the background colour so the whiteout stroke blends in
+            // Sample the background color so the whiteout stroke blends in
             const p = fabricCanvas.getPointer(opt.e);
             applyEraserBrushColor(p.x, p.y);
             return;
@@ -3076,6 +5336,11 @@
             updateCropDims();
         }
         cropStartPoint = null;
+        _syncCropApply();
+    }
+    // Apply Crop is disabled until a valid rectangle exists (B9).
+    function _syncCropApply() {
+        if (dom.cropApply) dom.cropApply.disabled = !cropRect;
     }
 
     // Live size chip: shows the crop area in mm + pt while drawing/adjusting.
@@ -3164,13 +5429,16 @@
         }
 
         // Ask how to apply it — replace the page, or keep the original and
-        // add a cropped COPY right after it. Both are undoable with Cmd+Z.
+        // add a cropped COPY right after it. Both are undoable with Cmd+Z. The
+        // scope dropdown on the crop bar pre-selects "all pages" here (B9).
+        const barScope = (document.getElementById('cropScope') || {}).value;
+        const sel = (v) => barScope === 'all' ? (v === 'all' ? ' selected' : '') : (v === 'dup' ? ' selected' : '');
         const choice = await _toolModal('Apply crop', `
             <label class="modal-label">How do you want to crop page ${state.currentPage}?</label>
             <select class="modal-input" data-k="mode">
-                <option value="dup" selected>Keep original — add a cropped copy after it</option>
-                <option value="replace">Crop this page (replace it)</option>
-                <option value="all">Crop ALL ${state.totalPages} pages with this area</option>
+                <option value="dup"${sel('dup')}>Keep original — add a cropped copy after it</option>
+                <option value="replace"${sel('replace')}>Crop this page (replace it)</option>
+                <option value="all"${sel('all')}>Crop ALL ${state.totalPages} pages with this area</option>
             </select>
             <p class="modal-hint" style="margin-top:10px;">You can undo the crop any time with Cmd/Ctrl+Z.
             Note: crop hides the outside area — to permanently remove sensitive content use Redact instead.</p>`, 'Apply Crop');
@@ -3217,11 +5485,18 @@
                 // sizes crop proportionally (typical scans are uniform anyway).
                 const fx = pdfLeft / pageWidth, fy = pdfBottom / pageHeight;
                 const fw = (pdfRight - pdfLeft) / pageWidth, fh = (pdfTop - pdfBottom) / pageHeight;
+                // The crop rectangle was drawn against the CURRENT page's
+                // orientation (already checked upright above). Pages with a
+                // different rotation would map the rectangle to the wrong axis,
+                // so skip them rather than crop them incorrectly.
+                let skipped = 0;
                 for (const pg of pdfLibDoc.getPages()) {
+                    if (((pg.getRotation().angle % 360) + 360) % 360 !== 0) { skipped++; continue; }
                     const sz = pg.getSize();
                     pg.setCropBox(fx * sz.width, fy * sz.height, fw * sz.width, fh * sz.height);
                     pg.setMediaBox(fx * sz.width, fy * sz.height, fw * sz.width, fh * sz.height);
                 }
+                if (skipped) showToast('Cropped - skipped ' + skipped + ' rotated page(s)');
                 const allBytes = await pdfLibDoc.save();
                 state.pdfBytes = allBytes.slice().buffer;
                 // Every page's coordinate origin changed — markups are invalid
@@ -3548,6 +5823,37 @@
         if (!files.length) return;
         e.target.value = '';
 
+        // Ask WHERE to merge (Pranshu): at the start, after the last page
+        // (default), or after a specific page of the current document.
+        const total = state.totalPages || 1;
+        const w = await _toolModal('Merge PDF - where?', `
+            <label class="modal-label">Insert the merged pages:</label>
+            <select class="modal-input" data-k="pos">
+                <option value="end">After the last page (append)</option>
+                <option value="start">At the very start</option>
+                <option value="after">After a specific page...</option>
+            </select>
+            <input type="number" class="modal-input" data-k="afterPage" min="1" max="${total}" value="${total}"
+                   placeholder="page number" style="margin-top:6px;display:none;">
+            <p class="modal-hint" style="margin-top:8px;">The current document has ${total} page(s).</p>`,
+            'Merge',
+            (root) => {
+                const sel = root.querySelector('[data-k="pos"]');
+                const inp = root.querySelector('[data-k="afterPage"]');
+                if (sel && inp) sel.addEventListener('change', () => {
+                    inp.style.display = sel.value === 'after' ? 'block' : 'none';
+                });
+            });
+        if (!w) return;
+
+        // Resolve the 0-based insertion index for the FIRST merged page.
+        let insertAt;
+        if (w.pos === 'start') insertAt = 0;
+        else if (w.pos === 'after') {
+            const p = Math.min(Math.max(parseInt(w.afterPage, 10) || total, 1), total);
+            insertAt = p; // after page p => before index p (0-based)
+        } else insertAt = total; // end
+
         pushDocSnapshot('Merge');
         setStatus('Merging PDFs...');
 
@@ -3561,13 +5867,43 @@
                 : state.pdfBytes;
             const mainDoc = await PDFLib.PDFDocument.load(bytesToLoad, { ignoreEncryption: true });
 
-            // Merge each selected file
+            // Merge each selected file, inserting at the chosen position. Pages
+            // are inserted in order so the merged document keeps its sequence.
+            let cursor = insertAt;
             for (const file of files) {
                 const fileBytes = await file.arrayBuffer();
-                const srcDoc = await PDFLib.PDFDocument.load(fileBytes);
+                const srcDoc = await PDFLib.PDFDocument.load(fileBytes, { ignoreEncryption: true });
                 const pageIndices = srcDoc.getPageIndices();
                 const copiedPages = await mainDoc.copyPages(srcDoc, pageIndices);
-                copiedPages.forEach((page) => mainDoc.addPage(page));
+                copiedPages.forEach((page) => {
+                    mainDoc.insertPage(cursor, page);
+                    cursor++;
+                });
+            }
+            const insertedCount = cursor - insertAt;
+
+            // Shift existing page-keyed state (annotations, comments, undo/redo)
+            // for pages at or after the insertion point, so markups stay on their
+            // original pages instead of drifting. Mirrors the blank-page insert
+            // remap. insertAt is 0-based; page keys are 1-based, so any page
+            // number > insertAt moves up by insertedCount.
+            if (insertAt < state.totalPages && insertedCount > 0) {
+                const shiftMap = (obj) => {
+                    if (!obj) return obj;
+                    const out = {};
+                    for (const k of Object.keys(obj)) {
+                        const pn = parseInt(k, 10);
+                        out[pn > insertAt ? pn + insertedCount : pn] = obj[k];
+                    }
+                    return out;
+                };
+                state.annotations = shiftMap(state.annotations);
+                state.comments    = shiftMap(state.comments);
+                state.undoStacks  = shiftMap(state.undoStacks);
+                state.redoStacks  = shiftMap(state.redoStacks);
+                // Keep the user on the SAME content they were viewing: if pages
+                // were inserted before the current page, advance past them.
+                if (state.currentPage > insertAt) state.currentPage += insertedCount;
             }
 
             // Save merged PDF
@@ -3589,9 +5925,11 @@
             await generateThumbnails();
             renderPage(state.currentPage);
 
-            const names = files.map((f) => f.name).join(', ');
-            setStatus('Merged successfully: ' + names);
-            showToast(files.length + ' PDF(s) merged');
+            const where = insertAt === 0 ? 'at the start'
+                        : insertAt >= (state.totalPages - insertedCount) ? 'at the end'
+                        : 'after page ' + insertAt;
+            setStatus('Merged ' + where + ' - now ' + state.totalPages + ' pages');
+            showToast(files.length + ' PDF(s) merged ' + where + ' - ' + state.totalPages + ' pages total');
         } catch (err) {
             console.error(err);
             setStatus('Merge failed: ' + err.message);
@@ -4098,6 +6436,37 @@
 
     // ── Generate Thumbnails ──
     let _thumbGen = 0; // generation token: a newer run aborts older ones
+    // Composite a page's stored markups onto a thumbnail canvas (B8). Annotations
+    // are in canvas px at the capture zoom; we scale them to the thumb size. Skips
+    // hidden-layer + helper objects so the thumbnail matches the page.
+    async function _drawAnnotationsOnThumb(ctx, pageNum, thumbW, thumbH) {
+        try {
+            // Flush the live canvas for the current page so freshly-added markups
+            // are included (they may not be in state.annotations yet).
+            if (pageNum === state.currentPage) { try { saveCurrentAnnotations(); } catch (_) {} }
+            const entry = state.annotations[pageNum];
+            const data = entry && (entry.fabricData || entry);
+            const objs = data && data.objects;
+            if (!objs || !objs.length) return;
+            // Capture-canvas size = pdf.js page at the capture zoom.
+            const zoom = (entry.zoom) || state.zoom || 1;
+            const pj = await state.pdfDoc.getPage(pageNum);
+            const capVp = pj.getViewport({ scale: zoom });
+            const f = thumbW / capVp.width;   // capture px -> thumb px
+            const hidden = new Set(state.layers.filter(l => !l.visible).map(l => l.id));
+            const drawable = objs.filter(o => !o.excludeFromExport && !o._isCommentMark &&
+                !(o._layerId !== undefined && hidden.has(o._layerId)));
+            if (!drawable.length) return;
+            const insts = await new Promise((res) => fabric.util.enlivenObjects(drawable, res));
+            const tmp = new fabric.StaticCanvas(null, { width: Math.max(2, Math.round(thumbW)), height: Math.max(2, Math.round(thumbH)) });
+            tmp.setZoom(f);
+            insts.forEach(o => { if (o) { o.visible = true; tmp.add(o); } });
+            tmp.renderAll();
+            ctx.drawImage(tmp.lowerCanvasEl, 0, 0, Math.round(thumbW), Math.round(thumbH));
+            tmp.dispose && tmp.dispose();
+        } catch (_) { /* thumbnail markups are best-effort */ }
+    }
+
     async function generateThumbnails() {
         const gen = ++_thumbGen;
         dom.thumbnailList.innerHTML = '';
@@ -4105,8 +6474,16 @@
         dom.thumbnailList.classList.remove('view-preview', 'view-tiles', 'view-list', 'view-icons');
         dom.thumbnailList.classList.add('view-' + state.viewMode);
 
+        // Loading hint while pages render (removed once the first thumbnail lands),
+        // so the sidebar isn't a blank void on large documents.
+        const _loading = document.createElement('div');
+        _loading.className = 'thumb-loading';
+        _loading.textContent = 'Rendering pages...';
+        dom.thumbnailList.appendChild(_loading);
+
         for (let i = 1; i <= state.totalPages; i++) {
             if (gen !== _thumbGen) return; // superseded (slider drag / resize)
+            if (i === 1 && _loading.parentNode) _loading.remove();
             // Yield to the UI every 5 pages to keep the app responsive on large PDFs
             if (i > 1 && (i - 1) % 5 === 0) {
                 await new Promise((resolve) => setTimeout(resolve, 0));
@@ -4127,6 +6504,8 @@
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(0, 0, thumbCanvas.width, thumbCanvas.height);
                 await page.render({ canvasContext: ctx, viewport }).promise;
+                // Overlay this page's markups so thumbnails reflect annotations (B8).
+                await _drawAnnotationsOnThumb(ctx, i, viewport.width, viewport.height);
             } catch (err) {
                 // A page that refuses to render still gets a visible placeholder
                 console.warn('Thumbnail render failed for page ' + i + ':', err);
@@ -4296,12 +6675,61 @@
     async function downloadPDF() {
         if (!state.pdfBytes) return;
 
+        // Warn if hidden layers carry content that the save will drop (S12).
+        try {
+            saveCurrentAnnotations();
+            const hidden = new Set(state.layers.filter(l => !l.visible).map(l => l.id));
+            if (hidden.size) {
+                let hiddenCount = 0;
+                for (const entry of Object.values(state.annotations || {})) {
+                    const objs = (entry && (entry.fabricData || entry).objects) || [];
+                    hiddenCount += objs.filter(o => o._layerId !== undefined && hidden.has(o._layerId) && !o.excludeFromExport).length;
+                }
+                if (hiddenCount > 0) {
+                    const choice = await _choiceModal('Hidden layers won\'t be saved',
+                        hiddenCount + ' markup' + (hiddenCount > 1 ? 's' : '') + ' on hidden layer' +
+                        (hidden.size > 1 ? 's' : '') + ' will NOT be written into the PDF. Show those layers first if you want to keep them. Save anyway?',
+                        [{ key: 'save', label: 'Save without them' }, { key: 'show', label: 'Show hidden layers first' }]);
+                    if (choice !== 'save') {
+                        if (choice === 'show') {
+                            state.layers.forEach(l => { l.visible = true; });
+                            applyLayerVisibility();
+                            if (window.pdfLayers && window.renderLayersPanel) try { window.renderLayersPanel(); } catch (_) {}
+                            showToast('Hidden layers shown - review, then Download again');
+                        }
+                        setStatus('Download cancelled');
+                        return;
+                    }
+                }
+            }
+        } catch (_) { /* warning is best-effort - never block the save */ }
+
+        // S5: warn once if the save will RASTERIZE any page. Redacted pages are
+        // flattened to an image (searchable text under the boxes is destroyed -
+        // that's the point of redaction, but the user should confirm). A remembered
+        // "don't warn again" keeps it from nagging every save.
+        try {
+            let redactPages = 0;
+            for (const entry of Object.values(state.annotations || {})) {
+                const objs = (entry && (entry.fabricData || entry).objects) || [];
+                if (objs.some(o => o._isRedact)) redactPages++;
+            }
+            if (redactPages > 0 && !_suppressRasterWarn) {
+                const choice = await _choiceModal('Some pages will be flattened',
+                    redactPages + ' page' + (redactPages > 1 ? 's' : '') + ' with redaction will be saved as an image - the text under the redaction boxes is permanently removed and those pages will no longer be searchable. This is how redaction protects the content. Continue?',
+                    [{ key: 'go', label: 'Save' }, { key: 'goquiet', label: 'Save, don\'t warn again' }]);
+                if (choice !== 'go' && choice !== 'goquiet') { setStatus('Download cancelled'); return; }
+                if (choice === 'goquiet') _suppressRasterWarn = true;
+            }
+        } catch (_) { /* best-effort */ }
+
         setStatus('Preparing download...');
 
         try {
             // Save current annotations
             saveCurrentAnnotations();
             _exportFailures = 0;
+            const _pendingMeasureAnnots = [];   // written in the annotation pass below (H3)
 
             // Load the current PDF with pdf-lib
             const bytesToLoad = state.pdfBytes instanceof ArrayBuffer
@@ -4390,6 +6818,17 @@
                     if (layerSkip(obj)) continue; // hidden or deleted layer
                     if (obj._isCommentMark) continue; // becomes a real Highlight annotation below
                     await drawObjectOnPDF(pdfLibDoc, pdfPage, obj, scaleX, scaleY, pageHeight);
+                }
+
+                // Collect this page's measurements so a real PDF markup annotation
+                // can be attached AFTER all pages are drawn (see the annotation
+                // pass below). Doing it here races the later comment-annotation
+                // pass that can overwrite /Annots, so we defer.
+                for (const obj of annotData.objects) {
+                    if (obj._measure && !layerSkip(obj)) {
+                        _pendingMeasureAnnots.push({ pageIndex: pageNum - 1, m: obj._measure, obj,
+                            scaleX, scaleY, pageHeight });
+                    }
                 }
             }
 
@@ -4488,7 +6927,46 @@
                         }
                     });
                 }
+
             } catch (e) { console.warn('Could not embed PDF comments:', e); }
+
+            // Measurement markup annotations (H3): attach machine-readable measure
+            // data (/Contents for any viewer's comment list, /NexusMeasure JSON for
+            // round-trip) IF this build keeps vector annotations on save. Some save
+            // paths rasterize pages (flattening annotations); in that case the
+            // measure data still lives in the Excel/CSV export, and the visible
+            // markup is baked into the page. Best-effort, never fatal.
+            try {
+                const { PDFName, PDFString, PDFHexString } = PDFLib;
+                const ctx = pdfLibDoc.context;
+                for (const pm of _pendingMeasureAnnots) {
+                    const pg = pages[pm.pageIndex];
+                    if (!pg) continue;
+                    const { m, obj, scaleX, scaleY, pageHeight } = pm;
+                    const bx = (obj.left || 0) * scaleX, byTop = (obj.top || 0) * scaleY;
+                    const bw = Math.max(6, (obj.width || 20) * (obj.scaleX || 1) * scaleX);
+                    const bh = Math.max(6, (obj.height || 20) * (obj.scaleY || 1) * scaleY);
+                    const y1 = pageHeight - byTop - bh, y2 = pageHeight - byTop;
+                    const dict = ctx.obj({
+                        Type: 'Annot', Subtype: (m.area || m.cubic) ? 'Square' : 'PolyLine',
+                        Rect: [bx, y1, bx + bw, y2],
+                        Contents: PDFHexString.fromText((m.label ? m.label + ' - ' : '') + _autoLabelText(m).replace(/\s+/g, ' ')),
+                        T: PDFHexString.fromText('Nexus Measure'),
+                        Subj: PDFHexString.fromText('Measurement: ' + m.type),
+                        C: [0.1, 0.44, 0.76], CA: 0.01, F: 4,
+                        NexusMeasure: PDFString.of(JSON.stringify({
+                            kind: m.kind, type: m.type, value: m.value, unit: m.unit,
+                            subject: m.subject, label: m.label, geomPx: m.geomPx,
+                            scaleAt: m.scaleAt, unitCost: m.unitCost, depth: m.depth,
+                            area: !!m.area, cubic: !!m.cubic,
+                        })),
+                    });
+                    const ref = ctx.register(dict);
+                    const existing = pg.node.lookup(PDFName.of('Annots'));
+                    if (existing && existing.push) existing.push(ref);
+                    else pg.node.set(PDFName.of('Annots'), ctx.obj([ref]));
+                }
+            } catch (e) { console.warn('Could not write measurement annotations:', e); }
 
             if (_exportFailures > 0) {
                 showToast(_exportFailures + ' markup(s) could not be saved into the PDF — check the result');
@@ -4502,7 +6980,8 @@
             a.href = url;
             a.download = state.fileName.replace(/\.pdf$/i, '') + '_edited.pdf';
             a.click();
-            URL.revokeObjectURL(url);
+            // Defer revoke so the browser finishes reading the blob first.
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
 
             markDirty(false); // saved — the working copy is now safe on disk
             setStatus('PDF downloaded successfully');
@@ -4535,7 +7014,9 @@
         const orig = fabric.Object.prototype.toObject;
         fabric.Object.prototype.toObject = function (props) {
             return orig.call(this, ['_pdfFontName', '_pdfWeight', '_pdfStyle', '_isTextCover', '_isCommentMark', '_isEraserPath',
-                                    '_isSignature', '_isRedact', '_layerId', 'selectable', 'evented'].concat(props || []));
+                                    '_isSignature', '_isRedact', '_layerId', '_measure', '_measurePt', '_midLink',
+                                    '_measureDecor', '_decorFor', '_cutoutFor', '_measureCaption', '_anchor', '_isLeader',
+                                    '_isStamp', 'selectable', 'evented'].concat(props || []));
         };
     })();
 
@@ -4900,8 +7381,9 @@
                     left: r.left - 2, top: r.top - 2, width: (r.right - r.left) + 4, height: (r.bottom - r.top) + 4,
                     fill: 'rgba(120,140,240,0.035)', stroke: 'rgba(120,145,235,0.5)', strokeWidth: 1,
                     strokeDashArray: [4, 3], rx: 3, ry: 3,
+                    // evented:false means Fabric never routes hover here, so a
+                    // hoverCursor would never fire - the tool-level cursor handles it.
                     selectable: false, evented: false, excludeFromExport: true, _editTextGuide: true,
-                    hoverCursor: 'text',
                 });
                 _isRestoring = true;
                 fabricCanvas.add(box);
@@ -5062,6 +7544,21 @@
             _isTextEdit: true,
             ...(exactFontName ? { _pdfFontName: exactFontName } : {}),
         });
+
+        // Force a UNIFORM weight/style across the whole edit box. Without this,
+        // Fabric can carry per-character style overrides so newly typed text
+        // (and neighbouring characters) rendered with mixed bold/normal within
+        // the same word - the "bold in the middle" jumble. Clearing styles makes
+        // every character follow the object's single fontWeight/fontFamily, and
+        // re-clearing on each change keeps typed text uniform too.
+        editText.styles = {};
+        const _keepUniform = () => {
+            if (editText.styles && Object.keys(editText.styles).length) {
+                editText.styles = {};
+                editText.set({ fontWeight: editText.fontWeight, fontFamily: editText.fontFamily });
+            }
+        };
+        editText.on('changed', _keepUniform);
 
         // Once the user starts typing → cover becomes fully opaque
         editText.on('editing:entered', () => {
@@ -5685,10 +8182,11 @@
             const newBytes = await pdfLibDoc.save();
             state.pdfBytes = newBytes.slice().buffer;
 
-            // Clear annotations for this page (coordinates invalid after rotation)
-            delete state.annotations[state.currentPage];
-            delete state.undoStacks[state.currentPage];
-            delete state.redoStacks[state.currentPage];
+            // Rotate this page's annotations 90 deg CW to follow the page (M4)
+            // instead of deleting them. Measurements keep their values (geomPx is
+            // rotation-invariant); only positions/angles change. Must run BEFORE
+            // state.pdfDoc is replaced, since it reads the pre-rotation viewport.
+            await _rotatePageAnnotations(state.currentPage, 90);
 
             const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
             if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} }
@@ -5718,7 +8216,7 @@
         dom.stampMenu.classList.toggle('open');
     }
 
-    // Custom stamp dialog: stamp text + optional date, colour, an "Approval
+    // Custom stamp dialog: stamp text + optional date, color, an "Approval
     // stamp" quick-fill (name + date), and "apply to all pages".
     const STAMP_NAME_KEY = 'pdfEditorStampName';
     function customStampDialog(defaultColor = '#d32f2f') {
@@ -5743,7 +8241,7 @@
                             <input type="date" id="csDateVal" value="${today}">
                         </label>
                         <label class="stamp-date-row" style="padding:8px 0 0;">
-                            <span>Stamp colour</span>
+                            <span>Stamp color</span>
                             <input type="color" id="csColor" value="${defaultColor}">
                         </label>
                         <label class="stamp-date-row" style="padding:10px 0 0;">
@@ -5763,7 +8261,7 @@
             const done = (val) => { overlay.remove(); resolve(val); };
 
             // "Approval stamp": fill the text with APPROVED — <name>, tick the
-            // date, and set the colour green. Remembers the name for next time.
+            // date, and set the color green. Remembers the name for next time.
             overlay.querySelector('#csApproval').addEventListener('click', () => {
                 const nm = nameInput.value.trim();
                 if (!nm) { nameInput.focus(); showToast('Enter your name first'); return; }
@@ -5837,8 +8335,9 @@
 
     async function addStamp(stampText) {
         if (!fabricCanvas) return;
+        _exitScrollForOp();   // A2: place on the visible single-page edit canvas
 
-        // Per-preset default colours (green = approved, red = warning, grey = draft).
+        // Per-preset default colors (green = approved, red = warning, grey = draft).
         const PRESET_COLORS = {
             APPROVED: '#1a7a3f', DRAFT: '#6b7280', COPY: '#6b7280',
             FINAL: '#1d4ed8', VOID: '#d32f2f', CONFIDENTIAL: '#d32f2f',
@@ -5855,23 +8354,64 @@
             allPages = !!res.allPages;
         }
 
-        const text = new fabric.Text(stampText, {
-            left: fabricCanvas.width / 2,
-            top: fabricCanvas.height / 2,
-            originX: 'center',
-            originY: 'center',
-            fontSize: 60,
-            fontFamily: 'Arial',
-            fill: hexToRgba(stampColor, 0.4),
-            fontWeight: 'bold',
-            angle: -35,
-            selectable: true,
+        // B1: a real stamp - a bordered badge placed at the center of the CURRENT
+        // view, in the chosen color at full strength, upright, and immediately
+        // selected with full move/scale/rotate handles so the user drags it into
+        // place. (Was a fixed page-center 35deg translucent-grey watermark that
+        // ignored the color swatch and had no handles.)
+        const vw = fabricCanvas.getWidth(), vh = fabricCanvas.getHeight();
+        // A2: place at the center of what's ACTUALLY VISIBLE, accounting for
+        // scroll - not the canvas center (which, when scrolled, dropped the stamp
+        // hundreds of px away from view). Map the viewport center to canvas coords
+        // via the canvas element's position inside the scroller.
+        let placeX = vw / 2, placeY = vh / 2;
+        try {
+            const up = fabricCanvas.upperCanvasEl;
+            const cont = dom.canvasScrollWrapper && dom.canvasScrollWrapper.offsetParent ? dom.canvasScrollWrapper : dom.editorArea;
+            if (up && cont) {
+                const cr = cont.getBoundingClientRect();
+                const ur = up.getBoundingClientRect();
+                // Visible center in viewport px, clamped to the canvas bounds.
+                const visCx = Math.min(Math.max(cr.left, ur.left), cr.right) + (Math.min(cr.right, ur.right) - Math.max(cr.left, ur.left)) / 2;
+                const visCy = Math.min(Math.max(cr.top, ur.top), cr.bottom) + (Math.min(cr.bottom, ur.bottom) - Math.max(cr.top, ur.top)) / 2;
+                // viewport px -> canvas coords (undo the CSS<->backing scale).
+                const sx = vw / ur.width, sy = vh / ur.height;
+                placeX = (visCx - ur.left) * sx;
+                placeY = (visCy - ur.top) * sy;
+                if (!isFinite(placeX) || placeX < 0 || placeX > vw) placeX = vw / 2;
+                if (!isFinite(placeY) || placeY < 0 || placeY > vh) placeY = vh / 2;
+            }
+        } catch (_) {}
+        // Size the stamp to the view, not the whole page: ~28% of view width.
+        const fontSize = Math.max(22, Math.min(48, Math.round(vw * 0.05)));
+        const label = new fabric.Text(stampText, {
+            originX: 'center', originY: 'center',
+            fontSize, fontFamily: 'Arial', fill: stampColor, fontWeight: 'bold',
+            textAlign: 'center',
         });
+        const padX = fontSize * 0.6, padY = fontSize * 0.35;
+        const box = new fabric.Rect({
+            originX: 'center', originY: 'center',
+            width: label.width + padX * 2, height: label.height + padY * 2,
+            rx: 6, ry: 6, fill: hexToRgba(stampColor, 0.08),
+            stroke: stampColor, strokeWidth: Math.max(2, Math.round(fontSize / 12)),
+        });
+        // Cascade successive stamps so they don't stack into one blob (A2).
+        _stampCascade = (_stampCascade + 1) % 6;
+        const off = _stampCascade * 22;
+        const stamp = new fabric.Group([box, label], {
+            left: placeX + off, top: placeY + off, originX: 'center', originY: 'center',
+            selectable: true, hasControls: true, hasBorders: true, lockUniScaling: false,
+        });
+        stamp._isStamp = true;
+        stamp.setControlsVisibility({ mtr: true });   // ensure the rotate handle shows
+        const text = stamp;   // keep the downstream all-pages code working
 
-        fabricCanvas.add(text);
-        fabricCanvas.setActiveObject(text);
+        fabricCanvas.add(stamp);
+        fabricCanvas.setActiveObject(stamp);
         fabricCanvas.renderAll();
         setActiveTool('select');
+        setStatus('Stamp placed - drag to move, corner handles to resize, top handle to rotate');
 
         if (allPages && state.totalPages > 1) {
             // Persist the stamp onto every OTHER page's stored annotations. The
@@ -5979,6 +8519,8 @@
     // ── Text Search ──
     let searchResults = [];
     let searchCurrentIdx = -1;
+    let _searchCase = false;   // match case (S8)
+    let _searchWord = false;   // whole word (S8)
 
     function toggleSearchBar() {
         const isVisible = dom.searchBar.style.display !== 'none';
@@ -5995,10 +8537,14 @@
 
     function closeSearchBar() {
         dom.searchBar.style.display = 'none';
+        const rp = document.getElementById('searchResultsPanel');
+        if (rp) rp.style.display = 'none';
         clearSearchHighlights();
         searchResults = [];
         searchCurrentIdx = -1;
         dom.searchInfo.textContent = '0/0';
+        // Clear the "N result(s) found" status so it doesn't linger (B11).
+        setStatus('Ready');
     }
 
     function clearSearchHighlights() {
@@ -6008,7 +8554,8 @@
     let _searchGen = 0;
     async function searchText() {
         const gen = ++_searchGen;
-        const query = dom.searchInput.value.trim().toLowerCase();
+        const rawQuery = dom.searchInput.value.trim();
+        const query = _searchCase ? rawQuery : rawQuery.toLowerCase();
         searchResults = [];
         searchCurrentIdx = -1;
         clearSearchHighlights();
@@ -6024,31 +8571,47 @@
         // (pdfDoc.numPages) rather than state.totalPages, which can lag behind
         // the loaded document and would silently limit the scan to fewer pages.
         const pageCount = (state.pdfDoc && state.pdfDoc.numPages) || state.totalPages;
+        let jumped = false;
         for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
             const page = await state.pdfDoc.getPage(pageNum);
             const textContent = await page.getTextContent();
             if (gen !== _searchGen) return; // a newer search superseded us
 
+            const isWordChar = (ch) => /[A-Za-z0-9_]/.test(ch);
             textContent.items.forEach((item, idx) => {
-                const text = item.str.toLowerCase();
+                const raw = item.str;
+                const text = _searchCase ? raw : raw.toLowerCase();
                 let startIdx = 0;
                 while ((startIdx = text.indexOf(query, startIdx)) !== -1) {
-                    searchResults.push({
-                        page: pageNum,
-                        itemIndex: idx,
-                        item: item,
-                        matchStart: startIdx,
-                        matchLength: query.length,
-                    });
+                    // Whole-word: require non-word boundaries around the match (S8).
+                    const before = startIdx > 0 ? text[startIdx - 1] : '';
+                    const after = text[startIdx + query.length] || '';
+                    const wordOk = !_searchWord || (!isWordChar(before) && !isWordChar(after));
+                    if (wordOk) {
+                        // Snippet with a little context for the results list.
+                        const s = Math.max(0, startIdx - 20), e = Math.min(raw.length, startIdx + query.length + 20);
+                        searchResults.push({
+                            page: pageNum, itemIndex: idx, item,
+                            matchStart: startIdx, matchLength: query.length,
+                            snippet: (s > 0 ? '…' : '') + raw.slice(s, e) + (e < raw.length ? '…' : ''),
+                        });
+                    }
                     startIdx += query.length;
                 }
             });
+            // Live feedback on long documents: update the counter as pages scan,
+            // and jump to the first hit the moment it's found (don't wait for the
+            // whole document). Trailing '+' shows the scan is still running.
+            if (searchResults.length) {
+                if (!jumped) { searchCurrentIdx = 0; await goToSearchResult(0); jumped = true; }
+                if (pageNum < pageCount) dom.searchInfo.textContent = (searchCurrentIdx + 1) + '/' + searchResults.length + '+';
+            }
         }
 
         if (searchResults.length > 0) {
-            searchCurrentIdx = 0;
-            dom.searchInfo.textContent = '1/' + searchResults.length;
-            await goToSearchResult(0);
+            // Final count (drop the trailing '+' now the whole doc is scanned).
+            dom.searchInfo.textContent = (searchCurrentIdx + 1) + '/' + searchResults.length;
+            if (!jumped) { searchCurrentIdx = 0; await goToSearchResult(0); }
         } else {
             dom.searchInfo.textContent = '0/0';
             // Distinguish "no match" from "no text at all" (scanned pages)
@@ -6065,6 +8628,42 @@
 
         setStatus(searchResults.length ? searchResults.length + ' result(s) found'
                                        : 'No matches for "' + query + '"');
+        // Keep the results list in sync if it's open (S8).
+        const rp = document.getElementById('searchResultsPanel');
+        if (rp && rp.style.display !== 'none') _renderSearchResults();
+    }
+
+    // Results list grouped by page, each row jumps to that hit (S8).
+    function _renderSearchResults() {
+        const panel = document.getElementById('searchResultsPanel');
+        if (!panel) return;
+        if (!searchResults.length) {
+            panel.innerHTML = '<div class="sr-empty">No results.</div>';
+            return;
+        }
+        const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => (
+            { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+        let html = '';
+        let lastPage = null;
+        searchResults.forEach((r, i) => {
+            if (r.page !== lastPage) {
+                const n = searchResults.filter(x => x.page === r.page).length;
+                html += `<div class="sr-page">Page ${r.page} · ${n} hit${n > 1 ? 's' : ''}</div>`;
+                lastPage = r.page;
+            }
+            const snip = escH(r.snippet || '');
+            html += `<div class="sr-row${i === searchCurrentIdx ? ' active' : ''}" data-i="${i}">${snip}</div>`;
+        });
+        panel.innerHTML = html;
+        panel.querySelectorAll('.sr-row[data-i]').forEach((row) => {
+            row.addEventListener('click', async () => {
+                const i = parseInt(row.getAttribute('data-i'), 10);
+                searchCurrentIdx = i;
+                dom.searchInfo.textContent = (i + 1) + '/' + searchResults.length;
+                await goToSearchResult(i);
+                _renderSearchResults();
+            });
+        });
     }
 
     async function navigateSearch(direction) {
@@ -6363,6 +8962,10 @@
         markDirty();
         if (!skipSave) saveCurrentAnnotations(); // keep markups on the visible page
         if (state.pdfDoc && state.pdfDoc.destroy) { try { state.pdfDoc.destroy(); } catch (_) {} } // L4: free worker memory
+        // The page set changed - drop any hidden continuous view so it rebuilds
+        // fresh next time (pages are kept hidden between edits, not destroyed).
+        if (typeof destroyScrollView === 'function') destroyScrollView();
+        _savedScrollTop = null;
         state.pdfBytes = newBytes.slice().buffer;
         const pdf = await pdfjsLib.getDocument({ data: newBytes.slice(), fontExtraProperties: true }).promise;
         state.pdfDoc = pdf;
@@ -6375,7 +8978,7 @@
         if (msg) { setStatus(msg); showToast(msg); }
     }
 
-    function _toolModal(title, bodyHtml, applyLabel) {
+    function _toolModal(title, bodyHtml, applyLabel, onRender) {
         return new Promise((resolve) => {
             const overlay = document.createElement('div');
             overlay.className = 'modal-overlay';
@@ -6390,6 +8993,11 @@
                     </div>
                 </div>`;
             document.body.appendChild(overlay);
+            // Optional hook to wire up dynamic fields (e.g. show a range input
+            // only when a certain option is picked). Runs after the DOM exists.
+            if (typeof onRender === 'function') {
+                try { onRender(overlay); } catch (_) {}
+            }
             const done = (ok) => { const vals = {}; overlay.querySelectorAll('[data-k]').forEach(el2 => {
                 vals[el2.dataset.k] = el2.type === 'checkbox' ? el2.checked : el2.value; });
                 overlay.remove(); resolve(ok ? vals : null); };
@@ -6399,98 +9007,249 @@
             // Keyboard: Escape cancels, Enter confirms; focus the first field
             overlay.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') { e.preventDefault(); done(false); }
-                else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); done(true); }
+                // Enter submits - except from a textarea or a <select> (M30: Enter
+                // on a dropdown was submitting the Set Scale dialog).
+                else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'SELECT') { e.preventDefault(); done(true); }
             });
             const first = overlay.querySelector('input, select, textarea');
             if (first) first.focus();
         });
     }
 
+    // A simple choice modal: a prompt + N buttons. Resolves the chosen button's
+    // `key`, or null if cancelled (x / Escape / backdrop). The first option is
+    // styled as the primary action.
+    function _choiceModal(title, message, options) {
+        return new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.style.display = 'flex';
+            const btns = options.map((o, i) =>
+                `<button class="crop-btn ${i === 0 ? 'apply' : ''}" data-choice="${o.key}">${o.label}</button>`
+            ).join('');
+            overlay.innerHTML = `
+                <div class="modal">
+                    <div class="modal-header"><span>${title}</span></div>
+                    <div class="modal-body"><p style="margin:0;font-size:13.5px;line-height:1.5;">${message}</p></div>
+                    <div class="modal-footer">
+                        ${btns}
+                        <button class="crop-btn cancel" data-choice="">Cancel</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+            const done = (key) => { overlay.remove(); resolve(key || null); };
+            overlay.querySelectorAll('[data-choice]').forEach(b =>
+                b.addEventListener('click', () => done(b.dataset.choice)));
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) done(''); });
+            overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); done(''); } });
+        });
+    }
+
     // ── Watermark: text across every page ──
     async function addWatermarkTool() {
         _exitScrollForOp();
-        if (!state.pdfBytes) return;
+        if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
         const v = await _toolModal('Add watermark', `
             <label class="modal-label">Watermark text:</label>
             <input type="text" class="modal-input" data-k="text" value="CONFIDENTIAL" maxlength="60">
-            <label class="stamp-date-row" style="padding:10px 0 0;"><span>Colour</span>
+            <!-- Live preview (S3) -->
+            <div style="margin-top:10px;height:70px;border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:repeating-conic-gradient(#f4f4f6 0% 25%, #fff 0% 50%) 50% / 16px 16px;">
+                <span id="wmPreview" style="font-weight:700;font-family:Arial;white-space:nowrap;">CONFIDENTIAL</span>
+            </div>
+            <label class="modal-label" style="margin-top:10px;">Apply to:</label>
+            <select class="modal-input" data-k="scope">
+                <option value="all">All pages</option>
+                <option value="current">Current page only (page ${state.currentPage})</option>
+                <option value="range">Specific pages...</option>
+            </select>
+            <input type="text" class="modal-input" data-k="range" placeholder="e.g. 1-3, 5, 8" style="margin-top:6px;display:none;">
+            <label class="stamp-date-row" style="padding:10px 0 0;"><span>Color</span>
                 <input type="color" data-k="color" value="#9e9e9e"></label>
-            <label class="stamp-date-row" style="padding:8px 0 0;"><span>Strength</span>
-                <input type="range" data-k="op" min="5" max="60" value="18" style="flex:1;"></label>
-            <label class="stamp-date-row" style="padding:8px 0 0;">
-                <input type="checkbox" data-k="diag" checked><span>Diagonal</span></label>`, 'Add Watermark');
+            <label class="stamp-date-row" style="padding:8px 0 0;"><span>Opacity</span>
+                <input type="range" data-k="op" min="5" max="100" value="18" style="flex:1;"><span id="wmOpVal" style="width:38px;text-align:right;">18%</span></label>
+            <label class="stamp-date-row" style="padding:8px 0 0;"><span>Rotation</span>
+                <input type="range" data-k="angle" min="-90" max="90" value="45" style="flex:1;"><span id="wmAngVal" style="width:42px;text-align:right;">45&deg;</span></label>
+            <label class="stamp-date-row" style="padding:8px 0 0;"><span>Size</span>
+                <select class="modal-input" data-k="sizeMode" style="flex:1;">
+                    <option value="fit">Fit to page (large)</option>
+                    <option value="med">Medium</option>
+                    <option value="small">Small (footer style)</option>
+                </select></label>`, 'Add Watermark',
+            (root) => {
+                const sc = root.querySelector('[data-k="scope"]');
+                const rg = root.querySelector('[data-k="range"]');
+                if (sc && rg) sc.addEventListener('change', () => { rg.style.display = sc.value === 'range' ? 'block' : 'none'; });
+                // Live preview wiring (S3).
+                const pv = root.querySelector('#wmPreview');
+                const txt = root.querySelector('[data-k="text"]');
+                const col = root.querySelector('[data-k="color"]');
+                const op = root.querySelector('[data-k="op"]');
+                const ang = root.querySelector('[data-k="angle"]');
+                const opVal = root.querySelector('#wmOpVal');
+                const angVal = root.querySelector('#wmAngVal');
+                const refresh = () => {
+                    if (!pv) return;
+                    pv.textContent = txt.value || 'CONFIDENTIAL';
+                    pv.style.color = col.value;
+                    pv.style.opacity = (parseInt(op.value, 10) / 100).toFixed(2);
+                    pv.style.transform = 'rotate(' + (-parseInt(ang.value, 10)) + 'deg)';
+                    if (opVal) opVal.textContent = op.value + '%';
+                    if (angVal) angVal.innerHTML = ang.value + '&deg;';
+                };
+                [txt, col, op, ang].forEach(el => { el.addEventListener('input', refresh); });
+                refresh();
+            });
         if (!v || !v.text.trim()) return;
+
+        // Resolve which page indexes (0-based) get the watermark.
+        const pageCount = state.totalPages;
+        let targetIdx;
+        if (v.scope === 'current') {
+            targetIdx = new Set([state.currentPage - 1]);
+        } else if (v.scope === 'range') {
+            targetIdx = _parsePageRange(v.range, pageCount);
+            if (!targetIdx.size) { showToast('Enter valid page numbers (e.g. 1-3, 5)'); return; }
+        } else {
+            targetIdx = new Set(Array.from({ length: pageCount }, (_, i) => i));
+        }
+
         pushDocSnapshot('Watermark');
         setStatus('Adding watermark...');
         try {
-            const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes));
+            const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             const font = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
             const c = hexToRgb(v.color);
             const text = _winAnsi(v.text.trim());
-            for (const page of doc.getPages()) {
+            const pages = doc.getPages();
+            const angDeg = Math.max(-90, Math.min(90, parseInt(v.angle, 10) || 0));
+            const ang = angDeg * Math.PI / 180;
+            const sizeFrac = v.sizeMode === 'small' ? 0.28 : v.sizeMode === 'med' ? 0.45 : 0.62;
+            for (let pi = 0; pi < pages.length; pi++) {
+                if (!targetIdx.has(pi)) continue;
+                const page = pages[pi];
                 const { width, height } = page.getSize();
-                const target = (v.diag ? Math.hypot(width, height) : width) * 0.62;
-                let size = 60;
-                size = Math.max(18, Math.min(160, target / Math.max(1, font.widthOfTextAtSize(text, 100) / 100)));
+                const target = Math.hypot(width, height) * sizeFrac;
+                const size = Math.max(12, Math.min(200, target / Math.max(1, font.widthOfTextAtSize(text, 100) / 100)));
                 const tw = font.widthOfTextAtSize(text, size);
-                const ang = v.diag ? Math.atan2(height, width) : 0;
                 const cx = width / 2, cy = height / 2;
                 page.drawText(text, {
                     x: cx - (tw / 2) * Math.cos(ang), y: cy - (tw / 2) * Math.sin(ang) - size * 0.36,
                     size, font,
                     color: PDFLib.rgb(c.r / 255, c.g / 255, c.b / 255),
-                    opacity: parseInt(v.op, 10) / 100,
-                    rotate: PDFLib.degrees(ang * 180 / Math.PI),
+                    opacity: Math.max(0.05, Math.min(1, parseInt(v.op, 10) / 100)),
+                    rotate: PDFLib.degrees(angDeg),
                 });
             }
-            await _reloadFromBytes(await doc.save(), 'Watermark added to all pages');
+            const n = targetIdx.size;
+            const where = v.scope === 'all' ? 'all pages'
+                        : n === 1 ? '1 page' : n + ' pages';
+            await _reloadFromBytes(await doc.save(), 'Watermark added to ' + where);
         } catch (err) { console.error(err); showToast('Watermark failed'); }
+    }
+
+    // Parse a page-range string like "1-3, 5, 8" into a Set of 0-based indexes,
+    // clamped to [0, count). Ignores junk; returns an empty set if nothing valid.
+    function _parsePageRange(str, count) {
+        const out = new Set();
+        for (const part of String(str || '').split(',')) {
+            const s = part.trim();
+            if (!s) continue;
+            const m = s.match(/^(\d+)\s*-\s*(\d+)$/);
+            if (m) {
+                let a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+                if (a > b) [a, b] = [b, a];
+                for (let p = a; p <= b; p++) if (p >= 1 && p <= count) out.add(p - 1);
+            } else if (/^\d+$/.test(s)) {
+                const p = parseInt(s, 10);
+                if (p >= 1 && p <= count) out.add(p - 1);
+            }
+        }
+        return out;
     }
 
     // ── Page numbers ──
     async function addPageNumbersTool() {
         _exitScrollForOp();
-        if (!state.pdfBytes) return;
+        if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
         const v = await _toolModal('Add page numbers', `
             <label class="modal-label">Position:</label>
             <select class="modal-input" data-k="pos">
-                <option value="bc">Bottom centre</option>
+                <option value="bc">Bottom center</option>
                 <option value="br">Bottom right</option>
+                <option value="bl">Bottom left</option>
                 <option value="tr">Top right</option>
+                <option value="tc">Top center</option>
             </select>
-            <label class="modal-label" style="margin-top:10px;">Style:</label>
+            <label class="modal-label" style="margin-top:10px;">Format:</label>
             <select class="modal-input" data-k="fmt">
                 <option value="n">1</option>
                 <option value="pn">Page 1</option>
                 <option value="nn">1 / ${state.totalPages}</option>
+                <option value="pnofn">Page 1 of ${state.totalPages}</option>
             </select>
-            <label class="modal-label" style="margin-top:10px;">Start counting from:</label>
-            <input type="number" class="modal-input" data-k="start" value="1" min="1" max="9999">`, 'Add Numbers');
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;">
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Start at
+                    <input type="number" class="modal-input" data-k="start" value="1" min="0" max="9999" style="width:80px;">
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Font size
+                    <input type="number" class="modal-input" data-k="size" value="10" min="6" max="48" style="width:80px;">
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;">Margin (pt)
+                    <input type="number" class="modal-input" data-k="margin" value="24" min="4" max="120" style="width:80px;">
+                </label>
+            </div>
+            <label class="modal-label" style="margin-top:10px;">Apply to pages:</label>
+            <select class="modal-input" data-k="scope">
+                <option value="all">All pages</option>
+                <option value="skipfirst">All except the first page</option>
+                <option value="range">A range...</option>
+            </select>
+            <input type="text" class="modal-input" data-k="range" placeholder="e.g. 2-10, 12" style="margin-top:6px;display:none;">`,
+            'Add Numbers', (overlay) => {
+                const scopeSel = overlay.querySelector('[data-k="scope"]');
+                const rangeInp = overlay.querySelector('[data-k="range"]');
+                scopeSel && scopeSel.addEventListener('change', () => {
+                    rangeInp.style.display = scopeSel.value === 'range' ? 'block' : 'none';
+                });
+            });
         if (!v) return;
         pushDocSnapshot('Page numbers');
         setStatus('Adding page numbers...');
         try {
-            const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes));
+            const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             const font = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
             const pages = doc.getPages();
-            const start = parseInt(v.start, 10) || 1;
+            const start = parseInt(v.start, 10); const startN = Number.isFinite(start) ? start : 1;
+            const size = Math.max(6, Math.min(48, parseInt(v.size, 10) || 10));
+            const margin = Math.max(4, Math.min(120, parseInt(v.margin, 10) || 24));
+            // Which pages get a number (1-based indices).
+            const include = new Set();
+            if (v.scope === 'range') { parsePageRange(v.range, pages.length).forEach(p => include.add(p)); }
+            else { for (let p = 1; p <= pages.length; p++) if (!(v.scope === 'skipfirst' && p === 1)) include.add(p); }
+            const total = include.size;
+            let seq = 0;
             pages.forEach((page, i) => {
+                const pageNo = i + 1;
+                if (!include.has(pageNo)) return;
+                seq++;
+                const n = startN + seq - 1;
+                const label = v.fmt === 'pn' ? 'Page ' + n
+                    : v.fmt === 'nn' ? n + ' / ' + (startN + total - 1)
+                    : v.fmt === 'pnofn' ? 'Page ' + n + ' of ' + (startN + total - 1)
+                    : String(n);
                 const { width, height } = page.getSize();
-                const n = start + i;
-                const label = v.fmt === 'pn' ? 'Page ' + n : v.fmt === 'nn' ? n + ' / ' + (start + pages.length - 1) : String(n);
-                const size = 10;
                 const tw = font.widthOfTextAtSize(label, size);
-                const x = v.pos === 'bc' ? (width - tw) / 2 : width - tw - 28;
-                const y = v.pos === 'tr' ? height - 24 : 16;
+                const x = /c$/.test(v.pos) ? (width - tw) / 2 : /l$/.test(v.pos) ? margin : width - tw - margin;
+                const y = v.pos.startsWith('t') ? height - margin : Math.max(8, margin - 8);
                 page.drawText(label, { x, y, size, font, color: PDFLib.rgb(0.25, 0.25, 0.28) });
             });
-            await _reloadFromBytes(await doc.save(), 'Page numbers added');
+            await _reloadFromBytes(await doc.save(), 'Page numbers added to ' + total + ' page' + (total > 1 ? 's' : ''));
         } catch (err) { console.error(err); showToast('Page numbers failed'); }
     }
 
     // ── Compress ──
     async function compressPdfTool() {
-        if (!state.pdfBytes) return;
+        if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
         const beforeMB = ((state.pdfBytes.byteLength || state.pdfBytes.length) / 1048576).toFixed(1);
         const v = await _toolModal('Compress PDF', `
             <p class="modal-hint" style="margin:0 0 10px;">Current size: <b>${beforeMB} MB</b>. Save your markups first — compression works on the saved document content.</p>
@@ -6505,7 +9264,7 @@
         try {
             let outBytes;
             if (v.level === 'light') {
-                const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes));
+                const doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
                 outBytes = await doc.save({ useObjectStreams: true });
             } else {
                 const scale = v.level === 'extreme' ? 1.0 : 1.5;
@@ -6530,24 +9289,19 @@
                 outBytes = await out.save();
             }
             const afterMB = (outBytes.length / 1048576).toFixed(1);
-            const blob = new Blob([outBytes], { type: 'application/pdf' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = state.fileName.replace(/\.pdf$/i, '') + '_compressed.pdf';
-            a.click();
-            URL.revokeObjectURL(url);
-            setStatus('Compressed: ' + beforeMB + ' MB → ' + afterMB + ' MB');
-            showToast('Compressed ' + beforeMB + ' MB → ' + afterMB + ' MB');
+            // Apply in the editor (like the other tools) so the user can review
+            // the result and Save when ready, instead of a forced download.
+            await _reloadFromBytes(outBytes, 'Compressed ' + beforeMB + ' MB -> ' + afterMB + ' MB - Save when ready');
+            showToast('Compressed ' + beforeMB + ' MB -> ' + afterMB + ' MB');
         } catch (err) { console.error(err); showToast('Compression failed'); }
     }
 
     // ── Form filling (AcroForm) ──
     async function fillFormsTool() {
-        if (!state.pdfBytes) return;
+        if (!state.pdfBytes) { showToast('Open a PDF first'); return; }
         let doc, fields;
         try {
-            doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes));
+            doc = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             fields = doc.getForm().getFields();
         } catch (_) { fields = []; }
         if (!fields.length) { showToast('This PDF has no fillable form fields'); return; }
@@ -6857,6 +9611,174 @@
     }
     window.unlockPdfTool = unlockPdfTool;
 
+    // ── Standalone Lock / Unlock: pick a file directly, no need to open it in
+    //    the editor first (Pranshu). One entry point handles both:
+    //      • a password-protected file  → asks the password, removes it
+    //      • an unprotected file        → offers to ADD a password (lock)
+    //    Fully local: pdf.js decrypts (it takes the password), pdf-lib re-saves.
+    function _pickPdfFile() {
+        return new Promise((resolve) => {
+            const inp = document.createElement('input');
+            inp.type = 'file';
+            inp.accept = 'application/pdf,.pdf';
+            inp.style.display = 'none';
+            let settled = false;
+            const done = (f) => { if (settled) return; settled = true; inp.remove(); resolve(f || null); };
+            inp.addEventListener('change', () => done(inp.files && inp.files[0]));
+            // If the picker is dismissed (Cancel), the change event never fires.
+            // When focus returns to the window, resolve null on the next tick so
+            // the await never hangs and the input element doesn't leak.
+            const onFocus = () => {
+                window.removeEventListener('focus', onFocus);
+                setTimeout(() => done(null), 300); // give a real 'change' time to win
+            };
+            document.body.appendChild(inp);
+            inp.click();
+            window.addEventListener('focus', onFocus);
+        });
+    }
+
+    async function lockUnlockPdfFile() {
+        // Ask UPFRONT what the user wants - Lock or Unlock - one button, like
+        // Word<->PDF (Pranshu). No silent auto-detection guesswork.
+        const mode = await _choiceModal('Unlock / Lock PDF',
+            'What would you like to do?', [
+                { key: 'unlock', label: 'Unlock a PDF (remove lock/restrictions)' },
+                { key: 'lock',   label: 'Lock a PDF (restrict actions)' },
+            ]);
+        if (!mode) return;
+
+        const file = await _pickPdfFile();
+        if (!file) { setStatus('Ready'); return; }
+        setStatus('Reading PDF...');
+        try {
+            const buf = await file.arrayBuffer();
+            const baseName = file.name.replace(/\.pdf$/i, '');
+            const L = await encLib();
+
+            let wasEncrypted = false;
+
+            if (mode === 'unlock') {
+                // UNLOCK by RE-RENDERING each page. pdf.js decrypts the content to
+                // display it; we render every page to a canvas and rebuild a fresh,
+                // unencrypted PDF from those images. This is the only method that
+                // reliably works with these bundled libs - stripping the Encrypt
+                // dict (pdf-lib) OR saveDocument()/getData() (pdf.js) both left the
+                // content streams still encrypted, so pages came out BLANK. Verified
+                // in a real browser: this renders the actual content, no password.
+                // Trade-off: the unlocked page becomes an image (not selectable
+                // text), which is the accepted cost of guaranteed-correct unlock.
+                setStatus('Removing lock...');
+                let pdf = null, password = null;
+                for (let attempt = 0; ; attempt++) {
+                    try {
+                        pdf = await pdfjsLib.getDocument({ data: buf.slice(0), ...(password ? { password } : {}) }).promise;
+                        break;
+                    } catch (err) {
+                        if (err && err.name === 'PasswordException' && attempt < 3) {
+                            wasEncrypted = true;
+                            password = await customPrompt(
+                                attempt === 0 ? 'This PDF has an open-password. Enter it to unlock:'
+                                              : 'Wrong password - try again:', 'Password');
+                            if (!password) { setStatus('Cancelled'); return; }
+                            continue;
+                        }
+                        throw err;
+                    }
+                }
+                const outDoc = await L.PDFDocument.create();
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    setStatus('Removing lock... page ' + i + '/' + pdf.numPages);
+                    const pg = await pdf.getPage(i);
+                    const vp = pg.getViewport({ scale: 2 });   // 2x for crisp output
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.ceil(vp.width);
+                    canvas.height = Math.ceil(vp.height);
+                    await pg.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+                    const png = await outDoc.embedPng(canvas.toDataURL('image/png'));
+                    const base = pg.getViewport({ scale: 1 });
+                    const np = outDoc.addPage([base.width, base.height]);
+                    np.drawImage(png, { x: 0, y: 0, width: base.width, height: base.height });
+                }
+                const bytes = await outDoc.save();
+
+                // Ask what to do with the unlocked file (Pranshu): open it in the
+                // editor to work on it, or just download the unlocked copy.
+                const removedWhat = wasEncrypted ? 'The password has been removed.'
+                                                 : 'The restrictions have been removed.';
+                const choice = await _choiceModal('PDF unlocked',
+                    removedWhat + ' What would you like to do?', [
+                        { key: 'edit',     label: 'Open in editor' },
+                        { key: 'download', label: 'Download unlocked copy' },
+                    ]);
+                if (choice === 'edit') {
+                    state.fileName = baseName + '_unlocked.pdf';
+                    await loadPDF(new File([bytes], state.fileName, { type: 'application/pdf' }));
+                    setStatus('Opened the unlocked PDF');
+                } else if (choice === 'download') {
+                    _downloadBytes(bytes, baseName + '_unlocked.pdf');
+                    setStatus('Saved unlocked PDF');
+                    showToast(wasEncrypted ? 'Password removed - saved an unlocked copy'
+                                           : 'Restrictions removed - saved an unlocked copy');
+                } else {
+                    setStatus('Ready'); // cancelled
+                }
+            } else {  // mode === 'lock'
+                // LOCK with RESTRICTIONS only (owner password + permissions), NOT
+                // an open-password. The file still OPENS for anyone to view, but
+                // printing/copying/editing are blocked - and crucially, Unlock can
+                // strip that WITHOUT needing any password (unlike a userPassword,
+                // which truly encrypts the content and could never be removed
+                // without it).
+                const v = await _toolModal('Lock this PDF', `
+                    <p class="modal-hint" style="margin:0 0 10px;">Restrict what people can do with this PDF. The file still opens for viewing - no password needed to open it - but the chosen actions are blocked. You can remove these restrictions later with Unlock (no password required).</p>
+                    <label class="modal-label">Restrict:</label>
+                    <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noPrint" checked><span>No printing</span></label>
+                    <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noCopy" checked><span>No copying text</span></label>
+                    <label class="stamp-date-row" style="padding:4px 0;"><input type="checkbox" data-k="noModify" checked><span>No editing</span></label>`,
+                    'Lock & Save');
+                if (!v) { setStatus('Ready'); return; }
+                if (!v.noPrint && !v.noCopy && !v.noModify) { showToast('Pick at least one restriction'); return; }
+                setStatus('Locking...');
+                const doc = await L.PDFDocument.load(new Uint8Array(buf), { ignoreEncryption: true });
+                // Owner password is internal-only (never shown) - it just backs the
+                // permission flags. No userPassword => the file opens freely.
+                doc.encrypt({
+                    ownerPassword: 'greens-nexus-lock',
+                    permissions: {
+                        printing: v.noPrint ? false : 'highResolution',
+                        copying: v.noCopy ? false : true,
+                        modifying: v.noModify ? false : true,
+                        annotating: v.noModify ? false : true,
+                        fillingForms: v.noModify ? false : true,
+                        contentAccessibility: true,
+                        documentAssembly: v.noModify ? false : true,
+                    },
+                });
+                const bytes = await doc.save();
+                _downloadBytes(bytes, baseName + '_locked.pdf');
+                setStatus('Saved restricted PDF');
+                showToast('Restrictions added - the file still opens for viewing');
+            }
+        } catch (err) {
+            console.error(err);
+            showToast('Could not process: ' + (err && err.message || 'unknown error'));
+            setStatus('Failed');
+        }
+    }
+    function _downloadBytes(bytes, name) {
+        const a = document.createElement('a');
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        a.href = url;
+        a.download = name;
+        a.click();
+        // Defer revocation - a.click() starts the download asynchronously, so
+        // revoking synchronously can race the browser's blob read (empty/failed
+        // download for large files).
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+    window.lockUnlockPdfFile = lockUnlockPdfFile;
+
     // ── PDF → Markdown: extract text as a .md file, using layout heuristics ──
     // Fully local (pdf.js text extraction). Headings inferred from font size,
     // paragraphs from vertical gaps, bullets kept. Not a perfect converter, but
@@ -7020,6 +9942,13 @@
                     if (names.has(PDFName.of(key))) { names.delete(PDFName.of(key)); removed++; }
                 }
             }
+            // AcroForm XFA (an XML forms layer that can carry its own scripts).
+            try {
+                const acro = cat.lookup(PDFName.of('AcroForm'));
+                if (acro instanceof PDFDict && acro.has(PDFName.of('XFA'))) {
+                    acro.delete(PDFName.of('XFA')); removed++;
+                }
+            } catch (_) {}
             // Per-page auto-actions
             for (const pg of doc.getPages()) {
                 if (pg.node.has(PDFName.of('AA'))) { pg.node.delete(PDFName.of('AA')); removed++; }
@@ -7099,46 +10028,85 @@
         if (!v) return;
         pushDocSnapshot('N-up');
         setStatus('Building N-up...');
-        try {
-            const n = parseInt(v.n, 10);
-            const cols = n === 2 ? 2 : n === 4 ? 2 : n === 6 ? 2 : 3;
-            const rows = n === 2 ? 1 : n === 4 ? 2 : n === 6 ? 3 : 3;
+
+        const n = parseInt(v.n, 10);
+        const cols = n === 2 ? 2 : n === 4 ? 2 : n === 6 ? 2 : 3;
+        const rows = n === 2 ? 1 : n === 4 ? 2 : n === 6 ? 3 : 3;
+
+        // Layout N pages per sheet. `mode` is 'vector' (embedPdf - crisp) or
+        // 'image' (pdf.js render - works on ANY compression). embedPdf decodes
+        // lazily at save() time, so a bad-compression PDF only throws THERE - we
+        // run the whole build+save and, on failure, retry in image mode.
+        const buildNup = async (mode) => {
             const src = await PDFLib.PDFDocument.load(new Uint8Array(state.pdfBytes), { ignoreEncryption: true });
             const out = await PDFLib.PDFDocument.create();
             const first = src.getPage(0);
             const pw = first.getWidth(), ph = first.getHeight();
-            // landscape sheet for 2-up, else portrait, sized to the source
             const sheetW = cols >= rows ? Math.max(pw, ph) : Math.min(pw, ph);
             const sheetH = cols >= rows ? Math.min(pw, ph) : Math.max(pw, ph);
             const total = src.getPageCount();
-            const embedded = await out.embedPdf(src, Array.from({ length: total }, (_, i) => i));
             const cellW = sheetW / cols, cellH = sheetH / rows;
+
+            let embedded = null;
+            const pageImg = [];
+            if (mode === 'vector') {
+                embedded = await out.embedPdf(src, Array.from({ length: total }, (_, i) => i));
+            } else {
+                for (let i = 0; i < total; i++) {
+                    setStatus('Building N-up... rendering page ' + (i + 1) + '/' + total);
+                    const pg = await state.pdfDoc.getPage(i + 1);
+                    const vp = pg.getViewport({ scale: 1.5 });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
+                    const cx2 = canvas.getContext('2d');
+                    cx2.fillStyle = '#fff'; cx2.fillRect(0, 0, canvas.width, canvas.height);
+                    await pg.render({ canvasContext: cx2, viewport: vp }).promise;
+                    const base = pg.getViewport({ scale: 1 });
+                    const png = await out.embedPng(canvas.toDataURL('image/png'));
+                    pageImg.push({ png, w: base.width, h: base.height });
+                }
+            }
             for (let i = 0; i < total; i += n) {
                 const sheet = out.addPage([sheetW, sheetH]);
                 for (let k = 0; k < n && i + k < total; k++) {
-                    const emb = embedded[i + k];
-                    // Honor source /Rotate: 90/270 swaps the visual aspect
-                    let ew = emb.width, eh = emb.height;
-                    try {
-                        const rot = (src.getPage(i + k).getRotation().angle % 360 + 360) % 360;
-                        if (rot === 90 || rot === 270) { ew = emb.height; eh = emb.width; }
-                    } catch (_) {}
+                    const idx = i + k;
+                    let ew, eh, place;
+                    if (mode === 'vector') {
+                        const emb = embedded[idx];
+                        ew = emb.width; eh = emb.height;
+                        try {
+                            const rot = (src.getPage(idx).getRotation().angle % 360 + 360) % 360;
+                            if (rot === 90 || rot === 270) { ew = emb.height; eh = emb.width; }
+                        } catch (_) {}
+                        place = (opts) => sheet.drawPage(emb, opts);
+                    } else {
+                        const im = pageImg[idx];
+                        ew = im.w; eh = im.h;
+                        place = (opts) => sheet.drawImage(im.png, opts);
+                    }
                     const scale = Math.min(cellW / ew, cellH / eh) * 0.95;
                     const w = ew * scale, h = eh * scale;
                     const col = k % cols, row = Math.floor(k / cols);
                     const x = col * cellW + (cellW - w) / 2;
                     const y = sheetH - (row + 1) * cellH + (cellH - h) / 2;
-                    sheet.drawPage(emb, { x, y, width: w, height: h });
+                    place({ x, y, width: w, height: h });
                 }
             }
-            const bytes = await out.save();
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-            a.download = state.fileName.replace(/\.pdf$/i, '') + '_' + n + 'up.pdf';
-            a.click();
-            URL.revokeObjectURL(a.href);
-            setStatus('Saved ' + n + '-up PDF');
-            showToast('Saved ' + n + ' pages-per-sheet PDF');
+            return await out.save();   // vector mode throws HERE on bad compression
+        };
+
+        try {
+            let bytes;
+            try {
+                bytes = await buildNup('vector');
+            } catch (vecErr) {
+                console.warn('N-up: vector build failed (' + vecErr.message + '), retrying as images');
+                setStatus('Building N-up (image mode)...');
+                bytes = await buildNup('image');   // works on any compression
+            }
+            // Apply IN the editor - don't force a download.
+            await _reloadFromBytes(bytes, n + '-up layout applied - keep editing, then Save when ready');
+            showToast('Created a ' + n + ' pages-per-sheet layout - download it with Save when ready');
         } catch (err) { console.error(err); showToast('N-up failed: ' + err.message); }
     }
     window.nUpTool = nUpTool;
@@ -7152,6 +10120,7 @@
     // that page. The proven editing pipeline is untouched.
     let _scrollOn = false;
     let _scrollEls = [];      // per-page { wrap, canvas, rendered, page }
+    let _savedScrollTop = null;   // scroll position kept while editing a page
 
     async function buildScrollView() {
         const host = dom.canvasScrollWrapper;
@@ -7183,7 +10152,11 @@
             num.className = 'cv-page-num';
             num.textContent = p;
             wrap.appendChild(num);
-            wrap.addEventListener('click', () => { setScrollMode(false); goToPage(p); });
+            // Clicking a page in the continuous view just tracks it as current -
+            // it does NOT drop out of scroll mode (that jarring auto-switch was
+            // the confusing part). Editing tools switch to single-page on their
+            // own when you actually pick a tool.
+            wrap.addEventListener('click', () => { state.currentPage = p; dom.pageInput.value = p; updateThumbnailActive(); });
             cont.appendChild(wrap);
             _scrollEls.push({ wrap, canvas, rendered: false, page: p, dispW: estDispW, sized: false });
         }
@@ -7201,13 +10174,14 @@
             const midY = sRect.top + vh / 2;
             for (const el of _scrollEls) {
                 const r = el.wrap.getBoundingClientRect();
-                const near = (r.bottom >= sRect.top - margin && r.top <= sRect.bottom + margin);
+                // Render pages within ~2 screens so they're ready before you
+                // reach them. Do NOT free here: freeing mid-scroll blanked pages
+                // right at the edge, then re-rendered them - a visible FLICKER.
+                // Freeing is deferred to freeFarPages() which runs only once
+                // scrolling has stopped (see below).
+                const near = (r.bottom >= sRect.top - margin * 2 && r.top <= sRect.bottom + margin * 2);
                 if (near) {
                     renderScrollPage(el.page - 1);
-                } else if (el.rendered && (r.bottom < sRect.top - margin * 2.5 || r.top > sRect.bottom + margin * 2.5)) {
-                    // B2: far from viewport → free the bitmap, re-render on return
-                    el.canvas.width = 0; el.canvas.height = 0;
-                    el.rendered = false;
                 }
                 const c = r.top + r.height / 2;
                 const d = Math.abs(c - midY);
@@ -7216,7 +10190,7 @@
             if (!settling && centeredPage !== state.currentPage) {
                 state.currentPage = centeredPage;
                 dom.pageInput.value = centeredPage;
-                if (typeof updateActiveThumbnail === 'function') updateActiveThumbnail(centeredPage);
+                if (typeof updateThumbnailActive === 'function') updateThumbnailActive();
             }
         };
         // While we're programmatically jumping to the target page, ignore the
@@ -7224,7 +10198,43 @@
         // state.currentPage (often to page 1 at the top) mid-jump, which yanked
         // the user back to the first page when re-entering scroll mode.
         let settling = true;
-        const guardedOnScroll = () => { if (settling) return; onScroll(); };
+        // Throttle to one run per animation frame. The raw scroll event fires
+        // many times per frame and onScroll does per-page getBoundingClientRect +
+        // render work, which made scrolling laggy/janky. rAF-coalescing keeps the
+        // handler off the critical scroll path so scrolling stays smooth.
+        let _scrollRaf = 0;
+        // Free far-away page bitmaps to cap memory - but ONLY when scrolling has
+        // stopped, so it never blanks a page you're scrolling past (that was the
+        // flicker). Runs ~250ms after the last scroll event.
+        let _freeTimer = 0;
+        // Freeing bitmaps is what caused the blank-then-render FLICKER. For a
+        // normal document we simply DON'T free - every page, once rendered,
+        // stays rendered, so scrolling is rock-solid with zero flicker (dozens
+        // of canvases are fine for the browser). Only very large documents free
+        // pages, and even then only far away and only after scrolling stops.
+        const FREE_ABOVE_PAGES = 60;
+        const freeFarPages = () => {
+            if (state.totalPages <= FREE_ABOVE_PAGES) return;   // keep all rendered
+            const sRect = scroller.getBoundingClientRect();
+            const margin = sRect.height || window.innerHeight;
+            for (const el of _scrollEls) {
+                if (!el.rendered) continue;
+                const r = el.wrap.getBoundingClientRect();
+                if (r.bottom < sRect.top - margin * 8 || r.top > sRect.bottom + margin * 8) {
+                    el.canvas.width = 0; el.canvas.height = 0;
+                    el.rendered = false;
+                }
+            }
+        };
+        const guardedOnScroll = () => {
+            if (settling) return;
+            if (state.totalPages > FREE_ABOVE_PAGES) {
+                clearTimeout(_freeTimer);
+                _freeTimer = setTimeout(freeFarPages, 400); // large docs: free after idle
+            }
+            if (_scrollRaf) return;
+            _scrollRaf = requestAnimationFrame(() => { _scrollRaf = 0; onScroll(); });
+        };
         _scrollOnScroll = guardedOnScroll;
         scroller.addEventListener('scroll', guardedOnScroll, { passive: true });
 
@@ -7250,26 +10260,51 @@
         }, 30);
         // Render whatever is initially in view (doesn't move currentPage yet).
         onScroll();
+
+        // Background pre-render: for a normal document, eagerly draw EVERY page
+        // (one per idle tick so the UI stays responsive) so no page is ever
+        // blank when it scrolls into view - fast scrolling then shows content
+        // immediately with no flicker. Skipped for very large docs, which rely
+        // on the near-viewport lazy render + freeing instead.
+        if (state.totalPages <= 60) {
+            const myGen = _thumbGen; // reuse the doc generation guard
+            let p = 0;
+            const pump = () => {
+                if (_scrollEls.length === 0) return;          // view torn down
+                if (p >= _scrollEls.length) return;           // all done
+                const el = _scrollEls[p++];
+                if (el && !(el.rendered && el.canvas.width > 0)) {
+                    renderScrollPage(el.page - 1);
+                }
+                // requestIdleCallback where available, else a small timeout.
+                (window.requestIdleCallback || ((f) => setTimeout(f, 16)))(pump);
+            };
+            (window.requestIdleCallback || ((f) => setTimeout(f, 60)))(pump);
+        }
     }
     let _scrollOnScroll = null;
 
     async function renderScrollPage(idx) {
         const el = _scrollEls[idx];
-        if (!el || el.rendered) return;
+        if (!el) return;
+        // Re-render if not yet drawn OR if the bitmap was freed (canvas zeroed
+        // when the page scrolled far away). Relying only on `rendered` left a
+        // freed page blank when you scrolled back to it - e.g. page 2 -> page 1.
+        if (el.rendered && el.canvas.width > 0) return;
         el.rendered = true; // claim early to avoid double-render
         try {
             const page = await state.pdfDoc.getPage(el.page);
             const base = page.getViewport({ scale: 1 });
             // This page's true display width at the current zoom (matches Page
-            // mode). Correct the estimated placeholder to the real size once, so
-            // mixed-size documents lay out accurately.
+            // mode). Always assert the wrapper to this page's REAL size (not just
+            // once): mixed-size documents were left at page 1's estimated size,
+            // so jumping back rendered into a wrong-sized box.
             const dispW = base.width * state.zoom;
+            const dispH = dispW * (base.height / base.width);
             el.dispW = dispW;
-            if (!el.sized) {
-                el.sized = true;
-                el.wrap.style.width = dispW + 'px';
-                el.wrap.style.height = (dispW * (base.height / base.width)) + 'px';
-            }
+            el.sized = true;
+            el.wrap.style.width = dispW + 'px';
+            el.wrap.style.height = dispH + 'px';
             const scale = (dispW / base.width) * 1.5; // 1.5 = retina sharpness
             const vp = page.getViewport({ scale });
             el.canvas.width = vp.width;
@@ -7300,21 +10335,58 @@
         if (cont) cont.remove();
         _scrollEls = [];
     }
+    // Re-add the existing scroll handler after the view was hidden for editing
+    // (it was detached, not destroyed) so scrolling keeps working on return.
+    function _reattachScrollHandler() {
+        if (_scrollOnScroll && dom.canvasScrollWrapper) {
+            dom.canvasScrollWrapper.removeEventListener('scroll', _scrollOnScroll); // avoid dupes
+            dom.canvasScrollWrapper.addEventListener('scroll', _scrollOnScroll, { passive: true });
+        }
+    }
 
     function setScrollMode(on) {
         if (!state.pdfDoc) return;
         _scrollOn = on;
         const cw = dom.canvasWrapper;
         const btn = document.getElementById('scrollModeBtn');
+        const existing = document.getElementById('continuousView');
         if (on) {
             saveCurrentAnnotations();
             if (cw) cw.style.display = 'none';       // hide the single-page editor canvas
-            buildScrollView();  // async; observers attach as pages are added
-            setStatus('Continuous scroll — click a page to edit it');
+            if (existing && _scrollEls.length) {
+                // The continuous view is still built (we only hid it to edit) -
+                // just SHOW it again and restore the scroll position. No rebuild,
+                // so returning to scroll is instant with no flicker. Pages are
+                // already rendered.
+                existing.style.display = '';
+                if (dom.canvasScrollWrapper && _savedScrollTop != null) {
+                    dom.canvasScrollWrapper.scrollTop = _savedScrollTop;
+                }
+                _reattachScrollHandler();
+            } else {
+                buildScrollView();  // first time (or torn down): build it
+            }
+            setStatus('Scroll through all pages - pick a tool to edit the current page');
         } else {
-            destroyScrollView();
+            // Entering single-page edit: remember where we were and HIDE the
+            // continuous view instead of destroying it, so coming back doesn't
+            // rebuild/flicker. Detach the scroll handler while hidden.
+            _savedScrollTop = dom.canvasScrollWrapper ? dom.canvasScrollWrapper.scrollTop : 0;
+            if (_scrollOnScroll && dom.canvasScrollWrapper) {
+                dom.canvasScrollWrapper.removeEventListener('scroll', _scrollOnScroll);
+            }
+            if (existing) existing.style.display = 'none';
             if (cw) cw.style.display = '';
             renderPage(state.currentPage);
+            // Reset the scroll position to the top of the single page. Coming
+            // from a scrolled-down continuous view, the wrapper kept its old
+            // scrollTop, so the edited page appeared stuck at its bottom. Reset
+            // now AND after the async render settles the layout.
+            if (dom.canvasScrollWrapper) {
+                dom.canvasScrollWrapper.scrollTop = 0;
+                requestAnimationFrame(() => { dom.canvasScrollWrapper.scrollTop = 0; });
+                setTimeout(() => { dom.canvasScrollWrapper.scrollTop = 0; }, 120);
+            }
             setStatus('Edit mode — page ' + state.currentPage);
         }
         if (btn) btn.classList.toggle('active', on);
@@ -7322,7 +10394,21 @@
     window.setScrollMode = setScrollMode;
     window.isScrollMode = () => _scrollOn;
     // Re-render scroll pages when zoom changes while scrolling
-    window.rerenderScrollForZoom = () => { if (_scrollOn) { destroyScrollView(); buildScrollView(); } };
+    window.rerenderScrollForZoom = () => {
+        if (!_scrollOn || !_scrollEls.length) return;
+        // Resize every page wrapper to the new zoom and re-render in place -
+        // no destroy/rebuild, so zoom/Fit is smooth with no flicker. Keep the
+        // user roughly on the same page by preserving the scroll ratio.
+        const sc = dom.canvasScrollWrapper;
+        const prevRatio = sc && sc.scrollHeight > 0 ? sc.scrollTop / sc.scrollHeight : 0;
+        for (const el of _scrollEls) {
+            el.sized = false;                 // force re-size to the new zoom
+            el.rendered = false;              // force re-render
+            el.canvas.width = 0; el.canvas.height = 0;
+            renderScrollPage(el.page - 1);
+        }
+        if (sc) requestAnimationFrame(() => { sc.scrollTop = prevRatio * sc.scrollHeight; });
+    };
     // Scroll the continuous view to a given page (1-based), staying in scroll
     // mode. Used by thumbnail clicks / page-number jumps so navigating doesn't
     // yank the user out of continuous scroll. Returns false if not applicable.
@@ -7331,8 +10417,12 @@
         const el = _scrollEls[n - 1];
         if (!el) return false;
         state.currentPage = n;
+        // Draw the target BEFORE scrolling so it isn't blank on arrival, then
+        // scroll to it, then re-run the scroll handler so pages that scrolled
+        // into view along the way (and any freed ones) get (re)rendered.
+        renderScrollPage(n - 1);
         el.wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        renderScrollPage(n - 1); // make sure the target is drawn, not just estimated
+        if (_scrollOnScroll) setTimeout(_scrollOnScroll, 350);
         updateThumbnailActive();
         return true;
     };
@@ -7377,6 +10467,94 @@
             clearTimeout(timer);
             timer = setTimeout(() => fn.apply(this, args), delay);
         };
+    }
+
+    // A1: one shared custom color popover, opened by the swatch triggers. Every
+    // interaction inside it calls stopPropagation so no click reaches the canvas.
+    let _colorPop = null;
+    const _COLOR_PRESETS = ['#000000','#ffffff','#e03131','#f08c00','#f59f00','#2f9e44','#1971c2','#1098ad',
+                            '#7048e8','#e64980','#495057','#868e96','#ffe066','#a9e34b','#4dabf7','#ffa8a8'];
+    function _recentColors() {
+        try { return JSON.parse(localStorage.getItem('pdfEditorRecentColors') || '[]'); } catch (_) { return []; }
+    }
+    function _pushRecent(hex) {
+        let r = _recentColors().filter(c => c.toLowerCase() !== hex.toLowerCase());
+        r.unshift(hex); r = r.slice(0, 8);
+        try { localStorage.setItem('pdfEditorRecentColors', JSON.stringify(r)); } catch (_) {}
+    }
+    function _pickColor(hex) {
+        dom.colorPicker.value = hex;
+        _pushRecent(hex);
+        updateSwatchActive();
+        applyBrushColor();
+        // Mirror into the paint-bar "current" chip if present.
+        const cur = document.getElementById('pbColorCurrent'); if (cur) cur.style.background = hex;
+        _closeColorPop();
+    }
+    function _closeColorPop() { if (_colorPop) { _colorPop.remove(); _colorPop = null; } }
+    function _openColorPop(anchor) {
+        _closeColorPop();
+        const pop = document.createElement('div');
+        pop.className = 'color-pop';
+        const swatch = (hex, extraTitle) => `<button type="button" class="cp-sw" data-hex="${hex}" title="${hex}${extraTitle || ''}" style="background:${hex}"></button>`;
+        const recents = _recentColors();
+        pop.innerHTML =
+            '<div class="cp-grid">' + _COLOR_PRESETS.map(c => swatch(c)).join('') + '</div>' +
+            (recents.length ? '<div class="cp-label">Recent</div><div class="cp-grid">' + recents.map(c => swatch(c)).join('') + '</div>' : '') +
+            '<div class="cp-more"><label>Custom <input type="color" class="cp-native" value="' + dom.colorPicker.value + '"></label></div>';
+        // Every mousedown/click inside the popover is consumed so it can't reach
+        // the canvas and can't be seen as an "outside click" by other handlers.
+        pop.addEventListener('mousedown', (e) => e.stopPropagation());
+        pop.addEventListener('click', (e) => e.stopPropagation());
+        document.body.appendChild(pop);
+        const r = anchor.getBoundingClientRect();
+        pop.style.left = Math.min(r.left, window.innerWidth - 210) + 'px';
+        pop.style.top = (r.bottom + 6) + 'px';
+        pop.querySelectorAll('.cp-sw').forEach(b => b.addEventListener('click', () => _pickColor(b.dataset.hex)));
+        const native = pop.querySelector('.cp-native');
+        native.addEventListener('input', () => _pickColor(native.value));
+        native.addEventListener('click', (e) => e.stopPropagation());
+        _colorPop = pop;
+        // Close on the NEXT outside mousedown (deferred so this open click doesn't dismiss it).
+        setTimeout(() => document.addEventListener('mousedown', _onColorOutside, { once: true }), 0);
+    }
+    function _onColorOutside(e) {
+        if (_colorPop && !_colorPop.contains(e.target) && !e.target.closest('.swatch-custom')) _closeColorPop();
+        else if (_colorPop) setTimeout(() => document.addEventListener('mousedown', _onColorOutside, { once: true }), 0);
+    }
+    function _initColorPopover() {
+        document.querySelectorAll('.swatch-custom').forEach((trigger) => {
+            // A label wrapping <input type=color> FORWARDS clicks to the input and
+            // opens the OS dialog no matter what - pointer-events/preventDefault
+            // can't reliably stop label-forwarding. So physically MOVE the native
+            // input OUT of the label (keep it as the app's color-state holder) and
+            // give the trigger a visible swatch chip instead.
+            const nativeIn = trigger.querySelector('input[type="color"]');
+            if (nativeIn && nativeIn.parentElement === trigger) {
+                nativeIn.style.display = 'none';
+                nativeIn.removeAttribute('id-was');   // keep its id for state reads
+                document.body.appendChild(nativeIn);  // detach from the label
+                // A visible chip that shows the current color inside the trigger.
+                const chip = document.createElement('span');
+                chip.className = 'swatch-chip';
+                chip.style.cssText = 'display:inline-block;width:20px;height:20px;border-radius:5px;border:1px solid rgba(0,0,0,.25);background:' + (nativeIn.value || '#000') + ';';
+                trigger.appendChild(chip);
+                trigger._chip = chip;
+                // Keep the chip in sync when the color changes anywhere.
+                nativeIn.addEventListener('input', () => { chip.style.background = nativeIn.value; });
+            }
+            trigger.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
+            trigger.addEventListener('click', (e) => {
+                e.preventDefault(); e.stopPropagation();
+                if (_colorPop) { _closeColorPop(); return; }
+                _openColorPop(trigger);
+            });
+        });
+        // Reflect the current color on all trigger chips.
+        const syncChips = () => document.querySelectorAll('.swatch-custom .swatch-chip')
+            .forEach(c => { c.style.background = dom.colorPicker.value; });
+        dom.colorPicker.addEventListener('input', syncChips);
+        syncChips();
     }
 
     function updateSwatchActive() {
@@ -7427,6 +10605,17 @@
         const sel = _strokeableSelection();
         if (!sel.length) return;
         sel.forEach(o => o.set({ stroke: color }));
+        fabricCanvas.requestRenderAll();
+        saveAnnotationState(); saveCurrentAnnotations();
+    }
+    // Object restyle: opacity applies to ANY selected markup (not just strokeable).
+    function applyOpacityToSelection(alpha) {
+        if (!fabricCanvas) return;
+        const act = fabricCanvas.getActiveObjects ? fabricCanvas.getActiveObjects() : [];
+        const list = act.length ? act : (fabricCanvas.getActiveObject() ? [fabricCanvas.getActiveObject()] : []);
+        const sel = list.filter(o => o && !o._editTextGuide && !o.excludeFromExport);
+        if (!sel.length) return;
+        sel.forEach(o => o.set({ opacity: alpha }));
         fabricCanvas.requestRenderAll();
         saveAnnotationState(); saveCurrentAnnotations();
     }
@@ -7974,8 +11163,10 @@ ${sample}`;
         if (!obj) return;
         const t = obj.type;
         if (t === 'i-text' || t === 'text' || t === 'textbox') {
-            dom.textFormatBar.style.display = 'flex';
-            syncTextFormatBar(obj);
+            // A10: while the Text tool is armed the paint bar already carries the
+            // styling controls (and reserves its height), so don't ALSO pop the
+            // separate format bar - that second row is what jumped the canvas.
+            if (state.activeTool !== 'text') { dom.textFormatBar.style.display = 'flex'; syncTextFormatBar(obj); }
         } else if (t === 'image') {
             dom.imageEditBar.style.display = 'flex';
             syncImageEditBar(obj);
@@ -7987,6 +11178,25 @@ ${sample}`;
         dom.textFormatBar.style.display = 'none';
         dom.imageEditBar.style.display = 'none';
     }
+    // Exposed so the ribbon (adobe-ui.js) can dismiss a lingering formatting bar
+    // when the user switches ribbon groups (B3).
+    window.hideEditorContextBars = function () { try { hideContextualBars(); } catch (_) {} };
+
+    // Turn a raw embedded PDF font id (e.g. "PDFExact-g_d0_", "ABCDEF+Arial-Bold")
+    // into a friendly label for the font dropdown.
+    function _friendlyFontName(raw) {
+        if (!raw) return 'Original font';
+        let s = String(raw).replace(/^[A-Z]{6}\+/, '');      // drop subset prefix
+        // Known family keywords.
+        const known = ['Arial', 'Helvetica', 'Times', 'Courier', 'Georgia', 'Verdana', 'Calibri', 'Cambria', 'Garamond', 'Tahoma', 'Impact'];
+        for (const k of known) if (new RegExp(k, 'i').test(s)) {
+            const bold = /bold/i.test(s), ital = /ital|obli/i.test(s);
+            return k + (bold ? ' Bold' : '') + (ital ? ' Italic' : '');
+        }
+        // Opaque internal id (PDFExact-g_d0_ etc.) -> generic label.
+        if (/^[A-Za-z]+Exact|_g_|_d\d|[0-9a-f]{6,}/.test(s)) return 'Embedded font';
+        return s.replace(/[-_]+/g, ' ').trim() || 'Original font';
+    }
 
     // Sync bar state to match the selected text object's current properties
     function syncTextFormatBar(obj) {
@@ -7995,7 +11205,21 @@ ${sample}`;
         dom.tbUnderline.classList.toggle('active', !!obj.underline);
         dom.tbStrike.classList.toggle('active', !!obj.linethrough);
         dom.tbFontSize.value = Math.round(obj.fontSize || 20);
-        dom.tbFontFamily.value = obj.fontFamily || 'Arial';
+        // If the object's font isn't one of the dropdown's presets (e.g. an
+        // embedded PDF font), the <select> would render EMPTY (B6). Inject a
+        // one-off option so the user can see and keep the original font.
+        const fam = obj.fontFamily || 'Arial';
+        const sel = dom.tbFontFamily;
+        if (sel && ![...sel.options].some(o => o.value === fam)) {
+            const opt = document.createElement('option');
+            opt.value = fam;
+            opt.textContent = _friendlyFontName(fam) + (obj._pdfFontName ? ' (original)' : '');
+            opt.dataset.injected = '1';
+            sel.insertBefore(opt, sel.firstChild);
+        }
+        // Drop any previously-injected option that no longer applies.
+        if (sel) [...sel.options].forEach(o => { if (o.dataset.injected && o.value !== fam) o.remove(); });
+        dom.tbFontFamily.value = fam;
         // Fabric fill can be a color string or rgba
         const fillColor = obj.fill || '#000000';
         if (fillColor.startsWith('#') && fillColor.length === 7) {
@@ -9201,12 +12425,17 @@ Replacement:`;
     // (the automated suite in tests/ uses them; never active for users).
     if (location.search.includes('testhooks')) {
         window.__hooks = {
+            undoOrder: () => _undoOrder.slice(),   // A5 debug probe
             fabric: () => fabricCanvas,
+            contentSnap: (p) => _contentSnap(p),   // test probe for Snap to Content
+            measures: () => fabricCanvas.getObjects().filter(o => o._measure).map(o => o._measure),
+            scaleState: () => ({ scale: measureScale, unit: measureUnit, locked: _scaleLocked, stored: { ..._pageScales } }),
             addObj: (o) => { fabricCanvas.add(o); fabricCanvas.renderAll(); saveAnnotationState(); },
             rect: (opts) => new fabric.Rect(opts),
             ellipse: (opts) => new fabric.Ellipse(opts),
             itext: (t, opts) => new fabric.IText(t, opts),
             goto: (n) => renderPage(n),
+            thumbs: () => generateThumbnails(),   // test probe for B8
             save: () => downloadPDF(),
             state: () => ({ page: state.currentPage, total: state.totalPages, zoom: state.zoom }),
             pdfDoc: () => state.pdfDoc,

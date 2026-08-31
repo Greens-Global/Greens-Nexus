@@ -326,6 +326,11 @@ def delete_project(project_id: str, delete_in_asana: bool = False,
 
     gid = asana_sync.project_gid_for(db, project_id)
     if delete_in_asana:
+        # Sever (Aug 27): never place a live Asana call from this path while
+        # severed - the Nexus-side delete below still runs (that part is a
+        # local, reversible-in-intent action), it just can't also reach out.
+        if not asana_sync.is_asana_enabled():
+            raise HTTPException(403, "Asana integration is currently disabled, so it can't also be deleted there. Untick 'also delete in Asana' and try again.")
         if not gid:
             raise HTTPException(400, "This project isn't mapped to an Asana project, so there is nothing to delete in Asana.")
         done, err = asana_sync.delete_asana_project(db, gid)

@@ -1706,14 +1706,23 @@ html { overflow-x: hidden; }
   .header-right { margin-left: auto; }
 
   /* The centered search bar has no business on a phone - .header-search-left
-     replaces it (see TopHeader). But .header-center was still being LAID OUT:
+     replaces it (see TopHeader). .header-center was still being LAID OUT:
      measured 91px of overlap with the absolutely-centered NEXUS wordmark at
      390, 768 AND 900px, with its .search-bar child pushed clean off-screen
      (x=416 inside a 390px viewport). That is the jumble of a rounded search box
      with NEXUS printed over it.
-     Scoped with :not(.has-tabs) so a module that puts its tab strip in the
-     header (ModuleTabs) keeps it - only the search placement is dropped. */
-  .header-center:not(.has-tabs) { display: none; }
+     Unconditional, matching ModuleTabs.jsx's own documented contract ("below
+     900px the header center is hidden, so <ModuleTabs> renders the in-page
+     strip itself"). A :not(.has-tabs) exemption used to keep a module's
+     header-published tab strip (.hdr-tabs) visible here too - but every such
+     module ALSO renders that same strip as its in-page .scroll-tabs fallback,
+     so the exemption just reproduced the identical overlap-with-NEXUS bug this
+     rule exists to prevent, one layer down (Sagar, Aug 27).
+     !important because .header-center.has-tabs (below, ~L3080) is a later,
+     more-specific (two classes vs one) unscoped rule that sets display:flex -
+     without it that rule wins on specificity regardless of media query or
+     source order, and the tab strip silently reappears here on mobile. */
+  .header-center { display: none !important; }
 }
 
 /* Below ~420px the left icons (menu + back + search) grow close enough to the
@@ -3546,6 +3555,7 @@ button, [role="button"], select { touch-action: manipulation; }
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;   /* anchor for the loading cover overlay */
   /* Behind the iframe while it loads - follow the Nexus theme rather than
      hardcoding the engine's dark canvas, which flashed dark in light mode. */
   background: var(--wk-bg);
@@ -3570,6 +3580,35 @@ button, [role="button"], select { touch-action: manipulation; }
   min-height: 0;
   border: none;
   display: block;
+  transition: opacity 0.15s ease;   /* fade in once loaded (no flash) */
+}
+/* Loading cover over the iframe until it's ready, so the editor never flashes
+   a half-loaded / bfcache state when entering the module. */
+.pdf-editor-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--wk-bg, var(--bg-secondary));
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  z-index: 2;
+}
+[data-theme="dark"] .pdf-editor-loading { background: #1e1e2e; }
+.pdf-editor-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid color-mix(in srgb, var(--text-secondary) 25%, transparent);
+  border-top-color: hsl(var(--color-blue));
+  border-radius: 50%;
+  animation: pdf-editor-spin 0.7s linear infinite;
+}
+@keyframes pdf-editor-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .pdf-editor-spinner { animation-duration: 2s; }
 }
 
 /* ── Egnyte module ───────────────────────────────────────────────────────────

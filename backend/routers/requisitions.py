@@ -137,6 +137,12 @@ def list_requisitions(
         )
 
     reqs = q.all()
+    # Company wall: once armed, only requisitions in the caller's companies
+    # (Global Admin sees all; untagged/legacy -> Global-Admin-only). Off = unchanged.
+    import auth
+    _scope = auth.company_scope(user, db)
+    if _scope is not None:
+        reqs = [r for r in reqs if auth.company_ok(getattr(r, "company_id", ""), _scope)]
     result = []
     for r in reqs:
         # For legacy rows (no email), restrict by name match as fallback
@@ -177,8 +183,10 @@ def create_requisition(
     # so honour a client-supplied email; default to the verified submitter.
     payload["employee_email"] = (data.employee_email or submitter_email).lower().strip()
     on_behalf = bool(payload["employee_email"]) and payload["employee_email"] != submitter_email
+    import auth
     req = models.Requisition(
         **payload, id=server_id, status="pending_manager",
+        company_id=auth.company_of(payload["employee_email"] or submitter_email, db),  # company wall
         submitted_by_email=submitter_email, submitted_by_name=submitter_name,
         created_at=_ts(), updated_at=_ts(),
     )
