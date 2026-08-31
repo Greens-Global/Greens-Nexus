@@ -15,4 +15,8 @@ reportlab==4.2.5
 pypdf==6.14.2
 python-docx==1.2.0
 qrcode==7.4.2
+# stdlib zoneinfo has no bundled IANA database on Windows (and on some minimal
+# Linux images) - it falls back to this package automatically when present.
+# Needed by routers/dashboards.py's My Agenda window conversion.
+tzdata==2025.2
 # sentry-sdk  # optional error tracking - install and set NEXUS_SENTRY_DSN to enable

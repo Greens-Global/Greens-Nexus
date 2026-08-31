@@ -28,6 +28,14 @@ const KIND_META = {
   break_end:   { label: 'End Break',  Icon: Play,   bg: 'var(--wk-brand)', fg: '#fff' },
 };
 const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break Start', break_end: 'Break End' };
+// Per-tab page title/subtitle (Aug 31, per Pranshu - the header used to read
+// "Time Clock" no matter which tab was open). `title` also drives the
+// breadcrumb via <ModuleTabs syncTitle> below.
+const TAB_META = {
+  clock:     { title: 'Time Clock', label: 'Clock',      subtitle: 'Punch in and out, your timesheet and time off' },
+  timesheet: { title: 'Time Sheet', label: 'Time Sheet', subtitle: 'Your hours this pay period, day by day' },
+  timeoff:   { title: 'Time Off',   label: 'Time Off',   subtitle: 'Request time off and see what’s coming up' },
+};
 // Work OS card-header title (sentence case, no uppercase tracking).
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 // Small stat label / value inside cards.
@@ -621,26 +629,25 @@ export default function TimeClock() {
             <Clock size={19} />
           </span>
           <div className="view-title-group">
-            <h2 style={{ margin: 0 }}>Time Clock</h2>
-            <p style={{ margin: '2px 0 0' }}>Punch in and out, your timesheet and time off</p>
+            <h2 style={{ margin: 0 }}>{TAB_META[tab].title}</h2>
+            <p style={{ margin: '2px 0 0' }}>{TAB_META[tab].subtitle}</p>
           </div>
         </div>
       </div>
 
       {/* Tabs - one job per screen (the everything-in-one page read as clutter).
           Desktop renders them centered in the top header; phones keep the
-          in-page strip (ModuleTabs handles both). */}
+          in-page strip (ModuleTabs handles both). syncTitle: the header/page
+          title above follows whichever tab is active instead of always
+          reading "Time Clock". */}
       <ModuleTabs
-        tabs={status?.timeTrackingExempt
+        tabs={(status?.timeTrackingExempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? [{ key: 'clock', label: 'Clock' }, { key: 'timeoff', label: 'Time Off' }]
-          : [
-            { key: 'clock',     label: 'Clock' },
-            { key: 'timesheet', label: 'Time Sheet' },
-            { key: 'timeoff',   label: 'Time Off' },
-          ]}
-        active={tab} onChange={setTab} />
+          ? ['clock', 'timeoff']
+          : ['clock', 'timesheet', 'timeoff']
+        ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
+        active={tab} onChange={setTab} syncTitle />
 
       {msg && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 14,
