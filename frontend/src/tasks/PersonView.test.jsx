@@ -66,16 +66,20 @@ describe('PersonView render-smoke', () => {
   it('shows who the person is, not just their tasks', async () => {
     render(<PersonView {...props} />);
 
-    expect(await screen.findByText('Ashley Vizcarra')).toBeInTheDocument();
-    expect(screen.getByText(/Operations Manager/)).toBeInTheDocument();
+    // Same instant-paint caveat as below: wait on the data-dependent field,
+    // not the name (which paints from the prop before the fetch resolves).
+    expect(await screen.findByText(/Operations Manager/)).toBeInTheDocument();
+    expect(screen.getByText('Ashley Vizcarra')).toBeInTheDocument();
     expect(screen.getByText('ashley@greensglobal.com')).toBeInTheDocument();
   });
 
   it('rolls up open, overdue and completed', async () => {
     render(<PersonView {...props} />);
-    await screen.findByText('Ashley Vizcarra');
 
-    expect(screen.getByText('Open')).toBeInTheDocument();
+    // 'Ashley Vizcarra' paints instantly from the name prop, before the
+    // mocked fetch resolves - waiting on it doesn't prove data has loaded.
+    // The stat rollup only renders once data has, so wait on that instead.
+    expect(await screen.findByText('Open')).toBeInTheDocument();
     expect(screen.getByText('Overdue')).toBeInTheDocument();
     expect(screen.getByText('Completed')).toBeInTheDocument();
   });
