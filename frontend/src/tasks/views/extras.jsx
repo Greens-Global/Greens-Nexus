@@ -193,15 +193,15 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
   );
 }
 
-export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace' }) {
+export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace', onFilter }) {
   const stats = (pre && pre.total != null) ? pre : taskStats(tasks);
-  const byStatus = store.statusOrder.map((s) => ({ label: store.statusMeta[s]?.label || s, value: tasks.filter((t) => t.status === s).length, color: store.statusMeta[s]?.color })).filter((d) => d.value > 0);
-  const byTeam = (store.teams || []).map((d) => ({ label: d.name, value: tasks.filter((t) => t.teamId === d.id).length, color: d.color || NX.blue })).filter((d) => d.value > 0);
+  const byStatus = store.statusOrder.map((s) => ({ label: store.statusMeta[s]?.label || s, value: tasks.filter((t) => t.status === s).length, color: store.statusMeta[s]?.color, key: s })).filter((d) => d.value > 0);
+  const byTeam = (store.teams || []).map((d) => ({ label: d.name, value: tasks.filter((t) => t.teamId === d.id).length, color: d.color || NX.blue, key: d.id })).filter((d) => d.value > 0);
 
   const byAssignee = useMemo(() => {
     const seen = new Map();
     for (const t of tasks) if (t.assigneeId && !seen.has(t.assigneeId)) seen.set(t.assigneeId, (store.nameOf?.(t.assigneeId) || t.assigneeId).split(' ')[0]);
-    return [...seen.entries()].map(([id, label]) => ({ label, value: tasks.filter((t) => t.assigneeId === id).length, color: NX.blue })).filter((d) => d.value > 0);
+    return [...seen.entries()].map(([id, label]) => ({ label, value: tasks.filter((t) => t.assigneeId === id).length, color: NX.blue, key: id })).filter((d) => d.value > 0);
   }, [tasks, store]);
 
   const totalEst = tasks.reduce((n, t) => n + (t.estimateHours ?? 0), 0);
@@ -220,31 +220,37 @@ export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace'
   }, [tasks]);
 
   // Kit KPI tile: colored icon chip carries the meaning; the numeral stays ink.
-  const kpi = (label, value, color, Icon) => (
-    <div style={{ borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
+  // Clickable when onFilter is wired in - drills straight into the List view
+  // pre-filtered to that slice, same as clicking a bar below.
+  const kpi = (label, value, color, Icon, onClick) => (
+    <button onClick={onClick} disabled={!onClick} style={{
+      borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, padding: '16px 18px',
+      display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left', font: 'inherit', color: 'inherit',
+      cursor: onClick ? 'pointer' : 'default', width: '100%',
+    }}>
       <span style={{ width: 42, height: 42, borderRadius: 13, background: `${color}1a`, color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon size={19} /></span>
       <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <span style={{ fontSize: 13, fontWeight: 500, color: NX.dim }}>{label}</span>
         <span style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
       </span>
-    </div>
+    </button>
   );
 
   return (
     <div style={{ padding: 16, fontFamily: FONT, display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 16 }}>
-        {kpi('Completed', stats.completed, NX.green, CheckCircle2)}
-        {kpi('In progress', stats.inProgress, NX.blue, Clock)}
-        {kpi('Overdue', stats.overdue, NX.red, AlertTriangle)}
-        {kpi('Total', stats.total, NX.primary, ListTodo)}
+        {kpi('Completed', stats.completed, NX.green, CheckCircle2, onFilter && (() => onFilter({ statuses: ['completed'] })))}
+        {kpi('In progress', stats.inProgress, NX.blue, Clock, onFilter && (() => onFilter({ statuses: ['in_progress'] })))}
+        {kpi('Overdue', stats.overdue, NX.red, AlertTriangle, onFilter && (() => onFilter({ due: 'overdue' })))}
+        {kpi('Total', stats.total, NX.primary, ListTodo, onFilter && (() => onFilter({})))}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 16 }}>
         <Card title="Completions - last 14 days"><TrendArea buckets={trend} color={NX.green} ariaLabel="Tasks completed per day, last 14 days" /></Card>
-        <Card title="Tasks by status"><LightBar data={byStatus} /></Card>
+        <Card title="Tasks by status"><LightBar data={byStatus} onSelect={onFilter && ((d) => onFilter({ statuses: [d.key] }))} /></Card>
         <Card title="Completion"><Donut total={stats.total} segments={[{ label: 'Completed', value: stats.completed, color: NX.green }, { label: 'Remaining', value: stats.total - stats.completed, color: '#d5d9e2' }]} /></Card>
-        <Card title="Tasks by team"><LightBar data={byTeam} /></Card>
-        <Card title="Tasks by assignee"><LightBar data={byAssignee} /></Card>
+        <Card title="Tasks by team"><LightBar data={byTeam} onSelect={onFilter && ((d) => onFilter({ teamIds: [d.key] }))} /></Card>
+        <Card title="Tasks by assignee"><LightBar data={byAssignee} onSelect={onFilter && ((d) => onFilter({ assigneeIds: [d.key] }))} /></Card>
       </div>
 
       <Card title="Time tracking - estimate vs actual">
