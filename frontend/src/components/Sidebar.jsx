@@ -46,6 +46,17 @@ export const NAV = [
   // carry tasks:*). Knowledge Base stays baseline - it is the LMS and assigned
   // courses/SOPs must be reachable by everyone; KB admin ops are level 3+.
   { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
+  // Files (Egnyte-backed) sits directly beneath Tasks (Pranshu, Aug 31).
+  // Egnyte stays the source of truth for files; this module browses, uploads
+  // and searches it in place. Sub list is for the mobile menu - the desktop
+  // rail is flat and the module renders its own tab strip.
+  {
+    view: "egnyte", code: "EGN", label: "Files", icon: HardDrive, minRole: 'supervisor',
+    sub: [
+      { subview: "browse",   label: "Browse Files",       icon: FolderOpen },
+      { subview: "property", label: "Property Documents", icon: Home },
+    ],
+  },
   { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken,  minRole: 'supervisor' },
   { view: "sop", code: "KB", label: "Knowledge Base", icon: BookOpen },
   { divider: true },
@@ -140,16 +151,6 @@ export const NAV = [
     view: "marketing", code: "MKT", label: "Marketing", icon: Megaphone, minRole: 'supervisor',
   },
   { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
-  // Egnyte stays the source of truth for files; this module browses, uploads and
-  // searches it in place. Sub list is for the mobile menu - the desktop rail is
-  // flat and the module renders its own tab strip.
-  {
-    view: "egnyte", code: "EGN", label: "Egnyte", icon: HardDrive, minRole: 'supervisor',
-    sub: [
-      { subview: "browse",   label: "Browse Files",       icon: FolderOpen },
-      { subview: "property", label: "Property Documents", icon: Home },
-    ],
-  },
   { divider: true },
   { view: "support", code: "SUP",        label: "Support",        icon: HelpCircle },
   { view: "external-links", code: "EXT", label: "External Links", icon: ExternalLink },
