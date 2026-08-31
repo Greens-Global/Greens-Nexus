@@ -62,13 +62,14 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, width: 360, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, width: 360, maxWidth: '92vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--line)' }}>
           <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>My Profile</span>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}>
             <X size={16} />
           </button>
         </div>
+        <div style={{ overflowY: 'auto', flex: 1, minHeight: 0 }}>
         <div style={{ padding: 26, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, fontFamily: 'Inter, sans-serif' }}>
           {error && !profile ? (
             <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{error}</div>
@@ -173,6 +174,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
               );
             })}
           </div>
+        </div>
         </div>
       </div>
     </div>
