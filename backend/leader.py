@@ -55,6 +55,35 @@ def is_background_leader() -> bool:
     return _is_leader
 
 
+def is_deployed_worker() -> bool:
+    """Is this the DEPLOYED API rather than somebody's laptop?
+
+    A different question from is_background_leader() above, which picks one
+    instance out of several deployed ones. This one asks whether the process is
+    deployed at all - the gate for jobs that touch shared, real-world state: the
+    task reply mailbox, live Supabase storage, the Microsoft directory, and
+    permanent deletes. A laptop pointed at DATABASE_URL passes the leader check
+    (SQLite short-circuits it, and even on Postgres it can win the lease), so
+    only this can stop it.
+
+    WHY IT LIVES HERE (Sept 1 2026): those jobs used to ask
+    asana_sync.is_sync_worker(), which answered the same question by accident -
+    it read WEBSITE_SITE_NAME. Severing Asana (Aug 27) put "is Asana enabled?"
+    in front of that check, and six unrelated loops silently stopped on dev and
+    prod: the task email drain, both screenshot sweeps, the construction sweep,
+    the nightly M365 writeback and the task trash purge. Nothing failed loudly -
+    they simply never started. The lesson is that a predicate two features share
+    belongs to neither of them, so this copy is owned by the background-jobs
+    module and is not affected by any integration's kill switch.
+
+    NEXUS_ASANA_SYNC_WORKER is still honored so a laptop deliberately opted in
+    before this split keeps behaving the way its owner set it up to."""
+    for var in ("NEXUS_BACKGROUND_WORKER", "NEXUS_ASANA_SYNC_WORKER"):
+        if os.getenv(var, "").strip().lower() in ("1", "true", "yes"):
+            return True
+    return bool(os.getenv("WEBSITE_SITE_NAME"))   # set by Azure App Service
+
+
 # Atomic claim/renew: take the lease if it's ours or if the current holder has gone
 # stale. RETURNING yields a row only when the write happened -> we hold it.
 _CLAIM = text(
