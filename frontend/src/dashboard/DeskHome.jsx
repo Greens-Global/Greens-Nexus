@@ -137,7 +137,7 @@ export function DeskGreeting({ summary = null }) {
         </button>
         <div className="dk-zones">
           {zones.map((z, i) => (
-            <Fragment key={z.key}>
+            <Fragment key={z.tz}>
               {i > 0 && <span className="dk-zone-sep" />}
               <span>{z.label} <b>{fmtZone(now, z.tz)}</b></span>
             </Fragment>
