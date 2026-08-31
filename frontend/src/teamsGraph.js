@@ -116,7 +116,12 @@ export function chatLabel(c, myId) {
 export async function listMyChats(tok) {
   const myId = myGraphId();
   const data = await graphJSON(`${GRAPH}/me/chats?$expand=members&$top=50`, tok);
-  const list = (data?.value || []).map(c => ({ id: c.id, chatType: c.chatType, name: chatLabel(c, myId) }));
+  // graphJSON swallows both network failures and non-2xx responses into null -
+  // without this check a real Graph failure (expired token, missing consent,
+  // timeout) looked identical to "you're in zero chats", leaving the admin
+  // staring at an empty dropdown with no way to tell which one it was.
+  if (data === null) throw new Error('Could not reach Microsoft Graph to load your chats.');
+  const list = (data.value || []).map(c => ({ id: c.id, chatType: c.chatType, name: chatLabel(c, myId) }));
   list.sort((a, b) => (a.chatType === 'group' ? 0 : 1) - (b.chatType === 'group' ? 0 : 1));
   return list;
 }

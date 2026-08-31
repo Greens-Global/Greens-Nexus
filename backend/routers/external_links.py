@@ -28,7 +28,7 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -576,6 +576,161 @@ def increment_click(link_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(link)
     return link
+
+
+# ── Site logos, cached on our own origin ─────────────────────────────────────
+# Every tile renders the real brand mark rather than a generic glyph, which
+# means resolving a logo per domain. Doing that from the BROWSER meant 50+
+# simultaneous requests to icon.horse per page view, per employee, all from one
+# office egress IP - and it rate-limits per IP, so most tiles got HTTP 429 and
+# fell back to the lucide glyph (Charmi/Neil, Aug 31: "are each of these
+# supposed to have an image?"). Resolved here instead: once per domain, ever.
+#
+# There is no SSRF surface. The link's own URL is never fetched - the hostname
+# is handed to two FIXED third-party resolvers, which do the fetching. The
+# domain must already appear on a link in this Nexus, so this can't be driven
+# as a general-purpose favicon proxy either.
+_ICON_MAX_BYTES = 512 * 1024
+_ICON_TTL_DAYS = 45          # a re-brand shouldn't need a deploy to show up
+_ICON_RETRY_DAYS = 7         # but a domain with NO logo is retried far less often
+
+
+def _icon_domain_candidates(domain: str) -> list:
+    """The hostname, then its parent. A login subdomain usually publishes no
+    favicon of its own (auth.hostinger.com, accounts.intuit.com,
+    tagmanager.google.com) while the brand's own domain obviously does - and the
+    brand mark is what makes a tile recognizable, which is the entire point of
+    showing a logo. Only one level up, and never for a bare IP."""
+    out = [domain]
+    labels = domain.split(".")
+    if len(labels) > 2 and not re.fullmatch(r"[\d.]+", domain):
+        parent = ".".join(labels[-2:])
+        if parent != domain:
+            out.append(parent)
+    return out
+
+
+def _icon_resolvers(domain: str):
+    """Ordered logo sources, across the hostname and its parent. icon.horse
+    serves a site's real high-res mark; Google's faviconV2 is the second pass
+    for domains it doesn't have. `fallback_opts` is deliberately empty so an
+    unknown domain 404s rather than returning Google's generic globe glyph as
+    though it were a real logo."""
+    out = []
+    for d in _icon_domain_candidates(domain):
+        out.append(("icon.horse", f"https://icon.horse/icon/{d}"))
+        out.append(("google", "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON"
+                              f"&fallback_opts=&url=https://{d}&size=128"))
+    return out
+
+
+def _known_icon_domains(db: Session) -> set:
+    """Hostnames that appear on a link somebody has actually saved."""
+    out = set()
+    for (url,) in db.query(models.ExternalLink.url).all():
+        try:
+            h = (urlparse(url).hostname or "").lower().strip(".")
+        except ValueError:
+            continue
+        if h:
+            out.add(h)
+    return out
+
+
+def _is_icon_placeholder(r) -> bool:
+    """icon.horse answers a domain it has NO logo for with HTTP 200 and a
+    GENERATED letter-avatar, not a 404 - so status alone can't tell a real brand
+    mark from a stand-in, and the stand-in is what made unrecognized links look
+    like they were "missing their image". It does distinguish them in one place:
+    a real logo is served s-maxage=2592000 (30 days), a generated fallback
+    s-maxage=300, because it wants to re-check the moment the site publishes a
+    real favicon. Verified across both sets (Aug 31).
+
+    Deliberately conservative - only a value we positively parsed AND that is
+    short counts as a placeholder. If they ever drop or rename the header we go
+    back to showing the stand-in, which is the status quo; the opposite default
+    would silently strip real logos off every tile."""
+    m = re.search(r"s-maxage=(\d+)", r.headers.get("cache-control", ""), re.I)
+    return bool(m) and int(m.group(1)) < 86400
+
+
+def _fetch_icon(domain: str) -> dict:
+    """Try each resolver in turn. Returns the first real image, or a 'none'
+    result that is cached so a dead lookup isn't retried on every render."""
+    last_err = ""
+    for source, url in _icon_resolvers(domain):
+        try:
+            with httpx.Client(timeout=8.0, follow_redirects=True) as c:
+                r = c.get(url)
+            if r.status_code != 200:
+                last_err = f"{source}: HTTP {r.status_code}"
+                continue
+            ctype = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+            if not ctype.startswith("image/") or not r.content:
+                last_err = f"{source}: not an image ({ctype or 'no content-type'})"
+                continue
+            if len(r.content) > _ICON_MAX_BYTES:
+                last_err = f"{source}: {len(r.content)} bytes is too large"
+                continue
+            if source == "icon.horse" and _is_icon_placeholder(r):
+                # A generated stand-in, not this brand's mark. Fall through, and
+                # if nothing better turns up the client draws its own curated
+                # glyph - which at least reads as deliberate.
+                last_err = f"{source}: generated placeholder, not a real logo"
+                continue
+            return {"data": r.content, "content_type": ctype, "source": source,
+                    "size_bytes": len(r.content), "error": ""}
+        except Exception as e:                    # noqa: BLE001 - any transport failure is just "try the next one"
+            last_err = f"{source}: {type(e).__name__}"
+    return {"data": None, "content_type": "", "source": "none", "size_bytes": 0, "error": last_err[:300]}
+
+
+def _icon_is_fresh(row, now: datetime) -> bool:
+    try:
+        age = now - datetime.strptime((row.fetched_at or "")[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return False
+    return age.days < (_ICON_RETRY_DAYS if row.source == "none" else _ICON_TTL_DAYS)
+
+
+@router.get("/icon")
+def link_icon(d: str, db: Session = Depends(get_db)):
+    """The logo for one domain, from our cache. 404 when the domain genuinely
+    has no logo anywhere - that is what lets the client fall through to its own
+    curated glyph instead of showing a stand-in globe."""
+    domain = (d or "").lower().strip().strip(".")
+    if not domain or len(domain) > 253 or not re.fullmatch(r"[a-z0-9.\-]+", domain):
+        raise HTTPException(400, "Bad domain")
+    if domain not in _known_icon_domains(db):
+        raise HTTPException(404, "Not a domain on any link here")
+
+    now = datetime.now(timezone.utc)
+    row = db.query(models.LinkIcon).filter(models.LinkIcon.domain == domain).first()
+    if row is None or not _icon_is_fresh(row, now):
+        got = _fetch_icon(domain)
+        if row is None:
+            row = models.LinkIcon(domain=domain)
+            db.add(row)
+        # A refresh that failed keeps the logo we already had - a resolver having
+        # a bad afternoon must not blank a tile that was working yesterday.
+        if got["data"] or row.data is None:
+            row.data = got["data"]
+            row.content_type = got["content_type"]
+            row.source = got["source"]
+            row.size_bytes = got["size_bytes"]
+        row.error = got["error"]
+        row.fetched_at = now.strftime("%Y-%m-%dT%H:%M:%S")
+        db.commit()
+
+    if not row.data:
+        raise HTTPException(404, "No logo found for that domain")
+    return Response(
+        content=row.data,
+        media_type=row.content_type or "image/png",
+        # Long but not immutable: the row can be refreshed after _ICON_TTL_DAYS,
+        # and a browser holding it forever would never see a re-brand.
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
 
 
 @router.get("/import-template")

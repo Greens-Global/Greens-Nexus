@@ -10,6 +10,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { formatTime } from '../lib/datetime';
 
 // ── Time Clock - punch in/out with geofencing (all employees) ─────────────────
@@ -27,6 +28,14 @@ const KIND_META = {
   break_end:   { label: 'End Break',  Icon: Play,   bg: 'var(--wk-brand)', fg: '#fff' },
 };
 const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break Start', break_end: 'Break End' };
+// Per-tab page title/subtitle (Aug 31, per Pranshu - the header used to read
+// "Time Clock" no matter which tab was open). `title` also drives the
+// breadcrumb via <ModuleTabs syncTitle> below.
+const TAB_META = {
+  clock:     { title: 'Time Clock', label: 'Clock',      subtitle: 'Punch in and out, your timesheet and time off' },
+  timesheet: { title: 'Time Sheet', label: 'Time Sheet', subtitle: 'Your hours this pay period, day by day' },
+  timeoff:   { title: 'Time Off',   label: 'Time Off',   subtitle: 'Request time off and see what’s coming up' },
+};
 // Work OS card-header title (sentence case, no uppercase tracking).
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 // Small stat label / value inside cards.
@@ -259,6 +268,18 @@ export default function TimeClock() {
   const [monGate, setMonGate] = useState(null);   // { text } | null
   const [monAgree, setMonAgree] = useState(false);
   const [monBusy, setMonBusy] = useState(false);
+  // A punch that could not be recorded. The day-message gate posts to Teams
+  // BEFORE the punch, so by the time this can happen the person has usually
+  // already SEEN a Teams message saying they clocked in - a toast that fades in
+  // six seconds is nowhere near loud enough to correct that.
+  // Two pieces of state, deliberately: `parked` is the punch still owed, and it
+  // outlives the dialog - dismissing the dialog must not stop Nexus recovering
+  // in the background, or "Retry Later" becomes "throw it away".
+  const [parked, setParked] = useState(() => {
+    const p = readPending();
+    return p ? { kind: p.kind, at: p.at, held: true } : null;
+  });
+  const [lostModal, setLostModal] = useState(false);
   const [myReqs, setMyReqs] = useState([]);    // my punch-fix requests + their status
   // Employee's fix requests (add/remove a punch) awaiting approver review. Adds and
   // removes are made inline on the Time Sheet timecard now; this keeps the request
@@ -288,6 +309,62 @@ export default function TimeClock() {
     api.timeStatus().then(setStatus).catch(e => toast(false, e?.message || 'Could not load your time clock.'));
   }, []);
   useEffect(() => { load(); }, [load]);
+  // Landing a parked punch happens from four places - the background retry, the
+  // Retry button, a DIFFERENT punch flushing the queue first, and a fresh page
+  // load. One routine for all of them, so they can never drift apart on what
+  // counts as recovered and what the person gets told.
+  async function recoverPending() {
+    const held = readPending();
+    if (!held) { setParked(null); setLostModal(false); return { none: true }; }
+    const r = await replayPending();
+    if (r?.restored) {
+      setParked(null); setLostModal(false);
+      toast(true, `${KIND_LABEL[r.entry.kind] || 'Punch'} recorded at ${localTime(r.punch.at)}`
+        + `${r.backfilled ? ' - flagged for your approver to confirm.' : '.'}`);
+      window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
+      load();
+      return { done: true, ...r };
+    }
+    if (r?.dropped) {
+      setParked(null); setLostModal(false);
+      // A stale drop is NOT a quiet success. The punch they were waiting on is
+      // gone; say so, or they carry on believing it landed.
+      if (r.stale) toast(true, `Your ${(KIND_LABEL[held.kind] || 'punch').toLowerCase()} is already on your timecard - nothing left to record.`);
+      else toast(false, r.error?.message || 'That punch could not be added - request it from your Time Sheet.');
+      load();
+      return { done: true, ...r };
+    }
+    return { stillDown: true };
+  }
+
+  // Nexus keeps trying on its own. The ordinary case is a phone that dropped one
+  // packet, and that heals in seconds - so in almost every instance the employee
+  // never has to do anything about it, which is the difference between a dialog
+  // that hands them a problem and one that just tells them what happened.
+  useEffect(() => {
+    if (!parked?.held) return;
+    let stop = false, delay = 4000, timer = 0;
+    const attempt = async () => {
+      if (stop || !readPending()) return;
+      const r = await recoverPending();
+      if (stop || !r.stillDown) return;
+      delay = Math.min(delay * 2, 60000);
+      timer = setTimeout(attempt, delay);
+    };
+    timer = setTimeout(attempt, 0);                  // first try immediately
+    const soon = () => { if (stop) return; clearTimeout(timer); delay = 4000; timer = setTimeout(attempt, 600); };
+    const onVis = () => { if (document.visibilityState === 'visible') soon(); };
+    window.addEventListener('online', soon);         // the moment the device is back
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      stop = true; clearTimeout(timer);
+      window.removeEventListener('online', soon);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+    // Keyed on the parked punch's time, not the object: the object is rebuilt on
+    // every render and would restart the backoff into a tight poll.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parked?.held, parked?.at]);
   useEffect(() => {
     const t = setInterval(() => setTick(x => x + 1), 1000); // live stopwatch
     return () => clearInterval(t);
@@ -345,6 +422,33 @@ export default function TimeClock() {
 
   async function doPunch(kind) {
     if (busy) return;
+    const held = readPending();
+    // THE SAME punch is already parked. Its Teams message went out with the first
+    // attempt, and it carries the moment the button was really pressed - so
+    // resume it instead of starting over. Re-running the gate would post a second
+    // "I'm back from break" and re-stamp the punch minutes late, throwing away
+    // exactly the minutes this whole thing exists to protect.
+    if (held?.kind === kind) {
+      setBusy(kind);
+      await recoverPending();
+      setBusy('');
+      return;
+    }
+    // A DIFFERENT punch is parked - they've given up on the break end and are
+    // clocking out. Land the parked one FIRST, in order: punching out moves the
+    // state past a break end, after which it can never be placed and would be
+    // thrown away without a word.
+    if (held) {
+      setBusy(kind);
+      const r = await recoverPending();
+      setBusy('');
+      if (r.stillDown) {
+        setLostModal(true);
+        toast(false, `Your ${(KIND_LABEL[held.kind] || 'punch').toLowerCase()} still hasn't recorded. `
+          + `That has to go in first - ${(KIND_META[kind]?.label || 'this punch').toLowerCase()} now would lose it.`);
+        return;
+      }
+    }
     // Role-flagged people (Neil, Aug 25: field workers who cannot type) skip
     // every message prompt - the punch goes straight through.
     if (status?.bodExempt) {
@@ -411,14 +515,17 @@ export default function TimeClock() {
       getPosition(kind === 'out' ? 2500 : 9000),
       kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
     ]);
-    try {
-      const r = await api.timePunch({
-        kind, ...(pos || {}), tz_offset_min: new Date().getTimezoneOffset(),
-        ...(gateClickRef.current ? { clicked_at: gateClickRef.current } : {}),
-        ...(pairNonce ? { pair_nonce: pairNonce } : {}),
-      });
+    // punchDurable retries and, if the server still can't be reached, parks the
+    // punch for replay. The Teams message has already gone out by this point, so
+    // a punch quietly dropped here is the one failure this screen must not have.
+    const clickedAt = gateClickRef.current;
+    const res = await punchDurable({
+      kind, tzOffsetMin: new Date().getTimezoneOffset(), clickedAt, pos,
+      extra: pairNonce ? { pair_nonce: pairNonce } : null,
+    });
+    if (res.ok) {
       gateClickRef.current = '';
-      const p = r.punch;
+      const p = res.punch;
       const where = p.geoStatus === 'in_fence' ? ` at ${p.workSiteName}`
         : p.geoStatus === 'out_of_fence' ? ` - ${p.distanceM}m from ${p.workSiteName || 'the nearest site'}, flagged for review`
         : p.geoStatus === 'low_accuracy' ? ' - location too approximate to judge (no GPS on this device)'
@@ -426,7 +533,8 @@ export default function TimeClock() {
       toast(true, `${KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
       load();
-    } catch (e) {
+    } else {
+      const e = res.error;
       // The backend can also gate the in-punch with a 409 - show the notice,
       // then retry once after the employee acknowledges (openMonGate → confirm).
       const needsConsent = e?.detail?.code === 'monitoring_consent_required'
@@ -436,9 +544,31 @@ export default function TimeClock() {
         setBusy('');
         return;
       }
-      toast(false, e?.message || 'Punch failed.');
+      // Unreachable is not the same as refused: the punch is missing rather than
+      // wrong, so say so loudly instead of toasting it away.
+      if (res.unreachable) {
+        setParked({ kind, at: clickedAt || utcStamp(), held: !!res.queued });
+        setLostModal(true);
+      } else toast(false, e?.message || 'Punch failed.');
     }
     setBusy('');
+  }
+
+  // Retry a punch that didn't record. Always through the PARKED copy - it holds
+  // the time the button was actually pressed, so a punch recovered ten minutes
+  // later still lands at the minute they punched. When nothing could be parked
+  // (storage blocked), there is no copy to resume and a fresh punch is all there
+  // is; the message gate is skipped, since that message already went out.
+  async function retryLostPunch() {
+    if (busy) return;
+    const kind = parked?.kind;
+    setBusy(kind || 'retry');
+    const r = readPending() ? await recoverPending() : { none: true };
+    setBusy('');
+    if (r.none && kind) { setParked(null); setLostModal(false); actualPunch(kind); return; }
+    if (r.stillDown) {
+      toast(false, "Still can't reach Nexus. Your punch is saved on this device and goes in by itself as soon as you're back online.");
+    }
   }
 
   const last = status?.lastPunch;
@@ -499,26 +629,25 @@ export default function TimeClock() {
             <Clock size={19} />
           </span>
           <div className="view-title-group">
-            <h2 style={{ margin: 0 }}>Time Clock</h2>
-            <p style={{ margin: '2px 0 0' }}>Punch in and out, your timesheet and time off</p>
+            <h2 style={{ margin: 0 }}>{TAB_META[tab].title}</h2>
+            <p style={{ margin: '2px 0 0' }}>{TAB_META[tab].subtitle}</p>
           </div>
         </div>
       </div>
 
       {/* Tabs - one job per screen (the everything-in-one page read as clutter).
           Desktop renders them centered in the top header; phones keep the
-          in-page strip (ModuleTabs handles both). */}
+          in-page strip (ModuleTabs handles both). syncTitle: the header/page
+          title above follows whichever tab is active instead of always
+          reading "Time Clock". */}
       <ModuleTabs
-        tabs={status?.timeTrackingExempt
+        tabs={(status?.timeTrackingExempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? [{ key: 'clock', label: 'Clock' }, { key: 'timeoff', label: 'Time Off' }]
-          : [
-            { key: 'clock',     label: 'Clock' },
-            { key: 'timesheet', label: 'Time Sheet' },
-            { key: 'timeoff',   label: 'Time Off' },
-          ]}
-        active={tab} onChange={setTab} />
+          ? ['clock', 'timeoff']
+          : ['clock', 'timesheet', 'timeoff']
+        ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
+        active={tab} onChange={setTab} syncTitle />
 
       {msg && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 14,
@@ -608,6 +737,23 @@ export default function TimeClock() {
                   : breakLeftMin >= 0
                     ? `${breakLeftMin} min left of your 1h daily break`
                     : `Break over by ${-breakLeftMin} min - over your 1h daily allowance`}
+              </div>
+            )}
+            {/* Dismissing the dialog must not leave silence - the punch is still
+                owed, and this is the line that stops them "fixing" it by
+                punching out. It clears itself the moment the punch lands. */}
+            {parked && !lostModal && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', padding: '9px 13px', borderRadius: 10,
+                background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
+                <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 200 }}>
+                  Your {(KIND_LABEL[parked.kind] || 'punch').toLowerCase()} at {localTime(parked.at)} still
+                  hasn&apos;t recorded.{parked.held ? ' Nexus is still trying - it will go in at that time. Don\u2019t punch out to fix it.' : ' Retry from this screen.'}
+                </span>
+                <button onClick={retryLostPunch} disabled={!!busy}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: busy ? 'default' : 'pointer', font: 'inherit', fontWeight: 700, color: 'inherit', textDecoration: 'underline' }}>
+                  Retry Now
+                </button>
               </div>
             )}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 3 }}>
@@ -973,6 +1119,50 @@ export default function TimeClock() {
           onClose={() => { gateClickRef.current = ''; setBodMode(null); }}
           toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />;
       })()}
+
+      {/* A punch that did NOT record. The Teams message for this punch has almost
+          certainly already landed, so the person believes they are clocked in -
+          this has to correct that belief. But it must not hand them a job: the
+          copy's whole work is to say "we are handling it, don't punch anything
+          else", because every improvised recovery they could try makes it worse. */}
+      {parked && lostModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1440, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div role="alertdialog" aria-modal="true" aria-label="Your punch did not record"
+            style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 480, boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
+            <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span className="wkc-chip" style={{ color: 'hsl(var(--color-red))' }}><AlertTriangle size={14} /></span>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Your Punch Did Not Record</h3>
+            </div>
+            <div style={{ padding: '16px 22px', fontSize: 13, color: 'var(--ink)', lineHeight: 1.65 }}>
+              Nexus couldn&apos;t reach the server, so your <b>{(KIND_LABEL[parked.kind] || 'punch').toLowerCase()}</b> at{' '}
+              <b>{localTime(parked.at)}</b> is not on your timecard yet. Your Teams message may already
+              have gone out - that does not record a punch.
+              {parked.held ? (
+                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'var(--wk-hover)', color: 'var(--ink)' }}>
+                  <b>You don&apos;t need to do anything.</b> The punch is saved on this device at{' '}
+                  {localTime(parked.at)} and Nexus keeps trying on its own - it goes in at that time,
+                  not whenever it finally gets through. Please don&apos;t punch out to fix it; that would
+                  end your day instead.
+                </div>
+              ) : (
+                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'var(--wk-hover)', color: 'var(--ink)' }}>
+                  This browser couldn&apos;t save it either, so retry while you&apos;re on this screen. If it
+                  still won&apos;t go, ask for it from your Time Sheet - don&apos;t punch out to work around it.
+                </div>
+              )}
+            </div>
+            <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="secondary-btn" onClick={() => setLostModal(false)}>
+                {parked.held ? 'OK, Keep Trying' : 'Close'}
+              </button>
+              <button className="primary-btn" onClick={retryLostPunch} disabled={!!busy}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Retry Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Disclosed-monitoring consent gate - real notice the employee reads and
           acknowledges before the first in-punch is recorded. */}

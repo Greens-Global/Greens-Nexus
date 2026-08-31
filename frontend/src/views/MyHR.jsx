@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   User, Phone, Mail, Heart, Briefcase, Building2, CalendarDays, MapPin, Network,
   FileText, Download, CalendarOff, Plus, Loader2, Pencil, Check, X, BadgeCheck,
@@ -214,7 +214,6 @@ export default function MyHR() {
   // Files HR filed in my wired Egnyte folder (people.my-documents). null =
   // not available (no wiring / no folder / Egnyte off) - the card hides.
   const [egnyteDocs, setEgnyteDocs] = useState(null);
-  const [egnyteQuery, setEgnyteQuery] = useState('');
   const [assetFilter, setAssetFilter] = useState('all');
   const [askFilter, setAskFilter] = useState('all');
 
@@ -274,6 +273,23 @@ export default function MyHR() {
     } catch (e) { flash(e?.message || 'Could not download', false); }
     finally { setBusy(p => ({ ...p, ['egn' + f.path]: false })); }
   };
+
+  // Sealed e-sign PDFs and HR-filed Egnyte files, combined into one "My
+  // documents" list, newest first (Neil: merge Egnyte docs into My documents
+  // rather than a separate card).
+  const combinedDocs = useMemo(() => {
+    const esign = docs.map(d => ({
+      key: 'e:' + d.requestId, kind: 'esign', title: d.title,
+      meta: `Completed ${fmtD(d.completedAt?.slice(0, 10))}`, sortKey: d.completedAt || '',
+      busyKey: 'doc' + d.requestId, onDownload: () => download(d.requestId),
+    }));
+    const filed = (egnyteDocs || []).map(f => ({
+      key: 'g:' + f.path, kind: 'egnyte', title: f.name,
+      meta: f.size ? `${Math.max(1, Math.round(f.size / 1024))} KB` : 'File', sortKey: f.lastModified || '',
+      busyKey: 'egn' + f.path, onDownload: () => downloadEgnyte(f),
+    }));
+    return [...esign, ...filed].sort((a, b) => (b.sortKey || '').localeCompare(a.sortKey || ''));
+  }, [docs, egnyteDocs]);
 
   const submitLeave = async () => {
     if (!loForm.start_date || !loForm.end_date) return;
@@ -375,7 +391,7 @@ export default function MyHR() {
               <Stat hero label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`} value={sheet ? hm(workedTotal) : '…'} hint={`${daysWorked} day${daysWorked === 1 ? '' : 's'} worked`} color="blue" Icon={Clock} />
             )}
             <Stat label="Leave this year" value={`${leaveDaysThisYear}d`} hint="Approved time off" color="green" Icon={CalendarOff} />
-            <Stat label="My documents" value={docs.length} hint="Signed & sealed" color="purple" Icon={FileText} />
+            <Stat label="My documents" value={combinedDocs.length} hint="Signed & filed" color="purple" Icon={FileText} />
             <Stat label="Time with us" value={tenure} hint={profile.startDate ? `Since ${fmtD(profile.startDate)}` : ''} color="orange" Icon={Hourglass} />
           </div>
 
@@ -536,52 +552,29 @@ export default function MyHR() {
               )}
 
               <div className="dash-card">
-                {cardHead('My documents', 'Signed and sealed copies of everything you were part of',
-                  docs.length > 3 ? (
+                {cardHead('My documents', 'Signed copies and files HR filed for you',
+                  combinedDocs.length > 3 ? (
                     <input className="form-input" placeholder="Search…" value={docQuery} onChange={e => setDocQuery(e.target.value)}
                       style={{ fontSize: 12, padding: '5px 10px', height: 'auto', width: 130 }} />
                   ) : <FileText size={15} style={{ color: 'var(--muted)' }} />)}
-                {docs.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No completed documents yet.</div>
-                ) : docs.filter(d => !docQuery || (d.title || '').toLowerCase().includes(docQuery.toLowerCase())).map(d => (
-                  <div key={d.requestId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-                    <FileText size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />
+                {combinedDocs.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No documents yet.</div>
+                ) : combinedDocs.filter(d => !docQuery || (d.title || '').toLowerCase().includes(docQuery.toLowerCase())).map(d => (
+                  <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
+                    {d.kind === 'egnyte'
+                      ? <HardDrive size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
+                      : <FileText size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Completed {fmtD(d.completedAt?.slice(0, 10))}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{d.meta}</div>
                     </div>
-                    <button className="secondary-btn" onClick={() => download(d.requestId)} disabled={!!busy['doc' + d.requestId]}
+                    <button className="secondary-btn" onClick={d.onDownload} disabled={!!busy[d.busyKey]}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
-                      {busy['doc' + d.requestId] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} PDF
+                      {busy[d.busyKey] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} {d.kind === 'egnyte' ? 'Download' : 'PDF'}
                     </button>
                   </div>
                 ))}
               </div>
-
-              {egnyteDocs !== null && (
-                <div className="dash-card">
-                  {cardHead('My files', 'Invoices, hiring documents and payment proofs HR filed for you',
-                    egnyteDocs.length > 3 ? (
-                      <input className="form-input" placeholder="Search…" value={egnyteQuery} onChange={e => setEgnyteQuery(e.target.value)}
-                        style={{ fontSize: 12, padding: '5px 10px', height: 'auto', width: 130 }} />
-                    ) : <HardDrive size={15} style={{ color: 'var(--muted)' }} />)}
-                  {egnyteDocs.length === 0 ? (
-                    <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>Nothing filed yet - documents will appear here as HR adds them.</div>
-                  ) : egnyteDocs.filter(f => !egnyteQuery || (f.name || '').toLowerCase().includes(egnyteQuery.toLowerCase())).map(f => (
-                    <div key={f.path} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-                      <HardDrive size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{f.size ? `${Math.max(1, Math.round(f.size / 1024))} KB` : 'File'}</div>
-                      </div>
-                      <button className="secondary-btn" onClick={() => downloadEgnyte(f)} disabled={!!busy['egn' + f.path]}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
-                        {busy['egn' + f.path] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} Download
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
 
               <div className="dash-card">
                 {cardHead('My paystubs', 'Uploaded by HR each pay period',

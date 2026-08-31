@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { X, Camera, Loader2, Sun, Moon, Palette, Check, PanelLeft } from 'lucide-react';
+import { X, Camera, Loader2, Sun, Moon, Palette, Check, PanelLeft, Globe2 } from 'lucide-react';
 import { api } from '../api';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
+import { ZONE_GROUPS, MAX_ZONES, currentZones, setZones, zoneLabel } from '../lib/worldClockZones';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
 
@@ -23,6 +24,18 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const [error,   setError]   = useState('');
   const [status,  setStatus]  = useState('');
   const [photoOpen, setPhotoOpen] = useState(false);
+  // Fixed 3 slots, '' = unset - a dropdown per slot rather than a checklist
+  // of ~400 zones (Pranshu, Sep 1: "make it a drop down").
+  const [zoneSlots, setZoneSlots] = useState(() => {
+    const cur = currentZones();
+    return [0, 1, 2].map((i) => cur[i] || '');
+  });
+
+  function setSlot(i, tz) {
+    const next = [...zoneSlots]; next[i] = tz;
+    setZoneSlots(next);
+    setZones(next);
+  }
 
   useEffect(() => {
     api.myHrProfile().then(setProfile).catch(err => setError(err?.message || 'Could not load your profile.'));
@@ -52,13 +65,14 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
-      <div style={{ background: 'var(--card)', borderRadius: 14, width: 360, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, width: 360, maxWidth: '92vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--line)' }}>
           <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>My Profile</span>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}>
             <X size={16} />
           </button>
         </div>
+        <div style={{ overflowY: 'auto', flex: 1, minHeight: 0 }}>
         <div style={{ padding: 26, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, fontFamily: 'Inter, sans-serif' }}>
           {error && !profile ? (
             <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{error}</div>
@@ -142,6 +156,29 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             </div>
           </div>
         )}
+
+        <div style={{ borderTop: '1px solid var(--line)', padding: '14px 18px 18px', fontFamily: 'Inter, sans-serif' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+            <Globe2 size={11} /> World Clock
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+            Pick up to {MAX_ZONES} time zones to show on your Dashboard greeting.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {zoneSlots.map((val, i) => (
+              <select key={i} value={val} onChange={(e) => setSlot(i, e.target.value)}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'inherit' }}>
+                <option value="">— None —</option>
+                {Object.entries(ZONE_GROUPS).map(([region, tzs]) => (
+                  <optgroup key={region} label={region.replace(/_/g, ' ')}>
+                    {tzs.map((tz) => <option key={tz} value={tz}>{zoneLabel(tz)}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            ))}
+          </div>
+        </div>
+        </div>
       </div>
     </div>
   );
