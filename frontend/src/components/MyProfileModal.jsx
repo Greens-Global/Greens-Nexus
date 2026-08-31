@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { X, Camera, Loader2, Sun, Moon, Palette, Check, PanelLeft } from 'lucide-react';
+import { X, Camera, Loader2, Sun, Moon, Palette, Check, PanelLeft, Globe2 } from 'lucide-react';
 import { api } from '../api';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
+import { ZONE_OPTIONS, MAX_ZONES, currentZoneKeys, setZoneKeys } from '../lib/worldClockZones';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
 
@@ -23,6 +24,15 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const [error,   setError]   = useState('');
   const [status,  setStatus]  = useState('');
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [zoneKeys, setZoneKeysLocal] = useState(() => currentZoneKeys());
+
+  function toggleZone(key) {
+    const next = zoneKeys.includes(key)
+      ? zoneKeys.filter((k) => k !== key)
+      : (zoneKeys.length >= MAX_ZONES ? zoneKeys : [...zoneKeys, key]);
+    setZoneKeysLocal(next);
+    setZoneKeys(next);
+  }
 
   useEffect(() => {
     api.myHrProfile().then(setProfile).catch(err => setError(err?.message || 'Could not load your profile.'));
@@ -142,6 +152,28 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             </div>
           </div>
         )}
+
+        <div style={{ borderTop: '1px solid var(--line)', padding: '14px 18px 18px', fontFamily: 'Inter, sans-serif' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+            <Globe2 size={11} /> World Clock
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+            Pick up to {MAX_ZONES} time zones to show on your Dashboard greeting.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {ZONE_OPTIONS.map((z) => {
+              const checked = zoneKeys.includes(z.key);
+              const disabled = !checked && zoneKeys.length >= MAX_ZONES;
+              return (
+                <button key={z.key} onClick={() => toggleZone(z.key)} disabled={disabled}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 10px', borderRadius: 8, border: 'none', background: 'none', color: disabled ? 'var(--muted)' : 'var(--ink)', fontSize: 13, fontFamily: 'inherit', cursor: disabled ? 'default' : 'pointer', textAlign: 'left', opacity: disabled ? 0.55 : 1 }}>
+                  {z.label}
+                  {checked && <Check size={13} style={{ marginLeft: 'auto', color: 'var(--ink)' }} />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
