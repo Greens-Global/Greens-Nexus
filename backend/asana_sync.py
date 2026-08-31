@@ -43,6 +43,7 @@ from html import escape, unescape
 
 from sqlalchemy import text
 
+import asana_enabled
 from database import SessionLocal
 import models
 from routers.task_util import now_iso, gen_id, log_activity
@@ -76,9 +77,13 @@ def public_base():
 # This gate sits in front of is_sync_worker() rather than replacing the config
 # row, so nothing has to be written to the shared dev/prod database to make it
 # take effect, and re-enabling is one environment variable.
+#
+# The check itself lives in asana_enabled.py, which imports nothing: this module
+# imports asana_import/asana_oauth/asana_rescue, and each of those owns a door to
+# the network that has to ask the same question without importing back.
 def is_asana_enabled():
     """Whether the Asana integration is live at all in this deployment."""
-    return os.getenv("NEXUS_ASANA_ENABLED", "").lower() in ("1", "true", "yes")
+    return asana_enabled.is_asana_enabled()
 
 
 def is_sync_worker():
@@ -1406,7 +1411,17 @@ def queue_task_delete(db, asana_gids, title="", code="", actor=""):
     """Record deletions owed to Asana. Called from delete_task INSIDE its
     transaction, so the tombstone commits together with the deletion - there is
     no window where the Nexus task is gone but the intent to delete its Asana
-    counterpart isn't recorded. Does not commit."""
+    counterpart isn't recorded. Does not commit.
+
+    Severed: record nothing. This is a local write with no network of its own,
+    so it kept running after the sever and quietly banked a deletion for every
+    linked task anyone removed. Nothing drains the queue while the switch is
+    off, so those rows only had one future: fire, all at once, at whatever
+    moment someone re-enabled the integration - deleting tasks in Asana that
+    people may have been using for months in the meantime. A deletion made
+    while Nexus is severed is not owed to Asana at all."""
+    if not is_asana_enabled():
+        return
     for gid in {g for g in (asana_gids or []) if g}:
         db.add(models.AsanaPendingDelete(id=gen_id(), asana_gid=gid, task_title=title or "",
                                           task_code=code or "", requested_by=actor or "",
@@ -1422,7 +1437,7 @@ def drain_pending_deletes(db):
     This is the manual path a laptop needs: on localhost the fire-and-forget
     push never runs (is_sync_worker is false), so without draining here a
     deletion made locally could never reach Asana by any means."""
-    if _push_disabled():
+    if not is_asana_enabled() or _push_disabled():
         return {"deleted": 0, "pending": 0}
     cfg = get_config(db)
     rows = db.query(models.AsanaPendingDelete).all()
@@ -2782,6 +2797,10 @@ def _renderable_attachment_url(db, asana, gid: str, task_gid: str = "", cache=No
     size, dl = meta.get("size") or 0, meta.get("download_url")
     if not dl or size > _ATTACHMENT_MAX_BYTES:
         return ""
+    # Attachment bytes come straight off Asana's CDN rather than through
+    # _request, so the kill switch has to be repeated here - see asana_enabled.
+    if not is_asana_enabled():
+        return ""
     try:
         with urllib.request.urlopen(dl, timeout=90) as r:
             raw = r.read()
@@ -2898,7 +2917,8 @@ def _pull_attachments(db, asana, asana_gid, nexus_task_id, counts, email_map=Non
             url = a.get("permanent_url") or a.get("view_url") or a.get("download_url") or ""
         else:
             dl = a.get("download_url")
-            if dl and 0 < size <= _ATTACHMENT_MAX_BYTES:
+            # Same CDN door as _inline_asana_image above - kill switch repeated.
+            if dl and 0 < size <= _ATTACHMENT_MAX_BYTES and is_asana_enabled():
                 try:
                     with urllib.request.urlopen(dl, timeout=90) as r:
                         raw = r.read()

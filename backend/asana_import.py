@@ -57,6 +57,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import asana_enabled
+
 ASANA_BASE = "https://app.asana.com/api/1.0"
 STATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "asana_import_state.json")
 
@@ -75,6 +77,13 @@ class ImportError_(RuntimeError):
 
 # ── tiny HTTP helpers (stdlib only) ──────────────────────────────────────────
 def _request(method, url, headers, body=None):
+    # Every Asana API call in the codebase funnels through here - asana_sync's
+    # direct _request calls, the Asana class below, and this file's own CLI. The
+    # kill switch is checked at this single point so that no caller, present or
+    # future, can reach Asana by forgetting an endpoint gate. Raises the error
+    # type this module already raises, so existing handling applies unchanged.
+    if not asana_enabled.is_asana_enabled():
+        raise ImportError_(asana_enabled.DISABLED_MSG)
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     for attempt in range(4):
