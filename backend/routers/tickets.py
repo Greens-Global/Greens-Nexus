@@ -12,6 +12,7 @@ Ticket conversation/attachments/activity deliberately reuse the task comment and
 attachment tables, keyed by ticket id - same storage, separate router.
 """
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -95,7 +96,8 @@ def saved_view_to_dict(s: models.TaskSavedView) -> dict:
 
 
 # ── Saved TICKET views (same table, scope='ticket'; filters hold the ticket
-#    filter set: {scope,status,priority,type,component,sla,search,groupBy,view}) ──
+#    filter set: {scope,status,priority,type,component,serviceArea,sla,search,
+#    groupBy,view}) - a free-form JSON blob, so a new filter needs no migration ──
 @router.get("/task-ticket-views", dependencies=[Depends(require_ticket_desk)])
 def list_ticket_views(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = (db.query(models.TaskSavedView)
@@ -138,6 +140,7 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "links": t.links if isinstance(t.links, list) else [],
             "taskIds": t.task_ids if isinstance(t.task_ids, list) else [],
             "component": _nz(t.component),
+            "application": _nz(t.application), "serviceArea": _nz(t.service_area),
             "csatRating": t.csat_rating or 0, "csatComment": _nz(t.csat_comment),
             "approvalStatus": t.approval_status or "none", "approverId": _nz(t.approver_email),
             "approvalNote": _nz(t.approval_note), "approvalDecidedAt": _nz(t.approval_decided_at),
@@ -167,6 +170,28 @@ APPROVER_FIELD_BY_TYPE = {
 def _type_label(type_: str) -> str:
     """"access_request" -> "Access Request", for activity-log copy."""
     return (type_ or "").replace("_", " ").title() or "-"
+
+
+def service_area_for(db: Session, application: str) -> str:
+    """The service area a ticket about `application` belongs to.
+
+    Looked up on the External Links directory (the rebuilt start.greensglobal
+    .com), which is where an admin classifies an app - once, on the same screen
+    where the app is added. Matched on the link NAME because that is what the
+    ticket stores; a name that matches nothing (including the intake form's
+    "Other / not listed") is General, never blank, so every ticket is
+    reportable and none of them fall out of a service-area breakdown.
+
+    Blank application -> blank area: a ticket that never named an app has no
+    area to speak of, and "general" would claim it had been categorised.
+    """
+    name = (application or "").strip()
+    if not name:
+        return ""
+    row = (db.query(models.ExternalLink.service_area)
+           .filter(func.lower(models.ExternalLink.name) == name.lower())
+           .first())
+    return (row[0] or "general") if row else "general"
 
 
 def _it_admins(db: Session, company_id: str | None = None) -> list:
@@ -255,6 +280,10 @@ class TicketBody(BaseModel):
     custom_field_values: Optional[dict] = None
     type_fields: Optional[dict] = None
     component: Optional[str] = ""
+    # What the ticket is about. `service_area` is NOT accepted here - it is
+    # derived from this application server-side, so a client cannot file a
+    # ticket into a category its application does not belong to.
+    application: Optional[str] = ""
     sla_due_on: Optional[str] = ""
 
 
@@ -277,6 +306,11 @@ class TicketUpdate(BaseModel):
     type_fields: Optional[dict] = None
     task_ids: Optional[list] = None
     component: Optional[str] = None
+    # Re-picking the application on an existing ticket re-derives the service
+    # area (see update_ticket); service_area is also settable on its own so the
+    # desk can correct a mis-mapped app without changing what the ticket is about.
+    application: Optional[str] = None
+    service_area: Optional[str] = None
     csat_rating: Optional[int] = None
     csat_comment: Optional[str] = None
     sla_due_on: Optional[str] = None
@@ -380,6 +414,9 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         watcher_emails=body.watcher_emails or [], resolution=body.resolution or "",
         custom_field_values=body.custom_field_values or {}, type_fields=body.type_fields or {}, links=[], task_ids=[],
         component=body.component or "", csat_rating=0, csat_comment="",
+        application=(body.application or "").strip(),
+        # Derived, never taken from the payload - see TicketBody.application.
+        service_area=service_area_for(db, body.application or ""),
         sla_due_on=body.sla_due_on or "", resolved_at="", created_at=now, modified_at=now,
     )
     # Approval gate, decided by the TYPE and never trusted from the client, so a
@@ -505,6 +542,12 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             # so the ticket is assigned to somebody who never sees it.
             v = (v or "").strip().lower()
         setattr(t, k, v)
+    # Re-picking the application re-derives the service area, so the two can
+    # never disagree - unless the caller set an area explicitly in the same
+    # request, which is the desk correcting a mis-mapped app by hand.
+    if "application" in data and "service_area" not in data:
+        t.application = (t.application or "").strip()
+        t.service_area = service_area_for(db, t.application)
     if data.get("status") in ("resolved", "closed") and not t.resolved_at:
         t.resolved_at = now_iso()
     if data.get("status") not in ("resolved", "closed") and "status" in data:
@@ -788,6 +831,21 @@ def list_ticket_departments(mine: bool = False, user: dict = Depends(get_current
     return [{"id": d.id, "name": d.name, "companyId": d.company_id,
              "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or ""} for d in rows]
 
+
+
+@router.get("/ticket-sites")
+def list_ticket_sites(db: Session = Depends(get_db)):
+    """Work sites, for the intake form's Facility / Site questions.
+
+    A ticket-scoped mirror of /hr/work-sites, which sits behind an HR module
+    grant - the person reporting a camera down at a storage facility is
+    exactly the person who does not have one, and a picker they cannot load
+    is a required field they cannot answer. Names only: no address, no
+    coordinates, no geofence radius, so this exposes nothing beyond the list
+    of places the company operates. Same reason /ticket-companies and
+    /ticket-departments exist rather than the modules' own endpoints."""
+    rows = db.query(models.HrWorkSite).order_by(models.HrWorkSite.name).all()
+    return [{"id": s.id, "name": s.name} for s in rows]
 
 
 # ── Ticket components / categories ───────────────────────────────────────────

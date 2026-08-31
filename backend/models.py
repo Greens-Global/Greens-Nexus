@@ -206,6 +206,11 @@ class ExternalLink(Base):
     # department on purpose: a link can be company-wide but department-
     # specific (e.g. Accounting at Greens India) or vice versa.
     company = Column(String, default="")
+    # Which IT service area a ticket raised against this app belongs to
+    # (Aug 2026 ticket intake). One place classifies an app - the same screen
+    # where the app is added - and a ticket copies the value at intake.
+    # A key from SERVICE_AREA_KEYS below; "" reads as "general".
+    service_area = Column(String, default="")
 
 
 class ExternalLinkTaxonomy(Base):
@@ -2494,6 +2499,18 @@ class TaskTicket(Base):
     links          = Column(JSON, default=list)   # [{ticketId, type}] - relates|duplicate|blocks|blocked_by
     task_ids       = Column(JSON, default=list)   # tasks spawned from / linked to this ticket (one ticket → many tasks)
     component      = Column(String, default="")   # category/component name (see TaskTicketComponent)
+    # What the ticket is ABOUT, picked at intake from the External Links
+    # directory (the rebuilt start.greensglobal.com). Stored as the link's
+    # name, not its id: a link that is later renamed or removed must not turn
+    # an existing ticket's application into a dangling reference, and the desk
+    # filters/groups on the name it was filed under.
+    application    = Column(String, default="", index=True)
+    # Derived from the chosen application's ExternalLink.service_area, then
+    # frozen on the row. Denormalised on purpose - re-classifying an app later
+    # must not rewrite how tickets already triaged were categorised.
+    # "" on tickets raised before this existed; "general" when the app carries
+    # no mapping. Values mirror SERVICE_AREAS in ticketMeta.js.
+    service_area   = Column(String, default="", index=True)
     csat_rating    = Column(Integer, default=0)   # 1-5 satisfaction rating; 0 = not rated
     csat_comment   = Column(String, default="")
     # Approval gate. Types that name an approver at intake (service_request,

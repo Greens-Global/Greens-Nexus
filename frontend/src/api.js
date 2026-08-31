@@ -466,6 +466,9 @@ export const api = {
   // Only the departments of the caller's own company - what ticket intake
   // offers now that company is resolved server-side instead of asked for.
   getMyTicketDepartments: () => req("/ticket-departments?mine=true"),
+  // Work-site names for the intake form's Facility / Site questions. Ticket-
+  // scoped on purpose - /hr/work-sites needs an HR grant a requester won't have.
+  getTicketSites: () => cachedGet("/ticket-sites", 120_000),
   asanaListProjects: (data) => req("/task-asana-projects", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
   asanaImport: (data) => req("/task-asana-import", { method: "POST", body: JSON.stringify(data), timeoutMs: 600000 }),
   getAsanaSyncConfig: () => req("/asana-sync/config"),
