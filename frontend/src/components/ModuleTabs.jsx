@@ -40,7 +40,13 @@ export function useHeaderTabs() {
 
 // mobileInline=false suppresses the <=900px in-page fallback for modules that
 // already have their own phone chrome (e.g. Item Management's bottom bar).
-export default function ModuleTabs({ tabs, active, onChange, mobileInline = true }) {
+// syncTitle: opt-in per module (Time Clock, Aug 31) - when true, TopHeader's
+// breadcrumb shows the active tab's `title` (falling back to its `label`)
+// instead of the module's own name, so switching tabs actually renames the
+// page instead of leaving every tab reading as the module's landing tab.
+// Off by default: most modules (Documents, IT, ...) deliberately keep their
+// own name in the breadcrumb across tabs, and this must not change that.
+export default function ModuleTabs({ tabs, active, onChange, mobileInline = true, syncTitle = false }) {
   const ctx = useContext(HeaderTabsContext);
   const setEntry = ctx?.setEntry;
 
@@ -51,12 +57,12 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   const onChangeRef = useRef(onChange);
   useEffect(() => { onChangeRef.current = onChange; });
 
-  const signature = tabs.map(t => `${t.key} ${t.label} ${t.badge ?? ''}`).join('|');
+  const signature = tabs.map(t => `${t.key} ${t.label} ${t.title ?? ''} ${t.badge ?? ''}`).join('|');
   useEffect(() => {
     if (!setEntry) return;
-    setEntry({ tabs, active, onChange: key => onChangeRef.current?.(key) });
+    setEntry({ tabs, active, syncTitle, onChange: key => onChangeRef.current?.(key) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setEntry, signature, active]);
+  }, [setEntry, signature, active, syncTitle]);
 
   useEffect(() => {
     if (!setEntry) return;

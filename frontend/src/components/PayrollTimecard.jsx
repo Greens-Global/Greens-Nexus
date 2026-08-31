@@ -1310,7 +1310,7 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEm
   const mini = { border: 'none', background: 'none', cursor: 'pointer', padding: '0 2px', fontWeight: 800, fontSize: 12, lineHeight: 1 };
   const dotColor = geo === 'in_fence' ? 'hsl(var(--color-green))' : geo === 'out_of_fence' ? '#b91c1c' : 'var(--line-strong,var(--line))';
   // Clicking the location dot jumps to the Locations map, focused on this person.
-  const openMap = (e) => { e.stopPropagation(); if (!locateEmail) return; sessionStorage.setItem('nexus:locateEmail', locateEmail); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'locations' } })); };
+  const openMap = (e) => { e.stopPropagation(); if (!locateEmail) return; sessionStorage.setItem('nexus:locateEmail', locateEmail); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'employee-tracking', sub: 'locations' } })); };
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {geo && (locateEmail
