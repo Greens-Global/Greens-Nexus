@@ -33,6 +33,14 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // present it takes the header center (Work OS shell) and the global search
   // collapses to a magnifier icon on the right.
   const headerTabs = useHeaderTabs();
+  // Modules that opt into syncTitle (<ModuleTabs syncTitle>) get the active
+  // tab's own name in the breadcrumb instead of the module's fixed name - so
+  // switching tabs (e.g. Time Clock's Clock/Time Sheet/Time Off) actually
+  // renames the page instead of every tab reading as the landing tab.
+  const activeTabMeta = headerTabs?.tabs?.find(t => t.key === headerTabs.active);
+  const displayTitle = (headerTabs?.syncTitle && activeTabMeta)
+    ? (activeTabMeta.title || activeTabMeta.label)
+    : title;
   // Manager/IT Admin/Global Admin get Act As by role today; an 'act-as' Access
   // Group grant (added to MODULES later) will let a Global Admin extend it to
   // specific other employees without a backend change.
@@ -400,7 +408,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <span style={{ color: "var(--muted)", opacity: 0.4, fontSize: 11, userSelect: "none" }}>/</span>
             </>
           )}
-          <span className="breadcrumb-current">{title}</span>
+          <span className="breadcrumb-current">{displayTitle}</span>
         </div>
       </div>
 

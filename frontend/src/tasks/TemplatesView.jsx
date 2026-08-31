@@ -718,8 +718,8 @@ export default function TemplatesView({ onNavigate }) {
             )}
           </div>
           {!isMobile && (
-            <button style={{ ...btn('primary'), padding: '10px 18px', fontSize: 13.5, borderRadius: 10 }}
-              onClick={() => setSaving(true)}><Plus size={16} />New Template</button>
+            <button style={btn('primary')}
+              onClick={() => setSaving(true)}><Plus size={15} />New Template</button>
           )}
         </div>
 

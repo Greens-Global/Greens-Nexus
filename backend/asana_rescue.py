@@ -42,6 +42,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
+import asana_enabled
 import models
 import task_files
 
@@ -97,6 +98,8 @@ def _get_json(path, token):
     """GET an Asana API path. Returns (payload, None) or (None, status_code).
     Retries 429 (Retry-After) and 5xx; a 4xx comes back for the caller to
     decide (403/404 mean "try the other token")."""
+    if not asana_enabled.is_asana_enabled():
+        return None, -1        # same shape as an exhausted retry - callers cope
     url = f"{_ASANA_BASE}{path}"
     for attempt in range(5):
         try:
@@ -169,6 +172,8 @@ def _download_to_temp(url):
     """Stream a download to a temp file. Returns (path, nbytes, content_type)
     or (None, 0, "") on failure. Caps at MAX_FILE_BYTES (the reported size can
     be missing or wrong, so the cap is enforced on actual bytes too)."""
+    if not asana_enabled.is_asana_enabled():
+        return None, 0, ""     # the module's own "download failed" shape
     fd, path = tempfile.mkstemp(prefix="asana-rescue-")
     n = 0
     try:
@@ -262,9 +267,14 @@ def _candidates(db):
 def run_rescue(session_factory):
     """The worker. Caller has already stamped rescue_running_at; this clears
     it on the way out no matter what."""
-    db = session_factory()
     counts = {"scanned": 0, "rescued": 0, "external_resolved": 0,
               "failed": 0, "no_gid": 0, "bytes_rescued": 0, "skipped_already_safe": 0}
+    # Bail before the thread pool rather than letting every worker discover the
+    # switch one dead download at a time. The endpoint is gated too.
+    if not asana_enabled.is_asana_enabled():
+        _set_status(state="failed", error=asana_enabled.DISABLED_MSG)
+        return counts
+    db = session_factory()
     try:
         cfg = db.query(models.AsanaSyncConfig).filter(
             models.AsanaSyncConfig.id == "singleton").first()

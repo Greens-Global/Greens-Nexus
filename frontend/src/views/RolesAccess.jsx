@@ -36,12 +36,15 @@ const EMPLOYEE_DEFAULT_BUNDLE = {
 
 // Audit-tab module families - collapse 21 columns into 6 readable ones.
 const FAMILIES = [
-  { id: 'everyday', label: 'Everyday',      modules: ['dashboard', 'timeclock', 'myhr', 'tasks', 'tickets'] },
+  // 'manager-dashboard' sits right after 'dashboard' - it's not its own row
+  // in the bundle editor any more (see BundleEditor's Dashboard-row scope
+  // dropdown), but it still gets its own audit column here for a clean review.
+  { id: 'everyday', label: 'Everyday',      modules: ['dashboard', 'manager-dashboard', 'timeclock', 'myhr', 'tasks', 'tickets'] },
   { id: 'company',  label: 'Company',       modules: ['sop', 'hr', 'documents', 'external-links', 'support'] },
   { id: 'money',    label: 'Money',         modules: ['accounting', 'investor-relations'] },
   { id: 'field',    label: 'Field & assets', modules: ['inventory', 'property-asset', 'ops', 'operations'] },
   { id: 'growth',   label: 'Growth',        modules: ['marketing', 'development'] },
-  { id: 'adminit',  label: 'Admin & IT',    modules: ['it', 'manager-dashboard', 'testing', 'credvault'] },
+  { id: 'adminit',  label: 'Admin & IT',    modules: ['it', 'testing', 'credvault'] },
 ].map(f => ({ ...f, modules: f.modules.filter(id => GRANTABLE.some(m => m.id === id)) }));
 
 const moduleLabel = id => MODULES.find(m => m.id === id)?.label || id;
@@ -1043,6 +1046,22 @@ function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastErr }) {
 // screen at that level (no separate checkbox step), clicking the active pill
 // removes it. Bulk actions cover "everything except two screens" in four
 // clicks: Check All -> set all checked to Full -> click off the two.
+// Manager Dashboard is no longer its own row here (Aug 31) - it's now a tab
+// inside Dashboard (Dashboard.jsx), so it's granted as a SCOPE on the
+// Dashboard row instead of a disconnected line item an admin has to go
+// hunting for. The underlying grant is still the plain 'manager-dashboard'
+// module id in the bundle - nothing downstream (Dashboard.jsx's canManager
+// check, the audit matrix, backend) needed to change for this.
+const DASHBOARD_SCOPES = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'manager',   label: 'Manager Dashboard' },
+  { id: 'both',      label: 'Both' },
+];
+function dashboardScopeOf(bundle) {
+  return bundle.dashboard && bundle['manager-dashboard'] ? 'both'
+    : bundle['manager-dashboard'] ? 'manager' : 'dashboard';
+}
+
 function BundleEditor({ bundle, setBundle, inheritSources = [] }) {
   const [bulk, setBulk] = useState('');
   const [inheritFrom, setInheritFrom] = useState('');
@@ -1051,12 +1070,44 @@ function BundleEditor({ bundle, setBundle, inheritSources = [] }) {
     if (n[id] === level) delete n[id]; else n[id] = level;
     return n;
   });
-  const checkedCount = Object.keys(bundle).length;
+  // Dashboard row: the level pills apply to whichever module id(s) the scope
+  // dropdown currently targets, instead of always just 'dashboard'.
+  const grantDashboard = (level) => setBundle(b => {
+    const n = { ...b };
+    const scope = dashboardScopeOf(n);
+    const targets = scope === 'both' ? ['dashboard', 'manager-dashboard'] : scope === 'manager' ? ['manager-dashboard'] : ['dashboard'];
+    const isActive = targets.every(id => n[id] === level);
+    targets.forEach(id => { if (isActive) delete n[id]; else n[id] = level; });
+    return n;
+  });
+  const setDashboardScope = (scope) => setBundle(b => {
+    const n = { ...b };
+    const level = n.dashboard || n['manager-dashboard'] || 'viewer';
+    delete n.dashboard; delete n['manager-dashboard'];
+    if (scope === 'dashboard' || scope === 'both') n.dashboard = level;
+    if (scope === 'manager' || scope === 'both') n['manager-dashboard'] = level;
+    return n;
+  });
+  // 'manager-dashboard' isn't rendered as its own row (folded into the
+  // Dashboard row's scope dropdown above), so it's excluded from the visible
+  // rows, the Check All bulk action, and the "N of M screens granted" count -
+  // otherwise Check All would silently hand out Manager Dashboard to
+  // everyone, which is exactly the accidental-over-grant this UI exists to
+  // prevent.
+  const visibleIds = GRANTABLE.filter(m => m.id !== 'manager-dashboard').map(m => m.id);
+  const checkedCount = visibleIds.filter(id => bundle[id] || (id === 'dashboard' && bundle['manager-dashboard'])).length;
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '0 0 8px' }}>
         <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 12 }}
-          onClick={() => setBundle(b => Object.fromEntries(GRANTABLE.map(m => [m.id, b[m.id] || 'viewer'])))}>Check All</button>
+          onClick={() => setBundle(b => {
+            // Preserve an existing Manager Dashboard scope choice (it's not a
+            // visible row, so it must be carried over explicitly or Check All
+            // would silently drop it).
+            const n = Object.fromEntries(visibleIds.map(id => [id, b[id] || 'viewer']));
+            if (b['manager-dashboard']) n['manager-dashboard'] = b['manager-dashboard'];
+            return n;
+          })}>Check All</button>
         <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 12 }}
           onClick={() => setBundle({})}>Clear All</button>
         {inheritSources.length > 0 && (
@@ -1081,8 +1132,10 @@ function BundleEditor({ bundle, setBundle, inheritSources = [] }) {
         </select>
       </div>
       <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 300, overflow: 'auto' }}>
-        {GRANTABLE.map(m => {
-          const on = bundle[m.id];
+        {GRANTABLE.filter(m => m.id !== 'manager-dashboard').map(m => {
+          const isDashboard = m.id === 'dashboard';
+          const on = isDashboard ? (bundle.dashboard || bundle['manager-dashboard']) : bundle[m.id];
+          const scope = isDashboard ? dashboardScopeOf(bundle) : null;
           return (
             <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)',
               background: on ? 'color-mix(in srgb, var(--ink) 5%, transparent)' : 'transparent' }}>
@@ -1095,11 +1148,19 @@ function BundleEditor({ bundle, setBundle, inheritSources = [] }) {
                 <div style={{ fontSize: 13, fontWeight: on ? 700 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</div>
                 {on && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>{capabilityText(m.id, on, m.label)}</div>}
               </div>
+              {isDashboard && on && (
+                <select value={scope} onChange={e => setDashboardScope(e.target.value)}
+                  aria-label="Which dashboard screens this grants"
+                  title="Manager Dashboard is a tab inside Dashboard now - choose whether this grant includes it"
+                  style={{ ...input, width: 'auto', padding: '4px 8px', fontSize: 11.5, flexShrink: 0 }}>
+                  {DASHBOARD_SCOPES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+              )}
               <div style={{ display: 'inline-flex', gap: 4, flexShrink: 0 }} role="group" aria-label={`${m.label} level`}>
                 {LEVEL_ORDER.map(l => {
                   const active = on === l;
                   return (
-                    <button key={l} type="button" onClick={() => grant(m.id, l)}
+                    <button key={l} type="button" onClick={() => isDashboard ? grantDashboard(l) : grant(m.id, l)}
                       title={active ? `Click to remove ${m.label}` : capabilityText(m.id, l, m.label)}
                       style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
                         border: `1.5px solid ${active ? 'var(--ink)' : 'var(--line)'}`,
@@ -1115,7 +1176,7 @@ function BundleEditor({ bundle, setBundle, inheritSources = [] }) {
         })}
       </div>
       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7 }}>
-        One click grants a screen at that level; click the active level again to remove it. {checkedCount} of {GRANTABLE.length} screens granted.
+        One click grants a screen at that level; click the active level again to remove it. {checkedCount} of {visibleIds.length} screens granted.
       </div>
     </div>
   );

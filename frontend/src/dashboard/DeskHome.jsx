@@ -12,7 +12,7 @@ row.
 FORM: category standard played straight at full fidelity (user's canon call,
 Jul 28); craft bar monday.com.
 */
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import {
   ArrowUpRight, BookOpen, CheckCircle2, CheckSquare, ChevronRight,
@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+import { useWorldClockZones } from '../lib/worldClockZones';
 // The same composer the customizable dashboard's Quick Actions widget uses -
 // it brings its own TasksProvider, so the modal works outside the Tasks view.
 const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
@@ -102,6 +103,7 @@ export function DeskGreeting({ summary = null }) {
   const { accounts } = useMsal();
   const { actingAs } = useRole();
   const now = useNow();
+  const zones = useWorldClockZones();
   // While acting as someone, the greeting greets THEM - this whole screen is
   // their day, and "Good evening, Visesh" on Pranshu's dashboard read wrong.
   const firstName = ((actingAs?.targetName || accounts[0]?.name) ?? 'there').split(' ')[0];
@@ -134,9 +136,12 @@ export function DeskGreeting({ summary = null }) {
           {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : 'Clocked out · Open time clock'}
         </button>
         <div className="dk-zones">
-          <span>California <b>{fmtZone(now, 'America/Los_Angeles')}</b></span>
-          <span className="dk-zone-sep" />
-          <span>India <b>{fmtZone(now, 'Asia/Kolkata')}</b></span>
+          {zones.map((z, i) => (
+            <Fragment key={z.tz}>
+              {i > 0 && <span className="dk-zone-sep" />}
+              <span>{z.label} <b>{fmtZone(now, z.tz)}</b></span>
+            </Fragment>
+          ))}
         </div>
       </div>
     </div>

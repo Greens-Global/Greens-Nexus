@@ -31,6 +31,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timedelta, timezone
 
+import asana_enabled
 import models
 import secret_box
 from routers.task_util import gen_id, now_iso
@@ -82,6 +83,11 @@ def not_configured_reason() -> str:
 
 # ── the OAuth calls ──────────────────────────────────────────────────────────
 def _post_form(payload: dict) -> dict:
+    # The only network call this module makes - code exchange AND refresh. The
+    # router is gated too, but a refresh can be reached from a stored grant
+    # rather than from a request, so the switch is checked at the socket.
+    if not asana_enabled.is_asana_enabled():
+        raise ValueError(asana_enabled.DISABLED_MSG)
     body = urllib.parse.urlencode(payload).encode()
     req = urllib.request.Request(
         _TOKEN_URL, data=body, method="POST",

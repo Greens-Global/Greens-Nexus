@@ -5,6 +5,7 @@ import re
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -266,6 +267,37 @@ _TZ_OK = re.compile(r"^[A-Za-z0-9_+\-/ ]{1,64}$")
 _ISO_OK = re.compile(r"^[0-9T:.+\-Z]{10,40}$")
 
 
+def agenda_window_to_utc(s: str, tz: str) -> str:
+    """A wall-clock ISO string (naive, no offset) interpreted as local time in
+    `tz`, converted to a UTC ISO string with a trailing Z. An already-absolute
+    string (has an offset or trailing Z) passes through unchanged (just
+    re-expressed in UTC) - only a naive string gets the `tz` interpretation
+    applied. Falls back to treating `tz` as UTC if it isn't a real IANA zone
+    name, and returns the input unchanged if it isn't parseable at all.
+
+    Graph's calendarView startDateTime/endDateTime query params are parsed as
+    UTC when the string carries no offset - the Prefer: outlook.timezone
+    header on the request only controls how the RETURNED event times are
+    formatted, it does not change how the query window itself is interpreted.
+    Sending a naive "local midnight" string straight through silently shifted
+    the query window by the caller's UTC offset (up to a full day for zones
+    like Pacific/India), pulling in - or dropping - events from the wrong day,
+    which then rendered under the wrong Today/Tomorrow header in My Agenda
+    (Neil, Aug 31: an already-past event still showing as "Tomorrow").
+    """
+    try:
+        zone = ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = timezone.utc
+    try:
+        dt = datetime.fromisoformat((s or "").replace("Z", "+00:00"))
+    except ValueError:
+        return s
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=zone)
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 @router.get("/agenda")
 def agenda(start: str = "", end: str = "", tz: str = "UTC",
            user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -282,12 +314,19 @@ def agenda(start: str = "", end: str = "", tz: str = "UTC",
         return {"available": False, "reason": "not_m365"}
 
     # The client sends its local day window; defaults cover a headless call.
+    # These defaults ARE already UTC - tagged with a trailing Z so the
+    # wall-clock conversion below (which only applies to naive strings)
+    # leaves them alone instead of re-interpreting them as local time.
     if not _ISO_OK.match(start or ""):
-        start = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00")
+        start = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
     if not _ISO_OK.match(end or ""):
-        end = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT23:59:59")
+        end = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT23:59:59Z")
     if not _TZ_OK.match(tz or ""):
         tz = "UTC"
+
+    # See agenda_window_to_utc's docstring: the naive local window the client
+    # sends must be converted to real UTC before it goes to Graph.
+    start_utc, end_utc = agenda_window_to_utc(start, tz), agenda_window_to_utc(end, tz)
 
     def _load() -> dict:
         from routers.hr import _graph_token, _GRAPH
@@ -298,7 +337,7 @@ def agenda(start: str = "", end: str = "", tz: str = "UTC",
         try:
             r = httpx.get(
                 f"{_GRAPH}/users/{email}/calendarView",
-                params={"startDateTime": start, "endDateTime": end,
+                params={"startDateTime": start_utc, "endDateTime": end_utc,
                         "$orderby": "start/dateTime", "$top": "15",
                         "$select": "subject,start,end,location,isAllDay,isCancelled,onlineMeeting,webLink"},
                 headers={"Authorization": f"Bearer {token}",

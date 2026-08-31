@@ -52,7 +52,6 @@ const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
 const Marketing           = lazy(() => import("./views/Marketing"));
 const Admin               = lazy(() => import("./views/Admin"));
 const ExternalLinks       = lazy(() => import("./views/ExternalLinks"));
-const ManagerDashboard    = lazy(() => import("./views/ManagerDashboard"));
 const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
@@ -61,7 +60,6 @@ const ExternalActivate    = lazy(() => import("./views/ExternalActivate"));
 const PrivacyPolicy       = lazy(() => import("./views/PrivacyPolicy"));
 const TermsConditions     = lazy(() => import("./views/TermsConditions"));
 const TimeClock           = lazy(() => import("./views/TimeClock"));
-const Locations           = lazy(() => import("./views/Locations"));
 const MyHR                = lazy(() => import("./views/MyHR"));
 const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
@@ -81,8 +79,15 @@ const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
 // values in Sidebar's NAV array. Keep both in sync when adding new views.
 // Views absent from this map are accessible to everyone (dashboard, inventory, support).
 const VIEW_MIN_ROLES = {
-  'manager-dashboard':  'supervisor',
-  'locations':          'supervisor',   // team locations map - managers/HR only
+  // 'manager-dashboard' folded into Dashboard as a tab (Aug 31) to shrink the
+  // left nav - it no longer has its own view id or gate here. Who sees that
+  // tab is now decided inside Dashboard.jsx itself (supervisor+ role, or an
+  // Access Group/job role grant on 'manager-dashboard' - the exact same rule
+  // this entry used to enforce); old links redirect (see parsePath/navigate).
+  // 'locations' folded into Employee Tracking as a tab (Aug 31) to shrink the
+  // left nav - it no longer has its own view id or gate; old links redirect
+  // (see parsePath) into 'employee-tracking', so the Locations map now shares
+  // that module's grant-driven access instead of being open to all supervisors.
   // sop / external-links are baseline (all employees): the KB/LMS with
   // assigned courses, and plain links. Admin actions inside each stay
   // role-gated server-side.
@@ -300,8 +305,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   }
 
   switch (activeView) {
-    case "dashboard":          return <Dashboard onNavigate={onNavigate} />;
-    case "manager-dashboard":  return <ManagerDashboard />;
+    case "dashboard":          return <Dashboard onNavigate={onNavigate} activeSub={activeSub} onSubChange={onSubChange} />;
     case "tasks":              return <TasksProvider><Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} /></TasksProvider>;
     case "tickets":            return <TasksProvider><Tickets /></TasksProvider>;
     case "purchase":           return <Purchase activeSub={activeSub} />;
@@ -324,7 +328,6 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "external-links":     return <ExternalLinks />;
     case "support":            return <Support />;
     case "timeclock":          return <TimeClock />;
-    case "locations":          return <Locations />;
     case "myhr":               return <MyHR />;
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault />;
@@ -357,6 +360,14 @@ function parsePath() {
   // ?ticket= query param that TicketsView reads on mount survives untouched
   // since only the path is remapped here.
   if (raw === 'tasks' && segs[1] === 'tickets') return { view: 'tickets', sub: null };
+  // Locations folded into Employee Tracking as a tab (Aug 31) - old
+  // bookmarks/links to the standalone /locations page land on that tab.
+  if (raw === 'locations') return { view: 'employee-tracking', sub: 'locations' };
+  // Manager Dashboard folded into Dashboard as a tab (Aug 31) - old
+  // bookmarks/links to the standalone /manager-dashboard page land on that
+  // tab (Dashboard.jsx re-checks access and falls back to the personal tab
+  // if this particular visitor was never granted it).
+  if (raw === 'manager-dashboard') return { view: 'dashboard', sub: 'manager' };
   return { view: PATH_TO_VIEW[raw] || raw, sub: segs[1] || null };
 }
 
@@ -542,6 +553,12 @@ function MainApp() {
   }, [sidebarPinned]);
 
   function navigate(view, sub = null) {
+    // Old view ids that no longer route on their own (folded into a tab of
+    // another view) - remapped here, not just in parsePath, so EVERY caller
+    // (nexus:navigate events, widget/notification click-throughs, header
+    // search results, the Sidebar) lands correctly without each one having
+    // to know the view was merged elsewhere.
+    if (view === 'manager-dashboard') { view = 'dashboard'; sub = sub ?? 'manager'; }
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);
@@ -675,7 +692,7 @@ function MainApp() {
                 margins, which only matched ONE of the five breakpoint paddings
                 and so sat off-center at most widths. */}
             <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc) ? 'viewport viewport-flush'
-              : (activeView === 'dashboard' || activeView === 'manager-dashboard') ? 'viewport viewport-desk'
+              : activeView === 'dashboard' ? 'viewport viewport-desk'
               : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>
               <Suspense fallback={

@@ -60,7 +60,7 @@ function pinHtml(p, active) {
   </div>`;
 }
 
-export default function Locations({ toastErr }) {
+export default function Locations({ toastErr, embedded = false }) {
   const mapElRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef(null);
@@ -162,15 +162,17 @@ export default function Locations({ toastErr }) {
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)' }}>
-      <div className="view-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><MapPin size={19} /></span>
-          <div className="view-title-group">
-            <h2 style={{ margin: 0 }}>Locations</h2>
-            <p style={{ margin: '2px 0 0' }}>Where each person last punched from</p>
+      {!embedded && (
+        <div className="view-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><MapPin size={19} /></span>
+            <div className="view-title-group">
+              <h2 style={{ margin: 0 }}>Locations</h2>
+              <p style={{ margin: '2px 0 0' }}>Where each person last punched from</p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Filters */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '4px 0 12px' }}>

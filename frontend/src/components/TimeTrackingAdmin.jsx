@@ -6,6 +6,7 @@ import { Avatar } from '../tasks/components';
 import ScreenshotsAdmin from './ScreenshotsAdmin';
 import TimeInsights from './TimeInsights';
 import LiveView from './LiveView';
+import Locations from '../views/Locations';
 
 // Human "last seen" from a seconds delta.
 function relSeen(secs) {
@@ -478,6 +479,7 @@ function LiveCoverage({ onOpenPerson }) {
 const MON_SUBTABS = [
   { id: 'coverage',    label: 'Coverage' },
   { id: 'activity',    label: 'Activity' },
+  { id: 'locations',   label: 'Locations' },
   { id: 'policy',      label: 'Policy' },
   { id: 'computers',   label: 'Computers' },
   { id: 'screenshots', label: 'Screenshots' },
@@ -547,7 +549,7 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
         <div className="view-header" style={{ marginBottom: 0 }}>
           <div className="view-title-group">
             <h2>Employee Tracking</h2>
-            <p>Disclosed monitoring - coverage, activity, screenshots, and company computers</p>
+            <p>Disclosed monitoring - coverage, activity, locations, screenshots, and company computers</p>
           </div>
         </div>
       )}
@@ -577,6 +579,8 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
       {sub === 'coverage' && <LiveCoverage onOpenPerson={(email) => { setShotReq({ email, date: new Date().toISOString().slice(0, 10) }); setSub('screenshots'); }} />}
 
       {sub === 'activity' && <ActivityInsights />}
+
+      {sub === 'locations' && <Locations embedded />}
 
       {sub === 'screenshots' && (
         <ScreenshotsAdmin embedded initialEmail={shotReq.email} initialDate={shotReq.date} onBack={() => { setShotReq({ email: '', date: '' }); setSub('coverage'); }} />

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { API_BASE } from '../api';
 import {
   Link2, Mail, Calendar, Users2, FolderKanban, Rocket, MessagesSquare, BookOpen,
   HelpCircle, Clock, FileSpreadsheet, Zap, Wifi, Landmark, Wallet, Building2,
@@ -22,24 +23,28 @@ export const ICON_MAP = {
 };
 export const iconFor = (key) => ICON_MAP[key] || Link2;
 
-// Clearbit's free logo API was shut down (logo.clearbit.com no longer
-// resolves at all, Aug 2026) - it used to be the first choice here because it
-// served the actual brand mark at real resolution. icon.horse is first now:
-// it resolves a site's real high-res logo/favicon (up to 180x180, not just
-// whatever tiny favicon.ico the site declared) and serves it from its own
-// host with no redirect, so it doesn't need a second CSP img-src entry the
-// way the old www.google.com/s2/favicons fallback did (that endpoint
-// redirects to a *different* host, t1.gstatic.com, which CSP checks against
-// instead of the one that was actually requested). Google's faviconV2 stays
-// as the second attempt for the handful of domains icon.horse doesn't have -
-// `fallback_opts` deliberately omits `TYPE` so a domain with nothing on file
-// 404s instead of silently returning Google's generic globe glyph as if it
-// were a real logo; the 404 is what lets onError fall through to our own
-// (nicer, brand-colored) lucide icon instead of that globe.
+// Logos come from OUR OWN origin first (backend caches one fetch per domain in
+// link_icons). They used to be fetched straight from icon.horse by every tile:
+// 50+ links means 50+ simultaneous requests to a free service, per employee,
+// per page view, all from one office egress IP - and it rate-limits per IP, so
+// most tiles came back HTTP 429 and dropped to the generic glyph, differently
+// each time (Charmi/Neil, Aug 31). Going through the backend makes that 50
+// requests in total rather than 50 per person per view, and it can't be
+// throttled out from under the grid.
+//
+// The two third-party resolvers stay as fallbacks, for the cases the cache
+// can't serve: a local dev backend without the table, an unauthenticated
+// image request, or a domain the cache has no logo for. Clearbit is gone
+// entirely (logo.clearbit.com stopped resolving, Aug 2026). icon.horse serves
+// a site's real high-res mark; Google's faviconV2 is the last try, with
+// `fallback_opts` deliberately empty so an unknown domain 404s instead of
+// quietly returning Google's generic globe as though it were a real logo -
+// that 404 is what lets onError reach our own brand-colored lucide icon.
 function logoSources(url, size) {
   try {
     const hostname = new URL(url).hostname;
     return [
+      `${API_BASE}/external-links/icon?d=${encodeURIComponent(hostname)}`,
       `https://icon.horse/icon/${hostname}`,
       `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=&url=https://${hostname}&size=${size}`,
     ];

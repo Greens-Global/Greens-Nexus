@@ -3,8 +3,8 @@ import { useMsal } from "@azure/msal-react";
 import { useRole, ROLES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
 import { api } from "../api";
 import {
-  LayoutDashboard, UserCheck, ShoppingCart, CheckSquare, BookOpen,
-  Monitor, Wifi, Home, LayoutGrid, Shield, FileText,
+  LayoutDashboard, ShoppingCart, CheckSquare, BookOpen,
+  Monitor, Wifi, Home, LayoutGrid, FileText,
   ClipboardCheck, Calculator, ArrowRightLeft, PieChart, Download,
   CreditCard, Building, Server, FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
@@ -13,7 +13,7 @@ import {
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
-  HardDrive, FolderOpen, MapPin, ClipboardList,
+  HardDrive, FolderOpen, ClipboardList,
   MonitorDot,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
@@ -23,8 +23,16 @@ export const NAV = [
   { view: "dashboard", code: "HOME",         label: "Dashboard",          icon: LayoutDashboard },
   { view: "timeclock", code: "CLK",         label: "Time Clock",         icon: Clock },
   { view: "myhr", code: "MHR",              label: "My HR",              icon: Contact },
-  { view: "manager-dashboard", code: "MGR", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
-  { view: "locations", code: "LOC",         label: "Locations",          icon: MapPin,       minRole: 'supervisor' },
+  // Manager Dashboard folded into Dashboard as a tab (Aug 31) to shrink the
+  // left nav - it no longer has its own entry here. The old view id still
+  // resolves (App.jsx parsePath/navigate redirect it to Dashboard's "manager"
+  // tab); who SEES that tab is decided in Dashboard.jsx itself (supervisor+
+  // role, or an Access Group/job role grant on 'manager-dashboard' - same
+  // rule this NAV entry's minRole used to enforce). The Roles & Access grant
+  // UI exposes it as a scope on the Dashboard row, not a separate module row.
+  // Locations folded in as an Employee Tracking tab (Aug 31) to shrink the
+  // left nav - it no longer has its own entry here. The route (App.jsx
+  // 'locations' case) still resolves old links/deep-links into that tab.
   // Employee Tracking (disclosed monitoring dashboard). Grant-driven (Aug 13):
   // IT Admin / Global Admin always see it; below that it appears only when an
   // Access Group / job role grants the 'employee-tracking' module (in MODULES).
@@ -38,6 +46,17 @@ export const NAV = [
   // carry tasks:*). Knowledge Base stays baseline - it is the LMS and assigned
   // courses/SOPs must be reachable by everyone; KB admin ops are level 3+.
   { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
+  // Files (Egnyte-backed) sits directly beneath Tasks (Pranshu, Aug 31).
+  // Egnyte stays the source of truth for files; this module browses, uploads
+  // and searches it in place. Sub list is for the mobile menu - the desktop
+  // rail is flat and the module renders its own tab strip.
+  {
+    view: "egnyte", code: "EGN", label: "Files", icon: HardDrive, minRole: 'supervisor',
+    sub: [
+      { subview: "browse",   label: "Browse Files",       icon: FolderOpen },
+      { subview: "property", label: "Property Documents", icon: Home },
+    ],
+  },
   { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken,  minRole: 'supervisor' },
   { view: "sop", code: "KB", label: "Knowledge Base", icon: BookOpen },
   { divider: true },
@@ -132,21 +151,12 @@ export const NAV = [
     view: "marketing", code: "MKT", label: "Marketing", icon: Megaphone, minRole: 'supervisor',
   },
   { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
-  // Egnyte stays the source of truth for files; this module browses, uploads and
-  // searches it in place. Sub list is for the mobile menu - the desktop rail is
-  // flat and the module renders its own tab strip.
-  {
-    view: "egnyte", code: "EGN", label: "Egnyte", icon: HardDrive, minRole: 'supervisor',
-    sub: [
-      { subview: "browse",   label: "Browse Files",       icon: FolderOpen },
-      { subview: "property", label: "Property Documents", icon: Home },
-    ],
-  },
   { divider: true },
   { view: "support", code: "SUP",        label: "Support",        icon: HelpCircle },
   { view: "external-links", code: "EXT", label: "External Links", icon: ExternalLink },
-  { view: "privacy-policy", code: "PRV", label: "Privacy Policy", icon: Shield },
-  { view: "terms-conditions", code: "TRM", label: "Terms & Conditions", icon: FileSignature },
+  // Privacy Policy / Terms & Conditions folded into Support as cards (Aug 31)
+  // to shrink the left nav - both still resolve as views (App.jsx), just not
+  // from their own NAV entry here.
   // Dev-only: the item renders only when the backend says the QA module is
   // enabled (NEXUS_QA_MODULE env on dev; absent on prod).
   { view: "testing", code: "QA",        label: "Testing",        icon: FlaskConical, minRole: 'supervisor', qaGated: true },

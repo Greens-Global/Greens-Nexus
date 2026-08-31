@@ -120,6 +120,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   // Board, where the panel is out of sight, so the missing rows read as lost
   // data rather than a filter still doing its job.
   const switchView = (next) => { setView(next); setFilters(EMPTY_FILTER); };
+  // Dashboard KPI tiles / bar charts drill into the List view pre-filtered to
+  // whatever slice was clicked (e.g. "Overdue" -> List filtered to due=overdue).
+  const goFiltered = (patch) => { setFilters({ ...EMPTY_FILTER, ...patch }); setView('list'); };
   const stats = useMemo(() => taskStats(visible), [visible]);
 
   const toggleSel = (id) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -241,7 +244,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         ) : (view === 'workload' && showWorkload) ? (
           <WorkloadView tasks={visible} nameOf={nameOf} />
         ) : (
-          <DashboardView tasks={visible} stats={stats} store={store} scopeKey={lockedProjectId || 'workspace'} />
+          <DashboardView tasks={visible} stats={stats} store={store} scopeKey={lockedProjectId || 'workspace'} onFilter={goFiltered} />
         )}
       </div>
 

@@ -13,7 +13,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 // Ticket is the Ticket module's own icon (Sidebar, TicketsView) - the card
 // that opens its create form should wear it, not a generic document.
-import { Ticket, Monitor, Users, BookOpen, ArrowUpRight } from 'lucide-react';
+import { Ticket, Monitor, Users, BookOpen, ArrowUpRight, Shield, FileSignature } from 'lucide-react';
 import { api } from '../api';
 import { ticketNoShort } from '../tickets/ticketMeta';
 import { formatDateTime } from '../lib/datetime';
@@ -77,6 +77,12 @@ export default function Support() {
       onOpen: () => go('people') },
     { icon: BookOpen, title: 'FAQ & Guides', desc: 'Common how-tos and Nexus walkthroughs.',
       onOpen: () => go('sop') },
+    // Folded in from their own left-nav entries (Aug 31) to shrink the nav -
+    // both still resolve as ordinary views (App.jsx), just opened from here.
+    { icon: Shield, title: 'Privacy Policy', desc: 'What Nexus collects, why, and who can see it.',
+      onOpen: () => go('privacy-policy') },
+    { icon: FileSignature, title: 'Terms & Conditions', desc: 'The terms that govern your use of Nexus.',
+      onOpen: () => go('terms-conditions') },
   ];
 
   // Closed tickets are not what "My Open Tickets" means, but a requester whose
