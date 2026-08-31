@@ -4,6 +4,7 @@ import { api } from '../api';
 import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 
 // Whether a desktop agent covers THIS machine is detected per-machine by asking
 // the local agent directly over localhost. The agent serves a no-side-effect
@@ -51,6 +52,7 @@ export default function TimeclockWidget() {
   const [capturing, setCapturing] = useState(0);   // number of screens being captured
   const [busy, setBusy] = useState(false);
   const [eodOpen, setEodOpen] = useState(false);   // end-of-day message after punch-out
+  const [lostOut, setLostOut] = useState(false);   // the quick punch-out did not record
   const [expanded, setExpanded] = useState(false); // capsule collapsed by default; expands upward
   const wrapRef = useRef(null);
   const [, setTick] = useState(0);
@@ -70,6 +72,15 @@ export default function TimeclockWidget() {
 
   const load = useCallback(() => {
     api.timeStatus().then(setStatus).catch(() => {});
+  }, []);
+
+  // The mini-timer is mounted on every screen, so this is where a punch parked
+  // by a dead connection gets its app-wide second chance - the person does not
+  // have to find their way back to the Time Clock page for it to land.
+  useEffect(() => {
+    if (!readPending()) return;
+    replayPending().then(r => { if (r?.restored || r?.dropped) load(); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -299,12 +310,32 @@ export default function TimeclockWidget() {
   async function quickPunchOut() {
     if (busy) return;
     setBusy(true);
-    try {
-      const r = await api.timePunch({ kind: 'out', tz_offset_min: new Date().getTimezoneOffset() });
+    // An earlier punch is still owed (a break end that never landed). Send THAT
+    // first: punching out moves the state past it, after which it can never be
+    // placed and would be dropped silently - turning a five-minute problem into
+    // an afternoon of unpaid break. If it still won't go, don't end the day.
+    const held = readPending();
+    if (held) {
+      const r = await replayPending();
+      if (!r?.restored && !r?.dropped) {
+        setLostOut(true); setExpanded(true); setBusy(false);
+        return;
+      }
+      load();
+    }
+    // Durable: a dropped punch-out used to be swallowed here entirely, leaving
+    // the shift open with nobody told. Now it retries, parks for replay, and -
+    // since this capsule is the only surface the person is looking at - says so.
+    const res = await punchDurable({ kind: 'out', tzOffsetMin: new Date().getTimezoneOffset() });
+    if (res.ok) {
+      setLostOut(false);
       stopCapture();
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
-      if (r?.promptEod) setEodOpen(true); // offer the end-of-day message
-    } catch { /* the Time Clock page shows details */ }
+      if (res.result?.promptEod) setEodOpen(true); // offer the end-of-day message
+    } else if (res.unreachable) {
+      setLostOut(true);
+      setExpanded(true);   // never leave this hiding inside a collapsed capsule
+    }
     setBusy(false);
   }
 
@@ -374,11 +405,18 @@ export default function TimeclockWidget() {
               )}
             </div>
           )}
+          {lostOut && (
+            <div style={{ display: 'flex', gap: 7, padding: '8px 10px', borderRadius: 10, fontSize: 11.5, lineHeight: 1.5,
+              background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontWeight: 600 }}>
+              A punch hasn&apos;t recorded - Nexus couldn&apos;t reach the server. It&apos;s saved on this
+              device and goes in at the time you pressed the button. Open Time Clock for details.
+            </div>
+          )}
           <button onClick={quickPunchOut} disabled={busy} title="Punch out"
             style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 12px', borderRadius: 10,
               border: 'none', cursor: 'pointer', background: '#b91c1c', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>
             {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <LogOut size={13} />}
-            Punch out
+            {lostOut ? 'Retry Punch Out' : 'Punch out'}
           </button>
         </div>
       )}
