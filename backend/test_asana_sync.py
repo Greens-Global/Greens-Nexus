@@ -217,6 +217,11 @@ class DeletePropagationTests(unittest.TestCase):
         models.Base.metadata.create_all(bind=database.engine)
 
     def setUp(self):
+        # These cover what the delete queue does when the integration is LIVE.
+        # It is severed by default (see test_asana_severed, which owns the
+        # other half: while severed nothing is queued and nothing drains).
+        os.environ["NEXUS_ASANA_ENABLED"] = "true"
+        self.addCleanup(os.environ.pop, "NEXUS_ASANA_ENABLED", None)
         self.db = database.SessionLocal()
         for table in (models.AsanaTaskLink, models.Task, models.AsanaProjectMap, models.AsanaSyncConfig):
             self.db.query(table).delete()

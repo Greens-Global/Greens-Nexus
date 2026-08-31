@@ -191,7 +191,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
 }
 
 
-export default function MyTasksView() {
+export default function MyTasksView({ onNavigate }) {
   const store = useTasks();
   const { tasks, projects, myEmail, nameOf } = store;
   // View / grouping / sort ride in the user's profile with their columns -

@@ -46,9 +46,16 @@ export function useHeaderTabs() {
 // page instead of leaving every tab reading as the module's landing tab.
 // Off by default: most modules (Documents, IT, ...) deliberately keep their
 // own name in the breadcrumb across tabs, and this must not change that.
-export default function ModuleTabs({ tabs, active, onChange, mobileInline = true, syncTitle = false }) {
+//
+// inline=true keeps the strip IN THE PAGE at every width and publishes nothing
+// to the header, so the module can place its own tabs (the Task module renders
+// them in its own bar, below the header, rather than in the header centre).
+// Publishing is skipped rather than ignored: a module that draws its own strip
+// and also published one would show the same tabs twice on desktop. It makes
+// syncTitle moot for that module - nothing is published for TopHeader to read.
+export default function ModuleTabs({ tabs, active, onChange, mobileInline = true, syncTitle = false, inline = false }) {
   const ctx = useContext(HeaderTabsContext);
-  const setEntry = ctx?.setEntry;
+  const setEntry = inline ? null : ctx?.setEntry;
 
   // onChange is almost always a fresh closure each render - keep it in a ref
   // so publishing only re-fires when the tab set or selection actually change.
@@ -70,9 +77,9 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   }, [setEntry]);
 
   // <=900px fallback - same markup contract as the old in-page strips.
-  if (!mobileInline) return null;
+  if (!inline && !mobileInline) return null;
   return (
-    <div className="scroll-tabs module-tabs-inline">
+    <div className={`scroll-tabs module-tabs-inline${inline ? ' module-tabs-inline--always' : ''}`}>
       {tabs.map(({ key, label, Icon, badge }) => (
         <button
           key={key}

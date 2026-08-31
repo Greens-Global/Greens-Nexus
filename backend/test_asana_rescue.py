@@ -116,6 +116,10 @@ class RunRescueTests(unittest.TestCase):
         os.remove(_tmp_db.name)
 
     def setUp(self):
+        # The worker's behavior when the integration is LIVE; while severed it
+        # refuses to start at all (test_asana_severed covers that half).
+        os.environ["NEXUS_ASANA_ENABLED"] = "true"
+        self.addCleanup(os.environ.pop, "NEXUS_ASANA_ENABLED", None)
         self.db = database.SessionLocal()
         for m in (models.TaskAttachment, models.AsanaAttachmentLink, models.AsanaSyncConfig):
             self.db.query(m).delete()

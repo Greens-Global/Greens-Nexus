@@ -92,14 +92,18 @@ const SUBTABS = [
   { key: 'reporting', label: 'Reporting', icon: BarChart3 },
 ];
 
-export default function ManageView() {
+export default function ManageView({ onExit }) {
   const store = useTasks();
   const [tab, setTab] = useState('rules');
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-      {/* Sub-tab strip - underline tabs, horizontally scrollable on mobile */}
-      <div data-tour="task-manage-tabs" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'auto' }}>
+      {/* Sub-tab strip + the way out. Manage is the one screen with no page
+          header of its own, so Exit lives on this row - and OUTSIDE the
+          scrolling tab strip, or it would scroll off with the tabs on a narrow
+          window and strand people on an admin screen. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
+      <div data-tour="task-manage-tabs" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 16px', flex: 1, minWidth: 0, overflowX: 'auto' }}>
         {SUBTABS.map((t) => {
           const active = tab === t.key;
           return (
@@ -112,6 +116,11 @@ export default function ManageView() {
             </button>
           );
         })}
+      </div>
+        <button className="nx-iconbtn" onClick={() => onExit?.()} title="Exit Manage"
+          style={{ ...btn('outline'), flexShrink: 0, marginRight: 16 }}>
+          <X size={14} /> <span className="nx-btn-label">Exit</span>
+        </button>
       </div>
 
       {/* Body - the Task List and Data Quality are full-bleed (wide,
@@ -725,12 +734,12 @@ function AsanaSyncPanel({ store }) {
       <div style={{ ...card, padding: 16, maxWidth: 640 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13 }}>
           <input type="checkbox" checked={!!cfg.manualSyncEnabled} onChange={(e) => saveConfig({ manual_sync_enabled: e.target.checked })} />
-          <span style={{ fontWeight: 700, color: NX.ink }}>Sync enabled</span>
+          <span style={{ fontWeight: 700, color: NX.ink }}>Sync Enabled</span>
           <span style={{ color: NX.faint }}>{cfg.manualSyncEnabled ? 'new tasks in mapped projects push to Asana automatically' : 'off'}</span>
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13 }}>
           <input type="checkbox" checked={!!cfg.manualDeleteSync} onChange={(e) => saveConfig({ manual_delete_sync: e.target.checked })} />
-          <span style={{ fontWeight: 700, color: NX.ink }}>Sync deletions</span>
+          <span style={{ fontWeight: 700, color: NX.ink }}>Sync Deletions</span>
           <span style={{ color: NX.faint }}>
             {cfg.manualDeleteSync
               ? 'deleting a task on either side deletes it on the other'
@@ -872,7 +881,7 @@ function AsanaSyncPanel({ store }) {
         {err && <div style={{ marginTop: 10, fontSize: 13, color: NX.red }}>{err}</div>}
         {teamReport.length > 0 && (
           <div style={{ marginTop: 10, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '8px 10px' }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: NX.dim, marginBottom: 4 }}>Team access</div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: NX.dim, marginBottom: 4 }}>Team Access</div>
             {teamReport.map((line, i) => (
               <div key={i} style={{ fontSize: 11.5, color: /granted|owning team, \d/.test(line) ? NX.green : NX.amber, marginTop: 2 }}>
                 {line}

@@ -5,6 +5,9 @@ import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { PersonalLockGate } from '../credvault/vaultShared';
 import { LinkIcon } from '../components/LinkIcon.jsx';
 import { useLinkViews } from './useLinkViews';
+// The IT desk's triage taxonomy - a link carries one so a ticket raised
+// against this app lands in the right queue. Defined by the Ticket module.
+import { SERVICE_AREAS } from '../tickets/ticketMeta';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import {
@@ -132,7 +135,7 @@ function entryActions(entry, itemsById, ctx) {
   };
 }
 
-const emptyForm = { name: '', url: '', categories: [], description: '', departments: [], company: '', icon: 'Link2', is_pinned: false };
+const emptyForm = { name: '', url: '', categories: [], description: '', departments: [], company: '', icon: 'Link2', is_pinned: false, service_area: '' };
 
 export default function ExternalLinks() {
   const { canAccessModule, myEmail } = useRole();
@@ -536,6 +539,7 @@ export default function ExternalLinks() {
     form: {
       name: link.name, url: link.url, categories: link.categories || [], description: link.description || '',
       departments: link.departments || [], company: link.company || '', icon: link.icon || 'Link2', is_pinned: !!link.is_pinned,
+      service_area: link.service_area || '',
     },
   });
 
@@ -2161,12 +2165,25 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
               />
             </div>
           </div>
-          <div className="form-group">
-            <label>Company</label>
-            <select className="form-select" value={form.company} onChange={e => setForm({ company: e.target.value })}>
-              <option value="">All Companies</option>
-              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div className="form-group">
+              <label>Company</label>
+              <select className="form-select" value={form.company} onChange={e => setForm({ company: e.target.value })}>
+                <option value="">All Companies</option>
+                {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            {/* Classifies the app for the IT desk: a ticket raised against it
+                copies this at intake and is triaged by it. Set here because
+                this is the one screen where an app is added, so a new app is
+                classified once, by the person adding it. */}
+            <div className="form-group">
+              <label>Service Area <span style={{ fontWeight: 500, color: 'var(--muted)', textTransform: 'none' }}>(for IT tickets)</span></label>
+              <select className="form-select" value={form.service_area || ''} onChange={e => setForm({ service_area: e.target.value })}>
+                <option value="">General (unclassified)</option>
+                {SERVICE_AREAS.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
+              </select>
+            </div>
           </div>
           <div className="form-group">
             <label>

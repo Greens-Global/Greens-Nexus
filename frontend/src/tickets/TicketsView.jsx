@@ -17,7 +17,7 @@ import { supabase } from '../lib/supabase';
 import { startScreenRecording } from '../lib/screenRecorder';
 import { stashDraft, appendDraftFile, takeDraft, peekDraft, setDraftUiMounted, finishRecording } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
-import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside } from '../tasks/components';
+import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import {
@@ -26,6 +26,7 @@ import {
   SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, isBlankFieldValue, toEmailList,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
   ticketNo, ticketNoShort, normalizeCode,
+  SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
 } from './ticketMeta';
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip,
@@ -54,6 +55,101 @@ const TICKET_COLUMNS = [
   { key: 'assignee', label: 'Assigned To', defaultWidth: 150, minWidth: 100, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
   { key: 'created', label: 'Created Date', defaultWidth: 110, minWidth: 80, sort: (t) => t.createdAt || '' },
 ];
+// ── Applications ─────────────────────────────────────────────────────────────
+// The app a ticket is about comes from the External Links directory - the
+// rebuilt start.greensglobal.com, which already knows which departments use
+// which app and (since this change) which service area each one belongs to.
+// Read live: a hardcoded copy would go stale the first time someone adds a
+// link in Manage, with nothing to signal that it had.
+const OTHER_APP = 'Other / not listed';
+
+function useTicketApps() {
+  const [apps, setApps] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    api.getExternalLinks()
+      .then((rows) => { if (alive) setApps(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (alive) setApps([]); });
+    return () => { alive = false; };
+  }, []);
+  return apps;
+}
+
+// Work-site names for the Facility / Site service questions.
+function useTicketSites() {
+  const [sites, setSites] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    api.getTicketSites()
+      .then((rows) => { if (alive) setSites(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (alive) setSites([]); });
+    return () => { alive = false; };
+  }, []);
+  return sites;
+}
+
+// The service area an app belongs to, for the client-side preview of what the
+// server will derive on save. "" for no app; an app the directory doesn't know
+// (including "Other / not listed") is General - mirrors service_area_for in
+// backend/routers/tickets.py.
+function areaForApp(apps, application) {
+  const name = (application || '').trim();
+  if (!name) return '';
+  const row = apps.find((a) => (a.name || '').toLowerCase() === name.toLowerCase());
+  if (!row) return 'general';
+  return row.service_area || 'general';
+}
+
+// Searchable app picker, grouped by whether the department that was picked in
+// step 1 actually uses the app.
+//
+// Grouped, never filtered. A hard department filter is a dead end - the app you
+// need not being on your department's list would leave you unable to file the
+// ticket you came to file - and the two department lists are not even the same
+// namespace: External Links carries free-text department strings, a ticket
+// routes on an HrDepartment id. So they are matched by name, the matches float
+// to the top under their own caption, and everything else stays reachable
+// below. No name match just means no grouping, not an empty list.
+function ApplicationSelect({ apps, value, onChange, deptName, invalid }) {
+  const options = useMemo(() => {
+    const dept = (deptName || '').trim().toLowerCase();
+    const named = apps.map((a) => a.name).filter(Boolean);
+    const uses = (a) => dept && (a.departments || []).some((d) => String(d).trim().toLowerCase() === dept);
+    const mine = dept ? apps.filter(uses).map((a) => a.name).filter(Boolean) : [];
+    const mineSet = new Set(mine);
+    const rest = named.filter((n) => !mineSet.has(n));
+    const byName = (a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' });
+    const opt = (n) => ({ id: n, label: n });
+    return [
+      ...(mine.length ? [{ id: '__hdr_mine', label: `Used by ${deptName}`, header: true },
+        ...mine.slice().sort(byName).map(opt)] : []),
+      ...(rest.length ? [...(mine.length ? [{ id: '__hdr_all', label: 'All applications', header: true }] : []),
+        ...rest.slice().sort(byName).map(opt)] : []),
+      { id: '__hdr_other', label: 'Not on the list', header: true },
+      opt(OTHER_APP),
+    ];
+  }, [apps, deptName]);
+  return (
+    <SearchSelect
+      value={value || ''} options={options} onPick={onChange}
+      placeholder="Select application" searchPlaceholder="Search applications…"
+      emptyText="No applications in the directory yet."
+      buttonStyle={{ ...inputStyle, width: '100%', cursor: 'pointer', justifyContent: 'space-between',
+        ...(invalid ? { borderColor: NX.red } : null) }} />
+  );
+}
+
+// List-view grouping. Carries its own labels rather than title-casing the key,
+// which only worked while every dimension happened to be one word.
+const GROUP_BY_OPTIONS = [
+  { key: 'none', label: 'None' },
+  { key: 'status', label: 'Status' },
+  { key: 'priority', label: 'Priority' },
+  { key: 'type', label: 'Type' },
+  { key: 'serviceArea', label: 'Service Area' },
+  { key: 'assignee', label: 'Assignee' },
+];
+
 const TICKET_COL_WIDTHS_KEY = 'nx-ticket-col-widths';
 const defaultTicketColWidths = () => Object.fromEntries(TICKET_COLUMNS.map((c) => [c.key, c.defaultWidth]));
 
@@ -65,9 +161,10 @@ function csvEscape(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
-  const headers = ['Code', 'Title', 'Type', 'Company', 'Department', 'State', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Description'];
+  const headers = ['Code', 'Title', 'Type', 'Application', 'Service Area', 'Company', 'Department', 'State', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Description'];
   const body = rows.map((t) => [
     ticketNoShort(t.code) || '', t.subject || '', TICKET_TYPE_META[t.type]?.label || t.type || '',
+    t.application || '', serviceAreaLabel(t.serviceArea) || '',
     companyName(t.companyId) || '', hrDeptName(t.hrDepartmentId) || '',
     TICKET_STATUS_META[t.status]?.label || t.status || '', PRIORITY_META[t.priority]?.label || t.priority || '',
     t.slaDueOn ? fmtDate(t.slaDueOn) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
@@ -92,6 +189,7 @@ function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
 function TicketMobileFilters({
   onClose, statusFilter, setStatusFilter, priorityFilter, setPriorityFilter,
   typeFilter, setTypeFilter, slaFilter, setSlaFilter, hrDeptFilter, setHrDeptFilter, hrDepts,
+  serviceAreaFilter, setServiceAreaFilter,
   groupBy, setGroupBy, showGroup,
 }) {
   const row = { ...inputStyle, appearance: 'auto', cursor: 'pointer', width: '100%', fontSize: 15, padding: '10px 12px' };
@@ -145,13 +243,19 @@ function TicketMobileFilters({
           </select>
         </div>
       )}
+      <div style={wrap}>
+        <label style={lab}>Service Area</label>
+        <select value={serviceAreaFilter} onChange={(e) => setServiceAreaFilter(e.target.value)} style={row}>
+          <option value="all">All service areas</option>
+          <option value="">Not set</option>
+          {SERVICE_AREAS.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
+        </select>
+      </div>
       {showGroup && (
         <div style={wrap}>
           <label style={lab}>Group by</label>
           <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} style={row}>
-            {['none', 'status', 'priority', 'type', 'assignee'].map((g) => (
-              <option key={g} value={g}>{g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1)}</option>
-            ))}
+            {GROUP_BY_OPTIONS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
           </select>
         </div>
       )}
@@ -167,11 +271,12 @@ function TicketMobileFilters({
 function TicketFilterMenu({
   statusFilter, setStatusFilter, priorityFilter, setPriorityFilter, typeFilter, setTypeFilter,
   slaFilter, setSlaFilter, hrDeptFilter, setHrDeptFilter, hrDepts,
+  serviceAreaFilter, setServiceAreaFilter,
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useClickOutside(ref, () => setOpen(false), open);
-  const active = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter].filter((v) => v !== 'all').length;
+  const active = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter].filter((v) => v !== 'all').length;
   const rowStyle = { ...inputStyle, appearance: 'auto', cursor: 'pointer', width: '100%' };
   const wrap = { marginBottom: 10 };
   const lab = { ...label, fontSize: 12 };
@@ -224,8 +329,16 @@ function TicketFilterMenu({
               </select>
             </div>
           )}
+          <div style={wrap}>
+            <label style={lab}>Service Area</label>
+            <select value={serviceAreaFilter} onChange={(e) => setServiceAreaFilter(e.target.value)} style={rowStyle}>
+              <option value="all">All service areas</option>
+              <option value="">Not set</option>
+              {SERVICE_AREAS.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
+            </select>
+          </div>
           {active > 0 && (
-            <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); }}
+            <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); setServiceAreaFilter('all'); }}
               style={{ ...btn('ghost'), width: '100%', justifyContent: 'center', color: NX.red, fontSize: 12.5 }}>Clear filters</button>
           )}
         </div>
@@ -254,7 +367,7 @@ function MoreMenu({ views, onApply, onSave, onDelete, onExport, groupBy, setGrou
                 <div style={sectionLabel}>Group by</div>
                 <div style={{ padding: '0 12px 10px' }}>
                   <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
-                    {['none', 'status', 'priority', 'type', 'assignee'].map((g) => <option key={g} value={g}>{g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1)}</option>)}
+                    {GROUP_BY_OPTIONS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
                   </select>
                 </div>
                 <div style={{ borderTop: `1px solid ${NX.border2}` }} />
@@ -343,6 +456,7 @@ export default function TicketsView() {
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [hrDeptFilter, setHrDeptFilter] = useState('all');
+  const [serviceAreaFilter, setServiceAreaFilter] = useState('all');
   const [slaFilter, setSlaFilter] = useState('all');   // all | breached | at_risk | ok
   const [groupBy, setGroupBy] = useState('none');
   const [view, setView] = useState('list');   // 'list' | 'board' | 'reports'
@@ -422,6 +536,10 @@ export default function TicketsView() {
     const f = v.filters || {};
     setScope(f.scope ?? 'all'); setStatusFilter(f.statusFilter ?? 'all'); setPriorityFilter(f.priorityFilter ?? 'all');
     setTypeFilter(f.typeFilter ?? 'all'); setSlaFilter(f.slaFilter ?? 'all');
+    // ?? 'all', not a no-op: a view saved before service areas existed must
+    // still CLEAR the filter, or applying it silently keeps whatever narrowing
+    // was on screen and shows a different list than the one it names.
+    setServiceAreaFilter(f.serviceAreaFilter ?? 'all');
     setSearch(f.search ?? '');
     if (v.group) setGroupBy(v.group);
     if (v.view) setView(v.view);
@@ -431,7 +549,7 @@ export default function TicketsView() {
     if (!name || !name.trim()) return;
     createTicketView({
       name: name.trim(), view, group: groupBy,
-      filters: { scope, statusFilter, priorityFilter, typeFilter, slaFilter, search },
+      filters: { scope, statusFilter, priorityFilter, typeFilter, slaFilter, serviceAreaFilter, search },
     }).catch((e) => alert(`Could not save view: ${e.message || e}`));
   };
 
@@ -459,14 +577,17 @@ export default function TicketsView() {
       if (!['all', 'open', 'unassigned'].includes(statusFilter) && t.status !== statusFilter) return false;
       if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
       if (typeFilter !== 'all' && (t.type || 'request') !== typeFilter) return false;
+      if (serviceAreaFilter !== 'all' && (t.serviceArea || '') !== serviceAreaFilter) return false;
       if (slaFilter !== 'all' && slaState(t) !== slaFilter) return false;
       if (q) {
-        const hay = `${t.code} ${normalizeCode(t.code)} ${ticketNoShort(t.code)} ${t.subject} ${t.description} ${nameOf(t.requesterId) || ''} ${nameOf(t.assigneeId) || ''}`.toLowerCase();
+        // Application is searchable too - "egnyte" is how someone looks for the
+        // ticket they raised, and it is rarely the word they put in the title.
+        const hay = `${t.code} ${normalizeCode(t.code)} ${ticketNoShort(t.code)} ${t.subject} ${t.description} ${t.application || ''} ${nameOf(t.requesterId) || ''} ${nameOf(t.assigneeId) || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [tickets, scope, myEmail, search, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, approvalCount]);
+  }, [tickets, scope, myEmail, search, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, serviceAreaFilter, approvalCount]);
 
   // List-view sort - applied before grouping so it holds within each bucket too.
   const sortedVisible = useMemo(() => {
@@ -489,11 +610,15 @@ export default function TicketsView() {
     const keyOf = (t) => (groupBy === 'status' ? t.status
       : groupBy === 'priority' ? t.priority
       : groupBy === 'type' ? (t.type || 'request')
+      : groupBy === 'serviceArea' ? (t.serviceArea || '')
       : groupBy === 'assignee' ? (t.assigneeId || '')
       : 'all');
     const labelOf = (k) => (groupBy === 'status' ? (TICKET_STATUS_META[k]?.label || k)
       : groupBy === 'priority' ? (PRIORITY_META[k]?.label || k)
       : groupBy === 'type' ? (TICKET_TYPE_META[k]?.label || k)
+      // Tickets raised before service areas existed carry none - "Not set" is
+      // the same wording the filter uses for them.
+      : groupBy === 'serviceArea' ? (k ? serviceAreaLabel(k) || k : 'Not set')
       : groupBy === 'assignee' ? (k ? nameOf(k) || k : 'Unassigned')
       : '');
     for (const t of sortedVisible) { const k = keyOf(t); if (!buckets.has(k)) buckets.set(k, { key: k || '-', label: labelOf(k), rows: [] }); buckets.get(k).rows.push(t); }
@@ -587,6 +712,7 @@ export default function TicketsView() {
               typeFilter={typeFilter} setTypeFilter={setTypeFilter}
               slaFilter={slaFilter} setSlaFilter={setSlaFilter}
               hrDeptFilter={hrDeptFilter} setHrDeptFilter={setHrDeptFilter} hrDepts={hrDepts}
+              serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
             />
             <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={saveTicketView} onDelete={(id) => deleteTicketView(id).catch(() => {})}
               onExport={() => downloadTicketsCsv(tickets, nameOf, companyName, hrDeptName)}
@@ -747,6 +873,7 @@ export default function TicketsView() {
               typeFilter={typeFilter} setTypeFilter={setTypeFilter}
               slaFilter={slaFilter} setSlaFilter={setSlaFilter}
               hrDeptFilter={hrDeptFilter} setHrDeptFilter={setHrDeptFilter} hrDepts={hrDepts}
+              serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'}
             />
           )}
@@ -1048,8 +1175,10 @@ export function CreateTicketModal({ onClose }) {
   if (seedRef.current === undefined) seedRef.current = takeDraft() || null;
   const seed = seedRef.current;
   const [form, setForm] = useState(seed?.form || {
-    subject: '', description: '', type: 'bug', priority: 'medium', status: 'new',
-    requesterId: myEmail || null, hrDepartmentId: '',
+    // Opens on the first type offered, read from the order rather than named
+    // here, so the two can never drift into a default that isn't in the list.
+    subject: '', description: '', type: TICKET_TYPE_ORDER[0], priority: 'medium', status: 'new',
+    requesterId: myEmail || null, hrDepartmentId: '', application: '',
   });
   const [tf, setTf] = useState(seed?.tf || {});   // per-type field values (keyed by field key)
   const [step, setStep] = useState(seed ? 2 : 1);        // 1 = routing (company/dept/type), 2 = details
@@ -1061,19 +1190,39 @@ export function CreateTicketModal({ onClose }) {
   // tickets that already captured one still render it, but nobody is asked
   // for them again.
   const typeFieldDefs = useMemo(() => intakeFields(form.type), [form.type]);
+  // The application directory and the work-site list the service questions use.
+  const apps = useTicketApps();
+  const sites = useTicketSites();
+  // Derived, not asked. The server derives it again on save from the same
+  // mapping - this copy only lets step 2 say which questions it is about to ask
+  // and why, so the requester is never made to classify their own problem.
+  const serviceArea = useMemo(() => areaForApp(apps, form.application), [apps, form.application]);
+  // Driven by BOTH the application's service area and the ticket type: "which
+  // facility?" is the right question for a camera that has stopped working and
+  // noise on a request to reword a report. See SERVICE_FIELDS' `types`.
+  const svcFieldDefs = useMemo(
+    () => withDynamicOptions(serviceFields(serviceArea, form.type), { sites }),
+    [serviceArea, form.type, sites]);
   // Already scoped server-side to the requester's own company
   // (/ticket-departments?mine=true), so there is nothing to filter here - and
   // nothing that could offer a department belonging to another company.
   const deptOptions = allDepts;
+  // The chosen department's NAME - what the app list groups on, since External
+  // Links stores department strings rather than HrDepartment ids.
+  const deptName = deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || '';
 
   // ── Step 1 validation ──
   // Department is only demanded when the chosen company actually has departments -
   // requiring a choice with nothing to choose from would be an inescapable form.
+  // Application is demanded on the same terms: only once the directory has
+  // actually loaded. Requiring it while the list is still in flight (or after
+  // the lookup failed) would be the same inescapable form.
   const missingStep1 = useMemo(() => {
     const out = new Set();
     if (deptOptions.length > 0 && !form.hrDepartmentId) out.add('hrDepartmentId');
+    if (apps.length > 0 && !form.application) out.add('application');
     return out;
-  }, [form.hrDepartmentId, deptOptions]);
+  }, [form.hrDepartmentId, deptOptions, apps, form.application]);
 
   // ── Step 2 validation ──
   // Recomputed each render, so red marks clear as soon as a field is filled. Only
@@ -1082,11 +1231,11 @@ export function CreateTicketModal({ onClose }) {
   const missing = useMemo(() => {
     const out = new Set();
     if (!form.subject.trim()) out.add('subject');
-    for (const f of typeFieldDefs) {
+    for (const f of [...typeFieldDefs, ...svcFieldDefs]) {
       if (f.req && isBlankFieldValue(tf[f.key])) out.add(f.key);
     }
     return out;
-  }, [form.subject, typeFieldDefs, tf]);
+  }, [form.subject, typeFieldDefs, svcFieldDefs, tf]);
 
   const goNext = () => {
     if (missingStep1.size) { setShowErrors(true); return; }
@@ -1141,15 +1290,21 @@ export function CreateTicketModal({ onClose }) {
     if (missing.size) { setShowErrors(true); return; }
     setBusy(true);
     try {
-      // Persist the current type's fields, dropping blanks.
+      // Persist the current type's fields AND the current service area's,
+      // dropping blanks. Both live on the same typeFields JSON - the `svc_`
+      // prefix is what keeps the two sets from colliding. Leftovers from a
+      // type or an app the user moved away from are never submitted, because
+      // only the CURRENT definitions are walked.
       const typeFields = {};
-      for (const f of typeFieldDefs) {
+      for (const f of [...typeFieldDefs, ...svcFieldDefs]) {
         if (!isBlankFieldValue(tf[f.key])) typeFields[f.key] = tf[f.key];
       }
       const created = await createTicket({
         subject: form.subject.trim(), description: form.description, type: form.type, priority: form.priority, status: form.status,
-        // Requester defaults to the current user; SLA due date is derived from priority.
+        // Requester defaults to the current user; SLA due date is derived from
+        // priority; the service area is derived server-side from application.
         requesterId: form.requesterId || '', hrDepartmentId: form.hrDepartmentId || '',
+        application: form.application || '',
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
       });
@@ -1218,7 +1373,9 @@ export function CreateTicketModal({ onClose }) {
         <>
           {showErrors && missingStep1.size > 0 && (
             <span style={{ fontSize: 12.5, color: NX.red, marginRight: 'auto', fontWeight: 600 }}>
-              Select a company{missingStep1.has('hrDepartmentId') ? ' and department' : ''} to continue
+              {missingStep1.size > 1 ? 'Fill in the required fields to continue'
+                : missingStep1.has('application') ? 'Select an application to continue'
+                : 'Select a department to continue'}
             </span>
           )}
           <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
@@ -1247,13 +1404,57 @@ export function CreateTicketModal({ onClose }) {
             </div>
           )}
         </div>
+        {/* Which app this is about. Picked from the External Links directory,
+            so it is the same value everywhere rather than a typed string, and
+            it is what decides the service area (and therefore which service
+            questions step 2 asks). Changing it clears any service answers that
+            belonged to the previous app's area - keeping them would submit an
+            answer to a question this ticket was never asked. */}
+        <div style={field}>
+          <label style={label}>Application {apps.length > 0 && <span style={{ color: NX.red }}>*</span>}</label>
+          <ApplicationSelect apps={apps} value={form.application} deptName={deptName}
+            invalid={showErrors && missingStep1.has('application')}
+            onChange={(name) => {
+              set('application', name);
+              // Only when the AREA changes: swapping one storage app for
+              // another asks the same questions, and throwing away the
+              // facility they already picked would be gratuitous. Moving from
+              // storage to email genuinely leaves stale answers behind.
+              if (areaForApp(apps, name) !== serviceArea) {
+                setTf((prev) => Object.fromEntries(
+                  Object.entries(prev).filter(([k]) => !k.startsWith('svc_'))));
+              }
+            }} />
+          {showErrors && missingStep1.has('application') && <div style={requiredHint}>Required</div>}
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+            {apps.length === 0 ? 'No applications in the directory yet - you can continue without one.'
+              : serviceArea ? `Goes to ${serviceAreaLabel(serviceArea)}.`
+              : deptName ? `${deptName}'s apps are listed first. Search to find any other.`
+              : 'Search by name, or pick "Other / not listed".'}
+          </div>
+        </div>
         <div style={field}>
           <label style={label}>Type <span style={{ color: NX.red }}>*</span></label>
-          <select value={form.type} onChange={(e) => { set('type', e.target.value); setTf({}); }} style={sel}>
+          <select value={form.type} onChange={(e) => {
+            set('type', e.target.value);
+            // Clear the outgoing type's own fields, but KEEP the service
+            // answers. A different type may ask fewer of them (see
+            // SERVICE_FIELDS' `types`) - one that no longer applies is simply
+            // not rendered and never submitted, because both the form and the
+            // save walk the current definitions. Holding the value means
+            // switching type and back does not cost the answer.
+            setTf((prev) => Object.fromEntries(
+              Object.entries(prev).filter(([k]) => k.startsWith('svc_'))));
+          }} style={sel}>
             {TICKET_TYPE_ORDER.map((ty) => <option key={ty} value={ty}>{TICKET_TYPE_META[ty].label}</option>)}
           </select>
+          {/* Six types only work if the difference is spelled out. The hint is
+              the plain-English "is this me?" for whichever one is selected. */}
+          {TICKET_TYPE_META[form.type]?.hint && (
+            <div style={{ fontSize: 12, color: NX.dim, marginTop: 5 }}>{TICKET_TYPE_META[form.type].hint}</div>
+          )}
           <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
-            {typeFieldDefs.length} extra question{typeFieldDefs.length === 1 ? '' : 's'} on the next step.
+            {typeFieldDefs.length + svcFieldDefs.length} extra question{typeFieldDefs.length + svcFieldDefs.length === 1 ? '' : 's'} on the next step.
           </div>
         </div>
       </>),
@@ -1308,8 +1509,18 @@ export function CreateTicketModal({ onClose }) {
         <TicketTypeIcon type={form.type} size={14} />
         <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink }}>{TICKET_TYPE_META[form.type].label}</span>
         <span style={{ fontSize: 12.5, color: NX.dim }}>
-          {deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || 'No department'}
+          {deptName || 'No department'}
         </span>
+        {form.application && (
+          <span style={{ fontSize: 12.5, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: NX.faint }}>·</span>
+            <span style={{ color: NX.ink, fontWeight: 600 }}>{form.application}</span>
+            {/* Derived, shown, not asked - so it is visible and correctable
+                (by going Back and re-picking) without being a second dropdown
+                that means almost the same thing as the one above it. */}
+            {serviceArea && <span style={chip(NX.dim, NX.border2)}>{serviceAreaLabel(serviceArea)}</span>}
+          </span>
+        )}
         <button type="button" onClick={() => { setStep(1); setShowErrors(false); }}
           style={{ ...btn('ghost'), marginLeft: 'auto', padding: '2px 6px', fontSize: 12, color: NX.blue, fontWeight: 600 }}>Change</button>
       </div>
@@ -1341,6 +1552,28 @@ export function CreateTicketModal({ onClose }) {
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
             {typeFieldDefs.map((f) => (
               <div key={f.key} style={{ ...field, marginBottom: 0, gridColumn: (f.full || f.type === 'textarea' || f.type === 'checklist') ? '1 / -1' : 'auto' }}>
+                <label style={label}>{f.label}{f.req && <span style={{ color: NX.red }}> *</span>}</label>
+                <TypeFieldInput field={f} value={tf[f.key]} onChange={(v) => setTfVal(f.key, v)} people={people} projects={projects}
+                  invalid={showErrors && missing.has(f.key)} />
+                {showErrors && missing.has(f.key) && <div style={requiredHint}>Required</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Application-specific details. Driven by the service area the chosen
+          app maps to, so the requester answers questions about the thing they
+          already named rather than picking a second category first. Most areas
+          ask nothing at all and this block simply doesn't appear. */}
+      {svcFieldDefs.length > 0 && (
+        <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, padding: 14, background: NX.surface2, marginTop: 10 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: NX.dim, marginBottom: 10 }}>
+            {serviceAreaLabel(serviceArea)} Details
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+            {svcFieldDefs.map((f) => (
+              <div key={f.key} style={{ ...field, marginBottom: 0, gridColumn: (f.full || f.type === 'textarea') ? '1 / -1' : 'auto' }}>
                 <label style={label}>{f.label}{f.req && <span style={{ color: NX.red }}> *</span>}</label>
                 <TypeFieldInput field={f} value={tf[f.key]} onChange={(v) => setTfVal(f.key, v)} people={people} projects={projects}
                   invalid={showErrors && missing.has(f.key)} />
@@ -1395,6 +1628,8 @@ function TicketDrawer({ ticketId, onClose }) {
   // list rather than patching one field locally.
   const onDecided = () => refresh?.();
   const people = usePeople();
+  const apps = useTicketApps();
+  const sites = useTicketSites();
   const isMobile = useIsMobile();
   const { myLevel } = useRole();
   const [tab, setTab] = useState('overview');
@@ -1410,6 +1645,23 @@ function TicketDrawer({ ticketId, onClose }) {
   // tickets permanently empty rows for questions nobody was asked.
   const shownTypeFields = (TYPE_FIELDS[t?.type] || []).filter(
     (f) => !f.retired || !isBlankFieldValue(t?.typeFields?.[f.key]));
+  // Service answers follow the same rule, and are shown for the area AND type
+  // the ticket was FILED under - the same pair that decided which questions it
+  // was asked. Re-classifying an app, or re-typing the ticket, must not hide an
+  // answer it already holds: anything with a stored value renders regardless,
+  // matched by key across the whole map, so a question that no longer applies
+  // still shows what was said the first time.
+  const shownSvcFields = (() => {
+    const area = t?.serviceArea || '';
+    const answered = (f) => !isBlankFieldValue(t?.typeFields?.[f.key]);
+    const own = (SERVICE_FIELDS[area] || []).filter(
+      (f) => (!f.retired && serviceFieldApplies(f, t?.type)) || answered(f));
+    const ownKeys = new Set(own.map((f) => f.key));
+    const orphans = Object.values(SERVICE_FIELDS).flat()
+      .filter((f) => !ownKeys.has(f.key) && answered(f));
+    const seen = new Set();
+    return [...own, ...orphans].filter((f) => (seen.has(f.key) ? false : seen.add(f.key)));
+  })();
   if (!t) return null;
 
   // Before a ticket is "in_progress" (with an assignee), the requester has
@@ -1597,6 +1849,36 @@ function TicketDrawer({ ticketId, onClose }) {
             {allDepts.filter((d) => d.companyId === t.companyId).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </div>
+        {/* What the ticket is about. fullAccess, NOT canWorking: `application`
+            is not one of the backend's _WORKING_FIELDS, so a triaging third
+            party offered this control would get a 403 they cannot act on.
+            Re-pointing a mis-filed ticket is the requester's, the assignee's
+            or a manager's to do - which is exactly what fullAccess is. */}
+        <div style={field}>
+          <label style={label}>Application</label>
+          {fullAccess ? (
+            <ApplicationSelect apps={apps} value={t.application || ''}
+              deptName={allDepts.find((d) => d.id === t.hrDepartmentId)?.name || ''}
+              onChange={(name) => patch({ application: name })} />
+          ) : (
+            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{t.application || '-'}</div>
+          )}
+        </div>
+        {/* Derived from the application by the server, and re-derived whenever
+            it changes. A manager can still override it here for an app the
+            directory has mapped wrongly - correcting the mapping itself is a
+            job for the External Links screen. */}
+        <div style={field}>
+          <label style={label}>Service Area</label>
+          {fullAccess ? (
+            <select value={t.serviceArea || ''} onChange={(e) => patch({ serviceArea: e.target.value })} style={sel}>
+              <option value="">Not set</option>
+              {SERVICE_AREAS.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
+            </select>
+          ) : (
+            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(t.serviceArea) || '-'}</div>
+          )}
+        </div>
         <div style={field}>
           <label style={label}>SLA Due Date</label>
           {fullAccess ? (
@@ -1630,6 +1912,24 @@ function TicketDrawer({ ticketId, onClose }) {
                   <TypeFieldInput field={f} value={t.typeFields?.[f.key]} onChange={(v) => patch({ typeFields: { ...(t.typeFields || {}), [f.key]: v } })} people={people} projects={projects} />
                 ) : (
                   <div style={{ fontSize: 13, color: NX.ink, whiteSpace: f.type === 'textarea' ? 'pre-wrap' : 'normal' }}>{readOnlyFieldValue(f, t.typeFields?.[f.key], nameOf)}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {shownSvcFields.length > 0 && (
+        <div style={field}>
+          <label style={label}>{serviceAreaLabel(t.serviceArea) || 'Application'} Details</label>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+            {withDynamicOptions(shownSvcFields, { sites }).map((f) => (
+              <div key={f.key} style={{ gridColumn: (f.full || f.type === 'textarea') ? '1 / -1' : 'auto' }}>
+                <div style={{ ...label, fontSize: 11 }}>{f.label}</div>
+                {fullAccess ? (
+                  <TypeFieldInput field={f} value={t.typeFields?.[f.key]} onChange={(v) => patch({ typeFields: { ...(t.typeFields || {}), [f.key]: v } })} people={people} projects={projects} />
+                ) : (
+                  <div style={{ fontSize: 13, color: NX.ink }}>{readOnlyFieldValue(f, t.typeFields?.[f.key], nameOf)}</div>
                 )}
               </div>
             ))}
@@ -1922,6 +2222,17 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
     for (const t of tickets) { const k = t.hrDepartmentId || ''; deptAcc.set(k, (deptAcc.get(k) || 0) + 1); }
     const byDepartment = [...deptAcc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
       .map(([k, n], i) => ({ label: k ? (hrDeptName(k) || k) : 'No department', value: n, color: PAL[i % 8] }));
+    // Which apps generate the work, and which service areas carry it. The two
+    // cuts the desk cannot get from any other dimension: department says whose
+    // problem it is, these say what the problem is IN.
+    const appAcc = new Map();
+    for (const t of tickets) { const k = t.application || ''; if (!k) continue; appAcc.set(k, (appAcc.get(k) || 0) + 1); }
+    const byApplication = [...appAcc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+      .map(([k, n], i) => ({ label: k, value: n, color: PAL[i % 8] }));
+    const areaAcc = new Map();
+    for (const t of tickets) { const k = t.serviceArea || ''; areaAcc.set(k, (areaAcc.get(k) || 0) + 1); }
+    const byServiceArea = [...areaAcc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+      .map(([k, n], i) => ({ label: k ? (serviceAreaLabel(k) || k) : 'Not set', value: n, color: PAL[i % 8] }));
     // recurrence signal - cluster by normalised subject; 2+ = a repeat worth investigating
     const norm = (s) => (s || '').toLowerCase().replace(/[0-9]+/g, '').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
     const recAcc = new Map();
@@ -1940,7 +2251,7 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
     const atRisk = tickets.filter((t) => slaState(t) === 'at_risk').length;
     const rated = tickets.filter((t) => (t.csatRating || 0) > 0);
     const avgCsat = rated.length ? rated.reduce((s, t) => s + t.csatRating, 0) / rated.length : null;
-    return { total: tickets.length, open: open.length, byStatus, byType, byPriority, byAssignee, byDepartment, recurring, avgDays, compliance, breaching, atRisk, avgCsat };
+    return { total: tickets.length, open: open.length, byStatus, byType, byPriority, byAssignee, byDepartment, byApplication, byServiceArea, recurring, avgDays, compliance, breaching, atRisk, avgCsat };
   }, [tickets, nameOf, hrDeptName]);
 
   if (tickets.length === 0) return <EmptyState icon={BarChart3} title="No Data" hint="No tickets match your filters." />;
@@ -1968,6 +2279,12 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
         <Card title="By type"><LightBar data={stats.byType} /></Card>
         <Card title="By priority"><LightBar data={stats.byPriority} /></Card>
         <Card title="By department"><LightBar data={stats.byDepartment} /></Card>
+        <Card title="By service area"><LightBar data={stats.byServiceArea} /></Card>
+        <Card title="By application">
+          {stats.byApplication.length === 0
+            ? <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: NX.faint }}>No tickets name an application yet.</div>
+            : <LightBar data={stats.byApplication} />}
+        </Card>
         <Card title="Open by assignee"><LightBar data={stats.byAssignee} /></Card>
         <Card title="Recurring issues (repeat signal)">
           {stats.recurring.length === 0

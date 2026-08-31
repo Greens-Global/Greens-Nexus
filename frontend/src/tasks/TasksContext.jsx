@@ -55,7 +55,7 @@ const CAMEL_TO_SNAKE = {
   requesterId: 'requester_email', linkedTaskId: 'linked_task_id', slaDueOn: 'sla_due_on', typeFields: 'type_fields',
   companyId: 'company_id', hrDepartmentId: 'hr_department_id', hrDepartmentName: 'hr_department_name',
   watcherIds: 'watcher_emails', csatRating: 'csat_rating', csatComment: 'csat_comment',
-  taskIds: 'task_ids', subtaskTitles: 'subtask_titles',
+  taskIds: 'task_ids', subtaskTitles: 'subtask_titles', serviceArea: 'service_area',
   // Project-template options (save-as-template / use / duplicate) - see
   // backend ProjectTemplateBody, UseTemplateBody and DuplicateProjectBody.
   includeTasks: 'include_tasks', includeSubtasks: 'include_subtasks',

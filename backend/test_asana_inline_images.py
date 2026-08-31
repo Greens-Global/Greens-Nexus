@@ -153,6 +153,10 @@ class InlineImageTests(unittest.TestCase):
     def test_an_attachment_the_pull_skipped_is_fetched_by_gid(self):
         """Over _ATTACHMENT_MAX_BYTES the pull keeps the Asana view URL, which is
         exactly the URL a browser cannot load - so the rewriter fetches."""
+        # The only test here that reaches Asana's CDN, so the only one that
+        # needs the integration live (test_asana_severed covers the refusal).
+        os.environ["NEXUS_ASANA_ENABLED"] = "true"
+        self.addCleanup(os.environ.pop, "NEXUS_ASANA_ENABLED", None)
         asana = _FakeAsana([{"gid": GID, "name": "image.png", "size": 10,
                              "host": "asana", "download_url": "https://dl.test/x.png"}])
         called = {}

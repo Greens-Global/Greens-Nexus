@@ -60,6 +60,84 @@ const ordinal = (n) => {
 };
 const todayLocalKey = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 
+// The calendar day an instant falls on for the person reading it. `completed_at`
+// is stored UTC (task_util.now_iso), so a task finished at 5pm Pacific carries a
+// next-day UTC date - comparing the raw strings would drop it from the EOD post
+// that same evening, which is the one post it belongs in.
+const localDayKey = (value) => {
+  const d = new Date(value);
+  if (!value || Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const startOfLocalDay = (now = new Date()) =>
+  new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+// When the shift being ended began, from /timeclock/status's punch history.
+//
+// A calendar day is the wrong unit here: close a task at 11:55pm and punch out
+// at 2:30am and the work is one shift across two dates. The timeclock already
+// takes this view - _day_summaries pairs punches "across the FULL sequence (not
+// per calendar day) so an overnight shift counts as one segment on the day it
+// STARTED" - so the EOD post has to as well, or it silently drops the last
+// hours of every late shift.
+//
+// Walks the punches in order and keeps the `in` that opened the run. Breaks do
+// not end a shift, only `out` does. Returns the OPEN shift's start when one is
+// running, otherwise the last completed shift's - the modal is raised before
+// the punch from the Time Clock screen and after it from the floating widget,
+// and both must resolve to the same shift.
+export function shiftStartFrom(status) {
+  const punches = Object.values(status?.days || {})
+    .flatMap((d) => d?.punches || [])
+    .filter((p) => p && p.at)
+    .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  let open = null, lastClosed = null;
+  for (const p of punches) {
+    if (p.kind === 'in') { if (!open) open = p.at; }
+    else if (p.kind === 'out') { lastClosed = open || lastClosed; open = null; }
+  }
+  return open || lastClosed || '';
+}
+
+// Titles of the tasks this person finished during the shift they are ending,
+// for the EOD post's Completed section (Sagar, Sept 1 2026 - "so they don't
+// have to type it again").
+//
+// Assigned to them AND closed since `since`: the same ownership test the
+// pending suggestion below uses, so the two sections describe one person's day.
+// A task someone else closed on their behalf still counts - it came off their
+// plate, which is what the team is being told.
+//
+// Tasks with no `completedAt` are skipped rather than assumed to be recent.
+// Rows completed before that column existed carry nothing, and quietly dating
+// them now would put months of finished work in one evening's post.
+export function completedSinceTitles(rows, email, since) {
+  const me = (email || '').toLowerCase();
+  const from = since instanceof Date ? since.getTime() : new Date(since).getTime();
+  if (!me || !since || Number.isNaN(from)) return [];
+  return (rows || [])
+    .filter((t) => {
+      if (!t.completed || (t.assigneeId || '').toLowerCase() !== me) return false;
+      const at = new Date(t.completedAt).getTime();
+      return t.completedAt && !Number.isNaN(at) && at >= from;
+    })
+    .map((t) => (t.title || '').trim())
+    .filter(Boolean);
+}
+
+// The window the EOD post covers: whichever came first, the shift's punch-in or
+// midnight. Two different people are wrong under either bound alone - the one
+// who works past midnight loses the evening's work to a calendar reset, and the
+// one who ticked something off at 8:50am before punching in at 9 loses that.
+// Taking the earlier of the two covers both, and the only cost is that a task
+// closed before a late-morning start still shows up, which is true anyway.
+export function eodWindowStart(status, now = new Date()) {
+  const shift = new Date(shiftStartFrom(status)).getTime();
+  const midnight = startOfLocalDay(now);
+  return new Date(Number.isNaN(shift) ? midnight : Math.min(shift, midnight)).toISOString();
+}
+
 // Phones skip the BOD/EOD message far more than desktop users do, so on a
 // mobile viewport the "Skip" escape hatch (and the ack-to-skip checkbox that
 // only exists to gate it) is hidden entirely - the message must be sent.
@@ -89,6 +167,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const [tasks, setTasks] = useState(_draft0.tasks || '');
   const [pending, setPending] = useState(_draft0.pending || '');   // EOD only - empty = no section in the post
   const [pendingSugg, setPendingSugg] = useState(''); // open Nexus tasks, offered via one-click insert
+  const [doneSugg, setDoneSugg] = useState('');       // tasks closed this shift, filled in for them
   const [bound, setBound] = useState(null);          // { id, name } from the group binding
   const [chatErr, setChatErr] = useState(false);     // lookup FAILED (couldn't check) - not the same as "no binding"
   const [busy, setBusy] = useState(false);
@@ -134,12 +213,29 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
       setChatErr(true); setLoading(false);   // couldn't check - server still routes on send
     })();
     if (mode === 'eod') {
-      api.getTasks().then((rows) => {
+      // Status alongside the tasks: it carries the punch history the completed
+      // list is windowed on. It must never block the suggestion, so a failed
+      // lookup resolves to null and the window falls back to midnight.
+      Promise.all([api.getTasks(), api.timeStatus().catch(() => null)]).then(([rows, status]) => {
         if (!live) return;
         const email = (msalInstance.getActiveAccount()?.username || '')
           .toLowerCase().replace('@greensg.onmicrosoft.com', '@greensglobal.com');
         const open = (rows || []).filter(t => (t.assigneeId || '').toLowerCase() === email && !t.completed);
         setPendingSugg(open.slice(0, 12).map(t => t.title).filter(Boolean).join('\n'));
+        // What they closed this shift, written into the Completed box for them.
+        // Unlike the pending suggestion this one is FILLED IN rather than
+        // offered, because it is a record of what already happened rather than
+        // a guess at what matters - the reason the earlier "don't pre-fill"
+        // rule (Jul 25) existed was stale, speculative text being posted
+        // untouched, and a list of today's finished work cannot go stale
+        // within today. It is a plain textarea, so it can be edited or emptied.
+        const done = completedSinceTitles(rows, email, eodWindowStart(status)).slice(0, 12);
+        const joined = done.join('\n');
+        setDoneSugg(joined);
+        // Never over-write. A restored draft, or anything typed while the
+        // fetch was in flight, wins - having your own words replaced by an
+        // automatic list is worse than not being helped at all.
+        if (joined) setTasks((prev) => (prev.trim() ? prev : joined));
       }).catch(() => {});
     }
     return () => { live = false; };
@@ -241,6 +337,22 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
               <label style={FL}>{M.tasksLabel}</label>
               <textarea className="form-input" rows={4} value={tasks} onChange={e => setTasks(e.target.value)}
                 placeholder={M.tasksPlaceholder} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
+              {/* Says where the text came from, so nobody wonders who typed it,
+                  and offers it back if they cleared it or the box was already
+                  in use when the fetch landed. */}
+              {mode === 'eod' && doneSugg && (
+                tasks.trim() === doneSugg.trim() ? (
+                  <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--muted)' }}>
+                    Filled in from the {doneSugg.split('\n').length} task{doneSugg.split('\n').length === 1 ? '' : 's'} you closed this shift. Edit freely.
+                  </p>
+                ) : (
+                  <button type="button" onClick={() => setTasks(doneSugg)}
+                    style={{ marginTop: 4, border: 'none', background: 'none', padding: 0, cursor: 'pointer',
+                             fontSize: 11, fontWeight: 600, color: M.color, fontFamily: 'Inter,sans-serif' }}>
+                    + Add the {doneSugg.split('\n').length} task{doneSugg.split('\n').length === 1 ? '' : 's'} I closed today
+                  </button>
+                )
+              )}
             </div>
           )}
           {mode === 'eod' && (

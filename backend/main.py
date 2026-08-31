@@ -285,6 +285,18 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN approval_decided_at VARCHAR DEFAULT ''",
             # Who handed a ticket to its assignee - TaskTicket.assigned_by_email.
             "ALTER TABLE task_tickets ADD COLUMN assigned_by_email VARCHAR DEFAULT ''",
+            # Ticket intake: which application the ticket is about, and the
+            # service area derived from it (ExternalLink.service_area).
+            "ALTER TABLE task_tickets ADD COLUMN application VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN service_area VARCHAR DEFAULT ''",
+            "ALTER TABLE external_links ADD COLUMN service_area VARCHAR DEFAULT ''",
+            # The desk filters and groups on these two, and ADD COLUMN alone
+            # leaves the model's index=True unhonored on a table create_all has
+            # already made. Named exactly as SQLAlchemy names them, so a fresh
+            # database's create_all and this line cannot build two indexes on
+            # the same column.
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_application ON task_tickets (application)",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_service_area ON task_tickets (service_area)",
             # Ticket numbers dropped the "TKT-" prefix and widened to 6 digits
             # (ticket_code.py). Rewrites legacy codes so one format exists;
             # idempotent - after it runs nothing matches TKT-% any more.
@@ -757,6 +769,16 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_decided_at VARCHAR DEFAULT ''",
         # Who handed a ticket to its assignee - TaskTicket.assigned_by_email.
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS assigned_by_email TEXT DEFAULT ''",
+        # Ticket intake: which application the ticket is about, and the service
+        # area derived from it (ExternalLink.service_area).
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS application TEXT DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS service_area TEXT DEFAULT ''",
+        "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS service_area TEXT DEFAULT ''",
+        # See the SQLite list: ADD COLUMN does not honor the model's index=True
+        # on an existing table. Named as SQLAlchemy names them so create_all on
+        # a fresh database and this line converge on one index, not two.
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_application ON task_tickets (application)",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_service_area ON task_tickets (service_area)",
         # Ticket numbers dropped the "TKT-" prefix and widened to 6 digits
         # (ticket_code.py). Idempotent - nothing matches TKT-% afterwards.
         "UPDATE task_tickets SET code = lpad((substring(code from 5))::int::text, 6, '0') WHERE code LIKE 'TKT-%'",
@@ -1669,20 +1691,27 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(daily_briefing_loop()))
         except Exception as e:
             print(f"[startup] daily briefing loop skipped: {e}")
-        # These two keep their own is_sync_worker() gate INSIDE the leader's job
-        # set, and the two gates answer different questions. Leader election stops
-        # several web instances doing the same work twice; is_sync_worker stops a
-        # developer's laptop doing it at all - and a laptop is exactly where the
-        # leader check does not help, since on SQLite there is no lease and the
-        # jobs simply run (see leader.py). A mailbox message read on a laptop is a
-        # message the deployed API never sees.
+        # The jobs below keep their own is_deployed_worker() gate INSIDE the
+        # leader's job set, and the two gates answer different questions. Leader
+        # election stops several DEPLOYED instances doing the same work twice;
+        # is_deployed_worker stops a developer's laptop doing it at all - and a
+        # laptop is exactly where the leader check does not help, since on
+        # SQLite there is no lease and the jobs simply run (see leader.py). A
+        # mailbox message read on a laptop is a message the deployed API never
+        # sees.
+        #
+        # They asked asana_sync.is_sync_worker() until Sept 1 2026, which
+        # answered this by accident (it read WEBSITE_SITE_NAME). Severing Asana
+        # put "is Asana enabled?" in front of that check and switched all six
+        # of them off, silently, on dev and prod - see is_deployed_worker's
+        # docstring. Do not point them back at an integration's gate.
         try:
-            from asana_sync import is_sync_worker as _is_sync_worker
-            if _is_sync_worker():
+            from leader import is_deployed_worker
+            if is_deployed_worker():
                 from task_inbound import task_inbound_loop
                 _tasks.append(_a.create_task(task_inbound_loop()))
             else:
-                print("[startup] task inbound email drain skipped (not the sync worker)")
+                print("[startup] task inbound email drain skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] task inbound email drain skipped: {e}")
         # One-time: relocate work-monitoring screenshots hr-docs -> time-monitoring
@@ -1690,45 +1719,45 @@ async def lifespan(app: FastAPI):
         # laptop must never run it) + its own pg advisory lock inside. Self-idles
         # once every frame is moved, so it's safe to leave wired across deploys.
         try:
-            from asana_sync import is_sync_worker as _is_sync_worker3
-            if _is_sync_worker3():
+            from leader import is_deployed_worker
+            if is_deployed_worker():
                 from screenshot_migrate import screenshot_migration_loop
                 _tasks.append(_a.create_task(screenshot_migration_loop()))
             else:
-                print("[startup] screenshot bucket migration skipped (not the sync worker)")
+                print("[startup] screenshot bucket migration skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] screenshot bucket migration skipped: {e}")
         # Retention sweep: delete monitoring frames older than
         # NEXUS_SHOT_RETENTION_DAYS (default 90). Same gating story as the
         # migration above - live storage deletes belong to the sync worker only.
         try:
-            from asana_sync import is_sync_worker as _is_sync_worker4
-            if _is_sync_worker4():
+            from leader import is_deployed_worker
+            if is_deployed_worker():
                 from screenshot_retention import screenshot_retention_loop
                 _tasks.append(_a.create_task(screenshot_retention_loop()))
             else:
-                print("[startup] screenshot retention sweep skipped (not the sync worker)")
+                print("[startup] screenshot retention sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] screenshot retention sweep skipped: {e}")
         try:
-            from asana_sync import is_sync_worker as _is_sync_worker
-            if _is_sync_worker():
+            from leader import is_deployed_worker
+            if is_deployed_worker():
                 from construction_worker import construction_sweep_loop
                 _tasks.append(_a.create_task(construction_sweep_loop()))
             else:
-                print("[startup] construction Egnyte sweep skipped (not the sync worker)")
+                print("[startup] construction Egnyte sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] construction sweep skipped: {e}")
         # Nightly Nexus -> M365 writeback (Neil, Aug 11). Sync-worker gated for
         # the same reason as the inbound mail drain: a Graph PATCH from a
         # laptop is a REAL write to the live directory with local dev data.
         try:
-            from asana_sync import is_sync_worker as _is_sync_worker2
-            if _is_sync_worker2():
+            from leader import is_deployed_worker
+            if is_deployed_worker():
                 from reminders import m365_pushback_loop
                 _tasks.append(_a.create_task(m365_pushback_loop()))
             else:
-                print("[startup] nightly M365 writeback skipped (not the sync worker)")
+                print("[startup] nightly M365 writeback skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] nightly M365 writeback skipped: {e}")
         try:
@@ -1743,12 +1772,12 @@ async def lifespan(app: FastAPI):
         # retention sweep above - a laptop must never permanently delete live
         # task data.
         try:
-            from asana_sync import is_sync_worker as _is_sync_worker5
-            if _is_sync_worker5():
+            from leader import is_deployed_worker
+            if is_deployed_worker():
                 from task_trash import trash_purge_loop
                 _tasks.append(_a.create_task(trash_purge_loop()))
             else:
-                print("[startup] task trash purge sweep skipped (not the sync worker)")
+                print("[startup] task trash purge sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] task trash purge sweep skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")

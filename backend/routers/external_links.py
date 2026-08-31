@@ -45,6 +45,27 @@ require_links_admin  = require_level_or_module(_ROLE_LEVEL["manager"],       "ex
 require_links_delete = require_level_or_module(_ROLE_LEVEL["administrator"], "external-links", "full")
 
 
+# IT service areas, for the Ticket module's intake form. A ticket raised
+# against an app copies its link's area and is triaged by it, so this is the
+# desk's own taxonomy rather than the (user-facing, admin-editable) category
+# list above - which is why it lives as a constant and not in
+# ExternalLinkTaxonomy. Mirrors SERVICE_AREAS in frontend/src/tickets/
+# ticketMeta.js - keep the two in step.
+SERVICE_AREA_KEYS = (
+    "email", "collab", "tasks", "files", "knowledge", "storageops", "finance",
+    "hr", "assets", "network", "security", "web", "hardware", "general",
+)
+
+
+def _clean_service_area(value: str) -> str:
+    """An unknown key reads as "general" rather than 422-ing. A link is a
+    launcher first: refusing to save one because a service area was dropped
+    from the list would break the screen that owns it over a field the Ticket
+    module merely borrows."""
+    v = (value or "").strip().lower()
+    return v if v in SERVICE_AREA_KEYS else ("general" if v else "")
+
+
 class ExternalLinkCreate(BaseModel):
     name: str
     url: str
@@ -54,6 +75,7 @@ class ExternalLinkCreate(BaseModel):
     company: str = ""         # "" = shown to every company; else an HrEntity.id
     icon: str = "Link2"       # lucide-react icon key, resolved client-side
     is_pinned: bool = False
+    service_area: str = ""    # SERVICE_AREA_KEYS; "" reads as "general" at intake
 
 
 class ExternalLinkUpdate(BaseModel):
@@ -65,6 +87,7 @@ class ExternalLinkUpdate(BaseModel):
     company: Optional[str] = None
     icon: Optional[str] = None
     is_pinned: Optional[bool] = None
+    service_area: Optional[str] = None
 
 
 def _clean_list(values: list[str]) -> list[str]:
@@ -426,7 +449,8 @@ def create_external_link(link: ExternalLinkCreate, user: dict = Depends(require_
         raise HTTPException(status_code=422, detail="Pick at least one category.")
     departments = _clean_list(link.departments)
     now = _now()
-    data = link.model_dump(exclude={"categories", "departments"})
+    data = link.model_dump(exclude={"categories", "departments", "service_area"})
+    data["service_area"] = _clean_service_area(link.service_area)
     db_link = models.ExternalLink(
         **data, categories=categories, departments=departments,
         # Legacy singular columns kept in sync on write, best-effort, purely
@@ -472,6 +496,8 @@ def update_external_link(link_id: int, patch: ExternalLinkUpdate, user: dict = D
             raise HTTPException(status_code=422, detail="Pick at least one category.")
     if "departments" in changes:
         changes["departments"] = _clean_list(changes["departments"])
+    if "service_area" in changes:
+        changes["service_area"] = _clean_service_area(changes["service_area"])
     for field, value in changes.items():
         setattr(db_link, field, value)
     # Legacy singular columns kept in sync - see create_external_link's
