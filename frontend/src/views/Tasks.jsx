@@ -1,7 +1,8 @@
 // Tasks view - shell for the ported Task Module. Mounts the module's data
 // provider and reproduces the export's chrome inside the Nexus shell:
 //   • module tabs Home · My Tasks · Projects · Portfolios · Teams - export's NexusModuleTabs
-//   • a Manage button for admin-only settings
+//   • a Manage button for admin-only settings, plus a slot the active
+//     sub-view can portal its own page-level control into (Home's Customize)
 // Sub-view is driven by the host's activeSub/onSubChange so it round-trips through
 // the URL like other Nexus modules. See docs/Task-Module-Migration-Plan.md.
 // Tickets used to live here behind a Task | Ticket toggle - it's now its own
@@ -47,6 +48,18 @@ const MODULE_TABS = [
 // Task-mode subs. 'tasks' (a drilled-in project's task list) and 'templates'
 // (reached from Projects) have no module tab of their own.
 const TASK_SUBS = ['home', 'mine', 'projects', 'portfolios', 'templates', 'teams', 'tasks'];
+// What the floating "+" makes on each screen: the thing that screen is a list
+// of. A "+" on the Projects page that opened a task picker was the confusing
+// part - the button is where your thumb already is when you're looking at the
+// list you want to add to (Sagar, Sept 1 2026). The full menu is always a
+// click away in the bar's "+ Create".
+// Home and Teams are deliberately absent (Sagar, Sept 2 2026): Home's bar
+// already carries Create next to Customize and Manage, and a team is made from
+// Manage, not from the browsing screen.
+const FAB_CREATES = {
+  mine: 'task', tasks: 'task',
+  projects: 'project', portfolios: 'portfolio', templates: 'template',
+};
 const DEFAULT_SUB = 'home';
 const ALL_SUBS = [...TASK_SUBS, 'manage'];
 
@@ -160,6 +173,13 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   const taskDefaults = (sub === 'tasks' && projectId) ? { projectId } : {};
   // My Tasks and a project's task workspace render their own floating MobileTaskBar.
   const hasMobileBar = sub === 'mine' || sub === 'tasks';
+  // "+ Create" sits in the bar next to Manage on every screen, not just Home -
+  // the whole module's create menu, reachable wherever you are. Phones don't
+  // get it: that bar is down to Manage alone at phone width, and the floating
+  // "+" is the better shape for a thumb anyway.
+  const inlineCreate = !isMobile;
+  // ...and the floating "+" makes this page's own thing (see FAB_CREATES).
+  const fabCreate = FAB_CREATES[sub] || '';
 
   // Bottom-right corner, stacked: Report a Bug sits on the floor, the create
   // "+" rides above it. Derived from one base so a change to either offset
@@ -213,6 +233,20 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
                 onChange={go} />
             )}
           </div>
+          {/* Create sits first of the three, per the module's left-to-right
+              order of doing-then-arranging: make something, arrange the page,
+              then administer the workspace. */}
+          {inlineCreate && (
+            <span data-tour="task-create">
+              <CreateMenu variant="inline" onNavigate={go} taskDefaults={taskDefaults} />
+            </span>
+          )}
+          {/* Slot for the active sub-view's own page-level control, portaled in
+              by the sub-view itself (Home's Customize / Done - see HomeView).
+              It sits here rather than in the page body so the module's two
+              top-level controls read as one group in the same bar, instead of
+              one floating over the widget grid a row below the other. */}
+          <div id="nx-tasks-bar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }} />
           {/* Outside the tab strip's own scroller, so it cannot scroll away on
               a narrow window the way Manage used to. */}
           {canManage && (
@@ -231,12 +265,12 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
           instead of letting the sub-view's own body scroll. */}
       {/* data-tour tracks the active tab, so the guided tour can spotlight
           "this whole screen" without every sub-view needing its own hook. */}
-      {/* Floating create, over every sub-view. Suppressed on Manage (nothing
-          there is created this way) and on the two screens whose own
-          MobileTaskBar already carries a "+", which would otherwise put two
-          floating create buttons on one phone screen. */}
-      {!onManage && (!isMobile || !hasMobileBar) && (
-        <span data-tour="task-create"><CreateMenu onNavigate={go} taskDefaults={taskDefaults} bottom={fabBottom} /></span>
+      {/* The page's own floating create. Suppressed on Manage (nothing there is
+          created this way) and, on phones, on the two screens whose own
+          MobileTaskBar already carries a "+" - two floating create buttons on
+          one phone screen is the thing that bar exists to avoid. */}
+      {!onManage && fabCreate && (!isMobile || !hasMobileBar) && (
+        <CreateMenu onNavigate={go} taskDefaults={taskDefaults} bottom={fabBottom} create={fabCreate} />
       )}
 
       <div style={{ flex: 1, minHeight: 0 }} data-tour={`task-screen-${sub}`}>

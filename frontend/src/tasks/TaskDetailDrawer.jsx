@@ -432,17 +432,26 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
 // search box on one and not the other. One body, used by both triggers.
 function CollaboratorMenuBody({ people, selected, onToggle }) {
   const [q, setQ] = useState('');
+  const queryRef = useRef(null);
   const filtered = q.trim() ? matchPeople(people, q) : people;
+  // Same as the assignee picker: once a name is checked, the query that found
+  // it has done its job - reset it and put the cursor back so the next name
+  // can be typed straight away.
+  const pick = (email) => {
+    const adding = !selected.includes(email);
+    onToggle(email);
+    if (adding) { setQ(''); queryRef.current?.focus(); }
+  };
   return (
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
-      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-        onKeyDown={onEnterPickFirst(filtered, (u) => onToggle(u.email))}
+      <input ref={queryRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+        onKeyDown={onEnterPickFirst(filtered, (u) => pick(u.email))}
         style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
       <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
         {filtered.map((u) => (
           <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={selected.includes(u.email)} onChange={() => onToggle(u.email)} />
+            <input type="checkbox" checked={selected.includes(u.email)} onChange={() => pick(u.email)} />
             <Avatar email={u.email} name={u.name} size={20} card={false} /> {u.name}
           </label>
         ))}
@@ -479,6 +488,7 @@ function ProjectMenuBody({ projects, exclude, onPick }) {
 }
 
 function MembersMenu({ task, people, nameOf, patch }) {
+  const isMobile = useIsMobile();
   const followers = task.followerIds || [];
   const toggle = (email) => patch({ followerIds: followers.includes(email) ? followers.filter((e) => e !== email) : [...followers, email] });
   return (
@@ -487,7 +497,8 @@ function MembersMenu({ task, people, nameOf, patch }) {
       <Pop width={230} trigger={(t) => (
         <button onClick={t} title="Collaborators" style={{ ...btn('ghost'), padding: 5, marginLeft: followers.length ? 2 : 0, color: NX.faint }}><UserPlus size={16} /></button>
       )}>
-        {() => <CollaboratorMenuBody people={people} selected={followers} onToggle={toggle} />}
+        {(close) => <CollaboratorMenuBody people={people} selected={followers}
+          onToggle={(em) => { const adding = !followers.includes(em); toggle(em); if (isMobile && adding) close(); }} />}
       </Pop>
     </div>
   );
@@ -637,7 +648,10 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}><UserPlus size={13} /></button>
         )}>
-          {() => <CollaboratorMenuBody people={people} selected={followers} onToggle={toggleFollower} />}
+          {/* Same as the assignee picker: on a phone the menu covers the form,
+              so adding a name closes it. Unchecking one keeps it open. */}
+          {(close) => <CollaboratorMenuBody people={people} selected={followers}
+            onToggle={(em) => { const adding = !followers.includes(em); toggleFollower(em); if (isMobile && adding) close(); }} />}
         </Pop>
       </Row>
 
