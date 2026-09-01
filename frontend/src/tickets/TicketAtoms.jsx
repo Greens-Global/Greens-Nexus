@@ -7,16 +7,53 @@ import {
   TICKET_TYPE_META, TICKET_STATUS_META, SLA_META, slaState, toEmailList, fmtDate,
 } from './ticketMeta';
 
+// The kit dropdown, shaped like the <select> it replaces (same value/onChange,
+// options as [id, label] pairs) so a conversion is one line per call site.
+//
+// Why not a native <select>: its list is drawn by the browser, not the page.
+// It cannot carry a search box - typing only jumps to a prefix - and it ignores
+// the app's type scale, which is why phone dropdowns came up at system size
+// beside 12.5px chrome (Sagar, Sept 1 2026). SearchSelect renders in-page, so
+// it searches, matches the kit, and is one control on every browser.
+//
+// `command` = the bulk bar's "Set status…" shape: the trigger always reads as
+// its placeholder because the pick is an action, not a stored value.
+export function TicketSelect({
+  value, onChange, options, placeholder = 'Select…', searchPlaceholder = 'Search…',
+  emptyText = 'Nothing to choose from.', style, disabled = false, invalid = false,
+  command = false, menuMinWidth = 240,
+}) {
+  const opts = (options || []).map((o) => (Array.isArray(o) ? { id: o[0], label: o[1] } : o));
+  const base = {
+    ...inputStyle, cursor: 'pointer', justifyContent: 'space-between', height: 'auto',
+    fontWeight: 400, textAlign: 'left', gap: 8,
+    ...(invalid ? { borderColor: NX.red } : null),
+    ...style,
+  };
+  // Disabled reads as the value it holds, not as a dead control you can open -
+  // the native `disabled` select this replaces did the same.
+  if (disabled) {
+    const chosen = opts.find((o) => o.id === (value ?? ''));
+    return (
+      <div style={{ ...base, display: 'flex', alignItems: 'center', overflow: 'hidden', opacity: 0.7, cursor: 'default', color: chosen ? NX.ink : NX.faint }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{chosen?.label || placeholder}</span>
+      </div>
+    );
+  }
+  return (
+    <SearchSelect options={opts} value={command ? undefined : (value ?? '')}
+      onPick={(id) => onChange(id)} placeholder={placeholder} searchPlaceholder={searchPlaceholder}
+      emptyText={emptyText} menuMinWidth={menuMinWidth} buttonStyle={base} />
+  );
+}
+
 export function TypeFieldInput({ field: f, value, onChange, people, projects, invalid }) {
   // `invalid` only tints the border - the "Required" text is rendered by the caller.
   const iStyle = invalid ? { ...inputStyle, borderColor: NX.red } : inputStyle;
-  const selStyle = { ...iStyle, appearance: 'auto', cursor: 'pointer' };
   if (f.type === 'textarea') return <textarea value={value ?? ''} onChange={(e) => onChange(e.target.value)} rows={3} placeholder={f.placeholder || ''} style={{ ...iStyle, resize: 'vertical', fontFamily: FONT }} />;
   if (f.type === 'select') return (
-    <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={selStyle}>
-      <option value="">Select…</option>
-      {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
-    </select>
+    <TicketSelect value={value ?? ''} onChange={onChange} invalid={invalid}
+      options={[['', 'Select…'], ...f.options.map((o) => [o, o])]} placeholder="Select…" />
   );
   if (f.type === 'radio') return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -95,8 +132,10 @@ export function SlaBadge({ t, compact = false }) {
   const m = SLA_META[s];
   if (!m) return null;
   return (
-    <span title={`SLA due ${fmtDate(t.slaDueOn)}`} style={{ ...chip(m.color, m.tint), display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-      <m.Icon size={12} />{compact ? '' : m.label}
+    // A step down from the status/priority chip it sits beside - it qualifies
+    // that chip rather than competing with it (Sagar, Sept 1 2026).
+    <span title={`SLA due ${fmtDate(t.slaDueOn)}`} style={{ ...chip(m.color, m.tint), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}>
+      <m.Icon size={11} />{compact ? '' : m.label}
     </span>
   );
 }
@@ -116,10 +155,8 @@ export function TicketCustomFieldInput({ field, value, onChange }) {
   const style = { ...inputStyle, width: 'auto', minWidth: 180, padding: '6px 9px', fontSize: 13 };
   if (field.type === 'select' && Array.isArray(field.options)) {
     return (
-      <select value={v} onChange={(e) => { setV(e.target.value); onChange(e.target.value); }} style={{ ...style, appearance: 'auto', cursor: 'pointer' }}>
-        <option value="">-</option>
-        {field.options.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
+      <TicketSelect value={v} onChange={(id) => { setV(id); onChange(id); }} style={style}
+        options={[['', '-'], ...field.options.map((o) => [o, o])]} placeholder="-" />
     );
   }
   return (

@@ -846,8 +846,14 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
 // one go. `value` is an array of emails; onChange receives a new array.
 export function PersonMultiSelect({ value, onChange, people, placeholder = 'Select people', addTitle = 'Add people' }) {
   const [open, setOpen] = useState(false);
+  // Phones: the menu is a panel over the form, so it hides the very field it
+  // just wrote to - close it once a name is picked. Desktop keeps it open,
+  // where it sits beside the field and adding three people in a row is the
+  // point of a multi-select.
+  const isMobile = useIsMobile();
   const [q, setQ] = useState('');
   const ref = useRef(null);
+  const queryRef = useRef(null);
   const emails = Array.isArray(value) ? value : [];
   const personFor = (em) => people.find((p) => p.email === em) || { email: em, name: emailToName(em) };
   // Unfiltered (no query) still wants A-Z, so it's the flat directory order,
@@ -856,6 +862,18 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   const filtered = q ? matchPeople(people, q)
     : people.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
   const toggle = (em) => onChange(emails.includes(em) ? emails.filter((x) => x !== em) : [...emails, em]);
+  // Removing a chip leaves the menu up - you're still editing the list; only
+  // adding a name is the "done, get out of the way" moment.
+  const pick = (em) => {
+    const adding = !emails.includes(em);
+    toggle(em);
+    if (!adding) return;
+    // The name is on the trigger now, so the query that found it is spent -
+    // clear it (and take focus back) so the next name can just be typed.
+    setQ('');
+    if (isMobile) setOpen(false);
+    else queryRef.current?.focus();
+  };
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px' }}>
@@ -899,13 +917,13 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
       </button>
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-            onKeyDown={onEnterPickFirst(filtered, (p) => toggle(p.email))}
+          <input ref={queryRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+            onKeyDown={onEnterPickFirst(filtered, (p) => pick(p.email))}
             style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
           {filtered.map((p) => {
             const on = emails.includes(p.email);
             return (
-              <div key={p.email} onClick={() => toggle(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
+              <div key={p.email} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
                 <Avatar email={p.email} name={p.name} size={22} card={false} />
                 <span style={{ flex: 1 }}>{p.name}</span>
                 {on && <Check size={14} style={{ color: NX.blue }} />}

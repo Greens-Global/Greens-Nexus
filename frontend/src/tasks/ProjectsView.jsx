@@ -3,12 +3,12 @@
 // project. Ported from the export's ProjectsPage/ProjectOverview into the Nexus
 // inline-style idiom.
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, Copy, LayoutTemplate, ArrowLeft } from 'lucide-react';
+import { Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock, Copy, LayoutTemplate, ArrowLeft } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject, projectToForm} from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab, SearchSelect, ViewToggle } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, SearchSelect, ViewToggle } from './components';
 import TasksWorkspace from './TasksWorkspace';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import { CustomFieldInput } from './TaskDetailDrawer';
@@ -180,9 +180,6 @@ export default function ProjectsView({ onNavigate }) {
     return <TasksWorkspace lockedProjectId={openProject.id} title={openProject.name} onBack={() => setOpenId(null)} />;
   }
 
-  // New projects default the owner to whoever's creating it - same reasoning
-  // as CreateTaskModal's task owner default - still freely changeable below.
-  const startCreate = () => setEditing({ ...EMPTY_FORM, ownerId: myEmail || null });
   const startEdit = (p) => setEditing(projectToForm(p));
 
   // Deleting is permanent, so it gets a real confirmation dialog. Used to also
@@ -212,16 +209,16 @@ export default function ProjectsView({ onNavigate }) {
             <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 800, letterSpacing: '-0.02em' }}>Projects</div>
             {!isMobile && <div style={{ fontSize: 13.5, color: NX.dim, marginTop: 4 }}>Every project in the workspace with live task rollups.</div>}
           </div>
-          {/* Desktop keeps the labelled buttons; on mobile a floating + at the
-              bottom of the screen creates a project instead (see MobileFab below),
-              and Templates rides the icon-only button below next to search. */}
+          {/* No New Project here: creating one is the floating "+" (see
+              views/Tasks.jsx's FAB_CREATES) or the bar's Create, and a third
+              button for the same act only asked which one was the real one
+              (Sagar, Sept 2 2026). Templates stays - it is a place to go, not
+              a thing to make. On mobile it rides the icon-only button below
+              next to search. */}
           {!isMobile && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button title="Browse and manage reusable project blueprints"
-                style={btn('outline')}
-                onClick={() => onNavigate?.('templates')}><LayoutTemplate size={15} />Templates</button>
-              <button style={btn('primary')} onClick={startCreate}><Plus size={15} />New Project</button>
-            </div>
+            <button title="Browse and manage reusable project blueprints"
+              style={btn('outline')}
+              onClick={() => onNavigate?.('templates')}><LayoutTemplate size={15} />Templates</button>
           )}
         </div>
         {/* Search · filters · view toggle - wraps on mobile rather than forcing
@@ -377,7 +374,6 @@ export default function ProjectsView({ onNavigate }) {
       )}
       </div>
 
-      {isMobile && <MobileFab title="New Project" onClick={startCreate} />}
 
       {editing && (
         <ProjectModal
