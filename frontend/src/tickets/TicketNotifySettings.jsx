@@ -7,6 +7,7 @@ import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
 import { SkeletonBlocks } from '../components/AsyncState';
+import { TicketSelect } from './TicketAtoms';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const field = { marginBottom: 14 };
@@ -175,13 +176,8 @@ function DeliveryLog() {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ ...inputStyle, appearance: 'auto', width: 'auto', cursor: 'pointer' }}>
-          <option value="">All statuses</option>
-          <option value="sent">Sent</option>
-          <option value="failed">Failed</option>
-          <option value="pending">Pending</option>
-          <option value="retrying">Retrying</option>
-        </select>
+        <TicketSelect value={status} onChange={setStatus} style={{ width: 'auto', minWidth: 150 }}
+          options={[['', 'All statuses'], ['sent', 'Sent'], ['failed', 'Failed'], ['pending', 'Pending'], ['retrying', 'Retrying']]} />
         <button style={btn('ghost')} onClick={load} title="Refresh"><RefreshCw size={14} /></button>
         {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
       </div>

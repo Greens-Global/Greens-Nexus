@@ -29,7 +29,7 @@ import {
   SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
 } from './ticketMeta';
 import {
-  TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip,
+  TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
 } from './TicketAtoms';
 import { SkeletonBlocks } from '../components/AsyncState';
 
@@ -48,8 +48,11 @@ const TICKET_VIEW_TABS = [
 const TICKET_COLUMNS = [
   { key: 'title', label: 'Title', defaultWidth: 260, minWidth: 160, sort: (t) => (t.subject || '').toLowerCase() },
   { key: 'company', label: 'Company', defaultWidth: 130, minWidth: 90, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
-  { key: 'state', label: 'State', defaultWidth: 150, minWidth: 110, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
-  { key: 'priority', label: 'Priority', defaultWidth: 150, minWidth: 110, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
+  // State and Priority each carry a second chip when a ticket needs it
+  // (Awaiting approval / SLA breached), so they're sized for the pair - at 150
+  // the pair ran past the column and painted over the one after it.
+  { key: 'state', label: 'State', defaultWidth: 180, minWidth: 110, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
+  { key: 'priority', label: 'Priority', defaultWidth: 180, minWidth: 110, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
   { key: 'due', label: 'Due Date', defaultWidth: 110, minWidth: 80, sort: (t) => t.slaDueOn || '' },
   { key: 'requester', label: 'Requester', defaultWidth: 150, minWidth: 100, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
   { key: 'assignee', label: 'Assigned To', defaultWidth: 150, minWidth: 100, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
@@ -150,7 +153,24 @@ const GROUP_BY_OPTIONS = [
   { key: 'assignee', label: 'Assignee' },
 ];
 
-const TICKET_COL_WIDTHS_KEY = 'nx-ticket-col-widths';
+// -v2: saved widths win over the defaults, so widening State/Priority above
+// would have left everyone who had ever loaded the list on the old, too-narrow
+// numbers. Bumping the key retires them once.
+// Option lists for the kit dropdowns, in one place - the filter sheet, the
+// filter menu, the create wizard and the drawer each used to carry their own
+// hand-written <option> list of the same choices.
+const statusOptions = () => TICKET_STATUS_ORDER.map((s) => [s, TICKET_STATUS_META[s].label]);
+const priorityOptions = () => PRIORITY_ORDER.map((p) => [p, PRIORITY_META[p].label]);
+const typeOptions = () => TICKET_TYPE_ORDER.map((ty) => [ty, TICKET_TYPE_META[ty].label]);
+const slaFilterOptions = [['all', 'Any SLA'], ['breached', 'SLA breached'], ['at_risk', 'Due soon'], ['ok', 'On track']];
+// Open/Unassigned are buckets, not statuses - they must be listed or the
+// control renders blank when a summary tile selects one.
+const statusFilterOptions = () => [['all', 'All statuses'], ['open', 'Open (not resolved)'],
+  ['unassigned', 'Unassigned'], ...statusOptions()];
+const serviceAreaOptions = () => SERVICE_AREAS.map((a) => [a.key, a.label]);
+const groupByOptions = () => GROUP_BY_OPTIONS.map((g) => [g.key, g.label]);
+
+const TICKET_COL_WIDTHS_KEY = 'nx-ticket-col-widths-v2';
 const defaultTicketColWidths = () => Object.fromEntries(TICKET_COLUMNS.map((c) => [c.key, c.defaultWidth]));
 
 // Export - same client-side CSV pattern as the task module's own report export
@@ -192,7 +212,7 @@ function TicketMobileFilters({
   serviceAreaFilter, setServiceAreaFilter,
   groupBy, setGroupBy, showGroup,
 }) {
-  const row = { ...inputStyle, appearance: 'auto', cursor: 'pointer', width: '100%', fontSize: 15, padding: '10px 12px' };
+  const row = { width: '100%', fontSize: 15, padding: '10px 12px' };
   const wrap = { marginBottom: 14 };
   const lab = { ...label, fontSize: 12.5 };
   // MobileTaskBar renders filterSheet(...) raw - the caller supplies the sheet
@@ -201,62 +221,38 @@ function TicketMobileFilters({
     <BottomSheet title="Filter & Group" onClose={onClose}>
       <div style={wrap}>
         <label style={lab}>Status</label>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={row}>
-          <option value="all">All statuses</option>
-          {/* Buckets, not statuses - they must be listed or the control renders
-              blank when a summary tile selects one. */}
-          <option value="open">Open (not resolved)</option>
-          <option value="unassigned">Unassigned</option>
-          {TICKET_STATUS_ORDER.map((s) => <option key={s} value={s}>{TICKET_STATUS_META[s].label}</option>)}
-        </select>
+        <TicketSelect value={statusFilter} onChange={setStatusFilter} options={statusFilterOptions()} style={row} />
       </div>
       <div style={wrap}>
         <label style={lab}>Priority</label>
-        <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} style={row}>
-          <option value="all">All priorities</option>
-          {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-        </select>
+        <TicketSelect value={priorityFilter} onChange={setPriorityFilter} style={row}
+          options={[['all', 'All priorities'], ...priorityOptions()]} />
       </div>
       <div style={wrap}>
         <label style={lab}>Type</label>
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={row}>
-          <option value="all">All types</option>
-          {TICKET_TYPE_ORDER.map((ty) => <option key={ty} value={ty}>{TICKET_TYPE_META[ty].label}</option>)}
-        </select>
+        <TicketSelect value={typeFilter} onChange={setTypeFilter} style={row}
+          options={[['all', 'All types'], ...typeOptions()]} />
       </div>
       <div style={wrap}>
         <label style={lab}>SLA</label>
-        <select value={slaFilter} onChange={(e) => setSlaFilter(e.target.value)} style={row}>
-          <option value="all">Any SLA</option>
-          <option value="breached">SLA breached</option>
-          <option value="at_risk">Due soon</option>
-          <option value="ok">On track</option>
-        </select>
+        <TicketSelect value={slaFilter} onChange={setSlaFilter} options={slaFilterOptions} style={row} />
       </div>
       {hrDepts.length > 0 && (
         <div style={wrap}>
           <label style={lab}>Department</label>
-          <select value={hrDeptFilter} onChange={(e) => setHrDeptFilter(e.target.value)} style={row}>
-            <option value="all">All departments</option>
-            <option value="">No department</option>
-            {hrDepts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
+          <TicketSelect value={hrDeptFilter} onChange={setHrDeptFilter} style={row} searchPlaceholder="Search departments…"
+            options={[['all', 'All departments'], ['', 'No department'], ...hrDepts.map((d) => [d.id, d.name])]} />
         </div>
       )}
       <div style={wrap}>
         <label style={lab}>Service Area</label>
-        <select value={serviceAreaFilter} onChange={(e) => setServiceAreaFilter(e.target.value)} style={row}>
-          <option value="all">All service areas</option>
-          <option value="">Not set</option>
-          {SERVICE_AREAS.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
-        </select>
+        <TicketSelect value={serviceAreaFilter} onChange={setServiceAreaFilter} style={row}
+          options={[['all', 'All service areas'], ['', 'Not set'], ...serviceAreaOptions()]} />
       </div>
       {showGroup && (
         <div style={wrap}>
           <label style={lab}>Group by</label>
-          <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} style={row}>
-            {GROUP_BY_OPTIONS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
-          </select>
+          <TicketSelect value={groupBy} onChange={setGroupBy} options={groupByOptions()} style={row} />
         </div>
       )}
       <button onClick={onClose} style={{ ...btn('primary'), width: '100%', justifyContent: 'center', padding: '11px 0', fontSize: 15 }}>Done</button>
@@ -277,7 +273,7 @@ function TicketFilterMenu({
   const ref = useRef(null);
   useClickOutside(ref, () => setOpen(false), open);
   const active = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter].filter((v) => v !== 'all').length;
-  const rowStyle = { ...inputStyle, appearance: 'auto', cursor: 'pointer', width: '100%' };
+  const rowStyle = { width: '100%' };
   const wrap = { marginBottom: 10 };
   const lab = { ...label, fontSize: 12 };
   return (
@@ -289,53 +285,33 @@ function TicketFilterMenu({
         <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 260, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, padding: 12 }}>
           <div style={wrap}>
             <label style={lab}>Status</label>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={rowStyle}>
-              <option value="all">All statuses</option>
-              <option value="open">Open (not resolved)</option>
-              <option value="unassigned">Unassigned</option>
-              {TICKET_STATUS_ORDER.map((s) => <option key={s} value={s}>{TICKET_STATUS_META[s].label}</option>)}
-            </select>
+            <TicketSelect value={statusFilter} onChange={setStatusFilter} options={statusFilterOptions()} style={rowStyle} />
           </div>
           <div style={wrap}>
             <label style={lab}>Priority</label>
-            <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} style={rowStyle}>
-              <option value="all">All priorities</option>
-              {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-            </select>
+            <TicketSelect value={priorityFilter} onChange={setPriorityFilter} style={rowStyle}
+              options={[['all', 'All priorities'], ...priorityOptions()]} />
           </div>
           <div style={wrap}>
             <label style={lab}>Type</label>
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={rowStyle}>
-              <option value="all">All types</option>
-              {TICKET_TYPE_ORDER.map((ty) => <option key={ty} value={ty}>{TICKET_TYPE_META[ty].label}</option>)}
-            </select>
+            <TicketSelect value={typeFilter} onChange={setTypeFilter} style={rowStyle}
+              options={[['all', 'All types'], ...typeOptions()]} />
           </div>
           <div style={wrap}>
             <label style={lab}>SLA</label>
-            <select value={slaFilter} onChange={(e) => setSlaFilter(e.target.value)} style={rowStyle}>
-              <option value="all">Any SLA</option>
-              <option value="breached">SLA breached</option>
-              <option value="at_risk">Due soon</option>
-              <option value="ok">On track</option>
-            </select>
+            <TicketSelect value={slaFilter} onChange={setSlaFilter} options={slaFilterOptions} style={rowStyle} />
           </div>
           {hrDepts.length > 0 && (
             <div style={wrap}>
               <label style={lab}>Department</label>
-              <select value={hrDeptFilter} onChange={(e) => setHrDeptFilter(e.target.value)} style={rowStyle}>
-                <option value="all">All departments</option>
-                <option value="">No department</option>
-                {hrDepts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
+              <TicketSelect value={hrDeptFilter} onChange={setHrDeptFilter} style={rowStyle} searchPlaceholder="Search departments…"
+                options={[['all', 'All departments'], ['', 'No department'], ...hrDepts.map((d) => [d.id, d.name])]} />
             </div>
           )}
           <div style={wrap}>
             <label style={lab}>Service Area</label>
-            <select value={serviceAreaFilter} onChange={(e) => setServiceAreaFilter(e.target.value)} style={rowStyle}>
-              <option value="all">All service areas</option>
-              <option value="">Not set</option>
-              {SERVICE_AREAS.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
-            </select>
+            <TicketSelect value={serviceAreaFilter} onChange={setServiceAreaFilter} style={rowStyle}
+              options={[['all', 'All service areas'], ['', 'Not set'], ...serviceAreaOptions()]} />
           </div>
           {active > 0 && (
             <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); setServiceAreaFilter('all'); }}
@@ -366,9 +342,7 @@ function MoreMenu({ views, onApply, onSave, onDelete, onExport, groupBy, setGrou
               <>
                 <div style={sectionLabel}>Group by</div>
                 <div style={{ padding: '0 12px 10px' }}>
-                  <select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }}>
-                    {GROUP_BY_OPTIONS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
-                  </select>
+                  <TicketSelect value={groupBy} onChange={setGroupBy} options={groupByOptions()} style={{ width: '100%' }} />
                 </div>
                 <div style={{ borderTop: `1px solid ${NX.border2}` }} />
               </>
@@ -394,7 +368,7 @@ function MoreMenu({ views, onApply, onSave, onDelete, onExport, groupBy, setGrou
   );
 }
 
-export default function TicketsView() {
+export default function TicketsView({ manageAction = null }) {
   const { tickets, ticketViews = [], createTicketView, deleteTicketView,
     myEmail, nameOf, updateTicket, deleteTicket } = useTasks();
   const people = usePeople();
@@ -656,11 +630,15 @@ export default function TicketsView() {
           <span style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>Tickets</span>
           <span style={{ padding: '2px 9px', borderRadius: 12, background: NX.border2, color: NX.dim, fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{visible.length}</span>
         </div>
-        {!isMobile && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+        {/* Manage sits beside New Ticket rather than in a bar of its own -
+            one header line for the module's two top-level actions, the
+            everyday one (create) first. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+          {!isMobile && (
             <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> New Ticket</button>
-          </div>
-        )}
+          )}
+          {manageAction}
+        </div>
       </div>
 
       {/* Phones keep a scope strip under the title (the desktop scope pills
@@ -794,9 +772,9 @@ export default function TicketsView() {
                     {g.label} <span style={{ color: NX.faint, fontWeight: 400 }}>{g.rows.length}</span>
                   </div>
                 )}
-                {g.rows.slice(0, 200).map((t) => (
+                {g.rows.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
-                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} colWidths={colWidths} />
+                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} colWidths={colWidths} band={idx % 2 === 1} />
                 ))}
                 {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
               </div>
@@ -819,9 +797,12 @@ export default function TicketsView() {
                       {g.label} <span style={{ color: NX.faint, fontWeight: 400 }}>{g.rows.length}</span>
                     </div>
                   )}
-                  {g.rows.slice(0, 200).map((t) => (
+                  {/* band = odd row inside its group - the zebra tint the task
+                      lists use, which is what lets the eye follow a row out to
+                      the Created Date column on a wide screen. */}
+                  {g.rows.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
-                      checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} colWidths={colWidths} hideRequester={scope === 'mine'} />
+                      checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} colWidths={colWidths} hideRequester={scope === 'mine'} band={idx % 2 === 1} />
                   ))}
                   {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
                 </div>
@@ -842,19 +823,13 @@ export default function TicketsView() {
           background: NX.ink, color: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.28)',
         }}>
           <span style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', padding: '0 2px' }}>{selIds.length} selected</span>
-          <select defaultValue="" onChange={(e) => { if (e.target.value) bulkPatch({ status: e.target.value }); e.target.value = ''; }} style={compactSelStyle}>
-            <option value="">Set status…</option>
-            {TICKET_STATUS_ORDER.map((s) => <option key={s} value={s}>{TICKET_STATUS_META[s].label}</option>)}
-          </select>
-          <select defaultValue="" onChange={(e) => { if (e.target.value) bulkPatch({ priority: e.target.value }); e.target.value = ''; }} style={compactSelStyle}>
-            <option value="">Set priority…</option>
-            {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-          </select>
-          <select defaultValue="" onChange={(e) => { bulkPatch({ assigneeId: e.target.value }); e.target.value = ''; }} style={{ ...compactSelStyle, maxWidth: 140 }}>
-            <option value="" disabled>Assign to…</option>
-            <option value="">Unassign</option>
-            {people.map((p) => <option key={p.email} value={p.email}>{p.name || p.email}</option>)}
-          </select>
+          <TicketSelect command placeholder="Set status…" options={statusOptions()} style={compactSelStyle}
+            onChange={(v) => bulkPatch({ status: v })} />
+          <TicketSelect command placeholder="Set priority…" options={priorityOptions()} style={compactSelStyle}
+            onChange={(v) => bulkPatch({ priority: v })} />
+          <TicketSelect command placeholder="Assign to…" searchPlaceholder="Search people…"
+            options={[['', 'Unassign'], ...people.map((p) => [p.email, p.name || p.email])]}
+            style={{ ...compactSelStyle, maxWidth: 140 }} onChange={(v) => bulkPatch({ assigneeId: v })} />
           <button style={compactBtnStyle} onClick={() => bulkPatch({ status: 'resolved', resolution: 'fixed' })}><CheckCircle2 size={13} /> Resolve</button>
           <button style={compactBtnStyle} onClick={bulkDelete}><Trash2 size={13} /> Delete</button>
           <button style={{ ...compactBtnStyle, background: 'transparent', padding: 6 }} onClick={clearSel} title="Clear selection"><X size={14} /></button>
@@ -934,8 +909,11 @@ function TicketListHeader({ colWidths, onResize, sort, onSort, allSelected, some
   );
 }
 
-function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onToggle, colWidths, hideRequester }) {
+function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onToggle, colWidths, hideRequester, band = false }) {
   const isMobile = useIsMobile();
+  // Resting background: selection wins, then the zebra band (same NX.zebra /
+  // NX.hover pair the task list rows use).
+  const rowBg = checked ? NX.surface2 : band ? NX.zebra : NX.surface;
   const overdue = t.slaDueOn && t.slaDueOn < today() && !CLOSED_STATES.includes(t.status);
   // The HR department is what routed this ticket, so it belongs on the row.
   const hrDept = t.hrDepartmentId ? hrDeptName(t.hrDepartmentId) : '';
@@ -948,7 +926,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
     return (
       <div onClick={onOpen} style={{
         display: 'flex', flexDirection: 'column', gap: 6, padding: '11px 12px',
-        borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: NX.surface,
+        borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: rowBg,
       }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <TicketTypeIcon type={t.type} size={15} />
@@ -981,11 +959,13 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
 
   return (
     <div onClick={onOpen} style={{
-      display: 'flex', alignItems: 'center', gap: 14, padding: '11px 16px',
-      borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: checked ? NX.surface2 : NX.surface,
+      // 8px, not 11 - the title cell is already two lines tall, so the row
+      // reads as roomy well before the padding does any work.
+      display: 'flex', alignItems: 'center', gap: 14, padding: '8px 16px',
+      borderBottom: `1px solid ${NX.border}`, cursor: 'pointer', background: rowBg,
     }}
-      onMouseEnter={(e) => { if (!checked) e.currentTarget.style.background = NX.surface2; }}
-      onMouseLeave={(e) => { if (!checked) e.currentTarget.style.background = NX.surface; }}>
+      onMouseEnter={(e) => { if (!checked) e.currentTarget.style.background = NX.hover; }}
+      onMouseLeave={(e) => { if (!checked) e.currentTarget.style.background = rowBg; }}>
       {/* Fixed-size wrappers (not just a sized input/icon) so native form-control
           margins can't drift this cell's box out of step with the header's plain
           spacer - that mismatch was throwing every column after it out of line. */}
@@ -996,7 +976,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
       <div style={{ width: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <TicketTypeIcon type={t.type} size={16} />
       </div>
-      <div style={{ minWidth: 0, flex: `0 0 ${colWidths.title}px`, textAlign: 'left' }}>
+      <div style={{ minWidth: 0, overflow: 'hidden', flex: `0 0 ${colWidths.title}px`, textAlign: 'left' }}>
         <div style={{ fontSize: 14, fontWeight: 500, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {t.subject}
           {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
@@ -1005,33 +985,37 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
           {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.company}px`, minWidth: 0 }} title={companyName(t.companyId) || ''}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.company}px`, minWidth: 0, overflow: 'hidden' }} title={companyName(t.companyId) || ''}>
         <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{companyName(t.companyId) || '-'}</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.state}px`, minWidth: 0 }}>
+      {/* overflow:hidden - a chip pair wider than the column (a long status
+          next to Awaiting approval) has to clip at the column edge, not spill
+          over the cell after it. */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.state}px`, minWidth: 0, overflow: 'hidden' }}
+        title={t.approvalStatus === 'pending' ? `${TICKET_STATUS_META[t.status]?.label || t.status} · awaiting approval` : (TICKET_STATUS_META[t.status]?.label || t.status)}>
         <TicketStatusChip status={t.status} />
         {/* Only shows while pending - an approved request looks like any other. */}
         {t.approvalStatus === 'pending' && <ApprovalChip ticket={t} />}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.priority}px`, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.priority}px`, minWidth: 0, overflow: 'hidden' }}>
         <PriorityChip priority={t.priority} />
         <SlaBadge t={t} />
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 5, flex: `0 0 ${colWidths.due}px`, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 5, flex: `0 0 ${colWidths.due}px`, minWidth: 0, overflow: 'hidden' }}>
         <Clock size={12} style={{ color: overdue ? NX.red : NX.faint, flexShrink: 0 }} />
         <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 700 : 400, textAlign: 'left' }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}</span>
       </div>
       {!hideRequester && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, flex: `0 0 ${colWidths.requester}px` }} title={`Requester: ${nameOf(t.requesterId) || 'Unknown'}`}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, overflow: 'hidden', flex: `0 0 ${colWidths.requester}px` }} title={`Requester: ${nameOf(t.requesterId) || 'Unknown'}`}>
           {t.requesterId ? <Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /> : <span style={{ width: 22, flexShrink: 0 }} />}
           <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.requesterId ? nameOf(t.requesterId) : '-'}</span>
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, flex: `0 0 ${colWidths.assignee}px` }} title={`Assignee: ${t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}`}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, overflow: 'hidden', flex: `0 0 ${colWidths.assignee}px` }} title={`Assignee: ${t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}`}>
         {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : <span style={{ width: 22, flexShrink: 0 }} />}
         <span style={{ fontSize: 12.5, color: t.assigneeId ? NX.dim : NX.faint, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.created}px`, minWidth: 0 }} title={t.createdAt ? `Created ${fmtDate(t.createdAt)}` : ''}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.created}px`, minWidth: 0, overflow: 'hidden' }} title={t.createdAt ? `Created ${fmtDate(t.createdAt)}` : ''}>
         <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.createdAt ? fmtDate(t.createdAt) : '-'}</span>
       </div>
       {t.resolvedAt
@@ -1324,7 +1308,6 @@ export function CreateTicketModal({ onClose }) {
   };
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
-  const errStyle = (k, set_) => (showErrors && set_.has(k) ? { borderColor: NX.red } : null);
 
   // Recording in progress: get out of the way. The form (and its portal
   // backdrop) disappears so the person can reproduce the issue and reach the
@@ -1392,11 +1375,12 @@ export function CreateTicketModal({ onClose }) {
             offered below are already that company's. */}
         <div style={field}>
           <label style={label}>Department {deptOptions.length > 0 && <span style={{ color: NX.red }}>*</span>}</label>
-          <select autoFocus value={form.hrDepartmentId} onChange={(e) => set('hrDepartmentId', e.target.value)}
-            style={{ ...sel, ...errStyle('hrDepartmentId', missingStep1) }}>
-            <option value="">{deptOptions.length ? 'Select department' : 'No departments to choose from'}</option>
-            {deptOptions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
+          <TicketSelect value={form.hrDepartmentId} onChange={(v) => set('hrDepartmentId', v)}
+            placeholder={deptOptions.length ? 'Select department' : 'No departments to choose from'}
+            searchPlaceholder="Search departments…" emptyText="No departments to choose from."
+            invalid={showErrors && missingStep1.has('hrDepartmentId')} style={sel}
+            options={[['', deptOptions.length ? 'Select department' : 'No departments to choose from'],
+              ...deptOptions.map((d) => [d.id, d.name])]} />
           {showErrors && missingStep1.has('hrDepartmentId') && <div style={requiredHint}>Required</div>}
           {deptOptions.length === 0 && (
             <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
@@ -1435,8 +1419,8 @@ export function CreateTicketModal({ onClose }) {
         </div>
         <div style={field}>
           <label style={label}>Type <span style={{ color: NX.red }}>*</span></label>
-          <select value={form.type} onChange={(e) => {
-            set('type', e.target.value);
+          <TicketSelect value={form.type} options={typeOptions()} style={sel} onChange={(v) => {
+            set('type', v);
             // Clear the outgoing type's own fields, but KEEP the service
             // answers. A different type may ask fewer of them (see
             // SERVICE_FIELDS' `types`) - one that no longer applies is simply
@@ -1445,9 +1429,7 @@ export function CreateTicketModal({ onClose }) {
             // switching type and back does not cost the answer.
             setTf((prev) => Object.fromEntries(
               Object.entries(prev).filter(([k]) => k.startsWith('svc_'))));
-          }} style={sel}>
-            {TICKET_TYPE_ORDER.map((ty) => <option key={ty} value={ty}>{TICKET_TYPE_META[ty].label}</option>)}
-          </select>
+          }} />
           {/* Six types only work if the difference is spelled out. The hint is
               the plain-English "is this me?" for whichever one is selected. */}
           {TICKET_TYPE_META[form.type]?.hint && (
@@ -1527,9 +1509,7 @@ export function CreateTicketModal({ onClose }) {
 
       <div style={field}>
         <label style={label}>Priority</label>
-        <select value={form.priority} onChange={(e) => set('priority', e.target.value)} style={sel}>
-          {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-        </select>
+        <TicketSelect value={form.priority} onChange={(v) => set('priority', v)} options={priorityOptions()} style={sel} />
       </div>
       <div style={field}>
         <label style={label}>Title <span style={{ color: NX.red }}>*</span></label>
@@ -1790,21 +1770,18 @@ function TicketDrawer({ ticketId, onClose }) {
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
           <label style={label}>Type</label>
-          <select value={t.type || 'request'} onChange={(e) => patch({ type: e.target.value })} style={sel} disabled={!canWorking}>
-            {TICKET_TYPE_ORDER.map((ty) => <option key={ty} value={ty}>{TICKET_TYPE_META[ty].label}</option>)}
-          </select>
+          <TicketSelect value={t.type || 'request'} onChange={(v) => patch({ type: v })} options={typeOptions()}
+            style={sel} disabled={!canWorking} />
         </div>
         <div style={field}>
           <label style={label}>Status</label>
-          <select value={t.status} onChange={(e) => patch({ status: e.target.value })} style={sel} disabled={!canWorking}>
-            {TICKET_STATUS_ORDER.map((s) => <option key={s} value={s}>{TICKET_STATUS_META[s].label}</option>)}
-          </select>
+          <TicketSelect value={t.status} onChange={(v) => patch({ status: v })} options={statusOptions()}
+            style={sel} disabled={!canWorking} />
         </div>
         <div style={field}>
           <label style={label}>Priority</label>
-          <select value={t.priority} onChange={(e) => patch({ priority: e.target.value })} style={sel} disabled={!canWorking}>
-            {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-          </select>
+          <TicketSelect value={t.priority} onChange={(v) => patch({ priority: v })} options={priorityOptions()}
+            style={sel} disabled={!canWorking} />
         </div>
         <div style={field}>
           <label style={label}>Requester</label>
@@ -1832,10 +1809,9 @@ function TicketDrawer({ ticketId, onClose }) {
         <div style={field}>
           <label style={label}>Company</label>
           {canEditCompany ? (
-            <select value={t.companyId || ''} onChange={(e) => patch({ companyId: e.target.value, hrDepartmentId: '' })} style={sel}>
-              <option value="">Select company</option>
-              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <TicketSelect value={t.companyId || ''} onChange={(v) => patch({ companyId: v, hrDepartmentId: '' })}
+              style={sel} placeholder="Select company" searchPlaceholder="Search companies…"
+              options={[['', 'Select company'], ...companies.map((c) => [c.id, c.name])]} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>
               {companies.find((c) => c.id === t.companyId)?.name || '-'}
@@ -1844,10 +1820,11 @@ function TicketDrawer({ ticketId, onClose }) {
         </div>
         <div style={field}>
           <label style={label}>Department</label>
-          <select value={t.hrDepartmentId || ''} onChange={(e) => patch({ hrDepartmentId: e.target.value })} style={sel} disabled={!t.companyId || !canWorking}>
-            <option value="">{t.companyId ? 'Select department' : 'Select a company first'}</option>
-            {allDepts.filter((d) => d.companyId === t.companyId).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
+          <TicketSelect value={t.hrDepartmentId || ''} onChange={(v) => patch({ hrDepartmentId: v })} style={sel}
+            disabled={!t.companyId || !canWorking} searchPlaceholder="Search departments…"
+            placeholder={t.companyId ? 'Select department' : 'Select a company first'}
+            options={[['', t.companyId ? 'Select department' : 'Select a company first'],
+              ...allDepts.filter((d) => d.companyId === t.companyId).map((d) => [d.id, d.name])]} />
         </div>
         {/* What the ticket is about. fullAccess, NOT canWorking: `application`
             is not one of the backend's _WORKING_FIELDS, so a triaging third
@@ -1871,10 +1848,8 @@ function TicketDrawer({ ticketId, onClose }) {
         <div style={field}>
           <label style={label}>Service Area</label>
           {fullAccess ? (
-            <select value={t.serviceArea || ''} onChange={(e) => patch({ serviceArea: e.target.value })} style={sel}>
-              <option value="">Not set</option>
-              {SERVICE_AREAS.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
-            </select>
+            <TicketSelect value={t.serviceArea || ''} onChange={(v) => patch({ serviceArea: v })} style={sel}
+              placeholder="Not set" options={[['', 'Not set'], ...serviceAreaOptions()]} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(t.serviceArea) || '-'}</div>
           )}
@@ -1893,10 +1868,9 @@ function TicketDrawer({ ticketId, onClose }) {
         {CLOSED_STATES.includes(t.status) && (
           <div style={field}>
             <label style={label}>Resolution</label>
-            <select value={t.resolution || ''} onChange={(e) => patch({ resolution: e.target.value })} style={sel} disabled={!canWorking}>
-              <option value="">- pick -</option>
-              {TICKET_RESOLUTION.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
-            </select>
+            <TicketSelect value={t.resolution || ''} onChange={(v) => patch({ resolution: v })} style={sel}
+              disabled={!canWorking} placeholder="- pick -"
+              options={[['', '- pick -'], ...TICKET_RESOLUTION.map((r) => [r.key, r.label])]} />
           </div>
         )}
       </div>
@@ -1970,7 +1944,8 @@ function TicketDrawer({ ticketId, onClose }) {
 function ApprovalChip({ ticket }) {
   const meta = APPROVAL_META[ticket.approvalStatus];
   if (!meta) return null;   // "none" - this ticket never needed approval
-  return <span style={chip(meta.color, meta.tint)}>{meta.label}</span>;
+  // Smaller than the status chip beside it - same reasoning as SlaBadge.
+  return <span style={{ ...chip(meta.color, meta.tint), fontSize: 11, padding: '1px 7px' }}>{meta.label}</span>;
 }
 
 // The approval panel, in two acts.
@@ -2112,11 +2087,10 @@ function TicketTasks({ taskIds, tasks, onSpawn, onLink, onUnlink, readOnly }) {
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <button onClick={onSpawn} style={{ ...btn('outline'), fontSize: 12 }}><Plus size={13} /> Create Task from Ticket</button>
           {linking ? (
-            <select autoFocus defaultValue="" onChange={(e) => { if (e.target.value) onLink(e.target.value); setLinking(false); }}
-              onBlur={() => setLinking(false)} style={{ ...inputStyle, appearance: 'auto', width: 'auto', minWidth: 180, cursor: 'pointer' }}>
-              <option value="">Select a task…</option>
-              {options.map((task) => <option key={task.id} value={task.id}>{task.code ? `${task.code} · ` : ''}{task.title}</option>)}
-            </select>
+            <TicketSelect command placeholder="Select a task…" searchPlaceholder="Search tasks…"
+              emptyText="No tasks to link." style={{ width: 'auto', minWidth: 180 }}
+              options={options.map((task) => [task.id, `${task.code ? `${task.code} · ` : ''}${task.title}`])}
+              onChange={(id) => { if (id) onLink(id); setLinking(false); }} />
           ) : (
             <button onClick={() => setLinking(true)} style={{ ...btn('ghost'), fontSize: 12, color: NX.dim }}><Link2 size={13} /> Link existing</button>
           )}
@@ -2160,13 +2134,12 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove, readOnly }) {
       {!readOnly && (<>
       {adding ? (
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select value={type} onChange={(e) => setType(e.target.value)} style={{ ...inputStyle, appearance: 'auto', width: 'auto', cursor: 'pointer' }}>
-            {LINK_TYPES.map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
-          </select>
-          <select value={target} onChange={(e) => setTarget(e.target.value)} style={{ ...inputStyle, appearance: 'auto', flex: 1, minWidth: 160, cursor: 'pointer' }}>
-            <option value="">Select a ticket…</option>
-            {options.map((x) => <option key={x.id} value={x.id}>{ticketNoShort(x.code) ? `${ticketNoShort(x.code)} · ` : ''}{x.subject}</option>)}
-          </select>
+          <TicketSelect value={type} onChange={setType} style={{ width: 'auto' }}
+            options={LINK_TYPES.map((l) => [l.key, l.label])} />
+          <TicketSelect value={target} onChange={setTarget} style={{ flex: 1, minWidth: 160 }}
+            placeholder="Select a ticket…" searchPlaceholder="Search tickets…" emptyText="No tickets to link."
+            options={[['', 'Select a ticket…'],
+              ...options.map((x) => [x.id, `${ticketNoShort(x.code) ? `${ticketNoShort(x.code)} · ` : ''}${x.subject}`])]} />
           <button onClick={submit} disabled={!target} style={{ ...btn('primary'), opacity: target ? 1 : 0.5 }}>Link</button>
           <button onClick={() => setAdding(false)} style={btn('ghost')}>Cancel</button>
         </div>

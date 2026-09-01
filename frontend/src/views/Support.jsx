@@ -102,12 +102,17 @@ export default function Support() {
 
       <div className="support-grid">
         {OPTIONS.map((o) => (
-          <div key={o.title} className="support-card">
+          // The whole tile is the button - the card already lifts on hover and
+          // shows a pointer, so anything less than a full-tile hit area was
+          // just a smaller target that looked the same (Sagar, Sept 2 2026).
+          // "Open" stays as the affordance, but as a span: a button inside a
+          // button is invalid, and it would swallow clicks meant for the tile.
+          <button key={o.title} type="button" className="support-card" onClick={o.onOpen}>
             <div className="support-icon"><o.icon size={20} /></div>
             <div className="support-card-title">{o.title}</div>
             <p className="support-card-desc">{o.desc}</p>
-            <button className="link-btn" onClick={o.onOpen}>Open <ArrowUpRight size={13} /></button>
-          </div>
+            <span className="link-btn">Open <ArrowUpRight size={13} /></span>
+          </button>
         ))}
       </div>
 

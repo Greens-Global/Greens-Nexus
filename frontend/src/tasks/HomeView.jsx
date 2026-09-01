@@ -1,8 +1,10 @@
 // Task Module - Home (ported 1:1 from the export's HomePage). A customizable
-// widget dashboard: a "My week/day/month" header with completed/collaborator
-// stats + Customize, over a reorderable grid of widgets (My tasks · Projects ·
-// Teams · Team members · Notifications), persisted to localStorage.
+// widget dashboard: a reorderable grid of widgets (My tasks · Projects ·
+// Teams · Team members · Notifications), persisted to localStorage. Its one
+// page-level control, Customize, is portaled up into the module bar next to
+// Manage rather than rendered here.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, CheckCircle2, LayoutGrid, Plus, Circle, CalendarDays, FolderKanban, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { fmtDate, taskIdFromUrl, taskAssignees } from './lib';
@@ -77,6 +79,14 @@ export default function HomeView({ onNavigate }) {
   const [openId, setOpenId] = useState(taskIdFromUrl);
   const [creatingProject, setCreatingProject] = useState(false);
   const [customizing, setCustomizing] = useState(false);
+  // Customize / Autofit / Done render into the module bar's slot next to
+  // Manage (Sagar, Sept 1 2026), not into a header row of their own down here.
+  // The slot is a sibling rendered by Tasks.jsx in the same commit, so it only
+  // exists from our first effect onward - hence the state rather than a plain
+  // getElementById at render time. Null (Home reached outside the module
+  // shell) simply renders nothing, which is the same as the old empty row.
+  const [barSlot, setBarSlot] = useState(null);
+  useEffect(() => { setBarSlot(document.getElementById('nx-tasks-bar-actions')); }, []);
   const isMobile = useIsMobile();
   const dateRef = useRef(null);
   const rangeRef = useRef(null);
@@ -457,28 +467,23 @@ export default function HomeView({ onNavigate }) {
 
   return (
     <div className="nx-page" style={{ padding: '24px 24px 76px', fontFamily: FONT, color: NX.ink, height: '100%', overflow: 'auto' }}>
-      {/* Desktop: workload counts left, range · stats · Customize right. Mobile:
-          the range button takes the full first line so stats + Customize wrap. */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: isMobile ? 12 : 20 }}>
-        {/* The greeting, the date, and the upcoming/overdue counts all went -
-            none told the reader anything they didn't know. This spacer stays
-            (rather than being deleted outright) so the space-between row
-            below still puts the right-hand controls where they belong. */}
-        <div style={{ minWidth: 0 }} />
-        {/* Header holds ONE page-level control (Customize) - the range picker
-            and task stats moved into the "My tasks" card they actually scope,
-            so switching to Tickets no longer swaps header anatomies. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: isMobile ? 'wrap' : 'nowrap', overflowX: 'visible' }}>
-          {customizing ? (
-            <>
-              <button onClick={toggleAutofit} title="Pack widgets to fill gaps" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap', background: autofit ? NX.hover : undefined }}>{autofit ? <Check size={14} /> : null} Autofit</button>
-              <button onClick={() => { setCustomizing(false); setDragKey(null); setOverKey(null); }} style={{ ...btn('primary'), flexShrink: 0, whiteSpace: 'nowrap' }}><Check size={14} /> Done</button>
-            </>
-          ) : (
-            <button onClick={() => setCustomizing(true)} title="Customize widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><LayoutGrid size={14} /> Customize</button>
-          )}
-        </div>
-      </div>
+      {/* The page-level controls (Customize, or Autofit + Done while
+          customizing) live in the module bar beside Manage - the header row
+          that used to carry them held nothing else once the greeting, the
+          date and the counts went, so it cost a row to show one button. The
+          range picker and task stats sit in the "My Tasks" card they actually
+          scope. */}
+      {barSlot && createPortal(
+        customizing ? (
+          <>
+            <button onClick={toggleAutofit} title="Pack widgets to fill gaps" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap', background: autofit ? NX.hover : undefined }}>{autofit ? <Check size={14} /> : null} Autofit</button>
+            <button onClick={() => { setCustomizing(false); setDragKey(null); setOverKey(null); }} style={{ ...btn('primary'), flexShrink: 0, whiteSpace: 'nowrap' }}><Check size={14} /> Done</button>
+          </>
+        ) : (
+          <button onClick={() => setCustomizing(true)} title="Customize widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><LayoutGrid size={14} /> Customize</button>
+        ),
+        barSlot,
+      )}
 
       {/* Taskboard-kit summary tiles (owner-adopted concept): pastel tiles with
           solid icon chips and X/Y fractions of MY real tasks. Each tile is a

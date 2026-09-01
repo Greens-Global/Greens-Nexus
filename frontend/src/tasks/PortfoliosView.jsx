@@ -9,7 +9,7 @@ import {
 import { useTasks } from './TasksContext';
 import { taskStats, topLevel } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab, ChipMultiSelect, ViewToggle } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, ChipMultiSelect, ViewToggle } from './components';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 
 // Columns in grid order, with the sort key each header drives. A portfolio's
@@ -188,7 +188,6 @@ export default function PortfoliosView({ onNavigate }) {
             <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 800, letterSpacing: '-0.02em' }}>Portfolios</div>
             {!isMobile && <div style={{ fontSize: 13.5, color: NX.dim, marginTop: 4 }}>Group projects to track their combined progress.</div>}
           </div>
-          {!isMobile && <button style={btn('primary')} onClick={() => setEditing({})}><Plus size={15} />New Portfolio</button>}
         </div>
         {/* Search · Show archived - one line on mobile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginTop: isMobile ? 10 : 16, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
@@ -328,7 +327,6 @@ export default function PortfoliosView({ onNavigate }) {
         )}
       </div>
 
-      {isMobile && <MobileFab title="New Portfolio" onClick={() => setEditing({})} />}
 
       {editing && (
         <PortfolioModal

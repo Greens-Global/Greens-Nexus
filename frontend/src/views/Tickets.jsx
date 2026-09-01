@@ -7,13 +7,13 @@
 // Tasks and Tickets in the sidebar doesn't refetch everything each time -
 // see App.jsx's ProtectedView.
 import { useState } from 'react';
-import { Settings, X } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import TicketsView from '../tickets/TicketsView';
 import TicketManageView from '../tickets/TicketManageView';
 import ReportBugButton from '../tasks/ReportBug';
 import { useIsMobile } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
-import { NX, FONT } from '../tasks/theme';
+import { NX, FONT, btn } from '../tasks/theme';
 
 export default function Tickets() {
   const { can } = useRole();
@@ -21,25 +21,22 @@ export default function Tickets() {
   const [manage, setManage] = useState(false);
   const isMobile = useIsMobile();
 
+  // Manage is an admin surface (ticket notifications today) - hidden from
+  // anyone below Manager, same gate as the Task module's Manage tab. It rides
+  // in the Tickets header next to New Ticket instead of in a bar of its own,
+  // and Exit rides on the Manage screen's tab strip.
+  // Sized off the same btn() scale as New Ticket so the pair reads as one
+  // control group rather than two buttons from different screens.
+  const manageBtn = canManage ? (
+    <button className="nx-iconbtn" onClick={() => setManage(true)} title="Manage" style={btn('outline')}>
+      <Settings size={15} /> <span className="nx-btn-label">Manage</span>
+    </button>
+  ) : null;
+
   return (
     <div className="nx-tasks" style={{ fontFamily: FONT, display: 'flex', flexDirection: 'column', height: '100%', background: NX.canvas }}>
-      {/* Manage is an admin surface (ticket notifications today) - hidden from
-          anyone below Manager, same gate as the Task module's Manage tab. */}
-      {canManage && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '9px 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)', flexShrink: 0 }}>
-          {manage ? (
-            <button className="primary-btn nx-iconbtn" onClick={() => setManage(false)} title="Exit" style={{ fontFamily: FONT }}>
-              <X size={14} /> <span className="nx-btn-label">Exit</span>
-            </button>
-          ) : (
-            <button className="secondary-btn nx-iconbtn" onClick={() => setManage(true)} title="Manage" style={{ fontFamily: FONT }}>
-              <Settings size={14} /> <span className="nx-btn-label">Manage</span>
-            </button>
-          )}
-        </div>
-      )}
       <div style={{ flex: 1, minHeight: 0 }}>
-        {manage ? <TicketManageView /> : <TicketsView />}
+        {manage ? <TicketManageView onExit={() => setManage(false)} /> : <TicketsView manageAction={manageBtn} />}
       </div>
       {/* TicketsView renders its own floating MobileTaskBar (view switcher +
           create +) on phones - offset above it, same as Tasks does for its

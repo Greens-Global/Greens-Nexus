@@ -10,7 +10,7 @@
 // route it for approval, who works the queues. Email settings are how those
 // people are told, which is downstream of that.
 import { useState } from 'react';
-import { Headset, Mail } from 'lucide-react';
+import { Headset, Mail, X } from 'lucide-react';
 import TicketDeskSettings from './TicketDeskSettings';
 import TicketNotifySettings from './TicketNotifySettings';
 import { NX, FONT, btn } from '../tasks/theme';
@@ -20,12 +20,13 @@ const SUBTABS = [
   { key: 'notify', label: 'Email Notifications', icon: Mail },
 ];
 
-export default function TicketManageView() {
+export default function TicketManageView({ onExit }) {
   const [tab, setTab] = useState('desk');
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-      <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
+        <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 16px', overflowX: 'auto', minWidth: 0 }}>
         {SUBTABS.map((t) => {
           const active = tab === t.key;
           return (
@@ -38,6 +39,14 @@ export default function TicketManageView() {
             </button>
           );
         })}
+        </div>
+        {/* Exit sits on the tab strip's line - the Manage entry point it
+            mirrors sits on the Tickets header line, not in a bar of its own. */}
+        {onExit && (
+          <button className="nx-iconbtn" onClick={onExit} title="Exit" style={{ ...btn('primary'), marginLeft: 'auto', marginRight: 16, flexShrink: 0 }}>
+            <X size={15} /> <span className="nx-btn-label">Exit</span>
+          </button>
+        )}
       </div>
 
       {/* Full-bleed, deliberately NOT the centered admin column ManageView uses

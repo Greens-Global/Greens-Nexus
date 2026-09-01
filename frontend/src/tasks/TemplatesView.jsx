@@ -21,13 +21,13 @@
 // asks for one start date and every task re-anchors to it.
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
-  LayoutTemplate, Plus, Search, Copy, Trash2, Pencil, Archive, Globe, Lock,
+  LayoutTemplate, Search, Copy, Trash2, Pencil, Archive, Globe, Lock,
   FolderKanban, CalendarDays, ListChecks, Users, RefreshCw, AlertTriangle,
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useTableValue } from './tableCols';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, useIsMobile, MobileFab, SearchSelect, ViewToggle } from './components';
+import { Avatar, EmptyState, Modal, usePeople, useIsMobile, SearchSelect, ViewToggle } from './components';
 import { formatDate } from '../lib/datetime';
 
 const VISIBILITY_OPTS = [
@@ -717,10 +717,6 @@ export default function TemplatesView({ onNavigate }) {
               </div>
             )}
           </div>
-          {!isMobile && (
-            <button style={btn('primary')}
-              onClick={() => setSaving(true)}><Plus size={15} />New Template</button>
-          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginTop: isMobile ? 10 : 16, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
@@ -876,7 +872,6 @@ export default function TemplatesView({ onNavigate }) {
           onClick={() => setRecaptureErr('')} role="alert">{recaptureErr}</div>
       )}
 
-      {isMobile && <MobileFab title="New Template" onClick={() => setSaving(true)} />}
 
       {saving && <SaveTemplateModal onClose={() => setSaving(false)} />}
       {using && (

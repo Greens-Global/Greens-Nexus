@@ -79,7 +79,12 @@
      row across to the far-right columns. Must stay lighter than --nx-hover so
      hovering a banded row still reads as a change. */
   --nx-zebra:    #f8fafc;
-  --nx-primary:  #111827;
+  /* The module's primary (buttons, the floating +, the active tab underline)
+     is the app's brand accent, not a near-black of its own - one brand across
+     the shell and the modules, and it follows the accent an admin picks in
+     Branding (lib/brandAccent.js) the way .primary-btn already does
+     (Sagar, Sept 2 2026). */
+  --nx-primary:  var(--wk-brand);
 }
 
 [data-theme="dark"] {
@@ -132,7 +137,7 @@
   --nx-border2:  rgba(255,255,255,0.055);
   --nx-hover:    rgba(255,255,255,0.06);
   --nx-zebra:    rgba(255,255,255,0.022);
-  --nx-primary:  #3a4358;
+  --nx-primary:  var(--wk-brand);   /* see the light-theme note above */
 }
 
 /* â”€â”€ Reset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -1100,7 +1105,15 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 
 /* â”€â”€ Support cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .support-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 14px; }
+/* A <button>, so the whole tile is clickable and focusable - hence the resets
+   (display/width/text-align/font/color) a button needs to sit in a grid and
+   read as a card rather than as a control. */
 .support-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
   background: var(--card);
   border: none;
   border-radius: 16px;
@@ -1109,6 +1122,11 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
   cursor: pointer;
   transition: border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
 }
+/* The keyboard path the card now has: Tab lands here, Enter/Space opens it. */
+.support-card:focus-visible { outline: 2px solid var(--fern); outline-offset: 2px; }
+/* "Open" is a label inside the tile now, not its own control - it takes the
+   card's hover rather than offering a second target. */
+.support-card:hover .link-btn { color: var(--ink); }
 .support-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
 .support-icon {
   width: 42px; height: 42px;
@@ -1810,6 +1828,13 @@ html { overflow-x: hidden; }
   .form-input, .search-bar input, input[type="text"], input[type="number"], textarea, select {
     font-size: 16px !important;
   }
+
+  /* ...but the OPEN list inherits that 16px, so a dropdown read a size larger
+     than everything around it (Sagar, Sept 1 2026). The options carry the
+     app's own scale instead; the closed control keeps 16px, which is what the
+     zoom rule above is actually about. iOS draws its own picker and ignores
+     this - no loss there. */
+  select option, select optgroup { font-size: 14px; }
 
   /* Comfortable thumb targets */
   .primary-btn, .secondary-btn { min-height: 40px; }
@@ -2699,6 +2724,50 @@ button, [role="button"], select { touch-action: manipulation; }
   .nx-tasks-portal input,
   .nx-tasks-portal textarea {
     font-size: 16px !important;
+  }
+
+  /* An OPEN <select> is drawn by the browser, not by the page: the module's
+     own 12.5px never reaches it, so the list came up at system size next to
+     12.5px chrome around it (Sagar, Sept 1 2026). Where Chrome can render the
+     list in-page (base-select), take it - then it's kit type at kit size.
+     !important because every select in this module carries an inline
+     `appearance: auto`, which would otherwise win. Browsers without it keep
+     the system picker, which nothing in CSS can size. */
+  @supports (appearance: base-select) {
+    .nx-tasks select,
+    .nx-tasks-portal select {
+      appearance: base-select !important;
+    }
+    .nx-tasks select::picker-icon,
+    .nx-tasks-portal select::picker-icon { display: none; }
+    .nx-tasks select::picker(select),
+    .nx-tasks-portal select::picker(select) {
+      appearance: base-select;
+      background: var(--card);
+      border: 1px solid var(--wk-line2);
+      border-radius: 12px;
+      box-shadow: 0 18px 50px rgba(17,24,39,0.18);
+      padding: 5px;
+      margin-top: 4px;
+    }
+    .nx-tasks select option,
+    .nx-tasks-portal select option {
+      padding: 8px 11px;
+      border-radius: 8px;
+      font-family: var(--wk-font);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .nx-tasks select option:checked,
+    .nx-tasks-portal select option:checked {
+      background: var(--wk-brand-tint);
+      color: var(--wk-brand);
+      font-weight: 600;
+    }
+    .nx-tasks select option::checkmark,
+    .nx-tasks-portal select option::checkmark { display: none; }
   }
 }
 
