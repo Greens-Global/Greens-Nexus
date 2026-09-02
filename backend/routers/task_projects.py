@@ -848,8 +848,8 @@ def decide_member_request(request_id: str, body: DecideBody, user: dict = Depend
 # to be the same project again, so it carries the people and the settings too.
 # Same payload shape, `blueprint: false`, and the caller picks which parts to
 # keep.
-from datetime import date, timedelta   # noqa: E402  (kept beside the code that uses it)
-
+# (date/timedelta now come from the top of the file - the handover above needs
+# them too, and two imports of the same names is what ruff's F811 flags.)
 from routers.task_config import (normalize_field_options,   # noqa: E402
                                  _dump_applies_to, _parse_applies_to)
 
