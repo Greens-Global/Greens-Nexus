@@ -7,7 +7,7 @@ import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
-import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton, SearchSelect } from './components';
+import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton, SearchSelect, UnassignedAvatar } from './components';
 import CreateTaskModal from './CreateTaskModal';
 import QuickCreateTask from './QuickCreateTask';
 import MobileTaskBar from './MobileTaskBar';
@@ -395,7 +395,7 @@ function TaskRow({ t, store, selected, toggleSel, onOpen, band = false }) {
             </span>
           ))}
         </span>
-      ) : <span style={{ width: 24 }} />}
+      ) : <UnassignedAvatar size={24} />}
       <PriorityChip priority={t.priority} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 600 : 400, minWidth: 74, textAlign: 'right' }}>{t.dueOn || '-'}</span>
@@ -445,11 +445,11 @@ function BoardBody({ visible, group, ctx, store, onOpen }) {
                   {t.dueOn && <span style={{ fontSize: 11.5, color: NX.dim }}>{t.dueOn}</span>}
                   {t.projectId && <span style={{ fontSize: 11.5, color: NX.faint }}>{projectName(t.projectId)}</span>}
                   <div style={{ marginLeft: 'auto', display: 'flex' }}>
-                    {taskAssignees(t).slice(0, 2).map((a, i) => (
+                    {taskAssignees(t).length ? taskAssignees(t).slice(0, 2).map((a, i) => (
                       <span key={a} style={{ display: 'inline-flex', marginLeft: i ? -7 : 0 }}>
                         <Avatar email={a} name={nameOf(a)} size={22} />
                       </span>
-                    ))}
+                    )) : <UnassignedAvatar size={22} />}
                   </div>
                 </div>
               </div>

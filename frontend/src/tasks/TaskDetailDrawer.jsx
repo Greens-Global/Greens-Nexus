@@ -18,7 +18,7 @@ import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
-import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer } from './components';
+import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag } from './components';
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import ProjectPicker from './ProjectPicker';
@@ -193,7 +193,9 @@ function MenuItem({ icon, onClick, danger, children }) {
 export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab = 'overview' }) {
   const store = useTasks();
   const { taskById, tasks, teams, projects, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment, offerUndo } = store;
-  const people = usePeople();
+  // Externals included: Assignee and Collaborators are who does the work, and
+  // an external partner on a task has to be nameable there (Sagar, Sept 2 2026).
+  const people = usePeople(true);
 
   const [activeId, setActiveId] = useState(taskId);
   useEffect(() => setActiveId(taskId), [taskId]);
@@ -452,7 +454,9 @@ function CollaboratorMenuBody({ people, selected, onToggle }) {
         {filtered.map((u) => (
           <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
             <input type="checkbox" checked={selected.includes(u.email)} onChange={() => pick(u.email)} />
-            <Avatar email={u.email} name={u.name} size={20} card={false} /> {u.name}
+            <Avatar email={u.email} name={u.name} size={20} card={false} />
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
+            {u.external && <ExternalTag />}
           </label>
         ))}
         {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
