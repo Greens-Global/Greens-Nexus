@@ -11,13 +11,14 @@ import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { filesFromPaste } from '../tasks/lib';
+import { filesFromPaste, richBodyHtml } from '../tasks/lib';
+import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { supabase } from '../lib/supabase';
 import { startScreenRecording } from '../lib/screenRecorder';
 import { stashDraft, appendDraftFile, takeDraft, peekDraft, setDraftUiMounted, finishRecording } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
-import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect } from '../tasks/components';
+import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import {
@@ -634,8 +635,11 @@ export default function TicketsView({ manageAction = null }) {
             one header line for the module's two top-level actions, the
             everyday one (create) first. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+          {/* "Create", not "New Ticket" - the same word the Task module's bar
+              button uses, and the page it sits on already says Tickets
+              (Sagar, Sept 2 2026). */}
           {!isMobile && (
-            <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> New Ticket</button>
+            <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
           )}
           {manageAction}
         </div>
@@ -950,7 +954,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
             {t.assigneeId
               ? <><Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />
                   <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{nameOf(t.assigneeId)}</span></>
-              : <span style={{ fontSize: 12, color: NX.faint }}>Unassigned</span>}
+              : <UnassignedAvatar size={20} />}
           </span>
         </div>
       </div>
@@ -1012,8 +1016,11 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, overflow: 'hidden', flex: `0 0 ${colWidths.assignee}px` }} title={`Assignee: ${t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}`}>
-        {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : <span style={{ width: 22, flexShrink: 0 }} />}
-        <span style={{ fontSize: 12.5, color: t.assigneeId ? NX.dim : NX.faint, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}</span>
+        {/* Unassigned is the dashed avatar alone - the word said no more than
+            the empty space it filled, and the icon keeps the column reading as
+            a column of faces. The cell's title still spells it out on hover. */}
+        {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : <UnassignedAvatar size={22} />}
+        {t.assigneeId && <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(t.assigneeId)}</span>}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.created}px`, minWidth: 0, overflow: 'hidden' }} title={t.createdAt ? `Created ${fmtDate(t.createdAt)}` : ''}>
         <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.createdAt ? fmtDate(t.createdAt) : '-'}</span>
@@ -2280,18 +2287,24 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
 }
 
 // ── Conversation thread ──────────────────────────────────────────────────────
+// The same editor the task module's comments use (RichDescription), not a bare
+// textarea: formatting, links and - the point of the change - @mentions, which
+// this thread simply did not have (Sagar, Sept 2 2026). A mention is written as
+// a mailto link, which is exactly what routers/task_util.extract_mentions reads
+// on the way in, so one editor and one parser serve tasks and tickets both.
 function TicketConversation({ ticketId, nameOf }) {
   const [rows, setRows] = useState(null);
   const [body, setBody] = useState('');
   const [internal, setInternal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const people = usePeople();
   const reload = () => api.getTicketComments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
   const send = async () => {
-    const v = body.trim(); if (!v || busy) return;
+    if (isEmptyDoc(body) || busy) return;
     setBusy(true);
-    try { await api.addTicketComment(ticketId, { body: v, internal }); setBody(''); await reload(); }
+    try { await api.addTicketComment(ticketId, { body, internal }); setBody(''); await reload(); }
     catch { /* ignore */ } finally { setBusy(false); }
   };
   const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); reload(); };
@@ -2311,7 +2324,11 @@ function TicketConversation({ ticketId, nameOf }) {
                     <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(c.createdAt)}</span>
                     <button onClick={() => del(c.id)} title="Delete" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>
                   </div>
-                  <div style={{ fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap', marginTop: 2 }}>{c.body}</div>
+                  {/* richBodyHtml sanitizes, and wraps a plain-text body (every
+                      comment written before this change) in paragraphs - so old
+                      and new comments render the same way. */}
+                  <div className="nx-rich-body" style={{ fontSize: 13, color: NX.dim, marginTop: 2 }}
+                    dangerouslySetInnerHTML={{ __html: richBodyHtml(c.body, nameOf) }} />
                 </div>
               </div>
             ))}
@@ -2326,11 +2343,26 @@ function TicketConversation({ ticketId, nameOf }) {
           }}>{isInt ? <Lock size={12} /> : <MessageSquare size={12} />}{lab}</button>
         ))}
       </div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(); }}
-          placeholder={internal ? 'Internal note - visible to agents, not the requester…  (⌘/Ctrl+Enter)' : 'Public reply…  (⌘/Ctrl+Enter to send)'} rows={2}
-          style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, flex: 1, ...(internal ? { background: 'rgba(245,158,11,0.06)', borderColor: 'rgba(245,158,11,0.4)' } : {}) }} />
-        <button onClick={send} disabled={!body.trim() || busy} style={{ ...btn('primary'), opacity: body.trim() && !busy ? 1 : 0.55, ...(internal ? { background: NX.amber } : {}) }}><Send size={14} /></button>
+      {/* The internal-note tint moves to a wrapper: the editor owns its own box,
+          and a note still has to LOOK unlike a public reply at a glance. */}
+      <div style={internal ? { borderRadius: 10, padding: 2, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)' } : undefined}>
+        <RichDescription
+          value={body}
+          onChange={setBody}
+          onSubmit={send}
+          mentionPeople={people}
+          minHeight={64}
+          placeholder={internal ? 'Internal note - visible to agents, not the requester…' : 'Public reply…'}
+        />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+        <span style={{ fontSize: 11, color: NX.faint }}>
+          Type <b>@</b> to mention someone - they'll be added to the ticket and told. ⌘/Ctrl+Enter to send.
+        </span>
+        <button onClick={send} disabled={isEmptyDoc(body) || busy}
+          style={{ ...btn('primary'), marginLeft: 'auto', flexShrink: 0, opacity: (isEmptyDoc(body) || busy) ? 0.55 : 1, ...(internal ? { background: NX.amber, borderColor: NX.amber } : {}) }}>
+          <Send size={14} /> {busy ? 'Sending…' : internal ? 'Add note' : 'Send'}
+        </button>
       </div>
     </div>
   );

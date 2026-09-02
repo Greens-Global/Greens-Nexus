@@ -89,6 +89,15 @@ export function EmptyState({ icon: Icon, title, hint }) {
 // 'Do you want to save'"). With isDirty unset (the default) a modal behaves
 // exactly as before.
 export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 60vw, 980px)', isDirty = false, onSave }) {
+  // Phones get a full-screen sheet, the shape the task drawer already uses
+  // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
+  // is the LARGE viewport (browser chrome hidden), so 7vh of padding plus an
+  // 86vh card measured about 109% of what is actually on screen in portrait -
+  // the footer, and every action button in it, sat under the browser's bottom
+  // bar with no way to scroll to it (Sagar, Sept 2 2026: "portrait mode you
+  // can't access the action buttons"). Landscape hid the bug because Safari's
+  // chrome is thin there, so large and visible viewport nearly agree.
+  const isMobile = useIsMobile();
   const [confirmClose, setConfirmClose] = useState(false);
   const [saving, setSaving] = useState(false);
   const requestClose = () => { if (isDirty) setConfirmClose(true); else onClose(); };
@@ -105,20 +114,35 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
   return createPortal(
     <div className="nx-tasks-portal" onClick={requestClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 4000,
-      display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '7vh 16px',
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      padding: isMobile ? 0 : '7vh 16px',
       fontFamily: FONT, animation: 'fadeIn 0.13s ease',
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        background: NX.surface, borderRadius: 16, width, maxWidth: '100%', maxHeight: '86vh',
-        display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', overflow: 'hidden',
-        border: `1px solid ${NX.border}`,
+      <div onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-modal-sheet' : undefined} style={{
+        background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
+        // The sheet's height comes from .nx-modal-sheet, not from here: it needs
+        // `height:100vh` followed by `height:100dvh`, and one inline style object
+        // cannot hold the same property twice. dvh is the part of the page
+        // actually on screen, so the sheet ends where the browser's bottom bar
+        // begins; the vh line before it is what a browser without dvh keeps.
+        ...(isMobile
+          ? { width: '100%', maxWidth: '100%', borderRadius: 0, border: 'none' }
+          : { width, maxWidth: '100%', maxHeight: '86vh', borderRadius: 16 }),
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${NX.border2}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${NX.border2}`, flexShrink: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{title}</div>
           <button onClick={requestClose} style={{ ...btn('ghost'), padding: 6, borderRadius: 8 }} aria-label="Close"><X size={18} /></button>
         </div>
-        <div style={{ padding: 20, overflowY: 'auto' }}>{children}</div>
-        {footer && <div style={{ padding: '12px 20px', borderTop: `1px solid ${NX.border2}`, background: NX.surface2, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{footer}</div>}
+        {/* flex:1 + minHeight:0 is what makes THIS the part that scrolls; without
+            it a tall body pushes the footer past the panel's clipped edge. */}
+        <div className="nx-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0 }}>{children}</div>
+        {/* The action row never scrolls away, and clears the home indicator. */}
+        {footer && <div style={{
+          padding: isMobile ? '12px 16px calc(12px + env(safe-area-inset-bottom))' : '12px 20px',
+          borderTop: `1px solid ${NX.border2}`, background: NX.surface2, flexShrink: 0,
+          display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+        }}>{footer}</div>}
       </div>
       {confirmClose && (
         <div onClick={(e) => e.stopPropagation()} style={{
@@ -394,17 +418,53 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
 }
 
 // Loads the Nexus People directory once (deduped in api.js) → [{email,name}] for pickers.
-export function usePeople() {
+// The curated Nexus People list. `includeExternal` adds guest/external
+// identities, which the directory withholds by default - a task's Assignee and
+// Collaborators offer them (Sagar, Sept 2 2026: externals do the work and need
+// to be on it), while every other picker in the module keeps the staff-only
+// list. `external: true` rides along so a picker can label them.
+export function usePeople(includeExternal = false) {
   const [people, setPeople] = useState([]);
   useEffect(() => {
     let alive = true;
-    api.getPeopleDirectory().then((rows) => {
+    api.getPeopleDirectory(includeExternal).then((rows) => {
       if (!alive) return;
-      setPeople((rows || []).map((u) => ({ email: (u.email || '').toLowerCase(), name: u.name || u.display_name || u.email })).filter((p) => p.email));
+      setPeople((rows || []).map((u) => ({
+        email: (u.email || '').toLowerCase(),
+        name: u.name || u.display_name || u.email,
+        external: !!u.external,
+      })).filter((p) => p.email));
     }).catch(() => {});
     return () => { alive = false; };
-  }, []);
+  }, [includeExternal]);
   return people;
+}
+
+// "Nobody yet", in the shape of an avatar: a dashed circle with a person-plus
+// inside - the same dashed-circle-plus the Collaborators row uses to ADD
+// someone, which is exactly what this cell is inviting (Sagar, Sept 2 2026).
+// It replaces both the empty cell in the task lists (which read as data still
+// loading) and the word "Unassigned" in the ticket list, so an unassigned row
+// looks the same everywhere and lines up with the avatars above and below it.
+export function UnassignedAvatar({ size = 24, title = 'Unassigned' }) {
+  return (
+    <span title={title} aria-label={title} style={{
+      width: size, height: size, borderRadius: '50%', flexShrink: 0,
+      border: `1.5px dashed ${NX.border}`, color: NX.faint, boxSizing: 'border-box',
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    }}><UserPlus size={Math.round(size * 0.5)} /></span>
+  );
+}
+
+// The badge on a guest/external identity wherever one can be picked. Small and
+// quiet - it labels the row, it isn't a warning.
+export function ExternalTag() {
+  return (
+    <span style={{
+      flexShrink: 0, fontSize: 10, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase',
+      color: NX.amber, background: 'rgba(217,119,6,0.14)', borderRadius: 5, padding: '1px 5px',
+    }}>External</span>
+  );
 }
 
 // A compact dropdown that picks a person (email) from the directory.
@@ -925,7 +985,11 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
             return (
               <div key={p.email} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
                 <Avatar email={p.email} name={p.name} size={22} card={false} />
-                <span style={{ flex: 1 }}>{p.name}</span>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                {/* Externals are offered here, so say which they are - putting a
+                    partner on a task is a different decision from putting a
+                    colleague on it. */}
+                {p.external && <ExternalTag />}
                 {on && <Check size={14} style={{ color: NX.blue }} />}
               </div>
             );

@@ -63,6 +63,10 @@ const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'blo
 
 const AVATAR_HUES = ['215,75%,45%', '142,60%,35%', '30,80%,48%', '271,60%,48%', '350,65%,48%'];
 const fullName = e => [e.firstName, e.lastName].filter(Boolean).join(' ');
+// Backstop for a task handover with no named person and no supervisor on the
+// org chart - kept in step with task_projects.HANDOVER_FALLBACK_EMAIL, which
+// is what the server actually applies.
+const HANDOVER_FALLBACK_EMAIL = 'neil@greensglobal.com';
 const initials = e => `${(e.firstName || '?')[0]}${(e.lastName || '')[0] || ''}`.toUpperCase();
 const hueFor = e => AVATAR_HUES[(e.employeeCode || e.id || '').split('').reduce((n, c) => n + c.charCodeAt(0), 0) % AVATAR_HUES.length];
 
@@ -3497,6 +3501,12 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   const addTrustee = () => { if (pick && !trustees.includes(pick)) setTrustees(t => [...t, pick]); setPick(''); };
   const removeTrustee = em => setTrustees(t => t.filter(x => x !== em));
   const nameFor = em => { const c = employees.find(x => (x.workEmail || '').toLowerCase() === em); return c ? fullName(c) : em; };
+  // Who gets the tasks when the picker is left blank - their supervisor, else
+  // the workspace owner. Mirrors task_projects.resolve_handover_target; the
+  // backend is what actually decides, this only names it in the copy.
+  const handoverFallbackName = manager?.workEmail
+    ? `${fullName(manager)} (their supervisor)`
+    : nameFor(HANDOVER_FALLBACK_EMAIL);
 
   // Exchange PowerShell to run (Graph can't do shared conversion / permissions).
   const upn = employee.workEmail || '<user-upn>';
@@ -3540,12 +3550,18 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
       const it = saved.items;
       const ho = saved.handover;
       if (ho && (ho.reassigned || ho.projectsTransferred)) {
+        // Name who received it: with a blank picker the server chose (their
+        // supervisor, else the fallback owner), so the summary is the first
+        // place anyone finds out where the work went.
         const parts = [
           ho.reassigned && `${ho.reassigned} task${ho.reassigned === 1 ? '' : 's'} reassigned`,
-          ho.moved && `${ho.moved} moved to a handover project`,
+          // moved = had no project and now lives there; linked = kept its own
+          // project and is listed there too.
+          ho.moved && `${ho.moved} moved into their handover project`,
+          ho.linked && `${ho.linked} also listed in it`,
           ho.projectsTransferred && `${ho.projectsTransferred} project${ho.projectsTransferred === 1 ? '' : 's'} transferred`,
         ].filter(Boolean);
-        bits.push(parts.join(' + '));
+        bits.push(`${parts.join(' + ')} to ${ho.toEmail ? nameFor(ho.toEmail) : 'their supervisor'}`);
       }
       if (it && (it.checkouts || it.assignments)) {
         const parts = [it.checkouts && `${it.checkouts} checkout${it.checkouts === 1 ? '' : 's'}`, it.assignments && `${it.assignments} assignment${it.assignments === 1 ? '' : 's'}`].filter(Boolean);
@@ -3635,31 +3651,36 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
                     <span>All equipment {employee.firstName} still holds in Item Management will be <strong>force-returned</strong> automatically - checkouts closed and permanent assignments sent back to stock.</span>
                   </div>
                   {/* Task handover. The picker is the curated Nexus People list
-                      (the `employees` prop), never an M365/GAL-derived one. */}
+                      (the `employees` prop), never an M365/GAL-derived one.
+                      Leaving it blank no longer skips the handover - the work
+                      goes to their supervisor, or to the fallback owner if they
+                      have none (Sagar, Sept 2 2026), so an offboarding can't
+                      leave tasks on an account that no longer signs in. The
+                      backend resolves the same order in
+                      task_projects.resolve_handover_target - this line only
+                      says out loud what it will do. */}
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
                     <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Hand over their tasks</div>
                     <input list="handover-people" value={handoverTo}
                       onChange={e => setHandoverTo(e.target.value.trim().toLowerCase())}
-                      placeholder="Search for a person - leave blank to skip"
+                      placeholder={`Search for a person - leave blank for ${handoverFallbackName}`}
                       style={{ width: '100%', padding: '7px 9px', fontSize: 13, borderRadius: 8, border: '1px solid var(--line)' }} />
                     <datalist id="handover-people">
                       {colleagues.map(c => <option key={c.id} value={(c.workEmail || '').toLowerCase()}>{fullName(c)}</option>)}
                     </datalist>
-                    {handoverTo && (
-                      <>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, fontSize: 13, cursor: 'pointer' }}>
-                          <input type="checkbox" checked={handoverIncludeCompleted}
-                            onChange={e => setHandoverIncludeCompleted(e.target.checked)} style={{ width: 16, height: 16 }} />
-                          Include completed tasks
-                        </label>
-                        <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                          Their open tasks are reassigned to {nameFor(handoverTo)}. Tasks that already belong to a
-                          project stay in it; anything with no project is collected into a new
-                          <strong> Handover - {fullName(employee)}</strong> project owned by them, along with any
-                          projects {employee.firstName} owned.
-                        </div>
-                      </>
-                    )}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, fontSize: 13, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={handoverIncludeCompleted}
+                        onChange={e => setHandoverIncludeCompleted(e.target.checked)} style={{ width: 16, height: 16 }} />
+                      Include completed tasks
+                    </label>
+                    <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                      Their open tasks are reassigned to <strong>{handoverTo ? nameFor(handoverTo) : handoverFallbackName}</strong>
+                      and all of them are listed in one new <strong>{fullName(employee)}’s previously assigned Tasks</strong>
+                      project owned by them, along with any projects {employee.firstName} owned. A task that already
+                      belongs to a project stays on that board as well - it is the same task in both places, so an
+                      edit made from either one is the same edit. They also get a task to go through the list and
+                      clear it.
+                    </div>
                   </div>
                 </>
               )}

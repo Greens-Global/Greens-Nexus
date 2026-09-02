@@ -17,7 +17,7 @@ import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, field
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
-import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect } from '../components';
+import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar } from '../components';
 import { emailToName, rootZoom } from '../../lib/utils';
 import { matchPeople, onEnterPickFirst } from '../../lib/peopleSearch';
 
@@ -231,9 +231,8 @@ function AssigneeCell({ value, people, onSelect, compact }) {
           people list directly (no nested picker button inside the popover).
           compact = monday-style Person cell: just the avatar, centered. */}
       <button title={name || 'Unassigned'} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={{ display: 'flex', alignItems: 'center', justifyContent: compact ? 'center' : 'flex-start', gap: 6, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
-        {value ? <Avatar email={value} name={name} size={compact ? 26 : 22} /> : compact ? (
-          <span style={{ width: 26, height: 26, borderRadius: '50%', border: `1.5px dashed ${NX.border}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: NX.faint, fontSize: 13 }}>+</span>
-        ) : null}
+        {value ? <Avatar email={value} name={name} size={compact ? 26 : 22} />
+          : compact ? <UnassignedAvatar size={26} /> : null}
         {!compact && <span style={{ fontSize: 13, color: value ? NX.dim : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name || 'Unassigned'}</span>}
       </button>
       {open && (
@@ -295,8 +294,14 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
   const followers = (t.followerIds || []).filter((f) => f && !assignees.includes(f));
   // One ordered roster - primary assignee, the rest of the assignees, then
   // followers - sliced to whatever the Person column's width can actually show.
+  // The primary slot is always there, even with nobody in it: unassigned used
+  // to render an empty cell (or just the follower stack), which read as a
+  // column that had failed to load rather than as "nobody yet" - and there was
+  // nothing to click to fix it (Sagar, Sept 2 2026). Empty email = the dashed
+  // placeholder, which is also the picker's trigger.
   const roster = [
-    ...assignees.map((email, i) => ({ kind: 'assignee', email, primary: i === 0 })),
+    { kind: 'assignee', email: assignees[0] || '', primary: true },
+    ...assignees.slice(1).map((email) => ({ kind: 'assignee', email })),
     ...followers.map((email) => ({ kind: 'follower', email })),
   ];
   const fit = peopleStackLayout(personWidth, roster.length);
@@ -353,7 +358,10 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
             {people_.shown.map((pn, i) => {
-              const ml = i === 0 ? 0 : people_.step - AVATAR;
+              // Faces in the stack overlap; the dashed "nobody yet" chip is not
+              // one of them, so whatever follows it starts clear of it instead
+              // of sliding halfway over it.
+              const ml = i === 0 ? 0 : (i === 1 && !assignees.length ? 3 : people_.step - AVATAR);
               // Assignees sit above followers, and the primary above everyone,
               // so the stack still reads top-down as "who owns this".
               const z = people_.shown.length - i + 1;

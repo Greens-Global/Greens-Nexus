@@ -167,7 +167,8 @@ def _person_name(e) -> str:
 
 
 @router.get("/directory")
-def people_directory(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def people_directory(include_external: bool = False,
+                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The curated Nexus People list (nexus_employees) as a name+email picker -
     NOT the ~150-account M365 GAL. Any signed-in user can call it (same shape as
     /roles/directory), so modules like Item Management can assign to real Nexus
@@ -185,23 +186,35 @@ def people_directory(user: dict = Depends(get_current_user), db: Session = Depen
     source. The cache key carries the caller's company set; employee/entity edits
     flush the whole namespace (cache._WATCHED), and a scope change moves the caller
     to a different key, so per-wall caching stays correct. Walls off (or a Global
-    Admin) → scope None → the old single 'all' list, unchanged."""
+    Admin) → scope None → the old single 'all' list, unchanged.
+
+    `include_external=true` adds guest/external identities, each flagged
+    `external: true`. Off by default, because this list is what every picker in
+    the app loads: an external belongs in a task's Assignee and Collaborators
+    (Sagar, Sept 2 2026 - they do the work), not in an approver list, a service
+    desk agent list or an HR picker. Callers opt in one at a time."""
     import cache, auth
     scope = auth.company_scope(user, db)
     key = "all" if scope is None else ("co:" + ",".join(sorted(scope)) if scope else "co:none")
+    # Separate cache entry: the two lists differ in content, and the default one
+    # must never be served an externals-included payload.
+    if include_external:
+        key += "+ext"
     cached = cache.people_directory.get(key)
     if cached is not None:
         return cached
-    # External users (Aug 17) are excluded: guest/external identities must
-    # never appear in people pickers, assignment lists, or any org-wide people
-    # surface built on this directory. NULL-safe: legacy rows have no
-    # identity_type, and `notin_` alone would silently drop them too.
+    # External users (Aug 17) are excluded by default: guest/external identities
+    # stay out of people pickers, assignment lists and every org-wide people
+    # surface built on this directory unless the caller asks for them.
+    # NULL-safe: legacy rows have no identity_type, and `notin_` alone would
+    # silently drop them too.
     from sqlalchemy import or_, false
     q = (db.query(NexusEmployee)
               .filter(NexusEmployee.status != "offboarded")
-              .filter(NexusEmployee.work_email != "")
-              .filter(or_(NexusEmployee.identity_type.is_(None),
-                          NexusEmployee.identity_type.notin_(("guest", "external")))))
+              .filter(NexusEmployee.work_email != ""))
+    if not include_external:
+        q = q.filter(or_(NexusEmployee.identity_type.is_(None),
+                         NexusEmployee.identity_type.notin_(("guest", "external"))))
     if scope is not None:
         # Company wall: only people in the caller's companies; fail closed if none.
         q = q.filter(NexusEmployee.company.in_(list(scope))) if scope else q.filter(false())
@@ -211,7 +224,10 @@ def people_directory(user: dict = Depends(get_current_user), db: Session = Depen
     ent_names = {en.id: en.name for en in db.query(HrEntity).all()}
     out = [{"email": e.work_email, "name": _person_name(e), "photoUrl": e.photo_url or "",
             "company": e.company or "", "companyName": ent_names.get(e.company or "", ""),
-            "department": e.department or ""}
+            "department": e.department or "",
+            # Flagged, not silently mixed in - a picker that offers externals
+            # should be able to say which ones they are.
+            "external": (e.identity_type or "") in ("guest", "external")}
            for e in rows]
     cache.people_directory.set(key, out)
     return out
