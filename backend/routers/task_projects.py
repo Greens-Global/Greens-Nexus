@@ -7,7 +7,11 @@ project) - not to be confused with a project's `hr_department_id`, which
 points at the real People-module department (HrDepartment) that owns the
 project. Same dual-field shape TaskTicket already uses for this distinction.
 """
+import time
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -396,6 +400,46 @@ def backfill_task_teams(apply: bool = False, db: Session = Depends(get_db)):
     return {"filled": len(todo), "projects": len({t.project_id for t in todo}), "applied": apply}
 
 
+# Where a departing person's work goes when the offboarding form leaves the
+# handover picker blank. Their supervisor first; this address is the backstop
+# (Sagar, Sept 2 2026). Skipping the picker used to mean the handover simply
+# did not run, which left the tasks assigned to an account that no longer
+# signs in - work nobody could see, on a person nobody could reach.
+HANDOVER_FALLBACK_EMAIL = "neil@greensglobal.com"
+
+
+def _handover_candidate(db: Session, candidate: str, leaving: str) -> str:
+    """`candidate` if they can actually receive the work, else "".
+
+    An address with no employee row (a shared mailbox, say) is allowed - only a
+    row that says offboarded disqualifies one, so a chain of leavers can't hand
+    work to another dead account."""
+    candidate = (candidate or "").strip().lower()
+    if not candidate or candidate == leaving:
+        return ""
+    row = (db.query(models.NexusEmployee)
+             .filter(func.lower(models.NexusEmployee.work_email) == candidate).first())
+    if row is not None and (row.status or "") == "offboarded":
+        return ""
+    return candidate
+
+
+def resolve_handover_target(db: Session, email: str, requested: str = "") -> str:
+    """Who inherits `email`'s work: whoever the offboarding form named, else
+    their supervisor (manager_email), else HANDOVER_FALLBACK_EMAIL."""
+    leaving = (email or "").strip().lower()
+    if not leaving:
+        return ""
+    who = (db.query(models.NexusEmployee)
+             .filter(func.lower(models.NexusEmployee.work_email) == leaving).first())
+    supervisor = (getattr(who, "manager_email", "") or "") if who is not None else ""
+    for candidate in (requested, supervisor, HANDOVER_FALLBACK_EMAIL):
+        ok = _handover_candidate(db, candidate, leaving)
+        if ok:
+            return ok
+    return ""
+
+
 def handover_person(db: Session, email: str, to_email: str, include_completed: bool = False,
                     actor: str = "") -> dict:
     """Hand a departing person's task work to someone else. Called by HR
@@ -405,30 +449,49 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
     notifications, as this is a bulk admin action.
 
       • Every task assigned to them  -> reassigned to `to_email`.
-      • Their project-less tasks     -> moved into a new "Handover - <name>"
+      • Their project-less tasks     -> moved into a new
+                                        "<name>'s previously assigned Tasks"
                                         project owned by `to_email`.
+      • Everything else they held    -> ADDED to that project as an extra
+                                        project (models.Task.project_ids),
+                                        keeping the project it already had.
       • Projects they OWNED          -> owner transferred to `to_email`.
+      • One task for `to_email`      -> "go through this and clear it", so the
+                                        handover lands on someone's list
+                                        instead of only in a project nobody was
+                                        told about (Sagar, Sept 2 2026).
 
     Completed tasks are skipped unless `include_completed`.
 
-    Tasks that already sit in a project KEEP that project and are only
-    reassigned. Moving them would strip live projects of their work to build the
-    handover project - a departing engineer's twenty tasks would vanish out of
-    the boards their teams are still running. Only genuinely homeless tasks
-    (My Tasks items, project_id="") have nowhere else to be, so those are what
-    the handover project collects.
+    Tasks that already sit in a project KEEP that project - they are LINKED
+    into the handover project as an extra one, not re-homed (Sagar, Sept 2
+    2026: "make sure any change on a task from the new project reflects on the
+    live board"). It is the same task row in both places, so an edit made from
+    either view is the same edit; the handover project is one complete list of
+    what the person held, and not one task comes off the board its team is
+    still running. Re-homing them would also strand their section and their
+    per-project custom field values, and would push the move out to Asana,
+    which extra projects never do.
 
-    Subtasks are reassigned but never moved: a subtask carries project_id="" and
-    reaches its project through its parent, so relocating one on its own would
-    detach it from that parent's project.
+    Only genuinely homeless tasks (My Tasks items, project_id="") are MOVED -
+    they have nowhere else to be.
 
-    Returns {"reassigned": n, "moved": n, "projectsTransferred": n,
-             "projectId": <new project id or "">}."""
-    out = {"reassigned": 0, "moved": 0, "projectsTransferred": 0, "projectId": ""}
+    Subtasks are reassigned and linked, never moved: a subtask carries
+    project_id="" and reaches its project through its parent, so re-homing one
+    on its own would detach it from that parent's project. The link is what
+    makes a subtask whose parent belongs to someone else still show up in the
+    handover list.
+
+    Returns {"reassigned": n, "moved": n, "linked": n, "projectsTransferred": n,
+             "projectId": <new project id or "">, "taskId": <clear-up task or "">,
+             "toEmail": <who received it>}."""
+    out = {"reassigned": 0, "moved": 0, "linked": 0, "projectsTransferred": 0,
+           "projectId": "", "taskId": "", "toEmail": ""}
     email = (email or "").strip().lower()
     to_email = (to_email or "").strip().lower()
     if not email or not to_email or email == to_email:
         return out
+    out["toEmail"] = to_email
     now = now_iso()
 
     # Python-side because assignee_emails is a JSON list (see the daily-briefing
@@ -443,13 +506,17 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
     homeless = [t for t in tasks if not (t.project_id or "") and not (t.parent_task_id or "")]
     owned = db.query(models.TaskProject).filter(models.TaskProject.owner_email == email).all()
 
-    if homeless:
+    # The project is created whenever there is ANYTHING to hand over, not only
+    # when there are homeless tasks: it is also where the clear-up task below
+    # lives, and someone inheriting a departed colleague's projects still needs
+    # that prompt. Nothing to hand over -> no project, no task, no noise.
+    if tasks or owned:
         who = (db.query(models.NexusEmployee)
                .filter(models.NexusEmployee.work_email == email).first())
         label = " ".join(x for x in [(getattr(who, "first_name", "") or ""),
                                      (getattr(who, "last_name", "") or "")] if x).strip() or email
         project = models.TaskProject(
-            id=gen_id(), name=f"Handover - {label}",
+            id=gen_id(), name=f"{label}'s previously assigned Tasks",
             description=f"Tasks handed over from {label} on offboarding.",
             owner_email=to_email, member_emails=[to_email], member_roles={to_email: "owner"},
             access_level="restricted", status="not_started",
@@ -458,9 +525,51 @@ def handover_person(db: Session, email: str, to_email: str, include_completed: b
         db.add(project)
         db.flush()   # sessions are autoflush=False - the id must be visible below
         out["projectId"] = project.id
+        homeless_ids = {t.id for t in homeless}
         for t in homeless:
             t.project_id = project.id
             out["moved"] += 1
+        # Everything else is LINKED, not moved: it keeps the project it lives in
+        # and gains this one as an extra, so the handover project lists all of
+        # the person's work while every task stays on its own board. A JSON
+        # column needs a NEW list assigned - mutating the existing one in place
+        # is not seen as a change by SQLAlchemy.
+        for t in tasks:
+            if t.id in homeless_ids:
+                continue
+            extra = [pid for pid in (t.project_ids or []) if pid and pid != project.id]
+            t.project_ids = extra + [project.id]
+            t.modified_at = now
+            out["linked"] += 1
+
+        # The prompt to actually deal with it. Local import: routers.tasks owns
+        # the code sequence and does not import this module, so there is no
+        # cycle either way round.
+        from routers.tasks import _next_code
+        review = models.Task(
+            id=gen_id(), code=_next_code(db),
+            company_id=(getattr(who, "company", "") or "") if who is not None else "",
+            title=f"Clear {label}'s handed-over tasks",
+            description=(f"{label} has been offboarded and their open work is now yours. "
+                         f"Go through this project: close what is already done, re-assign what "
+                         f"belongs to someone else, and drop what no longer matters."),
+            type="task", status="not_started", priority="high",
+            position=time.time(),
+            assignee_email="", assignee_emails=[],
+            owner_email=to_email, follower_emails=[], liked_by_emails=[],
+            access_level="org", project_id=project.id, project_ids=[],
+            section_id="", team_id="", parent_task_id="", subtask_ids=[],
+            blocked_by_ids=[], blocking_ids=[], dependency_types={}, tags=[],
+            custom_field_values={},
+            start_on="", due_on=(date.today() + timedelta(days=7)).isoformat(),
+            approval_status="none", completed=False, completed_at="",
+            comment_ids=[], attachment_ids=[], activity_ids=[],
+            created_at=now, modified_at=now, created_by=actor or to_email,
+        )
+        set_task_assignees(review, [to_email])
+        db.add(review)
+        db.flush()
+        out["taskId"] = review.id
 
     for t in tasks:
         set_task_assignees(t, [to_email if a == email else a for a in task_assignees(t)])

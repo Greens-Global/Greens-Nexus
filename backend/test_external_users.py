@@ -294,6 +294,23 @@ class TestGuestAccess(_ExternalBase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertNotIn(GUEST, [p["email"] for p in r.json()])
 
+    def test_guest_appears_only_when_a_caller_opts_in(self):
+        """The task Assignee/Collaborators pickers ask for externals by name
+        (Sagar, Sept 2 2026); every other picker keeps the staff-only list, so
+        the flag - and the separate cache entry behind it - has to be what
+        decides. Flagged `external` so a picker can label the row."""
+        self._mk_guest()
+        self._as(ADMIN)
+        r = self.client.get("/myhr/directory?include_external=true")
+        self.assertEqual(r.status_code, 200, r.text)
+        row = next((p for p in r.json() if p["email"] == GUEST), None)
+        self.assertIsNotNone(row, "opting in should include the guest")
+        self.assertTrue(row["external"])
+        # ...and the default list is still clean, from the same caller.
+        plain = self.client.get("/myhr/directory")
+        self.assertNotIn(GUEST, [p["email"] for p in plain.json()])
+        self.assertTrue(all(p["external"] is False for p in plain.json()))
+
 
 class TestAdminCrud(_ExternalBase):
     def test_enroll_gives_no_access_until_granted_normally(self):

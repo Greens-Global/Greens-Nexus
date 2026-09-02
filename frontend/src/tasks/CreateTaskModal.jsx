@@ -46,7 +46,7 @@ function DaysOfWeekPicker({ value, onChange }) {
 export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '' }) {
   const store = useTasks();
   const { createTask, updateTask, deleteTask, tasks, projects, teams, myEmail, customFields = [] } = store;
-  const people = usePeople();
+  const people = usePeople(true);   // assignee/collaborators - see TaskDetailDrawer
   const fileRef = useRef(null);
   const editing = taskId ? store.taskById[taskId] : null;
   const isEdit = !!editing;

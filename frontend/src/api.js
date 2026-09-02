@@ -867,7 +867,11 @@ export const api = {
   stopActAs:           (session_id)   => req('/act-as/stop',  { method: 'POST', body: JSON.stringify({ session_id }) }),
   // Curated Nexus People (nexus_employees), not the ~150-account M365 GAL - for
   // assigning items to real Nexus people. Same {email,name} shape.
-  getPeopleDirectory:  ()             => cachedGet('/myhr/directory'),
+  // `includeExternal` adds guest/external identities (flagged `external: true`)
+  // - the task Assignee/Collaborators pickers ask for them, nothing else does.
+  // Separate path = separate cache entry, so the default list stays clean.
+  getPeopleDirectory:  (includeExternal = false) =>
+    cachedGet(includeExternal ? '/myhr/directory?include_external=true' : '/myhr/directory'),
   autoFillItemPhotos:  (item_ids, replace = false) => req('/items/auto-photos', { method: 'POST', body: JSON.stringify({ item_ids, replace }) }),
   // Permanent assignments
   getAssignments:         ()           => req('/items/assignments'),

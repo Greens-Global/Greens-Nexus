@@ -17,7 +17,7 @@ import { supabase } from '../lib/supabase';
 import { startScreenRecording } from '../lib/screenRecorder';
 import { stashDraft, appendDraftFile, takeDraft, peekDraft, setDraftUiMounted, finishRecording } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
-import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect } from '../tasks/components';
+import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import {
@@ -634,8 +634,11 @@ export default function TicketsView({ manageAction = null }) {
             one header line for the module's two top-level actions, the
             everyday one (create) first. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+          {/* "Create", not "New Ticket" - the same word the Task module's bar
+              button uses, and the page it sits on already says Tickets
+              (Sagar, Sept 2 2026). */}
           {!isMobile && (
-            <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> New Ticket</button>
+            <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
           )}
           {manageAction}
         </div>
@@ -950,7 +953,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
             {t.assigneeId
               ? <><Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />
                   <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{nameOf(t.assigneeId)}</span></>
-              : <span style={{ fontSize: 12, color: NX.faint }}>Unassigned</span>}
+              : <UnassignedAvatar size={20} />}
           </span>
         </div>
       </div>
@@ -1012,8 +1015,11 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, overflow: 'hidden', flex: `0 0 ${colWidths.assignee}px` }} title={`Assignee: ${t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}`}>
-        {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : <span style={{ width: 22, flexShrink: 0 }} />}
-        <span style={{ fontSize: 12.5, color: t.assigneeId ? NX.dim : NX.faint, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}</span>
+        {/* Unassigned is the dashed avatar alone - the word said no more than
+            the empty space it filled, and the icon keeps the column reading as
+            a column of faces. The cell's title still spells it out on hover. */}
+        {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : <UnassignedAvatar size={22} />}
+        {t.assigneeId && <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(t.assigneeId)}</span>}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.created}px`, minWidth: 0, overflow: 'hidden' }} title={t.createdAt ? `Created ${fmtDate(t.createdAt)}` : ''}>
         <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.createdAt ? fmtDate(t.createdAt) : '-'}</span>

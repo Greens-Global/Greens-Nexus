@@ -20,7 +20,7 @@ const uploadAttachment = (taskId, f) => uploadTaskAttachment(taskId, f).catch(()
 export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails }) {
   const store = useTasks();
   const { createTask, myEmail, projects = [] } = store;
-  const people = usePeople();
+  const people = usePeople(true);   // assignee - see TaskDetailDrawer
   const [title, setTitle] = useState(defaults.title || '');
   const [dueOn, setDueOn] = useState(defaults.dueOn || '');
   const [assigneeIds, setAssigneeIds] = useState(

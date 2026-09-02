@@ -394,17 +394,53 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
 }
 
 // Loads the Nexus People directory once (deduped in api.js) → [{email,name}] for pickers.
-export function usePeople() {
+// The curated Nexus People list. `includeExternal` adds guest/external
+// identities, which the directory withholds by default - a task's Assignee and
+// Collaborators offer them (Sagar, Sept 2 2026: externals do the work and need
+// to be on it), while every other picker in the module keeps the staff-only
+// list. `external: true` rides along so a picker can label them.
+export function usePeople(includeExternal = false) {
   const [people, setPeople] = useState([]);
   useEffect(() => {
     let alive = true;
-    api.getPeopleDirectory().then((rows) => {
+    api.getPeopleDirectory(includeExternal).then((rows) => {
       if (!alive) return;
-      setPeople((rows || []).map((u) => ({ email: (u.email || '').toLowerCase(), name: u.name || u.display_name || u.email })).filter((p) => p.email));
+      setPeople((rows || []).map((u) => ({
+        email: (u.email || '').toLowerCase(),
+        name: u.name || u.display_name || u.email,
+        external: !!u.external,
+      })).filter((p) => p.email));
     }).catch(() => {});
     return () => { alive = false; };
-  }, []);
+  }, [includeExternal]);
   return people;
+}
+
+// "Nobody yet", in the shape of an avatar: a dashed circle with a person-plus
+// inside - the same dashed-circle-plus the Collaborators row uses to ADD
+// someone, which is exactly what this cell is inviting (Sagar, Sept 2 2026).
+// It replaces both the empty cell in the task lists (which read as data still
+// loading) and the word "Unassigned" in the ticket list, so an unassigned row
+// looks the same everywhere and lines up with the avatars above and below it.
+export function UnassignedAvatar({ size = 24, title = 'Unassigned' }) {
+  return (
+    <span title={title} aria-label={title} style={{
+      width: size, height: size, borderRadius: '50%', flexShrink: 0,
+      border: `1.5px dashed ${NX.border}`, color: NX.faint, boxSizing: 'border-box',
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    }}><UserPlus size={Math.round(size * 0.5)} /></span>
+  );
+}
+
+// The badge on a guest/external identity wherever one can be picked. Small and
+// quiet - it labels the row, it isn't a warning.
+export function ExternalTag() {
+  return (
+    <span style={{
+      flexShrink: 0, fontSize: 10, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase',
+      color: NX.amber, background: 'rgba(217,119,6,0.14)', borderRadius: 5, padding: '1px 5px',
+    }}>External</span>
+  );
 }
 
 // A compact dropdown that picks a person (email) from the directory.
@@ -925,7 +961,11 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
             return (
               <div key={p.email} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
                 <Avatar email={p.email} name={p.name} size={22} card={false} />
-                <span style={{ flex: 1 }}>{p.name}</span>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                {/* Externals are offered here, so say which they are - putting a
+                    partner on a task is a different decision from putting a
+                    colleague on it. */}
+                {p.external && <ExternalTag />}
                 {on && <Check size={14} style={{ color: NX.blue }} />}
               </div>
             );

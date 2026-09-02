@@ -2608,10 +2608,17 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
         # Task work moves at the same moment equipment does, in this same
         # session, so a half-completed offboarding can't leave tasks assigned to
         # someone who no longer exists.
-        if off_block and off_block.get("handoverTo"):
-            from routers.task_projects import handover_person
-            handover = handover_person(db, row.work_email, off_block["handoverTo"],
-                                       include_completed=off_block["handoverIncludeCompleted"],
+        #
+        # This runs on EVERY offboarding now, not only when the form named
+        # someone: an empty picker means "you pick", not "skip" - the work goes
+        # to their supervisor, or to the fallback address if they have none
+        # (Sagar, Sept 2 2026). See task_projects.resolve_handover_target.
+        from routers.task_projects import handover_person, resolve_handover_target
+        to_email = resolve_handover_target(db, row.work_email,
+                                           (off_block or {}).get("handoverTo", ""))
+        if to_email:
+            handover = handover_person(db, row.work_email, to_email,
+                                       include_completed=bool((off_block or {}).get("handoverIncludeCompleted")),
                                        actor=user["email"])
             if entry is not None and (handover["reassigned"] or handover["projectsTransferred"]):
                 entry["taskHandover"] = handover
