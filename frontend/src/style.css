@@ -782,6 +782,16 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
   select.form-input option::checkmark, .form-select option::checkmark { display: none; }
 }
 
+/* The phone sheet used by tasks/components.jsx's <Modal>. Two height lines on
+   purpose: a browser without dynamic viewport units keeps the 100vh one (the
+   old behavior), and everything since iOS 15.4 / Chrome 108 takes 100dvh - the
+   part of the page actually on screen, so the footer's action buttons sit above
+   the browser's bottom bar instead of under it (Sagar, Sept 2 2026). */
+.nx-modal-sheet {
+  height: 100vh;
+  height: 100dvh;
+}
+
 /* â”€â”€ Modal system â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .modal-overlay {
   position: fixed;

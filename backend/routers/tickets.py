@@ -20,7 +20,7 @@ from typing import Optional, Any
 import models
 from database import get_db
 from auth import get_current_user, require_manager, require_any_module_grant
-from routers.task_util import now_iso, gen_id, log_activity, task_notify
+from routers.task_util import now_iso, gen_id, log_activity, task_notify, extract_mentions
 from ticket_code import TICKET_CODE_DIGITS, ticket_no
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents, all_agents)
@@ -729,11 +729,36 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     log_activity(db, type="commented", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                  detail="added an internal note" if internal else "commented")
-    # Internal notes stay with the agents - don't ping the requester.
+    # @mentions, read from the mailto links the editor writes - the same
+    # convention and the same parser the task comments use, so the two threads
+    # can't drift (Sagar, Sept 2 2026: "@ should work here like it does on tasks").
+    actor = (user["email"] or "").lower()
+    mentioned = [e for e in extract_mentions(body.body or "") if e != actor]
+    if mentioned:
+        # Being mentioned puts you ON the ticket. A participant may read and
+        # reply without a desk grant (_require_ticket_participant), so without
+        # this the bell would open a 403 for anyone not already involved - and
+        # they would hear nothing about the reply they were pulled in for.
+        known = {e.lower() for e in (t.watcher_emails or []) if e}
+        known |= {(t.requester_email or "").lower(), (t.assignee_email or "").lower()}
+        added = [e for e in mentioned if e not in known]
+        if added:
+            t.watcher_emails = [e for e in (t.watcher_emails or []) if e] + added
+    # Internal notes stay with the agents - don't ping the requester. Anyone
+    # mentioned is excluded here and told by name below instead, so a mention
+    # doesn't arrive as two bells about the same comment.
+    _skip = set(mentioned)
+    if internal:
+        _skip.add((t.requester_email or "").lower())
     _notify_participants(db, t, user["email"], kind="ticket_comment",
                          title="Internal note on a ticket" if internal else "New comment on a ticket",
                          body=f"{ticket_no(t.code)} · {t.subject}",
-                         exclude={(t.requester_email or "").lower()} if internal else None)
+                         exclude=_skip or None)
+    for who in mentioned:
+        task_notify(db, kind="ticket_comment", for_email=who,
+                    title="You were mentioned in a ticket comment",
+                    body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id,
+                    nexus_action={"view": "tickets", "label": "View ticket"})
     db.commit()
     db.refresh(c)
     if not internal and get_notify_settings(db).get("commentsTrigger", True):
