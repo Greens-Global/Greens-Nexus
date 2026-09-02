@@ -85,7 +85,7 @@ def ticket_email_html(*, ticket_code: str, ticket_subject: str, status: str, hea
     <tr>
       <td style="padding:0 28px 18px">
         <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;margin:0 0 6px">{escape(comment_label or 'Latest comment')}</div>
-        <div style="background:#f3f4f6;border-left:3px solid #0f3d2e;border-radius:6px;padding:13px 16px;font-size:14px;line-height:1.6;color:#111827;white-space:pre-wrap;word-break:break-word">{escape(comment_text)}</div>
+        <div style="background:#f3f4f6;border-left:3px solid #0f3d2e;border-radius:6px;padding:13px 16px;font-size:14px;line-height:1.6;color:#111827;white-space:pre-wrap;word-break:break-word">{rich_to_email_html(comment_text, 4000)}</div>
       </td>
     </tr>"""
 
@@ -156,7 +156,7 @@ def _conversation_html(thread: list[dict]) -> str:
             <td valign="top" style="padding:12px 0 14px">
               <div style="font-size:13.5px;color:#111827"><strong>{escape(c.get('name', ''))}</strong>
                 <span style="color:#9ca3af;font-size:11.5px;font-weight:400">&nbsp;&nbsp;{escape(c.get('at', ''))}</span></div>
-              <div style="margin-top:5px;font-size:14px;line-height:1.6;color:#1f2937;white-space:pre-wrap;word-break:break-word">{escape(c.get('body', ''))}</div>
+              <div style="margin-top:5px;font-size:14px;line-height:1.6;color:#1f2937;white-space:pre-wrap;word-break:break-word">{rich_to_email_html(c.get('body', ''), 4000)}</div>
             </td>
           </tr>
         </table>""")

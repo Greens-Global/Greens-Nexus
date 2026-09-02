@@ -37,13 +37,16 @@ const Highlight = Mark.create({
 // against '' would otherwise see every untouched description as dirty.
 export const isEmptyDoc = (html) => !String(html || '').replace(/<p>\s*<\/p>/g, '').replace(/<[^>]*>/g, '').trim();
 
-const EXTENSIONS = [
+// Built per editor rather than shared, so each one can carry its own
+// placeholder - a description says "Add more detail…", a ticket's internal note
+// has to say it is a note (Sagar, Sept 2 2026). Everything else is identical.
+const buildExtensions = (placeholder) => [
   StarterKit.configure({
     link: { openOnClick: false, autolink: true, HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' } },
   }),
   Highlight,
   Image.configure({ inline: false, HTMLAttributes: { style: 'max-width:100%;height:auto;border-radius:8px' } }),
-  Placeholder.configure({ placeholder: 'Add more detail…' }),
+  Placeholder.configure({ placeholder }),
 ];
 
 function Btn({ icon: Icon, label, active, disabled, onClick }) {
@@ -75,6 +78,7 @@ export default function RichDescription({
   mentionPeople,
   // Ctrl/Cmd+Enter submit (comment composer).
   onSubmit,
+  placeholder = 'Add more detail…',
   toolbar = true,
 }) {
   const [addOpen, setAddOpen] = useState(false);
@@ -95,7 +99,8 @@ export default function RichDescription({
   useClickOutside([addRef, addPanelRef], () => setAddOpen(false), addOpen);
 
   const editor = useEditor({
-    extensions: EXTENSIONS,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    extensions: useMemo(() => buildExtensions(placeholder), [placeholder]),
     content: value || '',
     autofocus: autoFocus,
     onUpdate: ({ editor: ed }) => { onChange?.(ed.getHTML()); mentionScanRef.current(ed); },

@@ -89,6 +89,15 @@ export function EmptyState({ icon: Icon, title, hint }) {
 // 'Do you want to save'"). With isDirty unset (the default) a modal behaves
 // exactly as before.
 export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 60vw, 980px)', isDirty = false, onSave }) {
+  // Phones get a full-screen sheet, the shape the task drawer already uses
+  // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
+  // is the LARGE viewport (browser chrome hidden), so 7vh of padding plus an
+  // 86vh card measured about 109% of what is actually on screen in portrait -
+  // the footer, and every action button in it, sat under the browser's bottom
+  // bar with no way to scroll to it (Sagar, Sept 2 2026: "portrait mode you
+  // can't access the action buttons"). Landscape hid the bug because Safari's
+  // chrome is thin there, so large and visible viewport nearly agree.
+  const isMobile = useIsMobile();
   const [confirmClose, setConfirmClose] = useState(false);
   const [saving, setSaving] = useState(false);
   const requestClose = () => { if (isDirty) setConfirmClose(true); else onClose(); };
@@ -105,20 +114,35 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
   return createPortal(
     <div className="nx-tasks-portal" onClick={requestClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 4000,
-      display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '7vh 16px',
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      padding: isMobile ? 0 : '7vh 16px',
       fontFamily: FONT, animation: 'fadeIn 0.13s ease',
     }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        background: NX.surface, borderRadius: 16, width, maxWidth: '100%', maxHeight: '86vh',
-        display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(17,24,39,0.30)', overflow: 'hidden',
-        border: `1px solid ${NX.border}`,
+      <div onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-modal-sheet' : undefined} style={{
+        background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
+        // The sheet's height comes from .nx-modal-sheet, not from here: it needs
+        // `height:100vh` followed by `height:100dvh`, and one inline style object
+        // cannot hold the same property twice. dvh is the part of the page
+        // actually on screen, so the sheet ends where the browser's bottom bar
+        // begins; the vh line before it is what a browser without dvh keeps.
+        ...(isMobile
+          ? { width: '100%', maxWidth: '100%', borderRadius: 0, border: 'none' }
+          : { width, maxWidth: '100%', maxHeight: '86vh', borderRadius: 16 }),
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${NX.border2}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${NX.border2}`, flexShrink: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{title}</div>
           <button onClick={requestClose} style={{ ...btn('ghost'), padding: 6, borderRadius: 8 }} aria-label="Close"><X size={18} /></button>
         </div>
-        <div style={{ padding: 20, overflowY: 'auto' }}>{children}</div>
-        {footer && <div style={{ padding: '12px 20px', borderTop: `1px solid ${NX.border2}`, background: NX.surface2, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{footer}</div>}
+        {/* flex:1 + minHeight:0 is what makes THIS the part that scrolls; without
+            it a tall body pushes the footer past the panel's clipped edge. */}
+        <div className="nx-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0 }}>{children}</div>
+        {/* The action row never scrolls away, and clears the home indicator. */}
+        {footer && <div style={{
+          padding: isMobile ? '12px 16px calc(12px + env(safe-area-inset-bottom))' : '12px 20px',
+          borderTop: `1px solid ${NX.border2}`, background: NX.surface2, flexShrink: 0,
+          display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+        }}>{footer}</div>}
       </div>
       {confirmClose && (
         <div onClick={(e) => e.stopPropagation()} style={{
