@@ -62,10 +62,14 @@ export default function CustomDashboard() {
   const { can, myEmail, myGrantedModules } = useRole();
   const { notifications, markRead, markAllRead, dismiss, clearRead } = useNotifications();
   const canSeeWidget = (def) => !def.minRole || can(def.minRole) || myGrantedModules.has('manager-dashboard');
-  // Team KPIs (clocked_in_now, time_off_pending) are only worth fetching for
-  // someone who can actually see a Team widget - same access layer as above.
-  const teamScope = can('supervisor') || myGrantedModules.has('manager-dashboard');
-  const d = useDashboards(teamScope);
+  // 'manager' | 'supervisor' | 'employee' - same access layer as canSeeWidget
+  // above, just collapsed to one tier label. Drives which role-tiered widgets
+  // seed a pristine board and whether team-wide KPIs get fetched (see
+  // useDashboards.js) - the grant maps to 'manager' since it unlocks that
+  // fuller tier too, same as canSeeWidget treats it.
+  const widgetTier = (can('manager') || myGrantedModules.has('manager-dashboard')) ? 'manager'
+    : can('supervisor') ? 'supervisor' : 'employee';
+  const d = useDashboards(widgetTier);
   const [gallery, setGallery] = useState(false);
   const [configItem, setConfigItem] = useState(null);
   const [menu, setMenu] = useState(false);

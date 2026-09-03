@@ -7,29 +7,45 @@ import { WIDGETS, clampToLimits } from './widgets.jsx';
 // greeting + the same three stat tiles across the top, the attention feed wide
 // left with the pulse/actions column on the right, agenda below - so entering
 // Customize reads as "Home, now editable", not a different product.
-// Manager Dashboard folded into this one board (Sep 3) - no more second
-// DEFAULTS entry to seed. A manager's Team widgets (minRole-gated, see
-// widgets.jsx) are added through the same Add Widget gallery everyone else
-// uses, not baked into a separate default layout only managers ever see.
-const DEFAULTS = {
-  dashboard: [
-    // Row 1 mirrors Home's stat board exactly - the page greeting renders above
-    // the grid (DeskGreeting in CustomDashboard), so no clock/greeting card here.
-    // hero: the one solid-gradient focal tile, same as Home's Open Tasks card.
-    { i: 'd3', type: 'kpi',           x: 0, y: 0, w: 3, h: 2, config: { metric: 'my_open_tasks', hero: true } },
-    { i: 'd4', type: 'kpi',           x: 3, y: 0, w: 3, h: 2, config: { metric: 'my_checkouts' } },
-    { i: 'd5', type: 'kpi',           x: 6, y: 0, w: 3, h: 2, config: { metric: 'my_assignments' } },
-    { i: 'd6', type: 'kpi',           x: 9, y: 0, w: 3, h: 2, config: { metric: 'unread_notifications' } },
-    { i: 'd7', type: 'notifications', x: 0, y: 2, w: 6, h: 5 },
-    { i: 'd9', type: 'kpi-bar',       x: 6, y: 2, w: 3, h: 5 },
-    // h6: all six action rows fit without a scrollbar at the 72px row unit.
-    { i: 'd2', type: 'quick-actions', x: 9, y: 2, w: 3, h: 6 },
-    // My Agenda (Outlook). Shows a quiet explainer for non-M365 accounts.
-    { i: 'd10', type: 'agenda',       x: 0, y: 7, w: 6, h: 4 },
-    // h5: six link rows + header need ~260px - at h4 the last row clipped.
-    { i: 'd8', type: 'links',         x: 6, y: 7, w: 3, h: 5 },
+const DEFAULT_PERSONAL = [
+  // Row 1 mirrors Home's stat board exactly - the page greeting renders above
+  // the grid (DeskGreeting in CustomDashboard), so no clock/greeting card here.
+  // hero: the one solid-gradient focal tile, same as Home's Open Tasks card.
+  { i: 'd3', type: 'kpi',           x: 0, y: 0, w: 3, h: 2, config: { metric: 'my_open_tasks', hero: true } },
+  { i: 'd4', type: 'kpi',           x: 3, y: 0, w: 3, h: 2, config: { metric: 'my_checkouts' } },
+  { i: 'd5', type: 'kpi',           x: 6, y: 0, w: 3, h: 2, config: { metric: 'my_assignments' } },
+  { i: 'd6', type: 'kpi',           x: 9, y: 0, w: 3, h: 2, config: { metric: 'unread_notifications' } },
+  { i: 'd7', type: 'notifications', x: 0, y: 2, w: 6, h: 5 },
+  { i: 'd9', type: 'kpi-bar',       x: 6, y: 2, w: 3, h: 5 },
+  // h6: all six action rows fit without a scrollbar at the 72px row unit.
+  { i: 'd2', type: 'quick-actions', x: 9, y: 2, w: 3, h: 6 },
+  // My Agenda (Outlook). Shows a quiet explainer for non-M365 accounts.
+  { i: 'd10', type: 'agenda',       x: 0, y: 7, w: 6, h: 4 },
+  // h5: six link rows + header need ~260px - at h4 the last row clipped.
+  { i: 'd8', type: 'links',         x: 6, y: 7, w: 3, h: 5 },
+];
+
+// Role-tiered starting extras (Sep 4, Pranshu: "give a few default widgets" so
+// Supervisor/Manager don't land on an identical, purely-personal board and
+// have to go hunting in Add Widget to discover Team widgets exist for them).
+// Stacked below DEFAULT_PERSONAL, same minRole-gated widget types as the Add
+// Widget gallery - these are just a starting point, not forced: anyone can
+// remove/rearrange them like any other widget once they hit Customize.
+// Manager's set is a superset of Supervisor's, matching canSeeWidget()'s tiering
+// (role OR the 'manager-dashboard' grant, which unlocks the fuller set too).
+const ROLE_EXTRAS = {
+  supervisor: [
+    { i: 'rs1', type: 'team-attendance', x: 0, y: 12, w: 3, h: 2 },
+    { i: 'rs2', type: 'who-has-what',    x: 0, y: 14, w: 8, h: 5 },
+  ],
+  manager: [
+    { i: 'rm1', type: 'team-attendance', x: 0, y: 12, w: 3, h: 2 },
+    { i: 'rm2', type: 'who-has-what',    x: 0, y: 14, w: 8, h: 5 },
+    { i: 'rm3', type: 'approvals',       x: 0, y: 19, w: 8, h: 5 },
   ],
 };
+
+const defaultLayoutFor = (widgetTier) => [...DEFAULT_PERSONAL, ...(ROLE_EXTRAS[widgetTier] || [])];
 
 const rid = () => `w${Math.random().toString(36).slice(2, 8)}`;
 
@@ -79,17 +95,19 @@ export function compactLayout(items) {
   return items.map(it => best.find(p => p.i === it.i) || it);
 }
 
-// One target now - see the DEFAULTS comment above. `teamScope`: whether to
-// also pull team-wide KPIs (clocked_in_now, time_off_pending) alongside the
-// personal ones, so a manager's Team widgets have data wherever they've put
-// them on their one board - CustomDashboard.jsx passes can('supervisor') ||
-// the 'manager-dashboard' grant.
+// One target now - see the DEFAULTS comment above. `widgetTier`: 'manager' |
+// 'supervisor' | 'employee' - CustomDashboard.jsx computes it from role +
+// the 'manager-dashboard' grant (same tiering canSeeWidget() uses). Drives
+// both which role-tiered widgets seed a pristine board (defaultLayoutFor)
+// and whether team-wide KPIs (clocked_in_now, time_off_pending) get pulled
+// alongside the personal ones, so those widgets have data wherever they end
+// up on the board.
 const TARGET = 'dashboard';
 
-export function useDashboards(teamScope) {
+export function useDashboards(widgetTier) {
   const [views, setViews] = useState([]);
   const [activeId, setActiveId] = useState(null);   // null = built-in default
-  const [layout, setLayoutState] = useState(DEFAULTS.dashboard);
+  const [layout, setLayoutState] = useState(() => defaultLayoutFor(widgetTier));
   const [kpis, setKpis] = useState({});
   const [department, setDepartment] = useState('');
   const [canPublish, setCanPublish] = useState(false);
@@ -103,18 +121,18 @@ export function useDashboards(teamScope) {
     // clampToLimits normalizes layouts saved before per-widget size caps existed
     // (e.g. a KPI tile stretched over half the page).
     const items = (view && Array.isArray(view.layout) && view.layout.length)
-      ? view.layout : DEFAULTS.dashboard;
+      ? view.layout : defaultLayoutFor(widgetTier);
     setActiveId(view?.id ?? null);
     setLayoutState(items.map(clampToLimits));
     setDirty(false);
-  }, []);
+  }, [widgetTier]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [v, k] = await Promise.all([
         api.dashViews(TARGET).catch(() => ({ views: [] })),
-        api.dashKpis(teamScope ? 'team' : 'self').catch(() => ({ kpis: {} })),
+        api.dashKpis(widgetTier !== 'employee' ? 'team' : 'self').catch(() => ({ kpis: {} })),
       ]);
       setViews(v.views || []);
       setDepartment(v.department || '');
@@ -127,7 +145,7 @@ export function useDashboards(teamScope) {
     } finally {
       setLoading(false);
     }
-  }, [teamScope, applyView]);
+  }, [widgetTier, applyView]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -149,7 +167,7 @@ export function useDashboards(teamScope) {
   const switchView = (id) => {
     const v = views.find(x => x.id === id);
     if (v) applyView(v);
-    else { setActiveId(null); setLayoutState(DEFAULTS.dashboard); setDirty(false); }
+    else { setActiveId(null); setLayoutState(defaultLayoutFor(widgetTier)); setDirty(false); }
     setEditing(false);
   };
 
@@ -184,7 +202,7 @@ export function useDashboards(teamScope) {
   // Brand-new view starting from the built-in default layout (vs. saveAsNew,
   // which copies whatever is currently on screen).
   const createNewView = async (name) => {
-    const created = await api.dashCreateView({ target: TARGET, name: name || 'New view', layout: DEFAULTS.dashboard });
+    const created = await api.dashCreateView({ target: TARGET, name: name || 'New view', layout: defaultLayoutFor(widgetTier) });
     setViews(vs => [...vs, created]);
     applyView(created);
     setEditing(true);
@@ -215,7 +233,7 @@ export function useDashboards(teamScope) {
   const removeView = async (id) => {
     await api.dashDeleteView(id);
     setViews(vs => vs.filter(v => v.id !== id));
-    if (activeId === id) { setActiveId(null); setLayoutState(DEFAULTS.dashboard); setDirty(false); }
+    if (activeId === id) { setActiveId(null); setLayoutState(defaultLayoutFor(widgetTier)); setDirty(false); }
   };
 
   const renameView = async (id, name) => {
