@@ -655,9 +655,14 @@ export function AgendaPanel() {
     let alive = true;
     const load = () => {
       const today = new Date();
-      const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+      // Exclusive end boundary (start of the day AFTER tomorrow, not
+      // "tomorrow 23:59:59") - Graph's calendarView can include an all-day
+      // event that straddles a non-midnight boundary, which is how a
+      // Saturday all-day event was slipping into a window meant to cover
+      // only today/tomorrow (Pranshu, Sep 4).
+      const after = new Date(today); after.setDate(today.getDate() + 2);
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-      api.dashAgenda(`${agendaDay(today)}T00:00:00`, `${agendaDay(tomorrow)}T23:59:59`, tz)
+      api.dashAgenda(`${agendaDay(today)}T00:00:00`, `${agendaDay(after)}T00:00:00`, tz)
         .then((r) => { if (alive) setState({ loading: false, available: !!r.available, events: r.events || [] }); })
         .catch(() => { if (alive) setState((s) => ({ ...s, loading: false })); });
     };
@@ -667,8 +672,21 @@ export function AgendaPanel() {
   }, []);
 
   const todayKey = agendaDay(new Date());
-  const dayLabel = (iso) => ((iso || '').slice(0, 10) === todayKey ? 'Today' : 'Tomorrow');
-  // Group the window's events under Today / Tomorrow headers.
+  const tomorrowKey = agendaDay(new Date(Date.now() + 86400_000));
+  // Real date math, not "today or else Tomorrow" - an all-day event Graph
+  // hands back a day off from what was requested (a known quirk: all-day
+  // events don't respect the Prefer: outlook.timezone header timed events
+  // get, see routers/dashboards.py's /agenda docstring) used to get silently
+  // mislabeled "Tomorrow" no matter how far off it actually was. Now a
+  // mismatch reads as its real weekday instead of a misleading label.
+  const dayLabel = (iso) => {
+    const key = (iso || '').slice(0, 10);
+    if (key === todayKey) return 'Today';
+    if (key === tomorrowKey) return 'Tomorrow';
+    const d = new Date(key + 'T00:00:00');
+    return isNaN(d) ? 'Tomorrow' : d.toLocaleDateString('en-US', { weekday: 'long' });
+  };
+  // Group the window's events under their day headers.
   const groups = [];
   for (const ev of state.events) {
     const label = dayLabel(ev.start);

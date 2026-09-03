@@ -324,7 +324,10 @@ def agenda(start: str = "", end: str = "", tz: str = "UTC",
     if not _ISO_OK.match(start or ""):
         start = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
     if not _ISO_OK.match(end or ""):
-        end = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT23:59:59Z")
+        # Exclusive midnight boundary, not "tomorrow 23:59:59" - see the
+        # frontend AgendaPanel's matching comment (Sep 4) on why a non-midnight
+        # end let an all-day event straddling it slip into the window.
+        end = (datetime.now(timezone.utc) + timedelta(days=2)).strftime("%Y-%m-%dT00:00:00Z")
     if not _TZ_OK.match(tz or ""):
         tz = "UTC"
 
