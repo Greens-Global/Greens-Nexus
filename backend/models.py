@@ -3675,3 +3675,20 @@ class LinkIcon(Base):
     size_bytes   = Column(Integer, default=0)
     fetched_at   = Column(String, default="")         # UTC ISO
     error        = Column(String, default="")         # last failure, for diagnosis
+
+
+class ChangelogSeen(Base):
+    """Per-user "have they looked at What's New since it last got a fresh
+    Released entry" marker, for the eye-icon badge next to the profile pill
+    (TopHeader.jsx). Compared against the latest published TaskChangelogEntry's
+    timestamp in GET /task-changelog/unseen; stamped to now() by POST
+    /task-changelog/seen (fired when the icon is clicked) and automatically
+    for whoever just published an entry (they don't need a badge for their
+    own publish).
+
+    New table - create_all builds it, so no migration line is needed. It DOES
+    need `ALTER TABLE changelog_seen ENABLE ROW LEVEL SECURITY` on dev and
+    prod as part of the release (CLAUDE.md)."""
+    __tablename__ = "changelog_seen"
+    email        = Column(String, primary_key=True)   # lowercased
+    last_seen_at = Column(String, default="")          # UTC ISO

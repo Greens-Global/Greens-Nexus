@@ -597,6 +597,9 @@ export const api = {
   addTaskChangelogComment: (id, data) => req(`/task-changelog/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
   // Long-running: pulls commits + calls Claude, so it needs the AI timeout (not the 18s default).
   generateTaskChangelog: () => req("/task-changelog/generate", { method: "POST", timeoutMs: 120_000 }),
+  // Red-dot eye icon next to the profile pill: unseen published update since this user's last visit.
+  getTaskChangelogUnseen: () => req("/task-changelog/unseen"),
+  markTaskChangelogSeen: () => req("/task-changelog/seen", { method: "POST" }),
 
   // Purchase Requests
   getPurchaseRequests: () => req("/purchase-requests"),

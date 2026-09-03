@@ -22,6 +22,7 @@ from routers import tasks, purchases, reviews, marketing, sop, assets, accountin
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
 from routers import asana_webhook  # Asana two-way sync - public webhook receiver
+from routers import github_webhook  # PR-merged-to-dev/main -> Global Admin notification (Sep 2026)
 from routers import asana_oauth as asana_oauth_router  # Per-user Asana connection (Account Settings)
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
@@ -2062,6 +2063,7 @@ app.include_router(task_config.router)    # Task Module: views/rules/templates/n
 app.include_router(tickets_router.router) # Ticket Module: tickets, conversation, components, links, escalation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
 app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook receiver (verified by HMAC)
+app.include_router(github_webhook.router) # PR merged to dev/main: public webhook receiver (verified by HMAC)
 app.include_router(asana_oauth_router.router)         # Per-user Asana connection (signed-in user, own grant only)
 app.include_router(construction.router)  # Construction: projects, daily logs, jobsite media
 app.include_router(asana_oauth_router.public_router)  # OAuth callback - Asana redirects a browser here, no bearer token

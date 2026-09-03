@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, DoorOpen, Archive, PlayCircle } from "lucide-react";
+import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, DoorOpen, Archive, PlayCircle, Eye } from "lucide-react";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
@@ -90,6 +90,21 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
   const [open,         setOpen]         = useState(false);
   const [changelogOpen, setChangelogOpen] = useState(false); // Profile → What's new
+  // Red-dot eye icon next to the profile pill: lit while a published changelog
+  // update is newer than this user's last visit to What's New (cleared on open).
+  const [changelogUnseen, setChangelogUnseen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    api.getTaskChangelogUnseen().then(r => { if (alive) setChangelogUnseen(!!r?.unseen); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  function openChangelog() {
+    setChangelogOpen(true);
+    if (changelogUnseen) {
+      setChangelogUnseen(false);
+      api.markTaskChangelogSeen().catch(() => {});
+    }
+  }
   const [searchQuery,  setSearchQuery]  = useState('');
   const [searchOpen,   setSearchOpen]   = useState(false);
   const dropRef   = useRef(null);
@@ -468,6 +483,23 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         )}
         <NotificationBell onNavigate={onNavigate} />
 
+        {/* Unseen-changelog eye icon: only rendered while there's a published
+            update this user hasn't opened What's New for yet. */}
+        {changelogUnseen && (
+          <button onClick={openChangelog} title="New update published - view What's New" aria-label="New update published"
+            style={{
+              position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 32, height: 32, borderRadius: 8, border: 'none', background: 'transparent',
+              color: 'var(--muted)', cursor: 'pointer', flexShrink: 0,
+            }}>
+            <Eye size={16} />
+            <span style={{
+              position: 'absolute', top: 4, right: 4, width: 8, height: 8, borderRadius: 999,
+              background: 'hsl(var(--color-red))', border: '1.5px dashed #fff',
+            }} />
+          </button>
+        )}
+
         {/* User profile pill */}
         <div className="header-user-wrap" ref={dropRef}>
           <button className="header-user-pill" onClick={() => setOpen(o => !o)}>
@@ -530,7 +562,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <button className="hud-item" onClick={() => { setOpen(false); setSettingsOpen(true); }}>
                 <Settings size={14} /> Account Settings
               </button> */}
-              <button className="hud-item" onClick={() => { setOpen(false); setChangelogOpen(true); }}>
+              <button className="hud-item" onClick={() => { setOpen(false); openChangelog(); }}>
                 <Sparkles size={14} /> What's New
               </button>
               {/* Dark Mode + Theme moved into My Profile (Neil: group appearance
