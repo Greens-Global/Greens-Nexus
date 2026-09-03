@@ -14,11 +14,11 @@ import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punch
 import { formatTime } from '../lib/datetime';
 import { MyHROverview } from './MyHR';
 
-// ── My HR / Time Clock - one module (Visesh, Sep 3: "combine My HR and Time
-// Clock... anything to do with their time and HR should be together"). Four
-// tabs: Overview (profile/documents/paystubs/Ask HR - MyHR.jsx's
-// MyHROverview), Clock, Time Sheet, Time Off. Punch in/out keeps its
-// geofencing (all employees) ────────────────────────────────────────────────
+// ── My Workday - one module (Visesh, Sep 3: "combine My HR and Time Clock...
+// anything to do with their time and HR should be together"; renamed from
+// "My HR" Sep 4 once it covered both halves). Four tabs: Overview (profile/
+// documents/paystubs/Ask HR - MyHR.jsx's MyHROverview), Clock, Time Sheet,
+// Time Off. Punch in/out keeps its geofencing (all employees) ─────────────
 // Soft-gate design (research-verified SwipeClock behavior): location is asked
 // for AT THE MOMENT of punching only; a denied prompt or coarse fix never
 // blocks the punch - it's recorded and flagged for review instead. The button
@@ -37,7 +37,7 @@ const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break Start', break_end
 // "Time Clock" no matter which tab was open). `title` also drives the
 // breadcrumb via <ModuleTabs syncTitle> below.
 const TAB_META = {
-  overview:  { title: 'My HR',      label: 'Overview',   subtitle: 'Your profile, documents and leave - only you see this' },
+  overview:  { title: 'My Workday', label: 'Overview',   subtitle: 'Your profile, documents and leave - only you see this' },
   clock:     { title: 'Time Clock', label: 'Clock',      subtitle: 'Punch in and out, your timesheet and time off' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet', subtitle: 'Your hours this pay period, day by day' },
   timeoff:   { title: 'Time Off',   label: 'Time Off',   subtitle: 'Request time off and see what’s coming up' },

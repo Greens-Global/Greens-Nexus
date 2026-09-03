@@ -14,7 +14,7 @@ import { NX, FONT, input as inputStyle, btn, PRIORITY_ORDER } from './theme';
 const MAX_SHOT = 2 * 1024 * 1024; // 2 MB per screenshot
 const MAX_SHOTS = 4;
 
-const MODULES = ['Tasks', 'Dashboard', 'Time Clock', 'My HR', 'HR', 'Item Management', 'Asset Management', 'Knowledge Base', 'Accounting', 'Other'];
+const MODULES = ['Tasks', 'Dashboard', 'My Workday', 'HR', 'Item Management', 'Asset Management', 'Knowledge Base', 'Accounting', 'Other'];
 const SEVERITIES = [
   { value: 'low', label: "Low - cosmetic, doesn't block work" },
   { value: 'medium', label: 'Medium - annoying, workaround exists' },

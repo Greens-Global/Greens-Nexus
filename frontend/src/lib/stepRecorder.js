@@ -34,7 +34,7 @@ let _finishing = false;
 const _SLUG_LABELS = {
   '': 'Dashboard', dashboard: 'Dashboard', 'manager-dashboard': 'Manager Dashboard',
   itemmanagement: 'Item Management', inventory: 'Item Management',
-  hr: 'People', myhr: 'My HR', timeclock: 'Time Clock', tasks: 'Tasks',
+  hr: 'People', myhr: 'My Workday', timeclock: 'My Workday', tasks: 'Tasks',
   sop: 'Knowledge Base', documents: 'Documents', 'property-asset': 'Asset Management',
   accounting: 'Accounting', 'investor-relations': 'Investor Relations',
   marketing: 'Marketing', testing: 'Testing', purchase: 'Purchase', admin: 'Access Manager',
