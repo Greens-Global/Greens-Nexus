@@ -1582,27 +1582,73 @@ def list_changelog(db: Session = Depends(get_db)):
     return [changelog_entry_to_dict(e) for e in rows]
 
 
+def _mark_changelog_seen(db: Session, email: str) -> None:
+    """Whoever just published an entry has obviously seen it - stamp their own
+    row so the eye-icon badge doesn't light up for their own publish."""
+    email = (email or "").lower().strip()
+    if not email:
+        return
+    row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == email).first()
+    now = now_iso()
+    if row:
+        row.last_seen_at = now
+    else:
+        db.add(models.ChangelogSeen(email=email, last_seen_at=now))
+
+
 @router.post("/task-changelog", status_code=201)
-def create_changelog(body: ChangelogEntryBody, db: Session = Depends(get_db)):
+def create_changelog(body: ChangelogEntryBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = now_iso()
     e = models.TaskChangelogEntry(id=body.id or gen_id(), payload=body.payload or {},
                                   created_at=now, updated_at=now)
     db.add(e)
+    if (body.payload or {}).get("status") == "Released":
+        _mark_changelog_seen(db, user["email"])
     db.commit()
     db.refresh(e)
     return changelog_entry_to_dict(e)
 
 
 @router.patch("/task-changelog/{entry_id}")
-def update_changelog(entry_id: str, body: ChangelogEntryBody, db: Session = Depends(get_db)):
+def update_changelog(entry_id: str, body: ChangelogEntryBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     e = db.query(models.TaskChangelogEntry).filter(models.TaskChangelogEntry.id == entry_id).first()
     if not e:
         raise HTTPException(404, "Changelog entry not found")
     e.payload = body.payload or {}
     e.updated_at = now_iso()
+    if (body.payload or {}).get("status") == "Released":
+        _mark_changelog_seen(db, user["email"])
     db.commit()
     db.refresh(e)
     return changelog_entry_to_dict(e)
+
+
+@router.get("/task-changelog/unseen")
+def get_changelog_unseen(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Powers the red-dot eye icon next to the profile pill: true when a
+    published (Released) entry exists that is newer than this user's last
+    visit to What's New."""
+    rows = db.query(models.TaskChangelogEntry).all()
+    latest = ""
+    for e in rows:
+        payload = e.payload if isinstance(e.payload, dict) else {}
+        if payload.get("status") != "Released":
+            continue
+        key = payload.get("releasedAt") or e.created_at or ""
+        if key > latest:
+            latest = key
+    if not latest:
+        return {"unseen": False}
+    seen = db.query(models.ChangelogSeen).filter(
+        models.ChangelogSeen.email == user["email"].lower()).first()
+    return {"unseen": not seen or (seen.last_seen_at or "") < latest}
+
+
+@router.post("/task-changelog/seen")
+def mark_changelog_seen(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _mark_changelog_seen(db, user["email"])
+    db.commit()
+    return {"ok": True}
 
 
 @router.delete("/task-changelog/{entry_id}", status_code=204)
@@ -1764,13 +1810,20 @@ def _cluster_commits(commits: list[dict]) -> list[dict]:
         return []
 
 
-@router.post("/task-changelog/generate")
-def generate_changelog(user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict:
+    """Core of "Generate from git": pull recent commits, ask Claude to cluster
+    them into plain-English draft entries, file them as Pending Review. Shared
+    by the manual endpoint below and, since Sep 2026, the GitHub webhook
+    (routers/github_webhook.py), which calls this from a background thread
+    right after a dev/main merge - so it has no signed-in `user` to attribute
+    the drafts to (author_email defaults to "", which the UI shows as
+    "Unknown"), and returns an {"error": ...} dict instead of raising, since a
+    background caller has no HTTP response to attach an exception to."""
     if not _ANTHROPIC_API_KEY:
-        raise HTTPException(503, "AI is not configured (ANTHROPIC_API_KEY missing).")
+        return {"error": "AI is not configured (ANTHROPIC_API_KEY missing)."}
     commits, source = _recent_commits()
     if source == "none":
-        raise HTTPException(503, "Could not read commit history (no GitHub token and no local repo).")
+        return {"error": "Could not read commit history (no GitHub token and no local repo)."}
     known = _known_shas(db)
     fresh = [c for c in commits if not _is_noise(c["subject"]) and c["sha"][:8] not in known]
     if not fresh:
@@ -1793,7 +1846,7 @@ def generate_changelog(user: dict = Depends(require_level(3)), db: Session = Dep
             "version": "unreleased",
             "environment": "Production",
             "releasedAt": now[:16],
-            "authorId": user["email"].lower(),
+            "authorId": (author_email or "").lower(),
             "businessImpact": str(d.get("businessImpact") or "").strip() or None,
             "whatsChanged": [str(x).strip() for x in (d.get("whatsChanged") or []) if str(x).strip()][:5],
             "commitShas": shas,
@@ -1808,3 +1861,11 @@ def generate_changelog(user: dict = Depends(require_level(3)), db: Session = Dep
         db.refresh(e)
     return {"created": len(created), "scanned": len(fresh), "source": source,
             "entries": [changelog_entry_to_dict(e) for e in created]}
+
+
+@router.post("/task-changelog/generate")
+def generate_changelog(user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    result = generate_changelog_from_commits(db, user["email"])
+    if "error" in result:
+        raise HTTPException(503, result["error"])
+    return result
