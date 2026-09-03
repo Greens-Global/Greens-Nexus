@@ -7,6 +7,10 @@ import { WIDGETS, clampToLimits } from './widgets.jsx';
 // greeting + the same three stat tiles across the top, the attention feed wide
 // left with the pulse/actions column on the right, agenda below - so entering
 // Customize reads as "Home, now editable", not a different product.
+// Manager Dashboard folded into this one board (Sep 3) - no more second
+// DEFAULTS entry to seed. A manager's Team widgets (minRole-gated, see
+// widgets.jsx) are added through the same Add Widget gallery everyone else
+// uses, not baked into a separate default layout only managers ever see.
 const DEFAULTS = {
   dashboard: [
     // Row 1 mirrors Home's stat board exactly - the page greeting renders above
@@ -24,16 +28,6 @@ const DEFAULTS = {
     { i: 'd10', type: 'agenda',       x: 0, y: 7, w: 6, h: 4 },
     // h5: six link rows + header need ~260px - at h4 the last row clipped.
     { i: 'd8', type: 'links',         x: 6, y: 7, w: 3, h: 5 },
-  ],
-  'manager-dashboard': [
-    { i: 'm1', type: 'team-attendance', x: 0, y: 0, w: 3, h: 2 },
-    { i: 'm2', type: 'team-approvals',  x: 3, y: 0, w: 3, h: 2 },
-    { i: 'm3', type: 'kpi',             x: 6, y: 0, w: 3, h: 2, config: { metric: 'pending_inventory' } },
-    { i: 'm4', type: 'kpi',             x: 9, y: 0, w: 3, h: 2, config: { metric: 'time_off_pending' } },
-    { i: 'm8', type: 'approvals',       x: 0, y: 2, w: 8, h: 5 },
-    { i: 'm6', type: 'notifications',   x: 8, y: 2, w: 4, h: 5 },
-    { i: 'm9', type: 'who-has-what',    x: 0, y: 7, w: 8, h: 5 },
-    { i: 'm7', type: 'links',           x: 8, y: 7, w: 4, h: 5 },
   ],
 };
 
@@ -85,10 +79,17 @@ export function compactLayout(items) {
   return items.map(it => best.find(p => p.i === it.i) || it);
 }
 
-export function useDashboards(target) {
+// One target now - see the DEFAULTS comment above. `teamScope`: whether to
+// also pull team-wide KPIs (clocked_in_now, time_off_pending) alongside the
+// personal ones, so a manager's Team widgets have data wherever they've put
+// them on their one board - CustomDashboard.jsx passes can('supervisor') ||
+// the 'manager-dashboard' grant.
+const TARGET = 'dashboard';
+
+export function useDashboards(teamScope) {
   const [views, setViews] = useState([]);
   const [activeId, setActiveId] = useState(null);   // null = built-in default
-  const [layout, setLayoutState] = useState(DEFAULTS[target] || []);
+  const [layout, setLayoutState] = useState(DEFAULTS.dashboard);
   const [kpis, setKpis] = useState({});
   const [department, setDepartment] = useState('');
   const [canPublish, setCanPublish] = useState(false);
@@ -102,18 +103,18 @@ export function useDashboards(target) {
     // clampToLimits normalizes layouts saved before per-widget size caps existed
     // (e.g. a KPI tile stretched over half the page).
     const items = (view && Array.isArray(view.layout) && view.layout.length)
-      ? view.layout : (DEFAULTS[target] || []);
+      ? view.layout : DEFAULTS.dashboard;
     setActiveId(view?.id ?? null);
     setLayoutState(items.map(clampToLimits));
     setDirty(false);
-  }, [target]);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [v, k] = await Promise.all([
-        api.dashViews(target).catch(() => ({ views: [] })),
-        api.dashKpis(target === 'manager-dashboard' ? 'team' : 'self').catch(() => ({ kpis: {} })),
+        api.dashViews(TARGET).catch(() => ({ views: [] })),
+        api.dashKpis(teamScope ? 'team' : 'self').catch(() => ({ kpis: {} })),
       ]);
       setViews(v.views || []);
       setDepartment(v.department || '');
@@ -126,7 +127,7 @@ export function useDashboards(target) {
     } finally {
       setLoading(false);
     }
-  }, [target, applyView]);
+  }, [teamScope, applyView]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -148,7 +149,7 @@ export function useDashboards(target) {
   const switchView = (id) => {
     const v = views.find(x => x.id === id);
     if (v) applyView(v);
-    else { setActiveId(null); setLayoutState(DEFAULTS[target] || []); setDirty(false); }
+    else { setActiveId(null); setLayoutState(DEFAULTS.dashboard); setDirty(false); }
     setEditing(false);
   };
 
@@ -164,7 +165,7 @@ export function useDashboards(target) {
       const updated = await api.dashUpdateView(activeId, { layout: cur });
       setViews(vs => vs.map(v => v.id === updated.id ? updated : v));
     } else {
-      const created = await api.dashCreateView({ target, name: 'My view', layout: cur, is_default: true });
+      const created = await api.dashCreateView({ target: TARGET, name: 'My view', layout: cur, is_default: true });
       setViews(vs => [...vs, created]);
       setActiveId(created.id);
     }
@@ -173,7 +174,7 @@ export function useDashboards(target) {
   };
 
   const saveAsNew = async (name) => {
-    const created = await api.dashCreateView({ target, name: name || 'New view', layout: layoutRef.current });
+    const created = await api.dashCreateView({ target: TARGET, name: name || 'New view', layout: layoutRef.current });
     setViews(vs => [...vs, created]);
     setActiveId(created.id);
     setDirty(false);
@@ -183,7 +184,7 @@ export function useDashboards(target) {
   // Brand-new view starting from the built-in default layout (vs. saveAsNew,
   // which copies whatever is currently on screen).
   const createNewView = async (name) => {
-    const created = await api.dashCreateView({ target, name: name || 'New view', layout: DEFAULTS[target] || [] });
+    const created = await api.dashCreateView({ target: TARGET, name: name || 'New view', layout: DEFAULTS.dashboard });
     setViews(vs => [...vs, created]);
     applyView(created);
     setEditing(true);
@@ -191,7 +192,7 @@ export function useDashboards(target) {
   };
 
   const publishDepartment = async (name) => {
-    const created = await api.dashCreateView({ target, name: name || `${department || 'Department'} view`, layout: layoutRef.current, scope: 'department', department });
+    const created = await api.dashCreateView({ target: TARGET, name: name || `${department || 'Department'} view`, layout: layoutRef.current, scope: 'department', department });
     setViews(vs => [...vs, created]);
     return created;
   };
@@ -214,7 +215,7 @@ export function useDashboards(target) {
   const removeView = async (id) => {
     await api.dashDeleteView(id);
     setViews(vs => vs.filter(v => v.id !== id));
-    if (activeId === id) { setActiveId(null); setLayoutState(DEFAULTS[target] || []); setDirty(false); }
+    if (activeId === id) { setActiveId(null); setLayoutState(DEFAULTS.dashboard); setDirty(false); }
   };
 
   const renameView = async (id, name) => {

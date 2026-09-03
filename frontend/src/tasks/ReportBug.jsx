@@ -23,7 +23,7 @@ const SEVERITIES = [
 ];
 const label = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
 
-function ReportBugModal({ onClose }) {
+export function ReportBugModal({ onClose }) {
   const { createTicket, myEmail } = useTasks();
   const [module, setModule] = useState('Tasks');
   const [title, setTitle] = useState('');
