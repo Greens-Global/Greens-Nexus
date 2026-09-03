@@ -17,7 +17,6 @@ import PortfoliosView from '../tasks/PortfoliosView';
 import TemplatesView from '../tasks/TemplatesView';
 import TeamsView from '../tasks/TeamsView';
 import ManageView from '../tasks/ManageView';
-import ReportBugButton from '../tasks/ReportBug';
 import CreateMenu from '../tasks/CreateMenu';
 import { useIsMobile } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
@@ -253,12 +252,6 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
       </div>
       {/* A task opened from header search - hosted here so it works from any tab. */}
       {searchTaskId && <TaskDetailDrawer taskId={searchTaskId} onClose={() => setSearchTaskId(null)} />}
-      {/* Create moved into the navbar on mobile (see the Create menu above); the
-          My Tasks / workspace screens still create via their MobileTaskBar +.
-          +64 whenever the module's own bottom tab bar is showing (everywhere
-          except Manage, which has no bar of its own) so this floats above it
-          too, same reasoning as MobileTaskBar's bottom offset. */}
-      <ReportBugButton bottom={isMobile ? (hasMobileBar ? 84 : 14) + (onManage ? 0 : 64) : undefined} />
       {tour && (
         <GuidedTour
           steps={buildTaskTourSteps({ go, canManage, isMobile })}

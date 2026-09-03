@@ -592,6 +592,13 @@ def _run_migrations():
             "WHERE COALESCE(ref_id, '') != '' "
             "AND COALESCE(action, '') LIKE '{%\"view\": \"tasks\", \"sub\": \"mine\"%' "
             "AND action NOT LIKE '%\"taskId\"%' AND json_valid(action)",
+            # Manager Dashboard folded into the one Dashboard (Sep 3) - widgets
+            # are gated per-widget by minRole instead of a whole second board.
+            # Existing manager-dashboard views become ordinary alternate views
+            # under target 'dashboard' - nothing merged/deleted, just relabeled,
+            # so nobody's saved layout disappears. Naturally idempotent (a
+            # second run matches zero rows).
+            "UPDATE dashboard_views SET target = 'dashboard' WHERE target = 'manager-dashboard'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1246,6 +1253,8 @@ def _run_migrations():
         "WHERE COALESCE(ref_id, '') <> '' "
         "AND COALESCE(action, '') LIKE '{%\"view\": \"tasks\", \"sub\": \"mine\"%' "
         "AND action NOT LIKE '%\"taskId\"%'",
+        # Same backfill as the SQLite list above - see the note there.
+        "UPDATE dashboard_views SET target = 'dashboard' WHERE target = 'manager-dashboard'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

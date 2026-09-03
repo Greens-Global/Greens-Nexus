@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
-  CheckCircle, Loader2, Plus, X, CalendarDays, Monitor,
+  CheckCircle, Loader2, Plus, X, CalendarDays, Monitor, User,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
@@ -11,8 +11,13 @@ import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { formatTime } from '../lib/datetime';
+import { MyHROverview } from './MyHR';
 
-// ── Time Clock - punch in/out with geofencing (all employees) ─────────────────
+// ── My HR / Time Clock - one module (Visesh, Sep 3: "combine My HR and Time
+// Clock... anything to do with their time and HR should be together"). Four
+// tabs: Overview (profile/documents/paystubs/Ask HR - MyHR.jsx's
+// MyHROverview), Clock, Time Sheet, Time Off. Punch in/out keeps its
+// geofencing (all employees) ────────────────────────────────────────────────
 // Soft-gate design (research-verified SwipeClock behavior): location is asked
 // for AT THE MOMENT of punching only; a denied prompt or coarse fix never
 // blocks the punch - it's recorded and flagged for review instead. The button
@@ -31,6 +36,7 @@ const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break Start', break_end
 // "Time Clock" no matter which tab was open). `title` also drives the
 // breadcrumb via <ModuleTabs syncTitle> below.
 const TAB_META = {
+  overview:  { title: 'My HR',      label: 'Overview',   subtitle: 'Your profile, documents and leave - only you see this' },
   clock:     { title: 'Time Clock', label: 'Clock',      subtitle: 'Punch in and out, your timesheet and time off' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet', subtitle: 'Your hours this pay period, day by day' },
   timeoff:   { title: 'Time Off',   label: 'Time Off',   subtitle: 'Request time off and see what’s coming up' },
@@ -257,8 +263,8 @@ function GeoChip({ p }) {
   return null;
 }
 
-export default function TimeClock() {
-  const [tab, setTab] = useState('clock');     // clock | timesheet | timeoff
+export default function TimeClock({ initialTab = 'clock' } = {}) {
+  const [tab, setTab] = useState(initialTab);   // overview | clock | timesheet | timeoff
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState(null);        // {ok, text}
@@ -504,7 +510,7 @@ export default function TimeClock() {
       <div className="view-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
           <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Clock size={19} />
+            {tab === 'overview' ? <User size={19} /> : <Clock size={19} />}
           </span>
           <div className="view-title-group">
             <h2 style={{ margin: 0 }}>{TAB_META[tab].title}</h2>
@@ -517,15 +523,18 @@ export default function TimeClock() {
           Desktop renders them centered in the top header; phones keep the
           in-page strip (ModuleTabs handles both). syncTitle: the header/page
           title above follows whichever tab is active instead of always
-          reading "Time Clock". */}
+          reading "Time Clock". Overview always leads - My HR content applies
+          to everyone regardless of time-tracking-exempt status. */}
       <ModuleTabs
         tabs={(status?.timeTrackingExempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? ['clock', 'timeoff']
-          : ['clock', 'timesheet', 'timeoff']
+          ? ['overview', 'clock', 'timeoff']
+          : ['overview', 'clock', 'timesheet', 'timeoff']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
         active={tab} onChange={setTab} syncTitle />
+
+      {tab === 'overview' && <MyHROverview onOpenTimeOff={() => setTab('timeoff')} />}
 
       {msg && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 14,

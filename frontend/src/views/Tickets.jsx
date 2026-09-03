@@ -10,8 +10,6 @@ import { useState } from 'react';
 import { Settings, X } from 'lucide-react';
 import TicketsView from '../tickets/TicketsView';
 import TicketManageView from '../tickets/TicketManageView';
-import ReportBugButton from '../tasks/ReportBug';
-import { useIsMobile } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT } from '../tasks/theme';
 
@@ -19,7 +17,6 @@ export default function Tickets() {
   const { can } = useRole();
   const canManage = !!can?.('manager');
   const [manage, setManage] = useState(false);
-  const isMobile = useIsMobile();
 
   return (
     <div className="nx-tasks" style={{ fontFamily: FONT, display: 'flex', flexDirection: 'column', height: '100%', background: NX.canvas }}>
@@ -41,10 +38,6 @@ export default function Tickets() {
       <div style={{ flex: 1, minHeight: 0 }}>
         {manage ? <TicketManageView /> : <TicketsView />}
       </div>
-      {/* TicketsView renders its own floating MobileTaskBar (view switcher +
-          create +) on phones - offset above it, same as Tasks does for its
-          own mobile bar. */}
-      {!manage && <ReportBugButton bottom={isMobile ? 84 : undefined} />}
     </div>
   );
 }

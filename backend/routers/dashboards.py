@@ -21,7 +21,11 @@ from auth import get_current_user
 
 router = APIRouter(prefix="/dashboards", tags=["Dashboards"], dependencies=[Depends(get_current_user)])
 
-_TARGETS = ("dashboard", "manager-dashboard")
+# Manager Dashboard folded into the one Dashboard (Sep 3) - widgets are gated
+# per-widget by minRole instead of a whole second board. 'manager-dashboard'
+# stays out of _TARGETS so no new view can be created against it; the startup
+# migration (main.py) already relabeled every existing row to 'dashboard'.
+_TARGETS = ("dashboard",)
 
 
 def _now() -> str:

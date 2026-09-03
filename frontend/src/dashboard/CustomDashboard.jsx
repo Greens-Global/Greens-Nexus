@@ -51,10 +51,21 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
   );
 }
 
-export default function CustomDashboard({ target }) {
-  const { can, myEmail } = useRole();
+// Manager Dashboard folded into this one board (Sep 3) - see the useDashboards
+// / widgets.jsx comments for the "why". `canSeeWidget` is the single access
+// layer both the grid (an already-placed widget) and the Add Widget gallery
+// read: someone's actual role level (can(minRole)) OR the 'manager-dashboard'
+// Access Group grant, which is how a Supervisor's job role hands them manager-
+// tier widgets today (see jobroles.py) without requiring the Manager role
+// itself. A widget with no minRole is open to everyone.
+export default function CustomDashboard() {
+  const { can, myEmail, myGrantedModules } = useRole();
   const { notifications, markRead, markAllRead, dismiss, clearRead } = useNotifications();
-  const d = useDashboards(target);
+  const canSeeWidget = (def) => !def.minRole || can(def.minRole) || myGrantedModules.has('manager-dashboard');
+  // Team KPIs (clocked_in_now, time_off_pending) are only worth fetching for
+  // someone who can actually see a Team widget - same access layer as above.
+  const teamScope = can('supervisor') || myGrantedModules.has('manager-dashboard');
+  const d = useDashboards(teamScope);
   const [gallery, setGallery] = useState(false);
   const [configItem, setConfigItem] = useState(null);
   const [menu, setMenu] = useState(false);
@@ -81,7 +92,7 @@ export default function CustomDashboard({ target }) {
     // Role-gated widget in a layout the user inherited (e.g. a dept template):
     // show an inert card instead of the real panel - and never delete it from
     // their saved layout.
-    if (def.minRole && !can(def.minRole)) {
+    if (!canSeeWidget(def)) {
       return (
         <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center', padding: 16 }}>
           "{def.title}" needs {def.minRole} access
@@ -162,7 +173,7 @@ export default function CustomDashboard({ target }) {
       ...(canRename ? [{ label: 'Rename view', icon: Pencil, on: rename }] : []),
       ...(isOwnPersonal ? [{ label: 'Set as my default', icon: Star, on: makeDefault }] : []),
       // Escape hatch: a saved default view otherwise hides the designed Home forever.
-      ...(target === 'dashboard' && d.views.some(v => v.scope === 'personal' && v.isDefault)
+      ...(d.views.some(v => v.scope === 'personal' && v.isDefault)
         ? [{ label: 'Make Home my default', icon: LayoutGrid, on: wrap(async () => { setMenu(false); await d.clearDefaultView(); guardedSwitch(null); }, 'Home is your landing view again') }] : []),
     ],
     [
@@ -189,10 +200,8 @@ export default function CustomDashboard({ target }) {
           color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{toast.t}</div>
       )}
 
-      {/* Controls: view picker + Customize + the "…" view menu. On the Home
-          dashboard these sit in the standard module header (title band + hairline,
-          like every other module); Manager Dashboard brings its own header, so
-          there they stay a plain right-aligned toolbar. */}
+      {/* Controls: view picker + Customize + the "…" view menu, in the standard
+          module header (title band + hairline, like every other module). */}
       {(() => {
         const controls = (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -200,7 +209,7 @@ export default function CustomDashboard({ target }) {
               onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
               className="form-input" title="Switch dashboard view"
               style={{ fontSize: 12.5, fontWeight: 600, width: 170, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto' }}>
-              <option value="">{target === 'dashboard' ? 'Home' : 'Default layout'}</option>
+              <option value="">Home</option>
               {d.views.filter(v => v.scope === 'personal').length > 0 && (
                 <optgroup label="My views">
                   {d.views.filter(v => v.scope === 'personal').map(v => (
@@ -254,7 +263,7 @@ export default function CustomDashboard({ target }) {
             </div>
           </div>
         );
-        return target === 'dashboard' ? (
+        return (
           <div className="view-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
               <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -267,18 +276,16 @@ export default function CustomDashboard({ target }) {
             </div>
             {controls}
           </div>
-        ) : (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>{controls}</div>
         );
       })()}
 
       {d.loading ? (
         <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={90} /></div>
-      ) : (target === 'dashboard' && !d.editing && !d.activeId) ? (
+      ) : (!d.editing && !d.activeId) ? (
         /* The Operations Desk home - the designed default. Saved views and
            Customize keep the widget grid untouched below. */
         <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} />
-      ) : target === 'dashboard' ? (
+      ) : (
         /* Saved views + Customize keep the page greeting - it belongs to the
            Dashboard, not to a layout, so picking a custom view (or saving one
            as default) can never make "Good morning" disappear. */
@@ -294,19 +301,9 @@ export default function CustomDashboard({ target }) {
             limitsFor={(it) => WIDGETS[it.type]?.limits}
           />
         </>
-      ) : (
-        <DashboardGrid
-          layout={d.layout}
-          editing={d.editing}
-          onLayoutChange={d.setLayout}
-          renderWidget={renderWidget}
-          onRemove={d.removeWidget}
-          onConfigure={(it) => WIDGETS[it.type]?.configurable ? setConfigItem(it) : null}
-          limitsFor={(it) => WIDGETS[it.type]?.limits}
-        />
       )}
 
-      {gallery && <WidgetGallery target={target} can={can} layout={d.layout} onAdd={d.addWidget} onClose={() => setGallery(false)} />}
+      {gallery && <WidgetGallery canSee={canSeeWidget} layout={d.layout} onAdd={d.addWidget} onClose={() => setGallery(false)} />}
       {configItem && <ConfigModal item={configItem} onSave={(cfg) => d.updateWidgetConfig(configItem.i, cfg)} onClose={() => setConfigItem(null)} />}
       {nameModal && <NameModal {...nameModal} onClose={() => setNameModal(null)} />}
     </div>
