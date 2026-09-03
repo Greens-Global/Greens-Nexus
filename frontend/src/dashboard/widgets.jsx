@@ -57,7 +57,7 @@ export const KPI_CATALOG = {
 // Curated shortcut destinations for the picker (module + optional sub-screen).
 export const SHORTCUT_TARGETS = [
   { view: 'timeclock',        label: 'Time Clock' },
-  { view: 'myhr',             label: 'My HR' },
+  { view: 'myhr',             label: 'My Workday' },
   { view: 'tasks',            label: 'Tasks' },
   { view: 'inventory',        label: 'Item Management' },
   { view: 'inventory', sub: 'catalog',   label: 'Item Management · Browse catalog' },
