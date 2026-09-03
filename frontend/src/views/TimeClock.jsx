@@ -264,8 +264,22 @@ function GeoChip({ p }) {
   return null;
 }
 
-export default function TimeClock({ initialTab = 'clock' } = {}) {
-  const [tab, setTab] = useState(initialTab);   // overview | clock | timesheet | timeoff
+export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange } = {}) {
+  // The URL's sub segment is the source of truth once it names a real tab
+  // (deep link, browser back/forward, or a bare /myhr landing on its default);
+  // initialTab only seeds the very first render before that's known. Every
+  // setTab(...) call below just updates local state - the effects further
+  // down mirror it out to activeSub/the URL in one place, so no call site had
+  // to change (Pranshu, Sep 4: switching tabs left the URL on /myhr forever).
+  const [tab, setTab] = useState(() => (TAB_META[activeSub] ? activeSub : initialTab));   // overview | clock | timesheet | timeoff
+  useEffect(() => {
+    if (TAB_META[activeSub] && activeSub !== tab) setTab(activeSub);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSub]);
+  useEffect(() => {
+    if (onSubChange && activeSub !== tab) onSubChange(tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState(null);        // {ok, text}

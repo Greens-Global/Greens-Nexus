@@ -333,8 +333,8 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin":              return <Admin />;
     case "support":            return <Support />;
-    case "timeclock":          return <TimeClock initialTab="clock" />;
-    case "myhr":               return <TimeClock initialTab="overview" />;
+    case "timeclock":          return <TimeClock initialTab="clock" activeSub={activeSub} onSubChange={onSubChange} />;
+    case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault />;
     case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
@@ -394,6 +394,12 @@ const DEFAULT_SUBS = {
   accounting:        "transactions",
   egnyte:            "browse",
   "employee-tracking": "coverage",
+  // My Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
+  // id lands on its own natural tab so the URL is meaningful from the first
+  // click, not just after switching tabs once (see TimeClock.jsx's own
+  // activeSub sync for that half).
+  myhr:              "overview",
+  timeclock:         "clock",
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 
