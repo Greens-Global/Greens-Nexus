@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   User, Phone, Mail, Heart, Briefcase, Building2, CalendarDays, MapPin, Network,
-  FileText, Download, CalendarOff, Plus, Loader2, Pencil, Check, X, BadgeCheck,
-  Clock, Banknote, MessageSquarePlus, Package, ArrowRight, TrendingUp, Hourglass,
+  FileText, Download, CalendarOff, Loader2, Pencil, Check, X, BadgeCheck,
+  Clock, Banknote, MessageSquarePlus, Package, ArrowRight, Hourglass,
   HardDrive,
 } from 'lucide-react';
 import { api } from '../api';
@@ -11,13 +11,15 @@ import { formatDateLong, formatTime } from '../lib/datetime';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
-// e-sign documents, paystubs, leave, and an "Ask HR" request channel.
-// The HR module remains the HR team's admin console; this screen is baseline.
-
-const TIMEOFF_TYPES = [
-  ['vacation', 'Vacation'], ['sick', 'Sick'], ['personal', 'Personal'],
-  ['unpaid', 'Unpaid'], ['other', 'Other'],
-];
+// e-sign documents, paystubs, and an "Ask HR" request channel. The HR module
+// remains the HR team's admin console; this screen is baseline.
+//
+// Rendered as the "Overview" tab of the merged My HR / Time Clock module
+// (Visesh, Sep 3 - "anything to do with time and HR should be together").
+// Time-off REQUESTING and its full history live on the Time Off tab
+// (TimeClock.jsx) - one surface, not two; this screen only shows a summary
+// with a link over. Punch/hours detail lives on the Clock and Time Sheet
+// tabs the same way, hence "Full detail lives in Time Clock" below.
 const STATUS_META = {
   pending:   { label: 'Pending',   bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   approved:  { label: 'Approved',  bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))' },
@@ -76,51 +78,6 @@ function Stat({ label, value, hint, color, Icon, hero }) {
       <span className="dk-stat-num">{value}</span>
       <span className="dk-stat-label">{label}</span>
       <span className="dk-stat-sub">{hint}</span>
-    </div>
-  );
-}
-
-// Approved leave this year as a small kit donut (2px gaps, center total) with
-// a per-type legend - real request data only; hidden when there's none.
-const LEAVE_COLORS = { vacation: '#2b45e1', sick: '#dc7a18', personal: '#248f4b', unpaid: '#8a31c9', other: '#b8860b' };
-function LeaveDonut({ leave }) {
-  const yr = String(new Date().getFullYear());
-  const daySpan = (r) => { const a = new Date(r.startDate || r.start_date), b = new Date(r.endDate || r.end_date); return isNaN(a) || isNaN(b) ? 0 : Math.round((b - a) / 86400000) + 1; };
-  const byType = {};
-  leave.filter(r => r.status === 'approved' && String(r.startDate || r.start_date || '').startsWith(yr))
-    .forEach(r => { byType[r.type] = (byType[r.type] || 0) + daySpan(r); });
-  const entries = Object.entries(byType).sort((a, b) => b[1] - a[1]);
-  const total = entries.reduce((s, [, n]) => s + n, 0);
-  if (!total) return null;
-  const R = 34, SW = 10, C = 2 * Math.PI * R;
-  let acc = 0;
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '6px 0 12px', borderBottom: '1px solid var(--line)', marginBottom: 8 }}>
-      <div style={{ position: 'relative', width: 88, height: 88, flexShrink: 0 }}>
-        <svg width={88} height={88} style={{ transform: 'rotate(-90deg)' }}>
-          <circle cx={44} cy={44} r={R} fill="none" stroke="var(--mist)" strokeWidth={SW} />
-          {entries.map(([t, n]) => {
-            const frac = n / total;
-            const dash = Math.max(0.5, frac * C - 2.5);
-            const off = -acc * C; acc += frac;
-            return <circle key={t} cx={44} cy={44} r={R} fill="none" stroke={LEAVE_COLORS[t] || '#6b7280'} strokeWidth={SW}
-              strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={off} />;
-          })}
-        </svg>
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{total}d</span>
-          <span style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--muted)' }}>this year</span>
-        </div>
-      </div>
-      <div style={{ display: 'grid', gap: 5, minWidth: 0 }}>
-        {entries.map(([t, n]) => (
-          <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 3, background: LEAVE_COLORS[t] || '#6b7280', flexShrink: 0 }} />
-            <span style={{ color: 'var(--muted)', fontWeight: 600, textTransform: 'capitalize' }}>{t}</span>
-            <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{n}d</span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -184,7 +141,7 @@ function HoursChart({ days, start, end }) {
   );
 }
 
-export default function MyHR() {
+export function MyHROverview({ onOpenTimeOff }) {
   const [profile, setProfile] = useState(null);
   const [profErr, setProfErr] = useState('');
   const [docs, setDocs] = useState([]);
@@ -198,9 +155,6 @@ export default function MyHR() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState(null);
   const [busy, setBusy] = useState({});
-  const [loForm, setLoForm] = useState({ type: 'vacation', start_date: '', end_date: '', note: '' });
-  const [loOpen, setLoOpen] = useState(false);
-  const [loBusy, setLoBusy] = useState(false);
   const [askForm, setAskForm] = useState({ type: 'document', message: '' });
   const [askFile, setAskFile] = useState(null);
   const askFileRef = useRef(null);
@@ -208,7 +162,6 @@ export default function MyHR() {
 
   // ── Card filters ──
   const [range, setRange] = useState('week');         // hours card + tile
-  const [leaveFilter, setLeaveFilter] = useState('all');
   const [docQuery, setDocQuery] = useState('');
   const [stubQuery, setStubQuery] = useState('');
   // Files HR filed in my wired Egnyte folder (people.my-documents). null =
@@ -291,19 +244,6 @@ export default function MyHR() {
     return [...esign, ...filed].sort((a, b) => (b.sortKey || '').localeCompare(a.sortKey || ''));
   }, [docs, egnyteDocs]);
 
-  const submitLeave = async () => {
-    if (!loForm.start_date || !loForm.end_date) return;
-    setLoBusy(true);
-    try {
-      const created = await api.timeOffCreate(loForm);
-      setLeave(l => [created, ...l]);
-      setLoOpen(false);
-      setLoForm({ type: 'vacation', start_date: '', end_date: '', note: '' });
-      flash('Time-off request submitted');
-    } catch (e) { flash(e?.message || 'Could not submit', false); }
-    finally { setLoBusy(false); }
-  };
-
   const submitAsk = async () => {
     if (!askForm.message.trim()) return;
     setAskBusy(true);
@@ -361,18 +301,6 @@ export default function MyHR() {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', fontFamily: 'var(--wk-font)' }}>
-      <div className="view-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <User size={19} />
-          </span>
-          <div className="view-title-group">
-            <h2>My HR</h2>
-            <p>Your profile, hours, documents and leave - only you see this</p>
-          </div>
-        </div>
-      </div>
-
       {toast && (
         <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 14, fontSize: 12.5, fontWeight: 600,
           background: toast.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
@@ -512,7 +440,7 @@ export default function MyHR() {
             <div className="myhr-main">
               {!sheet?.timeTrackingExempt && (
               <div className="dash-card myhr-span2">
-                {cardHead('My hours', 'Full detail lives in Time Clock',
+                {cardHead('My hours', 'Full detail lives on the Clock tab',
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 12.5, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)' }}>{sheet ? hm(workedTotal) : '…'}</strong> total</span>
                     <select className="form-input" value={range} onChange={e => setRange(e.target.value)}
@@ -526,7 +454,7 @@ export default function MyHR() {
                   <>
                     {workedTotal === 0 ? (
                       <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: '0 16px' }}>
-                        No hours in this range yet - punch in from Time Clock and they chart here.
+                        No hours in this range yet - punch in from the Clock tab and they chart here.
                       </div>
                     ) : (
                       <HoursChart days={sheet.days} start={rStart} end={rEnd} />
@@ -599,63 +527,26 @@ export default function MyHR() {
                 ))}
               </div>
 
+              {/* My leave: a summary only - requesting time off and its full
+                  history live on the Time Off tab now (one surface, not two;
+                  see the file-top note). */}
               <div className="dash-card">
-                {cardHead('My leave', 'Time-off requests and their status',
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <select className="form-input" value={leaveFilter} onChange={e => setLeaveFilter(e.target.value)}
-                      style={{ fontSize: 12, fontWeight: 600, padding: '5px 24px 5px 9px', height: 'auto' }}>
-                      <option value="all">All</option>
-                      <option value="pending">Pending</option>
-                      <option value="approved">Approved</option>
-                      <option value="rejected">Rejected</option>
-                    </select>
-                    <button className="primary-btn" onClick={() => setLoOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px' }}>
-                      <Plus size={13} /> Request time off
-                    </button>
-                  </span>)}
-
-                {loOpen && (
-                  <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 12, marginBottom: 12, background: 'var(--mist)' }}>
-                    <label style={lbl}>Type</label>
-                    <select className="form-input" style={input} value={loForm.type} onChange={e => setLoForm(f => ({ ...f, type: e.target.value }))}>
-                      {TIMEOFF_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                    </select>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                      <div>
-                        <label style={lbl}>From</label>
-                        <input type="date" className="form-input" style={input} value={loForm.start_date} onChange={e => setLoForm(f => ({ ...f, start_date: e.target.value }))} />
-                      </div>
-                      <div>
-                        <label style={lbl}>To</label>
-                        <input type="date" className="form-input" style={input} value={loForm.end_date} onChange={e => setLoForm(f => ({ ...f, end_date: e.target.value }))} />
-                      </div>
-                    </div>
-                    <label style={lbl}>Note (optional)</label>
-                    <input className="form-input" style={input} value={loForm.note} placeholder="Anything your manager should know" onChange={e => setLoForm(f => ({ ...f, note: e.target.value }))} />
-                    <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
-                      <button className="secondary-btn" onClick={() => setLoOpen(false)} disabled={loBusy}>Cancel</button>
-                      <button className="primary-btn" onClick={submitLeave} disabled={loBusy || !loForm.start_date || !loForm.end_date}>
-                        {loBusy ? <><Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Submitting…</> : 'Submit'}
-                      </button>
-                    </div>
+                {cardHead('My leave', 'Time off, requested and tracked on the Time Off tab', <CalendarOff size={15} style={{ color: 'var(--muted)' }} />)}
+                {leave.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0 14px' }}>No time-off requests yet.</div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, padding: '6px 0 14px' }}>
+                    <span style={{ fontSize: 12.5, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)', fontSize: 15 }}>{leaveDaysThisYear}d</strong> approved this year</span>
+                    {leave.some(r => r.status === 'pending') && (
+                      <span style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))', fontWeight: 600 }}>
+                        {leave.filter(r => r.status === 'pending').length} pending
+                      </span>
+                    )}
                   </div>
                 )}
-
-                {leave.length > 0 && <LeaveDonut leave={leave} />}
-                {leave.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No time-off requests yet.</div>
-                ) : leave.filter(r => leaveFilter === 'all' || r.status === leaveFilter).map(r => (
-                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-                    <CalendarOff size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
-                        {(TIMEOFF_TYPES.find(([v]) => v === r.type)?.[1]) || r.type} · {fmtD(r.startDate || r.start_date)} → {fmtD(r.endDate || r.end_date)}
-                      </div>
-                      {r.note && <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.note}</div>}
-                    </div>
-                    {chip(r.status)}
-                  </div>
-                ))}
+                <button className="primary-btn" onClick={onOpenTimeOff} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px' }}>
+                  Open Time Off <ArrowRight size={12} />
+                </button>
               </div>
 
               {/* ── Ask HR ── */}

@@ -13,10 +13,27 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 // Ticket is the Ticket module's own icon (Sidebar, TicketsView) - the card
 // that opens its create form should wear it, not a generic document.
-import { Ticket, Monitor, Users, BookOpen, ArrowUpRight, Shield, FileSignature } from 'lucide-react';
+import { Ticket, Monitor, Users, BookOpen, ArrowUpRight, Shield, FileSignature, Bug } from 'lucide-react';
 import { api } from '../api';
 import { ticketNoShort } from '../tickets/ticketMeta';
 import { formatDateTime } from '../lib/datetime';
+
+// Report a Bug used to float as its own button, hovering bottom-right over
+// every Tasks/Tickets screen. Folded into Support (Pranshu, Sep 3) since it's
+// a help action like everything else on this page, not a persistent overlay.
+// Same trick as TicketComposer below: mount the Tasks module's own modal
+// (it needs TasksProvider for createTicket) instead of building a second form.
+const BugComposer = lazy(async () => {
+  const [{ TasksProvider }, { ReportBugModal }] = await Promise.all([
+    import('../tasks/TasksContext'),
+    import('../tasks/ReportBug'),
+  ]);
+  return {
+    default: ({ onClose }) => (
+      <TasksProvider><ReportBugModal onClose={onClose} /></TasksProvider>
+    ),
+  };
+});
 
 // The Ticket module's OWN create form, mounted here instead of navigating to
 // that module. A second form would be a second set of fields to keep in step
@@ -53,6 +70,7 @@ const pill = (s) => STATUS_PILL[s] || { cls: 'status-badge', label: (s || 'new')
 
 export default function Support() {
   const [submitting, setSubmitting] = useState(false);
+  const [reportingBug, setReportingBug] = useState(false);
   const [tickets, setTickets] = useState(null);
   const [error, setError] = useState('');
   // For the Dept column: ticket_to_dict carries departmentId, not the name.
@@ -71,6 +89,8 @@ export default function Support() {
   const OPTIONS = [
     { icon: Ticket, title: 'Submit a Ticket', desc: 'Report an issue or request help from any department.',
       onOpen: () => setSubmitting(true) },
+    { icon: Bug, title: 'Report a Bug', desc: 'Flag something broken in Nexus, with screenshots if you have them.',
+      onOpen: () => setReportingBug(true) },
     { icon: Monitor, title: 'IT Help Desk', desc: 'Hardware, access, software, and network support.',
       onOpen: () => go('it') },
     { icon: Users, title: 'Contact Directory', desc: 'Find the right person across your organization.',
@@ -167,6 +187,12 @@ export default function Support() {
           {/* CreateTicketModal calls onClose after a successful create too, so
               reloading here covers both "submitted" and "cancelled". */}
           <TicketComposer onClose={() => { setSubmitting(false); load(); }} />
+        </Suspense>
+      )}
+
+      {reportingBug && (
+        <Suspense fallback={null}>
+          <BugComposer onClose={() => setReportingBug(false)} />
         </Suspense>
       )}
     </div>

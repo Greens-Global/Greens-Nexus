@@ -115,14 +115,10 @@ function ConfigFields({ type, config, onChange }) {
   return <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>This widget has no options.</p>;
 }
 
-export function WidgetGallery({ target, can, onAdd, onClose, layout = [] }) {
+export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
   const [picking, setPicking] = useState(null);   // { type, config, initial }
 
-  const entries = Object.entries(WIDGETS).filter(([, def]) => {
-    if (def.target && def.target !== target) return false;
-    if (def.minRole && !can(def.minRole)) return false;
-    return true;
-  });
+  const entries = Object.entries(WIDGETS).filter(([, def]) => canSee(def));
   const cats = [...new Set(entries.map(([, d]) => d.cat))];
   // Which widget types are already on the view - the double-My-Agenda trap was
   // adding a widget the default layout already carried, with nothing saying so.
