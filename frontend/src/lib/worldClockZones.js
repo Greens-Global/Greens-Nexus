@@ -87,13 +87,18 @@ function cityOf(tz) {
   return parts[parts.length - 1].replace(/_/g, ' ');
 }
 
-// Compact "City (Continent)" - stays short for the Dashboard greeting's
-// inline chip, which has no room to wrap or truncate (dk-zones is a plain
-// flex row alongside the session chip).
+// Offset only - "(GMT-7)" / "(GMT+5:30)" - for the Dashboard greeting's
+// inline chip (Pranshu, Sep 4: "it shouldn't state state or continent name -
+// whereas it should just state like (GMT-7), (GMT+5:30)"). No city/continent
+// at all here - the live clock right next to it already tells you which
+// zone you picked; this is purely "what offset is that."
 export function zoneLabel(tz) {
-  const parts = tz.split('/');
-  const city = cityOf(tz);
-  return parts.length > 1 ? `${city} (${parts.slice(0, -1).join('/').replace(/_/g, ' ')})` : city;
+  try {
+    const offset = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' })
+      .formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value;
+    if (offset) return `(${offset})`;
+  } catch { /* fall through */ }
+  return cityOf(tz);   // Intl unsupported for this zone - last resort
 }
 
 // Full "(offset) Time Zone Name — City" for the picker itself (Pranshu,
