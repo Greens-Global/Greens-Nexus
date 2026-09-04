@@ -661,6 +661,7 @@ const agendaTime = (s) => {
 // side in a wide placement (the default) and stack in a narrow one, so the
 // same component reads right at both sizes.
 const MONTH_WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function addMonths(d, n) { return new Date(d.getFullYear(), d.getMonth() + n, 1); }
@@ -733,15 +734,42 @@ export function CalendarPanel() {
     : selected === agendaDay(addDays(new Date(), -1)) ? 'Yesterday'
     : selDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
+  // ‹ Today › steps the SELECTED day, not the visible month (Pranshu, Sep 4:
+  // "when i click it... it should change the date in that current month") -
+  // stepping past a month boundary follows the grid to the new month so the
+  // newly-selected day is still visible.
+  const dayNav = (delta) => {
+    const next = addDays(selDate, delta);
+    pick(agendaDay(next));
+    if (next.getMonth() !== cursor.getMonth() || next.getFullYear() !== cursor.getFullYear()) {
+      setCursor(startOfMonth(next));
+    }
+  };
+  const yearNow = new Date().getFullYear();
+  const yearOptions = Array.from({ length: 11 }, (_, i) => yearNow - 5 + i);
+  const selectStyle = {
+    border: 'none', background: 'transparent', color: 'var(--muted)', fontSize: 12, fontWeight: 600,
+    fontFamily: 'var(--wk-font)', cursor: 'pointer', padding: '2px 0', outline: 'none',
+  };
+
   return (
     <Card
       title="Calendar"
-      sub={cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+      sub={
+        <span style={{ display: 'inline-flex', gap: 4 }}>
+          <select value={cursor.getMonth()} onChange={e => setCursor(new Date(cursor.getFullYear(), +e.target.value, 1))} style={selectStyle}>
+            {MONTH_NAMES.map((m, i) => <option key={m} value={i}>{m}</option>)}
+          </select>
+          <select value={cursor.getFullYear()} onChange={e => setCursor(new Date(+e.target.value, cursor.getMonth(), 1))} style={selectStyle}>
+            {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </span>
+      }
       action={
         <span style={{ display: 'inline-flex', gap: 2 }}>
-          <button onClick={() => setCursor(c => addMonths(c, -1))} className="link-btn" style={{ marginTop: 0, padding: '2px 6px' }}>‹</button>
+          <button onClick={() => dayNav(-1)} className="link-btn" style={{ marginTop: 0, padding: '2px 6px' }}>‹</button>
           <button onClick={() => { pickedRef.current = false; setCursor(startOfMonth(new Date())); setSelected(agendaDay(new Date())); }} className="link-btn" style={{ marginTop: 0, padding: '2px 6px', fontSize: 11 }}>Today</button>
-          <button onClick={() => setCursor(c => addMonths(c, 1))} className="link-btn" style={{ marginTop: 0, padding: '2px 6px' }}>›</button>
+          <button onClick={() => dayNav(1)} className="link-btn" style={{ marginTop: 0, padding: '2px 6px' }}>›</button>
         </span>
       }
     >
