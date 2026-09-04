@@ -47,6 +47,7 @@ KNOWN_PUBLIC = {
     "/branding/config",                    # login screen needs it pre-auth
     "/stepup/config",                      # same posture
     "/asana-sync/webhook",                 # X-Hook-Signature HMAC verified
+    "/webhooks/github",                    # X-Hub-Signature-256 HMAC verified
     "/asana-oauth/callback",               # OAuth redirect from Asana; CSRF-guarded by the state token (consume_state)
     "/egnyte-oauth/callback",              # same posture: Egnyte redirects a bare browser here, identity comes from the single-use state row (consume_state), never a bearer token
     "/qa/ci-results", "/qa/e2e-specs",     # X-QA-CI-Token header checked inline

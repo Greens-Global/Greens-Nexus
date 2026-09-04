@@ -597,6 +597,9 @@ export const api = {
   addTaskChangelogComment: (id, data) => req(`/task-changelog/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
   // Long-running: pulls commits + calls Claude, so it needs the AI timeout (not the 18s default).
   generateTaskChangelog: () => req("/task-changelog/generate", { method: "POST", timeoutMs: 120_000 }),
+  // Red-dot eye icon next to the profile pill: unseen published update since this user's last visit.
+  getTaskChangelogUnseen: () => req("/task-changelog/unseen"),
+  markTaskChangelogSeen: () => req("/task-changelog/seen", { method: "POST" }),
 
   // Purchase Requests
   getPurchaseRequests: () => req("/purchase-requests"),
@@ -1119,6 +1122,8 @@ export const api = {
   dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}`),
   // The caller's own Outlook agenda (M365 staff only - {available:false} otherwise)
   dashAgenda:     (start, end, tz) => req(`/dashboards/agenda?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&tz=${encodeURIComponent(tz)}`),
+  // Whole-roster birthdays (month/day only, no year) - active Nexus employees.
+  dashBirthdays:  ()               => req('/dashboards/birthdays'),
 
   // ── My HR (employee self-service - own record only) ──
   myHrProfile:     ()      => req('/myhr/profile'),

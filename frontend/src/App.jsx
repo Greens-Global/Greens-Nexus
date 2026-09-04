@@ -51,7 +51,8 @@ const Documents           = lazy(() => import("./views/Documents"));
 const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
 const Marketing           = lazy(() => import("./views/Marketing"));
 const Admin               = lazy(() => import("./views/Admin"));
-const ExternalLinks       = lazy(() => import("./views/ExternalLinks"));
+// External Links folded into Dashboard as a tab (Sep 3) - Dashboard.jsx lazy-
+// imports views/ExternalLinks itself now; no separate top-level route.
 const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
@@ -59,8 +60,11 @@ const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const ExternalActivate    = lazy(() => import("./views/ExternalActivate"));
 const PrivacyPolicy       = lazy(() => import("./views/PrivacyPolicy"));
 const TermsConditions     = lazy(() => import("./views/TermsConditions"));
+// My HR and Time Clock merged into one module (Visesh, Sep 3) - TimeClock.jsx
+// now owns both, as Overview/Clock/Time Sheet/Time Off tabs. Both view ids
+// still resolve so old links/nav events keep working (same pattern as
+// manager-dashboard/locations folding into tabs, Aug 31).
 const TimeClock           = lazy(() => import("./views/TimeClock"));
-const MyHR                = lazy(() => import("./views/MyHR"));
 const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
 const Egnyte              = lazy(() => import("./views/Egnyte"));
@@ -79,18 +83,21 @@ const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
 // values in Sidebar's NAV array. Keep both in sync when adding new views.
 // Views absent from this map are accessible to everyone (dashboard, inventory, support).
 const VIEW_MIN_ROLES = {
-  // 'manager-dashboard' folded into Dashboard as a tab (Aug 31) to shrink the
-  // left nav - it no longer has its own view id or gate here. Who sees that
-  // tab is now decided inside Dashboard.jsx itself (supervisor+ role, or an
-  // Access Group/job role grant on 'manager-dashboard' - the exact same rule
-  // this entry used to enforce); old links redirect (see parsePath/navigate).
+  // 'manager-dashboard' no longer has its own view id or tab at all (Sep 3,
+  // Neil: a second board defeats "Dashboard is based on role" - see the
+  // dashboard/CustomDashboard.jsx and widgets.jsx comments). Old links
+  // redirect straight to plain Dashboard (see parsePath/navigate); the grant
+  // itself lives on - it now decides which minRole-gated widgets someone can
+  // add to their ONE board (CustomDashboard's canSeeWidget()).
   // 'locations' folded into Employee Tracking as a tab (Aug 31) to shrink the
   // left nav - it no longer has its own view id or gate; old links redirect
   // (see parsePath) into 'employee-tracking', so the Locations map now shares
   // that module's grant-driven access instead of being open to all supervisors.
-  // sop / external-links are baseline (all employees): the KB/LMS with
-  // assigned courses, and plain links. Admin actions inside each stay
-  // role-gated server-side.
+  // sop is baseline (all employees): the KB/LMS with assigned courses. Admin
+  // actions inside stay role-gated server-side.
+  // 'external-links' folded into Dashboard as a tab (Sep 3) - it no longer has
+  // its own view id or gate here; it was baseline (all employees) before the
+  // fold and stays that way as a Dashboard tab everyone can reach.
   // tasks / tickets are grant-driven (Aug 10): visible + usable only via an
   // Access Group / job role grant, mirrored server-side by
   // require_any_module_grant("tasks", "tickets") on the task-family routers.
@@ -325,10 +332,9 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "pdf-editor":         return <Documents activeSub="documents-pdf" onSubChange={onSubChange} />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin":              return <Admin />;
-    case "external-links":     return <ExternalLinks />;
     case "support":            return <Support />;
-    case "timeclock":          return <TimeClock />;
-    case "myhr":               return <MyHR />;
+    case "timeclock":          return <TimeClock initialTab="clock" activeSub={activeSub} onSubChange={onSubChange} />;
+    case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault />;
     case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
@@ -363,11 +369,14 @@ function parsePath() {
   // Locations folded into Employee Tracking as a tab (Aug 31) - old
   // bookmarks/links to the standalone /locations page land on that tab.
   if (raw === 'locations') return { view: 'employee-tracking', sub: 'locations' };
-  // Manager Dashboard folded into Dashboard as a tab (Aug 31) - old
-  // bookmarks/links to the standalone /manager-dashboard page land on that
-  // tab (Dashboard.jsx re-checks access and falls back to the personal tab
-  // if this particular visitor was never granted it).
-  if (raw === 'manager-dashboard') return { view: 'dashboard', sub: 'manager' };
+  // Manager Dashboard no longer has its own tab (Sep 3, see the note above on
+  // VIEW_MIN_ROLES) - old bookmarks/links to the standalone /manager-dashboard
+  // page just land on plain Dashboard, where any manager-tier widgets they had
+  // now live alongside everything else.
+  if (raw === 'manager-dashboard') return { view: 'dashboard', sub: null };
+  // External Links folded into Dashboard as a tab (Sep 3) - old
+  // bookmarks/links to the standalone /external-links page land on that tab.
+  if (raw === 'external-links') return { view: 'dashboard', sub: 'external-links' };
   return { view: PATH_TO_VIEW[raw] || raw, sub: segs[1] || null };
 }
 
@@ -385,6 +394,12 @@ const DEFAULT_SUBS = {
   accounting:        "transactions",
   egnyte:            "browse",
   "employee-tracking": "coverage",
+  // My Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
+  // id lands on its own natural tab so the URL is meaningful from the first
+  // click, not just after switching tabs once (see TimeClock.jsx's own
+  // activeSub sync for that half).
+  myhr:              "overview",
+  timeclock:         "clock",
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 
@@ -558,7 +573,9 @@ function MainApp() {
     // (nexus:navigate events, widget/notification click-throughs, header
     // search results, the Sidebar) lands correctly without each one having
     // to know the view was merged elsewhere.
-    if (view === 'manager-dashboard') { view = 'dashboard'; sub = sub ?? 'manager'; }
+    if (view === 'manager-dashboard') { view = 'dashboard'; sub = sub ?? null; }
+    // 'external-links' folded into Dashboard as a tab (Sep 3) - same reasoning.
+    if (view === 'external-links') { view = 'dashboard'; sub = sub ?? 'external-links'; }
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);

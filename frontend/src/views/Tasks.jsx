@@ -18,7 +18,6 @@ import PortfoliosView from '../tasks/PortfoliosView';
 import TemplatesView from '../tasks/TemplatesView';
 import TeamsView from '../tasks/TeamsView';
 import ManageView from '../tasks/ManageView';
-import ReportBugButton from '../tasks/ReportBug';
 import CreateMenu from '../tasks/CreateMenu';
 import { useIsMobile } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
@@ -303,11 +302,6 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
       </div>
       {/* A task opened from header search - hosted here so it works from any tab. */}
       {searchTaskId && <TaskDetailDrawer taskId={searchTaskId} onClose={() => setSearchTaskId(null)} />}
-      {/* Report a Bug keeps the corner; the create "+" stacks above it (see
-          fabBottom). +64 whenever the module's own bottom tab bar is showing
-          (everywhere except Manage, which has no bar of its own) so this floats
-          above it too, same reasoning as MobileTaskBar's bottom offset. */}
-      <ReportBugButton bottom={bugBottom} />
       {tour && (
         <GuidedTour
           steps={buildTaskTourSteps({ go, canManage, isMobile })}

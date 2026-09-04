@@ -9,7 +9,7 @@ import {
   CreditCard, Building, Server, FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
   Settings, ChevronLeft, ChevronRight,
-  HelpCircle, Store, Calendar, MessageSquare, Package, Clock, Contact,
+  HelpCircle, Store, Calendar, MessageSquare, Package, Contact,
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
@@ -21,15 +21,20 @@ import TicketToken from "./icons/TicketToken";
 // Exported: MobileMenu mirrors this exact order/grouping on phones
 export const NAV = [
   { view: "dashboard", code: "HOME",         label: "Dashboard",          icon: LayoutDashboard },
-  { view: "timeclock", code: "CLK",         label: "Time Clock",         icon: Clock },
-  { view: "myhr", code: "MHR",              label: "My HR",              icon: Contact },
-  // Manager Dashboard folded into Dashboard as a tab (Aug 31) to shrink the
-  // left nav - it no longer has its own entry here. The old view id still
-  // resolves (App.jsx parsePath/navigate redirect it to Dashboard's "manager"
-  // tab); who SEES that tab is decided in Dashboard.jsx itself (supervisor+
-  // role, or an Access Group/job role grant on 'manager-dashboard' - same
-  // rule this NAV entry's minRole used to enforce). The Roles & Access grant
-  // UI exposes it as a scope on the Dashboard row, not a separate module row.
+  // Time Clock folded into My HR as tabs (Visesh, Sep 3 - "no need for My HR
+  // to be a separate left navigation item... anything to do with their time
+  // and HR should be together"). Renamed "My Workday" (Pranshu, Sep 4) once
+  // it covered both halves - "My HR" undersold the Clock/Time Sheet/Time Off
+  // tabs living here too. The 'myhr'/'timeclock' view ids are unchanged (just
+  // internal routing) - 'timeclock' still resolves and lands on the Clock tab.
+  { view: "myhr", code: "MHR",              label: "My Workday",         icon: Contact },
+  // Manager Dashboard is no longer a screen at all (Sep 3, Neil: role-based
+  // widgets on the one Dashboard, not a second board) - it has no NAV entry
+  // and no tab. The old view id still resolves (App.jsx parsePath/navigate
+  // redirect it to plain Dashboard); the 'manager-dashboard' Access Group
+  // grant lives on as what unlocks manager-tier widgets on that one board
+  // (CustomDashboard.jsx's canSeeWidget()). The Roles & Access grant UI still
+  // exposes it as a scope on the Dashboard row, not a separate module row.
   // Locations folded in as an Employee Tracking tab (Aug 31) to shrink the
   // left nav - it no longer has its own entry here. The route (App.jsx
   // 'locations' case) still resolves old links/deep-links into that tab.
@@ -59,6 +64,12 @@ export const NAV = [
   },
   { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken,  minRole: 'supervisor' },
   { view: "sop", code: "KB", label: "Knowledge Base", icon: BookOpen },
+  {
+    view: "documents", code: "DOC", label: "Documents", icon: FileText, minRole: 'supervisor',
+    sub: [
+      { subview: "documents-esign", label: "E-Sign", icon: PenTool },
+    ],
+  },
   { divider: true },
   {
     view: "it", code: "IT", label: "IT", icon: Monitor, minRole: 'supervisor',
@@ -140,12 +151,6 @@ export const NAV = [
     ],
   },
   {
-    view: "documents", code: "DOC", label: "Documents", icon: FileText, minRole: 'supervisor',
-    sub: [
-      { subview: "documents-esign", label: "E-Sign", icon: PenTool },
-    ],
-  },
-  {
     // Marketing is a self-contained module with its own in-page tab bar
     // (Ad Performance / Reputation / Insights / SEO / Business Profile / Leads).
     view: "marketing", code: "MKT", label: "Marketing", icon: Megaphone, minRole: 'supervisor',
@@ -153,7 +158,10 @@ export const NAV = [
   { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
   { divider: true },
   { view: "support", code: "SUP",        label: "Support",        icon: HelpCircle },
-  { view: "external-links", code: "EXT", label: "External Links", icon: ExternalLink },
+  // External Links folded into Dashboard as a tab (Pranshu, Sep 3 - same
+  // "shrink the left nav" pattern as Manager Dashboard, Aug 31). The
+  // 'external-links' view id still resolves (App.jsx parsePath/navigate
+  // redirect it to Dashboard's "external-links" tab) - old links keep working.
   // Privacy Policy / Terms & Conditions folded into Support as cards (Aug 31)
   // to shrink the left nav - both still resolve as views (App.jsx), just not
   // from their own NAV entry here.

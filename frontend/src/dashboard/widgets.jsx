@@ -28,7 +28,7 @@ const TasksPanel        = lazyPanel('TasksPanel');
 const WorkloadPanel     = lazyPanel('WorkloadPanel');
 const ProjectsPanel     = lazyPanel('ProjectsPanel');
 const TeamCalendarPanel = lazyPanel('TeamCalendarPanel');
-const AgendaPanel       = lazyPanel('AgendaPanel');
+const CalendarPanel     = lazyPanel('CalendarPanel');
 
 // Fire the app's cross-view navigation event (see CLAUDE.md).
 export function navigate(view, sub) {
@@ -41,21 +41,23 @@ const C = (name) => `hsl(var(--color-${name}))`;
 export const KPI_CATALOG = {
   open_tasks:           { label: 'Open Tasks',              color: 'blue',   Icon: ListTodo,      hint: 'Across your team',     nav: { view: 'tasks' } },
   my_open_tasks:        { label: 'My Open Tasks',           color: 'blue',   Icon: ListTodo,      hint: 'Assigned to you',      nav: { view: 'tasks' } },
-  pending_requisitions: { label: 'Requisitions to Approve', color: 'orange', Icon: ClipboardCheck, hint: 'Awaiting approval',   nav: { view: 'manager-dashboard' } },
-  pending_inventory:    { label: 'Inventory Requests',      color: 'orange', Icon: Package,       hint: 'Awaiting approval',    nav: { view: 'manager-dashboard' } },
+  pending_requisitions: { label: 'Requisitions to Approve', color: 'orange', Icon: ClipboardCheck, hint: 'Awaiting approval',   nav: { view: 'dashboard' } },
+  pending_inventory:    { label: 'Inventory Requests',      color: 'orange', Icon: Package,       hint: 'Awaiting approval',    nav: { view: 'dashboard' } },
   open_purchases:       { label: 'Open Purchases',          color: 'purple', Icon: Package,       hint: 'In progress',          nav: { view: 'purchase' } },
   my_checkouts:         { label: 'My Active Checkouts',     color: 'green',  Icon: Boxes,         hint: 'Currently with you',   nav: { view: 'inventory', sub: 'checkouts' } },
   my_assignments:       { label: 'Items Assigned to Me',    color: 'green',  Icon: Package,       hint: 'Your equipment',       nav: { view: 'inventory' } },
   unread_notifications: { label: 'Unread Notifications',    color: 'blue',   Icon: Bell,          hint: 'Tap to review' },
   warranties_expiring:  { label: 'Warranties Expiring',     color: 'red',    Icon: ShieldCheck,   hint: 'Within 60 days',       nav: { view: 'property-asset' } },
-  clocked_in_now:       { label: 'Clocked In Now',          color: 'green',  Icon: Users,         hint: 'On the clock now',     nav: { view: 'manager-dashboard' } },
-  time_off_pending:     { label: 'Time Off to Review',      color: 'orange', Icon: CalendarClock, hint: 'Awaiting your review',  nav: { view: 'manager-dashboard' } },
+  // Manager Dashboard folded into the one Dashboard (Sep 3) - these KPI tiles
+  // now just go Home, where the underlying Team widgets actually live.
+  clocked_in_now:       { label: 'Clocked In Now',          color: 'green',  Icon: Users,         hint: 'On the clock now',     nav: { view: 'dashboard' } },
+  time_off_pending:     { label: 'Time Off to Review',      color: 'orange', Icon: CalendarClock, hint: 'Awaiting your review',  nav: { view: 'dashboard' } },
 };
 
 // Curated shortcut destinations for the picker (module + optional sub-screen).
 export const SHORTCUT_TARGETS = [
   { view: 'timeclock',        label: 'Time Clock' },
-  { view: 'myhr',             label: 'My HR' },
+  { view: 'myhr',             label: 'My Workday' },
   { view: 'tasks',            label: 'Tasks' },
   { view: 'inventory',        label: 'Item Management' },
   { view: 'inventory', sub: 'catalog',   label: 'Item Management · Browse catalog' },
@@ -68,7 +70,6 @@ export const SHORTCUT_TARGETS = [
   { view: 'operations',       label: 'Operations' },
   { view: 'development',      label: 'Development' },
   { view: 'ops',              label: 'Construction' },
-  { view: 'manager-dashboard', label: 'Manager Dashboard' },
   { view: 'external-links',   label: 'External Links' },
   { view: 'support',          label: 'Support' },
 ];
@@ -522,9 +523,16 @@ function ClockWidget() {
 }
 
 // ── Registry ──────────────────────────────────────────────────────────────────
-// target: undefined = both dashboards; minRole gates the gallery.
-// limits bound how far each widget can be resized - enforced during drag AND
-// re-applied to saved layouts on load, so a stat tile can never balloon.
+// One dashboard, every widget in one catalog - `minRole` is what's manager-only
+// vs. everyone (Sep 3: Manager Dashboard used to be a second, fully separate
+// board; Neil: "Dashboard is based on role... managers should get access to
+// manager widgets," not a second board). CustomDashboard.jsx's canSeeWidget()
+// gates both rendering an already-placed widget and offering it in the Add
+// Widget gallery: role level OR the 'manager-dashboard' Access Group grant
+// (supervisor+ widgets need `minRole: 'supervisor'`, stricter ones need
+// `minRole: 'manager'` - the "Team" category below is the current manager-only
+// set). limits bound how far each widget can be resized - enforced during drag
+// AND re-applied to saved layouts on load, so a stat tile can never balloon.
 const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
 export const WIDGETS = {
   kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi' },
@@ -534,7 +542,14 @@ export const WIDGETS = {
   'links-folder': { title: 'Links Folder',   cat: 'Navigation', icon: FolderOpen,  size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder' },
   'quick-actions': { title: 'Quick Actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 4 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 6 }, render: QuickActionsWidget },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget },
-  agenda:        { title: 'My Agenda',       cat: 'Live',      icon: CalendarDays, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 7 }, render: AgendaPanel },
+  // 'agenda' is the pre-merge widget type (My Agenda, list-only) - kept as a
+  // hidden alias so dashboards that already have one keep working, but it now
+  // renders the merged Calendar+Agenda panel instead of the old list-only
+  // view (Pranshu, Sep 4: "both the widget gets merged in single... My Agenda
+  // should be synchronized with calendar"). `hidden` pulls it out of the Add
+  // Widget gallery so new placements only ever go through 'calendar'.
+  agenda:        { title: 'My Agenda',       cat: 'Live',      icon: CalendarDays, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 12, maxH: 8 }, render: CalendarPanel, hidden: true },
+  calendar:      { title: 'Calendar',        cat: 'Live',      icon: CalendarDays, size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: CalendarPanel },
   clock:         { title: 'Clock & Greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },
   notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget },
   'team-attendance': { title: 'Team Clocked-In', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor' },

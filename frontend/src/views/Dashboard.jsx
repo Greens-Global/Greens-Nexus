@@ -1,53 +1,62 @@
+import { lazy, Suspense } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { AlertTriangle, X } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
-import { useRole } from '../contexts/RoleContext';
 import CustomDashboard from '../dashboard/CustomDashboard';
 import ModuleTabs from '../components/ModuleTabs';
+
+// External Links is a large, fully self-contained view (its own header,
+// filters, Manage modal, etc.) - lazy so its chunk only loads when that tab
+// is actually opened, same as every other top-level view used to load.
+const ExternalLinks = lazy(() => import('./ExternalLinks'));
 
 // The dashboard IS the customizable widget grid now. The old "Portfolio at a
 // glance" overview lives on as widgets: Occupancy trend, Facilities and Tasks
 // overview are in the Add-widget gallery (Portfolio section) - see
 // dashboard/panels.jsx.
 //
-// Manager Dashboard folded in as a second tab (Aug 31, per Pranshu) - it used
-// to be its own top-level nav item; now it's `<CustomDashboard target=
-// "manager-dashboard">` rendered here instead of by the old views/
-// ManagerDashboard.jsx (deleted). Same access rule as before, just enforced
-// here instead of by a Sidebar minRole: supervisor+ by role, OR an Access
-// Group/job role grant on the 'manager-dashboard' module - see the "Manager
-// Dashboard" scope dropdown on the Dashboard row in Roles & Access.
+// Manager Dashboard USED to be a second tab here, backed by a second, fully
+// separate <CustomDashboard target="manager-dashboard"> board (Aug 31). Neil,
+// Sep 3: that's not what "role-based" should mean - a second board just to
+// hold manager widgets is the wrong shape; the dashboard should be ONE board
+// where manager-tier widgets become available (not force-added) based on who
+// you are. So there is no more manager tab: Team-category widgets
+// (dashboard/widgets.jsx) carry `minRole` and CustomDashboard's own
+// canSeeWidget() (role OR the 'manager-dashboard' Access Group grant) decides
+// who can add/see each one on their own single board.
+//
+// External Links folded in as a second tab the same way tabs are used
+// elsewhere (Pranshu, Sep 3) - baseline (all employees), no access check
+// needed like manager-tier widgets.
 export default function Dashboard({ activeSub, onSubChange }) {
   const { accounts } = useMsal();
-  const { can, myGrantedModules } = useRole();
   const { activeOverdueAlerts, dismissOverdueAlert } = useNotifications();
   const fullName = accounts[0]?.name ?? 'there';
 
-  const canManager = can('supervisor') || myGrantedModules.has('manager-dashboard');
-  // Falls back to the personal tab for anyone who lands on ?sub=manager
-  // without access (a stale link, or a grant that was since revoked).
-  const tab = (activeSub === 'manager' && canManager) ? 'manager' : 'dashboard';
+  const tab = activeSub === 'external-links' ? 'external-links' : 'dashboard';
 
   // Overdue alerts relevant to this user
   const myOverdueAlerts = activeOverdueAlerts.filter(a =>
     a.employeeName?.toLowerCase() === fullName.toLowerCase()
   );
 
+  const tabs = [
+    { key: 'dashboard', label: 'Dashboard' },
+    { key: 'external-links', label: 'External Links' },
+  ];
+
   return (
     <div className="dashboard-view">
-      {canManager && (
-        <ModuleTabs
-          tabs={[{ key: 'dashboard', label: 'Dashboard' }, { key: 'manager', label: 'Manager Dashboard' }]}
-          active={tab}
-          // 'dashboard' clears activeSub (not a literal 'dashboard' string) so
-          // the address bar returns to the clean "/" home path instead of
-          // picking up a redundant "/dashboard/dashboard".
-          onChange={key => onSubChange?.(key === 'dashboard' ? null : key)}
-        />
-      )}
+      <ModuleTabs
+        tabs={tabs}
+        active={tab}
+        // 'dashboard' clears activeSub (not a literal 'dashboard' string) so
+        // the address bar returns to the clean "/" home path instead of
+        // picking up a redundant "/dashboard/dashboard".
+        onChange={key => onSubChange?.(key === 'dashboard' ? null : key)}
+      />
 
-      {/* ── Persistent overdue alerts (personal tab only - these never showed
-          on the old standalone Manager Dashboard either) ── */}
+      {/* ── Persistent overdue alerts (personal tab only) ── */}
       {tab === 'dashboard' && myOverdueAlerts.map(alert => (
         <div key={alert.id} style={{
           display: 'flex', alignItems: 'center', gap: 12,
@@ -67,7 +76,13 @@ export default function Dashboard({ activeSub, onSubChange }) {
         </div>
       ))}
 
-      <CustomDashboard target={tab === 'manager' ? 'manager-dashboard' : 'dashboard'} />
+      {tab === 'external-links' ? (
+        <Suspense fallback={null}>
+          <ExternalLinks />
+        </Suspense>
+      ) : (
+        <CustomDashboard />
+      )}
     </div>
   );
 }
