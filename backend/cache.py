@@ -106,12 +106,13 @@ dashboard_kpis   = TTLCache("dashboard_kpis",   ttl=20)    # /dashboards/kpis - 
                                                            # queries per load. Glanceable counts tolerate ~20s
                                                            # staleness; single-flight also collapses the burst of
                                                            # identical loads when a dashboard/its widgets mount.
+dashboard_birthdays = TTLCache("dashboard_birthdays", ttl=3600)  # /dashboards/birthdays - whole roster, changes rarely
 
 # Watched model -> caches to drop when a commit touches it. HrEntity feeds the
 # directory's company names; group/member rows feed the grant map; employees
 # also feed the approver/allocator lists (filtered against nexus_employees).
 _WATCHED = {
-    "NexusEmployee":    (people_directory, role_holders),
+    "NexusEmployee":    (people_directory, role_holders, dashboard_birthdays),
     "HrEntity":         (people_directory,),
     "NexusGroup":       (module_grants,),
     "NexusGroupMember": (module_grants,),

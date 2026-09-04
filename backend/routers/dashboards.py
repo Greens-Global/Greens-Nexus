@@ -377,3 +377,31 @@ def agenda(start: str = "", end: str = "", tz: str = "UTC",
 
     out = _agenda_cache.get_or_load((email, start, end, tz), _load)
     return {**out, "at": _now()}
+
+
+# Company-wide birthday roster for the Calendar widget (Pranshu, Sep 4: "add
+# birthday as an event of all the employees... helps us prepare any
+# celebration prior"). Deliberately NOT the HR /people endpoint's full
+# record - this returns only name + month/day for active employees who have
+# a DOB on file, never the birth year or anything else from `personal`, and
+# needs no HR grant to read (every employee benefits from knowing when to
+# bring a cake, and month/day alone doesn't reveal age). Cached (see cache.py
+# dashboard_birthdays - watches NexusEmployee, so an HR edit invalidates it).
+@router.get("/birthdays")
+def birthdays(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    def _load() -> dict:
+        rows = (db.query(models.NexusEmployee)
+                .filter(models.NexusEmployee.status == "active").all())
+        out = []
+        for e in rows:
+            dob = ((e.personal or {}).get("dob") or "").strip()
+            m = re.fullmatch(r"\d{4}-(\d{2})-(\d{2})", dob)
+            if not m:
+                continue
+            name = (e.display_name or f"{e.first_name} {e.last_name}".strip()).strip()
+            if not name:
+                continue
+            out.append({"name": name, "month": int(m.group(1)), "day": int(m.group(2))})
+        return {"birthdays": out}
+
+    return {**cache.dashboard_birthdays.get_or_load((), _load), "at": _now()}

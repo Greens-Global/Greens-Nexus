@@ -3,7 +3,7 @@
 // so TimeAdmin & co. stay out of the main bundle.
 import { useState, useEffect, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
-import { MapPin, CheckCircle, XCircle, ChevronDown, Package, Mail, Filter, Loader2, AlertCircle } from 'lucide-react';
+import { MapPin, CheckCircle, XCircle, ChevronDown, Package, Mail, Filter, Loader2, AlertCircle, CakeSlice } from 'lucide-react';
 import { useRequisitions }  from '../contexts/RequisitionContext';
 import { useInventory }     from '../contexts/InventoryContext';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -666,10 +666,22 @@ function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function addMonths(d, n) { return new Date(d.getFullYear(), d.getMonth() + n, 1); }
 
+// MM-DD, independent of year - a birthday repeats every year, so the lookup
+// key deliberately drops it (Pranshu, Sep 4: "add birthday as an event of
+// all the employees in NEXUS... helps us prepare any celebration prior").
+const monthDay = (m, d) => `${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
 export function CalendarPanel() {
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selected, setSelected] = useState(agendaDay(new Date()));
   const [state, setState] = useState({ loading: true, available: true, events: [] });
+  const [birthdays, setBirthdays] = useState([]);   // [{name, month, day}] - whole roster, fetched once
+
+  useEffect(() => {
+    let alive = true;
+    api.dashBirthdays().then(r => { if (alive) setBirthdays(r.birthdays || []); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
   // Whether the user has ever tapped a day themselves - until they do, the
   // grid keeps following the real "today" as it rolls over past midnight on
   // a dashboard tab left open (the selection used to be set once at mount
@@ -725,10 +737,18 @@ export function CalendarPanel() {
     const key = (ev.start || '').slice(0, 10);
     (byDay[key] ||= []).push(ev);
   }
+  const birthdaysByMD = {};
+  for (const b of birthdays) (birthdaysByMD[monthDay(b.month, b.day)] ||= []).push(b.name);
 
   const today = agendaDay(new Date());
-  const dayEvents = (byDay[selected] || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || ''));
   const selDate = new Date(selected + 'T00:00:00');
+  const selBirthdays = birthdaysByMD[monthDay(selDate.getMonth() + 1, selDate.getDate())] || [];
+  // Birthdays sort first (they're all-day, same as Outlook all-day events),
+  // then the real agenda in start-time order.
+  const dayEvents = [
+    ...selBirthdays.map(name => ({ isBirthday: true, isAllDay: true, subject: `${name}'s Birthday` })),
+    ...(byDay[selected] || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || '')),
+  ];
   const selLabel = selected === today ? 'Today'
     : selected === agendaDay(addDays(new Date(), 1)) ? 'Tomorrow'
     : selected === agendaDay(addDays(new Date(), -1)) ? 'Yesterday'
@@ -793,6 +813,7 @@ export function CalendarPanel() {
                 const isToday = key === today;
                 const isSelected = key === selected;
                 const count = (byDay[key] || []).length;
+                const hasBirthday = !!birthdaysByMD[monthDay(d.getMonth() + 1, d.getDate())];
                 return (
                   <button key={key} onClick={() => pick(key)}
                     style={{
@@ -805,10 +826,14 @@ export function CalendarPanel() {
                       fontSize: 12.5, fontWeight: isToday ? 800 : 600, lineHeight: 1,
                       color: isSelected ? '#fff' : !inMonth ? 'var(--wk-faint)' : isToday ? 'hsl(var(--color-blue))' : 'var(--ink)',
                     }}>{d.getDate()}</span>
-                    <span style={{
-                      width: 4, height: 4, borderRadius: '50%',
-                      background: count === 0 ? 'transparent' : isSelected ? '#fff' : 'hsl(var(--color-blue))',
-                    }} />
+                    <span style={{ display: 'inline-flex', gap: 3, height: 4 }}>
+                      {count > 0 && (
+                        <span style={{ width: 4, height: 4, borderRadius: '50%', background: isSelected ? '#fff' : 'hsl(var(--color-blue))' }} />
+                      )}
+                      {hasBirthday && (
+                        <span style={{ width: 4, height: 4, borderRadius: '50%', background: isSelected ? '#fff' : 'hsl(var(--color-gold))' }} />
+                      )}
+                    </span>
                   </button>
                 );
               })}
@@ -828,10 +853,10 @@ export function CalendarPanel() {
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Nothing scheduled.</div>
               ) : (
                 dayEvents.map((ev, i) => (
-                  <div key={`${ev.start}-${i}`} className="task-row" style={{ alignItems: 'flex-start', gap: 10, cursor: ev.webLink ? 'pointer' : 'default' }}
+                  <div key={ev.isBirthday ? `bday-${i}` : `${ev.start}-${i}`} className="task-row" style={{ alignItems: 'flex-start', gap: 10, cursor: ev.webLink ? 'pointer' : 'default' }}
                     onClick={() => { if (ev.webLink) window.open(ev.webLink, '_blank', 'noopener,noreferrer'); }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: 62, paddingTop: 1 }}>
-                      {ev.isAllDay ? 'All day' : agendaTime(ev.start)}
+                    <div style={{ fontSize: 12, fontWeight: 600, color: ev.isBirthday ? 'hsl(var(--color-gold))' : 'var(--muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: 62, paddingTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {ev.isBirthday ? <><CakeSlice size={12} /> All day</> : ev.isAllDay ? 'All day' : agendaTime(ev.start)}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="task-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.subject}</div>

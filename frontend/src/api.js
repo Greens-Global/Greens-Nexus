@@ -1122,6 +1122,8 @@ export const api = {
   dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}`),
   // The caller's own Outlook agenda (M365 staff only - {available:false} otherwise)
   dashAgenda:     (start, end, tz) => req(`/dashboards/agenda?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&tz=${encodeURIComponent(tz)}`),
+  // Whole-roster birthdays (month/day only, no year) - active Nexus employees.
+  dashBirthdays:  ()               => req('/dashboards/birthdays'),
 
   // ── My HR (employee self-service - own record only) ──
   myHrProfile:     ()      => req('/myhr/profile'),
