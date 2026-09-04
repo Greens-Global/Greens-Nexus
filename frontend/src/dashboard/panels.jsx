@@ -742,6 +742,139 @@ export function AgendaPanel() {
   );
 }
 
+// ── Calendar - iPhone-style month grid over the signed-in user's Outlook
+// calendar. Reuses the same /dashboards/agenda endpoint AgendaPanel uses
+// (available/events shape), just queried for a whole visible month (the grid
+// spans Sun-Sat, so it also pulls in the leading/trailing days from the
+// adjacent months that fill the grid) instead of a 2-day window. Tapping a
+// day shows that day's events below the grid, the same way iOS's Calendar
+// app expands a day under the month view.
+const MONTH_WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function addMonths(d, n) { return new Date(d.getFullYear(), d.getMonth() + n, 1); }
+
+export function CalendarPanel() {
+  const [cursor, setCursor] = useState(startOfMonth(new Date()));
+  const [selected, setSelected] = useState(agendaDay(new Date()));
+  const [state, setState] = useState({ loading: true, available: true, events: [] });
+
+  // Grid: Sun-Sat rows covering the whole month, padded with the tail of the
+  // previous month and the head of the next so every week row is full.
+  const gridStart = addDays(startOfMonth(cursor), -startOfMonth(cursor).getDay());
+  const gridDays = Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
+
+  useEffect(() => {
+    let alive = true;
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const start = gridDays[0];
+    const end = addDays(gridDays[41], 1);
+    setState((s) => ({ ...s, loading: true }));
+    api.dashAgenda(`${agendaDay(start)}T00:00:00`, `${agendaDay(end)}T00:00:00`, tz)
+      .then((r) => { if (alive) setState({ loading: false, available: !!r.available, events: r.events || [] }); })
+      .catch(() => { if (alive) setState((s) => ({ ...s, loading: false })); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursor.getFullYear(), cursor.getMonth()]);
+
+  const byDay = {};
+  for (const ev of state.events) {
+    const key = (ev.start || '').slice(0, 10);
+    (byDay[key] ||= []).push(ev);
+  }
+
+  const today = agendaDay(new Date());
+  const dayEvents = (byDay[selected] || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+  const selDate = new Date(selected + 'T00:00:00');
+
+  return (
+    <Card
+      title="Calendar"
+      sub={cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+      action={
+        <span style={{ display: 'inline-flex', gap: 2 }}>
+          <button onClick={() => setCursor(c => addMonths(c, -1))} className="link-btn" style={{ marginTop: 0, padding: '2px 6px' }}>‹</button>
+          <button onClick={() => { setCursor(startOfMonth(new Date())); setSelected(agendaDay(new Date())); }} className="link-btn" style={{ marginTop: 0, padding: '2px 6px', fontSize: 11 }}>Today</button>
+          <button onClick={() => setCursor(c => addMonths(c, 1))} className="link-btn" style={{ marginTop: 0, padding: '2px 6px' }}>›</button>
+        </span>
+      }
+    >
+      {!state.available && !state.loading ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+          Your calendar isn't connected - this widget shows the Outlook calendar of Microsoft 365 accounts.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center', marginBottom: 4 }}>
+            {MONTH_WEEKDAYS.map((w, i) => (
+              <div key={i} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '2px 0' }}>{w}</div>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+            {gridDays.map((d) => {
+              const key = agendaDay(d);
+              const inMonth = d.getMonth() === cursor.getMonth();
+              const isToday = key === today;
+              const isSelected = key === selected;
+              const count = (byDay[key] || []).length;
+              return (
+                <button key={key} onClick={() => setSelected(key)}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                    padding: '5px 0 7px', border: 'none', borderRadius: 8, cursor: 'pointer',
+                    background: isSelected ? 'hsl(var(--color-blue))' : 'transparent',
+                    fontFamily: 'var(--wk-font)',
+                  }}>
+                  <span style={{
+                    fontSize: 12.5, fontWeight: isToday ? 800 : 600, lineHeight: 1,
+                    color: isSelected ? '#fff' : !inMonth ? 'var(--wk-faint)' : isToday ? 'hsl(var(--color-blue))' : 'var(--ink)',
+                  }}>{d.getDate()}</span>
+                  <span style={{
+                    width: 4, height: 4, borderRadius: '50%',
+                    background: count === 0 ? 'transparent' : isSelected ? '#fff' : 'hsl(var(--color-blue))',
+                  }} />
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ borderTop: '1px solid var(--line)', marginTop: 10, paddingTop: 8, flex: 1, minHeight: 0, overflow: 'auto' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', padding: '0 2px 4px' }}>
+              {selDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+            </div>
+            {state.loading ? (
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Loading…</div>
+            ) : dayEvents.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Nothing scheduled.</div>
+            ) : (
+              dayEvents.map((ev, i) => (
+                <div key={`${ev.start}-${i}`} className="task-row" style={{ alignItems: 'flex-start', gap: 10, cursor: ev.webLink ? 'pointer' : 'default' }}
+                  onClick={() => { if (ev.webLink) window.open(ev.webLink, '_blank', 'noopener,noreferrer'); }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: 62, paddingTop: 1 }}>
+                    {ev.isAllDay ? 'All day' : agendaTime(ev.start)}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="task-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.subject}</div>
+                    {(ev.location || ev.joinUrl) && (
+                      <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {ev.joinUrl ? (
+                          <a href={ev.joinUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                            style={{ color: 'hsl(var(--color-blue))', fontWeight: 600, textDecoration: 'none' }}>
+                            Join Teams Meeting
+                          </a>
+                        ) : ev.location}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function TeamCalendarPanel() {
   const WEEK = [
     { day: 'Mon', label: 'Safety briefing',     color: 'blue' },

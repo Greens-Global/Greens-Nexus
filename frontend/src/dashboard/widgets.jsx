@@ -29,6 +29,7 @@ const WorkloadPanel     = lazyPanel('WorkloadPanel');
 const ProjectsPanel     = lazyPanel('ProjectsPanel');
 const TeamCalendarPanel = lazyPanel('TeamCalendarPanel');
 const AgendaPanel       = lazyPanel('AgendaPanel');
+const CalendarPanel     = lazyPanel('CalendarPanel');
 
 // Fire the app's cross-view navigation event (see CLAUDE.md).
 export function navigate(view, sub) {
@@ -543,6 +544,7 @@ export const WIDGETS = {
   'quick-actions': { title: 'Quick Actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 4 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 6 }, render: QuickActionsWidget },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget },
   agenda:        { title: 'My Agenda',       cat: 'Live',      icon: CalendarDays, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 7 }, render: AgendaPanel },
+  calendar:      { title: 'Calendar',        cat: 'Live',      icon: CalendarDays, size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 6, maxH: 8 }, render: CalendarPanel },
   clock:         { title: 'Clock & Greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },
   notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget },
   'team-attendance': { title: 'Team Clocked-In', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor' },

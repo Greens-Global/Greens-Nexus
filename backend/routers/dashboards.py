@@ -345,7 +345,10 @@ def agenda(start: str = "", end: str = "", tz: str = "UTC",
             r = httpx.get(
                 f"{_GRAPH}/users/{email}/calendarView",
                 params={"startDateTime": start_utc, "endDateTime": end_utc,
-                        "$orderby": "start/dateTime", "$top": "15",
+                        # 250 (not the old 15) so a full-month window for the
+                        # Calendar widget's grid isn't truncated - the day/2-day
+                        # window My Agenda uses never gets near either cap.
+                        "$orderby": "start/dateTime", "$top": "250",
                         "$select": "subject,start,end,location,isAllDay,isCancelled,onlineMeeting,webLink"},
                 headers={"Authorization": f"Bearer {token}",
                          # Times come back already in the user's zone - no
