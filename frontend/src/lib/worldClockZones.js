@@ -47,10 +47,42 @@ function canonicalTz(tz) {
   catch { return null; }
 }
 
+function cityOf(tz) {
+  const parts = tz.split('/');
+  return parts[parts.length - 1].replace(/_/g, ' ');
+}
+
+// Compact "City (Continent)" - stays short for the Dashboard greeting's
+// inline chip, which has no room to wrap or truncate (dk-zones is a plain
+// flex row alongside the session chip).
 export function zoneLabel(tz) {
   const parts = tz.split('/');
-  const city = parts[parts.length - 1].replace(/_/g, ' ');
+  const city = cityOf(tz);
   return parts.length > 1 ? `${city} (${parts.slice(0, -1).join('/').replace(/_/g, ' ')})` : city;
+}
+
+// Full "(offset) Time Zone Name — City" for the picker itself (Pranshu,
+// Sep 4: "i want a time zone option to be as a option not a county or
+// state") - "City (Continent)" reads as a place, not a time zone. IANA zone
+// ids are necessarily city-keyed (that's how the tz database tracks each
+// region's own DST history), so the city can't be dropped entirely - it's
+// kept as a small trailing disambiguator, since several IANA zones can
+// share an identical offset + name at any given moment (they differ by
+// historical DST rules) and would otherwise be indistinguishable in the
+// list. Same convention most OS time zone pickers use
+// ("(UTC-08:00) Pacific Time").
+export function zoneOptionLabel(tz) {
+  const now = new Date();
+  const namePart = (type) => {
+    try {
+      return new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: type })
+        .formatToParts(now).find((p) => p.type === 'timeZoneName')?.value || '';
+    } catch { return ''; }
+  };
+  const offset = namePart('shortOffset') || namePart('short');
+  const name = namePart('long');
+  if (!offset && !name) return zoneLabel(tz);   // Intl unsupported for this zone - last resort
+  return `${offset ? `(${offset}) ` : ''}${name || cityOf(tz)} — ${cityOf(tz)}`;
 }
 
 // Grouped by continent/region (the tz's first path segment) for <optgroup> -
