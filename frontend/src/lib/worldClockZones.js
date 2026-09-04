@@ -30,7 +30,31 @@ const LEGACY_KEY_TZ = {
   auckland: 'Pacific/Auckland',
 };
 
-export const ALL_ZONES = [
+// Normalizes (and validates) a tz string to the exact spelling THIS engine's
+// own Intl data uses - not just any valid IANA name. Needed because an
+// engine's Intl implementation can canonicalize a zone to a different alias
+// than the one written in source (this build's ICU data turns "Asia/Kolkata"
+// into "Asia/Calcutta", "Asia/Kathmandu" into "Asia/Katmandu", etc. - same
+// zone, different string). A raw validity check would keep the un-canonical
+// spelling and silently mismatch every <option value> built from it, so a
+// stored selection like India (GMT+5:30) showed live in the Dashboard
+// greeting (zoneLabel only needs a valid tz, which either spelling is) but
+// showed "None" in the picker's own <select> (whose <option value> couldn't
+// match the differently-spelled stored value) - Pranshu, Sep 4. Returns null
+// for a string that isn't a real zone at all.
+function canonicalTz(tz) {
+  try { return new Intl.DateTimeFormat('en-US', { timeZone: tz }).resolvedOptions().timeZone; }
+  catch { return null; }
+}
+
+// Curated one-representative-per-standard-offset list; RAW spellings here are
+// just the readable/preferred IANA names for editing this file - every one
+// is run through canonicalTz below before becoming ALL_ZONES, so the actual
+// values used for <option>s (and everywhere else) always match whatever this
+// engine's Intl will canonicalize a stored selection to. That's what closes
+// the Kolkata/Calcutta-style mismatch above for good, regardless of which
+// spelling happens to be written here.
+const RAW_ZONES = [
   'Pacific/Midway',        // UTC-11  Samoa
   'Pacific/Honolulu',      // UTC-10  Hawaii
   'America/Anchorage',     // UTC-9   Alaska
@@ -67,20 +91,17 @@ export const ALL_ZONES = [
   'Pacific/Tongatapu',     // UTC+13
   'Pacific/Kiritimati',    // UTC+14
 ];
-
-// Normalizes (and validates) a tz string to the exact spelling THIS engine's
-// own Intl data uses - not just any valid IANA name. Needed because a
-// browser's supportedValuesOf() can use a different alias for the same zone
-// than the LEGACY_KEY_TZ map does (this Chrome build's list has
-// "Asia/Calcutta" where the legacy map points at "Asia/Kolkata" - same zone,
-// different string). A raw validity check would keep "Asia/Kolkata" and
-// silently mismatch every <option value="Asia/Calcutta"> in the dropdown,
-// so the picker showed "None" for a genuinely selected zone. Returns null
-// for a string that isn't a real zone at all.
-function canonicalTz(tz) {
-  try { return new Intl.DateTimeFormat('en-US', { timeZone: tz }).resolvedOptions().timeZone; }
-  catch { return null; }
-}
+export const ALL_ZONES = (() => {
+  const seen = new Set();
+  const out = [];
+  for (const tz of RAW_ZONES) {
+    const canon = canonicalTz(tz) || tz;
+    if (seen.has(canon)) continue;   // two raw spellings canonicalizing to the same zone
+    seen.add(canon);
+    out.push(canon);
+  }
+  return out;
+})();
 
 function cityOf(tz) {
   const parts = tz.split('/');
