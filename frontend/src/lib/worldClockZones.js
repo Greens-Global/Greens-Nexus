@@ -2,16 +2,24 @@
 // two hardcoded spans (California/India); Neil asked for it to be a pickable
 // option in My Profile. A first pass offered a curated 15-city checklist -
 // Pranshu, Sep 1: "why such long list, make it a drop down and all over world
-// time zone" - so this pulls the browser's own IANA tz database (every zone
-// it knows, ~400) into three grouped-by-continent <select> dropdowns instead
-// of a scrolling list of checkboxes.
+// time zone" - which briefly pulled in the browser's ENTIRE IANA tz database
+// (~400 zones: Intl.supportedValuesOf('timeZone')). That went too far the
+// other way (Pranshu, Sep 4, looking at "Marshall Islands Time - Majuro" /
+// "Wallis & Futuna Time - Wallis" in the list: "we should only get all the
+// world standard time zone") - most of those 400 are tiny stations that
+// duplicate a handful of UTC offsets, not zones anyone recognizes or is
+// choosing between. ALL_ZONES is now a curated one-representative-per-
+// standard-offset list instead - the same ~35 zones Outlook/Google
+// Calendar/Slack's own time zone pickers offer, ordered west to east by UTC
+// offset (a half-hour/45-minute offset sorts after the whole-hour one it
+// shares a leading digit with).
 //
 // Same singleton + localStorage + event pattern as lib/displayTz.js's
 // timecard zone switcher - a module cache keeps DeskGreeting reactive to a
 // change made in My Profile without threading a prop through App.jsx.
 import { useState, useEffect } from 'react';
 
-// The short keys from the original curated list, mapped to their real IANA
+// The short keys from the very first curated list, mapped to their real IANA
 // zone - so anyone who already picked from that list keeps their selection
 // once storage switches to raw tz identifiers.
 const LEGACY_KEY_TZ = {
@@ -22,16 +30,43 @@ const LEGACY_KEY_TZ = {
   auckland: 'Pacific/Auckland',
 };
 
-// Intl.supportedValuesOf ships in every browser Nexus targets (Chrome/Edge
-// 99+, Firefox 93+, Safari 15.4+). The tiny legacy list is the fallback for
-// the rare browser without it, so the picker never renders empty.
-export const ALL_ZONES = (() => {
-  try {
-    const list = Intl.supportedValuesOf('timeZone');
-    if (list?.length) return list;
-  } catch { /* unsupported */ }
-  return Object.values(LEGACY_KEY_TZ);
-})();
+export const ALL_ZONES = [
+  'Pacific/Midway',        // UTC-11  Samoa
+  'Pacific/Honolulu',      // UTC-10  Hawaii
+  'America/Anchorage',     // UTC-9   Alaska
+  'America/Los_Angeles',   // UTC-8   Pacific
+  'America/Denver',        // UTC-7   Mountain
+  'America/Chicago',       // UTC-6   Central
+  'America/New_York',      // UTC-5   Eastern
+  'America/Halifax',       // UTC-4   Atlantic
+  'America/Sao_Paulo',     // UTC-3   Brasilia
+  'Atlantic/Azores',       // UTC-1
+  'UTC',                   // UTC+0
+  'Europe/London',         // UTC+0 / +1 GMT / BST
+  'Europe/Paris',          // UTC+1   Central European
+  'Europe/Athens',         // UTC+2   Eastern European
+  'Africa/Cairo',          // UTC+2
+  'Europe/Moscow',         // UTC+3
+  'Asia/Tehran',           // UTC+3:30
+  'Asia/Dubai',            // UTC+4
+  'Asia/Kabul',            // UTC+4:30
+  'Asia/Karachi',          // UTC+5
+  'Asia/Kolkata',          // UTC+5:30  India
+  'Asia/Kathmandu',        // UTC+5:45
+  'Asia/Dhaka',            // UTC+6
+  'Asia/Yangon',           // UTC+6:30
+  'Asia/Bangkok',          // UTC+7
+  'Asia/Shanghai',         // UTC+8
+  'Asia/Singapore',        // UTC+8
+  'Asia/Tokyo',            // UTC+9
+  'Asia/Seoul',            // UTC+9
+  'Australia/Adelaide',    // UTC+9:30
+  'Australia/Sydney',      // UTC+10
+  'Pacific/Guadalcanal',   // UTC+11
+  'Pacific/Auckland',      // UTC+12
+  'Pacific/Tongatapu',     // UTC+13
+  'Pacific/Kiritimati',    // UTC+14
+];
 
 // Normalizes (and validates) a tz string to the exact spelling THIS engine's
 // own Intl data uses - not just any valid IANA name. Needed because a
