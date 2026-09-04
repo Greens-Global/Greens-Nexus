@@ -669,6 +669,33 @@ export function CalendarPanel() {
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selected, setSelected] = useState(agendaDay(new Date()));
   const [state, setState] = useState({ loading: true, available: true, events: [] });
+  // Whether the user has ever tapped a day themselves - until they do, the
+  // grid keeps following the real "today" as it rolls over past midnight on
+  // a dashboard tab left open (the selection used to be set once at mount
+  // and then just sit there, so the highlighted day silently went stale -
+  // Pranshu, Sep 4: "'Today' stays constant... it should say Tomorrow/
+  // Yesterday" - the button is a fixed jump-to-today control by design, like
+  // Outlook/Google Calendar's own "Today" button, but the selection drifting
+  // behind the real day was the actual bug).
+  const pickedRef = useRef(false);
+  const pick = (key) => { pickedRef.current = true; setSelected(key); };
+
+  // Re-check the real date once a minute (and whenever the tab regains
+  // focus) so a long-lived tab notices midnight passing.
+  useEffect(() => {
+    const sync = () => {
+      const now = agendaDay(new Date());
+      setSelected((cur) => {
+        if (pickedRef.current) return cur;
+        if (cur === now) return cur;
+        setCursor(startOfMonth(new Date()));
+        return now;
+      });
+    };
+    const t = setInterval(sync, 60_000);
+    document.addEventListener('visibilitychange', sync);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', sync); };
+  }, []);
 
   // Grid: Sun-Sat rows covering the whole month, padded with the tail of the
   // previous month and the head of the next so every week row is full.
@@ -701,7 +728,9 @@ export function CalendarPanel() {
   const today = agendaDay(new Date());
   const dayEvents = (byDay[selected] || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || ''));
   const selDate = new Date(selected + 'T00:00:00');
-  const selLabel = selected === today ? 'Today' : selected === agendaDay(addDays(new Date(), 1)) ? 'Tomorrow'
+  const selLabel = selected === today ? 'Today'
+    : selected === agendaDay(addDays(new Date(), 1)) ? 'Tomorrow'
+    : selected === agendaDay(addDays(new Date(), -1)) ? 'Yesterday'
     : selDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
   return (
@@ -711,7 +740,7 @@ export function CalendarPanel() {
       action={
         <span style={{ display: 'inline-flex', gap: 2 }}>
           <button onClick={() => setCursor(c => addMonths(c, -1))} className="link-btn" style={{ marginTop: 0, padding: '2px 6px' }}>‹</button>
-          <button onClick={() => { setCursor(startOfMonth(new Date())); setSelected(agendaDay(new Date())); }} className="link-btn" style={{ marginTop: 0, padding: '2px 6px', fontSize: 11 }}>Today</button>
+          <button onClick={() => { pickedRef.current = false; setCursor(startOfMonth(new Date())); setSelected(agendaDay(new Date())); }} className="link-btn" style={{ marginTop: 0, padding: '2px 6px', fontSize: 11 }}>Today</button>
           <button onClick={() => setCursor(c => addMonths(c, 1))} className="link-btn" style={{ marginTop: 0, padding: '2px 6px' }}>›</button>
         </span>
       }
@@ -737,7 +766,7 @@ export function CalendarPanel() {
                 const isSelected = key === selected;
                 const count = (byDay[key] || []).length;
                 return (
-                  <button key={key} onClick={() => setSelected(key)}
+                  <button key={key} onClick={() => pick(key)}
                     style={{
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
                       padding: '5px 0 7px', border: 'none', borderRadius: 8, cursor: 'pointer',
