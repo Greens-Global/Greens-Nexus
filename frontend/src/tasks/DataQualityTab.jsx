@@ -10,7 +10,7 @@
 // (see TasksWorkspace.jsx's `canManage`) - no separate permission check needed
 // here. Every open (non-completed) task is in scope, company-wide: managers
 // already see every task from `useTasks()`, unscoped by project or assignee.
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { NX, FONT, chip, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { Avatar, DateField, EmptyState, SearchSelect } from './components';
@@ -19,12 +19,17 @@ import TaskDetailDrawer from './TaskDetailDrawer';
 
 // Each row's "missing X" test, in the order they read as columns. A task
 // missing more than one shows every gap chip that applies - nothing here
-// picks just the first.
+// picks just the first. `chipText` overrides the default "N missing <label>"
+// filter-chip wording for a gap that doesn't read naturally that way
+// (Pranshu, Sep 4: an "Unassigned" chip, same style as the others, to find
+// tasks nobody owns) - "missing Assignee" would be the mechanically-generated
+// text, but "unassigned" is what everyone actually calls this.
 const GAP_DEFS = [
   { key: 'dueOn', label: 'Due Date', test: (t) => !t.dueOn },
   { key: 'projectId', label: 'Project', test: (t) => !t.projectId },
   { key: 'priority', label: 'Priority', test: (t) => !t.priority },
   { key: 'teamId', label: 'Team', test: (t) => !t.teamId },
+  { key: 'assignee', label: 'Assignee', test: (t) => taskAssignees(t).length === 0, chipText: (n) => `${n} unassigned` },
 ];
 
 function projectOptions(projects) {
@@ -132,6 +137,40 @@ export default function DataQualityTab({ store }) {
   const countFor = (key) => rows.reduce((n, r) => n + (r.gaps.some((g) => g.key === key) ? 1 : 0), 0);
   const filteredRows = filterKey ? rows.filter((r) => r.gaps.some((g) => g.key === filterKey)) : rows;
 
+  // ── Row virtualization ──────────────────────────────────────────────────────
+  // Opening this tab with ~2000 gap rows used to freeze the tab switch for a
+  // few seconds before it "suddenly" appeared (Pranshu, Sep 4) - every row
+  // mounts three live SearchSelect pickers + a DateField, so a full list is
+  // several thousand interactive components committed to the DOM at once.
+  // Same fixed-row-height + spacer-padding approach InventoryManagement.jsx's
+  // catalog table already uses: render only the rows near the viewport (+
+  // overscan) inside the bounded scroll box.
+  const ROW_H = 46;
+  const OVERSCAN = 8;
+  const scrollRef = useRef(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportH, setViewportH] = useState(640);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setViewportH(el.clientHeight || 640);
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+  // A new filter (or the task list itself changing) can land the old scroll
+  // position past the end of a now-shorter list - snap back to the top.
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    setScrollTop(0);
+  }, [filterKey, tasks]);
+  const onScroll = useCallback((e) => setScrollTop(e.currentTarget.scrollTop), []);
+  const vStart = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  const vEnd = Math.min(filteredRows.length, vStart + Math.ceil(viewportH / ROW_H) + OVERSCAN * 2);
+  const vSlice = filteredRows.slice(vStart, vEnd);
+  const padTop = vStart * ROW_H;
+  const padBot = Math.max(0, (filteredRows.length - vEnd) * ROW_H);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ padding: '16px 16px 0' }}>
@@ -140,15 +179,15 @@ export default function DataQualityTab({ store }) {
           <div style={{ fontSize: 18, fontWeight: 700 }}>Data Quality</div>
         </div>
         <div style={{ fontSize: 13, color: NX.dim, marginBottom: 12 }}>
-          Every open task, company-wide, missing a Due Date, Project, Priority, or Team - fix any of them
-          right here without opening the task. Click a count below to narrow the list to just that gap.
+          Every open task, company-wide, missing a Due Date, Project, Priority, Team, or Assignee - fix any
+          of them right here without opening the task. Click a count below to narrow the list to just that gap.
         </div>
         {rows.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
             <FilterChip label={`${rows.length} task${rows.length === 1 ? '' : 's'} with gaps`}
               active={!filterKey} color={NX.dim} tint={NX.border2} onClick={() => setFilterKey(null)} />
             {GAP_DEFS.map((g) => countFor(g.key) > 0 && (
-              <FilterChip key={g.key} label={`${countFor(g.key)} missing ${g.label}`}
+              <FilterChip key={g.key} label={g.chipText ? g.chipText(countFor(g.key)) : `${countFor(g.key)} missing ${g.label}`}
                 active={filterKey === g.key} color={NX.amber} tint="rgba(217,119,6,0.12)"
                 onClick={() => setFilterKey((k) => (k === g.key ? null : g.key))} />
             ))}
@@ -156,9 +195,9 @@ export default function DataQualityTab({ store }) {
         )}
       </div>
 
-      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+      <div ref={scrollRef} onScroll={onScroll} className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {rows.length === 0 ? (
-          <EmptyState icon={CheckCircle2} title="Nothing missing" hint="Every open task has a due date, project, priority, and team." />
+          <EmptyState icon={CheckCircle2} title="Nothing missing" hint="Every open task has a due date, project, priority, team, and assignee." />
         ) : (
           <>
             <div style={{
@@ -169,7 +208,9 @@ export default function DataQualityTab({ store }) {
             }}>
               <span>Task</span><span>Missing</span><span>Due Date</span><span>Project</span><span>Priority</span><span>Team</span>
             </div>
-            {filteredRows.map(({ t, gaps }) => <GapRow key={t.id} t={t} gaps={gaps} store={store} onOpen={setOpenId} />)}
+            {padTop > 0 && <div style={{ height: padTop }} />}
+            {vSlice.map(({ t, gaps }) => <GapRow key={t.id} t={t} gaps={gaps} store={store} onOpen={setOpenId} />)}
+            {padBot > 0 && <div style={{ height: padBot }} />}
           </>
         )}
       </div>
