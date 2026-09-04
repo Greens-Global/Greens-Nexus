@@ -118,7 +118,7 @@ function ConfigFields({ type, config, onChange }) {
 export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
   const [picking, setPicking] = useState(null);   // { type, config, initial }
 
-  const entries = Object.entries(WIDGETS).filter(([, def]) => canSee(def));
+  const entries = Object.entries(WIDGETS).filter(([, def]) => canSee(def) && !def.hidden);
   const cats = [...new Set(entries.map(([, d]) => d.cat))];
   // Which widget types are already on the view - the double-My-Agenda trap was
   // adding a widget the default layout already carried, with nothing saying so.

@@ -649,106 +649,17 @@ const agendaTime = (s) => {
   return `${((h + 11) % 12) + 1}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
 };
 
-export function AgendaPanel() {
-  const [state, setState] = useState({ loading: true, available: true, events: [] });
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      const today = new Date();
-      // Exclusive end boundary (start of the day AFTER tomorrow, not
-      // "tomorrow 23:59:59") - Graph's calendarView can include an all-day
-      // event that straddles a non-midnight boundary, which is how a
-      // Saturday all-day event was slipping into a window meant to cover
-      // only today/tomorrow (Pranshu, Sep 4).
-      const after = new Date(today); after.setDate(today.getDate() + 2);
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-      api.dashAgenda(`${agendaDay(today)}T00:00:00`, `${agendaDay(after)}T00:00:00`, tz)
-        .then((r) => { if (alive) setState({ loading: false, available: !!r.available, events: r.events || [] }); })
-        .catch(() => { if (alive) setState((s) => ({ ...s, loading: false })); });
-    };
-    load();
-    const stop = pollWhileVisible(load, AGENDA_REFRESH_MS);
-    return () => { alive = false; stop(); };
-  }, []);
-
-  const todayKey = agendaDay(new Date());
-  const tomorrowKey = agendaDay(new Date(Date.now() + 86400_000));
-  // Real date math, not "today or else Tomorrow" - an all-day event Graph
-  // hands back a day off from what was requested (a known quirk: all-day
-  // events don't respect the Prefer: outlook.timezone header timed events
-  // get, see routers/dashboards.py's /agenda docstring) used to get silently
-  // mislabeled "Tomorrow" no matter how far off it actually was. Now a
-  // mismatch reads as its real weekday instead of a misleading label.
-  const dayLabel = (iso) => {
-    const key = (iso || '').slice(0, 10);
-    if (key === todayKey) return 'Today';
-    if (key === tomorrowKey) return 'Tomorrow';
-    const d = new Date(key + 'T00:00:00');
-    return isNaN(d) ? 'Tomorrow' : d.toLocaleDateString('en-US', { weekday: 'long' });
-  };
-  // Group the window's events under their day headers.
-  const groups = [];
-  for (const ev of state.events) {
-    const label = dayLabel(ev.start);
-    const g = groups[groups.length - 1];
-    if (g && g.label === label) g.events.push(ev);
-    else groups.push({ label, events: [ev] });
-  }
-
-  return (
-    <Card title="My Agenda" sub="From your Outlook calendar">
-      {state.loading ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>Loading your agenda…</div>
-      ) : !state.available ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
-          Your agenda isn't connected - this card shows the Outlook calendar of Microsoft 365 accounts.
-        </div>
-      ) : state.events.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>Nothing scheduled - enjoy the quiet.</div>
-      ) : (
-        <div>
-          {groups.map((g) => (
-            <div key={g.label}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 2px 2px' }}>{g.label}</div>
-              {g.events.map((ev, i) => (
-                <div key={`${ev.start}-${i}`} className="task-row" style={{ alignItems: 'flex-start', gap: 10, cursor: ev.webLink ? 'pointer' : 'default' }}
-                  onClick={() => { if (ev.webLink) window.open(ev.webLink, '_blank', 'noopener,noreferrer'); }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: 62, paddingTop: 1 }}>
-                    {ev.isAllDay ? 'All day' : agendaTime(ev.start)}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="task-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.subject}</div>
-                    {(ev.location || ev.joinUrl) && (
-                      <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {ev.joinUrl ? (
-                          <a href={ev.joinUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-                            style={{ color: 'hsl(var(--color-blue))', fontWeight: 600, textDecoration: 'none' }}>
-                            Join Teams Meeting
-                          </a>
-                        ) : ev.location}
-                      </div>
-                    )}
-                  </div>
-                  {!ev.isAllDay && ev.end && (
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0, paddingTop: 2 }}>until {agendaTime(ev.end)}</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// ── Calendar - iPhone-style month grid over the signed-in user's Outlook
-// calendar. Reuses the same /dashboards/agenda endpoint AgendaPanel uses
-// (available/events shape), just queried for a whole visible month (the grid
-// spans Sun-Sat, so it also pulls in the leading/trailing days from the
-// adjacent months that fill the grid) instead of a 2-day window. Tapping a
-// day shows that day's events below the grid, the same way iOS's Calendar
-// app expands a day under the month view.
+// ── Calendar + My Agenda, merged - one widget instead of two side-by-side
+// cards that never agreed with each other (Pranshu, Sep 4: "both the widget
+// gets merged in single... My Agenda should be synchronized with calendar so
+// we have the correct data"). Both panes now read the SAME fetch of the SAME
+// /dashboards/agenda endpoint (Outlook/Teams via Graph, see AgendaPanel's old
+// docstring) for the whole visible month - there is no second, independently-
+// timed request to drift out of sync with the grid's dots. The month grid
+// (left) picks a day; the agenda list (right) is just that day's slice of the
+// one fetch, defaulting to today. flex-wrap lets the two panes sit side by
+// side in a wide placement (the default) and stack in a narrow one, so the
+// same component reads right at both sizes.
 const MONTH_WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
@@ -769,11 +680,15 @@ export function CalendarPanel() {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     const start = gridDays[0];
     const end = addDays(gridDays[41], 1);
-    setState((s) => ({ ...s, loading: true }));
-    api.dashAgenda(`${agendaDay(start)}T00:00:00`, `${agendaDay(end)}T00:00:00`, tz)
-      .then((r) => { if (alive) setState({ loading: false, available: !!r.available, events: r.events || [] }); })
-      .catch(() => { if (alive) setState((s) => ({ ...s, loading: false })); });
-    return () => { alive = false; };
+    const load = (showLoading) => {
+      if (showLoading) setState((s) => ({ ...s, loading: true }));
+      api.dashAgenda(`${agendaDay(start)}T00:00:00`, `${agendaDay(end)}T00:00:00`, tz)
+        .then((r) => { if (alive) setState({ loading: false, available: !!r.available, events: r.events || [] }); })
+        .catch(() => { if (alive) setState((s) => ({ ...s, loading: false })); });
+    };
+    load(true);
+    const stop = pollWhileVisible(() => load(false), AGENDA_REFRESH_MS);
+    return () => { alive = false; stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cursor.getFullYear(), cursor.getMonth()]);
 
@@ -786,6 +701,8 @@ export function CalendarPanel() {
   const today = agendaDay(new Date());
   const dayEvents = (byDay[selected] || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || ''));
   const selDate = new Date(selected + 'T00:00:00');
+  const selLabel = selected === today ? 'Today' : selected === agendaDay(addDays(new Date(), 1)) ? 'Tomorrow'
+    : selDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
   return (
     <Card
@@ -804,70 +721,81 @@ export function CalendarPanel() {
           Your calendar isn't connected - this widget shows the Outlook calendar of Microsoft 365 accounts.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center', marginBottom: 4 }}>
-            {MONTH_WEEKDAYS.map((w, i) => (
-              <div key={i} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '2px 0' }}>{w}</div>
-            ))}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
-            {gridDays.map((d) => {
-              const key = agendaDay(d);
-              const inMonth = d.getMonth() === cursor.getMonth();
-              const isToday = key === today;
-              const isSelected = key === selected;
-              const count = (byDay[key] || []).length;
-              return (
-                <button key={key} onClick={() => setSelected(key)}
-                  style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-                    padding: '5px 0 7px', border: 'none', borderRadius: 8, cursor: 'pointer',
-                    background: isSelected ? 'hsl(var(--color-blue))' : 'transparent',
-                    fontFamily: 'var(--wk-font)',
-                  }}>
-                  <span style={{
-                    fontSize: 12.5, fontWeight: isToday ? 800 : 600, lineHeight: 1,
-                    color: isSelected ? '#fff' : !inMonth ? 'var(--wk-faint)' : isToday ? 'hsl(var(--color-blue))' : 'var(--ink)',
-                  }}>{d.getDate()}</span>
-                  <span style={{
-                    width: 4, height: 4, borderRadius: '50%',
-                    background: count === 0 ? 'transparent' : isSelected ? '#fff' : 'hsl(var(--color-blue))',
-                  }} />
-                </button>
-              );
-            })}
-          </div>
-          <div style={{ borderTop: '1px solid var(--line)', marginTop: 10, paddingTop: 8, flex: 1, minHeight: 0, overflow: 'auto' }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', padding: '0 2px 4px' }}>
-              {selDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, height: '100%' }}>
+          {/* Left pane: the month grid. */}
+          <div style={{ flex: '1 1 220px', minWidth: 210 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center', marginBottom: 4 }}>
+              {MONTH_WEEKDAYS.map((w, i) => (
+                <div key={i} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '2px 0' }}>{w}</div>
+              ))}
             </div>
-            {state.loading ? (
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Loading…</div>
-            ) : dayEvents.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Nothing scheduled.</div>
-            ) : (
-              dayEvents.map((ev, i) => (
-                <div key={`${ev.start}-${i}`} className="task-row" style={{ alignItems: 'flex-start', gap: 10, cursor: ev.webLink ? 'pointer' : 'default' }}
-                  onClick={() => { if (ev.webLink) window.open(ev.webLink, '_blank', 'noopener,noreferrer'); }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: 62, paddingTop: 1 }}>
-                    {ev.isAllDay ? 'All day' : agendaTime(ev.start)}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="task-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.subject}</div>
-                    {(ev.location || ev.joinUrl) && (
-                      <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {ev.joinUrl ? (
-                          <a href={ev.joinUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-                            style={{ color: 'hsl(var(--color-blue))', fontWeight: 600, textDecoration: 'none' }}>
-                            Join Teams Meeting
-                          </a>
-                        ) : ev.location}
-                      </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+              {gridDays.map((d) => {
+                const key = agendaDay(d);
+                const inMonth = d.getMonth() === cursor.getMonth();
+                const isToday = key === today;
+                const isSelected = key === selected;
+                const count = (byDay[key] || []).length;
+                return (
+                  <button key={key} onClick={() => setSelected(key)}
+                    style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                      padding: '5px 0 7px', border: 'none', borderRadius: 8, cursor: 'pointer',
+                      background: isSelected ? 'hsl(var(--color-blue))' : 'transparent',
+                      fontFamily: 'var(--wk-font)',
+                    }}>
+                    <span style={{
+                      fontSize: 12.5, fontWeight: isToday ? 800 : 600, lineHeight: 1,
+                      color: isSelected ? '#fff' : !inMonth ? 'var(--wk-faint)' : isToday ? 'hsl(var(--color-blue))' : 'var(--ink)',
+                    }}>{d.getDate()}</span>
+                    <span style={{
+                      width: 4, height: 4, borderRadius: '50%',
+                      background: count === 0 ? 'transparent' : isSelected ? '#fff' : 'hsl(var(--color-blue))',
+                    }} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {/* Right pane: My Agenda, for whichever day is selected in the grid -
+              same `state.events` fetch, just filtered to `selected`, so it can
+              never disagree with the dots on the left. */}
+          <div style={{ flex: '1.2 1 240px', minWidth: 220, borderLeft: '1px solid var(--line)', paddingLeft: 18, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', padding: '0 2px 8px' }}>
+              My Agenda · {selLabel}
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+              {state.loading ? (
+                <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Loading…</div>
+              ) : dayEvents.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Nothing scheduled.</div>
+              ) : (
+                dayEvents.map((ev, i) => (
+                  <div key={`${ev.start}-${i}`} className="task-row" style={{ alignItems: 'flex-start', gap: 10, cursor: ev.webLink ? 'pointer' : 'default' }}
+                    onClick={() => { if (ev.webLink) window.open(ev.webLink, '_blank', 'noopener,noreferrer'); }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: 62, paddingTop: 1 }}>
+                      {ev.isAllDay ? 'All day' : agendaTime(ev.start)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="task-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.subject}</div>
+                      {(ev.location || ev.joinUrl) && (
+                        <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {ev.joinUrl ? (
+                            <a href={ev.joinUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                              style={{ color: 'hsl(var(--color-blue))', fontWeight: 600, textDecoration: 'none' }}>
+                              Join Teams Meeting
+                            </a>
+                          ) : ev.location}
+                        </div>
+                      )}
+                    </div>
+                    {!ev.isAllDay && ev.end && (
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0, paddingTop: 2 }}>until {agendaTime(ev.end)}</div>
                     )}
                   </div>
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}

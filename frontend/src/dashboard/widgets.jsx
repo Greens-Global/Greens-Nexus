@@ -28,7 +28,6 @@ const TasksPanel        = lazyPanel('TasksPanel');
 const WorkloadPanel     = lazyPanel('WorkloadPanel');
 const ProjectsPanel     = lazyPanel('ProjectsPanel');
 const TeamCalendarPanel = lazyPanel('TeamCalendarPanel');
-const AgendaPanel       = lazyPanel('AgendaPanel');
 const CalendarPanel     = lazyPanel('CalendarPanel');
 
 // Fire the app's cross-view navigation event (see CLAUDE.md).
@@ -543,8 +542,14 @@ export const WIDGETS = {
   'links-folder': { title: 'Links Folder',   cat: 'Navigation', icon: FolderOpen,  size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder' },
   'quick-actions': { title: 'Quick Actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 4 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 6 }, render: QuickActionsWidget },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget },
-  agenda:        { title: 'My Agenda',       cat: 'Live',      icon: CalendarDays, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 7 }, render: AgendaPanel },
-  calendar:      { title: 'Calendar',        cat: 'Live',      icon: CalendarDays, size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 6, maxH: 8 }, render: CalendarPanel },
+  // 'agenda' is the pre-merge widget type (My Agenda, list-only) - kept as a
+  // hidden alias so dashboards that already have one keep working, but it now
+  // renders the merged Calendar+Agenda panel instead of the old list-only
+  // view (Pranshu, Sep 4: "both the widget gets merged in single... My Agenda
+  // should be synchronized with calendar"). `hidden` pulls it out of the Add
+  // Widget gallery so new placements only ever go through 'calendar'.
+  agenda:        { title: 'My Agenda',       cat: 'Live',      icon: CalendarDays, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 12, maxH: 8 }, render: CalendarPanel, hidden: true },
+  calendar:      { title: 'Calendar',        cat: 'Live',      icon: CalendarDays, size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: CalendarPanel },
   clock:         { title: 'Clock & Greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },
   notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget },
   'team-attendance': { title: 'Team Clocked-In', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor' },
