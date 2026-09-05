@@ -108,18 +108,39 @@ function cityOf(tz) {
   return parts[parts.length - 1].replace(/_/g, ' ');
 }
 
-// Offset only - "(GMT-7)" / "(GMT+5:30)" - for the Dashboard greeting's
-// inline chip (Pranshu, Sep 4: "it shouldn't state state or continent name -
-// whereas it should just state like (GMT-7), (GMT+5:30)"). No city/continent
-// at all here - the live clock right next to it already tells you which
-// zone you picked; this is purely "what offset is that."
+// Country for each curated zone (Pranshu, Sep 5 - supersedes the offset-only
+// chip from Sep 4). IANA tz ids carry no country field to read this from
+// (they're just a city keyed to a DST history), and several ALL_ZONES entries
+// share one country (the four US zones), so this has to be a hand-maintained
+// table keyed to RAW_ZONES above rather than something derived from the tz
+// string - add a line here whenever a zone is added there.
+const TZ_COUNTRY = {
+  'Pacific/Midway': 'United States', 'Pacific/Honolulu': 'United States',
+  'America/Anchorage': 'United States', 'America/Los_Angeles': 'United States',
+  'America/Denver': 'United States', 'America/Chicago': 'United States',
+  'America/New_York': 'United States', 'America/Halifax': 'Canada',
+  'America/Sao_Paulo': 'Brazil', 'Atlantic/Azores': 'Portugal', 'UTC': 'UTC',
+  'Europe/London': 'United Kingdom', 'Europe/Paris': 'France',
+  'Europe/Athens': 'Greece', 'Africa/Cairo': 'Egypt', 'Europe/Moscow': 'Russia',
+  'Asia/Tehran': 'Iran', 'Asia/Dubai': 'United Arab Emirates', 'Asia/Kabul': 'Afghanistan',
+  'Asia/Karachi': 'Pakistan', 'Asia/Kolkata': 'India', 'Asia/Kathmandu': 'Nepal',
+  'Asia/Dhaka': 'Bangladesh', 'Asia/Yangon': 'Myanmar', 'Asia/Bangkok': 'Thailand',
+  'Asia/Shanghai': 'China', 'Asia/Singapore': 'Singapore', 'Asia/Tokyo': 'Japan',
+  'Asia/Seoul': 'South Korea', 'Australia/Adelaide': 'Australia', 'Australia/Sydney': 'Australia',
+  'Pacific/Guadalcanal': 'Solomon Islands', 'Pacific/Auckland': 'New Zealand',
+  'Pacific/Tongatapu': 'Tonga', 'Pacific/Kiritimati': 'Kiribati',
+};
+
+// "Country - City" - for the Dashboard greeting's inline chip. City stays on
+// as the disambiguator for the four US zones (all "United States" alone would
+// be indistinguishable); country is looked up by TZ_COUNTRY rather than
+// derived from the tz string.
 export function zoneLabel(tz) {
-  try {
-    const offset = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' })
-      .formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value;
-    if (offset) return `(${offset})`;
-  } catch { /* fall through */ }
-  return cityOf(tz);   // Intl unsupported for this zone - last resort
+  const country = TZ_COUNTRY[tz];
+  const city = cityOf(tz);
+  if (!country) return city;             // zone not in the curated table
+  if (country === city || country === 'UTC') return country;
+  return `${country} - ${city}`;
 }
 
 // Full "(offset) Time Zone Name — City" for the picker itself (Pranshu,
