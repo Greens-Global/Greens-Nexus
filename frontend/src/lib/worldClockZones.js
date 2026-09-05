@@ -112,9 +112,14 @@ function cityOf(tz) {
 // chip from Sep 4). IANA tz ids carry no country field to read this from
 // (they're just a city keyed to a DST history), and several ALL_ZONES entries
 // share one country (the four US zones), so this has to be a hand-maintained
-// table keyed to RAW_ZONES above rather than something derived from the tz
-// string - add a line here whenever a zone is added there.
-const TZ_COUNTRY = {
+// table - add a line here whenever a zone is added to RAW_ZONES above.
+// Keyed by the RAW spelling for readability, then run through canonicalTz
+// below into TZ_COUNTRY_CANON - same reason ALL_ZONES does this (this
+// engine's ICU renames e.g. "Asia/Kolkata" to "Asia/Calcutta"), so a raw-keyed
+// lookup missed every zone whose canonical spelling differs from the one
+// written here and silently fell back to the bare city name, no country at
+// all (confirmed live: "Calcutta" with no "India -", Sep 5).
+const TZ_COUNTRY_RAW = {
   'Pacific/Midway': 'United States', 'Pacific/Honolulu': 'United States',
   'America/Anchorage': 'United States', 'America/Los_Angeles': 'United States',
   'America/Denver': 'United States', 'America/Chicago': 'United States',
@@ -130,6 +135,13 @@ const TZ_COUNTRY = {
   'Pacific/Guadalcanal': 'Solomon Islands', 'Pacific/Auckland': 'New Zealand',
   'Pacific/Tongatapu': 'Tonga', 'Pacific/Kiritimati': 'Kiribati',
 };
+const TZ_COUNTRY = (() => {
+  const out = {};
+  for (const [raw, country] of Object.entries(TZ_COUNTRY_RAW)) {
+    out[canonicalTz(raw) || raw] = country;
+  }
+  return out;
+})();
 
 // "Country - City" - for the Dashboard greeting's inline chip. City stays on
 // as the disambiguator for the four US zones (all "United States" alone would
