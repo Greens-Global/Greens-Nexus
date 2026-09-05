@@ -15,7 +15,7 @@ const RoleCtx = createContext(null);
 export const MODULES = [
   { id: 'dashboard',           label: 'Dashboard' },
   { id: 'timeclock',           label: 'Time Clock' },
-  { id: 'employee-tracking',   label: 'Employee Tracking' },
+  { id: 'employee-tracking',   label: 'Workforce Analytics' },
   { id: 'myhr',                label: 'My Workday' },
   { id: 'manager-dashboard',   label: 'Manager Dashboard' },
   { id: 'tasks',               label: 'Tasks' },
