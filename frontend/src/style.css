@@ -1601,12 +1601,18 @@ mark.search-hit {
 @media (max-width: 900px) {
   /* The desktop collapse chevron is meaningless when the sidebar is a drawer */
   .sidebar-collapse-btn { display: none; }
-  /* Module tab strips stick just under the (sticky) top header so navigation
-     stays in thumb reach while scrolling long lists. top must match
-     .top-header's real height (64px) - it was 56px here, 8px short, so the
-     sticky strip settled 8px into the header's own box instead of flush
-     beneath it (Pranshu, Sep 5). */
-  .scroll-tabs { position: sticky; top: 64px; background: var(--paper); z-index: 50; }
+  /* Module tab strips used to stick just under the (sticky) top header so
+     navigation stayed in thumb reach while scrolling long lists - reverted
+     (Pranshu, Sep 5). Two sticky elements sharing the same scroll container
+     (.top-header at top:0, .scroll-tabs at top:64) rendered the tab strip
+     shifted DOWN from its normal-flow position by its own `top` value even
+     with no scrolling at all, so it visually collided with whatever content
+     followed it (worst on Dashboard/Egnyte, confirmed on a real phone across
+     three attempted offset fixes - the offset was never the actual bug).
+     Plain static positioning has no such failure mode: content simply flows
+     after the tabs like any other block. Loses "tabs stay visible while
+     scrolling" - an acceptable trade for not randomly eating page content. */
+  .scroll-tabs { background: var(--paper); z-index: 50; }
 }
 
 @media (max-width: 640px) {
