@@ -1982,6 +1982,10 @@ html { overflow-x: hidden; }
   .view-title-group h2 { font-size: 18px; }
   .view-header { margin-bottom: 6px; row-gap: 6px; }
   [data-vis="visible"] { margin: 4px 0 10px; }
+  /* The Dashboard's own "Dashboard" title band duplicates the tab of the same
+     name directly above it (in-page .scroll-tabs) on phones - drop it there
+     and let the view-picker/Customize controls have the whole row. */
+  .dashboard-header-title { display: none; }
 }
 
 /* Cart: ONE fixed position on every phone screen - pinned to the title row,
@@ -2013,9 +2017,13 @@ html { overflow-x: hidden; }
 
 /* The pinned cart reserves its zone: the title row is always at least as
    tall as the cart and keeps clear of it horizontally, so first-row content
-   (search bars, segment pills) never slides underneath on any tab */
+   (search bars, segment pills) never slides underneath on any tab.
+   Scoped to pages that actually render a .header-cart (Items, Assets) - this
+   used to apply to EVERY view-header on phones, stealing 110px from modules
+   with no cart (Dashboard, Tasks, ...) and forcing their title/controls row
+   to wrap into a cramped, overlapping mess for no reason. */
 @media (max-width: 640px) {
-  .view-header { min-height: 50px; padding-right: 110px; }
+  .viewport:has(.header-cart) .view-header { min-height: 50px; padding-right: 110px; }
 }
 
 /* Swipeable chip rows on phones: segment pills (Active/Past/Permanent,

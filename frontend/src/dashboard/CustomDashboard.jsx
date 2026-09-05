@@ -269,7 +269,13 @@ export default function CustomDashboard() {
         );
         return (
           <div className="view-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            {/* Hidden on phones (dashboard-header-title, style.css): the
+                "Dashboard" tab sits directly above this in the in-page
+                .scroll-tabs strip there, so repeating the same word as a big
+                bold h2 right underneath it was pure clutter, not information -
+                it just crowded the view picker/Customize/... row into a
+                cramped wrap (Neil screenshot, Sep 5). */}
+            <div className="dashboard-header-title" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
               <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <LayoutGrid size={19} />
               </span>
