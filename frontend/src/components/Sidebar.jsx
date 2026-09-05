@@ -44,7 +44,7 @@ export const NAV = [
   // The route (App.jsx VIEW_MIN_ROLES) and the backend endpoints gate on the same
   // grant. Watching needs a viewer grant; remote control + device/policy admin
   // need a full grant.
-  { view: "employee-tracking", code: "EMP", label: "Employee Tracking",  icon: MonitorDot,   minRole: 'supervisor' },
+  { view: "employee-tracking", code: "EMP", label: "Workforce Analytics",  icon: MonitorDot,   minRole: 'supervisor' },
   { divider: true },
   // Tasks + Tickets are grant-driven like every other module (Aug 10): they
   // only appear when an Access Group / job role grants them (most job roles
