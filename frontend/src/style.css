@@ -1602,8 +1602,11 @@ mark.search-hit {
   /* The desktop collapse chevron is meaningless when the sidebar is a drawer */
   .sidebar-collapse-btn { display: none; }
   /* Module tab strips stick just under the (sticky) top header so navigation
-     stays in thumb reach while scrolling long lists */
-  .scroll-tabs { position: sticky; top: 56px; background: var(--paper); z-index: 50; }
+     stays in thumb reach while scrolling long lists. top must match
+     .top-header's real height (64px) - it was 56px here, 8px short, so the
+     sticky strip settled 8px into the header's own box instead of flush
+     beneath it (Pranshu, Sep 5). */
+  .scroll-tabs { position: sticky; top: 64px; background: var(--paper); z-index: 50; }
 }
 
 @media (max-width: 640px) {
