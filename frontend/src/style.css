@@ -1984,8 +1984,11 @@ html { overflow-x: hidden; }
   [data-vis="visible"] { margin: 4px 0 10px; }
   /* The Dashboard's own "Dashboard" title band duplicates the tab of the same
      name directly above it (in-page .scroll-tabs) on phones - drop it there
-     and let the view-picker/Customize controls have the whole row. */
-  .dashboard-header-title { display: none; }
+     and let the view-picker/Customize controls have the whole row.
+     !important: the element also carries an inline style="display:flex" -
+     a plain class rule here loses to that inline style, so the div stayed
+     visible in production despite this rule matching (confirmed live, Sep 5). */
+  .dashboard-header-title { display: none !important; }
 }
 
 /* Cart: ONE fixed position on every phone screen - pinned to the title row,
