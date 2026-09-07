@@ -275,16 +275,48 @@ def _match_child(parent: str, want_name: str) -> str | None:
     return _best_match(names, want_name)
 
 
-def _entity_root_template(template: str) -> str:
-    """Everything through the {entity} segment - "/Shared/#Entities/{entity}"
-    for the default template - so the entity can still be located even when
-    the rest of the template's assumed depth doesn't match this company's
-    real layout."""
+def _entity_parent_template(template: str) -> tuple[str, str]:
+    """Split a template at {entity}: (everything before it, everything
+    after it - e.g. ("/Shared/#Entities", "Human Resources/{bucket}/{person}
+    /Contractor Documents") for the default my-documents template."""
     idx = template.find("{entity}")
     if idx == -1:
-        return template
-    end = template.find("/", idx)
-    return template[:end] if end != -1 else template
+        return template, ""
+    before = template[:idx].rstrip("/")
+    after = template[idx + len("{entity}"):].lstrip("/")
+    return before, after
+
+
+def _match_candidates(names: list[str], want_name: str) -> list[str]:
+    """Every name matching `want_name` at the single BEST tier (exact, else
+    prefix, else substring) - not just the first hit. A short/generic entity
+    name can legitimately be a prefix of several real folders ("Greens
+    Global" of both "Greens Global, Inc" and "Greens Global India, LLC");
+    returning all of them lets the caller disambiguate by checking which one
+    actually contains the person, instead of silently trusting whichever the
+    API happened to list first."""
+    want = _fold(want_name)
+    for matches in (
+        lambda n: _fold(n) == want,
+        lambda n: _fold(n).startswith(want),
+        lambda n: want in _fold(n),
+    ):
+        hits = [n for n in names if matches(n)]
+        if hits:
+            return hits
+    return []
+
+
+def _match_path_from(root: str, segs: list[str]) -> str | None:
+    """Like _match_path, but starting from an already-resolved `root`
+    instead of matching every segment from scratch."""
+    cur = root
+    for seg in segs:
+        hit = _match_child(cur, seg)
+        if not hit:
+            return None
+        cur = f"{cur}/{hit}"
+    return cur
 
 
 def _find_folder(root: str, want_name: str, max_depth: int = 4, max_calls: int = 25) -> str | None:
@@ -519,29 +551,46 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
         # a placeholder had no value (no company set, no name) - unresolvable
         return {"folder": None, "source": "template", "proposed": filled}
 
-    matched = _match_path(filled)
-    if matched is None and "{bucket}" in template:
-        # Nexus employment_type and the tenant's filing don't always agree
-        # (a Full-Time hire filed under Contractors). Try the other bucket
-        # before giving up - reality in Egnyte wins over the HR field.
-        other = "Employees" if ctx["bucket"] == "Contractors" else "Contractors"
-        matched = _match_path(fill(template, {**ctx, "bucket": other}))
-    if matched is None:
-        # The template's assumed depth (Human Resources/{bucket}/...) didn't
-        # match this company's real layout - a brand-new entity may file
-        # people directly under itself, or under something the template
-        # never predicted. Find the entity itself, then search under it for
-        # the person at whatever depth they actually are, bounded so an odd
-        # tree can't hang the request. No wiring/template edit needed.
-        entity_root_filled = fill(_entity_root_template(template), ctx)
-        if "{" not in entity_root_filled:
-            entity_root = _match_path(entity_root_filled)
-            if entity_root:
-                found = _find_folder(entity_root, ctx["person"])
-                if found:
-                    return {"folder": found, "source": "discovered", "proposed": filled}
-        return {"folder": None, "source": "template", "proposed": filled}
-    return {"folder": matched, "source": "template", "proposed": filled}
+    if "{entity}" not in template or not ctx["entity"]:
+        # No entity placeholder to disambiguate - resolve the old way.
+        matched = _match_path(filled)
+        if matched is None and "{bucket}" in template:
+            other = "Employees" if ctx["bucket"] == "Contractors" else "Contractors"
+            matched = _match_path(fill(template, {**ctx, "bucket": other}))
+        if matched is None:
+            return {"folder": None, "source": "template", "proposed": filled}
+        return {"folder": matched, "source": "template", "proposed": filled}
+
+    # A company name is often a genuine PREFIX of several real folders
+    # ("Greens Global" of both "Greens Global, Inc" and "Greens Global
+    # India, LLC") - matching the entity name alone and trusting whichever
+    # folder the API lists first is exactly the ambiguity that risks
+    # showing one entity's documents under another. Instead: find every
+    # real folder that matches the entity name at the single best tier,
+    # then for EACH one check whether this person actually has a folder
+    # inside it (rigid Human Resources/{bucket}/{person} first, then a
+    # bounded search at any depth). The first candidate where the person is
+    # actually found wins - the person's own folder is the tie-breaker, not
+    # folder-listing order.
+    entities_root, rest_template = _entity_parent_template(template)
+    entity_names = _list_children(entities_root)
+    candidates = _match_candidates(entity_names or [], ctx["entity"])
+    for entity_name in candidates:
+        entity_root = f"{entities_root.rstrip('/')}/{entity_name}"
+        rest_filled = fill(rest_template, ctx)
+        if "{" not in rest_filled:
+            segs = [s for s in rest_filled.split("/") if s]
+            got = _match_path_from(entity_root, segs)
+            if got is None and "{bucket}" in rest_template:
+                other = "Employees" if ctx["bucket"] == "Contractors" else "Contractors"
+                other_segs = [s for s in fill(rest_template, {**ctx, "bucket": other}).split("/") if s]
+                got = _match_path_from(entity_root, other_segs)
+            if got:
+                return {"folder": got, "source": "template", "proposed": filled}
+        found = _find_folder(entity_root, ctx["person"])
+        if found:
+            return {"folder": found, "source": "discovered", "proposed": filled}
+    return {"folder": None, "source": "template", "proposed": filled}
 
 
 def provision_person_folder(emp, db) -> str:
