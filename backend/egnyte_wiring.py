@@ -275,6 +275,48 @@ def _match_child(parent: str, want_name: str) -> str | None:
     return _best_match(names, want_name)
 
 
+def _entity_root_template(template: str) -> str:
+    """Everything through the {entity} segment - "/Shared/#Entities/{entity}"
+    for the default template - so the entity can still be located even when
+    the rest of the template's assumed depth doesn't match this company's
+    real layout."""
+    idx = template.find("{entity}")
+    if idx == -1:
+        return template
+    end = template.find("/", idx)
+    return template[:end] if end != -1 else template
+
+
+def _find_folder(root: str, want_name: str, max_depth: int = 4, max_calls: int = 25) -> str | None:
+    """Bounded breadth-first search under `root` for a folder matching
+    `want_name` (same exact -> prefix -> substring folded matching as
+    everywhere else). Depth and total Egnyte calls are capped so a large or
+    oddly-shaped tree can't hang a request. This is the fallback for a
+    company whose real folder depth doesn't match the template's assumed
+    Human Resources/{bucket} layers - it finds the person wherever they
+    actually are under the entity folder, so a brand-new company's own
+    filing shape resolves without a template or wiring change."""
+    calls = 0
+    frontier = [root]
+    for _ in range(max_depth):
+        next_frontier = []
+        for folder in frontier:
+            if calls >= max_calls:
+                return None
+            names = _list_children(folder)
+            calls += 1
+            if names is None:
+                continue
+            hit = _best_match(names, want_name)
+            if hit:
+                return f"{folder.rstrip('/')}/{hit}"
+            next_frontier.extend(f"{folder.rstrip('/')}/{n}" for n in names)
+        frontier = next_frontier
+        if not frontier:
+            break
+    return None
+
+
 def _match_path(path: str) -> str | None:
     """Resolve `path` against what actually exists, matching EVERY segment
     (not just the person at the end) - real folder names carry punctuation,
@@ -485,6 +527,19 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
         other = "Employees" if ctx["bucket"] == "Contractors" else "Contractors"
         matched = _match_path(fill(template, {**ctx, "bucket": other}))
     if matched is None:
+        # The template's assumed depth (Human Resources/{bucket}/...) didn't
+        # match this company's real layout - a brand-new entity may file
+        # people directly under itself, or under something the template
+        # never predicted. Find the entity itself, then search under it for
+        # the person at whatever depth they actually are, bounded so an odd
+        # tree can't hang the request. No wiring/template edit needed.
+        entity_root_filled = fill(_entity_root_template(template), ctx)
+        if "{" not in entity_root_filled:
+            entity_root = _match_path(entity_root_filled)
+            if entity_root:
+                found = _find_folder(entity_root, ctx["person"])
+                if found:
+                    return {"folder": found, "source": "discovered", "proposed": filled}
         return {"folder": None, "source": "template", "proposed": filled}
     return {"folder": matched, "source": "template", "proposed": filled}
 
