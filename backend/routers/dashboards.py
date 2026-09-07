@@ -21,7 +21,11 @@ from auth import get_current_user
 
 router = APIRouter(prefix="/dashboards", tags=["Dashboards"], dependencies=[Depends(get_current_user)])
 
-_TARGETS = ("dashboard", "manager-dashboard")
+# Manager Dashboard folded into the one Dashboard (Sep 3) - widgets are gated
+# per-widget by minRole instead of a whole second board. 'manager-dashboard'
+# stays out of _TARGETS so no new view can be created against it; the startup
+# migration (main.py) already relabeled every existing row to 'dashboard'.
+_TARGETS = ("dashboard",)
 
 
 def _now() -> str:
@@ -320,7 +324,10 @@ def agenda(start: str = "", end: str = "", tz: str = "UTC",
     if not _ISO_OK.match(start or ""):
         start = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
     if not _ISO_OK.match(end or ""):
-        end = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT23:59:59Z")
+        # Exclusive midnight boundary, not "tomorrow 23:59:59" - see the
+        # frontend AgendaPanel's matching comment (Sep 4) on why a non-midnight
+        # end let an all-day event straddling it slip into the window.
+        end = (datetime.now(timezone.utc) + timedelta(days=2)).strftime("%Y-%m-%dT00:00:00Z")
     if not _TZ_OK.match(tz or ""):
         tz = "UTC"
 
@@ -338,7 +345,10 @@ def agenda(start: str = "", end: str = "", tz: str = "UTC",
             r = httpx.get(
                 f"{_GRAPH}/users/{email}/calendarView",
                 params={"startDateTime": start_utc, "endDateTime": end_utc,
-                        "$orderby": "start/dateTime", "$top": "15",
+                        # 250 (not the old 15) so a full-month window for the
+                        # Calendar widget's grid isn't truncated - the day/2-day
+                        # window My Agenda uses never gets near either cap.
+                        "$orderby": "start/dateTime", "$top": "250",
                         "$select": "subject,start,end,location,isAllDay,isCancelled,onlineMeeting,webLink"},
                 headers={"Authorization": f"Bearer {token}",
                          # Times come back already in the user's zone - no
@@ -367,3 +377,31 @@ def agenda(start: str = "", end: str = "", tz: str = "UTC",
 
     out = _agenda_cache.get_or_load((email, start, end, tz), _load)
     return {**out, "at": _now()}
+
+
+# Company-wide birthday roster for the Calendar widget (Pranshu, Sep 4: "add
+# birthday as an event of all the employees... helps us prepare any
+# celebration prior"). Deliberately NOT the HR /people endpoint's full
+# record - this returns only name + month/day for active employees who have
+# a DOB on file, never the birth year or anything else from `personal`, and
+# needs no HR grant to read (every employee benefits from knowing when to
+# bring a cake, and month/day alone doesn't reveal age). Cached (see cache.py
+# dashboard_birthdays - watches NexusEmployee, so an HR edit invalidates it).
+@router.get("/birthdays")
+def birthdays(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    def _load() -> dict:
+        rows = (db.query(models.NexusEmployee)
+                .filter(models.NexusEmployee.status == "active").all())
+        out = []
+        for e in rows:
+            dob = ((e.personal or {}).get("dob") or "").strip()
+            m = re.fullmatch(r"\d{4}-(\d{2})-(\d{2})", dob)
+            if not m:
+                continue
+            name = (e.display_name or f"{e.first_name} {e.last_name}".strip()).strip()
+            if not name:
+                continue
+            out.append({"name": name, "month": int(m.group(1)), "day": int(m.group(2))})
+        return {"birthdays": out}
+
+    return {**cache.dashboard_birthdays.get_or_load((), _load), "at": _now()}

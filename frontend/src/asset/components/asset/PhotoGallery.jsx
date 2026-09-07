@@ -4,7 +4,7 @@
 // Supports the legacy single `image` field as well as the newer `images` array - reads whichever
 // is present, always writes back through `images` via onSave.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ChevronDown, Upload, X } from 'lucide-react';
 import { Card } from '../shared/Card.jsx';
 import { resizeImageToDataUrl } from '../../lib/format.js';
@@ -29,26 +29,38 @@ export function PhotoGallery({ p, n, onSave }) {
   const [editing, setEditing] = useState(false);
   const [draftImages, setDraftImages] = useState([]);
   const [lightbox, setLightbox] = useState(null);
+  // Feedback when an added file can't be used. The old silent skip meant an
+  // unsupported picture (iPhone HEIC is the classic) just... didn't appear,
+  // with no clue why - "I added an image and it's still not showing" (Aarav,
+  // Sep 3). Cleared on the next successful add, save, or cancel.
+  const [skipNote, setSkipNote] = useState('');
 
   const startEdit = (e) => {
     e.stopPropagation();
     setDraftImages(currentImages);
+    setSkipNote('');
     setEditing(true);
     setExpanded(true);
   };
 
   const addFiles = async (files) => {
     const resized = [];
+    let skipped = 0;
     for (const file of files) {
       if (file.type.startsWith('image/')) {
         try {
           resized.push(await resizeImageToDataUrl(file));
         } catch {
-          // unreadable/corrupt image - skip it
+          skipped += 1; // unreadable/unsupported image - counted, never silent
         }
+      } else {
+        skipped += 1;   // not an image at all (PDF, video, ...)
       }
     }
-    setDraftImages((prev) => [...prev, ...resized]);
+    if (resized.length) setDraftImages((prev) => [...prev, ...resized]);
+    setSkipNote(skipped
+      ? `${skipped} file${skipped === 1 ? '' : 's'} couldn't be read - use a JPG or PNG (iPhone HEIC photos aren't supported)`
+      : '');
   };
 
   const handleUpload = async (e) => {
@@ -69,6 +81,16 @@ export function PhotoGallery({ p, n, onSave }) {
       }
     }
   };
+
+  // While editing, catch Ctrl+V anywhere on the page. The old onPaste sat on
+  // the upload row and only fired when that row had focus, so pasting right
+  // after opening Edit (the natural move) silently did nothing.
+  useEffect(() => {
+    if (!editing) return;
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
 
   const images = editing ? draftImages : currentImages;
 
@@ -238,22 +260,25 @@ export function PhotoGallery({ p, n, onSave }) {
           )}
 
           {editing && (
-            <div onPaste={handlePaste} tabIndex={0} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap', outline: 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
               <label className="secondary-btn" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0 }}>
                 <Upload size={14} /> Upload Pictures
                 <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleUpload} />
               </label>
               <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>
+              {skipNote && (
+                <span style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))' }}>{skipNote}</span>
+              )}
               <button
                 className="secondary-btn"
-                onClick={() => { setEditing(false); setDraftImages([]); }}
+                onClick={() => { setEditing(false); setDraftImages([]); setSkipNote(''); }}
                 style={{ marginLeft: 'auto' }}
               >
                 Cancel
               </button>
               <button
                 className="primary-btn"
-                onClick={() => { onSave(draftImages); setEditing(false); }}
+                onClick={() => { onSave(draftImages); setEditing(false); setSkipNote(''); }}
               >
                 Save
               </button>

@@ -6,13 +6,15 @@ file them as Pending Review for an admin to publish. Nothing ever pressed it
 on a schedule, so the review queue only filled when somebody remembered.
 
 This loop presses it - on the deployed API only, dev and prod. It calls
-routers.task_config.run_changelog_generation, the same function the button
-calls, so there is one generation path and a field added to it shows up in
-both (asana_sync's rule; a second inbound path silently drifts).
+routers.task_config.generate_changelog_from_commits, the same function the
+button and the GitHub webhook call, so there is one generation path and a
+field added to it shows up everywhere (asana_sync's rule; a second inbound
+path silently drifts).
 
 TWO TRIGGERS, ONE SWEEP. The timer below is the backstop; the fast path is
-GitHub's push webhook (routers/github_webhook.py), which fires on every merge
-to the branch this deployment tracks. Neither runs a generation itself - both
+GitHub's webhook (routers/github_webhook.py), which fires on every merge to
+the branch this deployment tracks - the PR event, and the push for merges that
+never opened one. Neither runs a generation itself - both
 just move the persisted due time, and the single loop here does the work. That
 is deliberate: a webhook arrives on whichever of the 8 gunicorn workers answers
 it, and a two-minute Claude call inside a request would be killed by the deploy
@@ -195,7 +197,7 @@ def mark_due_after_merge(reason: str = "merge") -> str:
 def _sweep() -> dict | None:
     """Generate if the persisted due time has passed. Returns the generation
     result, or None when it was not due / another worker holds the lock."""
-    from routers.task_config import run_changelog_generation
+    from routers.task_config import generate_changelog_from_commits
 
     db = SessionLocal()
     is_pg = db.bind.dialect.name == "postgresql"
@@ -210,14 +212,20 @@ def _sweep() -> dict | None:
             return None
         reason = state.get("pending_reason") or "scheduled"
         try:
-            result = run_changelog_generation(db, _author())
+            result = generate_changelog_from_commits(db, _author())
         except Exception as e:      # noqa: BLE001 - never let one bad sweep kill the loop
             db.rollback()
+            result = {"error": str(e)}
+        # The shared core reports a missing key or unreachable history as
+        # {"error": ...} rather than raising (it is called from places with no
+        # HTTP response to attach an exception to), so both arrive here.
+        if result.get("error"):
             _write_state(db, {"next_run_at": (_now() + timedelta(hours=_RETRY_HOURS)).isoformat(),
-                              "last_error": str(e)[:300],
+                              "last_error": str(result["error"])[:300],
                               "last_error_at": _now().isoformat(),
                               "pending_reason": reason})
-            raise
+            result["reason"] = reason
+            return result
         _write_state(db, {"next_run_at": (_now() + timedelta(hours=_interval_hours())).isoformat(),
                           "last_run_at": _now().isoformat(),
                           "last_created": result.get("created", 0),
@@ -247,7 +255,10 @@ async def changelog_generate_loop():
             if result is not None:
                 created = result.get("created", 0)
                 trigger = result.get("reason", "scheduled")
-                if created:
+                if result.get("error"):
+                    print(f"[changelog] auto-sweep ({trigger}) failed, retrying in "
+                          f"{_RETRY_HOURS}h: {result['error']}")
+                elif created:
                     print(f"[changelog] auto-drafted {created} update(s) from "
                           f"{result.get('scanned', 0)} commit(s) via {result.get('source')} "
                           f"({trigger}) - pending review")

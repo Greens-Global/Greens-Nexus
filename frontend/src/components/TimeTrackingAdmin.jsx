@@ -548,7 +548,7 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
       {module && (
         <div className="view-header" style={{ marginBottom: 0 }}>
           <div className="view-title-group">
-            <h2>Employee Tracking</h2>
+            <h2>Workforce Analytics</h2>
             <p>Disclosed monitoring - coverage, activity, locations, screenshots, and company computers</p>
           </div>
         </div>

@@ -1325,7 +1325,21 @@ def push_to_entra(eid: str, user: dict = Depends(require_hr_write), db: Session 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(502, f"Couldn't update Entra: {str(e)[:200]}")
+        msg = str(e)
+        # Graph refuses profile writes to accounts holding privileged directory
+        # roles (Global Admin etc.) - User.ReadWrite.All does not cover them, so
+        # for those people this button can NEVER succeed. That is a fact about
+        # the account, not a gateway fault: say so plainly. Also avoid 502 for
+        # it - Cloudflare swaps an origin 502's body for its own error page, so
+        # the browser toast degrades to a bare "API error 502" (Visesh, Sep 4).
+        if "Authorization_RequestDenied" in msg or "Insufficient privileges" in msg:
+            raise HTTPException(409, "Microsoft blocks apps from editing accounts that hold an "
+                                     "Entra admin role, and this person holds one. Edit their "
+                                     "profile in the Entra admin center, or remove the admin role "
+                                     "and push again.")
+        # 424 (failed dependency), not 502, for other Graph hiccups - same
+        # Cloudflare body-swap reason; the detail text must reach the toast.
+        raise HTTPException(424, f"Couldn't update Entra: {msg[:200]}")
     # Manager relationship is a separate Graph edge - best-effort, never blocks
     # the attribute push.
     try:

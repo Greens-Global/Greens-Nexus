@@ -27,6 +27,7 @@ against the real children of its parent folder (exact, then prefix, then
 substring - same philosophy as services/egnyte.py property resolution).
 """
 import os
+import re
 import time
 
 from database import SessionLocal
@@ -60,6 +61,20 @@ KNOWN_SLOTS = [
         "env": [],
         "default": "/Shared/#Entities/{entity}/Human Resources/{bucket}/{person}/Contractor Documents",
         "overrides": "person",
+    },
+    {
+        "slot": "people.my-documents-subfolder-names",
+        "group": "People documents",
+        "label": "My Documents subfolder names",
+        "description": "Names tried, in order, for the documents subfolder inside a person's folder "
+                       "(the last part of 'My Documents (employee view)' above). First name that "
+                       "actually exists there wins. Add a new company's name here when their filer "
+                       "uses a different one - no code change needed.",
+        "kind": "csv",
+        "placeholders": [],
+        "env": [],
+        "default": "Contractor Documents,1. Employment Documents",
+        "overrides": None,
     },
     {
         "slot": "property.roots",
@@ -125,6 +140,7 @@ KNOWN_SLOTS = [
 
 _SLOT_IDS = {s["slot"] for s in KNOWN_SLOTS}
 _SLOTS_BY_ID = {s["slot"]: s for s in KNOWN_SLOTS}
+
 
 
 def known_slot(slot: str) -> dict | None:
@@ -212,31 +228,106 @@ def _fold(s: str) -> str:
     return " ".join(out.split())
 
 
+_LIST_PREFIX_RE = re.compile(r"^\d+[.\-:)]*\s*")
+
+
+def _fold_loose(s: str) -> str:
+    """_fold, plus a leading list-number marker stripped ("1. ", "01 - ",
+    "2) ") - so a subfolder named plain "Employment Documents" matches a
+    candidate written as "1. Employment Documents" (or a new company's
+    folder is numbered when the wired name isn't, or vice versa) without
+    every numbering variant needing to be listed by hand."""
+    return _LIST_PREFIX_RE.sub("", _fold(s))
+
+
+def _list_children(parent: str) -> list[str] | None:
+    from services import egnyte as svc
+    try:
+        return [f["name"] for f in svc.list_folder(parent or "/")["folders"]]
+    except svc.EgnyteError:
+        return None
+
+
+def _best_match(names: list[str], want_name: str, loose: bool = False) -> str | None:
+    """The name in `names` that best matches `want_name` - exact folded match
+    -> folded prefix -> folded substring, first hit wins. `loose` also strips
+    a leading list-number marker from both sides first (see _fold_loose)."""
+    keyfn = _fold_loose if loose else _fold
+    want = keyfn(want_name)
+    for matches in (
+        lambda n: keyfn(n) == want,
+        lambda n: keyfn(n).startswith(want),
+        lambda n: want in keyfn(n),
+    ):
+        hit = next((n for n in names if matches(n)), None)
+        if hit:
+            return hit
+    return None
+
+
+def _match_child(parent: str, want_name: str) -> str | None:
+    """The real child folder name of `parent` that best matches `want_name`.
+    None if `parent` can't be listed or nothing matches. Shared by _match_path
+    (per template segment) and the my-documents subfolder-candidate search."""
+    names = _list_children(parent)
+    if names is None:
+        return None
+    return _best_match(names, want_name)
+
+
+def _entity_root_template(template: str) -> str:
+    """Everything through the {entity} segment - "/Shared/#Entities/{entity}"
+    for the default template - so the entity can still be located even when
+    the rest of the template's assumed depth doesn't match this company's
+    real layout."""
+    idx = template.find("{entity}")
+    if idx == -1:
+        return template
+    end = template.find("/", idx)
+    return template[:end] if end != -1 else template
+
+
+def _find_folder(root: str, want_name: str, max_depth: int = 4, max_calls: int = 25) -> str | None:
+    """Bounded breadth-first search under `root` for a folder matching
+    `want_name` (same exact -> prefix -> substring folded matching as
+    everywhere else). Depth and total Egnyte calls are capped so a large or
+    oddly-shaped tree can't hang a request. This is the fallback for a
+    company whose real folder depth doesn't match the template's assumed
+    Human Resources/{bucket} layers - it finds the person wherever they
+    actually are under the entity folder, so a brand-new company's own
+    filing shape resolves without a template or wiring change."""
+    calls = 0
+    frontier = [root]
+    for _ in range(max_depth):
+        next_frontier = []
+        for folder in frontier:
+            if calls >= max_calls:
+                return None
+            names = _list_children(folder)
+            calls += 1
+            if names is None:
+                continue
+            hit = _best_match(names, want_name)
+            if hit:
+                return f"{folder.rstrip('/')}/{hit}"
+            next_frontier.extend(f"{folder.rstrip('/')}/{n}" for n in names)
+        frontier = next_frontier
+        if not frontier:
+            break
+    return None
+
+
 def _match_path(path: str) -> str | None:
     """Resolve `path` against what actually exists, matching EVERY segment
     (not just the person at the end) - real folder names carry punctuation,
     legal suffixes and per-person suffixes the template can't know
-    ("GGCon Pvt. Ltd (India)", "Aarav Mehta - 1982"). Per segment: exact
-    folded match -> folded prefix -> folded substring, first hit wins. None
-    when some segment matches nothing (a genuinely missing folder)."""
+    ("GGCon Pvt. Ltd (India)", "Aarav Mehta - 1982"). None when some segment
+    matches nothing (a genuinely missing folder)."""
     from services import egnyte as svc
     segs = [s for s in svc.norm(path).split("/") if s]
     cur = ""
     for seg in segs:
-        try:
-            names = [f["name"] for f in svc.list_folder(cur or "/")["folders"]]
-        except svc.EgnyteError:
-            return None
-        want = _fold(seg)
-        hit = None
-        for matches in (
-            lambda n: _fold(n) == want,
-            lambda n: _fold(n).startswith(want),
-            lambda n: want in _fold(n),
-        ):
-            hit = next((n for n in names if matches(n)), None)
-            if hit:
-                break
+        hit = _match_child(cur, seg)
         if not hit:
             return None
         cur = f"{cur}/{hit}"
@@ -366,10 +457,13 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
     An explicit per-person override is trusted verbatim (the manager pointed at
     a real folder; re-matching it could only un-fix what they fixed).
 
-    people.my-documents additionally inherits a people.person-folder override:
-    pointing a person's FOLDER at the right place in the Wiring tab is one
-    action, and their My Documents follows it (person folder + the template's
-    subfolder tail) instead of needing a second override."""
+    people.my-documents does its OWN resolution: it resolves the person's
+    folder exactly like people.person-folder (override -> group -> template,
+    including that slot's own per-person override), then searches inside it
+    for whichever name in the people.my-documents-subfolder-names wiring list
+    actually exists - so a new entity with its own subfolder-naming
+    convention resolves automatically once someone adds its name to that
+    list in the Wiring tab, with no code change and no per-person override."""
     email = (getattr(emp, "work_email", "") or "").lower()
     override = raw_value(slot, email)
     if override:
@@ -379,11 +473,34 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
     ctx = _person_context(emp, db)
 
     if slot == "people.my-documents":
-        pf_override = raw_value("people.person-folder", email)
-        if pf_override:
-            tail = fill(template.split("{person}", 1)[1], ctx) if "{person}" in template else ""
-            folder = pf_override.rstrip("/") + tail
-            return {"folder": folder, "source": "override", "proposed": folder}
+        root = resolve_person_folder("people.person-folder", emp, db)
+        tail = fill(template.split("{person}", 1)[1], ctx) if "{person}" in template else ""
+        default_name = (tail.strip("/").split("/")[-1] if tail else "")
+        names_csv, _src = effective("people.my-documents-subfolder-names")
+        candidates = [c.strip() for c in names_csv.split(",") if c.strip()] or ["Contractor Documents"]
+        if default_name and default_name not in candidates:
+            candidates = [default_name] + candidates
+        if root["folder"]:
+            names = _list_children(root["folder"])
+            if names is not None:
+                for loose in (False, True):
+                    # Strict pass first (existing, exact-ish behavior);
+                    # loose pass strips a leading "1. "/"01 - " list marker
+                    # from both sides, so a candidate written with a number
+                    # still matches a company's unnumbered folder and vice
+                    # versa - no numbering variant needs to be listed by hand.
+                    for cand in candidates:
+                        hit = _best_match(names, cand, loose=loose)
+                        if hit:
+                            found = f"{root['folder'].rstrip('/')}/{hit}"
+                            return {"folder": found, "source": root["source"], "proposed": found}
+            proposed = f"{root['folder'].rstrip('/')}/{candidates[0]}"
+            if root["source"] == "override":
+                # the manager pointed the person FOLDER at a real place by
+                # hand; trust it even if we can't confirm the subfolder name.
+                return {"folder": proposed, "source": "override", "proposed": proposed}
+            return {"folder": None, "source": root["source"], "proposed": proposed}
+        return {"folder": None, "source": "template", "proposed": root["proposed"] + tail}
 
     # Folder group: a rule-matched cohort parent beats the template. The person
     # is a SUBFOLDER of the group's folder (matched by name, same folding as
@@ -410,6 +527,19 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
         other = "Employees" if ctx["bucket"] == "Contractors" else "Contractors"
         matched = _match_path(fill(template, {**ctx, "bucket": other}))
     if matched is None:
+        # The template's assumed depth (Human Resources/{bucket}/...) didn't
+        # match this company's real layout - a brand-new entity may file
+        # people directly under itself, or under something the template
+        # never predicted. Find the entity itself, then search under it for
+        # the person at whatever depth they actually are, bounded so an odd
+        # tree can't hang the request. No wiring/template edit needed.
+        entity_root_filled = fill(_entity_root_template(template), ctx)
+        if "{" not in entity_root_filled:
+            entity_root = _match_path(entity_root_filled)
+            if entity_root:
+                found = _find_folder(entity_root, ctx["person"])
+                if found:
+                    return {"folder": found, "source": "discovered", "proposed": filled}
         return {"folder": None, "source": "template", "proposed": filled}
     return {"folder": matched, "source": "template", "proposed": filled}
 

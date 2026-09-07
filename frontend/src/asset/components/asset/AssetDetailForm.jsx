@@ -97,6 +97,11 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
       <option value="">-</option>
       {STAGE_FORM.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
+  ) : f.t === 'select' ? (
+    <select className="form-input" value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={inputStyle}>
+      <option value="">-</option>
+      {(f.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
   ) : f.t === 'dates' ? (
     <MultiDateInput value={draft[f.l] ?? ''} onChange={(v) => setField(f.l, v)} />
   ) : (
@@ -329,6 +334,6 @@ function buildSections(asset, isProperty, editing) {
       title: group.group,
       fields: group.fields
         .filter((f) => (editing || !(stabilized && f.dev) || hasValue(f)) && classAllowed(f.cls) && f.key !== 'mapUrl' && !f.hidden)
-        .map((f) => ({ l: f.label, raw: resolveValue(f), t: f.type, contact: f.contact, key: f.key, ...withUnit(f) })),
+        .map((f) => ({ l: f.label, raw: resolveValue(f), t: f.type, contact: f.contact, key: f.key, options: f.options, ...withUnit(f) })),
     }));
 }

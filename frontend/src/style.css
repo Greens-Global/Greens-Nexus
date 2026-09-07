@@ -1601,9 +1601,18 @@ mark.search-hit {
 @media (max-width: 900px) {
   /* The desktop collapse chevron is meaningless when the sidebar is a drawer */
   .sidebar-collapse-btn { display: none; }
-  /* Module tab strips stick just under the (sticky) top header so navigation
-     stays in thumb reach while scrolling long lists */
-  .scroll-tabs { position: sticky; top: 56px; background: var(--paper); z-index: 50; }
+  /* Module tab strips used to stick just under the (sticky) top header so
+     navigation stayed in thumb reach while scrolling long lists - reverted
+     (Pranshu, Sep 5). Two sticky elements sharing the same scroll container
+     (.top-header at top:0, .scroll-tabs at top:64) rendered the tab strip
+     shifted DOWN from its normal-flow position by its own `top` value even
+     with no scrolling at all, so it visually collided with whatever content
+     followed it (worst on Dashboard/Egnyte, confirmed on a real phone across
+     three attempted offset fixes - the offset was never the actual bug).
+     Plain static positioning has no such failure mode: content simply flows
+     after the tabs like any other block. Loses "tabs stay visible while
+     scrolling" - an acceptable trade for not randomly eating page content. */
+  .scroll-tabs { background: var(--paper); z-index: 50; }
 }
 
 @media (max-width: 640px) {
@@ -1982,6 +1991,13 @@ html { overflow-x: hidden; }
   .view-title-group h2 { font-size: 18px; }
   .view-header { margin-bottom: 6px; row-gap: 6px; }
   [data-vis="visible"] { margin: 4px 0 10px; }
+  /* The Dashboard's own "Dashboard" title band duplicates the tab of the same
+     name directly above it (in-page .scroll-tabs) on phones - drop it there
+     and let the view-picker/Customize controls have the whole row.
+     !important: the element also carries an inline style="display:flex" -
+     a plain class rule here loses to that inline style, so the div stayed
+     visible in production despite this rule matching (confirmed live, Sep 5). */
+  .dashboard-header-title { display: none !important; }
 }
 
 /* Cart: ONE fixed position on every phone screen - pinned to the title row,
@@ -2013,9 +2029,13 @@ html { overflow-x: hidden; }
 
 /* The pinned cart reserves its zone: the title row is always at least as
    tall as the cart and keeps clear of it horizontally, so first-row content
-   (search bars, segment pills) never slides underneath on any tab */
+   (search bars, segment pills) never slides underneath on any tab.
+   Scoped to pages that actually render a .header-cart (Items, Assets) - this
+   used to apply to EVERY view-header on phones, stealing 110px from modules
+   with no cart (Dashboard, Tasks, ...) and forcing their title/controls row
+   to wrap into a cramped, overlapping mess for no reason. */
 @media (max-width: 640px) {
-  .view-header { min-height: 50px; padding-right: 110px; }
+  .viewport:has(.header-cart) .view-header { min-height: 50px; padding-right: 110px; }
 }
 
 /* Swipeable chip rows on phones: segment pills (Active/Past/Permanent,

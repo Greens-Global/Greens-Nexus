@@ -20,7 +20,7 @@ import { popupRedirectUri } from '../authConfig';
 // reports with recorded steps + AI conversion, assignments with due dates.
 // Dev-only: the backend 404s everything unless NEXUS_QA_MODULE is set.
 
-const QA_MODULES = ['People', 'My HR', 'Item Management', 'Asset Management', 'Documents (E-Sign)', 'Time Clock', 'Dashboards', 'Other'];
+const QA_MODULES = ['People', 'My Workday', 'Item Management', 'Asset Management', 'Documents (E-Sign)', 'Dashboards', 'Other'];
 const RESULT_META = {
   pass:    { label: 'Pass',    fg: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)',  Icon: CheckCircle },
   fail:    { label: 'Fail',    fg: 'hsl(var(--color-red))',    bg: 'hsla(var(--color-red),0.12)',    Icon: XCircle },

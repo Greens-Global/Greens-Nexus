@@ -41,18 +41,21 @@ class ScheduleTests(unittest.TestCase):
         db.commit()
         db.close()
         self.calls = []
-        self._real = task_config.run_changelog_generation
+        self._real = task_config.generate_changelog_from_commits
 
     def tearDown(self):
-        task_config.run_changelog_generation = self._real
+        task_config.generate_changelog_from_commits = self._real
 
-    def _stub(self, created=2, boom=None):
-        def fake(db, author_email="system"):
+    def _stub(self, created=2, boom=None, error=None):
+        def fake(db, author_email=""):
             self.calls.append(author_email)
             if boom:
                 raise boom
+            if error:
+                return {"error": error}     # how the shared core reports a
+                                            # missing key - it does not raise
             return {"created": created, "scanned": 7, "source": "github"}
-        task_config.run_changelog_generation = fake
+        task_config.generate_changelog_from_commits = fake
 
     def _state(self) -> dict:
         db = database.SessionLocal()
@@ -96,9 +99,8 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
 
     def test_failure_backs_off_instead_of_retrying_every_poll(self):
-        self._stub(boom=RuntimeError("AI is not configured (ANTHROPIC_API_KEY missing)."))
-        with self.assertRaises(RuntimeError):
-            changelog_auto._sweep()
+        self._stub(error="AI is not configured (ANTHROPIC_API_KEY missing).")
+        self.assertIn("error", changelog_auto._sweep())
         state = self._state()
         self.assertIn("ANTHROPIC_API_KEY", state["last_error"])
         nxt = datetime.fromisoformat(state["next_run_at"])
@@ -106,6 +108,13 @@ class ScheduleTests(unittest.TestCase):
         # The next poll must not re-spend the Anthropic call.
         self.assertIsNone(changelog_auto._sweep())
         self.assertEqual(len(self.calls), 1)
+
+    def test_an_unexpected_exception_backs_off_rather_than_killing_the_loop(self):
+        self._stub(boom=ValueError("kaboom"))
+        result = changelog_auto._sweep()
+        self.assertIn("kaboom", result["error"])
+        nxt = datetime.fromisoformat(self._state()["next_run_at"])
+        self.assertGreater(nxt, datetime.now(timezone.utc) + timedelta(minutes=30))
 
     def test_generated_drafts_are_stamped_with_the_configured_author(self):
         os.environ["NEXUS_CHANGELOG_AUTHOR"] = "Nexus@Greensglobal.com"

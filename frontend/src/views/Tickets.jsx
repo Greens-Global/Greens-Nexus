@@ -10,8 +10,6 @@ import { useState } from 'react';
 import { Settings } from 'lucide-react';
 import TicketsView from '../tickets/TicketsView';
 import TicketManageView from '../tickets/TicketManageView';
-import ReportBugButton from '../tasks/ReportBug';
-import { useIsMobile } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn } from '../tasks/theme';
 
@@ -19,7 +17,6 @@ export default function Tickets() {
   const { can } = useRole();
   const canManage = !!can?.('manager');
   const [manage, setManage] = useState(false);
-  const isMobile = useIsMobile();
 
   // Manage is an admin surface (ticket notifications today) - hidden from
   // anyone below Manager, same gate as the Task module's Manage tab. It rides
@@ -38,10 +35,6 @@ export default function Tickets() {
       <div style={{ flex: 1, minHeight: 0 }}>
         {manage ? <TicketManageView onExit={() => setManage(false)} /> : <TicketsView manageAction={manageBtn} />}
       </div>
-      {/* TicketsView renders its own floating MobileTaskBar (view switcher +
-          create +) on phones - offset above it, same as Tasks does for its
-          own mobile bar. */}
-      {!manage && <ReportBugButton bottom={isMobile ? 84 : undefined} />}
     </div>
   );
 }

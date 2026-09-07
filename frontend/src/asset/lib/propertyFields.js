@@ -5,7 +5,8 @@
 //   - key:     when present, this field maps to a top-level property record field (p[key]).
 //              When absent, the field's value only lives in the free-text snapshot group
 //              (label-keyed, via normLabel() matching) - see snapMap()/normLabel in ./format.js.
-//   - type:    'date' | 'money' | 'pct' | 'num' | 'stage' - drives input control + formatting.
+//   - type:    'date' | 'money' | 'pct' | 'num' | 'stage' | 'select' - drives input control +
+//              formatting. 'select' needs an `options` array (see Asset Type below).
 //   - dev:     hidden once the asset's devStage normalizes to "Stabilized", unless actively editing.
 //   - cls:     gates the field/group to specific asset classes (e.g. 'storage', 'income',
 //              'selfstorage') - see okC() classification in this file.
@@ -18,6 +19,10 @@
 //              field label, so AssetDetailForm can render/save it inline as a dropdown.
 //   - hidden:  a real PT field (persists, undoes) that never renders its own row - it's
 //              folded into another field's row via that field's unitKey/unitLabel.
+
+// Shared with PROPERTY_WIZARD_FIELDS' Asset Type / Development Stage selects further down -
+// declared here, above PT, since PT's own Asset Type field (Project Details group) reads it too.
+export const ASSET_TYPE_OPTIONS = ['Self-Storage', 'Vehicle Storage', 'Retail', 'Office / Medical', 'Residential', 'Mixed-Use', 'Land', 'Vehicle', 'Heavy Equipment', 'Other'];
 
 export const PT = [
   {
@@ -36,6 +41,12 @@ export const PT = [
       { label: 'Legal Description' },
       { label: 'Current Use' },
       { label: 'Proposed Use', dev: true },
+      // Editable post-creation (Pranshu, Sep 4) - previously only set once by the
+      // Add Asset wizard (PROPERTY_WIZARD_FIELDS below), with no way to correct
+      // it afterward. Same options list, same top-level `assetType` field -
+      // assetTypeOf()/deriveType() (assetMetrics.js) already read from it for
+      // portfolio filtering/categorization, so editing here updates those too.
+      { label: 'Asset Type', key: 'assetType', type: 'select', options: ASSET_TYPE_OPTIONS },
       { label: 'Development Stage', type: 'stage', dev: true },
     ],
   },
@@ -198,8 +209,7 @@ export const PT = [
   },
 ];
 
-// Options for PROPERTY_WIZARD_FIELDS' Asset Type / Development Stage selects.
-export const ASSET_TYPE_OPTIONS = ['Self-Storage', 'Vehicle Storage', 'Retail', 'Office / Medical', 'Residential', 'Mixed-Use', 'Land', 'Vehicle', 'Heavy Equipment', 'Other'];
+// Options for PROPERTY_WIZARD_FIELDS' Development Stage select (ASSET_TYPE_OPTIONS moved above PT).
 export const DEV_STAGE_OPTIONS = ['In Escrow', 'Entitlement', 'Construction Drawings', 'Construction', 'Lease-Up', 'Stabilized', 'Stabilized - Renovation', 'Stabilized - Expansion', 'Stabilized - Capital Improvement', 'Stabilized - Repositioning', 'Stabilized - Re-Tenanting', 'On Hold'];
 
 // PROPERTY_WIZARD_FIELDS - the FLAT schema used by the Add Asset wizard's guided property form

@@ -54,6 +54,7 @@ export default function TimeclockWidget() {
   const [eodOpen, setEodOpen] = useState(false);   // end-of-day message after punch-out
   const [lostOut, setLostOut] = useState(false);   // the quick punch-out did not record
   const [expanded, setExpanded] = useState(false); // capsule collapsed by default; expands upward
+  const [localAgent, setLocalAgent] = useState(false); // /nexus/ping answered on THIS machine
   const wrapRef = useRef(null);
   const [, setTick] = useState(0);
   const streamsRef = useRef([]);                   // one MediaStream per shared screen
@@ -72,6 +73,13 @@ export default function TimeclockWidget() {
 
   const load = useCallback(() => {
     api.timeStatus().then(setStatus).catch(() => {});
+    // Per-machine truth for the capture UI, not just the capture engine: the
+    // server's agentActive only turns true once the agent BINDS this person's
+    // session, so a running-but-unbound agent otherwise leaves a misleading
+    // "Capture off" pill on screen while the agent is in fact recording
+    // (Aarav, Sep 3). Cheap: an absent agent refuses instantly, a blocked one
+    // times out in 1.2s, and this rides the existing 25s status poll.
+    _localAgentPresent().then(setLocalAgent).catch(() => {});
   }, []);
 
   // The mini-timer is mounted on every screen, so this is where a punch parked
@@ -143,7 +151,7 @@ export default function TimeclockWidget() {
   onBreakRef.current = onBreak;
   clockedInRef.current = clockedIn;
   canCaptureRef.current = canCapture;
-  agentActiveRef.current = !!mon?.agentActive;   // server says a live agent covers this person's PC
+  agentActiveRef.current = !!mon?.agentActive || localAgent;   // server-bound OR probed right here
   // Next gap until a shot is due - jittered ±25% when the policy randomizes.
   const nextGap = () => randomizeRef.current
     ? Math.round(gapRef.current * (0.75 + Math.random() * 0.5))
@@ -383,7 +391,7 @@ export default function TimeclockWidget() {
           </button>
           {/* Capture control appears only when the BROWSER is the capturer: policy
               enables screens AND no desktop agent covers this PC. */}
-          {canCapture && !agentActive && (
+          {canCapture && !agentActive && !localAgent && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <button onClick={capturing ? stopCapture : startCapture}
                 title={paused ? 'Screen capture is paused for your break - no frames are saved until you end the break. Click to stop capture entirely.'
@@ -433,7 +441,7 @@ export default function TimeclockWidget() {
           {fmtHMS(elapsedSec)}
         </span>
         {/* Browser capture indicator (only when the browser is the capturer). */}
-        {canCapture && !agentActive && capturing > 0 && (paused ? <MonitorPause size={12} style={{ color: capTint }} /> : <MonitorUp size={12} style={{ color: capTint }} />)}
+        {canCapture && !agentActive && !localAgent && capturing > 0 && (paused ? <MonitorPause size={12} style={{ color: capTint }} /> : <MonitorUp size={12} style={{ color: capTint }} />)}
         <ChevronUp size={13} style={{ color: 'var(--muted)', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
     </div>

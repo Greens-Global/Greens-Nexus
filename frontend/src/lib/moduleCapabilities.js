@@ -67,8 +67,8 @@ export const MODULE_CAPABILITIES = {
     owner:  'Full asset control, plus manage access.',
   },
   'manager-dashboard': {
-    viewer: "View their team's dashboard and pending approvals.",
-    editor: 'Act on team requests and approvals.',
+    viewer: "Add team widgets (approvals, team time, etc.) to their own Dashboard.",
+    editor: 'Act on team requests and approvals from those widgets.',
     full:   'Full manager oversight tools.',
     owner:  'Full access, plus manage who else can use it.',
   },

@@ -1,10 +1,11 @@
-"""GitHub push webhook -> "What's New" drafts just after a merge.
+"""GitHub webhook -> admin notification + "What's New" drafts just after a merge.
 
 The endpoint is public, so the tests that matter are the ones about what it
-REFUSES: an unsigned or wrongly-signed body, another repo, and any branch but
-the one this deployment tracks (prod must not redraft on every dev merge). The
-rest is the coalescing rule - a burst of merges has to become one draft, with a
-ceiling so a busy afternoon cannot postpone the run forever.
+REFUSES: an unsigned or wrongly-signed body, and any branch but the one this
+deployment tracks (prod must not redraft on every dev merge). The rest is the
+coalescing rule - a burst of merges, including the duplicate push a merged PR
+also fires, has to become one draft, with a ceiling so a busy afternoon cannot
+postpone the run forever.
 
 Run with: python -m unittest test_changelog_webhook -v
 """
@@ -30,15 +31,23 @@ from routers import github_webhook
 
 _app = FastAPI()
 _app.include_router(github_webhook.router)
-_URL = "/task-changelog/github-webhook"
+_URL = "/webhooks/github"
 
 
-def _push(branch="dev", repo="Greens-Global/Greens-Nexus", commits=1, deleted=False) -> bytes:
+def _push(branch="dev", commits=1, deleted=False) -> bytes:
     return json.dumps({
         "ref": f"refs/heads/{branch}",
         "deleted": deleted,
-        "repository": {"full_name": repo},
         "commits": [{"id": f"abc{i}"} for i in range(commits)],
+    }).encode()
+
+
+def _pr_merged(branch="dev", merged=True, action="closed") -> bytes:
+    return json.dumps({
+        "action": action,
+        "pull_request": {"number": 42, "title": "Ship it", "merged": merged,
+                         "base": {"ref": branch}, "user": {"login": "someone"},
+                         "html_url": "https://github.com/x/y/pull/42"},
     }).encode()
 
 
@@ -92,9 +101,11 @@ class WebhookTests(unittest.TestCase):
         self.assertLess(self._due_in_minutes(), 6)
 
     def test_ping_is_answered_so_github_activates_the_hook(self):
+        # GitHub sends this once when the hook is created; a clean 2xx is what
+        # turns the delivery green, and nothing should be scheduled off it.
         r = self._post(b"{}", event="ping")
         self.assertEqual(r.status_code, 200)
-        self.assertTrue(r.json().get("pong"))
+        self.assertTrue(r.json().get("ok"))
         self.assertEqual(self._state(), {})
 
     # ── What it refuses ───────────────────────────────────────────────────
@@ -108,14 +119,35 @@ class WebhookTests(unittest.TestCase):
                 "X-Hub-Signature-256": _sign(body), "X-GitHub-Event": "push"}).status_code, 401)
         self.assertEqual(self._state(), {})
 
-    def test_other_branches_and_repos_are_ignored(self):
+    def test_other_branches_are_ignored(self):
         # prod tracks main; a dev merge must not make it redraft (and vice versa).
         for body in (_push(branch="main"), _push(branch="feature/nexus-sagar"),
-                     _push(repo="someone-else/fork"), _push(deleted=True, commits=0)):
+                     _push(deleted=True, commits=0)):
             r = self._post(body)
             self.assertEqual(r.status_code, 200)
             self.assertIn("ignored", r.json())
         self.assertEqual(self._state(), {})
+
+    # ── Merged pull requests ──────────────────────────────────────────────
+    def test_a_merged_pr_schedules_a_draft(self):
+        r = self._post(_pr_merged(), event="pull_request")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["branch"], "dev")
+        self.assertLess(self._due_in_minutes(), 6)
+
+    def test_an_unmerged_or_still_open_pr_does_nothing(self):
+        for body in (_pr_merged(merged=False), _pr_merged(action="opened"),
+                     _pr_merged(branch="feature/x")):
+            self.assertEqual(self._post(body, event="pull_request").status_code, 200)
+        self.assertEqual(self._state(), {})
+
+    def test_a_merged_pr_and_its_push_event_produce_one_draft(self):
+        # GitHub fires both for the same merge; coalescing has to absorb that.
+        self._post(_pr_merged(), event="pull_request")
+        first = self._state()["pending_since"]
+        self._post(_push())
+        self.assertEqual(self._state()["pending_since"], first)
+        self.assertLess(self._due_in_minutes(), 6)
 
     def test_without_a_secret_the_endpoint_is_off_rather_than_open(self):
         os.environ.pop("GITHUB_WEBHOOK_SECRET")

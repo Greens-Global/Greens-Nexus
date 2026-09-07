@@ -3,7 +3,7 @@ import { X, Camera, Loader2, Sun, Moon, Palette, Check, PanelLeft, Globe2 } from
 import { api } from '../api';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
-import { ZONE_GROUPS, MAX_ZONES, currentZones, setZones, zoneLabel } from '../lib/worldClockZones';
+import { ZONE_GROUPS, MAX_ZONES, currentZones, setZones, zoneOptionLabel } from '../lib/worldClockZones';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
 
@@ -171,7 +171,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
                 <option value="">— None —</option>
                 {Object.entries(ZONE_GROUPS).map(([region, tzs]) => (
                   <optgroup key={region} label={region.replace(/_/g, ' ')}>
-                    {tzs.map((tz) => <option key={tz} value={tz}>{zoneLabel(tz)}</option>)}
+                    {tzs.map((tz) => <option key={tz} value={tz}>{zoneOptionLabel(tz)}</option>)}
                   </optgroup>
                 ))}
               </select>
