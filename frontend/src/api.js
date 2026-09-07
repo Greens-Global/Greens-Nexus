@@ -930,6 +930,10 @@ export const api = {
   getRamp: () => req("/accounting/ramp"),
   updateRampMemo: (id, memo) => req(`/accounting/ramp/${id}`, { method: "PATCH", body: JSON.stringify({ memo }) }),
   getAma: () => req("/accounting/ama"),
+  // Reports served by Greens Accounting (Supabase mirror of the Intacct
+  // ledger) through the grant-gated backend proxy. Dates are YYYY-MM-DD.
+  getAccountingPnl: (from, to, location) =>
+    req(`/accounting/reports/pnl?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
 
   // Ops
   getOpsProjects: () => req("/ops-projects"),
