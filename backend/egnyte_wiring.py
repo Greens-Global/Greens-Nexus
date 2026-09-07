@@ -27,6 +27,7 @@ against the real children of its parent folder (exact, then prefix, then
 substring - same philosophy as services/egnyte.py property resolution).
 """
 import os
+import re
 import time
 
 from database import SessionLocal
@@ -60,6 +61,20 @@ KNOWN_SLOTS = [
         "env": [],
         "default": "/Shared/#Entities/{entity}/Human Resources/{bucket}/{person}/Contractor Documents",
         "overrides": "person",
+    },
+    {
+        "slot": "people.my-documents-subfolder-names",
+        "group": "People documents",
+        "label": "My Documents subfolder names",
+        "description": "Names tried, in order, for the documents subfolder inside a person's folder "
+                       "(the last part of 'My Documents (employee view)' above). First name that "
+                       "actually exists there wins. Add a new company's name here when their filer "
+                       "uses a different one - no code change needed.",
+        "kind": "csv",
+        "placeholders": [],
+        "env": [],
+        "default": "Contractor Documents,1. Employment Documents",
+        "overrides": None,
     },
     {
         "slot": "property.roots",
@@ -126,14 +141,6 @@ KNOWN_SLOTS = [
 _SLOT_IDS = {s["slot"] for s in KNOWN_SLOTS}
 _SLOTS_BY_ID = {s["slot"]: s for s in KNOWN_SLOTS}
 
-# people.my-documents: names actually in use across entities for a person's
-# documents subfolder ("Contractor Documents" is Nexus's own default; some
-# entities file under "1. Employment Documents" instead - Oversite
-# Management, Sep 2026). Tried in order against the person's real folder;
-# first one that exists wins, so new hires under either convention resolve
-# with zero manual wiring. Add a name here (never hand-edit the default
-# template's tail) if another entity turns out to use a third name.
-MY_DOCUMENTS_SUBFOLDER_CANDIDATES = ["Contractor Documents", "1. Employment Documents"]
 
 
 def known_slot(slot: str) -> dict | None:
@@ -221,26 +228,51 @@ def _fold(s: str) -> str:
     return " ".join(out.split())
 
 
-def _match_child(parent: str, want_name: str) -> str | None:
-    """The real child folder name of `parent` that best matches `want_name` -
-    exact folded match -> folded prefix -> folded substring, first hit wins.
-    None if `parent` can't be listed or nothing matches. Shared by _match_path
-    (per template segment) and the my-documents subfolder-candidate search."""
+_LIST_PREFIX_RE = re.compile(r"^\d+[.\-:)]*\s*")
+
+
+def _fold_loose(s: str) -> str:
+    """_fold, plus a leading list-number marker stripped ("1. ", "01 - ",
+    "2) ") - so a subfolder named plain "Employment Documents" matches a
+    candidate written as "1. Employment Documents" (or a new company's
+    folder is numbered when the wired name isn't, or vice versa) without
+    every numbering variant needing to be listed by hand."""
+    return _LIST_PREFIX_RE.sub("", _fold(s))
+
+
+def _list_children(parent: str) -> list[str] | None:
     from services import egnyte as svc
     try:
-        names = [f["name"] for f in svc.list_folder(parent or "/")["folders"]]
+        return [f["name"] for f in svc.list_folder(parent or "/")["folders"]]
     except svc.EgnyteError:
         return None
-    want = _fold(want_name)
+
+
+def _best_match(names: list[str], want_name: str, loose: bool = False) -> str | None:
+    """The name in `names` that best matches `want_name` - exact folded match
+    -> folded prefix -> folded substring, first hit wins. `loose` also strips
+    a leading list-number marker from both sides first (see _fold_loose)."""
+    keyfn = _fold_loose if loose else _fold
+    want = keyfn(want_name)
     for matches in (
-        lambda n: _fold(n) == want,
-        lambda n: _fold(n).startswith(want),
-        lambda n: want in _fold(n),
+        lambda n: keyfn(n) == want,
+        lambda n: keyfn(n).startswith(want),
+        lambda n: want in keyfn(n),
     ):
         hit = next((n for n in names if matches(n)), None)
         if hit:
             return hit
     return None
+
+
+def _match_child(parent: str, want_name: str) -> str | None:
+    """The real child folder name of `parent` that best matches `want_name`.
+    None if `parent` can't be listed or nothing matches. Shared by _match_path
+    (per template segment) and the my-documents subfolder-candidate search."""
+    names = _list_children(parent)
+    if names is None:
+        return None
+    return _best_match(names, want_name)
 
 
 def _match_path(path: str) -> str | None:
@@ -386,9 +418,10 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
     people.my-documents does its OWN resolution: it resolves the person's
     folder exactly like people.person-folder (override -> group -> template,
     including that slot's own per-person override), then searches inside it
-    for whichever name in MY_DOCUMENTS_SUBFOLDER_CANDIDATES actually exists -
-    so entities that file under a different subfolder name resolve
-    automatically, with no per-person override needed."""
+    for whichever name in the people.my-documents-subfolder-names wiring list
+    actually exists - so a new entity with its own subfolder-naming
+    convention resolves automatically once someone adds its name to that
+    list in the Wiring tab, with no code change and no per-person override."""
     email = (getattr(emp, "work_email", "") or "").lower()
     override = raw_value(slot, email)
     if override:
@@ -400,14 +433,25 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
     if slot == "people.my-documents":
         root = resolve_person_folder("people.person-folder", emp, db)
         tail = fill(template.split("{person}", 1)[1], ctx) if "{person}" in template else ""
-        default_name = (tail.strip("/").split("/")[-1] if tail else "") or MY_DOCUMENTS_SUBFOLDER_CANDIDATES[0]
-        candidates = [default_name] + [c for c in MY_DOCUMENTS_SUBFOLDER_CANDIDATES if c != default_name]
+        default_name = (tail.strip("/").split("/")[-1] if tail else "")
+        names_csv, _src = effective("people.my-documents-subfolder-names")
+        candidates = [c.strip() for c in names_csv.split(",") if c.strip()] or ["Contractor Documents"]
+        if default_name and default_name not in candidates:
+            candidates = [default_name] + candidates
         if root["folder"]:
-            for cand in candidates:
-                hit = _match_child(root["folder"], cand)
-                if hit:
-                    found = f"{root['folder'].rstrip('/')}/{hit}"
-                    return {"folder": found, "source": root["source"], "proposed": found}
+            names = _list_children(root["folder"])
+            if names is not None:
+                for loose in (False, True):
+                    # Strict pass first (existing, exact-ish behavior);
+                    # loose pass strips a leading "1. "/"01 - " list marker
+                    # from both sides, so a candidate written with a number
+                    # still matches a company's unnumbered folder and vice
+                    # versa - no numbering variant needs to be listed by hand.
+                    for cand in candidates:
+                        hit = _best_match(names, cand, loose=loose)
+                        if hit:
+                            found = f"{root['folder'].rstrip('/')}/{hit}"
+                            return {"folder": found, "source": root["source"], "proposed": found}
             proposed = f"{root['folder'].rstrip('/')}/{candidates[0]}"
             if root["source"] == "override":
                 # the manager pointed the person FOLDER at a real place by
