@@ -35,6 +35,10 @@ const FRIENDLY = {
     title: 'My Documents (what employees see)',
     plain: 'When someone opens My HR - My Documents, they see this folder: only the Contractor Documents part of their folder, never the Confidential folder next to it.',
   },
+  'people.my-documents-subfolder-names': {
+    title: 'The documents subfolder inside a person\'s folder',
+    plain: 'Inside a person\'s folder, My Documents shows the first of these subfolder names that actually exists there. Add a new company\'s name here if it files under something different - no developer needed.',
+  },
   'property.roots': {
     title: "Where property folders are found",
     plain: "When a property's documents open anywhere in Nexus, the property's folder is looked for in these places, in order. The first place that has it wins.",
