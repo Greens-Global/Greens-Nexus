@@ -1640,9 +1640,21 @@ _AI_MODEL = "claude-opus-4-8"
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 _GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 _GITHUB_REPO = os.getenv("GITHUB_REPO", "Greens-Global/Greens-Nexus")
+_GITHUB_BRANCH = os.getenv("NEXUS_CHANGELOG_BRANCH", "").strip()
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _CHANGE_TYPES = ["Bug Fix", "Performance", "New Feature", "Security Update",
                  "Hotfix", "Maintenance", "Improvement"]
+
+
+def tracked_branch() -> str:
+    """The branch THIS deployment summarises - what it reads commits from, and
+    the only ref its GitHub webhook acts on.
+
+    Left unset this is "dev", which is right for the dev API and wrong for prod:
+    prod would announce work that has not reached main yet, and would redraft on
+    every dev merge. Set NEXUS_CHANGELOG_BRANCH=main in the prod app settings.
+    """
+    return _GITHUB_BRANCH or "dev"
 
 
 def _is_noise(subject: str) -> bool:
@@ -1659,7 +1671,7 @@ def _recent_commits(limit: int = 80) -> tuple[list[dict], str]:
             with httpx.Client(timeout=30) as client:
                 r = client.get(
                     f"https://api.github.com/repos/{_GITHUB_REPO}/commits",
-                    params={"per_page": min(limit, 100)},
+                    params={"per_page": min(limit, 100), "sha": tracked_branch()},
                     headers={"Authorization": f"Bearer {_GITHUB_TOKEN}",
                              "Accept": "application/vnd.github+json"},
                 )
@@ -1764,13 +1776,21 @@ def _cluster_commits(commits: list[dict]) -> list[dict]:
         return []
 
 
-@router.post("/task-changelog/generate")
-def generate_changelog(user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+def run_changelog_generation(db: Session, author_email: str = "system") -> dict:
+    """Scan recent commits -> Claude drafts -> Pending Review entries.
+
+    This is the body of POST /task-changelog/generate, split out so the
+    scheduled sweep in changelog_auto.py runs the SAME path as the admin's
+    "Generate from git" button rather than a parallel implementation of it -
+    the lesson asana_sync learned the hard way with its second import path.
+    Raises RuntimeError for the two "not configured" cases; the endpoint turns
+    those into 503s, the loop logs them and idles.
+    """
     if not _ANTHROPIC_API_KEY:
-        raise HTTPException(503, "AI is not configured (ANTHROPIC_API_KEY missing).")
+        raise RuntimeError("AI is not configured (ANTHROPIC_API_KEY missing).")
     commits, source = _recent_commits()
     if source == "none":
-        raise HTTPException(503, "Could not read commit history (no GitHub token and no local repo).")
+        raise RuntimeError("Could not read commit history (no GitHub token and no local repo).")
     known = _known_shas(db)
     fresh = [c for c in commits if not _is_noise(c["subject"]) and c["sha"][:8] not in known]
     if not fresh:
@@ -1793,7 +1813,7 @@ def generate_changelog(user: dict = Depends(require_level(3)), db: Session = Dep
             "version": "unreleased",
             "environment": "Production",
             "releasedAt": now[:16],
-            "authorId": user["email"].lower(),
+            "authorId": author_email,
             "businessImpact": str(d.get("businessImpact") or "").strip() or None,
             "whatsChanged": [str(x).strip() for x in (d.get("whatsChanged") or []) if str(x).strip()][:5],
             "commitShas": shas,
@@ -1808,3 +1828,11 @@ def generate_changelog(user: dict = Depends(require_level(3)), db: Session = Dep
         db.refresh(e)
     return {"created": len(created), "scanned": len(fresh), "source": source,
             "entries": [changelog_entry_to_dict(e) for e in created]}
+
+
+@router.post("/task-changelog/generate")
+def generate_changelog(user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    try:
+        return run_changelog_generation(db, user["email"].lower())
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))

@@ -709,8 +709,8 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
       </div>
       <p style={{ margin: '0 0 20px', fontSize: 13, color: NX.dim }}>
         Review updates that came in automatically from merged PRs (or submitted by teammates), edit them if needed, then
-        publish. Updates you add here from Manage publish immediately. <strong>Generate from git</strong> drafts plain-English
-        entries from recent commits into the review queue below.
+        publish. Updates you add here from Manage publish immediately. Merged work is drafted into the review queue below a
+        few minutes after it lands - <strong>Generate from git</strong> runs that same draft now instead of waiting.
       </p>
 
       <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
