@@ -4,6 +4,7 @@ import { TrendingUp, TrendingDown, DollarSign, FileText, ArrowUpRight, ArrowDown
 import { api } from '../api';
 import ModuleTabs from '../components/ModuleTabs';
 import { formatDateLong } from '../lib/datetime';
+import PnlReport from '../components/accounting/PnlReport';
 
 const INIT_TRX = [
   { id: 'TRX-1234', title: 'Project Payment - Downtown Complex', date: 'May 20, 2026', cost: 125000 },
@@ -42,8 +43,8 @@ const AMA_FLAGGED = [
   { id: "T-4775", date: "2026-05-15", vendor: "Grainger",          amount: 2110.00, coder: "R. Okafor", q: "HVAC parts - capitalize or expense?",            days: 11, status: "Open"      },
 ];
 
-const TABS = ['transactions', 'invoices', 'budgets', 'imports', 'ramp', 'vendors', 'ask-accountant', 'ama', 'mre', 'mri', 'reports'];
-const TAB_LABELS = { transactions: 'Transactions', invoices: 'Invoices', budgets: 'Budgets', imports: 'Import Hub', ramp: 'Ramp Cards', vendors: 'Vendors', 'ask-accountant': 'Ask My Accountant', ama: 'AMA Entities', mre: 'MRE', mri: 'MRI', reports: 'Reports' };
+const TABS = ['pnl', 'transactions', 'invoices', 'budgets', 'imports', 'ramp', 'vendors', 'ask-accountant', 'ama', 'mre', 'mri', 'reports'];
+const TAB_LABELS = { pnl: 'Profit & Loss', transactions: 'Transactions', invoices: 'Invoices', budgets: 'Budgets', imports: 'Import Hub', ramp: 'Ramp Cards', vendors: 'Vendors', 'ask-accountant': 'Ask My Accountant', ama: 'AMA Entities', mre: 'MRE', mri: 'MRI', reports: 'Reports' };
 
 // Ramp's own left-nav sections. Funds/Cards/Requests/Budgets live together
 // under Ramp's "Manage spend" group, so that group becomes one entry in our
@@ -356,7 +357,18 @@ function RampSegmentedTabs({ sections, active, onChange }) {
 }
 
 export default function Accounting({ activeSub, onSubChange }) {
-  const sub = activeSub || 'transactions';
+  const sub = activeSub || 'pnl';
+  // Year-to-date headline numbers from Greens Accounting (Supabase mirror of
+  // the Intacct ledger) for the KPI cards. The Profit & Loss tab does its own
+  // range-driven fetch; this one is fixed to the calendar year so the cards
+  // read the same regardless of the tab.
+  const [ytd, setYtd] = useState(null);
+  useEffect(() => {
+    const now = new Date();
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    api.getAccountingPnl(`${now.getFullYear()}-01-01`, iso(now)).then((d) => setYtd(d?.totals || null)).catch(() => setYtd(null));
+  }, []);
+  const usd = (n) => n == null ? '—' : `$${Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(0)}K` : Math.round(n).toLocaleString('en-US')}`;
   const [trx, setTrx] = useState(INIT_TRX);
   const [budgets, setBudgets] = useState(INIT_BUDGETS);
   const [ramp, setRamp] = useState([]);
@@ -445,10 +457,10 @@ export default function Accounting({ activeSub, onSubChange }) {
       {/* KPI Cards */}
       <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 24 }}>
         {[
-          { label: 'Total Revenue',        value: '$8.4M', helper: '↑ 12.5% from last quarter', color: 'card-green', helperColor: 'hsl(var(--color-green))', Icon: TrendingUp,   sub: 'transactions' },
-          { label: 'Total Expenses',       value: '$6.1M', helper: '↑ 8.2% from last quarter',  color: 'card-green', helperColor: 'hsl(var(--color-green))', Icon: TrendingDown, sub: 'budgets' },
-          { label: 'Net Profit',           value: '$2.3M', helper: '↓ 18.9% from last quarter', color: 'card-red',   helperColor: 'hsl(var(--color-red))',   Icon: DollarSign,   sub: 'reports' },
-          { label: 'Outstanding Invoices', value: '$450K', helper: '↓ 5.3% from last quarter',  color: 'card-red',   helperColor: 'hsl(var(--color-red))',   Icon: FileText,     sub: 'invoices' },
+          { label: 'Revenue (YTD)',       value: usd(ytd?.revenue),          helper: ytd ? 'Calendar year to date' : 'Loading from the ledger', color: 'card-green', helperColor: 'var(--text-secondary)', Icon: TrendingUp,   sub: 'pnl' },
+          { label: 'Expenses (YTD)',      value: usd(ytd?.expense),          helper: 'Operating expenses',                                       color: 'card-blue',  helperColor: 'var(--text-secondary)', Icon: TrendingDown, sub: 'pnl' },
+          { label: 'Net Income (YTD)',    value: usd(ytd?.net_income),       helper: ytd ? `Gross profit ${usd(ytd.gross_profit)}` : ' ',       color: (ytd?.net_income ?? 0) >= 0 ? 'card-green' : 'card-red', helperColor: 'var(--text-secondary)', Icon: DollarSign, sub: 'pnl' },
+          { label: 'Ramp Cards',          value: `${ramp.length}`,           helper: 'Card transactions synced',                                 color: 'card-blue',  helperColor: 'var(--text-secondary)', Icon: CreditCard,   sub: 'ramp' },
         ].map(({ label, value, helper, color, helperColor, Icon, sub: target }) => (
           <div key={label} className={`kpi-card ${color}`} style={{ cursor: 'pointer' }} onClick={() => onSubChange(target)}>
             <div className="kpi-card-header">
@@ -909,6 +921,8 @@ export default function Accounting({ activeSub, onSubChange }) {
         )}
 
         {/* Reports */}
+        {sub === 'pnl' && <PnlReport />}
+
         {sub === 'reports' && (
           <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)' }}>
             <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Financial Report Downloads</h3>

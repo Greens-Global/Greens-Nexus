@@ -1,10 +1,20 @@
 ﻿# Accounting Module TO-DO - Nexus + Standalone Finance Webapp
 
-> STATUS: PARKED (Visesh, Aug 25 - "save this and we will pick it up later").
+> STATUS: IN PROGRESS - resumed Sep 7, 2026. Phase 0 done locally.
+>
+> Standalone repo: `C:\Users\Vlow\Desktop\Greens Accounting` (own git, 4
+> commits, no remote yet). Squash-imported from the friend's app with the
+> committed .output bundle, electron/, electron-tracker/, mobile/ and local
+> tooling removed; every Supabase project ref replaced with env/placeholder;
+> missing `internal_api_keys` migration written
+> (supabase/migrations/20260907000000_internal_api_keys.sql); typecheck 0
+> errors; `npm run build:cloudflare` green. Decisions re-confirmed Sep 7:
+> Cloudflare Workers hosting, written IP okay from the friend in hand.
+>
+> NEXT (needs Visesh): create the Greens Accounting Supabase project
+> (us-west-1, Pro) and the GitHub repo; then Phase 1 db push + seeds.
 > Exploration is COMPLETE (3 deep sweeps below); decisions are CONFIRMED;
 > detailed design appended at the bottom.
-> When resuming: copy this to docs/Accounting-Module-Plan.md in the Nexus
-> repo and write a memory entry (couldn't do either in plan mode).
 
 ## Context (draft - exploration in progress)
 
