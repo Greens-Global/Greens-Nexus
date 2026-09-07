@@ -126,6 +126,15 @@ KNOWN_SLOTS = [
 _SLOT_IDS = {s["slot"] for s in KNOWN_SLOTS}
 _SLOTS_BY_ID = {s["slot"]: s for s in KNOWN_SLOTS}
 
+# people.my-documents: names actually in use across entities for a person's
+# documents subfolder ("Contractor Documents" is Nexus's own default; some
+# entities file under "1. Employment Documents" instead - Oversite
+# Management, Sep 2026). Tried in order against the person's real folder;
+# first one that exists wins, so new hires under either convention resolve
+# with zero manual wiring. Add a name here (never hand-edit the default
+# template's tail) if another entity turns out to use a third name.
+MY_DOCUMENTS_SUBFOLDER_CANDIDATES = ["Contractor Documents", "1. Employment Documents"]
+
 
 def known_slot(slot: str) -> dict | None:
     return _SLOTS_BY_ID.get(slot)
@@ -212,31 +221,39 @@ def _fold(s: str) -> str:
     return " ".join(out.split())
 
 
+def _match_child(parent: str, want_name: str) -> str | None:
+    """The real child folder name of `parent` that best matches `want_name` -
+    exact folded match -> folded prefix -> folded substring, first hit wins.
+    None if `parent` can't be listed or nothing matches. Shared by _match_path
+    (per template segment) and the my-documents subfolder-candidate search."""
+    from services import egnyte as svc
+    try:
+        names = [f["name"] for f in svc.list_folder(parent or "/")["folders"]]
+    except svc.EgnyteError:
+        return None
+    want = _fold(want_name)
+    for matches in (
+        lambda n: _fold(n) == want,
+        lambda n: _fold(n).startswith(want),
+        lambda n: want in _fold(n),
+    ):
+        hit = next((n for n in names if matches(n)), None)
+        if hit:
+            return hit
+    return None
+
+
 def _match_path(path: str) -> str | None:
     """Resolve `path` against what actually exists, matching EVERY segment
     (not just the person at the end) - real folder names carry punctuation,
     legal suffixes and per-person suffixes the template can't know
-    ("GGCon Pvt. Ltd (India)", "Aarav Mehta - 1982"). Per segment: exact
-    folded match -> folded prefix -> folded substring, first hit wins. None
-    when some segment matches nothing (a genuinely missing folder)."""
+    ("GGCon Pvt. Ltd (India)", "Aarav Mehta - 1982"). None when some segment
+    matches nothing (a genuinely missing folder)."""
     from services import egnyte as svc
     segs = [s for s in svc.norm(path).split("/") if s]
     cur = ""
     for seg in segs:
-        try:
-            names = [f["name"] for f in svc.list_folder(cur or "/")["folders"]]
-        except svc.EgnyteError:
-            return None
-        want = _fold(seg)
-        hit = None
-        for matches in (
-            lambda n: _fold(n) == want,
-            lambda n: _fold(n).startswith(want),
-            lambda n: want in _fold(n),
-        ):
-            hit = next((n for n in names if matches(n)), None)
-            if hit:
-                break
+        hit = _match_child(cur, seg)
         if not hit:
             return None
         cur = f"{cur}/{hit}"
@@ -366,10 +383,12 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
     An explicit per-person override is trusted verbatim (the manager pointed at
     a real folder; re-matching it could only un-fix what they fixed).
 
-    people.my-documents additionally inherits a people.person-folder override:
-    pointing a person's FOLDER at the right place in the Wiring tab is one
-    action, and their My Documents follows it (person folder + the template's
-    subfolder tail) instead of needing a second override."""
+    people.my-documents does its OWN resolution: it resolves the person's
+    folder exactly like people.person-folder (override -> group -> template,
+    including that slot's own per-person override), then searches inside it
+    for whichever name in MY_DOCUMENTS_SUBFOLDER_CANDIDATES actually exists -
+    so entities that file under a different subfolder name resolve
+    automatically, with no per-person override needed."""
     email = (getattr(emp, "work_email", "") or "").lower()
     override = raw_value(slot, email)
     if override:
@@ -379,11 +398,23 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
     ctx = _person_context(emp, db)
 
     if slot == "people.my-documents":
-        pf_override = raw_value("people.person-folder", email)
-        if pf_override:
-            tail = fill(template.split("{person}", 1)[1], ctx) if "{person}" in template else ""
-            folder = pf_override.rstrip("/") + tail
-            return {"folder": folder, "source": "override", "proposed": folder}
+        root = resolve_person_folder("people.person-folder", emp, db)
+        tail = fill(template.split("{person}", 1)[1], ctx) if "{person}" in template else ""
+        default_name = (tail.strip("/").split("/")[-1] if tail else "") or MY_DOCUMENTS_SUBFOLDER_CANDIDATES[0]
+        candidates = [default_name] + [c for c in MY_DOCUMENTS_SUBFOLDER_CANDIDATES if c != default_name]
+        if root["folder"]:
+            for cand in candidates:
+                hit = _match_child(root["folder"], cand)
+                if hit:
+                    found = f"{root['folder'].rstrip('/')}/{hit}"
+                    return {"folder": found, "source": root["source"], "proposed": found}
+            proposed = f"{root['folder'].rstrip('/')}/{candidates[0]}"
+            if root["source"] == "override":
+                # the manager pointed the person FOLDER at a real place by
+                # hand; trust it even if we can't confirm the subfolder name.
+                return {"folder": proposed, "source": "override", "proposed": proposed}
+            return {"folder": None, "source": root["source"], "proposed": proposed}
+        return {"folder": None, "source": "template", "proposed": root["proposed"] + tail}
 
     # Folder group: a rule-matched cohort parent beats the template. The person
     # is a SUBFOLDER of the group's folder (matched by name, same folding as
