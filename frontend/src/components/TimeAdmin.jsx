@@ -727,36 +727,63 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       {view === 'payroll' && <PayrollTimecard toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail} />}
 
 
-      {/* Punch-fix requests - employee asked to add/remove a punch; approve applies it. */}
+      {/* Punch-fix requests - employee asked to add/remove a punch; approve applies it.
+          Grouped one card per person (photo, name, count) with every request
+          underneath, mirroring the Missing punches cards (Visesh, Sep 8). */}
       {view === 'requests' && (
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
-          {punchReqs.length === 0 ? (
-            <div style={{ padding: '24px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
-              No punch-fix requests waiting. When someone asks to add or remove a punch, it shows here for you to approve or reject.
-            </div>
-          ) : punchReqs.slice(0, 500).map(r => {
-            const kindLabel = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' }[r.punchKind] || r.punchKind;
-            return (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: 220 }}>
-                  <div style={{ fontSize: 13, fontWeight: 800 }}>{r.employeeName || r.employeeEmail}</div>
-                  <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 2 }}>
-                    {r.action === 'add'
-                      ? `Add a ${kindLabel} punch${r.at ? ` at ${new Date(r.at + 'Z').toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}` : ''}`
-                      : 'Remove a punch'}
-                  </div>
-                  {r.reason && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>“{r.reason}”</div>}
-                </div>
-                <button className="secondary-btn" onClick={() => decidePunchReq(r.id, 'rejected')}
-                  style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject</button>
-                <button className="primary-btn" onClick={() => decidePunchReq(r.id, 'approved')}
-                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <CheckCircle size={13} /> Approve
-                </button>
+        punchReqs.length === 0 ? (
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '24px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
+            No punch-fix requests waiting. When someone asks to add or remove a punch, it shows here for you to approve or reject.
+          </div>
+        ) : (() => {
+          const groups = new Map();
+          punchReqs.slice(0, 500).forEach(r => {
+            const key = (r.employeeEmail || '').toLowerCase() || r.employeeName || '?';
+            if (!groups.has(key)) groups.set(key, { email: r.employeeEmail, name: r.employeeName || r.employeeEmail, items: [] });
+            groups.get(key).items.push(r);
+          });
+          const people = [...groups.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+          const fmtAt = (at) => at ? new Date(at + 'Z').toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+          return people.map(g => (
+            <div key={g.email || g.name} style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, marginBottom: 8, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                <Avatar email={g.email} name={g.name} size={32} />
+                <span style={{ fontSize: 13.5, fontWeight: 800 }}>{g.name}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.email}</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink)', background: 'var(--wk-line2)', padding: '3px 9px', borderRadius: 999 }}>
+                  {g.items.length} request{g.items.length === 1 ? '' : 's'}
+                </span>
+                {g.email && (
+                  <button className="secondary-btn" onClick={() => { setPayrollEmail(g.email); setView('payroll'); }}
+                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <Pencil size={12} /> Open timecard
+                  </button>
+                )}
               </div>
-            );
-          })}
-        </div>
+              <div>
+                {g.items.map((r, i) => {
+                  const kindLabel = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' }[r.punchKind] || r.punchKind;
+                  return (
+                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px 10px 56px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: 220 }}>
+                        <div style={{ fontSize: 12.5, color: 'var(--ink)', fontWeight: 600 }}>
+                          {r.action === 'add' ? `Add a ${kindLabel} punch${r.at ? ` at ${fmtAt(r.at)}` : ''}` : 'Remove a punch'}
+                        </div>
+                        {r.reason && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>“{r.reason}”</div>}
+                      </div>
+                      <button className="secondary-btn" onClick={() => decidePunchReq(r.id, 'rejected')}
+                        style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject</button>
+                      <button className="primary-btn" onClick={() => decidePunchReq(r.id, 'approved')}
+                        style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <CheckCircle size={13} /> Approve
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ));
+        })()
       )}
 
       {/* Missing punches (SwipeClock "Show Missing Only") - the range's unmatched /
