@@ -14,7 +14,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 // Ticket is the Ticket module's own icon (Sidebar, TicketsView) - the card
 // that opens its create form should wear it, not a generic document.
 import {
-  Ticket, Monitor, Users, BookOpen, ArrowUpRight, Shield, FileSignature, Bug, Search,
+  Ticket, Users, ArrowUpRight, Shield, FileSignature, Bug, Search,
   ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { api } from '../api';
@@ -178,12 +178,8 @@ export default function Support() {
       onOpen: () => setSubmitting(true) },
     { icon: Bug, title: 'Report a Bug', desc: 'Flag something broken in Nexus, with screenshots if you have them.',
       onOpen: () => setReportingBug(true) },
-    { icon: Monitor, title: 'IT Help Desk', desc: 'Hardware, access, software, and network support.',
-      onOpen: () => go('it') },
     { icon: Users, title: 'Contact Directory', desc: 'Find the right person across your organization.',
       onOpen: () => go('people') },
-    { icon: BookOpen, title: 'FAQ & Guides', desc: 'Common how-tos and Nexus walkthroughs.',
-      onOpen: () => go('sop') },
     // Folded in from their own left-nav entries (Aug 31) to shrink the nav -
     // both still resolve as ordinary views (App.jsx), just opened from here.
     { icon: Shield, title: 'Privacy Policy', desc: 'What Nexus collects, why, and who can see it.',
