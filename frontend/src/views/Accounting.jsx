@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, DollarSign, Scale } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Scale, ExternalLink, Loader2 } from 'lucide-react';
 import { api } from '../api';
 import ModuleTabs from '../components/ModuleTabs';
 import PnlReport from '../components/accounting/PnlReport';
@@ -37,12 +37,41 @@ export default function Accounting({ activeSub, onSubChange }) {
 
   const helper = ytd ? 'Calendar year to date' : ytdError ? 'Ledger unavailable' : 'Loading from the ledger';
 
+  // Single sign-on into the accounting app. Nexus is the only way in there: the
+  // backend provisions the caller (role mapped from their Nexus grant) and
+  // returns a one-time URL. The tab is opened synchronously on the click so
+  // popup blockers allow it, then pointed at the URL once it arrives.
+  const [launching, setLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState('');
+  const openAccounting = () => {
+    if (launching) return;
+    setLaunching(true);
+    setLaunchError('');
+    const tab = window.open('', '_blank');
+    api.launchAccounting()
+      .then(({ url }) => {
+        if (tab) tab.location = url; else window.location.assign(url);
+      })
+      .catch((e) => {
+        if (tab) tab.close();
+        setLaunchError(e?.message || 'Could not open Nexus Accounting.');
+      })
+      .finally(() => setLaunching(false));
+  };
+
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div className="view-header" style={{ marginBottom: 24 }}>
         <div className="view-title-group">
           <h2>Accounting</h2>
           <p>Financial reports from the Nexus Accounting ledger</p>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          <button type="button" className="primary-btn" onClick={openAccounting} disabled={launching}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            {launching ? <Loader2 size={16} className="spin" /> : <ExternalLink size={16} />} Open Nexus Accounting
+          </button>
+          {launchError && <span style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{launchError}</span>}
         </div>
       </div>
 
