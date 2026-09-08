@@ -42,6 +42,9 @@ const Purchase            = lazy(() => import("./views/Purchase"));
 const SOP                 = lazy(() => import("./views/SOP"));
 const IT                  = lazy(() => import("./views/IT"));
 const Accounting          = lazy(() => import("./views/Accounting"));
+// /sso/accounting - "Login via Nexus" landing for the accounting app (full-screen
+// layer over the shell; the backend's grant check is the access decision).
+const AccountingHandoff   = lazy(() => import("./views/AccountingHandoff"));
 const Operations          = lazy(() => import("./views/Operations"));
 const FacilityOperations  = lazy(() => import("./views/FacilityOperations"));
 const Development         = lazy(() => import("./views/Development"));
@@ -391,7 +394,7 @@ const DEFAULT_SUBS = {
   documents:         "documents-dashboard",
   "investor-relations": "investor-dashboard",
   marketing:         "marketing-ads",
-  accounting:        "transactions",
+  accounting:        "pnl",
   egnyte:            "browse",
   "employee-tracking": "coverage",
   // My Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
@@ -491,7 +494,6 @@ function MainApp() {
   const [prevLabel, setPrevLabel] = useState(null);
   const prevLocRef = useRef({ view: activeView, sub: activeSub });
   const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
-  const [adminPanelTab,    setAdminPanelTab]    = useState('audit');
   const [backendDown,      setBackendDown]      = useState(false);
   // PDF Editor tells us (via PdfEditorModule → window event) whether a document
   // is open. We hide the top header only while editing a doc; the landing screen
@@ -649,6 +651,11 @@ function MainApp() {
         <GlobalSearch onNavigate={navigate} />
         <PullToRefresh />
         <TaskPrefetch />
+        {activeView === 'sso' && activeSub === 'accounting' && (
+          <Suspense fallback={null}>
+            <AccountingHandoff next={new URLSearchParams(window.location.search).get('next') || undefined} />
+          </Suspense>
+        )}
         {backendDown && (
           <div style={{
             position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
@@ -699,7 +706,7 @@ function MainApp() {
               onBack={goBack}
               onNavigate={navigate}
               prevLabel={prevLabel}
-              onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
+              onOpenAdmin={() => setAdminPanelOpen(true)}
             />
             )}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
@@ -732,7 +739,6 @@ function MainApp() {
         </div>
         <AdminPanel
           open={adminPanelOpen}
-          initialTab={adminPanelTab}
           onClose={() => setAdminPanelOpen(false)}
         />
         </InventoryProvider>

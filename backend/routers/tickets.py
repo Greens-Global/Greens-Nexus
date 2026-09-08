@@ -11,6 +11,9 @@ the IT Admin desk when an unassigned ticket arrives.
 Ticket conversation/attachments/activity deliberately reuse the task comment and
 attachment tables, keyed by ticket id - same storage, separate router.
 """
+import json
+import re
+import html as html_lib
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -24,6 +27,8 @@ from routers.task_util import now_iso, gen_id, log_activity, task_notify, extrac
 from ticket_code import TICKET_CODE_DIGITS, ticket_no
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents, all_agents)
+import ticket_mail_templates as tmpl
+from app_url import app_url
 
 router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
 
@@ -128,7 +133,7 @@ def delete_ticket_view(view_id: str, db: Session = Depends(get_db)):
 def ticket_to_dict(t: models.TaskTicket) -> dict:
     return {"id": t.id, "code": t.code or "", "subject": t.subject, "description": t.description or "",
             "type": t.type or "request",
-            "status": t.status or "new", "priority": t.priority or "medium",
+            "status": t.status if (t.status and t.status != "new") else "open", "priority": t.priority or "medium",
             "requesterId": _nz(t.requester_email), "assigneeId": _nz(t.assignee_email),
             "assignedById": _nz(t.assigned_by_email),
             "departmentId": _nz(t.department_id), "companyId": _nz(t.company_id), "hrDepartmentId": _nz(t.hr_department_id),
@@ -170,6 +175,67 @@ APPROVER_FIELD_BY_TYPE = {
 def _type_label(type_: str) -> str:
     """"access_request" -> "Access Request", for activity-log copy."""
     return (type_ or "").replace("_", " ").title() or "-"
+
+
+# ── Audit snapshot ───────────────────────────────────────────────────────────
+# The "created" activity entry's `detail` holds a JSON snapshot of exactly what
+# was submitted, instead of a plain "created this ticket" line - Pranshu, Sept 8
+# 2026: once a requester's mistake gets corrected by whoever picks the ticket
+# up, there is otherwise no record of what the ORIGINAL submission actually
+# said. Kept as raw values, not pre-formatted text - the frontend already owns
+# every label lookup this needs (type/priority names, department/company
+# names, per-field question labels) and re-derives them the same way the
+# Overview tab does, so the two can never drift onto different wording. A row
+# logged before this change just has the old plain-text detail; the frontend
+# falls back to showing that verbatim when it isn't valid JSON.
+def _ticket_snapshot(t: "models.TaskTicket") -> dict:
+    return {
+        "subject": t.subject or "", "description": t.description or "",
+        "type": t.type or "", "priority": t.priority or "",
+        "application": t.application or "", "serviceArea": t.service_area or "",
+        "hrDepartmentId": t.hr_department_id or "", "companyId": t.company_id or "",
+        "typeFields": t.type_fields or {},
+    }
+
+
+def _sla_breached(t: "models.TaskTicket") -> bool:
+    """Mirrors slaState() in ticketMeta.js: no due date, or the ticket is
+    already resolved/closed, is never "breached" - a due date is only a
+    promise while the clock is still running."""
+    if not t.sla_due_on or t.status in ("resolved", "closed"):
+        return False
+    return t.sla_due_on < now_iso()[:10]
+
+
+def _fmt_audit_value(v: Any) -> str:
+    """Stringifies a field-change value for the activity log - lists/dicts
+    (multiselect, checklist answers) get a compact readable form rather than
+    Python's repr, and everything is capped so one huge free-text answer can't
+    dwarf the rest of the feed."""
+    if v is None or v == "":
+        return "(blank)"
+    if isinstance(v, list):
+        s = ", ".join(str(x) for x in v) if v else "(blank)"
+    elif isinstance(v, dict):
+        s = ", ".join(f"{k}: {x}" for k, x in v.items()) if v else "(blank)"
+    else:
+        s = str(v)
+    return s if len(s) <= 140 else s[:137] + "…"
+
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _comment_preview(body: str, limit: int = 140) -> str:
+    """Plain-text teaser of a rich-text comment body for the activity feed -
+    tags stripped, entities unescaped, collapsed to one line, capped the same
+    way _fmt_audit_value caps a field-change value. Without this the activity
+    row just said "commented" with no way to tell what was said short of
+    opening the Conversation tab separately (Pranshu, Sept 8 2026)."""
+    text = re.sub(r"\s+", " ", html_lib.unescape(_HTML_TAG_RE.sub(" ", body or ""))).strip()
+    if not text:
+        return "(no text)"
+    return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
 def service_area_for(db: Session, application: str) -> str:
@@ -265,7 +331,7 @@ class TicketBody(BaseModel):
     subject: str
     description: Optional[str] = ""
     type: Optional[str] = "request"
-    status: Optional[str] = "new"
+    status: Optional[str] = "open"
     priority: Optional[str] = "medium"
     requester_email: Optional[str] = ""
     assignee_email: Optional[str] = ""
@@ -360,6 +426,26 @@ def _notify_participants(db: Session, t: models.TaskTicket, actor_email: str, ki
         task_notify(db, kind=kind, for_email=email, title=title, body=body, ticket_id=t.id, nexus_action=action)
 
 
+def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: str) -> None:
+    """Queue a Teams DM to the ticket's requester about this update - same
+    guaranteed-delivery queue TimeBod posts use (teams_post.py), posted AS the
+    agent who made the change into a 1:1 chat Graph creates on first contact.
+    Called for exactly the same set of changes that already trigger the
+    requester's update EMAIL (see update_ticket's Outlook-notifications
+    block) - one definition of "worth telling the requester about," not two.
+    Skipped when the actor IS the requester (their own edit needs no DM) or
+    there's no requester on file (never happens in practice, but a queued row
+    with an empty requester_email would just fail Graph forever)."""
+    requester = (t.requester_email or "").strip().lower()
+    actor = (actor_email or "").strip().lower()
+    if not requester or requester == actor:
+        return
+    link = tmpl._ticket_url(app_url(), t.id, for_requester=True)
+    html = f'{ticket_no(t.code)} has been updated. To view the ticket, please visit: <a href="{link}">{link}</a>'
+    db.add(models.TicketTeamsMessage(id=gen_id(), ticket_id=t.id, agent_email=actor,
+                                     requester_email=requester, html=html, created_at=now_iso()))
+
+
 @router.get("/task-tickets")
 def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
                  db: Session = Depends(get_db)):
@@ -402,7 +488,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     t = models.TaskTicket(
         id=body.id or gen_id(), code=body.code or _next_ticket_code(db), subject=body.subject,
         description=body.description or "", type=body.type or "request",
-        status=body.status or "new", priority=body.priority or "medium",
+        status=(body.status if (body.status and body.status != "new") else "open"), priority=body.priority or "medium",
         requester_email=(body.requester_email or user["email"]).strip().lower(),
         assignee_email=(body.assignee_email or "").strip().lower(), department_id=body.department_id or "",
         # Resolved from the requester's People record when intake did not send
@@ -435,7 +521,8 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         raise HTTPException(409, "This request needs approval - it can be assigned once approved.")
     db.add(t)
     log_activity(db, type="created", actor_email=user["email"], entity_kind="ticket",
-                 entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail="created this ticket")
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail=json.dumps(_ticket_snapshot(t)))
     tk_action = {"view": "tickets", "label": "View ticket"}
     if t.assignee_email and t.assignee_email != user["email"].lower():
         task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
@@ -536,6 +623,17 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     prev_status, prev_assignee, prev_priority = t.status, (t.assignee_email or ""), t.priority
     prev_type, prev_approval = (t.type or ""), (t.approval_status or "none")
     prev_due = t.sla_due_on
+    # Captured for the audit trail below (_log_field_changes) - BEFORE the
+    # mutation loop, and compared against the field's value after every
+    # server-side re-derivation below has also run (service_area from a
+    # re-picked application, resolution cleared on a status move, etc.), so a
+    # change nobody explicitly asked for in this payload still gets logged if
+    # it actually happened.
+    prev_subject, prev_description = t.subject, (t.description or "")
+    prev_dept, prev_company = t.hr_department_id, t.company_id
+    prev_application, prev_service_area = t.application, t.service_area
+    prev_resolution = t.resolution
+    prev_type_fields = dict(t.type_fields or {})
     for k, v in data.items():
         if k in ("assignee_email",) and v is not None:
             # strip() too - a padded address never matches the same person again,
@@ -615,6 +713,34 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
                         title="You were assigned a ticket", body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
     if "priority" in data and t.priority != prev_priority:
         _log("priority_changed", f"set priority to {t.priority}")
+    if t.subject != prev_subject:
+        _log("subject_changed", f'changed the title to "{t.subject}"')
+    if (t.description or "") != prev_description:
+        _log("description_changed", "updated the description")
+    if t.hr_department_id != prev_dept:
+        name = db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first() if t.hr_department_id else None
+        _log("department_changed", f"changed department to {name.name if name else '-'}")
+    if t.company_id != prev_company:
+        c = db.query(models.HrEntity).filter(models.HrEntity.id == t.company_id).first() if t.company_id else None
+        _log("company_changed", f"changed company to {c.name if c else '-'}")
+    if t.application != prev_application:
+        _log("application_changed", f"changed application to {t.application or '-'}")
+    if t.service_area != prev_service_area:
+        _log("service_area_changed", f"changed service area to {t.service_area or '-'}")
+    if "sla_due_on" in data and t.sla_due_on != prev_due:
+        _log("sla_changed", f"changed the SLA due date to {t.sla_due_on or '-'}")
+    if t.resolution != prev_resolution:
+        _log("resolution_changed", f"set resolution to {_type_label(t.resolution) if t.resolution else '-'}")
+    # Per-question diff, not "type fields updated" - a requester's wrong answer
+    # getting corrected is exactly the kind of change this audit trail exists
+    # to make provable (Pranshu, Sept 8 2026), so which question and what it
+    # changed to/from both need to be legible in the feed, not just the fact
+    # that SOMETHING under the type-specific section moved.
+    new_type_fields = t.type_fields or {}
+    for key in set(prev_type_fields) | set(new_type_fields):
+        ov, nv = prev_type_fields.get(key), new_type_fields.get(key)
+        if ov != nv:
+            _log("field_changed", f'changed "{key}" from {_fmt_audit_value(ov)} to {_fmt_audit_value(nv)}')
     # The gate moving is a fact about the ticket, not a side effect to hide: log
     # it, and put a re-gated ticket back in front of the desk that has to route it.
     if (t.approval_status or "none") != prev_approval:
@@ -651,6 +777,16 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor, update_kind="Due date changed")
     elif "resolution" in data or "description" in data or "type" in data or "hr_department_id" in data:
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor, update_kind="Ticket details updated")
+
+    # Teams DM - fires under exactly the same conditions as the email block
+    # above (see _queue_requester_teams_dm's docstring for why that's one
+    # definition, not two).
+    if ((assignee_changed and t.assignee_email) or status_changed
+            or ("priority" in data and t.priority != prev_priority)
+            or ("sla_due_on" in data and t.sla_due_on != prev_due)
+            or ("resolution" in data or "description" in data or "type" in data or "hr_department_id" in data)):
+        _queue_requester_teams_dm(db, t, actor)
+        db.commit()
 
     return ticket_to_dict(t)
 
@@ -726,9 +862,15 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     c = models.TaskComment(id=gen_id(), task_id=ticket_id, author_email=user["email"], body=body.body or "",
                            internal=internal, created_at=now_iso())
     db.add(c)
+    # JSON, not a plain string - same "structured detail" trick the "created"
+    # snapshot uses (see _ticket_snapshot) - so the activity feed can show what
+    # was actually said instead of just the word "commented", while still
+    # tagging internal notes the same way the Conversation tab does. A row
+    # logged before this change is plain text and the frontend falls back to
+    # rendering it as-is.
     log_activity(db, type="commented", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
-                 detail="added an internal note" if internal else "commented")
+                 detail=json.dumps({"internal": internal, "preview": _comment_preview(body.body or "")}))
     # @mentions, read from the mailto links the editor writes - the same
     # convention and the same parser the task comments use, so the two threads
     # can't drift (Sagar, Sept 2 2026: "@ should work here like it does on tasks").
@@ -812,7 +954,14 @@ def list_ticket_activity(ticket_id: str, user: dict = Depends(get_current_user),
                          db: Session = Depends(get_db)):
     _require_ticket_participant(db, user, _ticket_or_404(db, ticket_id))
     rows = (db.query(models.TaskActivity)
-            .filter(models.TaskActivity.entity_kind == "ticket", models.TaskActivity.entity_id == ticket_id)
+            # actor_email="system" is the automated notify/auto-close machinery
+            # (ticket_notify.py) - notification-delivery bookkeeping, not
+            # anything a requester or agent DID to the ticket. Excluded here,
+            # at the source, rather than filtered per-caller in the frontend,
+            # so every consumer of this endpoint gets the same "useful
+            # activity only" feed (Pranshu, Sept 8 2026).
+            .filter(models.TaskActivity.entity_kind == "ticket", models.TaskActivity.entity_id == ticket_id,
+                    models.TaskActivity.actor_email != "system")
             .order_by(models.TaskActivity.at.desc()).all())
     return [{"id": a.id, "type": a.type or "", "actorId": _nz(a.actor_email), "at": a.at or "", "detail": a.detail or ""} for a in rows]
 
@@ -1058,10 +1207,21 @@ def remove_ticket_link(ticket_id: str, target_id: str, db: Session = Depends(get
 _PRIORITY_LADDER = ["low", "medium", "high", "urgent"]
 
 
-@router.post("/task-tickets/{ticket_id}/escalate", dependencies=[Depends(require_ticket_desk)])
+@router.post("/task-tickets/{ticket_id}/escalate")
 def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
+    import auth
+    auth.assert_company(t.company_id or "", user, db)
+    # Desk staff can always escalate. A plain requester - locked out of every
+    # other field once the ticket moves off "new" (_ticket_edit_scope above) -
+    # gets exactly one exception: once the SLA is actually breached, they need
+    # a way to flag that even on a ticket they otherwise can't touch. Mirrors
+    # the frontend's canEscalate carve-out in TicketsView.jsx - keep the two in
+    # step.
+    is_requester = (t.requester_email or "").lower() == user["email"].lower()
+    if not (_has_desk_grant(user, db) or (is_requester and _sla_breached(t))):
+        raise HTTPException(403, "Only the desk can escalate this ticket - or you, once its SLA is breached.")
     idx = _PRIORITY_LADDER.index(t.priority) if t.priority in _PRIORITY_LADDER else 1
     new_p = _PRIORITY_LADDER[min(idx + 1, len(_PRIORITY_LADDER) - 1)]
     t.priority = new_p
@@ -1126,5 +1286,25 @@ def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 20
         "subject": r.subject, "status": r.status, "graphMessageId": r.graph_message_id,
         "conversationId": r.conversation_id, "attempts": r.attempts, "error": r.error,
         "createdAt": r.created_at, "updatedAt": r.updated_at,
+    } for r in rows]
+
+
+@router.get("/task-tickets/notify/teams-log", dependencies=[Depends(require_ticket_desk)])
+def get_ticket_teams_dm_log(ticket_id: str = "", sent: str = "", limit: int = 200,
+                            user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Same shape as get_ticket_notify_log, for the Teams DM queue
+    (_queue_requester_teams_dm / teams_post.py) - lets the desk see whether a
+    queued row delivered, and if not, why (send_error), without DB access.
+    `sent`: "1" or "0" to filter, blank for both."""
+    q = db.query(models.TicketTeamsMessage)
+    if ticket_id:
+        q = q.filter(models.TicketTeamsMessage.ticket_id == ticket_id)
+    if sent in ("0", "1"):
+        q = q.filter(models.TicketTeamsMessage.sent == int(sent))
+    rows = q.order_by(models.TicketTeamsMessage.created_at.desc()).limit(min(limit, 500)).all()
+    return [{
+        "id": r.id, "ticketId": r.ticket_id, "agentEmail": r.agent_email, "requesterEmail": r.requester_email,
+        "chatId": r.chat_id, "sent": bool(r.sent), "attempts": r.attempts, "lastTryAt": r.last_try_at,
+        "sendError": r.send_error, "createdAt": r.created_at,
     } for r in rows]
 

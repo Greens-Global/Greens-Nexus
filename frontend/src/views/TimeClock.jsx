@@ -779,6 +779,16 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 </button>
               </div>
             )}
+            {status.staleOpenShift && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, marginBottom: 10,
+                background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
+                <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 200 }}>
+                  Your clock-in{status.staleOpenSince ? ` at ${localTime(status.staleOpenSince)}` : ''} was never closed and is more than 16 hours old, so that shift shows as Missing.
+                  Submit a Missed Punch request with the real clock-out time - and clock in to start today.
+                </span>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 3 }}>
               {(status.allowed || []).map(kind => {
                 const M = KIND_META[kind];

@@ -420,7 +420,8 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
                                   tmpl.created_email_triage(t=ctx, base_url=app_url(), logo_url=logo_url))
             elif event_type == "assigned":
                 subject, html = tmpl.assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                     audience="assignee" if role == "assignee" else "other")
+                                                     audience="assignee" if role == "assignee" else "other",
+                                                     for_requester=role == "requester")
             elif event_type == "updated":
                 # Comment updates render as a conversation thread (avatars + full
                 # bodies, newest first) instead of a details table.
@@ -518,7 +519,9 @@ def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[st
         return (tmpl.created_email_requester(t=ctx, base_url=app_url(), logo_url=logo_url) if role == "requester"
                 else tmpl.created_email_triage(t=ctx, base_url=app_url(), logo_url=logo_url))
     if event_type == "assigned":
-        return tmpl.assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url, audience="assignee" if role == "assignee" else "other")
+        return tmpl.assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
+                                    audience="assignee" if role == "assignee" else "other",
+                                    for_requester=role == "requester")
     if event_type == "resolved":
         return tmpl.resolved_email(t=ctx, base_url=app_url(), logo_url=logo_url, audience="requester" if role == "requester" else "other")
     if event_type == "reopened":

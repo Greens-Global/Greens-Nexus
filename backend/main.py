@@ -1069,6 +1069,9 @@ def _run_migrations():
         "ALTER TABLE construction_rfis ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_submittals ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE construction_activity ENABLE ROW LEVEL SECURITY",
+        # New table (Sept 2026): create_all made it with RLS off, same gap as
+        # every table above - close it here, not in a checklist someone forgets.
+        "ALTER TABLE ticket_teams_message ENABLE ROW LEVEL SECURITY",
         # An emailed reply is matched back to its task by threading header when
         # the signed reply address didn't survive the round trip - the lookup is
         # per inbound message, so it needs the index.
@@ -1699,10 +1702,20 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] teams post queue skipped: {e}")
         try:
+            from teams_post import ticket_teams_post_loop
+            _tasks.append(_a.create_task(ticket_teams_post_loop()))
+        except Exception as e:
+            print(f"[startup] ticket teams DM queue skipped: {e}")
+        try:
             from daily_briefing import daily_briefing_loop
             _tasks.append(_a.create_task(daily_briefing_loop()))
         except Exception as e:
             print(f"[startup] daily briefing loop skipped: {e}")
+        try:
+            from accounting_sso import accounting_sso_sync_loop
+            _tasks.append(_a.create_task(accounting_sso_sync_loop()))
+        except Exception as e:
+            print(f"[startup] accounting sso sync skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;

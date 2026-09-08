@@ -612,7 +612,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                     style={{ color: 'hsl(var(--color-purple))' }}>
                     <Shield size={14} /> Roles &amp; Access
                   </button>
-                  <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.('audit'); }}
+                  <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.(); }}
                     style={{ color: 'hsl(var(--color-purple))' }}>
                     <Activity size={14} /> Audit Logs
                   </button>

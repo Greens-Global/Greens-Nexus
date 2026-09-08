@@ -47,10 +47,38 @@ export function TicketSelect({
   );
 }
 
+// Local-state text inputs for TypeFieldInput's free-text cases: `onChange`
+// (the actual patch({ typeFields: ... }) save) fires on blur, never per
+// keystroke. A field wired straight to onChange={(v) => patch(...)} - what
+// this used to be - saves on every keystroke, and once activity logging
+// started diffing typeFields (Sept 8 2026) that meant one "changed X from
+// ... to ..." row per CHARACTER typed. This is the actual fix, not a
+// workaround for the log after the fact - same blur-commit pattern
+// TicketCustomFieldInput already uses below.
+function DebouncedTextInput({ value, onChange, ...props }) {
+  const [v, setV] = useState(value ?? '');
+  useEffect(() => setV(value ?? ''), [value]);
+  return (
+    <input value={v} onChange={(e) => setV(e.target.value)}
+      onBlur={() => { if (v !== (value ?? '')) onChange(v); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+      {...props} />
+  );
+}
+function DebouncedTextarea({ value, onChange, ...props }) {
+  const [v, setV] = useState(value ?? '');
+  useEffect(() => setV(value ?? ''), [value]);
+  return (
+    <textarea value={v} onChange={(e) => setV(e.target.value)}
+      onBlur={() => { if (v !== (value ?? '')) onChange(v); }}
+      {...props} />
+  );
+}
+
 export function TypeFieldInput({ field: f, value, onChange, people, projects, invalid }) {
   // `invalid` only tints the border - the "Required" text is rendered by the caller.
   const iStyle = invalid ? { ...inputStyle, borderColor: NX.red } : inputStyle;
-  if (f.type === 'textarea') return <textarea value={value ?? ''} onChange={(e) => onChange(e.target.value)} rows={3} placeholder={f.placeholder || ''} style={{ ...iStyle, resize: 'vertical', fontFamily: FONT }} />;
+  if (f.type === 'textarea') return <DebouncedTextarea value={value} onChange={onChange} rows={3} placeholder={f.placeholder || ''} style={{ ...iStyle, resize: 'vertical', fontFamily: FONT }} />;
   if (f.type === 'select') return (
     <TicketSelect value={value ?? ''} onChange={onChange} invalid={invalid}
       options={[['', 'Select…'], ...f.options.map((o) => [o, o])]} placeholder="Select…" />
@@ -69,7 +97,7 @@ export function TypeFieldInput({ field: f, value, onChange, people, projects, in
   if (f.type === 'number') return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       {f.prefix && <span style={{ color: NX.dim, fontWeight: 600 }}>{f.prefix}</span>}
-      <input type="number" value={value ?? ''} onChange={(e) => onChange(e.target.value)} placeholder={f.placeholder || ''} style={{ ...iStyle, flex: 1, minWidth: 0 }} />
+      <DebouncedTextInput type="number" value={value} onChange={onChange} placeholder={f.placeholder || ''} style={{ ...iStyle, flex: 1, minWidth: 0 }} />
     </div>
   );
   if (f.type === 'date') return <DateField value={value || ''} onChange={(v) => onChange(v || '')} placeholder="Pick a date" style={iStyle} />;
@@ -115,7 +143,7 @@ export function TypeFieldInput({ field: f, value, onChange, people, projects, in
       </div>
     );
   }
-  return <input value={value ?? ''} onChange={(e) => onChange(e.target.value)} placeholder={f.placeholder || ''} style={iStyle} />;
+  return <DebouncedTextInput value={value} onChange={onChange} placeholder={f.placeholder || ''} style={iStyle} />;
 }
 
 // Inline "Required" note shown under a field after a failed submit.

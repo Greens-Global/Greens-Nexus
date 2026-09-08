@@ -4,6 +4,7 @@ import {
   Clock, ChevronDown, ChevronRight, ChevronLeft, MapPin, AlertTriangle, Download,
   Pencil, Plus, Loader2, X, CheckCircle, Ban, Camera, MoonStar,
   CalendarDays, Activity, Inbox, CalendarClock, Banknote, CalendarOff,
+  Search,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -216,12 +217,37 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
 
   // Punch-fix requests (employee add/remove) awaiting this approver's decision.
   const [punchReqs, setPunchReqs] = useState([]);
+  const [reqSearch, setReqSearch] = useState('');
+  const [selReqs, setSelReqs] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const loadPunchReqs = useCallback(() =>
     api.timePunchRequests('pending').then(r => setPunchReqs(Array.isArray(r) ? r : [])).catch(() => {}), []);
   useEffect(() => {
     loadPunchReqs();
     return pollWhileVisible(loadPunchReqs, 60000);
   }, [loadPunchReqs]);
+  // Bulk approve / reject of the selected requests (one note for all rejects).
+  async function decideMany(ids, status) {
+    if (!ids.length) return;
+    let note = '';
+    if (status === 'rejected') {
+      const r = await dialog.prompt('', { title: `Reject ${ids.length} request${ids.length === 1 ? '' : 's'}`, message: 'Sent to each employee.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true });
+      if (r === null) return;
+      note = r;
+    }
+    setBulkBusy(true);
+    let ok = 0; const fails = [];
+    for (const id of ids) {
+      try { await api.timeDecidePunchRequest(id, { status, note }); ok += 1; }
+      catch (e) { fails.push(e?.message || 'failed'); }
+    }
+    setBulkBusy(false);
+    setSelReqs(new Set());
+    if (ok) toastOk(`${ok} request${ok === 1 ? '' : 's'} ${status}.`);
+    if (fails.length) toastErr(`${fails.length} could not be ${status}: ${fails[0]}`);
+    loadPunchReqs();
+  }
+
   async function decidePunchReq(id, status) {
     let note = '';
     if (status === 'rejected') {
@@ -727,37 +753,109 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       {view === 'payroll' && <PayrollTimecard toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail} />}
 
 
-      {/* Punch-fix requests - employee asked to add/remove a punch; approve applies it. */}
-      {view === 'requests' && (
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
-          {punchReqs.length === 0 ? (
-            <div style={{ padding: '24px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
-              No punch-fix requests waiting. When someone asks to add or remove a punch, it shows here for you to approve or reject.
-            </div>
-          ) : punchReqs.slice(0, 500).map(r => {
-            const kindLabel = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' }[r.punchKind] || r.punchKind;
-            return (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: 220 }}>
-                  <div style={{ fontSize: 13, fontWeight: 800 }}>{r.employeeName || r.employeeEmail}</div>
-                  <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 2 }}>
-                    {r.action === 'add'
-                      ? `Add a ${kindLabel} punch${r.at ? ` at ${new Date(r.at + 'Z').toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}` : ''}`
-                      : 'Remove a punch'}
-                  </div>
-                  {r.reason && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>“{r.reason}”</div>}
-                </div>
-                <button className="secondary-btn" onClick={() => decidePunchReq(r.id, 'rejected')}
-                  style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject</button>
-                <button className="primary-btn" onClick={() => decidePunchReq(r.id, 'approved')}
-                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <CheckCircle size={13} /> Approve
-                </button>
+      {/* Punch-fix requests - employee asked to add/remove a punch; approve applies it.
+          One card per person (photo, name, count) with every request underneath;
+          search by name, tick individual requests or a whole person, approve or
+          reject the selection in one go (Visesh, Sep 8). */}
+      {view === 'requests' && (() => {
+        const q = reqSearch.trim().toLowerCase();
+        const visible = punchReqs.slice(0, 500).filter(r => !q || (r.employeeName || '').toLowerCase().includes(q) || (r.employeeEmail || '').toLowerCase().includes(q) || (r.reason || '').toLowerCase().includes(q));
+        const groups = new Map();
+        visible.forEach(r => {
+          const key = (r.employeeEmail || '').toLowerCase() || r.employeeName || '?';
+          if (!groups.has(key)) groups.set(key, { email: r.employeeEmail, name: r.employeeName || r.employeeEmail, items: [] });
+          groups.get(key).items.push(r);
+        });
+        const people = [...groups.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        const visibleIds = visible.map(r => r.id);
+        const selected = visibleIds.filter(id => selReqs.has(id));
+        const allSelected = visibleIds.length > 0 && selected.length === visibleIds.length;
+        const toggle = (ids, on) => setSelReqs(prev => { const n = new Set(prev); ids.forEach(id => on ? n.add(id) : n.delete(id)); return n; });
+        const fmtAt = (at) => at ? new Date(at + 'Z').toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+        const verb = (r) => {
+          const kindLabel = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' }[r.punchKind] || r.punchKind;
+          return r.action === 'add' ? `Adding a ${kindLabel}` : 'Removing a punch';
+        };
+        const cb = (checked, onChange, label) => (
+          <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} aria-label={label}
+            style={{ width: 16, height: 16, accentColor: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', flexShrink: 0 }} />
+        );
+        return (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative', flex: '0 1 280px' }}>
+                <Search size={13} style={{ position: 'absolute', left: 10, top: 9, color: 'var(--muted)' }} />
+                <input value={reqSearch} onChange={e => setReqSearch(e.target.value)} placeholder="Search by name or reason"
+                  style={{ width: '100%', padding: '7px 10px 7px 30px', borderRadius: 10, border: '1px solid var(--line)', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', fontFamily: 'inherit' }} />
               </div>
-            );
-          })}
-        </div>
-      )}
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer' }}>
+                {cb(allSelected, on => toggle(visibleIds, on), 'Select all requests')}
+                Select all ({visibleIds.length})
+              </label>
+              {selected.length > 0 && (
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{selected.length} selected</span>
+                  <button className="secondary-btn" disabled={bulkBusy} onClick={() => decideMany(selected, 'rejected')}
+                    style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject selected</button>
+                  <button className="primary-btn" disabled={bulkBusy} onClick={() => decideMany(selected, 'approved')}
+                    style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <CheckCircle size={13} /> Approve selected
+                  </button>
+                </div>
+              )}
+            </div>
+            {punchReqs.length === 0 ? (
+              <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '24px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
+                No punch-fix requests waiting. When someone asks to add or remove a punch, it shows here for you to approve or reject.
+              </div>
+            ) : people.length === 0 ? (
+              <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '24px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
+                Nobody matches "{reqSearch}".
+              </div>
+            ) : people.map(g => {
+              const ids = g.items.map(r => r.id);
+              const gSel = ids.filter(id => selReqs.has(id)).length;
+              return (
+                <div key={g.email || g.name} style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, marginBottom: 8, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                    {cb(gSel === ids.length, on => toggle(ids, on), `Select all requests from ${g.name}`)}
+                    <Avatar email={g.email} name={g.name} size={32} />
+                    <span style={{ fontSize: 13.5, fontWeight: 800 }}>{g.name}</span>
+                    <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.email}</span>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink)', background: 'var(--wk-line2)', padding: '3px 9px', borderRadius: 999 }}>
+                      {gSel ? `${gSel} of ${ids.length} selected` : `${ids.length} request${ids.length === 1 ? '' : 's'}`}
+                    </span>
+                    {g.email && (
+                      <button className="secondary-btn" onClick={() => { setPayrollEmail(g.email); setView('payroll'); }}
+                        style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <Pencil size={12} /> Open timecard
+                      </button>
+                    )}
+                  </div>
+                  <div>
+                    {g.items.map((r, i) => (
+                      <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap', background: selReqs.has(r.id) ? 'var(--wk-brand-tint, rgba(43,69,225,0.06))' : 'transparent' }}>
+                        {cb(selReqs.has(r.id), on => toggle([r.id], on), `Select request from ${g.name}`)}
+                        <div style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 13.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at) || 'No time'}</span>
+                          <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>{verb(r)}</span>
+                          {r.reason && <span style={{ fontSize: 12, color: 'var(--muted)' }}>"{r.reason}"</span>}
+                        </div>
+                        <button className="secondary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'rejected')}
+                          style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject</button>
+                        <button className="primary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'approved')}
+                          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          <CheckCircle size={13} /> Approve
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Missing punches (SwipeClock "Show Missing Only") - the range's unmatched /
           missing-out punches that block sign-off until an approver fixes them. */}

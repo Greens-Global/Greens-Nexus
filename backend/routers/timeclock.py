@@ -211,6 +211,28 @@ def _allowed_kinds(last_kind: Optional[str]) -> list:
     return ["break_end", "out"]  # on break - punching out implicitly ends it
 
 
+def _stale_open_shift(last) -> bool:
+    """A shift left open (last punch is a clock-in or a break) for longer than
+    the 16-hour pairing guard can no longer be closed by pressing Clock Out:
+    the timesheet already shows it as Missing, and a clock-out now would land
+    a stray punch that blocks the employee's own Missed Punch request (Visesh,
+    Sep 8 - his Monday shift got a Tuesday-night clock-out and the fix request
+    could not be approved). Treat such a shift as closed: the next valid
+    action is a fresh clock-in, and the real clock-out comes in through a
+    punch-fix request, which then slots in cleanly between the two."""
+    if not last or last.kind == "out":
+        return False
+    t = _parse_iso(last.at)
+    if not t:
+        return False
+    t = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - t).total_seconds() > _MAX_SHIFT_MIN * 60
+
+
+def _effective_last_kind(last) -> Optional[str]:
+    return "out" if _stale_open_shift(last) else (last.kind if last else None)
+
+
 def _serialize(p: TimePunch) -> dict:
     return {
         "id": p.id, "email": p.employee_email, "kind": p.kind, "at": p.at,
@@ -419,7 +441,11 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     _bod_ex = _is_bod_exempt(db, email)
     return {
         "lastPunch": _serialize(last) if last else None,
-        "allowed": _allowed_kinds(last.kind if last else None),
+        "allowed": _allowed_kinds(_effective_last_kind(last)),
+        # The open shift is too old to close by punching - it shows as Missing
+        # and needs a punch-fix request; the UI offers Clock In instead.
+        "staleOpenShift": bool(_stale_open_shift(last)),
+        "staleOpenSince": (last.at if _stale_open_shift(last) else None),
         "days": summaries,
         "todayUtc": today,
         "geofencedSites": sites,
@@ -498,8 +524,18 @@ def punch(body: PunchIn, request: Request,
     last = (db.query(TimePunch)
             .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
             .order_by(TimePunch.at.desc()).first())
-    allowed = _allowed_kinds(last.kind if last else None)
+    stale = _stale_open_shift(last)
+    allowed = _allowed_kinds(_effective_last_kind(last))
     if body.kind not in allowed:
+        if stale and body.kind in ("out", "break_start", "break_end"):
+            ld = (last.local_date or "")
+            when = f"{ld[5:7]}/{ld[8:10]}/{ld[0:4]}" if len(ld) == 10 else "earlier"
+            raise HTTPException(409, {
+                "code": "stale_open_shift",
+                "text": f"Your clock-in from {when} was never closed and is more than 16 hours old, "
+                        f"so that shift shows as Missing. Submit a Missed Punch request with the real "
+                        f"clock-out time, and clock in to start today.",
+            })
         raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
     # Shared-PC: resolve the device the local agent claimed (via /agent/pair).
     # A successful pairing means THIS employee is physically at that PC's agent,
@@ -3509,7 +3545,7 @@ def track_clock(body: TrackClockIn, dev: AgentDevice = Depends(get_agent_device)
     last = (db.query(TimePunch)
             .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
             .order_by(TimePunch.at.desc()).first())
-    if body.kind not in _allowed_kinds(last.kind if last else None):
+    if body.kind not in _allowed_kinds(_effective_last_kind(last)):
         raise HTTPException(409, f"Can't clock '{body.kind}' right now.")
     now = _now_iso()
     geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)

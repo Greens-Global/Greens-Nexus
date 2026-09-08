@@ -303,7 +303,7 @@ export const TICKET_STATUS_META = {
 };
 // Lifecycle order - drives the status picker and the board columns, so it reads
 // the way a ticket actually travels.
-export const TICKET_STATUS_ORDER = ['new', 'open', 'in_progress', 'waiting_user', 'waiting_vendor', 'on_hold', 'resolved', 'closed', 'reopened'];
+export const TICKET_STATUS_ORDER = ['open', 'in_progress', 'waiting_user', 'waiting_vendor', 'on_hold', 'resolved', 'closed', 'reopened'];
 export const CLOSED_STATES = ['resolved', 'closed'];
 
 // ── SLA policy - default resolution targets (hours) per priority. Used to
