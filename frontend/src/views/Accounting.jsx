@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import ModuleTabs from '../components/ModuleTabs';
 import PnlReport from '../components/accounting/PnlReport';
+import ReportsTab from '../components/accounting/ReportsTab';
 
 // Accounting in Nexus is read-only reporting over the Nexus Accounting ledger
 // (a one-way Intacct -> Supabase mirror; Intacct stays the source of truth and
@@ -16,6 +17,7 @@ import PnlReport from '../components/accounting/PnlReport';
 // backend/routers/accounting.py, an api.js entry, then the tab here.
 const TABS = [
   { key: 'pnl', label: 'Profit & Loss' },
+  { key: 'reports', label: 'Reports' },
 ];
 
 const usd = (n) => n == null ? '-' : `$${Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(0)}K` : Math.round(n).toLocaleString('en-US')}`;
@@ -32,6 +34,11 @@ export default function Accounting({ activeSub, onSubChange }) {
   // the cards read the same regardless of the tab.
   const [ytd, setYtd] = useState(null);
   const [ytdError, setYtdError] = useState('');
+  // Entities (Intacct locations, named) for the P&L tab's filter.
+  const [locations, setLocations] = useState([]);
+  useEffect(() => {
+    api.getAccountingLocations().then((d) => setLocations(d?.entities || [])).catch(() => setLocations([]));
+  }, []);
   useEffect(() => {
     const now = new Date();
     const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -110,7 +117,8 @@ export default function Accounting({ activeSub, onSubChange }) {
       <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
 
       <div style={{ marginBottom: 24 }}>
-        {sub === 'pnl' && <PnlReport />}
+        {sub === 'pnl' && <PnlReport locations={locations} />}
+        {sub === 'reports' && <ReportsTab />}
       </div>
     </div>
   );

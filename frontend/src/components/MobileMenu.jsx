@@ -39,6 +39,7 @@ export const SUBMENUS = {
   ],
   accounting: [
     { sub: 'pnl',            label: 'Profit & Loss' },
+    { sub: 'reports',        label: 'Reports' },
   ],
   hr: [
     { sub: 'hr-people', label: 'People' },

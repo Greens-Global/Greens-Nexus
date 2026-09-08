@@ -63,6 +63,24 @@ async def report_pnl(from_: str = Query(alias="from"), to: str = Query(...), loc
     return await _acct_get("/api/internal/reports/pnl", {"from": from_, "to": to, "location": location})
 
 
+@router.get("/reports/locations")
+async def report_locations():
+    """Entities (Intacct locations) on the ledger, with names - for report filters."""
+    return await _acct_get("/api/internal/reports/locations", {})
+
+
+@router.get("/reports/balance-sheet")
+async def report_balance_sheet(asof: str = Query(...), location: str | None = None):
+    """Balance sheet as of an ISO date, optionally for one entity."""
+    return await _acct_get("/api/internal/reports/balance-sheet", {"asof": asof, "location": location})
+
+
+@router.get("/reports/trial-balance")
+async def report_trial_balance(from_: str = Query(alias="from"), to: str = Query(...), location: str | None = None):
+    """Trial balance for a date range, optionally for one entity."""
+    return await _acct_get("/api/internal/reports/trial-balance", {"from": from_, "to": to, "location": location})
+
+
 # ── Single sign-on into the accounting app (Nexus is the access authority) ──
 # Nobody gets a password on accounting.greensglobal.com. Holding the Nexus
 # "accounting" grant (or an administrator+ role, which bypasses grants app-wide)
