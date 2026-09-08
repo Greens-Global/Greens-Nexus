@@ -494,7 +494,6 @@ function MainApp() {
   const [prevLabel, setPrevLabel] = useState(null);
   const prevLocRef = useRef({ view: activeView, sub: activeSub });
   const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
-  const [adminPanelTab,    setAdminPanelTab]    = useState('audit');
   const [backendDown,      setBackendDown]      = useState(false);
   // PDF Editor tells us (via PdfEditorModule → window event) whether a document
   // is open. We hide the top header only while editing a doc; the landing screen
@@ -707,7 +706,7 @@ function MainApp() {
               onBack={goBack}
               onNavigate={navigate}
               prevLabel={prevLabel}
-              onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
+              onOpenAdmin={() => setAdminPanelOpen(true)}
             />
             )}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
@@ -740,7 +739,6 @@ function MainApp() {
         </div>
         <AdminPanel
           open={adminPanelOpen}
-          initialTab={adminPanelTab}
           onClose={() => setAdminPanelOpen(false)}
         />
         </InventoryProvider>
