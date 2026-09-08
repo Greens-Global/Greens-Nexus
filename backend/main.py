@@ -533,6 +533,7 @@ def _run_migrations():
             # TaskTicket, which reuses these same defs) unchanged.
             "ALTER TABLE task_custom_fields ADD COLUMN applies_to VARCHAR DEFAULT 'task'",
             "ALTER TABLE task_projects ADD COLUMN custom_field_values JSON DEFAULT '{}'",
+            "ALTER TABLE task_portfolios ADD COLUMN parent_id VARCHAR DEFAULT ''",
             # Seed a built-in Location field so it shows on every project (new
             # or existing) without an admin having to create it first - Manage
             # -> Custom Fields is then just where new location OPTIONS get
@@ -1214,6 +1215,7 @@ def _run_migrations():
         # migration above for the full rationale.
         "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS applies_to VARCHAR DEFAULT 'task'",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS custom_field_values JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE task_portfolios ADD COLUMN IF NOT EXISTS parent_id VARCHAR DEFAULT ''",
         # Seed a built-in Location field - see the matching sqlite migration
         # above for the full rationale.
         "INSERT INTO task_custom_fields (id,name,description,type,options,project_ids,required,read_only,applies_to) "

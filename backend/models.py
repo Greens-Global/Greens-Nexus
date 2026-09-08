@@ -2208,13 +2208,29 @@ class TaskProject(Base):
 
 
 class TaskPortfolio(Base):
-    """A curated, ordered collection of projects (Asana "portfolio")."""
+    """A curated, ordered collection of projects (Asana "portfolio"), which may
+    itself sit inside another portfolio.
+
+    `parent_id` is the whole of the nesting: a portfolio with one is a
+    sub-portfolio of that one, and the tree is walked from these pointers rather
+    than a stored child list, so a move is one write and can never leave a child
+    listed under two parents. Depth is not capped - Asana's is not either - but
+    a portfolio can never become its own ancestor (see _portfolio_ancestors in
+    routers/task_projects.py; a cycle would hang every rollup that walks the
+    tree).
+
+    Projects still belong to exactly ONE portfolio, the leaf they were put in.
+    A parent's rollup is computed by walking its descendants, never by copying
+    their project ids upward - two lists of the same membership is the drift
+    portfolio_project_ids already exists to reconcile.
+    """
     __tablename__ = "task_portfolios"
     id          = Column(String, primary_key=True)
     name        = Column(String, nullable=False)
     description = Column(String, default="")
     color       = Column(String, default="")
     owner_email = Column(String, default="", index=True)
+    parent_id   = Column(String, default="", index=True)  # "" = a top-level portfolio
     project_ids = Column(JSON, default=list)              # ordered
     archived    = Column(Boolean, default=False)
     created_at  = Column(String, default="")
@@ -3580,6 +3596,33 @@ class TaskProjectTemplate(Base):
     created_at  = Column(String, default="")
     modified_at = Column(String, default="")
     created_by  = Column(String, default="")
+
+
+class TaskProjectBookmark(Base):
+    """A project one person is actively watching, pinned to their dashboard.
+
+    Its own table rather than a key in TaskTablePref: those are COLUMN
+    arrangements, and "Reset Columns" clears that whole document - which would
+    silently take someone's bookmarks with it. Different lifetime, different
+    table.
+
+    One row per (person, project) so a bookmark is one INSERT and one DELETE,
+    with `position` carrying the hand-ordering the dashboard renders in. Scoped
+    to owner_email on every read and write: a bookmark records what somebody
+    is watching, not what they may see, so it widens no access.
+
+    New table - create_all builds it, no migration line needed - but it MUST get
+    ALTER TABLE task_project_bookmarks ENABLE ROW LEVEL SECURITY on dev AND prod
+    as part of the release (CLAUDE.md: the backend bypasses RLS via the
+    privileged URL, so a new table without it is readable by anyone holding the
+    public anon key).
+    """
+    __tablename__ = "task_project_bookmarks"
+    id          = Column(String, primary_key=True)
+    owner_email = Column(String, default="", index=True)
+    project_id  = Column(String, default="", index=True)
+    position    = Column(Float, default=0)
+    created_at  = Column(String, default="")
 
 
 class TaskTablePref(Base):

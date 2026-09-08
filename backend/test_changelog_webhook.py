@@ -29,6 +29,27 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from routers import github_webhook
 
+# A test that DELETES rows must prove its own isolation before it deletes any.
+#
+# unittest runs every module named on one command line in ONE process, so
+# `import database` happens once: whichever module is imported FIRST fixes
+# DATABASE_URL for all of them, and the assignment above is a dead letter for
+# the rest. Run after a module that does not set it (test_app_boot does not),
+# and these setUp() deletes land in the developer's real local greens_nexus.db.
+# That is not hypothetical - it happened on 2026-09-07 and took the local task,
+# project and portfolio rows with it. So the binding is checked, not assumed.
+def _assert_isolated():
+    actual = database.engine.url.database or ""
+    if os.path.normcase(os.path.abspath(actual)) != os.path.normcase(os.path.abspath(_tmp.name)):
+        raise RuntimeError(
+            f"{__name__} deletes rows and is pointed at {actual!r}, not its own "
+            f"temp database. Another test module imported `database` first. "
+            f"Run it on its own: python -m unittest {__name__}"
+        )
+
+
+_assert_isolated()
+
 _app = FastAPI()
 _app.include_router(github_webhook.router)
 _URL = "/webhooks/github"
