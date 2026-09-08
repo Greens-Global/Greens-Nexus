@@ -757,7 +757,12 @@ export default function TicketsView({ manageAction = null }) {
             {tile('Open', 'rgba(9,152,195,0.14)', '#0998c3', openCount, 'not yet resolved',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'open' ? 'all' : 'open'); },
               statusFilter === 'open')}
-            {tile('Unassigned', 'rgba(124,58,237,0.14)', '#7c3aed', unassignedCount, 'nobody working them',
+            {/* Red once there's actually a backlog - purple read as "just an
+                info card" and nobody's eye caught it climbing (Pranshu, Sept
+                8 2026). Same red the SLA-breached tile uses, so red already
+                means one thing across this row: something needs a person. */}
+            {tile('Unassigned', unassignedCount > 0 ? 'rgba(220,38,38,0.12)' : 'rgba(124,58,237,0.14)',
+              unassignedCount > 0 ? NX.red : '#7c3aed', unassignedCount, 'nobody working them',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
               statusFilter === 'unassigned')}
             {itAdmin && tile('To assign', 'rgba(217,119,6,0.15)', NX.amber, triageCount, 'waiting for triage',
