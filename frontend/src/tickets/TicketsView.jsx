@@ -1001,11 +1001,16 @@ function TicketListHeader({ cols, widths, startResize, resetWidth, autofitWidth,
   const headCell = { position: 'relative', display: 'flex', alignItems: 'center', minHeight: 34, padding: '0 10px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
   return (
     // Sticky, not just top-of-list - scrolling a long queue used to lose the
-    // column labels entirely (Pranshu, Sep 9 2026). Anchored to .viewport
-    // (the app shell's own scroll container - .nx-list-scroll below only
-    // affects horizontal overflow), with an opaque background so rows
-    // scrolling underneath don't show through.
-    <div style={{ position: 'sticky', top: 0, zIndex: 3, display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', padding: '9px 0', background: NX.surface2, borderBottom: `1px solid ${NX.border}` }}>
+    // column labels entirely (Pranshu, Sep 9 2026). Anchored to the module's
+    // own scrolling body (the "nx-scroll nx-gutter" div below list/board/
+    // reports - .nx-list-scroll itself only handles horizontal overflow),
+    // with an opaque background so rows scrolling underneath don't show
+    // through. top: -16 (not 0) cancels that scroller's own `padding: 16` -
+    // sticky's offset is measured from the padding edge, so top: 0 stuck the
+    // header 16px below the scroller's true top edge, leaving a gap the
+    // still-scrolling row directly above it could show through (Pranshu, Sep
+    // 9 2026 - "header column overlapping"). -16 pins it flush instead.
+    <div style={{ position: 'sticky', top: -16, zIndex: 3, display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', padding: '9px 0', background: NX.surface2, borderBottom: `1px solid ${NX.border}` }}>
       {cols.map((col) => {
         if (col.key === 'checkbox') {
           return (
