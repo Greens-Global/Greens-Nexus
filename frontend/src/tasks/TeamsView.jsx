@@ -5,17 +5,18 @@
 import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
 import {
   Users, X, Trash2, Check, Clock, UserPlus, ArrowLeft, ChevronRight,
-  FolderKanban, ListChecks,
+  FolderKanban, ListChecks, Plus,
   Building2, Cpu, HardHat, Cog, Code2, Calculator, Megaphone, Briefcase,
   Wrench, FlaskConical, ShieldCheck, Rocket, PenTool, Landmark, Truck,
   Headphones, HeartPulse,
 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, ChipMultiSelect, useIsMobile, ViewToggle } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, ChipMultiSelect, useIsMobile, ViewToggle, ExportMenu } from './components';
 import { useTasks } from './TasksContext';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import { topLevel, teamProjectIds, taskInProject } from './lib';
 import { CalendarView } from './views/extras';
+import CreateTaskModal from './CreateTaskModal';
 import { emailToName } from '../lib/utils';
 
 // Curated team icons (keys match the export's deptIcons set).
@@ -96,6 +97,17 @@ export default function TeamsView({ onNavigate }) {
         {/* Right-hand cluster - see ProjectsView for why the group, and not
             ResetColumnsButton, carries the auto margin. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginLeft: 'auto', flexShrink: 0 }}>
+          <ExportMenu
+            title="Teams" subtitle={`${sortedTeams.length} teams`}
+            filenameBase="teams" rows={sortedTeams}
+            columns={[
+              { header: 'Team', width: 24, get: (t) => t.name },
+              { header: 'Members', width: 10, get: (t) => (t.memberIds || []).length },
+              { header: 'Member Emails', width: 34, get: (t) => (t.memberIds || []).join(', ') },
+              { header: 'Projects', width: 32, get: (t) => projectsOf(t).map((p) => p.name).join(', ') },
+              { header: 'Tasks', width: 10, get: (t) => taskCountByTeam[t.id] || 0 },
+            ]}
+          />
           {!isMobile && view === 'list' && <ResetColumnsButton />}
           <ViewToggle view={view} onChange={setView} isMobile={isMobile} />
         </div>
@@ -772,6 +784,13 @@ function TeamWorkTab({ teamProjects, tasks, onNavigate }) {
 function ProjectWorkSection({ project, tasks, onNavigate }) {
   const projectTasks = useMemo(() => topLevel(tasks.filter((t) => taskInProject(t, project.id))), [project, tasks]);
   const [open, setOpen] = useState(true);
+  // Add straight into the section you are looking at. Creating a task from here
+  // used to mean opening the project, then Create, then picking the project back
+  // out of a list of ~90 - and the answer was on screen the whole time. The
+  // project is passed as BOTH the default and the lock, exactly as the module
+  // bar's Create does for a drilled-in project, so the modal cannot be saved
+  // against a different one by accident.
+  const [adding, setAdding] = useState(false);
 
   return (
     <div style={{ border: `1px solid ${NX.border}`, borderRadius: 14, background: NX.surface, overflow: 'hidden' }}>
@@ -781,6 +800,10 @@ function ProjectWorkSection({ project, tasks, onNavigate }) {
           <FolderKanban size={14} style={{ color: NX.faint }} />
           <span style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.name}</span>
           <span style={{ fontSize: 12, color: NX.faint }}>{projectTasks.length} task{projectTasks.length === 1 ? '' : 's'}</span>
+        </button>
+        <button onClick={() => setAdding(true)} title={`Add a task to ${project.name}`}
+          style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12, fontWeight: 600, color: NX.dim, flexShrink: 0 }}>
+          <Plus size={14} />Task
         </button>
         <button onClick={() => onNavigate && onNavigate({ projectId: project.id })} style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12, fontWeight: 600, color: NX.primary }}>Open Project</button>
       </div>
@@ -802,6 +825,10 @@ function ProjectWorkSection({ project, tasks, onNavigate }) {
             })}
           </div>
         )
+      )}
+      {adding && (
+        <CreateTaskModal defaults={{ projectId: project.id }} lockedProjectId={project.id}
+          onClose={() => setAdding(false)} />
       )}
     </div>
   );

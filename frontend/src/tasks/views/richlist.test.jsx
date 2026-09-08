@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import RichListView, { peopleStackLayout, taskProjectOptions } from './richlist';
+import RichListView, { peopleStackLayout, taskProjectOptions, ListColumnControls } from './richlist';
 
 // Render-smoke test for the task list. This is the exact guard that was missing
 // on 2026-08-02: a merge left an orphaned `g.renderTasks.length` reference, the
@@ -371,5 +371,69 @@ describe('RichListView range selection', () => {
 
     expect(ids()).toEqual(['a']);
     input.remove();
+  });
+});
+
+// The Team column inside a project. Every row in a single-team project showed
+// the same team name - one team is stamped on new tasks automatically - so the
+// column sorted, filtered and grouped into one bucket and told you nothing
+// (Sagar, Sept 7). It now follows the Project column's rule, but derived from
+// the data rather than stored, so a second team brings it straight back.
+describe('RichListView team column', () => {
+  const teams = (projectIds) => projectIds.map((ids, i) => ({
+    id: `tm${i}`, name: `Team ${i}`, color: '#888', projectIds: ids,
+  }));
+  const inProject = (teamList) => ({
+    ...store, teams: teamList, teamName: (id) => teamList.find((t) => t.id === id)?.name || '',
+  });
+
+  it('is hidden in a project with only one team', () => {
+    renderList({ store: inProject(teams([['p1']])), lockedProjectId: 'p1' });
+    expect(screen.queryByText('Team')).not.toBeInTheDocument();
+  });
+
+  it('is hidden in a project with no teams at all', () => {
+    renderList({ store: inProject([]), lockedProjectId: 'p1' });
+    expect(screen.queryByText('Team')).not.toBeInTheDocument();
+  });
+
+  it('comes back as soon as the project has two teams', () => {
+    renderList({ store: inProject(teams([['p1'], ['p1', 'p2']])), lockedProjectId: 'p1' });
+    expect(screen.getAllByText('Team').length).toBeGreaterThan(0);
+  });
+
+  it('counts only teams attached to THIS project', () => {
+    // Two teams exist, but the second one lives in another project entirely.
+    renderList({ store: inProject(teams([['p1'], ['p2']])), lockedProjectId: 'p1' });
+    expect(screen.queryByText('Team')).not.toBeInTheDocument();
+  });
+
+  it('always shows outside a project, where rows come from many teams', () => {
+    renderList({ store: inProject(teams([['p1']])), lockedProjectId: '' });
+    expect(screen.getAllByText('Team').length).toBeGreaterThan(0);
+  });
+});
+
+// The Hide menu has to agree with the table: a toggle for a column that is not
+// rendered is a switch that does nothing.
+describe('Hide-columns menu', () => {
+  const openMenu = (props) => {
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} {...props} />);
+    fireEvent.click(screen.getByTitle('Hide columns'));
+  };
+
+  it('drops the Team toggle where the column cannot vary', () => {
+    openMenu({ lockedProjectId: 'p1', teams: [{ id: 'tm0', name: 'Team 0', projectIds: ['p1'] }] });
+    expect(screen.queryByText('Team')).not.toBeInTheDocument();
+    expect(screen.getByText('Status')).toBeInTheDocument();   // the rest still there
+  });
+
+  it('keeps the Team toggle when the project has two teams', () => {
+    openMenu({ lockedProjectId: 'p1', teams: [
+      { id: 'tm0', name: 'Team 0', projectIds: ['p1'] },
+      { id: 'tm1', name: 'Team 1', projectIds: ['p1'] },
+    ] });
+    expect(screen.getByText('Team')).toBeInTheDocument();
   });
 });

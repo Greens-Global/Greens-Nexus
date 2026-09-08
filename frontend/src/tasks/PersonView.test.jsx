@@ -81,14 +81,24 @@ describe('PersonView render-smoke', () => {
     // The stat rollup only renders once data has, so wait on that instead.
     expect(await screen.findByText('Open')).toBeInTheDocument();
     expect(screen.getByText('Overdue')).toBeInTheDocument();
-    expect(screen.getByText('Completed')).toBeInTheDocument();
+    // Two now: the stat card, and the collapsed Completed section below the
+    // list. Both are meant to be there.
+    expect(screen.getAllByText('Completed')).toHaveLength(2);
   });
 
-  it('lists their assigned work first, striking through what is done', async () => {
+  it('keeps finished work out of the way, in a collapsed Completed section', async () => {
+    // 24 completed tasks used to push a person's open ones off the screen
+    // (Neil, Sept 7). Open work is the list; done work is one line you can open.
     render(<PersonView {...props} />);
 
+    expect(await screen.findByText('Rebrand the footer')).toBeInTheDocument();
+    expect(screen.queryByText('Old finished thing')).not.toBeInTheDocument();
+
+    // `expanded` picks the disclosure apart from the Completed STAT card, which
+    // is also a button reading "Completed".
+    fireEvent.click(screen.getByRole('button', { name: /Completed/, expanded: false }));
+
     const done = await screen.findByText('Old finished thing');
-    expect(screen.getByText('Rebrand the footer')).toBeInTheDocument();
     expect(done).toHaveStyle({ textDecoration: 'line-through' });
   });
 

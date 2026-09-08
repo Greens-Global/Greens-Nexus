@@ -3,11 +3,12 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight } from 'lucide-react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight, Trash2 } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId } from './lib';
-import { NX, FONT, btn, CONTROL_H, CONTROL_FS, input as inputStyle } from './theme';
-import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField, TaskCountBadges, SearchSelect } from './components';
+import { DeletedTasksTab } from './ManageView';
+import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate } from './lib';
+import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle } from './theme';
+import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField, TaskCountBadges, SearchSelect, ExportMenu } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
 import MobileTaskBar from './MobileTaskBar';
 import CreateTaskModal from './CreateTaskModal';
@@ -25,7 +26,31 @@ const VIEW_TABS = [
   { key: 'calendar', label: 'Calendar', icon: CalIcon },
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'files', label: 'Files', icon: Paperclip },
+  // Your own Trash, outside Manage (Neil, Sept 8). Restoring a task you deleted
+  // yourself used to need a manager, because every trash endpoint was
+  // manager-gated and the only screen was inside Manage - which most people
+  // cannot open. The listing is scoped server-side to your own deletions, so
+  // this tab shows you exactly what you binned and nothing else.
+  { key: 'deleted', label: 'Deleted', icon: Trash2 },
 ];
+// Export columns. A function of the store rather than a constant because the
+// labels come from it (custom statuses, people names) - and identical in shape
+// to the project workspace's, so the two files open the same way.
+const MY_TASK_EXPORT_COLS = (store, nameOf) => [
+  { header: 'Task', width: 30, get: (r) => `${'    '.repeat(r.depth)}${r.task.title}` },
+  { header: 'Parent Task', width: 22, get: (r) => r.parent?.title || '' },
+  { header: 'Status', width: 12, get: (r) => store.statusMeta?.[r.task.status]?.label || r.task.status || '' },
+  { header: 'Priority', width: 10, get: (r) => PRIORITY_META[r.task.priority]?.label || r.task.priority || '' },
+  { header: 'Assignee', width: 20, get: (r) => taskAssignees(r.task).map((e) => nameOf(e)).join(', ') },
+  { header: 'Project', width: 20, get: (r) => (r.task.projectId ? (store.projectName(r.task.projectId) || '') : '') },
+  { header: 'Team', width: 14, get: (r) => (r.task.teamId ? (store.teamName(r.task.teamId) || '') : '') },
+  { header: 'Start', width: 11, get: (r) => (r.task.startOn ? fmtDate(r.task.startOn) : '') },
+  { header: 'Due', width: 11, get: (r) => (r.task.dueOn ? fmtDate(r.task.dueOn) : '') },
+  { header: 'Estimate (h)', width: 11, get: (r) => (r.task.estimateHours ?? '') },
+  { header: 'Actual (h)', width: 11, get: (r) => (r.task.actualHours ?? '') },
+  { header: 'Completed', width: 10, get: (r) => (r.task.completed ? 'Yes' : 'No') },
+];
+
 // Group options for the mobile filter drill-in (mirrors the desktop Group select).
 const MY_GROUP_OPTIONS = [
   { key: 'date', label: 'Due Date' }, { key: 'status', label: 'Status' }, { key: 'priority', label: 'Priority' },
@@ -93,7 +118,7 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
           <div style={{ maxHeight: 200, overflowY: 'auto', padding: 4 }}>
             {filtered.map((u) => (
               <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
-                <input type="checkbox" checked={value.includes(u.email)} onChange={() => toggle(u.email)} /> {u.name}
+                <input type="checkbox" className="nx-check" checked={value.includes(u.email)} onChange={() => toggle(u.email)} /> {u.name}
               </label>
             ))}
             {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
@@ -258,6 +283,16 @@ export default function MyTasksView({ onNavigate }) {
   );
   const allMine = useMemo(() => personScoped(tasks, filter).filter((t) => matchesFilter(t, filter, store.taskById)), [tasks, filters, myEmail, store.taskById]);
   const ctx = { nameOf, projectName: store.projectName, teamName: store.teamName, taskById: store.taskById };
+  // Same shape as the project workspace's export: the filtered rows, each
+  // followed by its own subtasks. My Tasks already flattens subtasks assigned
+  // to ME into the list (personScoped), but a subtask of mine hanging under a
+  // parent that is NOT mine still belongs in my file - taskExportRows walks
+  // down from whatever is visible either way.
+  const exportRows = useMemo(
+    () => taskExportRows(mine, tasks, filter, store.taskById),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mine, tasks, filters, myEmail, store.taskById],
+  );
   // Board renders allMine (completed included); every other view renders `mine`.
   const shownCount = view === 'board' ? allMine.length : mine.length;
   const groups = useMemo(() => groupTasks(mine, group, ctx), [mine, group, nameOf, store.projectName, store.teamName, store.taskById]);
@@ -290,6 +325,17 @@ export default function MyTasksView({ onNavigate }) {
           style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border2}`, borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
           {shownCount} {shownCount === 1 ? 'Task' : 'Tasks'}
         </span>
+        {/* Next to the count rather than in the List toolbar below: the rows
+            being exported are the same whichever view is on screen, and the
+            project workspace's Export is not gated to List either - so looking
+            for it on Board and not finding it would be the odd one out. */}
+        {!isMobile && (
+          <ExportMenu
+            title="My Tasks" subtitle={`${exportRows.length} task${exportRows.length === 1 ? '' : 's'} including subtasks, as filtered`}
+            filenameBase="my-tasks" rows={exportRows} compact
+            columns={MY_TASK_EXPORT_COLS(store, nameOf)}
+          />
+        )}
       </div>
 
       {/* Desktop: view tabs + toolbar. Mobile: replaced by the floating MobileTaskBar. */}
@@ -369,6 +415,8 @@ export default function MyTasksView({ onNavigate }) {
           <FilesView tasks={allMine} onOpen={setOpenId} nameOf={nameOf} />
         ) : view === 'dashboard' ? (
           <DashboardView tasks={allMine} stats={{}} store={store} scopeKey="my-tasks" onFilter={goFiltered} />
+        ) : view === 'deleted' ? (
+          <div style={{ padding: 16 }}><DeletedTasksTab store={store} scope="mine" /></div>
         ) : (
           // Same board as a project's (status columns, drag-and-drop, WIP limits,
           // swimlanes, Add section). Completed tasks are included so the
