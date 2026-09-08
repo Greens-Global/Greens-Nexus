@@ -2775,8 +2775,16 @@ function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
       <div style={{ fontSize: 12, fontWeight: 700, color: NX.dim, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
         <ClipboardList size={13} /> Original request (unedited)
       </div>
-      <div style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink, marginBottom: 4 }}>{snapshot.subject || '-'}</div>
-      {snapshot.description && <p style={{ margin: '0 0 10px', fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{snapshot.description}</p>}
+      <div style={{ marginBottom: snapshot.description ? 8 : 4 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Title</div>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink }}>{snapshot.subject || '-'}</div>
+      </div>
+      {snapshot.description && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Description</div>
+          <p style={{ margin: 0, fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{snapshot.description}</p>
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: 12.5 }}>
         {rows.map(([k, v]) => (
           <div key={k}><span style={{ color: NX.faint }}>{k}: </span><span style={{ color: NX.ink }}>{v}</span></div>
