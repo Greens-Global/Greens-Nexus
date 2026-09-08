@@ -624,7 +624,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       {view === 'attendance' && (() => {
         const [y, m] = attMonth.split('-').map(Number);
         const daysIn = new Date(y, m, 0).getDate();
-        const offset = (new Date(y, m - 1, 1).getDay() + 6) % 7; // Monday-start
+        const offset = new Date(y, m - 1, 1).getDay();   // Sunday-start (getDay() is 0=Sun)
         const cells = [...Array(offset).fill(null), ...Array.from({ length: daysIn }, (_, i) => i + 1)];
         const leaves = timeoff.filter(r => r.status === 'approved' || r.status === 'pending');
         const onDay = (n) => {
@@ -648,7 +648,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               ))}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
                 <div key={d} style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', padding: '2px 6px' }}>{d}</div>
               ))}
               {cells.map((n, i) => {

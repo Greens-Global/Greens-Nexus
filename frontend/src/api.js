@@ -386,7 +386,21 @@ export const api = {
   bulkUpdateTasks: (ids, patch) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, patch }) }),
   // Trash (Aug 27): deleteTask above now moves to Trash - it's restorable for
   // 90 days (see task_trash.py) via these three, Manage > Deleted Tasks only.
-  getDeletedTasks: () => req("/tasks/deleted"),
+  // scope="mine" is the Recycle Bin OUTSIDE Manage - what you deleted plus what
+  // you were assigned. Omitted = the Manage view, the whole workspace, which
+  // the server refuses to anyone below manager.
+  getDeletedTasks: (scope) => req(`/tasks/deleted${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`),
+  // The Recycle Bin proper - tasks AND the containers (projects, portfolios,
+  // teams) in one list. Same two scopes: "mine" outside Manage, unscoped
+  // (manager-only, whole workspace) inside it.
+  // Personal teams: ask a manager to make one real, and the manager's decision.
+  requestTeamApproval: (id) => req(`/task-teams/${id}/request-approval`, { method: "POST" }),
+  decideTeamApproval: (id, decision) => req(`/task-teams/${id}/approval`, {
+    method: "POST", body: JSON.stringify({ decision }),
+  }),
+  getRecycleBin: (scope) => req(`/task-recycle${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`),
+  restoreRecycleItem: (kind, id) => req(`/task-recycle/${kind}/${id}/restore`, { method: "POST" }),
+  purgeRecycleItem: (kind, id) => req(`/task-recycle/${kind}/${id}`, { method: "DELETE" }),
   restoreTask: (id) => req(`/tasks/${id}/restore`, { method: "POST" }),
   purgeTaskNow: (id) => req(`/tasks/${id}/permanent`, { method: "DELETE" }),
   // Tasks as .xlsx. reqBlob, not a plain link: the endpoint is bearer-
@@ -447,6 +461,20 @@ export const api = {
   createTaskPortfolio: (data) => req("/task-portfolios", { method: "POST", body: JSON.stringify(data) }),
   updateTaskPortfolio: (id, data) => req(`/task-portfolios/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskPortfolio: (id) => req(`/task-portfolios/${id}`, { method: "DELETE" }),
+  // Batch move: one transaction on the server, because membership lives on both
+  // the project and the portfolio and a half-applied move shows a project in a
+  // portfolio it has already left.
+  // Takes an already-mapped body (TasksContext's toBody), like every other
+  // write here - api.js does not know about camelCase field names.
+  moveProjectsToPortfolio: (data) => req("/task-portfolios/move-projects", {
+    method: "POST", body: JSON.stringify(data),
+  }),
+  // Bookmarks - a person's own pinned projects (self-scoped server-side).
+  getTaskBookmarks: () => req("/task-bookmarks"),
+  addTaskBookmark: (projectId) => req("/task-bookmarks", {
+    method: "POST", body: JSON.stringify({ project_id: projectId }),
+  }),
+  removeTaskBookmark: (projectId) => req(`/task-bookmarks/${projectId}`, { method: "DELETE" }),
   getTaskTeams: () => req("/task-teams"),
   createTaskTeam: (data) => req("/task-teams", { method: "POST", body: JSON.stringify(data) }),
   updateTaskTeam: (id, data) => req(`/task-teams/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
@@ -463,6 +491,10 @@ export const api = {
   deleteTicketView: (id) => req(`/task-ticket-views/${id}`, { method: "DELETE" }),
   getTicketCompanies: () => req("/ticket-companies"),
   getTicketDepartments: () => req("/ticket-departments"),
+  // Manage -> Service Desk -> Departments: add a department / set who gets
+  // the escalation email for it, without needing an HR module grant.
+  addTicketDepartment: (companyId, name) => req("/ticket-departments", { method: "POST", body: JSON.stringify({ company_id: companyId, name }) }),
+  setTicketDepartmentHead: (deptId, leadEmail) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ lead_email: leadEmail }) }),
   // Only the departments of the caller's own company - what ticket intake
   // offers now that company is resolved server-side instead of asked for.
   getMyTicketDepartments: () => req("/ticket-departments?mine=true"),

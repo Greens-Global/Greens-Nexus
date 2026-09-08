@@ -87,6 +87,11 @@ class Task(Base):
     # remembering to filter. Restorable via POST /tasks/{id}/restore for 90
     # days, after which trash_purge_loop (main.py) removes it for good.
     deleted_at        = Column(String, default="", index=True)
+    # Set when this task was binned BECAUSE its project was, holding that
+    # project's id. Restoring the project restores exactly this set, and the
+    # Recycle Bin hides them: they are not independently restorable, and a
+    # project plus its 200 tasks as 201 rows is not a list anyone can use.
+    deleted_with      = Column(String, default="", index=True)
     deleted_by        = Column(String, default="")         # email of whoever deleted it
 
 
@@ -2228,21 +2233,49 @@ class TaskProject(Base):
     # applies_to). Same shape and same coerce_custom_field_values() as
     # Task.custom_field_values; the field defs table is shared.
     custom_field_values = Column(JSON, default=dict)
+    # Soft delete -> Recycle Bin (Sept 2026). A non-empty deleted_at means
+    # binned: hidden from every read by database.py's _hide_soft_deleted hook
+    # (one hook rather than a filter at 72 query sites), restorable for the
+    # retention window, then purged by task_trash.trash_purge_loop.
+    deleted_at    = Column(String, default="", index=True)
+    deleted_by    = Column(String, default="")
 
 
 class TaskPortfolio(Base):
-    """A curated, ordered collection of projects (Asana "portfolio")."""
+    """A curated, ordered collection of projects (Asana "portfolio"), which may
+    itself sit inside another portfolio.
+
+    `parent_id` is the whole of the nesting: a portfolio with one is a
+    sub-portfolio of that one, and the tree is walked from these pointers rather
+    than a stored child list, so a move is one write and can never leave a child
+    listed under two parents. Depth is not capped - Asana's is not either - but
+    a portfolio can never become its own ancestor (see _portfolio_ancestors in
+    routers/task_projects.py; a cycle would hang every rollup that walks the
+    tree).
+
+    Projects still belong to exactly ONE portfolio, the leaf they were put in.
+    A parent's rollup is computed by walking its descendants, never by copying
+    their project ids upward - two lists of the same membership is the drift
+    portfolio_project_ids already exists to reconcile.
+    """
     __tablename__ = "task_portfolios"
     id          = Column(String, primary_key=True)
     name        = Column(String, nullable=False)
     description = Column(String, default="")
     color       = Column(String, default="")
     owner_email = Column(String, default="", index=True)
+    parent_id   = Column(String, default="", index=True)  # "" = a top-level portfolio
     project_ids = Column(JSON, default=list)              # ordered
     archived    = Column(Boolean, default=False)
     created_at  = Column(String, default="")
     modified_at = Column(String, default="")
     created_by  = Column(String, default="")
+    # Soft delete -> Recycle Bin (Sept 2026). A non-empty deleted_at means
+    # binned: hidden from every read by database.py's _hide_soft_deleted hook
+    # (one hook rather than a filter at 72 query sites), restorable for the
+    # retention window, then purged by task_trash.trash_purge_loop.
+    deleted_at    = Column(String, default="", index=True)
+    deleted_by    = Column(String, default="")
 
 
 class TaskTeam(Base):
@@ -2272,6 +2305,35 @@ class TaskTeam(Base):
     # panel behavior where any team member could act on the project's tasks.
     access_role   = Column(String, default="editor")
     created_at    = Column(String, default="")
+    created_by    = Column(String, default="", index=True)
+    # Personal teams (Sept 2026). A team made from the Teams screen belongs to
+    # the person who made it until somebody senior blesses it:
+    #   personal  visible only to its creator, and it grants NO team access -
+    #             see _sync_personal_team_grants, which instead pushes an
+    #             INDIVIDUAL project grant to each member. That is the whole
+    #             safety property: an unapproved team cannot widen anyone's
+    #             access by existing, because the access it hands out is the
+    #             same access its creator could already have granted by hand.
+    #   pending   personal, and waiting on a manager.
+    #   approved  a real team: visible to every member, and it grants access AS
+    #             A TEAM (project_role_for / visible_project_ids count it), at
+    #             which point the individual grants it pushed are withdrawn.
+    # Teams created from Manage are born "approved" - that screen is already
+    # manager-gated, so asking a manager to approve their own team is theatre.
+    approval_status = Column(String, default="approved")   # approved|personal|pending
+    requested_at  = Column(String, default="")
+    decided_by    = Column(String, default="")
+    decided_at    = Column(String, default="")
+    # {project_id: [email, ...]} - the individual grants this team pushed out
+    # while unapproved, recorded so approval can withdraw EXACTLY those and
+    # leave alone anyone who was a project member in their own right.
+    granted_emails = Column(JSON, default=dict)
+    # Soft delete -> Recycle Bin (Sept 2026). A non-empty deleted_at means
+    # binned: hidden from every read by database.py's _hide_soft_deleted hook
+    # (one hook rather than a filter at 72 query sites), restorable for the
+    # retention window, then purged by task_trash.trash_purge_loop.
+    deleted_at    = Column(String, default="", index=True)
+    deleted_by    = Column(String, default="")
 
 
 class TaskSection(Base):
@@ -2403,6 +2465,9 @@ class TaskTemplate(Base):
     patch          = Column(JSON, default=dict)          # Partial<Task> applied on use
     subtask_titles = Column(JSON, default=list)
     created_at     = Column(String, default="")
+    # Soft delete -> Recycle Bin (Sept 2026). See the hook in database.py.
+    deleted_at   = Column(String, default="", index=True)
+    deleted_by   = Column(String, default="")
 
 
 class TaskIntakeForm(Base):
@@ -2552,6 +2617,12 @@ class TaskTicket(Base):
     assigned_by_email = Column(String, default="", index=True)
     sla_due_on     = Column(String, default="")
     resolved_at    = Column(String, default="")
+    # Timestamp of the most recent comment (public or internal - any human
+    # touch resets the clock). Drives the "needs a comment" staleness highlight
+    # (COMMENT_STALE_HOURS in ticketMeta.js) - a signal separate from SLA due
+    # date breach. Blank on a ticket nobody has commented on yet; the frontend
+    # falls back to created_at in that case.
+    last_comment_at = Column(String, default="")
     created_at     = Column(String, default="")
     modified_at    = Column(String, default="")
 
@@ -3603,6 +3674,36 @@ class TaskProjectTemplate(Base):
     created_at  = Column(String, default="")
     modified_at = Column(String, default="")
     created_by  = Column(String, default="")
+    # Soft delete -> Recycle Bin (Sept 2026). See the hook in database.py.
+    deleted_at   = Column(String, default="", index=True)
+    deleted_by   = Column(String, default="")
+
+
+class TaskProjectBookmark(Base):
+    """A project one person is actively watching, pinned to their dashboard.
+
+    Its own table rather than a key in TaskTablePref: those are COLUMN
+    arrangements, and "Reset Columns" clears that whole document - which would
+    silently take someone's bookmarks with it. Different lifetime, different
+    table.
+
+    One row per (person, project) so a bookmark is one INSERT and one DELETE,
+    with `position` carrying the hand-ordering the dashboard renders in. Scoped
+    to owner_email on every read and write: a bookmark records what somebody
+    is watching, not what they may see, so it widens no access.
+
+    New table - create_all builds it, no migration line needed - but it MUST get
+    ALTER TABLE task_project_bookmarks ENABLE ROW LEVEL SECURITY on dev AND prod
+    as part of the release (CLAUDE.md: the backend bypasses RLS via the
+    privileged URL, so a new table without it is readable by anyone holding the
+    public anon key).
+    """
+    __tablename__ = "task_project_bookmarks"
+    id          = Column(String, primary_key=True)
+    owner_email = Column(String, default="", index=True)
+    project_id  = Column(String, default="", index=True)
+    position    = Column(Float, default=0)
+    created_at  = Column(String, default="")
 
 
 class TaskTablePref(Base):

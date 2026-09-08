@@ -58,6 +58,11 @@ const TASK_SUBS = ['home', 'mine', 'projects', 'portfolios', 'templates', 'teams
 const FAB_CREATES = {
   mine: 'task', tasks: 'task',
   projects: 'project', portfolios: 'portfolio', templates: 'template',
+  // Teams gained a "+" (Neil, Sept 9), reversing "a team is made from Manage"
+  // (Sagar, Sept 2). What changed is that a team made HERE is personal - it is
+  // visible only to its creator and grants individual project access until a
+  // manager approves it - so it no longer needs the admin screen to be safe.
+  teams: 'team',
 };
 const DEFAULT_SUB = 'home';
 const ALL_SUBS = [...TASK_SUBS, 'manage'];
@@ -232,17 +237,9 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
                 onChange={go} />
             )}
           </div>
-          {/* Create sits first of the three, per the module's left-to-right
-              order of doing-then-arranging: make something, arrange the page,
-              then administer the workspace. */}
-          {inlineCreate && (
-            <span data-tour="task-create">
-              <CreateMenu variant="inline" onNavigate={go} taskDefaults={taskDefaults} />
-            </span>
-          )}
           {/* Slot for the active sub-view's own page-level control, portaled in
               by the sub-view itself (Home's Customize / Done - see HomeView).
-              It sits here rather than in the page body so the module's two
+              It sits here rather than in the page body so the module's
               top-level controls read as one group in the same bar, instead of
               one floating over the widget grid a row below the other. */}
           <div id="nx-tasks-bar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }} />
@@ -253,6 +250,20 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
               style={{ ...btnStyle('outline'), flexShrink: 0 }}>
               <Settings size={14} /> <span className="nx-btn-label">Manage</span>
             </button>
+          )}
+          {/* Create is LAST, and that is the whole point (Neil, Sept 7). It used
+              to come first of the three, on a left-to-right "make something,
+              arrange the page, then administer" reading - but everything after
+              it in this bar is conditional (Home portals a Customize button in,
+              the others portal nothing), so the button moved horizontally as
+              you changed tabs and you had to re-find the same control on every
+              screen. Anchored at the right edge, only what sits to its LEFT
+              changes, so Create is in one place module-wide. Anything added to
+              this bar later goes BEFORE it. */}
+          {inlineCreate && (
+            <span data-tour="task-create">
+              <CreateMenu variant="inline" onNavigate={go} taskDefaults={taskDefaults} />
+            </span>
           )}
         </div>
       )}

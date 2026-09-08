@@ -9,8 +9,8 @@ import { useTasks } from './TasksContext';
 import { taskStats, teamInProject, teamProjectIds, fieldsForProjectEntity, taskInProject, projectToForm} from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, SearchSelect, ViewToggle } from './components';
-import TasksWorkspace from './TasksWorkspace';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
+import { ExportMenu } from './components';
 import { CustomFieldInput } from './TaskDetailDrawer';
 // The two reuse flows live with the Templates screen so all three entry points
 // (Templates tab, this grid, and a project's own header) open the same dialogs.
@@ -95,7 +95,15 @@ export default function ProjectsView({ onNavigate }) {
     [customFields],
   );
 
-  const [openId, setOpenId] = useState(null);      // drilled-into project
+  // Opening a project is the MODULE's navigation, not this screen's own state
+  // (Neil, Sept 8). Rendering the workspace from here left the module on
+  // sub='projects' while the project's task list was on screen - so the
+  // floating "+", which asks the sub what this page makes, went on offering a
+  // new PROJECT while you stood inside one. Every other route into a project
+  // (Home widgets, Portfolios, Teams, search) already goes through
+  // onNavigate({ projectId }); this one now does too, so there is one drill-in
+  // path and the FAB, the tab highlight and Back all agree about where you are.
+  const openProject = (id) => onNavigate?.({ projectId: id });
   const [search, setSearch] = useState('');
   // active | archived | all. Was a bare "Show archived" checkbox, which could
   // only ever ADD archived projects to the live list - there was no way to look
@@ -170,15 +178,6 @@ export default function ProjectsView({ onNavigate }) {
       <span style={{ flex: 1, height: 1, background: NX.border2 }} />
     </div>
   );
-
-  const openProject = openId ? projects.find((p) => p.id === openId) : null;
-
-  // ── Drill-in: reuse the Tasks workspace locked to this project. Its own Row 1
-  // header owns the back arrow (icon-only) + project name/team, so no separate
-  // header wrapper here. ──────────────────────────────────────────────────────
-  if (openProject) {
-    return <TasksWorkspace lockedProjectId={openProject.id} title={openProject.name} onBack={() => setOpenId(null)} />;
-  }
 
   const startEdit = (p) => setEditing(projectToForm(p));
 
@@ -263,6 +262,24 @@ export default function ProjectsView({ onNavigate }) {
               until it has something to reset. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginLeft: 'auto', flexShrink: 0 }}>
             {/* List view only - the grid has no columns to restore. */}
+            {/* Exports the FILTERED, SORTED list - `cards` is what the screen
+                is showing, not everything in the store. */}
+            <ExportMenu
+              title="Projects" subtitle={`${cards.length} of ${projects.length} projects`}
+              filenameBase="projects" rows={cards}
+              columns={[
+                { header: 'Project', width: 26, get: (c) => c.project.name },
+                { header: 'Portfolio', width: 18, get: (c) => (c.project.portfolioId ? (portfolioById(c.project.portfolioId)?.name || '') : '') },
+                { header: 'Department', width: 16, get: (c) => c.project.hrDepartmentName || '' },
+                { header: 'Teams', width: 22, get: (c) => (c.project.teams || []).map((t) => t.name).join(', ') },
+                { header: 'Owner', width: 20, get: (c) => (c.project.ownerId ? nameOf(c.project.ownerId) : '') },
+                { header: 'Tasks Done', width: 11, get: (c) => c.stats.completed },
+                { header: 'Tasks Total', width: 11, get: (c) => c.stats.total },
+                { header: 'Complete %', width: 11, get: (c) => c.stats.pct },
+                { header: 'Overdue', width: 10, get: (c) => c.stats.overdue },
+                { header: 'Archived', width: 10, get: (c) => (c.project.archived ? 'Yes' : 'No') },
+              ]}
+            />
             {!isMobile && view === 'list' && <ResetColumnsButton />}
             {/* The shared switcher, so Projects, Portfolios, Teams and Templates
                 cannot drift apart on padding, radius or active state. */}
@@ -278,7 +295,7 @@ export default function ProjectsView({ onNavigate }) {
       ) : view === 'list' ? (
         <ProjectList
           cards={cards} isMobile={isMobile} nameOf={nameOf} portfolioById={portfolioById}
-          onOpen={setOpenId} onEdit={startEdit} onDelete={remove}
+          onOpen={openProject} onEdit={startEdit} onDelete={remove}
           onDuplicate={setDuplicating} onSaveTemplate={setTemplating}
         />
       ) : (
@@ -289,7 +306,7 @@ export default function ProjectsView({ onNavigate }) {
             return (
               <Fragment key={p.id}>
               {idx === firstArchivedAt && archivedHeading}
-              <div onClick={() => setOpenId(p.id)} style={{
+              <div onClick={() => openProject(p.id)} style={{
                 ...card, padding: 0, overflow: 'hidden', cursor: 'pointer', display: 'flex', flexDirection: 'column',
                 opacity: p.archived ? 0.62 : 1, position: 'relative',
               }}
@@ -395,7 +412,7 @@ export default function ProjectsView({ onNavigate }) {
         <DuplicateProjectModal
           project={duplicating}
           onClose={() => setDuplicating(null)}
-          onCreated={(made) => setOpenId(made.id)}
+          onCreated={(made) => openProject(made.id)}
         />
       )}
 
@@ -785,12 +802,12 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
             <div>
               <label style={label}>Tasks</label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '7px 0' }}>
-                <input type="checkbox" checked={form.includeTasks !== false}
+                <input type="checkbox" className="nx-check" checked={form.includeTasks !== false}
                   onChange={(e) => set({ includeTasks: e.target.checked })} style={{ cursor: 'pointer' }} />
                 Create the template's tasks
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: form.includeTasks === false ? 'default' : 'pointer', opacity: form.includeTasks === false ? 0.5 : 1 }}>
-                <input type="checkbox" checked={form.resetStatus !== false} disabled={form.includeTasks === false}
+                <input type="checkbox" className="nx-check" checked={form.resetStatus !== false} disabled={form.includeTasks === false}
                   onChange={(e) => set({ resetStatus: e.target.checked })} style={{ cursor: 'pointer' }} />
                 Start them all at Not Started
               </label>
@@ -881,7 +898,7 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
                 const on = teamIds.includes(t.id);
                 return (
                   <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={on} onChange={() => toggleTeam(t.id)} style={{ cursor: 'pointer' }} />
+                    <input type="checkbox" className="nx-check" checked={on} onChange={() => toggleTeam(t.id)} style={{ cursor: 'pointer' }} />
                     <span style={{ width: 9, height: 9, borderRadius: '50%', background: t.color || NX.purple, flexShrink: 0 }} />
                     {/* No "currently elsewhere" marker: a team belongs to any number
                         of projects (TaskTeam.project_ids), so being on another one is

@@ -412,8 +412,15 @@ def create_template(body: TemplateBody, db: Session = Depends(get_db)):
 
 
 @router.delete("/task-templates/{template_id}", status_code=204, dependencies=[Depends(require_manager)])
-def delete_template(template_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskTemplate).filter(models.TaskTemplate.id == template_id).delete()
+def delete_template(template_id: str, user: dict = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    # Soft delete -> Recycle Bin, like every other deletable thing in the
+    # module. The row stays, hidden by database.py's _hide_soft_deleted hook.
+    t = (db.query(models.TaskTemplate).execution_options(include_deleted=True)
+         .filter(models.TaskTemplate.id == template_id).first())
+    if t:
+        t.deleted_at = now_iso()
+        t.deleted_by = user["email"]
     db.commit()
 
 
@@ -1691,6 +1698,36 @@ _CHANGE_TYPES = ["Bug Fix", "Performance", "New Feature", "Security Update",
                  "Hotfix", "Maintenance", "Improvement"]
 
 
+def deployment_branch() -> str:
+    """Which branch THIS deployment IS - "dev", "main", or "" off Azure.
+
+    Derived from WEBSITE_SITE_NAME the same way app_url.py splits dev from prod
+    ("dev" anywhere in the name), so neither App Service needs configuring;
+    NEXUS_CHANGELOG_BRANCH overrides it if the naming ever stops matching. Read
+    fresh on every call rather than cached at import, for app_url.py's
+    documented reason: during warm-up the value can arrive slot-suffixed, and
+    prod deploys through a staging slot.
+
+    "" means no deployment identity (a laptop) - callers decide what that
+    means for them, which is why tracked_branch() below is separate.
+    """
+    override = os.getenv("NEXUS_CHANGELOG_BRANCH", "").strip()
+    if override:
+        return override
+    site = os.getenv("WEBSITE_SITE_NAME", "").strip().lower()
+    if not site:
+        return ""
+    return "dev" if "dev" in site else "main"
+
+
+def tracked_branch() -> str:
+    """The branch this deployment summarises: which commits it reads, and the
+    only merges its changelog reacts to. Off Azure there is no deployment to
+    speak of, so it reads dev - the repo's default branch, and what a laptop
+    would have gotten anyway."""
+    return deployment_branch() or "dev"
+
+
 def _is_noise(subject: str) -> bool:
     s = (subject or "").strip().lower()
     return not s or s.startswith("merge ")
@@ -1705,7 +1742,7 @@ def _recent_commits(limit: int = 80) -> tuple[list[dict], str]:
             with httpx.Client(timeout=30) as client:
                 r = client.get(
                     f"https://api.github.com/repos/{_GITHUB_REPO}/commits",
-                    params={"per_page": min(limit, 100)},
+                    params={"per_page": min(limit, 100), "sha": tracked_branch()},
                     headers={"Authorization": f"Bearer {_GITHUB_TOKEN}",
                              "Accept": "application/vnd.github+json"},
                 )

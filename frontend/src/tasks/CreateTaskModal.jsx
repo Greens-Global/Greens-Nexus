@@ -72,6 +72,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
         const own = pid ? (store.teams || []).filter((t) => teamInProject(t, pid)) : [];
         return own.length === 1 ? own[0].id : '';
       })(),
+    startOn: editing?.startOn ?? defaults.startOn ?? '',
     dueOn: editing?.dueOn ?? defaults.dueOn ?? '',
     estimateHrs: editing?.estimateHours ? String(Math.floor(editing.estimateHours)) : '',
     estimateMin: editing?.estimateHours && editing.estimateHours % 1 ? String(Math.round((editing.estimateHours % 1) * 60)) : '',
@@ -190,7 +191,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     const core = {
       title: form.title.trim(), description: form.description, assigneeIds: form.assigneeIds, ownerId: form.ownerId || '',
       priority: form.priority, status: form.recurFreq !== 'none' ? 'recurring' : form.status, projectId: form.projectId || '', teamId: form.teamId || '',
-      dueOn: form.dueOn || '', estimateHours: (form.estimateHrs || form.estimateMin) ? (Number(form.estimateHrs || 0) + Number(form.estimateMin || 0) / 60) : null, tags: form.labels, recurrence: recurrence(),
+      startOn: form.startOn || '', dueOn: form.dueOn || '', estimateHours: (form.estimateHrs || form.estimateMin) ? (Number(form.estimateHrs || 0) + Number(form.estimateMin || 0) / 60) : null, tags: form.labels, recurrence: recurrence(),
       followerIds: form.followerIds,
       customFieldValues: form.customFieldValues,
     };
@@ -266,11 +267,16 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {/* Already scoped to a project (opened from inside one) - no need to
-              show/change Project or Team here. */}
-          {!lockedProjectId && (
-            <>
-              <div style={field}>
+          {/* Project and Team are ALWAYS shown, including when the modal was
+              opened from inside a project (Neil, Sept 7). Hiding them there was
+              meant to save a row you could not usefully change - but what it
+              actually produced was a Create Task form with no project on it at
+              all, which reads as the field having been lost. The project is
+              pre-filled from wherever you opened this, and still changeable:
+              seeing where a task is about to land matters more than protecting
+              a default nobody asked to have protected. */}
+          <>
+            <div style={field}>
                 <label style={label}>Project</label>
                 {/* Was a bare <select> of every project in database order. With
                     ~30 of them that is the "unorganized and difficult" the end
@@ -297,9 +303,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
                   <option value="">{form.projectId ? 'No team' : 'Pick a project first'}</option>
                   {teams.filter((t) => teamInProject(t, form.projectId)).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
-              </div>
-            </>
-          )}
+            </div>
+          </>
           <div style={field}>
             <label style={label}>Assignee {!isEdit && req}</label>
             <div style={{ borderRadius: 8, ...missStyle('assignee'), ...(missing.includes('assignee') ? { border: `1px solid ${NX.red}` } : {}) }}>
@@ -313,6 +318,15 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           <div style={field}>
             <label style={label}>Collaborators</label>
             <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} placeholder="Add collaborators…" addTitle="Add collaborator" />
+          </div>
+          {/* Start Date is optional and sits before Due Date, the order the
+              Timeline column reads them in. Left empty it fills itself in the
+              moment the task leaves Not Started (backend _autostamp_start), so
+              this field is for work with a KNOWN start - scheduled ahead, or
+              started before it was written down. */}
+          <div style={field}>
+            <label style={label}>Start Date</label>
+            <DateField value={form.startOn} onChange={(v) => set('startOn', v || '')} placeholder="Optional - set when work begins" style={input} />
           </div>
           <div style={field}>
             <label style={label}>Due Date {!isEdit && req}</label>

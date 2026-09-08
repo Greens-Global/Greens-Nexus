@@ -496,6 +496,48 @@ def _sync_reciprocal_dependencies(db: Session, t: models.Task, data: dict) -> No
                 other.modified_at = now_iso()
 
 
+def _is_starting(prev_status: str, new_status: str) -> bool:
+    """Has the task just LEFT Not Started - i.e. did work begin on it?
+
+    One definition, shared by the dependency gate below (FS/SS block a task from
+    starting) and the automatic start date in _autostamp_start. They were about
+    to be two copies of the same comparison, and a module where "started" means
+    one thing to dependencies and another to the timeline is a module where the
+    Gantt and the blockers disagree about the same task."""
+    return prev_status == "not_started" and new_status != "not_started"
+
+
+def _autostamp_start(t: models.Task, prev_status: str, new_status: str) -> bool:
+    """Stamp today as the start date the first time a task leaves Not Started.
+
+    The Timeline column is a start->due range, but until now the ONLY way to get
+    a start date was to open that cell and type one, so in practice nothing had
+    one and every Gantt bar was a one-day stub (Sagar, Sept 7). Moving a task off
+    Not Started is the moment work began, so that is when the date is recorded.
+
+    Never overwrites: a date somebody set by hand - or one that came in from
+    Asana, or one this function stamped on an earlier trip through Not Started -
+    is the truth about when the work started, and a re-open must not rewrite it.
+
+    Deliberately NOT clamped to the due date. A task started after it was due
+    gets a range that reads backwards, and that is exactly what happened; hiding
+    it behind a "sensible" date would be inventing history.
+
+    Runs on every path that writes a status - single PATCH and bulk - because a
+    board drag and a checkbox are the same event to the person doing it."""
+    if t.start_on or not _is_starting(prev_status, new_status):
+        return False
+    # UTC, from the same clock as created_at/modified_at and every other stored
+    # timestamp - NOT date.today(), which is server-LOCAL. On Azure the two are
+    # the same and the choice looks academic; on a laptop east of UTC they are
+    # different days for hours at a time, and this stamp has to agree with the
+    # one create_task writes (which derives from now_iso()) or a task created
+    # In Progress and a task moved to In Progress a second apart get different
+    # start dates. Caught exactly that way, at 02:52 IST on 2026-09-08.
+    t.start_on = now_iso()[:10]
+    return True
+
+
 def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_completed: bool,
                             new_status: str, new_completed: bool) -> None:
     """Enforce blockedBy relationship types before a status/completion change lands.
@@ -504,7 +546,7 @@ def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_c
     completed. Raises 400 with a message naming the still-blocking task."""
     if not t.blocked_by_ids:
         return
-    starting_now = prev_status == "not_started" and new_status != "not_started"
+    starting_now = _is_starting(prev_status, new_status)
     completing_now = (not prev_completed) and new_completed
     if not (starting_now or completing_now):
         return
@@ -1254,7 +1296,13 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
         dependency_types=body.dependency_types or {},
         tags=body.tags or [],
         custom_field_values=coerce_custom_field_values(db, body.custom_field_values),
-        start_on=body.start_on or "",
+        # A task created straight INTO a started column began today, by
+        # definition - there is no move off Not Started for _autostamp_start to
+        # catch, so the created date IS the start date. Same reasoning as
+        # `completed` just below: the group a task is added to states its
+        # status, and the fields that follow from that status have to be set
+        # here or nothing ever sets them. An explicit start_on still wins.
+        start_on=body.start_on or ("" if (body.status or "not_started") == "not_started" else now[:10]),
         due_on=body.due_on or "",
         estimate_hours=body.estimate_hours,
         actual_hours=body.actual_hours,
@@ -1355,6 +1403,10 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # the primary duplicated inside the extras or a since-removed blank behind.
     if "project_id" in data or "project_ids" in data:
         t.project_ids = _extra_project_ids(t.project_ids, t.project_id or "")
+
+    # After the field loop, so a start_on sent in this same PATCH wins over the
+    # stamp - the caller stating a date is better information than "today".
+    _autostamp_start(t, prev_status, t.status or "")
 
     # Keeps `completed`, its timestamp and `status` in step regardless of which
     # one the caller actually sent.
@@ -1489,16 +1541,61 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
     background_tasks.add_task(notify_task_event, task_id, "deleted", user["email"], snapshot=deleted_snapshot)
 
 
+# Manager = role level 3+, the same bar auth.require_manager enforces as a
+# dependency. Needed as a plain predicate here because these endpoints admit
+# TWO kinds of caller and so cannot gate at the signature.
+def _is_manager_user(user: dict) -> bool:
+    return (user.get("level") or 0) >= 3
+
+
+def _may_untrash(user: dict, t: models.Task) -> bool:
+    """Who can restore or permanently delete THIS trashed task.
+
+    A manager, workspace-wide - or the person who deleted it. That second case
+    is the point (Neil, Sept 8): the undo toast is gone within seconds, and a
+    mistake you made yourself should not need somebody else's permission to fix.
+
+    The direct ASSIGNEE counts too (Neil, Sept 9): somebody else deleting a task
+    off your plate is precisely when you need it back, and having to find a
+    manager for that is the friction this exists to remove. Followers and
+    project members do not - "on my list" is the line, not "can see it".
+    """
+    me = (user.get("email") or "").lower()
+    return (_is_manager_user(user)
+            or (t.deleted_by or "").lower() == me
+            or me in task_assignees(t))
+
+
 @router.get("/deleted")
-def list_deleted_tasks(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
-    """Trash - manager-only, workspace-wide (task visibility is per-project and
-    a trashed task's own project may no longer be inferable at a glance, so
-    this doesn't try to scope it the way GET /tasks does). Newest-deleted
-    first."""
+def list_deleted_tasks(scope: str = "", user: dict = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    """The Recycle Bin.
+
+    `scope=mine` is the surface OUTSIDE Manage: what YOU deleted, plus anything
+    you were the direct assignee of. Deliberately NOT widened for managers
+    (Neil, Sept 9) - a Global Admin opening their own bin was handed the whole
+    company's deletions, which is the Manage view wearing the wrong name. Role
+    decides what Manage shows; it does not decide what "mine" means.
+
+    No scope = the Manage view: the whole workspace, manager-only.
+
+    Assignee as well as deleter, because the person whose work it was is the one
+    who notices it has gone - somebody else deleting a task off your plate is
+    exactly the case where you need to get it back. Direct assignee only: a
+    follower or a project member is not "their" task in the sense that matters
+    here. Newest-deleted first."""
     days = _trash_retention_days()
-    rows = wall_tasks(db, user, (db.query(models.Task).execution_options(include_deleted=True)
-            .filter(models.Task.deleted_at != "")
-            .order_by(models.Task.deleted_at.desc()).all()))   # company wall first
+    q = (db.query(models.Task).execution_options(include_deleted=True)
+         .filter(models.Task.deleted_at != ""))
+    mine = (scope or "").lower() == "mine"
+    if not mine and not _is_manager_user(user):
+        raise HTTPException(403, "Only a manager can see the whole workspace's Recycle Bin.")
+    rows = q.order_by(models.Task.deleted_at.desc()).all()
+    if mine:
+        me = (user.get("email") or "").lower()
+        rows = [t for t in rows
+                if (t.deleted_by or "").lower() == me or me in task_assignees(t)]
+    rows = wall_tasks(db, user, rows)   # company wall first
     out = []
     for t in rows:
         d = task_to_dict(t)
@@ -1511,7 +1608,7 @@ def list_deleted_tasks(user: dict = Depends(require_manager), db: Session = Depe
 
 
 @router.post("/{task_id}/restore")
-def restore_task(task_id: str, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+def restore_task(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Put a trashed task - and any subtasks trashed alongside it - back,
     exactly as they were. Parent/dependency links severed at delete time are
     NOT re-attached (delete_task's docstring explains why they were cut);
@@ -1522,6 +1619,8 @@ def restore_task(task_id: str, user: dict = Depends(require_manager), db: Sessio
         raise HTTPException(404, "Task not found")
     import auth   # company wall: another company's trashed task is 404
     auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    if not _may_untrash(user, t):
+        raise HTTPException(403, "Only a manager, or whoever deleted it, can restore this task.")
     if not t.deleted_at:
         return task_to_dict(t)
     subs = (db.query(models.Task).execution_options(include_deleted=True)
@@ -1543,7 +1642,7 @@ def restore_task(task_id: str, user: dict = Depends(require_manager), db: Sessio
 
 
 @router.delete("/{task_id}/permanent", status_code=204)
-def delete_task_permanent(task_id: str, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+def delete_task_permanent(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Empty one item from Trash early, instead of waiting out the retention
     window. Irreversible - unlike DELETE /tasks/{id}, there is no undo."""
     t = (db.query(models.Task).execution_options(include_deleted=True)
@@ -1551,6 +1650,8 @@ def delete_task_permanent(task_id: str, user: dict = Depends(require_manager), d
     if t:
         import auth   # company wall: another company's trashed task is 404
         auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+        if not _may_untrash(user, t):
+            raise HTTPException(403, "Only a manager, or whoever deleted it, can permanently delete this task.")
     if not purge_task_permanently(db, task_id, actor_email=user["email"]):
         raise HTTPException(404, "That task isn't in the trash")
     db.commit()
@@ -1605,6 +1706,10 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             if k in ("assignee_email", "assignee_emails"):
                 continue    # applied together, below
             setattr(t, k, v)
+        # Same rule as the single PATCH: dragging 20 cards out of Not Started on
+        # the board is 20 tasks starting today, and they must not need a second
+        # pass through the Timeline cell to say so.
+        _autostamp_start(t, prev_status, t.status or "")
         bulk_assignees = _assignees_from(patch, list(before[t.id][2]))
         if bulk_assignees is not None:
             set_task_assignees(t, bulk_assignees)

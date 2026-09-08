@@ -21,12 +21,13 @@
 // open, so one control both opens and closes the menu and its current meaning
 // is legible without a label.
 import { useEffect, useRef, useState } from 'react';
-import { Plus, ListChecks, FolderKanban, Briefcase, FilePlus } from 'lucide-react';
+import { Plus, ListChecks, FolderKanban, Briefcase, FilePlus, Users } from 'lucide-react';
 import { NX, FONT, btn } from './theme';
 import CreateTaskModal from './CreateTaskModal';
 import { ProjectCreateModal } from './ProjectsView';
 import { PortfolioCreateModal } from './PortfoliosView';
 import { SaveTemplateModal } from './TemplatesView';
+import { TeamModal } from './TeamsView';
 
 // Each page's own create modal, reused - not re-implemented here. This menu
 // decides WHEN to open one; the screen that owns the thing decides what the
@@ -39,6 +40,10 @@ const ITEMS = [
   { key: 'project', label: 'Project', icon: FolderKanban },
   { key: 'portfolio', label: 'Portfolio', icon: Briefcase },
   { key: 'template', label: 'Template', icon: FilePlus },
+  // A team made from here is PERSONAL - yours alone until a manager approves
+  // it, granting its members individual project access meanwhile. That is what
+  // made it safe to offer outside Manage (Neil, Sept 9).
+  { key: 'team', label: 'Team', icon: Users },
 ];
 const ITEM = Object.fromEntries(ITEMS.map((i) => [i.key, i]));
 
@@ -46,6 +51,14 @@ const ITEM = Object.fromEntries(ITEMS.map((i) => [i.key, i]));
 // "Report a Bug" pill from a single base offset - see Tasks.jsx's fabBottom.
 const FAB_RIGHT = 16;
 const FAB_SIZE = 56;
+// The create control is raised ONLY while its menu is open, and only so it
+// stays above its own scrim. Left raised permanently (it was, until Sept 7) it
+// also outranked every other layer in the app - the notifications drawer
+// (1201) and the header's profile dropdown (500) both opened UNDER a button
+// that had nothing to do with them. Idle it sits at FAB_Z: above the page and
+// its sticky bars (<=200), below anything the app deliberately puts on top.
+const MENU_Z = 2600;
+const FAB_Z = 400;
 
 export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60, variant = 'fab', create = '' }) {
   const [open, setOpen] = useState(false);
@@ -89,19 +102,19 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
            button that opened it. Right-aligned: the button sits at the bar's
            right end, so a left-aligned panel would hang off the edge. */
         <div role="menu" aria-label="Create" style={{
-          position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 190, zIndex: 2600,
+          position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 190, zIndex: MENU_Z,
           background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
           boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4,
         }}>
           {ITEMS.map(({ key, label: l, icon: Icon }) => (
-            <button key={key} role="menuitem" onClick={() => pick(key)}
+            <button key={key} role="menuitem" className="nx-menu-row" onClick={() => pick(key)}
               style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 9 }}
             ><Icon size={15} style={{ color: NX.primary, flexShrink: 0 }} /> {l}</button>
           ))}
         </div>
       ) : (
         <div role="menu" aria-label="Create" style={{
-          position: 'fixed', right: FAB_RIGHT, bottom: bottom + FAB_SIZE + 12, zIndex: 2600,
+          position: 'fixed', right: FAB_RIGHT, bottom: bottom + FAB_SIZE + 12, zIndex: MENU_Z,
           display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8,
         }}>
           {ITEMS.map(({ key, label: l, icon: Icon }, i) => (
@@ -118,7 +131,8 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
       {inline ? (
         <button onClick={() => setOpen((o) => !o)}
           aria-expanded={open} aria-haspopup="menu" title="Create"
-          style={{ ...btn('primary'), flexShrink: 0, whiteSpace: 'nowrap', position: 'relative', zIndex: 2600 }}>
+          style={{ ...btn('primary'), flexShrink: 0, whiteSpace: 'nowrap',
+                   position: 'relative', zIndex: open ? MENU_Z : undefined }}>
           <Plus size={15} /> <span className="nx-btn-label">Create</span>
         </button>
       ) : (
@@ -127,7 +141,7 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
           title={single ? `New ${single.label}` : (open ? 'Close' : 'Create')}
           aria-label={single ? `New ${single.label}` : (open ? 'Close create menu' : 'Create')}
           style={{
-            position: 'fixed', right: FAB_RIGHT, bottom, zIndex: 2600,
+            position: 'fixed', right: FAB_RIGHT, bottom, zIndex: open ? MENU_Z : FAB_Z,
             width: FAB_SIZE, height: FAB_SIZE, borderRadius: '50%', border: 'none', cursor: 'pointer',
             background: NX.primary, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontFamily: FONT, padding: 0,
@@ -152,6 +166,10 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
           points ask for exactly the same thing. */}
       {show === 'template' && (
         <SaveTemplateModal onClose={() => setShow(null)} onSaved={() => onNavigate && onNavigate('templates')} />
+      )}
+
+      {show === 'team' && (
+        <TeamModal personal onClose={() => { setShow(null); onNavigate && onNavigate('teams'); }} />
       )}
 
     </div>

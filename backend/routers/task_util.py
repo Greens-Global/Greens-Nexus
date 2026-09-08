@@ -219,6 +219,14 @@ def visible_project_ids(db: Session, user_or_email) -> set[str]:
                 or email in email_list(p.member_emails)):
             ids.add(p.id)
     for t in db.query(TaskTeam).all():
+        # Only an APPROVED team confers access AS A TEAM. An unapproved one is
+        # its creator's private grouping: it hands its members individual
+        # project grants instead (_sync_personal_team_grants), which are picked
+        # up by the member_emails branch above. Counting it here as well would
+        # let anyone widen their own access simply by creating a team and
+        # naming a project - the thing approval exists to gate.
+        if not team_is_approved(t):
+            continue
         if email in email_list(t.member_emails):
             ids.update(team_project_ids(t))
     for t in db.query(Task).filter(Task.project_id != "").all():
@@ -228,6 +236,17 @@ def visible_project_ids(db: Session, user_or_email) -> set[str]:
             ids.add(t.project_id)
             ids.update(p for p in (t.project_ids or []) if p)
     return ids
+
+
+def team_is_approved(t) -> bool:
+    """Whether this team is a real, workspace-wide team.
+
+    Blank counts as approved: every team that existed before personal teams
+    were added is a department somebody set up from Manage, and defaulting
+    those to unapproved would have silently cut off access across the
+    workspace on deploy.
+    """
+    return (getattr(t, "approval_status", "") or "approved") == "approved"
 
 
 def team_project_ids(t: TaskTeam) -> list:
@@ -359,6 +378,8 @@ def project_role_for(db: Session, email: str, project) -> str | None:
     if not role and email in email_list(project.member_emails):
         role, best_rank = "editor", PROJECT_ROLE_RANK["editor"]
     for t in db.query(TaskTeam).all():
+        if not team_is_approved(t):
+            continue        # see visible_project_ids
         if project.id in team_project_ids(t) and email in email_list(t.member_emails):
             r = PROJECT_ROLE_RANK.get(t.access_role or "editor", 0)
             if r > best_rank:

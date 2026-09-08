@@ -65,6 +65,7 @@ def _sweep_batch(days: int) -> int:
                 db.commit()
             if purged:
                 asana_push_deleted()
+            purged += _sweep_containers(db, cutoff)
             return purged
         finally:
             if is_pg:
@@ -72,6 +73,40 @@ def _sweep_batch(days: int) -> int:
                 db.commit()
     finally:
         db.close()
+
+
+def _sweep_containers(db, cutoff: str) -> int:
+    """Purge expired PROJECTS, PORTFOLIOS and TEAMS from the Recycle Bin.
+
+    Runs inside the task sweep above, under the same advisory lock and the same
+    retention window - one expiry rule for the whole bin, and one place holding
+    it. Containers go LAST: purging a project cascades into its tasks, and doing
+    that while the task loop above is mid-batch would delete rows out from under
+    it.
+
+    Reuses the API's own purge so the cascade cannot drift between "you emptied
+    it by hand" and "the sweep got there first" - the lesson delete_task and
+    trash_purge_loop already learned by sharing purge_task_permanently.
+    """
+    from routers.task_projects import purge_from_recycle_bin
+    from models import TaskPortfolio, TaskProject, TaskProjectTemplate, TaskTeam, TaskTemplate
+
+    sweeper = {"email": "", "level": 5}   # the sweep is nobody, and may do anything
+    done = 0
+    for kind, model in (("project", TaskProject), ("portfolio", TaskPortfolio),
+                        ("team", TaskTeam), ("template", TaskProjectTemplate),
+                        ("task_template", TaskTemplate)):
+        rows = (db.query(model).execution_options(include_deleted=True)
+                .filter(model.deleted_at != "", model.deleted_at < cutoff)
+                .limit(_BATCH).all())
+        for row in rows:
+            try:
+                purge_from_recycle_bin(kind, row.id, user=sweeper, db=db)
+                done += 1
+            except Exception as e:      # noqa: BLE001 - one bad row must not stop the sweep
+                db.rollback()
+                print(f"[task-trash] could not purge {kind} {row.id}: {e}")
+    return done
 
 
 async def trash_purge_loop():

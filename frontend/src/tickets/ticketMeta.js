@@ -1,7 +1,7 @@
 // Ticket Module - types, per-type intake fields, status/SLA policy and the small
 // pure helpers built on them. No JSX and no component imports: this is the
 // module's configuration layer, imported by every other ticket file.
-import { Ticket, Bug, AlertOctagon, Wrench, HelpCircle, ClipboardList, Lightbulb, RefreshCw, KeyRound, ShieldAlert, Timer } from 'lucide-react';
+import { Ticket, Bug, AlertOctagon, Wrench, HelpCircle, ClipboardList, Lightbulb, RefreshCw, KeyRound, ShieldAlert, Timer, MessageSquareWarning } from 'lucide-react';
 import { fmtDate as fmtDateRaw } from '../tasks/lib';
 import { NX } from '../tasks/theme';
 
@@ -306,9 +306,13 @@ export const TICKET_STATUS_META = {
 export const TICKET_STATUS_ORDER = ['open', 'in_progress', 'waiting_user', 'waiting_vendor', 'on_hold', 'resolved', 'closed', 'reopened'];
 export const CLOSED_STATES = ['resolved', 'closed'];
 
-// ── SLA policy - default resolution targets (hours) per priority. Used to
-// auto-set a ticket's SLA due date on creation, and to flag breaches/at-risk. ──
-export const SLA_TARGET_HOURS = { urgent: 4, high: 24, medium: 72, low: 120 };
+// ── SLA policy - default resolution targets (hours) per priority: 1/2/3/7
+// days for urgent/high/medium/low (Neil, Sep 2026). Used to auto-set a
+// ticket's SLA due date on creation and whenever priority changes (the
+// backend is authoritative - see _sla_due_from_priority in
+// routers/tickets.py; this copy is for the same-request UI preview and for
+// slaState's breach/at-risk math), and to flag breaches/at-risk. ──
+export const SLA_TARGET_HOURS = { urgent: 24, high: 48, medium: 72, low: 168 };
 export const slaDueFromPriority = (priority) => new Date(Date.now() + (SLA_TARGET_HOURS[priority] ?? 72) * 3600 * 1000).toISOString().slice(0, 10);
 // 'breached' | 'at_risk' | 'ok' | 'none'
 export function slaState(t) {
@@ -322,6 +326,27 @@ export function slaState(t) {
 export const SLA_META = {
   breached: { label: 'SLA breached', color: NX.red, tint: 'rgba(220,38,38,0.14)', Icon: ShieldAlert },
   at_risk:  { label: 'Due soon',     color: NX.amber, tint: 'rgba(217,119,6,0.16)', Icon: Timer },
+};
+
+// ── Comment staleness - a SEPARATE signal from the SLA due date: "nobody has
+// said anything on this in longer than its priority's expected check-in
+// cadence," regardless of whether the due date itself has passed. Urgent/high
+// want an hourly touch, medium daily, low every other day. ──
+export const COMMENT_STALE_HOURS = { urgent: 1, high: 1, medium: 24, low: 48 };
+export function commentStale(t) {
+  if (CLOSED_STATES.includes(t.status)) return false;
+  const since = t.lastCommentAt || t.createdAt;
+  if (!since) return false;
+  const iso = /Z$|[+-]\d{2}:\d{2}$/.test(since) ? since : `${since}Z`;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms)) return false;
+  return ms / 3600000 > (COMMENT_STALE_HOURS[t.priority] ?? 24);
+}
+// A distinct color from SLA_META's breached/at_risk (purple, not red/amber) -
+// this is "nobody's said anything," not "the due date passed"; the two must
+// never read as the same signal.
+export const COMMENT_STALE_META = {
+  label: 'Needs a comment', color: NX.purple, tint: 'rgba(147,51,234,0.14)', Icon: MessageSquareWarning,
 };
 
 // ── Ticket numbers ───────────────────────────────────────────────────────────

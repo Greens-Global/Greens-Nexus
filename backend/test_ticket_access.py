@@ -138,6 +138,44 @@ class TicketAccessTests(unittest.TestCase):
         c = self.db.query(models.TaskComment).filter_by(task_id=self.mine.id).one()
         self.assertFalse(c.internal)
 
+    # ── escalate: requester/assignee-only, not desk-gated (Sep 8 2026 - it's
+    #    a distress flare to the department head, not a desk action) ─────────
+    def test_a_requester_can_escalate_their_own_ticket(self):
+        out = T.escalate_ticket(self.mine.id, BackgroundTasks(), user=EMPLOYEE, db=self.db)
+
+        self.assertEqual(out["id"], self.mine.id)
+
+    def test_an_employee_cannot_escalate_somebody_elses_ticket(self):
+        with self.assertRaises(HTTPException) as ctx:
+            T.escalate_ticket(self.theirs.id, BackgroundTasks(), user=EMPLOYEE, db=self.db)
+
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_a_desk_agent_who_is_not_the_assignee_cannot_escalate(self):
+        """Desk access lets you read/comment on any ticket, not fire the
+        escalation flare on one you're not living."""
+        with self.assertRaises(HTTPException) as ctx:
+            T.escalate_ticket(self.theirs.id, BackgroundTasks(), user=AGENT, db=self.db)
+
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_the_assignee_can_escalate(self):
+        self.theirs.assignee_email = AGENT["email"]
+        self.db.commit()
+
+        out = T.escalate_ticket(self.theirs.id, BackgroundTasks(), user=AGENT, db=self.db)
+
+        self.assertEqual(out["id"], self.theirs.id)
+
+    def test_escalating_a_closed_ticket_is_refused(self):
+        self.mine.status = "closed"
+        self.db.commit()
+
+        with self.assertRaises(HTTPException) as ctx:
+            T.escalate_ticket(self.mine.id, BackgroundTasks(), user=EMPLOYEE, db=self.db)
+
+        self.assertEqual(ctx.exception.status_code, 400)
+
     # ── the desk half: still shut without a grant ────────────────────────────
     def test_the_desk_dependency_refuses_an_employee(self):
         with self.assertRaises(HTTPException) as ctx:
@@ -158,7 +196,6 @@ class TicketAccessTests(unittest.TestCase):
         must_be_guarded = {
             ("PATCH", "/task-tickets/{ticket_id}"),
             ("DELETE", "/task-tickets/{ticket_id}"),
-            ("POST", "/task-tickets/{ticket_id}/escalate"),
             ("POST", "/task-tickets/{ticket_id}/approval"),
             ("POST", "/task-ticket-components"),
             ("PUT", "/task-tickets/notify/settings"),

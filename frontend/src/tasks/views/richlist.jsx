@@ -13,7 +13,7 @@ import {
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
   Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown,
 } from 'lucide-react';
-import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, rootParent, effectiveProjectId, cfKey, taskAssignees } from '../lib';
+import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
@@ -200,7 +200,7 @@ function PillSelect({ label, color, tint, icon, options, currentKey, onSelect, c
         <PortalDropdown anchorRef={ref} panelRef={panelRef} align={center ? 'left' : 'left'} width={168}>
           <div style={{ maxHeight: 256, overflowY: 'auto', padding: 4 }}>
             {options.map((o) => (
-              <button key={o.key} onClick={() => { onSelect(o.key); close(); }} style={{
+              <button key={o.key} className="nx-menu-row" onClick={() => { onSelect(o.key); close(); }} style={{
                 display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 8px', borderRadius: 6, border: 'none',
                 background: o.key === currentKey ? NX.hover : 'transparent', cursor: 'pointer', fontSize: 13, color: NX.ink, textAlign: 'left', fontFamily: FONT,
               }}>
@@ -808,7 +808,7 @@ export function peopleStackLayout(width, count) {
 }
 
 // Eye menu - hide/show columns, persisted per person (monday's "Hide" toolbar).
-function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId }) {
+function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId, teams }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const panelRef = useRef(null);
@@ -820,8 +820,11 @@ function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId }) {
   };
   const entries = [
     // Project isn't offered inside a project - it isn't rendered there, so a
-    // toggle for it would be a switch that does nothing.
-    ...BASE_COLS.filter((c) => HIDEABLE.includes(c.key) && !(c.key === 'project' && lockedProjectId))
+    // toggle for it would be a switch that does nothing. Team goes the same way
+    // in a project with fewer than two teams (teamColumnApplies).
+    ...BASE_COLS.filter((c) => HIDEABLE.includes(c.key)
+      && !(c.key === 'project' && lockedProjectId)
+      && !(c.key === 'team' && !teamColumnApplies(teams, lockedProjectId)))
       .map((c) => ({ key: c.key, label: c.label })),
     ...customFields.map((f) => ({ key: f.id, label: f.name })),
   ];
@@ -836,7 +839,7 @@ function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId }) {
           <div style={{ padding: 6, maxHeight: 300, overflowY: 'auto' }}>
             {entries.map((c) => (
               <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, fontSize: 13, color: NX.ink, cursor: 'pointer' }}>
-                <input type="checkbox" checked={!hidden.has(c.key)} onChange={() => toggle(c.key)} style={{ accentColor: 'var(--pine)', cursor: 'pointer' }} />
+                <input type="checkbox" className="nx-check" checked={!hidden.has(c.key)} onChange={() => toggle(c.key)} style={{ accentColor: 'var(--pine)', cursor: 'pointer' }} />
                 {c.label}
               </label>
             ))}
@@ -910,10 +913,10 @@ export function useHiddenCols() {
 // The Hide + "+ Column" pair, for the workspace toolbar. Rendered there rather
 // than above the table so they cost no vertical space at all - they used to sit
 // inside the column-header row, which repeated them once per group.
-export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId }) {
+export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId, teams }) {
   return (
     <>
-      <HideColsMenu customFields={customFields} hidden={hidden} setHidden={setHidden} lockedProjectId={lockedProjectId} />
+      <HideColsMenu customFields={customFields} hidden={hidden} setHidden={setHidden} lockedProjectId={lockedProjectId} teams={teams} />
       <AddFieldMenu createCustomField={createCustomField} />
     </>
   );
@@ -927,13 +930,18 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   const [collapsedList, setCollapsedList] = useTableSetting('richlist', 'collapsed', DEFAULT_COLLAPSED);
   const collapsed = useMemo(() => new Set(collapsedList), [collapsedList]);
   const effGroup = group === 'none' ? 'status' : group;
-  // Inside a project every row has the same project, so the column is noise. It has
-  // to go through the hidden SET: TaskRow gates cells on `hidden` while the header
-  // and grid template come from `cols`, so filtering one alone misaligns every row.
-  const hiddenEff = useMemo(
-    () => (lockedProjectId ? new Set([...hidden, 'project']) : hidden),
-    [hidden, lockedProjectId],
-  );
+  // Inside a project every row has the same project, so the column is noise - and
+  // the same is true of Team once the project has fewer than two of them. Both go
+  // through the hidden SET: TaskRow gates cells on `hidden` while the header and
+  // grid template come from `cols`, so filtering one alone misaligns every row.
+  // Neither is written to the stored hidden list: this is what the data currently
+  // makes pointless, not what the user chose to hide.
+  const hiddenEff = useMemo(() => {
+    if (!lockedProjectId) return hidden;
+    const n = new Set([...hidden, 'project']);
+    if (!teamColumnApplies(store.teams, lockedProjectId)) n.add('team');
+    return n;
+  }, [hidden, lockedProjectId, store.teams]);
   const visibleCols = useMemo(() => BASE_COLS.filter((c) => !hiddenEff.has(c.key)), [hiddenEff]);
   // Built once for the whole table, not once per row: every row's project cell
   // reads the same list, and a fresh array per row would be thousands of

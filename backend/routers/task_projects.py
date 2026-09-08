@@ -20,7 +20,7 @@ from database import get_db
 from auth import get_current_user, require_manager, require_any_module_grant
 from routers.task_util import (now_iso, gen_id, task_notify, is_manager, visible_project_ids,
                                require_project_role, team_project_ids, log_activity,
-                               task_assignees, set_task_assignees)
+                               task_assignees, set_task_assignees, team_is_approved)
 from routers.hr import _ensure_departments
 from routers.task_config import coerce_custom_field_values
 
@@ -69,7 +69,7 @@ def project_to_dict(p: models.TaskProject) -> dict:
 def portfolio_to_dict(p: models.TaskPortfolio, project_ids: Optional[list] = None) -> dict:
     return {
         "id": p.id, "name": p.name, "description": p.description or "", "color": _nz(p.color),
-        "ownerId": _nz(p.owner_email),
+        "ownerId": _nz(p.owner_email), "parentId": p.parent_id or "",
         "projectIds": (p.project_ids or []) if project_ids is None else project_ids,
         "archived": bool(p.archived), "createdAt": p.created_at or "", "modifiedAt": p.modified_at or "",
     }
@@ -79,6 +79,52 @@ def project_portfolio_map(db: Session) -> dict:
     """{project_id: portfolio_id} for every live project, in one query."""
     return {pid: (pf or "") for pid, pf in
             db.query(models.TaskProject.id, models.TaskProject.portfolio_id).all()}
+
+
+def _portfolio_parents(db: Session) -> dict:
+    """{portfolio_id: parent_id} for every portfolio, in one query."""
+    return {pid: (parent or "") for pid, parent in
+            db.query(models.TaskPortfolio.id, models.TaskPortfolio.parent_id).all()}
+
+
+def _would_cycle(parents: dict, child_id: str, new_parent_id: str) -> bool:
+    """Would parenting `child_id` under `new_parent_id` close a loop?
+
+    A portfolio that is its own ancestor hangs every walk of the tree - the
+    rollup, the list's indent, the delete's re-parent - in an infinite loop, and
+    nothing else in the module would ever notice the row was bad. So the check
+    is here, on the one write that can create one, rather than defended for at
+    each reader. Walks up from the proposed parent: if we meet the child, the
+    link closes a circle. The step counter is a floor under an ALREADY-cyclic
+    table (one written by an older backend, or by hand) - without it this guard
+    would itself hang on the data it exists to prevent.
+    """
+    if not new_parent_id:
+        return False
+    if new_parent_id == child_id:
+        return True
+    seen, at = set(), new_parent_id
+    while at and at not in seen and len(seen) <= len(parents):
+        seen.add(at)
+        at = parents.get(at, "")
+        if at == child_id:
+            return True
+    return False
+
+
+def portfolio_descendants(parents: dict, root_id: str) -> list:
+    """Every portfolio under `root_id`, at any depth, excluding the root."""
+    kids = {}
+    for pid, parent in parents.items():
+        kids.setdefault(parent, []).append(pid)
+    out, stack = [], list(kids.get(root_id, []))
+    while stack:
+        pid = stack.pop()
+        if pid in out or pid == root_id:
+            continue        # a cyclic row cannot make this loop forever
+        out.append(pid)
+        stack.extend(kids.get(pid, []))
+    return out
 
 
 def portfolio_project_ids(pf: models.TaskPortfolio, owner_of: dict) -> list:
@@ -114,7 +160,10 @@ def team_to_dict(d: models.TaskTeam) -> dict:
     # reading the singular field keeps working; projectIds is the real answer.
     return {"id": d.id, "projectId": _nz(ids[0] if ids else ""), "projectIds": ids,
             "name": d.name, "color": d.color or "", "icon": d.icon or "",
-            "memberIds": d.member_emails or [], "accessRole": d.access_role or "editor", "createdAt": d.created_at or ""}
+            "memberIds": d.member_emails or [], "accessRole": d.access_role or "editor",
+            "createdAt": d.created_at or "", "createdById": _nz(d.created_by),
+            "approvalStatus": d.approval_status or "approved",
+            "requestedAt": _nz(d.requested_at), "decidedById": _nz(d.decided_by)}
 
 
 def member_request_to_dict(m: models.TaskMemberRequest) -> dict:
@@ -341,27 +390,41 @@ def delete_project(project_id: str, delete_in_asana: bool = False,
         if not done:
             raise HTTPException(502, f"Asana refused to delete the project ({err}). Nothing was deleted - try again, or untick 'also delete in Asana'.")
 
-    # Tasks + every Asana link + the project map row. Asana itself is untouched
-    # by this call (the optional deletion above already happened).
-    purged = asana_sync.purge_project_sync(db, project_id, actor=user["email"])
+    # Soft delete (Sept 2026). The project, and its tasks with it - the hard
+    # delete took them, and a project restored empty is not a restore.
+    #
+    # `deleted_with` marks the tasks that went down WITH the project, which is
+    # the whole trick: restore puts back exactly that set and leaves alone the
+    # tasks somebody had already binned individually beforehand (those keep
+    # their own blank deleted_with and stay in the Recycle Bin as themselves).
+    # It also lets the bin list a project as ONE row instead of the project
+    # plus its 200 tasks.
+    now = now_iso()
+    binned = 0
+    for t in (db.query(models.Task).execution_options(include_deleted=True)
+              .filter(models.Task.project_id == project_id,
+                      (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None))).all()):
+        t.deleted_at = now
+        t.deleted_by = user["email"]
+        t.deleted_with = project_id
+        t.modified_at = now
+        binned += 1
 
-    # Detach the project from its teams. A team shared with other projects survives -
-    # only one that existed solely for THIS project is removed.
-    for team in db.query(models.TaskTeam).all():
-        ids = team_project_ids(team)
-        if project_id not in ids:
-            continue
-        remaining = [x for x in ids if x != project_id]
-        if remaining:
-            _set_team_projects(team, remaining)
-        else:
-            db.delete(team)
-    for pf in db.query(models.TaskPortfolio).all():
-        if project_id in (pf.project_ids or []):
-            pf.project_ids = [x for x in pf.project_ids if x != project_id]
-    db.delete(p)
+    # Team and portfolio membership is left INTACT, unlike the hard delete which
+    # had to sever it before the row vanished. Cutting those links now would
+    # make restore a lie: you would get the project back with no teams and no
+    # portfolio. A binned project reads as absent everywhere (the
+    # _hide_soft_deleted hook), so a team still listing it, or a portfolio still
+    # counting it, resolves to nothing until it comes back.
+    #
+    # The Asana sync state is NOT purged here either - that was irreversible and
+    # is now the purge step's job. Deleting in Asana above remains the caller's
+    # explicit, separate choice.
+    p.deleted_at = now
+    p.deleted_by = user["email"]
+    p.modified_at = now
     db.commit()
-    return {"tasks": purged["tasks"], "mappings": purged["maps"],
+    return {"tasks": binned, "mappings": 0,
             "asanaProjectDeleted": bool(delete_in_asana and gid), "asanaProjectGid": gid}
 
 
@@ -595,6 +658,7 @@ class PortfolioBody(BaseModel):
     description: Optional[str] = ""
     color: Optional[str] = ""
     owner_email: Optional[str] = ""
+    parent_id: Optional[str] = None    # "" clears it back to top level
     project_ids: Optional[list] = None
     archived: Optional[bool] = None
 
@@ -611,9 +675,13 @@ def create_portfolio(body: PortfolioBody, user: dict = Depends(get_current_user)
     if not (body.name or "").strip():
         raise HTTPException(422, "Portfolio name is required")
     now = now_iso()
+    parent_id = (body.parent_id or "").strip()
+    if parent_id and not db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == parent_id).first():
+        raise HTTPException(404, "Parent portfolio not found")
     p = models.TaskPortfolio(
         id=body.id or gen_id(), name=body.name, description=body.description or "",
         color=body.color or "", owner_email=(body.owner_email or user["email"]).lower(),
+        parent_id=parent_id,
         project_ids=body.project_ids or [], archived=bool(body.archived),   # same drop as create_project had
         created_at=now, modified_at=now, created_by=user["email"],
     )
@@ -638,6 +706,17 @@ def update_portfolio(portfolio_id: str, body: PortfolioBody, db: Session = Depen
     if not p:
         raise HTTPException(404, "Portfolio not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    if "parent_id" in data:
+        parent_id = (data["parent_id"] or "").strip()
+        if parent_id:
+            if not db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == parent_id).first():
+                raise HTTPException(404, "Parent portfolio not found")
+            if _would_cycle(_portfolio_parents(db), portfolio_id, parent_id):
+                # Naming the rule, not just refusing: from the Portfolios screen
+                # the two portfolios can be far apart in the tree and the loop is
+                # not obvious from where you are standing.
+                raise HTTPException(400, "A portfolio cannot be moved inside itself or one of its own sub-portfolios.")
+        data["parent_id"] = parent_id
     prev_project_ids = set(p.project_ids or [])
     for k, v in data.items():
         if k == "owner_email" and v is not None:
@@ -664,20 +743,162 @@ def update_portfolio(portfolio_id: str, body: PortfolioBody, db: Session = Depen
     return portfolio_to_dict(p, portfolio_project_ids(p, project_portfolio_map(db)))
 
 
+class MoveProjectsBody(BaseModel):
+    project_ids: list[str]
+    portfolio_id: str = ""      # "" = out of every portfolio
+
+
+@router.post("/task-portfolios/move-projects")
+def move_projects_between_portfolios(body: MoveProjectsBody, db: Session = Depends(get_db)):
+    """Move a batch of projects into one portfolio, or out of all of them.
+
+    A project belongs to at most ONE portfolio, so a move is a remove and an add
+    that must not be separable: membership is stored on both sides
+    (TaskProject.portfolio_id AND TaskPortfolio.project_ids - see
+    portfolio_project_ids for why, and what a half-written link looks like on
+    screen). Done from the client this would be two PATCHes per project against
+    two different portfolios, and an interrupted run leaves projects listed in a
+    portfolio they no longer belong to. One endpoint, one transaction, both
+    sides.
+
+    Appends to the destination's order rather than sorting it: the list is
+    drag-ordered by hand, and arriving projects belong at the end where someone
+    can see what just landed.
+    """
+    ids = [i for i in dict.fromkeys(body.project_ids or []) if i]
+    if not ids:
+        raise HTTPException(422, "No projects selected.")
+    dest = None
+    if body.portfolio_id:
+        dest = db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == body.portfolio_id).first()
+        if not dest:
+            raise HTTPException(404, "Portfolio not found")
+    found = {p.id: p for p in db.query(models.TaskProject).filter(models.TaskProject.id.in_(ids)).all()}
+    if not found:
+        raise HTTPException(404, "None of those projects exist.")
+    # Walk the CALLER's order, not the query's. `IN` comes back in whatever order
+    # the database feels like, and these ids land at the end of a hand-curated
+    # list - so the arrivals would sit in an order nobody chose.
+    projects = [found[i] for i in ids if i in found]
+
+    now = now_iso()
+    moved, touched = [], set()
+    for proj in projects:
+        prev = proj.portfolio_id or ""
+        if prev == (body.portfolio_id or ""):
+            continue        # already where it is being sent
+        if prev:
+            touched.add(prev)
+        proj.portfolio_id = body.portfolio_id or ""
+        proj.modified_at = now
+        moved.append(proj.id)
+
+    # Drop the moved ids from every portfolio that listed them, then append to
+    # the destination. Rebuilt from the stored list rather than recomputed from
+    # portfolio_id, so a hand-curated order survives the move.
+    if moved:
+        moved_set = set(moved)
+        for pf in db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id.in_(touched)).all():
+            pf.project_ids = [pid for pid in (pf.project_ids or []) if pid not in moved_set]
+            pf.modified_at = now
+        if dest is not None:
+            existing = [pid for pid in (dest.project_ids or []) if pid not in moved_set]
+            dest.project_ids = existing + moved
+            dest.modified_at = now
+    db.commit()
+
+    owner_of = project_portfolio_map(db)
+    return {"moved": len(moved),
+            "portfolios": [portfolio_to_dict(p, portfolio_project_ids(p, owner_of))
+                           for p in db.query(models.TaskPortfolio).all()]}
+
+
 @router.delete("/task-portfolios/{portfolio_id}", status_code=204)
-def delete_portfolio(portfolio_id: str, db: Session = Depends(get_db)):
+def delete_portfolio(portfolio_id: str, user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
     p = db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == portfolio_id).first()
     if not p:
         raise HTTPException(404, "Portfolio not found")
-    for proj in db.query(models.TaskProject).filter(models.TaskProject.portfolio_id == portfolio_id).all():
-        proj.portfolio_id = ""
-    db.delete(p)
+    # Soft delete (Sept 2026): the row stays, hidden from every read by
+    # database.py's _hide_soft_deleted hook, and the Recycle Bin can put it back.
+    #
+    # Membership is deliberately NOT severed any more. The old hard delete
+    # cleared each project's portfolio_id and re-parented sub-portfolios,
+    # because the row was about to vanish and a dangling pointer renders
+    # nowhere. With the row still there, cutting those links would make restore
+    # a lie - you would get an empty portfolio back. Its projects and children
+    # simply read as unassigned while it is binned, since every lookup of a
+    # binned portfolio now comes back empty, and snap back on restore.
+    p.deleted_at = now_iso()
+    p.deleted_by = user["email"]
+    p.modified_at = now_iso()
+    db.commit()
+
+
+# ── Bookmarks (a person's own pinned projects) ───────────────────────────────
+# Self-service, like task_prefs.py: every read and write is scoped to the
+# caller's own email and nothing here widens what anyone can see - a bookmark
+# records what somebody is watching, not what they may open. So no admin gate,
+# and no way to read or write anyone else's.
+class BookmarkBody(BaseModel):
+    project_id: str
+
+
+@router.get("/task-bookmarks")
+def list_bookmarks(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """This person's bookmarks, in their chosen order.
+
+    Rows whose project is gone (deleted, or access lost) are skipped rather than
+    returned as dangling ids - the dashboard would otherwise render a bookmark
+    that cannot be opened, and there is nothing the reader could do about it.
+    """
+    rows = (db.query(models.TaskProjectBookmark)
+            .filter(models.TaskProjectBookmark.owner_email == user["email"].lower())
+            .order_by(models.TaskProjectBookmark.position).all())
+    live = {p.id for p in db.query(models.TaskProject.id).all()} if rows else set()
+    return [{"id": r.id, "projectId": r.project_id, "position": r.position or 0}
+            for r in rows if r.project_id in live]
+
+
+@router.post("/task-bookmarks", status_code=201)
+def add_bookmark(body: BookmarkBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    email = user["email"].lower()
+    if not db.query(models.TaskProject).filter(models.TaskProject.id == body.project_id).first():
+        raise HTTPException(404, "Project not found")
+    existing = (db.query(models.TaskProjectBookmark)
+                .filter(models.TaskProjectBookmark.owner_email == email,
+                        models.TaskProjectBookmark.project_id == body.project_id).first())
+    if existing:
+        # Idempotent: the star is a toggle and a double-click must not leave two
+        # rows behind for one project.
+        return {"id": existing.id, "projectId": existing.project_id, "position": existing.position or 0}
+    last = (db.query(models.TaskProjectBookmark)
+            .filter(models.TaskProjectBookmark.owner_email == email)
+            .order_by(models.TaskProjectBookmark.position.desc()).first())
+    row = models.TaskProjectBookmark(
+        id=gen_id(), owner_email=email, project_id=body.project_id,
+        position=((last.position or 0) + 1) if last else 0, created_at=now_iso(),
+    )
+    db.add(row)
+    db.commit()
+    return {"id": row.id, "projectId": row.project_id, "position": row.position}
+
+
+@router.delete("/task-bookmarks/{project_id}", status_code=204)
+def remove_bookmark(project_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Keyed by PROJECT, not by bookmark id: the caller is a star on a project
+    # header that knows the project and nothing else.
+    (db.query(models.TaskProjectBookmark)
+     .filter(models.TaskProjectBookmark.owner_email == user["email"].lower(),
+             models.TaskProjectBookmark.project_id == project_id).delete())
     db.commit()
 
 
 # ── Teams (may belong to many projects - see the TaskTeam model docstring) ──
 class TeamBody(BaseModel):
     id: Optional[str] = None
+    # Set by the Teams screen's "+"; ignored (forced true) for a non-manager.
+    personal: Optional[bool] = False
     # project_ids is the real field; project_id is still accepted from older
     # clients and folded into the list rather than overwriting it.
     project_ids: Optional[list] = None
@@ -706,20 +927,43 @@ def _set_team_projects(d: models.TaskTeam, ids) -> None:
 
 
 @router.get("/task-teams")
-def list_teams(db: Session = Depends(get_db)):
-    return [team_to_dict(d) for d in db.query(models.TaskTeam).all()]
+def list_teams(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Approved teams for everyone; an unapproved one only for the person who
+    made it - and for managers, who have to be able to see what they are being
+    asked to approve. That is the whole of "visible to that person only":
+    enforced here rather than filtered in the browser, since the unfiltered
+    list is every team in the workspace."""
+    me = (user.get("email") or "").lower()
+    is_mgr = (user.get("level") or 0) >= 3
+    rows = [d for d in db.query(models.TaskTeam).all()
+            if team_is_approved(d) or is_mgr or (d.created_by or "").lower() == me]
+    return [team_to_dict(d) for d in rows]
 
 
 @router.post("/task-teams", status_code=201)
-def create_team(body: TeamBody, db: Session = Depends(get_db)):
+def create_team(body: TeamBody, user: dict = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    """`personal=true` (the Teams screen's "+") makes a team only its creator
+    can see, which grants individual project access rather than team access
+    until a manager approves it.
+
+    A non-manager gets `personal` whatever they send: the alternative is that
+    anyone can mint a workspace-wide team, put themselves and a project in it,
+    and read that project - approval would gate nothing.
+    """
     if not (body.name or "").strip():
         raise HTTPException(422, "Team name is required")
+    personal = bool(body.personal) or (user.get("level") or 0) < 3
     d = models.TaskTeam(id=body.id or gen_id(), name=body.name, color=body.color or "",
                         icon=body.icon or "", member_emails=body.member_emails or [],
-                        created_at=now_iso())
+                        created_at=now_iso(), created_by=user["email"],
+                        approval_status="personal" if personal else "approved",
+                        granted_emails={})
     _set_team_projects(d, body.project_ids if body.project_ids is not None
                        else ([body.project_id] if body.project_id else []))
     db.add(d)
+    db.flush()
+    _sync_personal_team_grants(db, d)
     db.commit()
     db.refresh(d)
     return team_to_dict(d)
@@ -739,18 +983,36 @@ def update_team(team_id: str, body: TeamBody, db: Session = Depends(get_db)):
         data.pop("project_id", None)
     elif "project_id" in data:
         _set_team_projects(d, [data.pop("project_id")])
+    # approval_status is decided by the approval endpoints, never by a plain
+    # PATCH - otherwise a client could approve its own team.
+    data.pop("approval_status", None)
     for k, v in data.items():
         setattr(d, k, v)
+    # Members or projects may have moved; an unapproved team's individual grants
+    # have to follow, or removing somebody from the team leaves their access.
+    _sync_personal_team_grants(db, d)
     db.commit()
     db.refresh(d)
     return team_to_dict(d)
 
 
 @router.delete("/task-teams/{team_id}", status_code=204)
-def delete_team(team_id: str, db: Session = Depends(get_db)):
-    for t in db.query(models.Task).filter(models.Task.team_id == team_id).all():
-        t.team_id = ""
-    db.query(models.TaskTeam).filter(models.TaskTeam.id == team_id).delete()
+def delete_team(team_id: str, user: dict = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    """Bin a team. Its tasks KEEP their team_id (the old hard delete cleared it,
+    because the team row was going away) - a lookup of a binned team comes back
+    empty so the Team cell reads blank meanwhile, and restoring the team puts
+    every one of those tasks back in it without having to remember which."""
+    t = (db.query(models.TaskTeam).execution_options(include_deleted=True)
+         .filter(models.TaskTeam.id == team_id).first())
+    if not t:
+        raise HTTPException(404, "Team not found")
+    # An unapproved team's grants are its own doing, so they go when it does -
+    # otherwise binning a personal team silently leaves everybody it added on
+    # the project.
+    _withdraw_personal_team_grants(db, t)
+    t.deleted_at = now_iso()
+    t.deleted_by = user["email"]
     db.commit()
 
 
@@ -1604,7 +1866,11 @@ def delete_project_template(template_id: str, user: dict = Depends(get_current_u
     projects and are never touched - the template was a snapshot, not a link."""
     t = _get_template(db, template_id)
     _require_template_owner(t, user)
-    db.delete(t)
+    # Soft delete: a template is hand-built from a project that may since have
+    # changed, so a mis-click is not something you can simply redo.
+    t.deleted_at = now_iso()
+    t.deleted_by = user["email"]
+    t.modified_at = now_iso()
     db.commit()
 
 
@@ -1757,3 +2023,325 @@ def preview_project_template(project_id: str, include_subtasks: bool = True,
         "hasDates": any(t.get("dueOffset") is not None or t.get("startOffset") is not None for t in tasks),
         "anchor": payload.get("anchor") or "",
     }
+
+
+# ── Recycle Bin ──────────────────────────────────────────────────────────────
+# One bin for the whole module, not a Trash tab per screen. Tasks already had
+# soft delete; projects, portfolios and teams gained it in Sept 2026 so that
+# "delete" stops meaning "gone forever" for a container someone can rebuild only
+# by hand.
+#
+# TWO SCOPES, and the difference is the point (Neil, Sept 9):
+#   scope=mine  what YOU binned, plus tasks you were assigned. Role does NOT
+#               widen it - a Global Admin opening their own bin was being handed
+#               the whole company's deletions, which is the Manage view wearing
+#               the wrong name.
+#   unscoped    the whole workspace. Manager only, refused to everyone else.
+_RECYCLE_KINDS = ("task", "project", "portfolio", "team", "template", "task_template")
+
+
+def _binned(db: Session, model):
+    return (db.query(model).execution_options(include_deleted=True)
+            .filter(model.deleted_at != "", model.deleted_at.isnot(None)).all())
+
+
+def _purge_at(deleted_at: str) -> str:
+    """When the sweep will take it for good - the same retention the task trash
+    already runs on, read from the same env var so the two cannot disagree."""
+    from routers.tasks import _trash_retention_days, _iso_plus_days
+    days = _trash_retention_days()
+    return _iso_plus_days(deleted_at, days) if deleted_at and days > 0 else ""
+
+
+@router.get("/task-recycle")
+def list_recycle_bin(scope: str = "", user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Everything binned, newest first, as one list of mixed kinds."""
+    from routers.task_util import task_assignees
+    me = (user.get("email") or "").lower()
+    mine = (scope or "").lower() == "mine"
+    if not mine and (user.get("level") or 0) < 3:
+        raise HTTPException(403, "Only a manager can see the whole workspace's Recycle Bin.")
+
+    out = []
+
+    def add(kind, row, name, detail=""):
+        deleted_by = (row.deleted_by or "")
+        out.append({
+            "kind": kind, "id": row.id, "name": name, "detail": detail,
+            "deletedAt": row.deleted_at or "", "deletedBy": deleted_by,
+            "purgeAt": _purge_at(row.deleted_at or ""),
+        })
+
+    for t in _binned(db, models.Task):
+        # A task binned WITH its project is not listed on its own: it is not
+        # independently restorable, and one project would otherwise bury the
+        # bin under a couple of hundred rows.
+        if (t.deleted_with or ""):
+            continue
+        if mine and not ((t.deleted_by or "").lower() == me or me in task_assignees(t)):
+            continue
+        # The project is read WITH deleted included: a task binned from a
+        # project that was itself binned afterwards would otherwise lose its
+        # only bit of context.
+        proj = ((db.query(models.TaskProject).execution_options(include_deleted=True)
+                 .filter(models.TaskProject.id == t.project_id).first()) if t.project_id else None)
+        add("task", t, t.title or "(untitled task)", (proj.name if proj else ""))
+
+    for p in _binned(db, models.TaskProject):
+        if mine and (p.deleted_by or "").lower() != me:
+            continue
+        n = (db.query(models.Task).execution_options(include_deleted=True)
+             .filter(models.Task.deleted_with == p.id).count())
+        add("project", p, p.name or "(untitled project)",
+            f"{n} task{'' if n == 1 else 's'} binned with it" if n else "")
+
+    for pf in _binned(db, models.TaskPortfolio):
+        if mine and (pf.deleted_by or "").lower() != me:
+            continue
+        add("portfolio", pf, pf.name or "(untitled portfolio)",
+            "Sub-portfolio" if (pf.parent_id or "") else "")
+
+    for tm in _binned(db, models.TaskTeam):
+        if mine and (tm.deleted_by or "").lower() != me:
+            continue
+        add("team", tm, tm.name or "(untitled team)", "")
+
+    for tpl in _binned(db, models.TaskProjectTemplate):
+        if mine and (tpl.deleted_by or "").lower() != me:
+            continue
+        add("template", tpl, tpl.name or "(untitled template)", "Project template")
+
+    for tpl in _binned(db, models.TaskTemplate):
+        if mine and (tpl.deleted_by or "").lower() != me:
+            continue
+        add("task_template", tpl, tpl.name or "(untitled template)", "Task template")
+
+    out.sort(key=lambda r: r["deletedAt"], reverse=True)
+    return out
+
+
+def _recycle_row(db: Session, kind: str, item_id: str):
+    model = {"task": models.Task, "project": models.TaskProject,
+             "portfolio": models.TaskPortfolio, "team": models.TaskTeam,
+             "template": models.TaskProjectTemplate,
+             "task_template": models.TaskTemplate}.get(kind)
+    if model is None:
+        raise HTTPException(422, f"Unknown kind {kind!r}")
+    row = (db.query(model).execution_options(include_deleted=True)
+           .filter(model.id == item_id).first())
+    if not row or not (row.deleted_at or ""):
+        raise HTTPException(404, "That item isn't in the Recycle Bin")
+    return row
+
+
+def _may_untrash_row(user: dict, row, db: Session) -> bool:
+    """A manager, or whoever binned it - and for a TASK, its direct assignee
+    too. Mirrors routers/tasks._may_untrash; containers have no assignee, so
+    for them it is the deleter or a manager."""
+    me = (user.get("email") or "").lower()
+    if (user.get("level") or 0) >= 3:
+        return True
+    if (row.deleted_by or "").lower() == me:
+        return True
+    if isinstance(row, models.Task):
+        from routers.task_util import task_assignees
+        return me in task_assignees(row)
+    return False
+
+
+@router.post("/task-recycle/{kind}/{item_id}/restore")
+def restore_from_recycle_bin(kind: str, item_id: str, user: dict = Depends(get_current_user),
+                             db: Session = Depends(get_db)):
+    row = _recycle_row(db, kind, item_id)
+    if not _may_untrash_row(user, row, db):
+        raise HTTPException(403, "Only a manager, or whoever deleted it, can restore this.")
+    now = now_iso()
+    row.deleted_at = ""
+    row.deleted_by = ""
+    if hasattr(row, "modified_at"):
+        row.modified_at = now
+    restored = 1
+    if kind == "project":
+        # Exactly the tasks that went down with this project - not everything
+        # binned in it, which would resurrect tasks somebody deleted on purpose
+        # beforehand.
+        for t in (db.query(models.Task).execution_options(include_deleted=True)
+                  .filter(models.Task.deleted_with == item_id).all()):
+            t.deleted_at = ""
+            t.deleted_by = ""
+            t.deleted_with = ""
+            t.modified_at = now
+            restored += 1
+    db.commit()
+    return {"kind": kind, "id": item_id, "restored": restored}
+
+
+@router.delete("/task-recycle/{kind}/{item_id}", status_code=204)
+def purge_from_recycle_bin(kind: str, item_id: str, user: dict = Depends(get_current_user),
+                           db: Session = Depends(get_db)):
+    """Remove one binned item for good, ahead of the retention sweep.
+    Irreversible - this is the delete the soft delete was protecting against."""
+    row = _recycle_row(db, kind, item_id)
+    if not _may_untrash_row(user, row, db):
+        raise HTTPException(403, "Only a manager, or whoever deleted it, can permanently delete this.")
+    if kind == "task":
+        from routers.task_util import purge_task_permanently
+        purge_task_permanently(db, item_id, actor_email=user["email"])
+        db.commit()
+        return
+    if kind == "project":
+        # The cascade the old hard delete ran, now deferred to here: its tasks,
+        # its Asana links and map row, then the membership pointers.
+        from routers.task_util import purge_task_permanently
+        for t in (db.query(models.Task).execution_options(include_deleted=True)
+                  .filter(models.Task.project_id == item_id).all()):
+            purge_task_permanently(db, t.id, actor_email=user["email"])
+        import asana_sync
+        asana_sync.purge_project_sync(db, item_id, actor=user["email"])
+        for team in db.query(models.TaskTeam).execution_options(include_deleted=True).all():
+            ids = team_project_ids(team)
+            if item_id in ids:
+                _set_team_projects(team, [x for x in ids if x != item_id])
+        for pf in db.query(models.TaskPortfolio).execution_options(include_deleted=True).all():
+            if item_id in (pf.project_ids or []):
+                pf.project_ids = [x for x in pf.project_ids if x != item_id]
+    elif kind == "portfolio":
+        # Only now do the links get severed - the row really is going.
+        for proj in (db.query(models.TaskProject).execution_options(include_deleted=True)
+                     .filter(models.TaskProject.portfolio_id == item_id).all()):
+            proj.portfolio_id = ""
+        for child in (db.query(models.TaskPortfolio).execution_options(include_deleted=True)
+                      .filter(models.TaskPortfolio.parent_id == item_id).all()):
+            child.parent_id = "" if (row.parent_id or "") == child.id else (row.parent_id or "")
+            child.modified_at = now_iso()
+    elif kind == "team":
+        for t in db.query(models.Task).execution_options(include_deleted=True).filter(
+                models.Task.team_id == item_id).all():
+            t.team_id = ""
+    db.delete(row)
+    db.commit()
+
+
+# ── Personal teams ───────────────────────────────────────────────────────────
+# A team made from the Teams screen (the floating "+") belongs to whoever made
+# it until a manager blesses it. Until then it grants NO team access - it pushes
+# an INDIVIDUAL project grant to each member instead.
+#
+# That is the safety property the whole feature rests on: an unapproved team
+# cannot widen anybody's access by existing, because everything it hands out is
+# access its creator could already have granted by adding those people to the
+# project by hand. Approval is what turns "my grouping" into "a team the
+# workspace knows about", and only then does access come FROM the team.
+def _sync_personal_team_grants(db: Session, team: models.TaskTeam) -> None:
+    """Make the project rosters match what this unapproved team implies.
+
+    Adds each member to each of the team's projects, and records exactly what
+    it added in `granted_emails` so approval (or deletion) can take back its own
+    grants without touching anyone who was a project member in their own right.
+    Removing a member, or a project, withdraws the grants that member/project
+    combination brought.
+    """
+    if team_is_approved(team):
+        return
+    members = [e.lower() for e in (team.member_emails or []) if e]
+    wanted = {pid: list(members) for pid in team_project_ids(team)}
+    had = dict(team.granted_emails or {})
+
+    for pid in set(had) | set(wanted):
+        proj = (db.query(models.TaskProject).execution_options(include_deleted=True)
+                .filter(models.TaskProject.id == pid).first())
+        if not proj:
+            continue
+        roster = [e.lower() for e in (proj.member_emails or []) if e]
+        # Withdraw what this team granted and no longer implies.
+        for gone in set(had.get(pid, [])) - set(wanted.get(pid, [])):
+            if gone in roster:
+                roster.remove(gone)
+        for add in wanted.get(pid, []):
+            if add not in roster:
+                roster.append(add)
+        proj.member_emails = roster
+        proj.modified_at = now_iso()
+
+    team.granted_emails = {k: v for k, v in wanted.items() if v}
+
+
+def _withdraw_personal_team_grants(db: Session, team: models.TaskTeam) -> None:
+    """Take back every individual grant this team pushed.
+
+    Used on approval - access now comes from the team itself, so leaving the
+    individual grants behind would mean removing somebody from the team no
+    longer removes their access, which is the failure nobody would notice.
+    Also used when a personal team is binned.
+    """
+    for pid, emails in dict(team.granted_emails or {}).items():
+        proj = (db.query(models.TaskProject).execution_options(include_deleted=True)
+                .filter(models.TaskProject.id == pid).first())
+        if not proj:
+            continue
+        roster = [e for e in (proj.member_emails or []) if e.lower() not in {x.lower() for x in emails}]
+        proj.member_emails = roster
+        proj.modified_at = now_iso()
+    team.granted_emails = {}
+
+
+@router.post("/task-teams/{team_id}/request-approval")
+def request_team_approval(team_id: str, user: dict = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    """Ask a manager to make this a real team."""
+    t = db.query(models.TaskTeam).filter(models.TaskTeam.id == team_id).first()
+    if not t:
+        raise HTTPException(404, "Team not found")
+    if (t.created_by or "").lower() != (user["email"] or "").lower() and (user.get("level") or 0) < 3:
+        raise HTTPException(403, "Only the person who created this team can ask for it to be approved.")
+    if team_is_approved(t):
+        raise HTTPException(409, "This team is already approved.")
+    t.approval_status = "pending"
+    t.requested_at = now_iso()
+    task_notify(db, kind="team_approval_requested", for_email="admins",
+                title="A team is waiting for approval",
+                body=f"{t.name} - requested by {user['email']}",
+                nexus_action={"view": "tasks", "sub": "manage", "label": "Review in Manage"})
+    db.commit()
+    db.refresh(t)
+    return team_to_dict(t)
+
+
+class TeamApprovalBody(BaseModel):
+    decision: str          # approved | rejected
+
+
+@router.post("/task-teams/{team_id}/approval", dependencies=[Depends(require_manager)])
+def decide_team_approval(team_id: str, body: TeamApprovalBody,
+                         user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A manager turns a personal team into a real one, or sends it back.
+
+    On approval the individual grants it had been pushing are WITHDRAWN and the
+    team starts conferring access itself - same people, same projects, but now
+    removing somebody from the team actually removes their access.
+    """
+    t = db.query(models.TaskTeam).filter(models.TaskTeam.id == team_id).first()
+    if not t:
+        raise HTTPException(404, "Team not found")
+    decision = (body.decision or "").lower()
+    if decision not in ("approved", "rejected"):
+        raise HTTPException(422, "decision must be approved or rejected")
+
+    if decision == "approved":
+        _withdraw_personal_team_grants(db, t)
+        t.approval_status = "approved"
+    else:
+        # Back to personal, not deleted - the creator keeps their grouping, and
+        # the individual grants it implies stay in place.
+        t.approval_status = "personal"
+    t.decided_by = user["email"]
+    t.decided_at = now_iso()
+    if t.created_by:
+        task_notify(db, kind="team_approval_decided", for_email=t.created_by,
+                    title=f"Your team was {decision}",
+                    body=t.name,
+                    nexus_action={"view": "tasks", "sub": "teams", "label": "View teams"})
+    db.commit()
+    db.refresh(t)
+    return team_to_dict(t)

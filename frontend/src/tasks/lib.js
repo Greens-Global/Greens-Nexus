@@ -165,6 +165,120 @@ export const teamProjectIds = (team) => (
     : (team?.projectId ? [team.projectId] : [])
 );
 export const teamInProject = (team, projectId) => !!projectId && teamProjectIds(team).includes(projectId);
+// Is a Team column worth showing inside `projectId`? A project with fewer than
+// two teams puts the SAME value on every row - one team is stamped on new tasks
+// automatically (soleTeamId in views/richlist.jsx) - so the column is noise
+// there, and a Hide toggle for it is a switch that does nothing. Exactly the
+// rule the Project column already follows inside a project. Outside a project
+// (no projectId) rows come from many teams, so it always applies.
+//
+// Derived, never stored: add a second team and the column comes back on its own,
+// without anyone having to find a setting they don't know was flipped.
+export const teamColumnApplies = (teams, projectId) => (
+  !projectId || (teams || []).filter((t) => teamInProject(t, projectId)).length > 1
+);
+
+// Export rows for a task list: the visible rows, each followed by its own
+// subtasks, carrying a depth and a parent.
+//
+// The list nests subtasks under an expandable parent, so `visible` (via
+// personScoped) holds top-level rows only unless a search is running. That is
+// right on screen and wrong in a file, where a missing subtask is just missing
+// work. The same filter is applied to the children, so an export still says
+// exactly what the filter says rather than smuggling non-matching rows in
+// under a matching parent.
+export function taskExportRows(visible, allTasks, filter, taskById) {
+  const kids = new Map();
+  for (const t of (allTasks || [])) {
+    if (!t.parentTaskId) continue;
+    if (!kids.has(t.parentTaskId)) kids.set(t.parentTaskId, []);
+    kids.get(t.parentTaskId).push(t);
+  }
+  const out = [];
+  const seen = new Set();
+  const walk = (t, depth, parent) => {
+    if (seen.has(t.id)) return;   // a self- or cyclically-parented row cannot hang this
+    seen.add(t.id);
+    out.push({ task: t, depth, parent });
+    (kids.get(t.id) || [])
+      .filter((k) => matchesFilter(k, filter, taskById))
+      .forEach((k) => walk(k, depth + 1, t));
+  };
+  (visible || []).forEach((t) => walk(t, 0, null));
+  return out;
+}
+
+// ── Portfolio tree ──────────────────────────────────────────────────────────
+// Portfolios nest (TaskPortfolio.parentId), and the list renders that tree as
+// flat rows carrying their own depth. Pure and exported so the two rules below
+// can be tested - both were wrong in the first cut, and neither fails loudly:
+//
+//   1. A child appears only when its parent is EXPANDED. Collapsing a parent
+//      used to make its sub-portfolios pop out as top-level rows, because they
+//      fell through to the lift-orphans pass below.
+//   2. A child IS lifted to the top when its parent is filtered out by the
+//      search or the archived toggle - it would otherwise vanish along with a
+//      parent the person never asked about.
+//
+// `visible` is the already-filtered, already-sorted list; ordering within a
+// level follows it, so a sub-portfolio sorts among its siblings rather than
+// against the whole table. Cycles cannot hang the walk - the data is never
+// trusted to be acyclic, whatever the server's guard says.
+export function portfolioRowTree(visible, allPortfolios, expandedIds) {
+  const shown = new Set((visible || []).map((p) => p.id));
+  const order = new Map((visible || []).map((p, i) => [p.id, i]));
+  const childrenOf = new Map();
+  (allPortfolios || []).forEach((p) => {
+    const key = p.parentId || '';
+    if (!childrenOf.has(key)) childrenOf.set(key, []);
+    childrenOf.get(key).push(p);
+  });
+
+  const out = [];
+  const seen = new Set();
+  const walk = (parentId, depth) => {
+    (childrenOf.get(parentId) || [])
+      .filter((p) => shown.has(p.id))
+      .slice()
+      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+      .forEach((pf) => {
+        if (seen.has(pf.id)) return;
+        seen.add(pf.id);
+        out.push({ pf, depth });
+        if (expandedIds && expandedIds.has(pf.id)) walk(pf.id, depth + 1);
+      });
+  };
+  walk('', 0);
+
+  const placed = new Set(out.map((r) => r.pf.id));
+  (visible || [])
+    .filter((p) => !placed.has(p.id) && !shown.has(p.parentId || ''))
+    .forEach((pf) => out.push({ pf, depth: 0 }));
+  return out;
+}
+
+// Every project id under a portfolio, its own plus every descendant's - what a
+// parent's rollup counts and what its select-all ticks. Walked, never stored:
+// two copies of the same membership is the drift the server's
+// portfolio_project_ids exists to reconcile.
+export function portfolioDeepProjectIds(pf, allPortfolios) {
+  const childrenOf = new Map();
+  (allPortfolios || []).forEach((p) => {
+    const key = p.parentId || '';
+    if (!childrenOf.has(key)) childrenOf.set(key, []);
+    childrenOf.get(key).push(p);
+  });
+  const out = [];
+  const seen = new Set();
+  const walk = (node) => {
+    if (!node || seen.has(node.id)) return;
+    seen.add(node.id);
+    (node.projectIds || []).forEach((id) => out.push(id));
+    (childrenOf.get(node.id) || []).forEach(walk);
+  };
+  walk(pf);
+  return out;
+}
 
 // Custom fields are scoped to projects; empty `projectIds` = global, which is how
 // every field behaved before scoping, so nothing changes until an admin narrows

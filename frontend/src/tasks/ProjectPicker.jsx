@@ -86,6 +86,9 @@ export default function ProjectPicker({
 
   const pick = (id) => { onChange?.(id); setOpen(false); setQ(''); };
 
+  // className carries the hover/focus highlight (.nx-menu-row in style.css) -
+  // inline styles cannot express a :hover state, which is why these rows only
+  // ever lit up for the SELECTED one.
   const rowStyle = (active) => ({
     display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
     padding: '8px 12px', border: 'none', background: active ? NX.hover : 'transparent',
@@ -137,7 +140,7 @@ export default function ProjectPicker({
 
           <div className="nx-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
             {allowNone && !q.trim() && (
-              <button type="button" onClick={() => pick('')} style={rowStyle(!value)}>
+              <button type="button" className="nx-menu-row" onClick={() => pick('')} style={rowStyle(!value)}>
                 <span style={{ width: 14, flexShrink: 0 }}>{!value && <Check size={14} />}</span>
                 <span style={{ color: NX.dim }}>{noneLabel}</span>
               </button>
@@ -145,7 +148,7 @@ export default function ProjectPicker({
 
             {mine.length > 0 && <div style={heading}>Your Projects</div>}
             {mine.map((p) => (
-              <button key={p.id} type="button" onClick={() => pick(p.id)} style={rowStyle(p.id === value)}>
+              <button key={p.id} type="button" className="nx-menu-row" onClick={() => pick(p.id)} style={rowStyle(p.id === value)}>
                 <span style={{ width: 14, flexShrink: 0 }}>{p.id === value && <Check size={14} />}</span>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
               </button>
@@ -153,7 +156,7 @@ export default function ProjectPicker({
 
             {others.length > 0 && <div style={heading}>{mine.length ? 'All Projects' : 'Projects'}</div>}
             {others.map((p) => (
-              <button key={p.id} type="button" onClick={() => pick(p.id)} style={rowStyle(p.id === value)}>
+              <button key={p.id} type="button" className="nx-menu-row" onClick={() => pick(p.id)} style={rowStyle(p.id === value)}>
                 <span style={{ width: 14, flexShrink: 0 }}>{p.id === value && <Check size={14} />}</span>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
               </button>
@@ -168,6 +171,7 @@ export default function ProjectPicker({
 
           {onCreateNew && (
             <button type="button" onClick={() => { setOpen(false); setQ(''); onCreateNew(); }}
+              className="nx-menu-row"
               style={{ ...rowStyle(false), borderTop: `1px solid ${NX.border2}`, color: NX.blue, fontWeight: 600 }}>
               <Plus size={14} /> Create New Project
             </button>

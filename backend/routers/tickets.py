@@ -14,6 +14,7 @@ attachment tables, keyed by ticket id - same storage, separate router.
 import json
 import re
 import html as html_lib
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -51,6 +52,28 @@ router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
 # not trusted: `mine=true` decided in the browser would be one query parameter
 # away from the whole company's queue.
 require_ticket_desk = require_any_module_grant("tasks", "tickets")
+
+
+# ── SLA policy - the due date is DERIVED from priority, not chosen freely.
+# Mirrors SLA_TARGET_HOURS in frontend/src/tickets/ticketMeta.js - keep the two
+# in step. The server is authoritative: create_ticket always computes its own
+# value (never trusts body.sla_due_on), and update_ticket recomputes it
+# whenever priority changes to a new value in a request that doesn't ALSO set
+# sla_due_on explicitly in the same request (that's a manual override via the
+# drawer's own DateField editor, and stays respected as-is). ──
+_SLA_TARGET_HOURS = {"urgent": 24, "high": 48, "medium": 72, "low": 168}
+
+
+def _sla_due_from_priority(created_at_iso: str, priority: str) -> str:
+    """created_at + the priority's target hours, as a YYYY-MM-DD date string -
+    sla_due_on is stored and compared as a plain date everywhere else (see
+    _sla_breached, ticket_to_dict), never a datetime."""
+    try:
+        start = datetime.fromisoformat((created_at_iso or now_iso()).replace("Z", "+00:00"))
+    except ValueError:
+        start = datetime.fromisoformat(now_iso())
+    hours = _SLA_TARGET_HOURS.get(priority, _SLA_TARGET_HOURS["medium"])
+    return (start + timedelta(hours=hours)).date().isoformat()
 
 
 def _has_desk_grant(user: dict, db: Session) -> bool:
@@ -150,6 +173,7 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "approvalStatus": t.approval_status or "none", "approverId": _nz(t.approver_email),
             "approvalNote": _nz(t.approval_note), "approvalDecidedAt": _nz(t.approval_decided_at),
             "slaDueOn": _nz(t.sla_due_on), "resolvedAt": _nz(t.resolved_at),
+            "lastCommentAt": _nz(t.last_comment_at),
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
 
 
@@ -350,6 +374,8 @@ class TicketBody(BaseModel):
     # derived from this application server-side, so a client cannot file a
     # ticket into a category its application does not belong to.
     application: Optional[str] = ""
+    # Accepted for backward compatibility but ignored - see create_ticket,
+    # which always derives it from priority server-side now.
     sla_due_on: Optional[str] = ""
 
 
@@ -503,7 +529,10 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         application=(body.application or "").strip(),
         # Derived, never taken from the payload - see TicketBody.application.
         service_area=service_area_for(db, body.application or ""),
-        sla_due_on=body.sla_due_on or "", resolved_at="", created_at=now, modified_at=now,
+        # Always derived from priority, never taken from the payload (see
+        # _sla_due_from_priority) - the frontend's own slaDueFromPriority call
+        # at submit time is just a same-request UI preview.
+        sla_due_on=_sla_due_from_priority(now, body.priority or "medium"), resolved_at="", created_at=now, modified_at=now,
     )
     # Approval gate, decided by the TYPE and never trusted from the client, so a
     # caller cannot post approval_status="approved" to skip it.
@@ -646,6 +675,11 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     if "application" in data and "service_area" not in data:
         t.application = (t.application or "").strip()
         t.service_area = service_area_for(db, t.application)
+    # SLA due date follows priority automatically - unless this same request
+    # ALSO set sla_due_on explicitly (the drawer's manual DateField editor),
+    # which is respected as-is and never silently overridden.
+    if "priority" in data and t.priority != prev_priority and "sla_due_on" not in data:
+        t.sla_due_on = _sla_due_from_priority(t.created_at, t.priority)
     if data.get("status") in ("resolved", "closed") and not t.resolved_at:
         t.resolved_at = now_iso()
     if data.get("status") not in ("resolved", "closed") and "status" in data:
@@ -862,6 +896,9 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     c = models.TaskComment(id=gen_id(), task_id=ticket_id, author_email=user["email"], body=body.body or "",
                            internal=internal, created_at=now_iso())
     db.add(c)
+    # Resets the "needs a comment" staleness clock - internal notes count too,
+    # any human touching the ticket is evidence someone's paying attention.
+    t.last_comment_at = now_iso()
     # JSON, not a plain string - same "structured detail" trick the "created"
     # snapshot uses (see _ticket_snapshot) - so the activity feed can show what
     # was actually said instead of just the word "commented", while still
@@ -1004,6 +1041,65 @@ def list_ticket_departments(mine: bool = False, user: dict = Depends(get_current
     rows = q.order_by(models.HrDepartment.sort_order, models.HrDepartment.name).all()
     return [{"id": d.id, "name": d.name, "companyId": d.company_id,
              "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or ""} for d in rows]
+
+
+def _dept_list(db: Session, company_id: str) -> list[dict]:
+    rows = (db.query(models.HrDepartment).filter(models.HrDepartment.company_id == company_id)
+            .order_by(models.HrDepartment.sort_order, models.HrDepartment.name).all())
+    return [{"id": d.id, "name": d.name, "companyId": d.company_id,
+             "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or ""} for d in rows]
+
+
+class TicketDepartmentIn(BaseModel):
+    company_id: str
+    name: str
+
+
+# Write endpoints for the SAME hr_departments table, under the ticket router
+# rather than routers/hr.py - same reason /ticket-companies and
+# /ticket-departments (read) exist here instead of reusing the HR module's
+# own: whoever runs the service desk (Manage -> Service Desk -> Departments)
+# is rarely also an HR admin, and require_hr_write would 403 them.
+@router.post("/ticket-departments", status_code=201, dependencies=[Depends(require_ticket_desk)])
+def add_ticket_department(body: TicketDepartmentIn, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Department name cannot be empty")
+    if len(name) > 40:
+        raise HTTPException(400, "Department name is too long (40 characters max)")
+    company = db.query(models.HrEntity).filter(models.HrEntity.id == body.company_id).first()
+    if not company:
+        raise HTTPException(404, "Company not found")
+    siblings = db.query(models.HrDepartment).filter(models.HrDepartment.company_id == body.company_id).all()
+    if any((s.name or "").strip().lower() == name.lower() for s in siblings):
+        raise HTTPException(409, f"“{name}” already exists for this company")
+    nxt = max([s.sort_order for s in siblings], default=-1) + 1
+    db.add(models.HrDepartment(id=gen_id(), company_id=body.company_id, name=name,
+                               sort_order=nxt, created_by=user["email"], created_at=now_iso()))
+    db.commit()
+    return _dept_list(db, body.company_id)
+
+
+class TicketDepartmentHeadIn(BaseModel):
+    lead_email:   Optional[str] = None
+    backup_email: Optional[str] = None
+
+
+@router.patch("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])
+def set_ticket_department_head(dept_id: str, body: TicketDepartmentHeadIn,
+                               user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Sets who gets the escalation email for this department - see
+    escalate_ticket. Same field HR's own department screen documents as the
+    triage lead/backup; one person can be both without conflict."""
+    row = db.query(models.HrDepartment).filter(models.HrDepartment.id == dept_id).first()
+    if not row:
+        raise HTTPException(404, "Department not found")
+    if body.lead_email is not None:
+        row.lead_email = (body.lead_email or "").strip().lower()
+    if body.backup_email is not None:
+        row.backup_email = (body.backup_email or "").strip().lower()
+    db.commit()
+    return _dept_list(db, row.company_id)
 
 
 
@@ -1203,40 +1299,42 @@ def remove_ticket_link(ticket_id: str, target_id: str, db: Session = Depends(get
     return ticket_to_dict(t)
 
 
-# ── Escalate - bump priority one rung and alert assignee/watchers + managers ──
-_PRIORITY_LADDER = ["low", "medium", "high", "urgent"]
-
-
+# ── Escalate - a distress flare, not a priority bump: alerts the department
+#    head that this ticket needs instant care (Pranshu, Sep 8 2026) ───────────
 @router.post("/task-tickets/{ticket_id}/escalate")
 def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Either the requester or the current assignee - the two people actually
+    living the ticket, not just the desk running the queue - can raise this
+    (superseding the earlier SLA-breach-only carve-out for a locked-out
+    requester). It no longer touches priority; it mails the department the
+    ticket is ABOUT (HrDepartment.lead_email/backup_email, set from Manage ->
+    Service Desk -> Departments) that the ticket needs urgent attention. A
+    department with no head on file falls back to the company's ticket agents
+    via notify_ticket_event's own recipient resolution, so it's never emailed
+    to nobody."""
     t = _ticket_or_404(db, ticket_id)
-    import auth
-    auth.assert_company(t.company_id or "", user, db)
-    # Desk staff can always escalate. A plain requester - locked out of every
-    # other field once the ticket moves off "new" (_ticket_edit_scope above) -
-    # gets exactly one exception: once the SLA is actually breached, they need
-    # a way to flag that even on a ticket they otherwise can't touch. Mirrors
-    # the frontend's canEscalate carve-out in TicketsView.jsx - keep the two in
-    # step.
-    is_requester = (t.requester_email or "").lower() == user["email"].lower()
-    if not (_has_desk_grant(user, db) or (is_requester and _sla_breached(t))):
-        raise HTTPException(403, "Only the desk can escalate this ticket - or you, once its SLA is breached.")
-    idx = _PRIORITY_LADDER.index(t.priority) if t.priority in _PRIORITY_LADDER else 1
-    new_p = _PRIORITY_LADDER[min(idx + 1, len(_PRIORITY_LADDER) - 1)]
-    t.priority = new_p
+    _require_ticket_participant(db, user, t)
+    email = (user["email"] or "").lower()
+    is_requester = (t.requester_email or "").lower() == email
+    is_assignee = (t.assignee_email or "").lower() == email
+    if not (is_requester or is_assignee or _ticket_privileged(db, t, user)):
+        raise HTTPException(403, "Only the requester or assignee can escalate this ticket")
+    if t.status in ("resolved", "closed"):
+        raise HTTPException(400, "This ticket is already closed out - nothing to escalate")
+
     t.modified_at = now_iso()
     log_activity(db, type="escalated", actor_email=user["email"], entity_kind="ticket",
-                 entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=f"escalated to {new_p} priority")
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail="Escalated - flagged for the department head's urgent attention")
     _notify_participants(db, t, user["email"], kind="ticket_escalated",
-                         title=f"Ticket escalated to {new_p}", body=f"{ticket_no(t.code)} · {t.subject}")
+                         title="Ticket escalated", body=f"{ticket_no(t.code)} · {t.subject} needs urgent attention")
     task_notify(db, kind="ticket_escalated", for_email="admins", title="A ticket was escalated",
-                body=f"{ticket_no(t.code)} · {t.subject} → {new_p}",
+                body=f"{ticket_no(t.code)} · {t.subject}",
                 ticket_id=t.id, nexus_action={"view": "tickets", "label": "View ticket"})
     db.commit()
     db.refresh(t)
-    background_tasks.add_task(notify_ticket_event, t.id, "updated", user["email"],
-                               update_kind=f"Escalated to {new_p} priority")
+    background_tasks.add_task(notify_ticket_event, t.id, "escalated", user["email"])
     return ticket_to_dict(t)
 
 

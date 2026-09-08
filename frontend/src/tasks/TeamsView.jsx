@@ -5,17 +5,19 @@
 import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
 import {
   Users, X, Trash2, Check, Clock, UserPlus, ArrowLeft, ChevronRight,
-  FolderKanban, ListChecks,
+  FolderKanban, ListChecks, Plus,
   Building2, Cpu, HardHat, Cog, Code2, Calculator, Megaphone, Briefcase,
   Wrench, FlaskConical, ShieldCheck, Rocket, PenTool, Landmark, Truck,
   Headphones, HeartPulse,
 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, ChipMultiSelect, useIsMobile, ViewToggle } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, ChipMultiSelect, useIsMobile, ViewToggle, ExportMenu } from './components';
 import { useTasks } from './TasksContext';
+import { useRole } from '../contexts/RoleContext';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import { topLevel, teamProjectIds, taskInProject } from './lib';
 import { CalendarView } from './views/extras';
+import CreateTaskModal from './CreateTaskModal';
 import { emailToName } from '../lib/utils';
 
 // Curated team icons (keys match the export's deptIcons set).
@@ -96,6 +98,17 @@ export default function TeamsView({ onNavigate }) {
         {/* Right-hand cluster - see ProjectsView for why the group, and not
             ResetColumnsButton, carries the auto margin. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginLeft: 'auto', flexShrink: 0 }}>
+          <ExportMenu
+            title="Teams" subtitle={`${sortedTeams.length} teams`}
+            filenameBase="teams" rows={sortedTeams}
+            columns={[
+              { header: 'Team', width: 24, get: (t) => t.name },
+              { header: 'Members', width: 10, get: (t) => (t.memberIds || []).length },
+              { header: 'Member Emails', width: 34, get: (t) => (t.memberIds || []).join(', ') },
+              { header: 'Projects', width: 32, get: (t) => projectsOf(t).map((p) => p.name).join(', ') },
+              { header: 'Tasks', width: 10, get: (t) => taskCountByTeam[t.id] || 0 },
+            ]}
+          />
           {!isMobile && view === 'list' && <ResetColumnsButton />}
           <ViewToggle view={view} onChange={setView} isMobile={isMobile} />
         </div>
@@ -209,6 +222,70 @@ const TEAMS_DEFAULT_SORT = { key: 'team', dir: 'asc' };
 // header to move a column, drag its right edge to resize, click it to sort.
 // Zebra bands, with hover restoring to the row's own band rather than to
 // transparent so an odd row does not flash lighter on mouse-out.
+// "Ask for approval" on your own team, and Approve / Send back for a manager
+// looking at a pending one. Both live here so the two halves of the workflow
+// cannot describe it differently.
+export function TeamApprovalAction({ team }) {
+  const { requestTeamApproval, decideTeamApproval, myEmail } = useTasks();
+  const { can } = useRole();
+  const [busy, setBusy] = useState('');
+  const st = team?.approvalStatus || 'approved';
+  if (st === 'approved') return null;
+
+  const isMine = (team.createdById || '').toLowerCase() === (myEmail || '').toLowerCase();
+  const isManager = !!can?.('manager');
+
+  const run = async (fn, key) => {
+    setBusy(key);
+    try { await fn(); } catch (e) { alert(e?.message || 'That did not work.'); } finally { setBusy(''); }
+  };
+
+  if (isManager && st === 'pending') {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <button disabled={!!busy} onClick={() => run(() => decideTeamApproval(team.id, 'approved'), 'a')}
+          title="Make this a workspace team - its members get access through the team from now on"
+          style={{ ...btn('primary'), padding: '6px 10px', fontSize: 12 }}>
+          {busy === 'a' ? 'Approving…' : 'Approve team'}
+        </button>
+        <button disabled={!!busy} onClick={() => run(() => decideTeamApproval(team.id, 'rejected'), 'r')}
+          title="Leave it as the creator's personal team"
+          style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}>
+          Send back
+        </button>
+      </div>
+    );
+  }
+  if (isMine && st === 'personal') {
+    return (
+      <button disabled={!!busy} onClick={() => run(() => requestTeamApproval(team.id), 'q')}
+        title="Ask a manager to make this a workspace team"
+        style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, flexShrink: 0 }}>
+        {busy === 'q' ? 'Sending…' : 'Ask for approval'}
+      </button>
+    );
+  }
+  return null;
+}
+
+// Personal / pending / approved, at a glance. Approved teams get NO chip -
+// that is the normal state and a badge on every row would be noise.
+export function TeamStatusChip({ team }) {
+  const st = team?.approvalStatus || 'approved';
+  if (st === 'approved') return null;
+  const meta = st === 'pending'
+    ? { label: 'Awaiting approval', color: NX.amber || '#d97706' }
+    : { label: 'Personal', color: NX.dim };
+  return (
+    <span title={st === 'pending'
+      ? 'A manager has been asked to make this a workspace team'
+      : 'Only you can see this team. Its members get individual project access until it is approved.'}
+      style={{ ...chip(meta.color, NX.border2), flexShrink: 0, whiteSpace: 'nowrap' }}>
+      {meta.label}
+    </span>
+  );
+}
+
 export function TeamList({ teams, projectsOf, nameOf, taskCountByTeam, isMobile, onOpen }) {
   const [sort, setSort] = useTableValue('teams', 'sort', TEAMS_DEFAULT_SORT);
   const { cols: listCols, template, startResize, resetWidth, autofitWidth, widths, wrapRef, dragProps } =
@@ -302,6 +379,11 @@ export function TeamList({ teams, projectsOf, nameOf, taskCountByTeam, isMobile,
                     <Icon size={14} />
                   </span>
                   <span title={team.name} style={{ minWidth: 0, fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
+                  {/* Says whose team this is and how far along it is. Without
+                      it, a personal team looks identical to a real one while
+                      behaving completely differently - nobody else can see it,
+                      and its access is individual rather than team-wide. */}
+                  <TeamStatusChip team={team} />
                 </div>
               ),
               members: (
@@ -426,7 +508,7 @@ function TeamCard({ team, teamProjects, nameOf, taskCount, onOpen }) {
   );
 }
 
-export function TeamModal({ team, onClose, onDelete }) {
+export function TeamModal({ team, onClose, onDelete, personal = false }) {
   const { createTeam, updateTeam, projects } = useTasks();
   const people = usePeople();
   const nameOfLocal = (email) => people.find((p) => p.email === email)?.name || emailToName(email);
@@ -462,7 +544,11 @@ export function TeamModal({ team, onClose, onDelete }) {
   const save = async () => {
     if (!canSave) return;
     setSaving(true);
-    const payload = { name: name.trim(), project_ids: projectIds, color, icon, memberIds: members };
+    // `personal` only matters on CREATE, and only the Teams screen sends it -
+    // Manage makes real teams. The server forces it on for a non-manager
+    // whatever we send, so this is the intent, not the enforcement.
+    const payload = { name: name.trim(), project_ids: projectIds, color, icon, memberIds: members,
+      ...(team ? {} : { personal }) };
     try {
       if (team) await updateTeam(team.id, payload);
       else await createTeam(payload);
@@ -605,6 +691,9 @@ function TeamDetail({ team, teamProjects, onBack, onEdit, onNavigate }) {
             {' · '}{taskCount} task{taskCount === 1 ? '' : 's'}
           </div>
         </div>
+        {/* The ask. Only on a team that is still the creator's own - approval
+            is what turns individual grants into team access. */}
+        <TeamApprovalAction team={team} />
         <MemberStack members={members} nameOf={nameOf} />
       </div>
 
@@ -772,6 +861,13 @@ function TeamWorkTab({ teamProjects, tasks, onNavigate }) {
 function ProjectWorkSection({ project, tasks, onNavigate }) {
   const projectTasks = useMemo(() => topLevel(tasks.filter((t) => taskInProject(t, project.id))), [project, tasks]);
   const [open, setOpen] = useState(true);
+  // Add straight into the section you are looking at. Creating a task from here
+  // used to mean opening the project, then Create, then picking the project back
+  // out of a list of ~90 - and the answer was on screen the whole time. The
+  // project is passed as BOTH the default and the lock, exactly as the module
+  // bar's Create does for a drilled-in project, so the modal cannot be saved
+  // against a different one by accident.
+  const [adding, setAdding] = useState(false);
 
   return (
     <div style={{ border: `1px solid ${NX.border}`, borderRadius: 14, background: NX.surface, overflow: 'hidden' }}>
@@ -781,6 +877,10 @@ function ProjectWorkSection({ project, tasks, onNavigate }) {
           <FolderKanban size={14} style={{ color: NX.faint }} />
           <span style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.name}</span>
           <span style={{ fontSize: 12, color: NX.faint }}>{projectTasks.length} task{projectTasks.length === 1 ? '' : 's'}</span>
+        </button>
+        <button onClick={() => setAdding(true)} title={`Add a task to ${project.name}`}
+          style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12, fontWeight: 600, color: NX.dim, flexShrink: 0 }}>
+          <Plus size={14} />Task
         </button>
         <button onClick={() => onNavigate && onNavigate({ projectId: project.id })} style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12, fontWeight: 600, color: NX.primary }}>Open Project</button>
       </div>
@@ -802,6 +902,10 @@ function ProjectWorkSection({ project, tasks, onNavigate }) {
             })}
           </div>
         )
+      )}
+      {adding && (
+        <CreateTaskModal defaults={{ projectId: project.id }} lockedProjectId={project.id}
+          onClose={() => setAdding(false)} />
       )}
     </div>
   );

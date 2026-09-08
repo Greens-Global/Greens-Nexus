@@ -7,7 +7,7 @@
 // workspace is still one click away ("View All Tasks"), which is the right home
 // for filtering and bulk edits.
 import { useEffect, useState } from 'react';
-import { ArrowLeft, CheckCircle2, Circle, FolderKanban, Users, AlertTriangle, Plus, Mail, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, ChevronRight, Circle, FolderKanban, Users, AlertTriangle, Plus, Mail, X } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, btn, card, chip } from './theme';
 import { Avatar, EmptyState, useIsMobile } from './components';
@@ -66,6 +66,17 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
       : statusFilter === 'overdue' ? (!t.completed && t.dueOn && t.dueOn < today)
       : !t.completed // 'open'
   ));
+  // Completed work sits in its own collapsed section at the BOTTOM, the way the
+  // task list groups it (DEFAULT_COLLAPSED in views/richlist.jsx) - a person
+  // with 24 finished tasks was pushing their open ones off the screen with work
+  // that is already done (Neil, Sept 7). Filtering explicitly TO completed
+  // (clicking the Completed stat) shows them as the main list instead, since
+  // that is the whole of what was asked for.
+  const showingCompletedOnly = statusFilter === 'completed';
+  const openRows = showingCompletedOnly ? rows : rows.filter((t) => !t.completed);
+  const doneRows = showingCompletedOnly ? [] : rows.filter((t) => t.completed);
+  const [doneOpen, setDoneOpen] = useState(false);
+
   const pickStat = (key) => {
     setTab('assigned');
     setStatusFilter((f) => (f === key ? null : key));
@@ -177,7 +188,7 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
                 <div style={{ padding: '26px 16px', textAlign: 'center', fontSize: 13, color: NX.faint }}>
                   Nothing here.
                 </div>
-              ) : rows.map((t) => {
+              ) : [...openRows, ...(doneOpen ? doneRows : [])].map((t) => {
                 const overdue = !t.completed && t.dueOn && t.dueOn < new Date().toISOString().slice(0, 10);
                 return (
                   <div key={t.id} onClick={() => setOpenId(t.id)} className="stack-table-row"
@@ -202,6 +213,20 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
                   </div>
                 );
               })}
+              {doneRows.length > 0 && (
+                <button onClick={() => setDoneOpen((o) => !o)} className="nx-menu-row"
+                  aria-expanded={doneOpen}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                    padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer',
+                    fontFamily: FONT, fontSize: 13, fontWeight: 700, color: NX.dim,
+                    borderTop: `1px solid ${NX.border2}`,
+                  }}>
+                  <ChevronRight size={14} style={{ color: NX.faint, transform: doneOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.12s' }} />
+                  Completed
+                  <span style={{ fontWeight: 600, color: NX.faint }}>{doneRows.length}</span>
+                </button>
+              )}
             </div>
           </div>
 
