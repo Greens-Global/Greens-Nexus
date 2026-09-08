@@ -335,7 +335,7 @@ function TicketFilterMenu({
 
 // One overflow menu for every occasional control - saved views, group-by,
 // export - so the toolbar stays search + Filters + More (owner call, Jul 28).
-function MoreMenu({ views, onApply, onSave, onDelete, onExport, groupBy, setGroupBy, showGroup }) {
+function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showGroup }) {
   const [open, setOpen] = useState(false);
   const item = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, color: NX.ink, textAlign: 'left' };
   const sectionLabel = { padding: '8px 12px 4px', fontSize: 12, fontWeight: 600, color: NX.dim };
@@ -368,9 +368,6 @@ function MoreMenu({ views, onApply, onSave, onDelete, onExport, groupBy, setGrou
               </div>
             ))}
             <button onClick={() => { onSave(); setOpen(false); }} style={{ ...item, color: NX.blue, fontWeight: 600 }}><Plus size={14} />Save current view…</button>
-            <div style={{ borderTop: `1px solid ${NX.border2}` }}>
-              <button onClick={() => { onExport(); setOpen(false); }} style={item}><Download size={14} style={{ color: NX.faint }} />Export to CSV</button>
-            </div>
           </div>
         </>
       )}
@@ -751,8 +748,14 @@ export default function TicketsView({ manageAction = null }) {
               hrDeptFilter={hrDeptFilter} setHrDeptFilter={setHrDeptFilter} hrDepts={hrDepts}
               serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
             />
+            <button
+              onClick={() => downloadTicketsCsv([...sortedVisible, ...sortedCompleted], nameOf, companyName, hrDeptName)}
+              style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13 }}
+              title="Export the currently filtered tickets to CSV"
+            >
+              <Download size={15} />Export
+            </button>
             <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={saveTicketView} onDelete={(id) => deleteTicketView(id).catch(() => {})}
-              onExport={() => downloadTicketsCsv(tickets, nameOf, companyName, hrDeptName)}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'} />
             {view === 'list' && (
               <TicketColumnsMenu columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={cols} />
