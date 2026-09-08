@@ -1324,7 +1324,7 @@ export function CreateTicketModal({ onClose }) {
   const [form, setForm] = useState(seed?.form || {
     // Opens on the first type offered, read from the order rather than named
     // here, so the two can never drift into a default that isn't in the list.
-    subject: '', description: '', type: TICKET_TYPE_ORDER[0], priority: 'medium', status: 'new',
+    subject: '', description: '', type: TICKET_TYPE_ORDER[0], priority: 'medium', status: 'open',
     requesterId: myEmail || null, hrDepartmentId: '', application: '',
   });
   const [tf, setTf] = useState(seed?.tf || {});   // per-type field values (keyed by field key)
@@ -1846,14 +1846,14 @@ export function TicketDrawer({ ticketId, onClose }) {
   const isAssignee = (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const privileged = myLevel >= 3;
   // Separate from the in_progress/assignee lock above: the moment a ticket
-  // moves off its just-raised "new" status - triaged, worked, resolved,
+  // moves off its just-raised "open" status - triaged, worked, resolved,
   // whatever comes next - the person who raised it goes read-only on every
   // Overview field (Pranshu, Sept 8 2026: a requester editing type/priority/
   // department out from under whoever is already acting on it is exactly the
   // confusion this closes off). Conversation and Attachments stay theirs to
   // use regardless - see the tab bodies below, neither reads this flag.
   // Manager+ is never subject to it, same as every other restriction here.
-  const requesterLocked = isRequester && !privileged && t.status !== 'new';
+  const requesterLocked = isRequester && !privileged && t.status !== 'open';
   const locked = t.status === 'in_progress' && !!t.assigneeId;
   const fullAccess = privileged || (!requesterLocked && (locked ? isAssignee : isRequester));
   // The always-open "working fields" (type/status/priority/assignee/department/

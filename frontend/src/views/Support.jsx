@@ -88,7 +88,7 @@ const STATUS_PILL = {
   resolved:    { cls: 'status-badge status-approved', label: 'Resolved' },
   closed:      { cls: 'status-badge',                label: 'Closed' },
 };
-const pill = (s) => STATUS_PILL[s] || { cls: 'status-badge', label: (s || 'new').replace(/_/g, ' ') };
+const pill = (s) => STATUS_PILL[s] || { cls: 'status-badge', label: (s || 'open').replace(/_/g, ' ') };
 
 export default function Support() {
   const [submitting, setSubmitting] = useState(false);
