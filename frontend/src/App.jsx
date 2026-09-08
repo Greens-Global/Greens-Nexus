@@ -42,6 +42,9 @@ const Purchase            = lazy(() => import("./views/Purchase"));
 const SOP                 = lazy(() => import("./views/SOP"));
 const IT                  = lazy(() => import("./views/IT"));
 const Accounting          = lazy(() => import("./views/Accounting"));
+// /sso/accounting - "Login via Nexus" landing for the accounting app (full-screen
+// layer over the shell; the backend's grant check is the access decision).
+const AccountingHandoff   = lazy(() => import("./views/AccountingHandoff"));
 const Operations          = lazy(() => import("./views/Operations"));
 const FacilityOperations  = lazy(() => import("./views/FacilityOperations"));
 const Development         = lazy(() => import("./views/Development"));
@@ -649,6 +652,11 @@ function MainApp() {
         <GlobalSearch onNavigate={navigate} />
         <PullToRefresh />
         <TaskPrefetch />
+        {activeView === 'sso' && activeSub === 'accounting' && (
+          <Suspense fallback={null}>
+            <AccountingHandoff next={new URLSearchParams(window.location.search).get('next') || undefined} />
+          </Suspense>
+        )}
         {backendDown && (
           <div style={{
             position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,

@@ -932,7 +932,7 @@ export const api = {
     req(`/accounting/reports/pnl?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
   // One-time sign-in URL for accounting.greensglobal.com - Nexus is the only
   // way in there (no passwords). Open the returned url immediately.
-  launchAccounting: () => req("/accounting/launch", { method: "POST" }),
+  launchAccounting: (next) => req(`/accounting/launch${next ? `?next=${encodeURIComponent(next)}` : ""}`, { method: "POST" }),
 
   // Ops
   getOpsProjects: () => req("/ops-projects"),

@@ -70,8 +70,10 @@ async def report_pnl(from_: str = Query(alias="from"), to: str = Query(...), loc
 # caller and mint a one-time handoff link, and the browser opens it. Losing the
 # grant is enforced by accounting_sso.accounting_sso_sync_loop, which posts the
 # full list of grant holders every few minutes so the accounting app can
-# deactivate anyone who dropped off it. Nexus owner-level grant -> accounting
-# "admin"; any lower grant -> "member".
+# deactivate anyone who dropped off it. The grant is its own module,
+# "accounting-app" ("Nexus Accounting App" in Roles & Access), separate from
+# the read-only Accounting screen in Nexus. Full/owner level -> accounting
+# "admin"; viewer/editor -> "member".
 from sqlalchemy.orm import Session
 from auth import _module_level, _LEVELS, _MODULE_LEVEL_RANK
 from database import get_db
@@ -108,13 +110,13 @@ def _display_name(email: str, db: Session) -> str:
 
 def accounting_role_for(user: dict, db: Session) -> str:
     """Map the caller's Nexus standing onto the accounting app's role."""
-    if user["level"] >= _LEVELS["administrator"] or _module_level(user["email"], "accounting", db) >= _MODULE_LEVEL_RANK["owner"]:
+    if user["level"] >= _LEVELS["administrator"] or _module_level(user["email"], "accounting-app", db) >= _MODULE_LEVEL_RANK["full"]:
         return "admin"
     return "member"
 
 
 @router.post("/launch")
-async def launch_accounting(user: dict = Depends(require_module_grant("accounting", "viewer")), db: Session = Depends(get_db)):
+async def launch_accounting(next: str | None = None, user: dict = Depends(require_module_grant("accounting-app", "viewer")), db: Session = Depends(get_db)):
     """Provision the caller in the accounting app and return a one-time URL that
     signs them in there. The URL is single-use and short-lived; the browser
     must open it immediately."""
@@ -125,5 +127,7 @@ async def launch_accounting(user: dict = Depends(require_module_grant("accountin
         "full_name": _display_name(user["email"], db),
         "role": accounting_role_for(user, db),
     }
+    if next and next.startswith("/") and not next.startswith("//"):
+        payload["next"] = next
     data = await asyncio.to_thread(_acct_post_sync, "/api/internal/sso/launch", payload)
     return {"url": data["url"], "role": payload["role"]}
