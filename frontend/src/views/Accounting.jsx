@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, DollarSign, Scale, ExternalLink, Loader2 } from 'lucide-react';
 import { api } from '../api';
+import { useRole } from '../contexts/RoleContext';
 import ModuleTabs from '../components/ModuleTabs';
 import PnlReport from '../components/accounting/PnlReport';
 
@@ -21,6 +22,10 @@ const usd = (n) => n == null ? '-' : `$${Math.abs(n) >= 1e6 ? `${(n / 1e6).toFix
 
 export default function Accounting({ activeSub, onSubChange }) {
   const sub = TABS.some((t) => t.key === activeSub) ? activeSub : 'pnl';
+  // The accounting app is its own grant ("Nexus Accounting App" in Roles &
+  // Access); seeing this screen does not imply it. Administrators bypass.
+  const { canAccessModule } = useRole();
+  const canOpenApp = canAccessModule('accounting-app', 'administrator', 'viewer');
 
   // Year-to-date headline numbers for the KPI cards. The Profit & Loss tab
   // does its own range-driven fetch; this one is fixed to the calendar year so
@@ -67,10 +72,16 @@ export default function Accounting({ activeSub, onSubChange }) {
           <p>Financial reports from the Nexus Accounting ledger</p>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-          <button type="button" className="primary-btn" onClick={openAccounting} disabled={launching}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            {launching ? <Loader2 size={16} className="spin" /> : <ExternalLink size={16} />} Open Nexus Accounting
-          </button>
+          {canOpenApp ? (
+            <button type="button" className="primary-btn" onClick={openAccounting} disabled={launching}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              {launching ? <Loader2 size={16} className="spin" /> : <ExternalLink size={16} />} Open Nexus Accounting
+            </button>
+          ) : (
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: 280, textAlign: 'right' }}>
+              The Nexus Accounting app is granted separately in Roles &amp; Access.
+            </span>
+          )}
           {launchError && <span style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{launchError}</span>}
         </div>
       </div>

@@ -19,8 +19,8 @@ SYNC_EVERY_SEC = 10 * 60
 
 
 def qualifying_emails() -> list[str]:
-    """Everyone who can open Accounting in Nexus: any group grant on the
-    'accounting' module at any level, plus administrator/owner roles (they
+    """Everyone who may open the accounting app: any group grant on the
+    'accounting-app' module at any level, plus administrator/owner roles (they
     bypass module grants everywhere, so they must also be able to launch)."""
     from database import SessionLocal
     from auth import _LEVELS
@@ -32,7 +32,7 @@ def qualifying_emails() -> list[str]:
         rows = (
             db.query(models.NexusGroupMember.email)
             .join(models.NexusGroup, models.NexusGroup.id == models.NexusGroupMember.group_id)
-            .filter(models.NexusGroup.allowed_modules.like("%accounting:%"))
+            .filter(models.NexusGroup.allowed_modules.like("%accounting-app:%"))
             .all()
         )
         emails.update(e.lower() for (e,) in rows if e)

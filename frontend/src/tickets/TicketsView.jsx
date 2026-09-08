@@ -15,6 +15,7 @@ import { filesFromPaste, richBodyHtml } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { takePendingOpen, setPendingOpen } from '../lib/pendingOpen';
 import { supabase } from '../lib/supabase';
+import { formatDateTime } from '../lib/datetime';
 import { startScreenRecording, primeReturnCue } from '../lib/screenRecorder';
 import {
   stashDraft, appendDraftFile, takeDraft, peekDraft, setDraftUiMounted, finishRecording,
@@ -1786,6 +1787,13 @@ export function TicketDrawer({ ticketId, onClose }) {
   // requester deleting it out from under them is exactly the kind of change
   // this lock exists to prevent.
   const canDelete = privileged || (!requesterLocked && isRequester);
+  // Escalate is normally a canWorking action - locked out for the requester
+  // along with everything else once requesterLocked. The one exception: if
+  // the SLA has actually been breached, the requester needs a way to flag
+  // that even on a ticket they otherwise can't touch (Pranshu, Sept 8 2026) -
+  // Escalate itself doesn't edit a field, it bumps priority and pings the
+  // assignee/watchers/managers, so it's safe to carve out on its own.
+  const canEscalate = canWorking || (requesterLocked && slaState(t) === 'breached');
 
   const patch = (p) => updateTicket(t.id, p).catch((e) => alert(`Could not update ticket: ${e.message || e}`));
   const escalate = () => escalateTicket(t.id).catch((e) => alert(`Could not escalate: ${e.message || e}`));
@@ -1827,8 +1835,11 @@ export function TicketDrawer({ ticketId, onClose }) {
         {canDelete && (
           <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
         )}
-        {canWorking && t.priority !== 'urgent' && !CLOSED_STATES.includes(t.status) && (
-          <button style={{ ...btn('outline'), color: NX.amber }} onClick={escalate} title="Bump priority and alert the assignee, watchers and managers"><ArrowUp size={14} /> Escalate</button>
+        {canEscalate && t.priority !== 'urgent' && !CLOSED_STATES.includes(t.status) && (
+          <button style={{ ...btn('outline'), color: NX.amber }} onClick={escalate}
+            title={requesterLocked ? 'This ticket has missed its SLA - escalate it to get attention' : 'Bump priority and alert the assignee, watchers and managers'}>
+            <ArrowUp size={14} /> Escalate
+          </button>
         )}
         {!CLOSED_STATES.includes(t.status) ? (
           canWorking && (
@@ -2054,7 +2065,7 @@ export function TicketDrawer({ ticketId, onClose }) {
         </>)}
         {tab === 'conversation' && <TicketConversation ticketId={t.id} nameOf={nameOf} />}
         {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} />}
-        {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} />}
+        {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
       </div>
     </Modal>
   );
@@ -2654,22 +2665,91 @@ function TicketAttachments({ ticketId, ticketType }) {
   );
 }
 
+// The field key from a "created" snapshot's typeFields (see _ticket_snapshot
+// in backend/routers/tickets.py) back to its question definition, so the
+// snapshot can use the SAME label the Overview tab shows for that field
+// today - checked against the type's own fields first, then every service
+// question (an app/type re-pick since then can leave a key that no longer
+// belongs to either, but the snapshot must still show what was asked at the
+// time), falling back to the raw key if nothing matches at all.
+function auditFieldDef(type, key) {
+  return (TYPE_FIELDS[type] || []).find((f) => f.key === key)
+    || Object.values(SERVICE_FIELDS).flat().find((f) => f.key === key)
+    || { key, label: key, type: 'text' };
+}
+
+// The original submission, exactly as raised - see _ticket_snapshot on the
+// backend. A permanent, un-editable audit copy: if a requester's mistake in
+// any of these gets corrected later, this card is the proof of what the
+// ticket originally said (Pranshu, Sept 8 2026).
+function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
+  const rows = [
+    ['Type', TICKET_TYPE_META[snapshot.type]?.label || snapshot.type || '-'],
+    ['Priority', PRIORITY_META[snapshot.priority]?.label || snapshot.priority || '-'],
+    ['Application', snapshot.application || '-'],
+    ['Service Area', serviceAreaLabel(snapshot.serviceArea) || '-'],
+    ['Department', allDepts.find((d) => d.id === snapshot.hrDepartmentId)?.name || '-'],
+    ['Company', companies.find((c) => c.id === snapshot.companyId)?.name || '-'],
+  ];
+  const tfKeys = Object.keys(snapshot.typeFields || {});
+  return (
+    <div style={{ border: `1px dashed ${NX.border}`, borderRadius: 10, padding: 12, background: NX.surface2 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: NX.dim, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <ClipboardList size={13} /> Original request (unedited)
+      </div>
+      <div style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink, marginBottom: 4 }}>{snapshot.subject || '-'}</div>
+      {snapshot.description && <p style={{ margin: '0 0 10px', fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{snapshot.description}</p>}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: 12.5 }}>
+        {rows.map(([k, v]) => (
+          <div key={k}><span style={{ color: NX.faint }}>{k}: </span><span style={{ color: NX.ink }}>{v}</span></div>
+        ))}
+        {tfKeys.map((k) => {
+          const f = auditFieldDef(snapshot.type, k);
+          return (
+            <div key={k}><span style={{ color: NX.faint }}>{f.label}: </span><span style={{ color: NX.ink }}>{readOnlyFieldValue(f, snapshot.typeFields[k], nameOf)}</span></div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Activity log ─────────────────────────────────────────────────────────────
-function TicketActivity({ ticketId, nameOf }) {
+// Server-side already drops the notification/auto-close "system" bookkeeping
+// (ticket_notify.py) before this ever sees it - what's left is exactly the
+// "who changed what, when" trail the ticket asks for: status/priority/
+// assignee moves, field corrections (subject/description/department/
+// application/service area/resolution/type-specific answers), comments,
+// attachments and approvals, each with a real actor and timestamp. The
+// "created" entry is the one exception - rendered as the original-submission
+// audit card above, not a one-line "created this ticket".
+function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
   const [rows, setRows] = useState(null);
   useEffect(() => { api.getTicketActivity(ticketId).then(setRows).catch(() => setRows([])); }, [ticketId]);
   if (rows === null) return <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>;
   if (rows.length === 0) return <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No activity yet.</div>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {rows.map((a) => (
-        <div key={a.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
-          <Avatar email={a.actorId} name={nameOf(a.actorId)} size={22} />
-          <span style={{ color: NX.ink, fontWeight: 600 }}>{nameOf(a.actorId) || a.actorId || 'Someone'}</span>
-          <span style={{ color: NX.dim }}>{a.detail}</span>
-          <span style={{ color: NX.faint, marginLeft: 'auto', fontSize: 11 }}>{fmtDate(a.at)}</span>
-        </div>
-      ))}
+      {rows.map((a) => {
+        // A row logged before this snapshot existed just has the old plain
+        // "created this ticket" text - shown as a normal line rather than a
+        // broken card when it isn't valid JSON.
+        let snapshot = null;
+        if (a.type === 'created') {
+          try { snapshot = JSON.parse(a.detail); } catch { /* pre-existing plain-text row */ }
+        }
+        return (
+          <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+              <Avatar email={a.actorId} name={nameOf(a.actorId)} size={22} />
+              <span style={{ color: NX.ink, fontWeight: 600 }}>{nameOf(a.actorId) || a.actorId || 'Someone'}</span>
+              <span style={{ color: NX.dim }}>{snapshot ? 'created this ticket' : a.detail}</span>
+              <span style={{ color: NX.faint, marginLeft: 'auto', fontSize: 11, whiteSpace: 'nowrap' }}>{formatDateTime(a.at)}</span>
+            </div>
+            {snapshot && <CreatedSnapshotCard snapshot={snapshot} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
+          </div>
+        );
+      })}
     </div>
   );
 }

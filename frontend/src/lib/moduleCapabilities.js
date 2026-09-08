@@ -31,10 +31,19 @@ export const MODULE_CAPABILITIES = {
     owner:  'Full item control, plus manage access to the module.',
   },
   accounting: {
-    viewer: 'View transactions, invoices, budgets and reports.',
-    editor: 'Create and edit transactions, invoices and budgets.',
-    full:   'Also delete records and manage vendors / imports.',
-    owner:  'Full accounting access, plus manage who else can use it.',
+    viewer: 'See the Accounting screen in Nexus: Profit & Loss and the ledger reports.',
+    editor: 'Same as Viewer - the Nexus screen is read-only reporting.',
+    full:   'Same as Viewer - the Nexus screen is read-only reporting.',
+    owner:  'Reports in Nexus, plus manage who else can see them.',
+  },
+  // The separate accounting app at accounting.greensglobal.com. Nexus is its
+  // only login: this grant is what lets "Login via Nexus" succeed, and losing
+  // it deactivates the person there within ten minutes.
+  'accounting-app': {
+    viewer: 'Open Nexus Accounting and view the books, ledgers and reports.',
+    editor: 'Also record entries, invoices and bills in Nexus Accounting.',
+    full:   'Accounting admin in Nexus Accounting: setup, imports, all records.',
+    owner:  'Accounting admin, plus manage who else can open the app.',
   },
   documents: {
     viewer: 'View documents and sign ones sent to them.',
