@@ -11,12 +11,25 @@
 
 let _draft = null;        // { form, tf, attachments: File[], resume: bool }
 let _uiMounted = false;   // is a CreateTicketModal currently mounted?
+let _openTicketId = null; // ticketId of the currently-mounted TicketDrawer, if any
 
 export function stashDraft(d) { _draft = { ...d, resume: false }; }
 export function appendDraftFile(f) { if (_draft) _draft.attachments = [...(_draft.attachments || []), f]; }
 export function takeDraft() { const d = _draft; _draft = null; return d; }
 export function peekDraft() { return _draft; }
 export function setDraftUiMounted(v) { _uiMounted = v; }
+
+// Same "is the UI still here" question as _uiMounted, but for an EXISTING
+// ticket's drawer rather than the create form: a recording started from the
+// Attachments tab needs to know, on Stop, whether that exact ticket is still
+// on screen (nothing to do - the tab's own reload() picks up the upload) or
+// whether the person navigated away (the app needs to bring them back to it).
+export function setOpenTicketId(id) { _openTicketId = id; }
+// Clears only if still pointing at `id` - drawer A's unmount cleanup must not
+// clobber drawer B's id when switching directly from one ticket to another
+// (B's mount effect can run before A's cleanup).
+export function clearOpenTicketId(id) { if (_openTicketId === id) _openTicketId = null; }
+export function isTicketDrawerOpen(id) { return !!id && _openTicketId === id; }
 
 /** Recording ended (stop, cancel, or the browser's own Stop-sharing chip).
  *  If the create form is still mounted it simply reappears - live state is
