@@ -5,8 +5,8 @@
 // and theme still come from ../tasks - so the task module itself is untouched.
 // Ticket statuses get their own color map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Loader2, Play } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Loader2, Play } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
@@ -25,6 +25,7 @@ import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER
 import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
+import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
 import {
   fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
@@ -47,21 +48,28 @@ const TICKET_VIEW_TABS = [
 
 // Desktop list-view column layout - the single source of truth for widths,
 // labels and sort keys, shared by the header (labels + drag handles + sort
-// arrows) and every row (fixed-width cells). `sort` pulls the comparable value
-// off a ticket; `ctx` ({ nameOf, companyName }) is threaded in from TicketsView
-// for the lookup-backed columns.
+// arrows) and every row. `sort` pulls the comparable value off a ticket; `ctx`
+// ({ nameOf, companyName }) is threaded in from TicketsView for the
+// lookup-backed columns. Order/widths themselves are no longer state on this
+// component - useTableColumns (tasks/tableCols.jsx, the same drag-to-reorder/
+// resize kit the Task List uses) owns them, persisted to the user's profile
+// under table:"tickets" so an arrangement follows them between devices.
+// checkbox/type/resolved are `fixed`: structure, not data - they never move.
 const TICKET_COLUMNS = [
-  { key: 'title', label: 'Title', defaultWidth: 260, minWidth: 160, sort: (t) => (t.subject || '').toLowerCase() },
-  { key: 'company', label: 'Company', defaultWidth: 130, minWidth: 90, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
+  { key: 'checkbox', label: '', width: 34, fixed: true },
+  { key: 'type', label: '', width: 34, fixed: true },
+  { key: 'title', label: 'Title', width: 260, sort: (t) => (t.subject || '').toLowerCase() },
+  { key: 'company', label: 'Company', width: 130, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
   // State and Priority each carry a second chip when a ticket needs it
   // (Awaiting approval / SLA breached), so they're sized for the pair - at 150
   // the pair ran past the column and painted over the one after it.
-  { key: 'state', label: 'State', defaultWidth: 180, minWidth: 110, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
-  { key: 'priority', label: 'Priority', defaultWidth: 180, minWidth: 110, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
-  { key: 'due', label: 'Due Date', defaultWidth: 110, minWidth: 80, sort: (t) => t.slaDueOn || '' },
-  { key: 'requester', label: 'Requester', defaultWidth: 150, minWidth: 100, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
-  { key: 'assignee', label: 'Assigned To', defaultWidth: 150, minWidth: 100, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
-  { key: 'created', label: 'Created Date', defaultWidth: 110, minWidth: 80, sort: (t) => t.createdAt || '' },
+  { key: 'state', label: 'State', width: 180, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
+  { key: 'priority', label: 'Priority', width: 180, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
+  { key: 'due', label: 'Due Date', width: 110, sort: (t) => t.slaDueOn || '' },
+  { key: 'requester', label: 'Requester', width: 150, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
+  { key: 'assignee', label: 'Assigned To', width: 150, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
+  { key: 'created', label: 'Created Date', width: 110, sort: (t) => t.createdAt || '' },
+  { key: 'resolved', label: '', width: 24, fixed: true },
 ];
 // ── Applications ─────────────────────────────────────────────────────────────
 // The app a ticket is about comes from the External Links directory - the
@@ -174,9 +182,6 @@ const statusFilterOptions = () => [['all', 'All statuses'], ['open', 'Open (not 
   ['unassigned', 'Unassigned'], ...statusOptions()];
 const serviceAreaOptions = () => SERVICE_AREAS.map((a) => [a.key, a.label]);
 const groupByOptions = () => GROUP_BY_OPTIONS.map((g) => [g.key, g.label]);
-
-const TICKET_COL_WIDTHS_KEY = 'nx-ticket-col-widths-v2';
-const defaultTicketColWidths = () => Object.fromEntries(TICKET_COLUMNS.map((c) => [c.key, c.defaultWidth]));
 
 // Export - same client-side CSV pattern as the task module's own report export
 // (tasks/ManageView.jsx downloadCSV): a BOM'd CSV blob opens cleanly in Excel,
@@ -330,7 +335,7 @@ function TicketFilterMenu({
 
 // One overflow menu for every occasional control - saved views, group-by,
 // export - so the toolbar stays search + Filters + More (owner call, Jul 28).
-function MoreMenu({ views, onApply, onSave, onDelete, onExport, groupBy, setGroupBy, showGroup }) {
+function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showGroup }) {
   const [open, setOpen] = useState(false);
   const item = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, color: NX.ink, textAlign: 'left' };
   const sectionLabel = { padding: '8px 12px 4px', fontSize: 12, fontWeight: 600, color: NX.dim };
@@ -363,11 +368,47 @@ function MoreMenu({ views, onApply, onSave, onDelete, onExport, groupBy, setGrou
               </div>
             ))}
             <button onClick={() => { onSave(); setOpen(false); }} style={{ ...item, color: NX.blue, fontWeight: 600 }}><Plus size={14} />Save current view…</button>
-            <div style={{ borderTop: `1px solid ${NX.border2}` }}>
-              <button onClick={() => { onExport(); setOpen(false); }} style={item}><Download size={14} style={{ color: NX.faint }} />Export to CSV</button>
-            </div>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// Show/hide which non-fixed columns render in the desktop List table. `cols`
+// is the hook's already-filtered/ordered list (what's on screen right now),
+// used only to count how many data columns are currently visible - hiding
+// the last one would leave the table with nothing but the checkbox/type/
+// resolved gutters, so that one stays checked and disabled.
+function TicketColumnsMenu({ columns, hidden, toggleHidden, cols }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useClickOutside(ref, () => setOpen(false), open);
+  const hideable = columns.filter((c) => !c.fixed);
+  const visibleCount = cols.filter((c) => !c.fixed).length;
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button onClick={() => setOpen((o) => !o)} title="Customize columns" style={btn('outline')}>
+        <Columns3 size={15} /> Customize
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, padding: 8 }}>
+          <div style={{ padding: '4px 6px 8px', fontSize: 12, fontWeight: 600, color: NX.dim }}>Show columns</div>
+          {hideable.map((c) => {
+            const checked = !hidden.includes(c.key);
+            const lastOne = checked && visibleCount <= 1;
+            return (
+              <label key={c.key} style={{
+                display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 6px',
+                borderRadius: 6, cursor: lastOne ? 'default' : 'pointer', fontSize: 13, color: NX.ink,
+              }}>
+                <input type="checkbox" checked={checked} disabled={lastOne}
+                  onChange={() => toggleHidden(c.key)} />
+                {c.label}
+              </label>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -477,34 +518,28 @@ export default function TicketsView({ manageAction = null }) {
     return () => window.removeEventListener('nexus:open-ticket', openTicket);
   }, []);
 
-  // Column widths (list view) - persisted so a resize survives a reload.
-  const [colWidths, setColWidths] = useState(() => {
-    try { return { ...defaultTicketColWidths(), ...JSON.parse(localStorage.getItem(TICKET_COL_WIDTHS_KEY) || '{}') }; }
-    catch { return defaultTicketColWidths(); }
+  // Column order/widths - the same drag-to-reorder/resize kit the Task List
+  // uses (tasks/tableCols.jsx), persisted to the user's profile under
+  // table:"tickets" rather than a one-off localStorage key, so an arrangement
+  // follows them to another device. Requester drops out of the underlying
+  // column set entirely on My Requests (rather than being hidden per-row), so
+  // the grid template - and the reorder/resize state - never has to know about it.
+  const columnDefs = useMemo(
+    () => TICKET_COLUMNS.filter((c) => !(scope === 'mine' && c.key === 'requester')),
+    [scope],
+  );
+  const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps, hidden, toggleHidden } = useTableColumns({
+    table: 'tickets', cols: columnDefs,
   });
-  useEffect(() => {
-    try { localStorage.setItem(TICKET_COL_WIDTHS_KEY, JSON.stringify(colWidths)); } catch { /* storage unavailable */ }
-  }, [colWidths]);
-  // Drag-to-resize: tracked outside React state (mousemove fires fast) and only
-  // committed to colWidths per-frame; cleans up its own listeners on mouseup.
-  const startColResize = (e, key, minWidth) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = colWidths[key];
-    const prevUserSelect = document.body.style.userSelect;
-    document.body.style.userSelect = 'none';
-    const onMove = (ev) => {
-      const next = Math.max(minWidth, startWidth + (ev.clientX - startX));
-      setColWidths((prev) => ({ ...prev, [key]: next }));
-    };
-    const onUp = () => {
-      document.body.style.userSelect = prevUserSelect;
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  };
+  // Completed tickets (resolved/closed) collapse into their own section below
+  // the main list by default (Pranshu, Sept 8 2026) rather than sitting inline
+  // with the work still in flight. Same per-table settings document as the
+  // column arrangement, so it also follows the person between devices.
+  const [collapsedList, setCollapsedList] = useTableSetting('tickets', 'collapsed', ['completed']);
+  const completedCollapsed = collapsedList.includes('completed');
+  const toggleCompleted = () => setCollapsedList(
+    completedCollapsed ? collapsedList.filter((k) => k !== 'completed') : [...collapsedList, 'completed'],
+  );
 
   // Column sort - click a header to sort by it, click again to flip direction.
   const [sort, setSort] = useState({ key: 'created', dir: 'desc' });
@@ -569,18 +604,31 @@ export default function TicketsView({ manageAction = null }) {
   }, [tickets, scope, myEmail, search, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, serviceAreaFilter, approvalCount]);
 
   // List-view sort - applied before grouping so it holds within each bucket too.
-  const sortedVisible = useMemo(() => {
+  const sortTickets = useCallback((list) => {
     const col = TICKET_COLUMNS.find((c) => c.key === sort.key);
-    if (!col) return visible;
+    if (!col?.sort) return list;
     const ctx = { nameOf, companyName };
     const dir = sort.dir === 'asc' ? 1 : -1;
-    return [...visible].sort((a, b) => {
+    return [...list].sort((a, b) => {
       const av = col.sort(a, ctx); const bv = col.sort(b, ctx);
       if (av < bv) return -1 * dir;
       if (av > bv) return 1 * dir;
       return 0;
     });
-  }, [visible, sort, nameOf, companies]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sort, nameOf, companies]);
+
+  // Completed (resolved/closed) tickets never sit inline with the ones still in
+  // flight - they collapse into their own section at the bottom (see
+  // toggleCompleted above). The one exception: someone who has explicitly
+  // filtered down to exactly Resolved or Closed asked to SEE those tickets, so
+  // hiding them behind a collapsed toggle would bury the very thing they asked
+  // for - the partition is skipped and they render as the main (only) list.
+  const statusFilterIsClosedOnly = statusFilter === 'resolved' || statusFilter === 'closed';
+  const mainVisible = statusFilterIsClosedOnly ? visible : visible.filter((t) => !CLOSED_STATES.includes(t.status));
+  const completedVisible = statusFilterIsClosedOnly ? [] : visible.filter((t) => CLOSED_STATES.includes(t.status));
+  const sortedVisible = useMemo(() => sortTickets(mainVisible), [mainVisible, sortTickets]);
+  const sortedCompleted = useMemo(() => sortTickets(completedVisible), [completedVisible, sortTickets]);
 
   // Grouped sections for the list view.
   const groups = useMemo(() => {
@@ -700,9 +748,18 @@ export default function TicketsView({ manageAction = null }) {
               hrDeptFilter={hrDeptFilter} setHrDeptFilter={setHrDeptFilter} hrDepts={hrDepts}
               serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
             />
+            <button
+              onClick={() => downloadTicketsCsv([...sortedVisible, ...sortedCompleted], nameOf, companyName, hrDeptName)}
+              style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13 }}
+              title="Export the currently filtered tickets to CSV"
+            >
+              <Download size={15} />Export
+            </button>
             <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={saveTicketView} onDelete={(id) => deleteTicketView(id).catch(() => {})}
-              onExport={() => downloadTicketsCsv(tickets, nameOf, companyName, hrDeptName)}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'} />
+            {view === 'list' && (
+              <TicketColumnsMenu columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={cols} />
+            )}
           </div>
         </div>
       )}
@@ -745,7 +802,12 @@ export default function TicketsView({ manageAction = null }) {
             {tile('Open', 'rgba(9,152,195,0.14)', '#0998c3', openCount, 'not yet resolved',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'open' ? 'all' : 'open'); },
               statusFilter === 'open')}
-            {tile('Unassigned', 'rgba(124,58,237,0.14)', '#7c3aed', unassignedCount, 'nobody working them',
+            {/* Red once there's actually a backlog - purple read as "just an
+                info card" and nobody's eye caught it climbing (Pranshu, Sept
+                8 2026). Same red the SLA-breached tile uses, so red already
+                means one thing across this row: something needs a person. */}
+            {tile('Unassigned', unassignedCount > 0 ? 'rgba(220,38,38,0.12)' : 'rgba(124,58,237,0.14)',
+              unassignedCount > 0 ? NX.red : '#7c3aed', unassignedCount, 'nobody working them',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
               statusFilter === 'unassigned')}
             {itAdmin && tile('To assign', 'rgba(217,119,6,0.15)', NX.amber, triageCount, 'waiting for triage',
@@ -772,7 +834,7 @@ export default function TicketsView({ manageAction = null }) {
         ) : visible.length === 0 ? (
           <EmptyState icon={TicketToken} title="No Tickets" hint={tickets.length ? 'No tickets match your filters.' : 'Raise a ticket to get started.'} />
         ) : isMobile ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: groupBy === 'none' ? 0 : 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {groups.map((g) => (
               <div key={g.key} className="nx-edge-card" style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
                 {groupBy !== 'none' && (
@@ -782,11 +844,30 @@ export default function TicketsView({ manageAction = null }) {
                 )}
                 {g.rows.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
-                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} colWidths={colWidths} band={idx % 2 === 1} />
+                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
                 ))}
                 {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
               </div>
             ))}
+            {/* Resolved/closed tickets collapse into their own section instead of
+                sitting inline with the ones still in flight - see toggleCompleted. */}
+            {sortedCompleted.length > 0 && (
+              <div className="nx-edge-card" style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
+                <button onClick={toggleCompleted} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 16px', background: NX.surface2,
+                  border: 'none', borderBottom: completedCollapsed ? 'none' : `1px solid ${NX.border2}`, cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
+                }}>
+                  <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0, transform: completedCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>Completed</span>
+                  <span style={{ fontSize: 12, color: NX.faint, fontWeight: 400 }}>{sortedCompleted.length}</span>
+                </button>
+                {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
+                  <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
+                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
+                ))}
+                {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
+              </div>
+            )}
           </div>
         ) : (
           // Desktop - copies the task module's RichListView structure exactly:
@@ -794,10 +875,13 @@ export default function TicketsView({ manageAction = null }) {
           // Tasks uses) so a wide/resized table scrolls horizontally as a single
           // block - header and rows are plain sibling content, not separately
           // scrolled regions, so there's no way for them to drift out of sync.
+          // wrapRef + the --nx-grid custom property are useTableColumns' - every
+          // header/row inside reads the SAME template, so a resize or a
+          // drag-reorder repaints the whole grid with zero React re-renders.
           <div className="nx-list-scroll" style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface }}>
-            <div style={{ minWidth: 'fit-content' }}>
-              <TicketListHeader colWidths={colWidths} onResize={startColResize} sort={sort} onSort={onSort}
-                allSelected={allSelected} someSelected={someSelected} onToggleSelectAll={toggleSelectAll} hideRequester={scope === 'mine'} />
+            <div ref={wrapRef} style={{ minWidth: 'fit-content', '--nx-grid': template }}>
+              <TicketListHeader cols={cols} widths={widths} startResize={startResize} resetWidth={resetWidth} autofitWidth={autofitWidth}
+                dragProps={dragProps} sort={sort} onSort={onSort} allSelected={allSelected} someSelected={someSelected} onToggleSelectAll={toggleSelectAll} />
               {groups.map((g) => (
                 <div key={g.key}>
                   {groupBy !== 'none' && (
@@ -810,11 +894,32 @@ export default function TicketsView({ manageAction = null }) {
                       the Created Date column on a wide screen. */}
                   {g.rows.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
-                      checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} colWidths={colWidths} hideRequester={scope === 'mine'} band={idx % 2 === 1} />
+                      checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
                 </div>
               ))}
+              {/* Resolved/closed tickets collapse into their own section instead
+                  of sitting inline with the ones still in flight (Pranshu, Sept
+                  8 2026) - see toggleCompleted/collapsedList above. */}
+              {sortedCompleted.length > 0 && (
+                <div>
+                  <button onClick={toggleCompleted} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 16px', background: NX.surface2,
+                    border: 'none', borderTop: `1px solid ${NX.border}`, borderBottom: completedCollapsed ? 'none' : `1px solid ${NX.border2}`,
+                    cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
+                  }}>
+                    <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0, transform: completedCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>Completed</span>
+                    <span style={{ fontSize: 12, color: NX.faint, fontWeight: 400 }}>{sortedCompleted.length}</span>
+                  </button>
+                  {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
+                    <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
+                      checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
+                  ))}
+                  {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -869,59 +974,58 @@ export default function TicketsView({ manageAction = null }) {
   );
 }
 
-// Column header for the desktop list view - driven by TICKET_COLUMNS so widths,
-// labels and sort keys stay in one place. Each cell is click-to-sort and carries
-// a drag handle on its trailing edge to resize; widths live in TicketsView state
-// so TicketRow's cells stay in lockstep. Renders as a normal sibling of the row
-// groups inside the shared .nx-list-scroll shell - scrolls vertically and
-// horizontally with the rows, same as the task module's list header.
-// Fixed-width leading cells (checkbox, type icon) and the row's overall
-// minimum height - shared by the header and every row so the two stay in
-// lockstep, the same contract the task list's rich-list grid uses (BASE_COLS
-// + cellPad in tasks/views/richlist.jsx).
-const TICKET_LEAD_W = 34;   // checkbox
-const TICKET_ICON_W = 34;   // type icon
+// Column header for the desktop list view - driven by TICKET_COLUMNS/cols so
+// widths, labels and sort keys stay in one place. Each movable cell is
+// click-to-sort, drag-to-reorder (useTableColumns' dragProps) and carries a
+// resize handle on its trailing edge; checkbox/type/resolved are `fixed` and
+// render a blank (or the select-all checkbox) header cell instead. Renders as
+// a CSS grid using the shared --nx-grid template, so it lines up with every
+// row without either one tracking the other's widths directly - the same
+// contract the task list's rich-list grid uses (tasks/views/richlist.jsx).
 const TICKET_ROW_H = 44;    // tall enough for the two-line title cell
 
-function TicketListHeader({ colWidths, onResize, sort, onSort, allSelected, someSelected, onToggleSelectAll, hideRequester }) {
+function TicketListHeader({ cols, widths, startResize, resetWidth, autofitWidth, dragProps, sort, onSort, allSelected, someSelected, onToggleSelectAll }) {
   // Checkbox "indeterminate" (some but not all selected) isn't settable via a
   // JSX prop - it's a DOM-only flag, so it's applied imperatively via a ref.
   const selectAllRef = useRef(null);
   useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = !!someSelected; }, [someSelected]);
+  const headCell = { position: 'relative', display: 'flex', alignItems: 'center', minHeight: 34, padding: '0 10px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
   return (
-    <div style={{
-      display: 'flex', alignItems: 'stretch', flexShrink: 0,
-      background: NX.surface2, borderBottom: `1px solid ${NX.border}`,
-    }}>
-      <div style={{ width: TICKET_LEAD_W, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: `1px solid ${NX.border2}` }}>
-        <input ref={selectAllRef} type="checkbox" checked={!!allSelected} onChange={onToggleSelectAll}
-          title={allSelected ? 'Deselect all' : 'Select all'} style={{ cursor: 'pointer', width: 15, height: 15, margin: 0, accentColor: NX.blue }} />
-      </div>
-      <span style={{ width: TICKET_ICON_W, flexShrink: 0, borderRight: `1px solid ${NX.border2}` }} />
-      {TICKET_COLUMNS.filter((col) => !(hideRequester && col.key === 'requester')).map((col) => {
+    <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', padding: '9px 0', background: NX.surface2, borderBottom: `1px solid ${NX.border}` }}>
+      {cols.map((col) => {
+        if (col.key === 'checkbox') {
+          return (
+            <div key="checkbox" style={{ ...headCell, justifyContent: 'center' }}>
+              <input ref={selectAllRef} type="checkbox" checked={!!allSelected} onChange={onToggleSelectAll}
+                title={allSelected ? 'Deselect all' : 'Select all'} style={{ cursor: 'pointer', width: 15, height: 15, margin: 0, accentColor: NX.blue }} />
+            </div>
+          );
+        }
+        // type/resolved are fixed, label-less structure columns - a blank cell
+        // keeps the grid template in step without offering anything to drag/sort.
+        if (col.fixed) return <div key={col.key} style={headCell} />;
+        const drag = dragProps(col.key, true);
         const active = sort.key === col.key;
         const SortIcon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
         return (
-          <div key={col.key} style={{
-            position: 'relative', flex: `0 0 ${colWidths[col.key]}px`, minWidth: 0, display: 'flex', alignItems: 'center',
-            justifyContent: 'flex-start', padding: '9px 12px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box',
-          }}>
-            <button onClick={() => onSort(col.key)} title={`Sort by ${col.label}`} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4, background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-              fontFamily: FONT, fontSize: 11, fontWeight: 700, color: NX.ink,
-              textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', minWidth: 0,
+          <div key={col.key} {...drag} onClick={() => onSort(col.key)} title={`Sort by ${col.label}`}
+            style={{
+              ...headCell, cursor: 'pointer', userSelect: 'none',
+              // The column being dragged fades; the one it would land on shows
+              // the insertion edge, so a drop reads as "it goes there" before
+              // the mouse is released - same cue the Task List's drag uses.
+              opacity: drag['data-dragging'] ? 0.4 : 1,
+              boxShadow: drag['data-dropping'] ? `inset 2px 0 0 ${NX.blue}` : 'none',
             }}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
-              <SortIcon size={11} style={{ flexShrink: 0, opacity: active ? 1 : 0.4 }} />
-            </button>
-            {/* Wide invisible strip so the grip is easy to grab; the border above
-                is the only visible trace, matching the task list's cell dividers. */}
-            <div onMouseDown={(e) => onResize(e, col.key, col.minWidth)} title="Drag to resize"
-              style={{ position: 'absolute', top: 0, bottom: 0, right: -7, width: 14, cursor: 'col-resize', zIndex: 1 }} />
+            <span style={{
+              flex: 1, minWidth: 0, fontFamily: FONT, fontSize: 11, fontWeight: 700, color: NX.ink,
+              textTransform: 'uppercase', letterSpacing: '0.04em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{col.label}</span>
+            <SortIcon size={11} style={{ flexShrink: 0, marginLeft: 4, opacity: active ? 1 : 0.4 }} />
+            <ColResizer onMouseDown={startResize(col.key, widths[col.key] ?? col.width)} onReset={() => resetWidth(col.key)} onAutofit={() => autofitWidth(col.key)} />
           </div>
         );
       })}
-      <span style={{ width: 24, flexShrink: 0 }} />
     </div>
   );
 }
@@ -949,7 +1053,7 @@ function SolidCellPair({ primaryLabel, primaryColor, secondaryLabel, secondaryCo
   );
 }
 
-function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onToggle, colWidths, hideRequester, band = false }) {
+function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onToggle, cols, band = false }) {
   const isMobile = useIsMobile();
   // Resting background: selection wins, then the zebra band (same NX.zebra /
   // NX.hover pair the task list rows use). Selected tint matches the task
@@ -1010,24 +1114,25 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
   const stateM = TICKET_STATUS_META[t.status] || { label: t.status, color: NX.dim };
   const priM = PRIORITY_META[t.priority] || { label: t.priority, color: NX.dim };
 
-  return (
-    <div onClick={onOpen} style={{
-      // gap:0 - each cell owns its own border/padding (the `cell`/`flushCell`
-      // contract above), matching the task list's spreadsheet-style grid
-      // instead of a loose flex row with gaps.
-      display: 'flex', alignItems: 'stretch', gap: 0,
-      borderBottom: `1px solid ${NX.border}`, cursor: 'pointer', background: rowBg,
-    }}
-      onMouseEnter={(e) => { if (!checked) e.currentTarget.style.background = NX.hover; }}
-      onMouseLeave={(e) => { if (!checked) e.currentTarget.style.background = rowBg; }}>
-      <div style={{ width: TICKET_LEAD_W, flexShrink: 0, minHeight: TICKET_ROW_H, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: `1px solid ${NX.border2}` }}>
-        <input type="checkbox" checked={!!checked} onChange={onToggle} onClick={(e) => e.stopPropagation()}
+  // Cells are keyed and rendered in `cols`' order (useTableColumns' saved
+  // arrangement) rather than a fixed sequence, the same reason
+  // tasks/views/richlist.jsx's TaskRow does it - once columns can be
+  // dragged, a row that renders them in source order puts every value under
+  // the wrong heading the moment someone reorders the header.
+  const cells = {
+    checkbox: (
+      <div style={{ ...cell, justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
+        <input type="checkbox" checked={!!checked} onChange={onToggle}
           title="Select" style={{ cursor: 'pointer', width: 15, height: 15, margin: 0, accentColor: NX.blue }} />
       </div>
-      <div style={{ width: TICKET_ICON_W, flexShrink: 0, minHeight: TICKET_ROW_H, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: `1px solid ${NX.border2}` }}>
+    ),
+    type: (
+      <div style={{ ...cell, justifyContent: 'center' }}>
         <TicketTypeIcon type={t.type} size={16} />
       </div>
-      <div style={{ ...cell, overflow: 'hidden', flex: `0 0 ${colWidths.title}px`, textAlign: 'left' }}>
+    ),
+    title: (
+      <div style={{ ...cell, overflow: 'hidden', textAlign: 'left' }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 500, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {t.subject}
@@ -1038,45 +1143,68 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
           </div>
         </div>
       </div>
-      <div style={{ ...cell, justifyContent: 'flex-start', flex: `0 0 ${colWidths.company}px`, overflow: 'hidden' }} title={companyName(t.companyId) || ''}>
+    ),
+    company: (
+      <div style={{ ...cell, justifyContent: 'flex-start', overflow: 'hidden' }} title={companyName(t.companyId) || ''}>
         <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{companyName(t.companyId) || '-'}</span>
       </div>
-      {/* Solid, edge-to-edge fill - matches the task rich-list's Priority/Status
-          columns exactly, with the approval/SLA badge as a second solid segment
-          rather than a floating chip. */}
-      <div style={{ ...flushCell, flex: `0 0 ${colWidths.state}px`, overflow: 'hidden' }}
-        title={approvalM ? `${stateM.label} · awaiting approval` : stateM.label}>
+    ),
+    // Solid, edge-to-edge fill - matches the task rich-list's Priority/Status
+    // columns exactly, with the approval/SLA badge as a second solid segment
+    // rather than a floating chip.
+    state: (
+      <div style={{ ...flushCell, overflow: 'hidden' }} title={approvalM ? `${stateM.label} · awaiting approval` : stateM.label}>
         <SolidCellPair primaryLabel={stateM.label} primaryColor={stateM.color}
           secondaryLabel={approvalM?.label} secondaryColor={approvalM?.color} />
       </div>
-      <div style={{ ...flushCell, flex: `0 0 ${colWidths.priority}px`, overflow: 'hidden' }}
-        title={slaM ? `${priM.label} · ${slaM.label}` : priM.label}>
+    ),
+    priority: (
+      <div style={{ ...flushCell, overflow: 'hidden' }} title={slaM ? `${priM.label} · ${slaM.label}` : priM.label}>
         <SolidCellPair primaryLabel={priM.label} primaryColor={priM.color}
           secondaryLabel={slaM?.label} secondaryColor={slaM?.color} SecondaryIcon={slaM?.Icon} />
       </div>
-      <div style={{ ...cell, justifyContent: 'flex-start', gap: 5, flex: `0 0 ${colWidths.due}px`, overflow: 'hidden' }}>
+    ),
+    due: (
+      <div style={{ ...cell, justifyContent: 'flex-start', gap: 5, overflow: 'hidden' }}>
         <Clock size={12} style={{ color: overdue ? NX.red : NX.faint, flexShrink: 0 }} />
         <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 700 : 400, textAlign: 'left' }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}</span>
       </div>
-      {!hideRequester && (
-        <div style={{ ...cell, justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.requester}px`, overflow: 'hidden' }} title={`Requester: ${nameOf(t.requesterId) || 'Unknown'}`}>
-          {t.requesterId ? <Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /> : <span style={{ width: 22, flexShrink: 0 }} />}
-          <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.requesterId ? nameOf(t.requesterId) : '-'}</span>
-        </div>
-      )}
-      <div style={{ ...cell, justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.assignee}px`, overflow: 'hidden' }} title={`Assignee: ${t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}`}>
+    ),
+    requester: (
+      <div style={{ ...cell, justifyContent: 'flex-start', gap: 6, overflow: 'hidden' }} title={`Requester: ${nameOf(t.requesterId) || 'Unknown'}`}>
+        {t.requesterId ? <Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /> : <span style={{ width: 22, flexShrink: 0 }} />}
+        <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.requesterId ? nameOf(t.requesterId) : '-'}</span>
+      </div>
+    ),
+    assignee: (
+      <div style={{ ...cell, justifyContent: 'flex-start', gap: 6, overflow: 'hidden' }} title={`Assignee: ${t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}`}>
         {/* Unassigned is the dashed avatar alone - the word said no more than
             the empty space it filled, and the icon keeps the column reading as
             a column of faces. The cell's title still spells it out on hover. */}
         {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : <UnassignedAvatar size={22} />}
         {t.assigneeId && <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(t.assigneeId)}</span>}
       </div>
-      <div style={{ ...cell, justifyContent: 'flex-start', flex: `0 0 ${colWidths.created}px`, overflow: 'hidden' }} title={t.createdAt ? `Created ${fmtDate(t.createdAt)}` : ''}>
+    ),
+    created: (
+      <div style={{ ...cell, justifyContent: 'flex-start', overflow: 'hidden' }} title={t.createdAt ? `Created ${fmtDate(t.createdAt)}` : ''}>
         <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.createdAt ? fmtDate(t.createdAt) : '-'}</span>
       </div>
-      <div style={{ width: 24, flexShrink: 0, minHeight: TICKET_ROW_H, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    ),
+    resolved: (
+      <div style={{ ...cell, justifyContent: 'center', borderRight: 'none' }}>
         {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green }} title={`Resolved ${fmtDate(t.resolvedAt)}`} />}
       </div>
+    ),
+  };
+
+  return (
+    <div onClick={onOpen} style={{
+      display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch',
+      borderBottom: `1px solid ${NX.border}`, cursor: 'pointer', background: rowBg,
+    }}
+      onMouseEnter={(e) => { if (!checked) e.currentTarget.style.background = NX.hover; }}
+      onMouseLeave={(e) => { if (!checked) e.currentTarget.style.background = rowBg; }}>
+      {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>
   );
 }
@@ -1241,7 +1369,7 @@ export function CreateTicketModal({ onClose }) {
   const [form, setForm] = useState(seed?.form || {
     // Opens on the first type offered, read from the order rather than named
     // here, so the two can never drift into a default that isn't in the list.
-    subject: '', description: '', type: TICKET_TYPE_ORDER[0], priority: 'medium', status: 'new',
+    subject: '', description: '', type: TICKET_TYPE_ORDER[0], priority: 'medium', status: 'open',
     requesterId: myEmail || null, hrDepartmentId: '', application: '',
   });
   const [tf, setTf] = useState(seed?.tf || {});   // per-type field values (keyed by field key)
@@ -1763,14 +1891,14 @@ export function TicketDrawer({ ticketId, onClose }) {
   const isAssignee = (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const privileged = myLevel >= 3;
   // Separate from the in_progress/assignee lock above: the moment a ticket
-  // moves off its just-raised "new" status - triaged, worked, resolved,
+  // moves off its just-raised "open" status - triaged, worked, resolved,
   // whatever comes next - the person who raised it goes read-only on every
   // Overview field (Pranshu, Sept 8 2026: a requester editing type/priority/
   // department out from under whoever is already acting on it is exactly the
   // confusion this closes off). Conversation and Attachments stay theirs to
   // use regardless - see the tab bodies below, neither reads this flag.
   // Manager+ is never subject to it, same as every other restriction here.
-  const requesterLocked = isRequester && !privileged && t.status !== 'new';
+  const requesterLocked = isRequester && !privileged && t.status !== 'open';
   const locked = t.status === 'in_progress' && !!t.assigneeId;
   const fullAccess = privileged || (!requesterLocked && (locked ? isAssignee : isRequester));
   // The always-open "working fields" (type/status/priority/assignee/department/
@@ -1781,6 +1909,15 @@ export function TicketDrawer({ ticketId, onClose }) {
   // that stays with the requester (pre-lock) or a manager. Mirrors the
   // company_id carve-out in _ticket_edit_scope.
   const canEditCompany = privileged || (!requesterLocked && !locked && isRequester);
+  // Assign To and SLA Due Date are desk decisions, not the requester's to make
+  // even in the pre-lock window where fullAccess/canWorking otherwise hand
+  // them the rest of the ticket - who works it and by when isn't theirs to
+  // pick for themselves (Pranshu, Sept 8 2026). Hidden outright rather than
+  // disabled while the ticket is still Open (nothing to show yet, and an
+  // editable-looking control they can't use is worse than no control); once
+  // it moves past Open, requesterLocked already takes the whole Overview tab
+  // read-only, which is exactly where these two belong showing up again.
+  const canSeeAssignSla = privileged || !isRequester || t.status !== 'open';
   // Delete stays with whoever raised it or owns the queue - never just the
   // assignee, and not affected by the in_progress lock, but IS affected by
   // the requester lock: once someone else is acting on a ticket, its own
@@ -1921,14 +2058,16 @@ export function TicketDrawer({ ticketId, onClose }) {
             {t.requesterId ? <><Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /><span style={{ fontSize: 13, color: NX.ink }}>{nameOf(t.requesterId)}</span></> : <span style={{ fontSize: 13, color: NX.faint }}>-</span>}
           </div>
         </div>
-        <div style={field}>
-          <label style={label}>Assign To</label>
-          {/* Locked until the request is approved - the backend refuses it anyway,
-              so showing an open picker would only produce a 409 the user can't act on. */}
-          <PersonSelect value={t.assigneeId || null} people={people} onChange={(v) => patch({ assigneeId: v || '' })}
-            disabled={!canWorking || t.approvalStatus === 'pending'}
-            placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
-        </div>
+        {canSeeAssignSla && (
+          <div style={field}>
+            <label style={label}>Assign To</label>
+            {/* Locked until the request is approved - the backend refuses it anyway,
+                so showing an open picker would only produce a 409 the user can't act on. */}
+            <PersonSelect value={t.assigneeId || null} people={people} onChange={(v) => patch({ assigneeId: v || '' })}
+              disabled={!canWorking || t.approvalStatus === 'pending'}
+              placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
+          </div>
+        )}
         {t.assignedById && (
           <div style={field}>
             <label style={label}>Assigned By</label>
@@ -1986,17 +2125,19 @@ export function TicketDrawer({ ticketId, onClose }) {
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(t.serviceArea) || '-'}</div>
           )}
         </div>
-        <div style={field}>
-          <label style={label}>SLA Due Date</label>
-          {fullAccess ? (
-            <DateField value={t.slaDueOn || ''} onChange={(v) => patch({ slaDueOn: v || '' })} color={overdue ? NX.red : undefined}
-              style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
-          ) : (
-            <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-              {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
-            </div>
-          )}
-        </div>
+        {canSeeAssignSla && (
+          <div style={field}>
+            <label style={label}>SLA Due Date</label>
+            {fullAccess ? (
+              <DateField value={t.slaDueOn || ''} onChange={(v) => patch({ slaDueOn: v || '' })} color={overdue ? NX.red : undefined}
+                style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
+            ) : (
+              <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
+                {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
+              </div>
+            )}
+          </div>
+        )}
         {CLOSED_STATES.includes(t.status) && (
           <div style={field}>
             <label style={label}>Resolution</label>
@@ -2697,8 +2838,16 @@ function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
       <div style={{ fontSize: 12, fontWeight: 700, color: NX.dim, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
         <ClipboardList size={13} /> Original request (unedited)
       </div>
-      <div style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink, marginBottom: 4 }}>{snapshot.subject || '-'}</div>
-      {snapshot.description && <p style={{ margin: '0 0 10px', fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{snapshot.description}</p>}
+      <div style={{ marginBottom: snapshot.description ? 8 : 4 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Title</div>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink }}>{snapshot.subject || '-'}</div>
+      </div>
+      {snapshot.description && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Description</div>
+          <p style={{ margin: 0, fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{snapshot.description}</p>
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: 12.5 }}>
         {rows.map(([k, v]) => (
           <div key={k}><span style={{ color: NX.faint }}>{k}: </span><span style={{ color: NX.ink }}>{v}</span></div>
@@ -2738,15 +2887,32 @@ function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
         if (a.type === 'created') {
           try { snapshot = JSON.parse(a.detail); } catch { /* pre-existing plain-text row */ }
         }
+        // Same fallback for "commented" rows logged before the preview
+        // existed - those are still the old plain "commented" / "added an
+        // internal note" string and render as-is.
+        let comment = null;
+        if (a.type === 'commented') {
+          try { comment = JSON.parse(a.detail); } catch { /* pre-existing plain-text row */ }
+        }
         return (
           <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
               <Avatar email={a.actorId} name={nameOf(a.actorId)} size={22} />
               <span style={{ color: NX.ink, fontWeight: 600 }}>{nameOf(a.actorId) || a.actorId || 'Someone'}</span>
-              <span style={{ color: NX.dim }}>{snapshot ? 'created this ticket' : a.detail}</span>
+              <span style={{ color: NX.dim }}>
+                {snapshot ? 'created this ticket' : comment ? (comment.internal ? 'added an internal note' : 'commented') : a.detail}
+              </span>
+              {comment?.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}><Lock size={10} /> Internal</span>}
               <span style={{ color: NX.faint, marginLeft: 'auto', fontSize: 11, whiteSpace: 'nowrap' }}>{formatDateTime(a.at)}</span>
             </div>
             {snapshot && <CreatedSnapshotCard snapshot={snapshot} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
+            {comment && (
+              <div style={{
+                marginLeft: 30, fontSize: 13, color: NX.ink, whiteSpace: 'pre-wrap', padding: '6px 10px', borderRadius: 8,
+                background: comment.internal ? 'rgba(245,158,11,0.08)' : NX.surface2,
+                border: `1px solid ${comment.internal ? 'rgba(245,158,11,0.3)' : NX.border2}`,
+              }}>{comment.preview}</div>
+            )}
           </div>
         );
       })}

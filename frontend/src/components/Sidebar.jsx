@@ -115,6 +115,7 @@ export const NAV = [
     view: "accounting", code: "ACC", label: "Accounting", icon: Calculator, minRole: 'supervisor',
     sub: [
       { subview: "pnl",             label: "Profit & Loss",      icon: FileSpreadsheet },
+      { subview: "reports",         label: "Reports",            icon: BarChart3 },
     ],
   },
   {

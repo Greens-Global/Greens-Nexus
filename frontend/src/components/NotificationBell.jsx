@@ -154,7 +154,7 @@ export default function NotificationBell({ onNavigate }) {
   const { approveRequest, allocateItem, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
-  const { can }      = useRole();
+  const { can, myGrantedModules } = useRole();
   const myName  = accounts[0]?.name     ?? '';
   const myEmail = (accounts[0]?.username ?? '').toLowerCase();
 
@@ -478,6 +478,18 @@ export default function NotificationBell({ onNavigate }) {
     }).catch(() => {}).finally(() => setAllocatingId(null));
   }
 
+  // Tickets is the desk's own module - grant-gated to supervisor+ (App.jsx
+  // VIEW_MIN_ROLES). A ticket notification's action always points there
+  // (tickets.py's tk_action), which is right for an agent but an Access
+  // Restricted wall for a plain requester. Support is their own entry point
+  // (mounts the same TicketDrawer directly, unaffected by that gate) - send
+  // them there instead, same ticket id either way. Two call sites need this
+  // (the card's own click, and the "View ticket" button inside it that stops
+  // propagation to navigate on its own) - shared here so they can't drift.
+  function ticketAwareView(view) {
+    return (view === 'tickets' && !can('administrator') && !myGrantedModules.has('tickets')) ? 'support' : view;
+  }
+
   function handleUpdateClick(n) {
     markRead(n.id);
     let dest = destinationFor(n);
@@ -489,6 +501,7 @@ export default function NotificationBell({ onNavigate }) {
       dest = ['inventory', anyOut ? 'checkouts' : 'checkouts-completed'];
     }
     if (dest) {
+      dest = [ticketAwareView(dest[0]), dest[1]];
       setOpen(false);
       // Window event instead of onNavigate: App navigates on it AND the target
       // view's own listener switches its internal tab even when the app-level
@@ -877,7 +890,10 @@ export default function NotificationBell({ onNavigate }) {
                         <button
                           onClick={e => {
                             e.stopPropagation(); markRead(n.id); setOpen(false);
-                            onNavigate(n.action.view, n.action.sub);
+                            // This button bypasses handleUpdateClick entirely
+                            // (stopPropagation) - ticketAwareView is shared with it
+                            // so the Tickets->Support redirect can't drift between them.
+                            onNavigate(ticketAwareView(n.action.view), n.action.sub);
                             // The card's own click (handleUpdateClick) opens the task
                             // the card is about; this button stops propagation, so it
                             // never reached that and "View task" landed on My Tasks
