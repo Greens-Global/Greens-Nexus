@@ -1761,19 +1761,31 @@ export function TicketDrawer({ ticketId, onClose }) {
   const isRequester = (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const isAssignee = (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const privileged = myLevel >= 3;
+  // Separate from the in_progress/assignee lock above: the moment a ticket
+  // moves off its just-raised "new" status - triaged, worked, resolved,
+  // whatever comes next - the person who raised it goes read-only on every
+  // Overview field (Pranshu, Sept 8 2026: a requester editing type/priority/
+  // department out from under whoever is already acting on it is exactly the
+  // confusion this closes off). Conversation and Attachments stay theirs to
+  // use regardless - see the tab bodies below, neither reads this flag.
+  // Manager+ is never subject to it, same as every other restriction here.
+  const requesterLocked = isRequester && !privileged && t.status !== 'new';
   const locked = t.status === 'in_progress' && !!t.assigneeId;
-  const fullAccess = privileged || (locked ? isAssignee : isRequester);
+  const fullAccess = privileged || (!requesterLocked && (locked ? isAssignee : isRequester));
   // The always-open "working fields" (type/status/priority/assignee/department/
   // resolution) - open to anyone pre-lock, restricted to the assignee once locked.
-  const canWorking = privileged || (locked ? isAssignee : true);
+  const canWorking = privileged || (!requesterLocked && (locked ? isAssignee : true));
   // Company is carved out of fullAccess: the assignee can work everything else
   // about a locked ticket, but never reassign which company it belongs to -
   // that stays with the requester (pre-lock) or a manager. Mirrors the
   // company_id carve-out in _ticket_edit_scope.
-  const canEditCompany = privileged || (!locked && isRequester);
+  const canEditCompany = privileged || (!requesterLocked && !locked && isRequester);
   // Delete stays with whoever raised it or owns the queue - never just the
-  // assignee, and not affected by the in_progress lock. Mirrors delete_ticket.
-  const canDelete = privileged || isRequester;
+  // assignee, and not affected by the in_progress lock, but IS affected by
+  // the requester lock: once someone else is acting on a ticket, its own
+  // requester deleting it out from under them is exactly the kind of change
+  // this lock exists to prevent.
+  const canDelete = privileged || (!requesterLocked && isRequester);
 
   const patch = (p) => updateTicket(t.id, p).catch((e) => alert(`Could not update ticket: ${e.message || e}`));
   const escalate = () => escalateTicket(t.id).catch((e) => alert(`Could not escalate: ${e.message || e}`));
@@ -1807,7 +1819,10 @@ export function TicketDrawer({ ticketId, onClose }) {
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
   return (
-    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={onClose} width={620} footer={
+    // No width override - the Modal default (clamp(520px, 60vw, 980px)) is
+    // the shared "big form" sizing used across the app; the fixed 620px this
+    // used to pass read as a cramped tab next to that (Pranshu, Sept 8 2026).
+    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={onClose} footer={
       <>
         {canDelete && (
           <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
