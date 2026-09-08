@@ -926,14 +926,13 @@ export const api = {
   },
 
   // Accounting
-  getTransactions: () => req("/accounting/transactions"),
-  getRamp: () => req("/accounting/ramp"),
-  updateRampMemo: (id, memo) => req(`/accounting/ramp/${id}`, { method: "PATCH", body: JSON.stringify({ memo }) }),
-  getAma: () => req("/accounting/ama"),
   // Reports served by Greens Accounting (Supabase mirror of the Intacct
   // ledger) through the grant-gated backend proxy. Dates are YYYY-MM-DD.
   getAccountingPnl: (from, to, location) =>
     req(`/accounting/reports/pnl?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
+  // One-time sign-in URL for accounting.greensglobal.com - Nexus is the only
+  // way in there (no passwords). Open the returned url immediately.
+  launchAccounting: () => req("/accounting/launch", { method: "POST" }),
 
   // Ops
   getOpsProjects: () => req("/ops-projects"),

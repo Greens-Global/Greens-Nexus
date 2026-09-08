@@ -1701,6 +1701,11 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(daily_briefing_loop()))
         except Exception as e:
             print(f"[startup] daily briefing loop skipped: {e}")
+        try:
+            from accounting_sso import accounting_sso_sync_loop
+            _tasks.append(_a.create_task(accounting_sso_sync_loop()))
+        except Exception as e:
+            print(f"[startup] accounting sso sync skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;
