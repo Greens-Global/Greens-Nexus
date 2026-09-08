@@ -2874,15 +2874,32 @@ function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
         if (a.type === 'created') {
           try { snapshot = JSON.parse(a.detail); } catch { /* pre-existing plain-text row */ }
         }
+        // Same fallback for "commented" rows logged before the preview
+        // existed - those are still the old plain "commented" / "added an
+        // internal note" string and render as-is.
+        let comment = null;
+        if (a.type === 'commented') {
+          try { comment = JSON.parse(a.detail); } catch { /* pre-existing plain-text row */ }
+        }
         return (
           <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
               <Avatar email={a.actorId} name={nameOf(a.actorId)} size={22} />
               <span style={{ color: NX.ink, fontWeight: 600 }}>{nameOf(a.actorId) || a.actorId || 'Someone'}</span>
-              <span style={{ color: NX.dim }}>{snapshot ? 'created this ticket' : a.detail}</span>
+              <span style={{ color: NX.dim }}>
+                {snapshot ? 'created this ticket' : comment ? (comment.internal ? 'added an internal note' : 'commented') : a.detail}
+              </span>
+              {comment?.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}><Lock size={10} /> Internal</span>}
               <span style={{ color: NX.faint, marginLeft: 'auto', fontSize: 11, whiteSpace: 'nowrap' }}>{formatDateTime(a.at)}</span>
             </div>
             {snapshot && <CreatedSnapshotCard snapshot={snapshot} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
+            {comment && (
+              <div style={{
+                marginLeft: 30, fontSize: 13, color: NX.ink, whiteSpace: 'pre-wrap', padding: '6px 10px', borderRadius: 8,
+                background: comment.internal ? 'rgba(245,158,11,0.08)' : NX.surface2,
+                border: `1px solid ${comment.internal ? 'rgba(245,158,11,0.3)' : NX.border2}`,
+              }}>{comment.preview}</div>
+            )}
           </div>
         );
       })}

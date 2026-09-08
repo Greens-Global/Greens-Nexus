@@ -12,6 +12,8 @@ Ticket conversation/attachments/activity deliberately reuse the task comment and
 attachment tables, keyed by ticket id - same storage, separate router.
 """
 import json
+import re
+import html as html_lib
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -217,6 +219,21 @@ def _fmt_audit_value(v: Any) -> str:
     else:
         s = str(v)
     return s if len(s) <= 140 else s[:137] + "…"
+
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _comment_preview(body: str, limit: int = 140) -> str:
+    """Plain-text teaser of a rich-text comment body for the activity feed -
+    tags stripped, entities unescaped, collapsed to one line, capped the same
+    way _fmt_audit_value caps a field-change value. Without this the activity
+    row just said "commented" with no way to tell what was said short of
+    opening the Conversation tab separately (Pranshu, Sept 8 2026)."""
+    text = re.sub(r"\s+", " ", html_lib.unescape(_HTML_TAG_RE.sub(" ", body or ""))).strip()
+    if not text:
+        return "(no text)"
+    return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
 def service_area_for(db: Session, application: str) -> str:
@@ -813,9 +830,15 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     c = models.TaskComment(id=gen_id(), task_id=ticket_id, author_email=user["email"], body=body.body or "",
                            internal=internal, created_at=now_iso())
     db.add(c)
+    # JSON, not a plain string - same "structured detail" trick the "created"
+    # snapshot uses (see _ticket_snapshot) - so the activity feed can show what
+    # was actually said instead of just the word "commented", while still
+    # tagging internal notes the same way the Conversation tab does. A row
+    # logged before this change is plain text and the frontend falls back to
+    # rendering it as-is.
     log_activity(db, type="commented", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
-                 detail="added an internal note" if internal else "commented")
+                 detail=json.dumps({"internal": internal, "preview": _comment_preview(body.body or "")}))
     # @mentions, read from the mailto links the editor writes - the same
     # convention and the same parser the task comments use, so the two threads
     # can't drift (Sagar, Sept 2 2026: "@ should work here like it does on tasks").
