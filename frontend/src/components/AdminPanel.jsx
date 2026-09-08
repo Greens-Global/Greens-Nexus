@@ -404,12 +404,9 @@ function BrandingSettings() {
 
 // ── AdminPanel ────────────────────────────────────────────────────────────────
 
-export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
+export default function AdminPanel({ open, onClose }) {
   const { can } = useRole();
-  const [tab, setTab] = useState(initialTab);
   const panelRef = useRef(null);
-
-  useEffect(() => { setTab(initialTab); }, [initialTab]);
 
   // Close on ESC
   useEffect(() => {
@@ -426,13 +423,6 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
   }, [open]);
 
   if (!can('administrator')) return null;
-
-  // Roles & Access + Audit Logs. Employee Tracking (with Screenshots) is now its
-  // own sidebar module; Branding retired from here.
-  const tabs = [
-    { id: 'access', icon: <Shield size={14} />,   label: 'Roles & Access' },
-    { id: 'audit',  icon: <Activity size={14} />, label: 'Audit Logs' },
-  ];
 
   return (
     <>
@@ -473,7 +463,7 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Admin Settings</div>
-              <div className="admin-drawer-sub" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>Access manager &amp; activity logs</div>
+              <div className="admin-drawer-sub" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>Activity logs</div>
             </div>
             <button
               onClick={onClose}
@@ -482,39 +472,11 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
               <X size={18} />
             </button>
           </div>
-
-          {/* Tab bar */}
-          <div className="scroll-tabs" style={{ display: 'flex', gap: 2, padding: '0 12px' }}>
-            {tabs.map(t => {
-              const active = tab === t.id;
-              return (
-                <button key={t.id} onClick={() => setTab(t.id)}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap',
-                    padding: '10px 14px', border: 'none', background: 'none', cursor: 'pointer',
-                    fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: active ? 700 : 500,
-                    color: active ? 'hsl(var(--color-purple))' : 'var(--muted)',
-                    borderBottom: active ? '2px solid hsl(var(--color-purple))' : '2px solid transparent',
-                    marginBottom: -1, transition: 'color .15s',
-                  }}>
-                  {t.icon} {t.label}
-                </button>
-              );
-            })}
-          </div>
         </div>
 
-        {/* Tab content */}
+        {/* Content */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-          {tab === 'access' && (
-            <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--muted)' }}>
-              <Shield size={30} style={{ opacity: 0.4, marginBottom: 12 }} />
-              <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--ink)', marginBottom: 6 }}>Access management moved</div>
-              <p style={{ fontSize: 13.5, maxWidth: 380, margin: '0 auto 18px', lineHeight: 1.5 }}>Roles, job roles and groups now live in <b>People → Roles &amp; Access</b>, and each person's access is set on their card.</p>
-              <button className="primary-btn" onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-access' } })); }}>Go to Roles &amp; Access</button>
-            </div>
-          )}
-          {tab === 'audit'  && <AuditLogs />}
+          <AuditLogs />
         </div>
       </div>
     </>
