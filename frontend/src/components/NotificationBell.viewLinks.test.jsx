@@ -30,7 +30,11 @@ vi.mock('@azure/msal-react', () => ({
   useMsal: () => ({ accounts: [{ name: 'Sagar Shoundik', username: 'sagar.shoundik@greensglobal.com' }] }),
 }));
 vi.mock('../contexts/RoleContext', () => ({
-  useRole: () => ({ can: () => false, myLevel: 1 }),
+  // myGrantedModules is a Map in the real context (RoleContext.jsx builds one
+  // with useMemo, so it is never undefined at runtime). The mock predates
+  // NotificationBell reading it, and a mock missing a field its double
+  // provides fails as `undefined.has(...)` rather than as a useful assertion.
+  useRole: () => ({ can: () => false, myLevel: 1, myGrantedModules: new Map() }),
 }));
 vi.mock('../api', () => ({ api: new Proxy({}, { get: () => vi.fn(async () => []) }) }));
 
@@ -147,7 +151,12 @@ describe('"View ticket" on a ticket notification', () => {
     fireEvent.click(screen.getByText('View ticket'));
     flush();
 
-    expect(onNavigate).toHaveBeenCalledWith('tickets', undefined);
+    // 'support', not 'tickets': the mocked viewer is a plain requester
+    // (can() false, no tickets grant), and db48f00 routes them to Support
+    // rather than the grant-gated Tickets module, which would meet them with
+    // an Access Restricted wall. The ticket itself still opens - see
+    // openedTickets below - so the assertion that changed is WHERE it opens.
+    expect(onNavigate).toHaveBeenCalledWith('support', undefined);
     expect(openedTickets).toEqual([TICKET_ID]);
   });
 
@@ -176,7 +185,12 @@ describe('"View ticket" on a ticket notification', () => {
     fireEvent.click(screen.getByText('View ticket'));
     flush();
 
-    expect(onNavigate).toHaveBeenCalledWith('tickets', undefined);
+    // 'support', not 'tickets': the mocked viewer is a plain requester
+    // (can() false, no tickets grant), and db48f00 routes them to Support
+    // rather than the grant-gated Tickets module, which would meet them with
+    // an Access Restricted wall. The ticket itself still opens - see
+    // openedTickets below - so the assertion that changed is WHERE it opens.
+    expect(onNavigate).toHaveBeenCalledWith('support', undefined);
     expect(openedTickets).toEqual([]);
   });
 
