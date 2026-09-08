@@ -1288,3 +1288,23 @@ def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 20
         "createdAt": r.created_at, "updatedAt": r.updated_at,
     } for r in rows]
 
+
+@router.get("/task-tickets/notify/teams-log", dependencies=[Depends(require_ticket_desk)])
+def get_ticket_teams_dm_log(ticket_id: str = "", sent: str = "", limit: int = 200,
+                            user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Same shape as get_ticket_notify_log, for the Teams DM queue
+    (_queue_requester_teams_dm / teams_post.py) - lets the desk see whether a
+    queued row delivered, and if not, why (send_error), without DB access.
+    `sent`: "1" or "0" to filter, blank for both."""
+    q = db.query(models.TicketTeamsMessage)
+    if ticket_id:
+        q = q.filter(models.TicketTeamsMessage.ticket_id == ticket_id)
+    if sent in ("0", "1"):
+        q = q.filter(models.TicketTeamsMessage.sent == int(sent))
+    rows = q.order_by(models.TicketTeamsMessage.created_at.desc()).limit(min(limit, 500)).all()
+    return [{
+        "id": r.id, "ticketId": r.ticket_id, "agentEmail": r.agent_email, "requesterEmail": r.requester_email,
+        "chatId": r.chat_id, "sent": bool(r.sent), "attempts": r.attempts, "lastTryAt": r.last_try_at,
+        "sendError": r.send_error, "createdAt": r.created_at,
+    } for r in rows]
+
