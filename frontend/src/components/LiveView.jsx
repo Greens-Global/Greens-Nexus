@@ -582,7 +582,12 @@ export default function LiveView({ email, name, onClose }) {
   );
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(15,23,42,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+    // 4800: above the Task/Ticket Modal (4000) and its own confirm-close
+    // dialog (4600) - both plausible parents now that Tickets can open this
+    // from inside a ticket's own drawer (Request Control), not just from
+    // Workforce Analytics' roster where it was always the only overlay on
+    // screen and 1300 was already "on top of everything else there."
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 4800, background: 'rgba(15,23,42,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div ref={cardRef} onClick={(e) => e.stopPropagation()} style={{ background: 'var(--card)', borderRadius: isFs ? 0 : 16, width: '100%', height: isFs ? '100vh' : undefined, maxWidth: isFs ? '100vw' : 'min(1560px, 96vw)', boxShadow: 'var(--shadow-lg, 0 20px 60px rgba(0,0,0,0.4))', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: isFs ? '100vh' : '96vh' }}>
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--line)', flex: 'none' }}>
           <Avatar email={email} name={name} size={28} card={false} />
