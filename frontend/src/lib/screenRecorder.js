@@ -107,12 +107,42 @@ function _flashTitle() {
   window.addEventListener('focus', _stopTitleFlash);
 }
 
-// Requesting Notification permission only works from a user gesture, so this
-// is called from startScreenRecording (a click handler is always the caller)
-// rather than at the moment recording ends. Asked at most once per page load
-// - a person who dismisses or denies it isn't asked again this session.
+// Notification permission only prompts from a genuine, recent user gesture,
+// and the moment we USED to ask - inside startScreenRecording, right before
+// the getDisplayMedia screen/window/tab picker - meant the permission popup
+// and the picker showed back-to-back. Two browser prompts landing on top of
+// each other reads as one confusing interruption, and the permission one
+// (easy to mistake for spam, unlike the picker which is obviously required)
+// was very likely the one getting reflexively dismissed - which would explain
+// "it never brings me back": no permission, no notification, ever.
+// primeReturnCue() exists so a caller can ask MUCH earlier - the moment
+// someone clicks the "Record" button itself, before they've even chosen
+// Screen/Screen+narration - so it's a single, separate, unhurried prompt with
+// nothing else competing for the click. startScreenRecording still calls the
+// same guarded ask as a fallback for any caller that skips priming.
 let _notifyAsked = false;
-function _maybeAskNotifyPermission() {
+// A short two-tone chime, synthesized rather than shipped as an asset -
+// doesn't need any permission at all (unlike Notification), so it is the one
+// "come back" cue that reliably crosses into a different application even
+// when the person never granted (or was never asked for) notifications.
+// AudioContexts created/resumed OUTSIDE a direct user-gesture call stack can
+// get stuck 'suspended' by the browser's autoplay policy - created here, in
+// primeReturnCue (called straight from the Record button's onClick), it
+// resumes inside a real gesture and stays usable for the rest of the page's
+// life, so _chime() later (from an async track/recorder callback, no gesture
+// of its own) has a context that's already running rather than gambling on
+// a fresh resume() succeeding at that point.
+let _audioCtx = null;
+function _ensureAudioCtx() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!_audioCtx) _audioCtx = new Ctx();
+  if (_audioCtx.state === 'suspended') _audioCtx.resume().catch(() => {});
+  return _audioCtx;
+}
+
+export function primeReturnCue() {
+  try { _ensureAudioCtx(); } catch { /* ignore */ }
   if (_notifyAsked || typeof Notification === 'undefined') return;
   _notifyAsked = true;
   if (Notification.permission === 'default') {
@@ -120,15 +150,36 @@ function _maybeAskNotifyPermission() {
   }
 }
 
+function _chime() {
+  try {
+    const ctx = _ensureAudioCtx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    [[880, now, 0.14], [1175, now + 0.13, 0.18]].forEach(([freq, at, dur]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.22, at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(at);
+      osc.stop(at + dur + 0.02);
+    });
+  } catch { /* Web Audio unavailable/blocked - the visual cues still cover it */ }
+}
+
 function _bringTabBack() {
   if (!document.hidden && document.hasFocus()) return;   // already in view
   try { window.focus(); } catch { /* browsers can refuse to steal focus */ }
   _flashTitle();
+  _chime();
   if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
     try {
       const n = new Notification('Recording finished', { body: 'Switch back to Nexus to continue.', tag: 'nexus-recording-done' });
       n.onclick = () => { window.focus(); n.close(); };
-    } catch { /* some browsers restrict Notification from a background tab - the title flash still covers it */ }
+    } catch { /* some browsers restrict Notification from a background tab - the title flash and chime still cover it */ }
   }
 }
 
@@ -172,7 +223,7 @@ export async function startScreenRecording({ voice = false } = {}, onDone) {
   if (!navigator.mediaDevices?.getDisplayMedia) {
     throw new Error('Screen recording isn\'t supported in this browser.');
   }
-  _maybeAskNotifyPermission();
+  primeReturnCue();   // no-op if the caller already primed on the Record click
   _chunks = [];
   const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 10 }, audio: false });
   _screenStream = stream;
