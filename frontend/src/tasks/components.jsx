@@ -806,7 +806,7 @@ export function ProjectAccessButton({ project, teams, people }) {
 // there is no room below, and caps its height to the space actually there.
 // It also owns dismissal - a click inside a portal is NOT inside the field's
 // own ref, so each field cannot judge "outside" for itself any more.
-function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
+export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
   useLayoutEffect(() => {

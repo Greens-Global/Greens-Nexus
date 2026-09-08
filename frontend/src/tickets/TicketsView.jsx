@@ -23,7 +23,7 @@ import {
   setOpenTicketId, clearOpenTicketId, isTicketDrawerOpen,
 } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
-import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar } from '../tasks/components';
+import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar, SelectMenu } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
@@ -1000,7 +1000,12 @@ function TicketListHeader({ cols, widths, startResize, resetWidth, autofitWidth,
   useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = !!someSelected; }, [someSelected]);
   const headCell = { position: 'relative', display: 'flex', alignItems: 'center', minHeight: 34, padding: '0 10px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', padding: '9px 0', background: NX.surface2, borderBottom: `1px solid ${NX.border}` }}>
+    // Sticky, not just top-of-list - scrolling a long queue used to lose the
+    // column labels entirely (Pranshu, Sep 9 2026). Anchored to .viewport
+    // (the app shell's own scroll container - .nx-list-scroll below only
+    // affects horizontal overflow), with an opaque background so rows
+    // scrolling underneath don't show through.
+    <div style={{ position: 'sticky', top: 0, zIndex: 3, display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', padding: '9px 0', background: NX.surface2, borderBottom: `1px solid ${NX.border}` }}>
       {cols.map((col) => {
         if (col.key === 'checkbox') {
           return (
@@ -1050,8 +1055,7 @@ function TicketListHeader({ cols, widths, startResize, resetWidth, autofitWidth,
 function InlineTicketSelect({ value, options, onChange, editable, meta, children }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const ref = useRef(null);
-  useClickOutside(ref, () => setOpen(false), open);
+  const anchorRef = useRef(null);
   if (!editable) return children;
   const pick = (id) => {
     setOpen(false);
@@ -1060,22 +1064,23 @@ function InlineTicketSelect({ value, options, onChange, editable, meta, children
     onChange(id).catch((e) => alert(`Could not update: ${e.message || e}`)).finally(() => setBusy(false));
   };
   return (
-    <div ref={ref} style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <div onClick={(e) => { e.stopPropagation(); if (!busy) setOpen((o) => !o); }}
-        style={{ width: '100%', height: '100%', cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.65 : 1 }}>
-        {children}
-      </div>
+    <div ref={anchorRef} onClick={(e) => { e.stopPropagation(); if (!busy) setOpen((o) => !o); }}
+      style={{ width: '100%', height: '100%', cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.65 : 1 }}>
+      {children}
       {open && (
-        <div onClick={(e) => e.stopPropagation()} style={{
-          position: 'absolute', top: '100%', left: 0, marginTop: 2, minWidth: 170, maxHeight: 260,
-          overflowY: 'auto', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 8,
-          boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 60, padding: 4, fontFamily: FONT,
-        }}>
+        // Portaled to document.body (SelectMenu, position:fixed off the anchor's
+        // own rect) rather than absolutely positioned inside this cell - the
+        // State/Priority cells are `overflow:hidden` (SolidCellPair needs that to
+        // clip its solid fill to the cell edge), which silently clipped an
+        // in-place dropdown to invisible: it existed in the DOM, computed
+        // visible/display:block, and still never painted (Pranshu, Sep 9 2026 -
+        // reported as "clicking State/Priority does nothing").
+        <SelectMenu anchorRef={anchorRef} onClose={() => setOpen(false)} minWidth={170}>
           {options.map(([id, optLabel]) => {
             const m = meta[id] || {};
             const selected = id === value;
             return (
-              <div key={id} onClick={() => pick(id)}
+              <div key={id} onClick={(e) => { e.stopPropagation(); pick(id); }}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', fontSize: 12.5, borderRadius: 6, cursor: 'pointer', color: NX.ink, background: selected ? NX.hover : 'transparent' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = selected ? NX.hover : 'transparent'; }}>
@@ -1085,7 +1090,7 @@ function InlineTicketSelect({ value, options, onChange, editable, meta, children
               </div>
             );
           })}
-        </div>
+        </SelectMenu>
       )}
     </div>
   );
