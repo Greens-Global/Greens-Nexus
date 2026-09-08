@@ -1006,6 +1006,65 @@ def list_ticket_departments(mine: bool = False, user: dict = Depends(get_current
              "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or ""} for d in rows]
 
 
+def _dept_list(db: Session, company_id: str) -> list[dict]:
+    rows = (db.query(models.HrDepartment).filter(models.HrDepartment.company_id == company_id)
+            .order_by(models.HrDepartment.sort_order, models.HrDepartment.name).all())
+    return [{"id": d.id, "name": d.name, "companyId": d.company_id,
+             "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or ""} for d in rows]
+
+
+class TicketDepartmentIn(BaseModel):
+    company_id: str
+    name: str
+
+
+# Write endpoints for the SAME hr_departments table, under the ticket router
+# rather than routers/hr.py - same reason /ticket-companies and
+# /ticket-departments (read) exist here instead of reusing the HR module's
+# own: whoever runs the service desk (Manage -> Service Desk -> Departments)
+# is rarely also an HR admin, and require_hr_write would 403 them.
+@router.post("/ticket-departments", status_code=201, dependencies=[Depends(require_ticket_desk)])
+def add_ticket_department(body: TicketDepartmentIn, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Department name cannot be empty")
+    if len(name) > 40:
+        raise HTTPException(400, "Department name is too long (40 characters max)")
+    company = db.query(models.HrEntity).filter(models.HrEntity.id == body.company_id).first()
+    if not company:
+        raise HTTPException(404, "Company not found")
+    siblings = db.query(models.HrDepartment).filter(models.HrDepartment.company_id == body.company_id).all()
+    if any((s.name or "").strip().lower() == name.lower() for s in siblings):
+        raise HTTPException(409, f"“{name}” already exists for this company")
+    nxt = max([s.sort_order for s in siblings], default=-1) + 1
+    db.add(models.HrDepartment(id=gen_id(), company_id=body.company_id, name=name,
+                               sort_order=nxt, created_by=user["email"], created_at=now_iso()))
+    db.commit()
+    return _dept_list(db, body.company_id)
+
+
+class TicketDepartmentHeadIn(BaseModel):
+    lead_email:   Optional[str] = None
+    backup_email: Optional[str] = None
+
+
+@router.patch("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])
+def set_ticket_department_head(dept_id: str, body: TicketDepartmentHeadIn,
+                               user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Sets who gets the escalation email for this department - see
+    escalate_ticket. Same field HR's own department screen documents as the
+    triage lead/backup; one person can be both without conflict."""
+    row = db.query(models.HrDepartment).filter(models.HrDepartment.id == dept_id).first()
+    if not row:
+        raise HTTPException(404, "Department not found")
+    if body.lead_email is not None:
+        row.lead_email = (body.lead_email or "").strip().lower()
+    if body.backup_email is not None:
+        row.backup_email = (body.backup_email or "").strip().lower()
+    db.commit()
+    return _dept_list(db, row.company_id)
+
+
 
 @router.get("/ticket-sites")
 def list_ticket_sites(db: Session = Depends(get_db)):
@@ -1203,40 +1262,42 @@ def remove_ticket_link(ticket_id: str, target_id: str, db: Session = Depends(get
     return ticket_to_dict(t)
 
 
-# ── Escalate - bump priority one rung and alert assignee/watchers + managers ──
-_PRIORITY_LADDER = ["low", "medium", "high", "urgent"]
-
-
+# ── Escalate - a distress flare, not a priority bump: alerts the department
+#    head that this ticket needs instant care (Pranshu, Sep 8 2026) ───────────
 @router.post("/task-tickets/{ticket_id}/escalate")
 def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Either the requester or the current assignee - the two people actually
+    living the ticket, not just the desk running the queue - can raise this
+    (superseding the earlier SLA-breach-only carve-out for a locked-out
+    requester). It no longer touches priority; it mails the department the
+    ticket is ABOUT (HrDepartment.lead_email/backup_email, set from Manage ->
+    Service Desk -> Departments) that the ticket needs urgent attention. A
+    department with no head on file falls back to the company's ticket agents
+    via notify_ticket_event's own recipient resolution, so it's never emailed
+    to nobody."""
     t = _ticket_or_404(db, ticket_id)
-    import auth
-    auth.assert_company(t.company_id or "", user, db)
-    # Desk staff can always escalate. A plain requester - locked out of every
-    # other field once the ticket moves off "new" (_ticket_edit_scope above) -
-    # gets exactly one exception: once the SLA is actually breached, they need
-    # a way to flag that even on a ticket they otherwise can't touch. Mirrors
-    # the frontend's canEscalate carve-out in TicketsView.jsx - keep the two in
-    # step.
-    is_requester = (t.requester_email or "").lower() == user["email"].lower()
-    if not (_has_desk_grant(user, db) or (is_requester and _sla_breached(t))):
-        raise HTTPException(403, "Only the desk can escalate this ticket - or you, once its SLA is breached.")
-    idx = _PRIORITY_LADDER.index(t.priority) if t.priority in _PRIORITY_LADDER else 1
-    new_p = _PRIORITY_LADDER[min(idx + 1, len(_PRIORITY_LADDER) - 1)]
-    t.priority = new_p
+    _require_ticket_participant(db, user, t)
+    email = (user["email"] or "").lower()
+    is_requester = (t.requester_email or "").lower() == email
+    is_assignee = (t.assignee_email or "").lower() == email
+    if not (is_requester or is_assignee or _ticket_privileged(db, t, user)):
+        raise HTTPException(403, "Only the requester or assignee can escalate this ticket")
+    if t.status in ("resolved", "closed"):
+        raise HTTPException(400, "This ticket is already closed out - nothing to escalate")
+
     t.modified_at = now_iso()
     log_activity(db, type="escalated", actor_email=user["email"], entity_kind="ticket",
-                 entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=f"escalated to {new_p} priority")
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail="Escalated - flagged for the department head's urgent attention")
     _notify_participants(db, t, user["email"], kind="ticket_escalated",
-                         title=f"Ticket escalated to {new_p}", body=f"{ticket_no(t.code)} · {t.subject}")
+                         title="Ticket escalated", body=f"{ticket_no(t.code)} · {t.subject} needs urgent attention")
     task_notify(db, kind="ticket_escalated", for_email="admins", title="A ticket was escalated",
-                body=f"{ticket_no(t.code)} · {t.subject} → {new_p}",
+                body=f"{ticket_no(t.code)} · {t.subject}",
                 ticket_id=t.id, nexus_action={"view": "tickets", "label": "View ticket"})
     db.commit()
     db.refresh(t)
-    background_tasks.add_task(notify_ticket_event, t.id, "updated", user["email"],
-                               update_kind=f"Escalated to {new_p} priority")
+    background_tasks.add_task(notify_ticket_event, t.id, "escalated", user["email"])
     return ticket_to_dict(t)
 
 

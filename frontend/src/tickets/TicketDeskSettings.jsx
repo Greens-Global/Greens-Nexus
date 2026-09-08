@@ -24,11 +24,11 @@
 // company with no roster of its own falls back to, before the backend's last
 // resort of "every administrator" (see ticket_notify.ticket_agents).
 import { useEffect, useState } from 'react';
-import { Headset, Save, Building2 } from 'lucide-react';
+import { Headset, Save, Building2, Siren, Plus } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, card } from '../tasks/theme';
-import { PersonMultiSelect, usePeople } from '../tasks/components';
+import { PersonMultiSelect, PersonSelect, usePeople } from '../tasks/components';
 
 // The fallback chain, spelled out for whoever's reading it: a company's own
 // agents, if any -> the Default Agents list, if any -> every administrator.
@@ -37,7 +37,7 @@ import { PersonMultiSelect, usePeople } from '../tasks/components';
 // it's empty, so "why did this go to X" never requires reading the backend.
 const TONE = { ok: NX.green, warn: NX.amber, danger: NX.red };
 
-function DeskRoster({ title, hint, value, people, onChange, status, icon }) {
+function DeskRoster({ title, hint, value, people, onChange, status, icon, children }) {
   return (
     <div style={{ ...card, padding: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -51,11 +51,66 @@ function DeskRoster({ title, hint, value, people, onChange, status, icon }) {
           {status.text}
         </div>
       )}
+      {children}
     </div>
   );
 }
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+// Departments for one company, each with a Department Head - who gets the
+// escalation email when a requester or assignee raises one on a ticket filed
+// against that department (routers/tickets.py:escalate_ticket). A separate
+// concept from the agent roster above: agents WORK tickets in general, the
+// department head owns the "this needs instant care" alert for tickets about
+// their specific department. Lives here (not People -> Companies) so setting
+// it doesn't require an HR module grant - same reasoning as /ticket-companies
+// and /ticket-departments existing as their own read endpoints.
+function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead }) {
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const add = async () => {
+    const n = name.trim();
+    if (!n || busy) return;
+    setBusy(true);
+    try { await onAdd(companyId, n); setName(''); }
+    catch (e) { alert(e.message || 'Could not add department.'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${NX.border}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <Siren size={13} style={{ color: NX.dim }} />
+        <div style={{ fontSize: 12, fontWeight: 700, color: NX.ink }}>Departments &amp; Escalation</div>
+      </div>
+      {depts.length === 0 && (
+        <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>No departments yet for {companyName}.</div>
+      )}
+      {depts.map((d) => (
+        <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <div style={{ fontSize: 12.5, color: NX.ink, width: 110, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.name}>{d.name}</div>
+          <div style={{ flex: 1 }}>
+            <PersonSelect value={d.leadEmail || null} people={people}
+              onChange={(email) => onSetHead(d.id, email || '').catch((e) => alert(e.message || 'Could not set department head.'))}
+              placeholder="No department head set" />
+          </div>
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40}
+          onKeyDown={(e) => e.key === 'Enter' && add()}
+          placeholder="Add a department…"
+          style={{ flex: 1, fontFamily: FONT, fontSize: 12.5, padding: '6px 9px', border: `1px solid ${NX.border}`, borderRadius: 7, color: NX.ink, background: 'transparent' }} />
+        <button onClick={add} disabled={!name.trim() || busy} style={{ ...btn('outline'), padding: '6px 10px', opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
+          <Plus size={13} />
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: NX.faint, marginTop: 6, lineHeight: 1.5 }}>
+        A ticket filed against a department with no head falls back to this company's ticket agents when escalated.
+      </div>
+    </div>
+  );
+}
 
 // What THIS card resolves to right now - mirrors ticket_agents() in
 // backend/ticket_notify.py rung for rung, so the copy can never drift from
@@ -95,17 +150,19 @@ export default function TicketDeskSettings() {
   const [agents, setAgents] = useState(null);            // default/fallback roster (agentEmails)
   const [byCompany, setByCompany] = useState(null);       // { companyId: [email, ...] }
   const [companies, setCompanies] = useState(null);
+  const [depts, setDepts] = useState(null);               // flat list, every company - {id, name, companyId, leadEmail, backupEmail}
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
 
   useEffect(() => {
     if (myLevel < 3) return;
-    Promise.all([api.getTicketNotifySettings(), api.getTicketCompanies()])
-      .then(([c, comps]) => {
+    Promise.all([api.getTicketNotifySettings(), api.getTicketCompanies(), api.getTicketDepartments()])
+      .then(([c, comps, dep]) => {
         setAgents(c.agentEmails || []);
         setByCompany(c.agentEmailsByCompany || {});
         setCompanies(comps || []);
+        setDepts(dep || []);
       })
       .catch((e) => setErr(e.message || String(e)));
   }, [myLevel]);
@@ -120,11 +177,21 @@ export default function TicketDeskSettings() {
       </div>
     );
   }
-  if (agents === null || byCompany === null || companies === null) {
+  if (agents === null || byCompany === null || companies === null || depts === null) {
     return <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err || 'Loading…'}</div>;
   }
 
   const setCompanyRoster = (companyId, next) => setByCompany((b) => ({ ...b, [companyId]: next }));
+
+  // Both endpoints return the whole updated roster for one company - merge it
+  // back into the flat list rather than refetching everyone else's.
+  const mergeDepts = (companyId, rows) =>
+    setDepts((d) => [...d.filter((x) => x.companyId !== companyId), ...rows]);
+  const addDept = (companyId, name) => api.addTicketDepartment(companyId, name).then((rows) => mergeDepts(companyId, rows));
+  const setDeptHead = (deptId, email) => {
+    const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
+    return api.setTicketDepartmentHead(deptId, email).then((rows) => mergeDepts(companyId, rows));
+  };
 
   const save = async () => {
     setSaving(true); setErr(''); setSaved(false);
@@ -175,7 +242,11 @@ export default function TicketDeskSettings() {
                 value={byCompany[c.id] || []} people={people}
                 onChange={(next) => setCompanyRoster(c.id, next)}
                 status={companyStatus(byCompany[c.id] || [], agents, c.name)}
-              />
+              >
+                <DepartmentHeads companyId={c.id} companyName={c.name} people={people}
+                  depts={depts.filter((d) => d.companyId === c.id)}
+                  onAdd={addDept} onSetHead={setDeptHead} />
+              </DeskRoster>
             ))}
           </div>
         )}

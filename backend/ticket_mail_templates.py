@@ -375,3 +375,34 @@ def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "") -
         note="Action required.",
     )
     return subject, html
+
+
+def escalated_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
+    """A distress flare, not a status update - the requester or assignee is
+    saying this needs eyes on it right now. `audience` is "dept_head" (the
+    department the ticket is ABOUT) or "other" (no head on file, routed to
+    the service desk instead - see escalate_ticket)."""
+    subject = f'URGENT - {_ticket_subject(t)}'
+    intro = (
+        f"{t.get('actorName') or t.get('actorEmail')} escalated this ticket - it needs your immediate attention."
+        if audience == "dept_head" else
+        f"{t.get('actorName') or t.get('actorEmail')} escalated this ticket. No department head is on file "
+        f"for it, so it has come to the service desk instead."
+    )
+    html = ticket_email_html(
+        ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
+        heading="This ticket has been escalated",
+        intro=intro,
+        rows=[
+            ("Description", rich_to_email_html(t.get("description"))),
+            ("Department", t.get("departmentName") or "-"),
+            ("Priority", PRIORITY_LABEL.get(t.get("priority"), t.get("priority"))),
+            ("Escalated by", t.get("actorName") or t.get("actorEmail")),
+            ("Escalated", t.get("eventAtDisplay") or "-"),
+            ("Requester", t.get("requesterName") or t.get("requesterId")),
+            ("Assignee", t.get("assigneeName") or t.get("assigneeId") or "Unassigned"),
+        ],
+        cta_label="View Ticket", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
+        note="Action required.",
+    )
+    return subject, html
