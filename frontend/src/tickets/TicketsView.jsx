@@ -13,10 +13,13 @@ import { useTasks } from '../tasks/TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import { filesFromPaste, richBodyHtml } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
-import { takePendingOpen } from '../lib/pendingOpen';
+import { takePendingOpen, setPendingOpen } from '../lib/pendingOpen';
 import { supabase } from '../lib/supabase';
 import { startScreenRecording } from '../lib/screenRecorder';
-import { stashDraft, appendDraftFile, takeDraft, peekDraft, setDraftUiMounted, finishRecording } from './recordingDraft';
+import {
+  stashDraft, appendDraftFile, takeDraft, peekDraft, setDraftUiMounted, finishRecording,
+  setOpenTicketId, clearOpenTicketId, isTicketDrawerOpen,
+} from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
 import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
@@ -1121,6 +1124,16 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
   const [menu, setMenu] = useState(false);
   const [recording, setRecording] = useState(false);
   const setRec = (v) => { setRecording(v); onRecordingChange?.(v); };
+  // The submenu used to close itself via a position:fixed full-viewport
+  // backdrop div. That div sits above everything else in the modal
+  // (including the scrollable body), so any wheel/touch scroll while the
+  // menu was open hit the backdrop instead of the scroll container and did
+  // nothing - the modal looked frozen until the menu was dismissed.
+  // useClickOutside (the same pattern every other dropdown in this file
+  // uses - TicketFilterMenu, MoreMenu) closes on an outside click without
+  // ever intercepting scroll.
+  const menuWrapRef = useRef(null);
+  useClickOutside(menuWrapRef, () => setMenu(false), menu);
 
   const record = async (voice) => {
     setMenu(false);
@@ -1149,15 +1162,22 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
   };
 
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
       {showRecord && (
-        <div style={{ position: 'relative' }}>
+        <div ref={menuWrapRef} style={{ position: 'relative' }}>
+          {/* Record is the featured action here - a screen recording tells us
+              more about a broken workflow than a paragraph of description
+              ever will, so it's styled to be noticed, not just discoverable. */}
           <button type="button" disabled={disabled || recording} onClick={() => setMenu((m) => !m)}
-            style={{ ...btn('outline'), fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {recording ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={13} style={{ color: NX.red }} />}
-            {recording ? 'Recording…' : 'Record'}
+            style={{
+              ...btn('primary'), background: NX.red, borderColor: NX.red,
+              padding: '11px 18px', fontSize: 14, fontWeight: 700, borderRadius: 10,
+              boxShadow: recording ? 'none' : '0 2px 8px rgba(220,38,38,0.28)',
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+            }}>
+            {recording ? <Loader2 size={17} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={17} />}
+            {recording ? 'Recording…' : 'Record screen'}
           </button>
-          {menu && <div onClick={() => setMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />}
           {menu && (
             <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 4, width: 210 }}>
               <button type="button" onClick={() => record(false)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
@@ -1618,6 +1638,15 @@ export function CreateTicketModal({ onClose }) {
 
       <div style={field}>
         <label style={label}>Attachments</label>
+        {/* Framed as a benefit to the requester (faster triage), not an
+            instruction - "please record" reads as a chore; this reads as
+            useful. Only shown when recording is actually offered for this
+            ticket type (NO_RECORDING_TYPES hides the Record button itself). */}
+        {!NO_RECORDING_TYPES.includes(form.type) && (
+          <div style={{ fontSize: 12.5, color: NX.faint, marginBottom: 8, lineHeight: 1.4 }}>
+            A quick screen recording shows us exactly what's happening - usually faster than typing it out.
+          </div>
+        )}
         <RecordUploadButtons showRecord={!NO_RECORDING_TYPES.includes(form.type)}
           onFile={(f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); }}
           onRecordingChange={onRecChange} />
@@ -1671,6 +1700,16 @@ function TicketDrawer({ ticketId, onClose }) {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
     api.getMyTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
   }, []);
+  // Lets a recording started from this drawer's Attachments tab know, on
+  // Stop, whether it should bring the app back here - see setOpenTicketId in
+  // recordingDraft.js. The functional clear only drops the id if it still
+  // names THIS ticket, so switching straight from drawer A to drawer B (B's
+  // mount effect can run before A's unmount cleanup) can't have A's cleanup
+  // clobber B's id.
+  useEffect(() => {
+    setOpenTicketId(ticketId);
+    return () => clearOpenTicketId(ticketId);
+  }, [ticketId]);
   const t = tickets.find((x) => x.id === ticketId);
   // Live fields always; a retired one only when this ticket actually holds an
   // answer for it. Rendering retired fields unconditionally would give new
@@ -2458,10 +2497,18 @@ function AttachmentViewer({ att, onClose }) {
 }
 
 // ── Attachments ──────────────────────────────────────────────────────────────
+// Card size for the attachment gallery - wide/tall enough for a video thumbnail
+// to actually read as a preview rather than an icon, narrow enough that a
+// handful still fit before wrapping.
+const ATT_CARD_W = 138;
+const ATT_THUMB_H = 84;
+
 function TicketAttachments({ ticketId, ticketType }) {
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState(null);   // attachment open in the in-app viewer
+  const [hoverId, setHoverId] = useState(null);
+  const isMobile = useIsMobile();   // no hover on touch - actions stay visible instead
   const reload = () => api.getTicketAttachments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
@@ -2482,48 +2529,96 @@ function TicketAttachments({ ticketId, ticketType }) {
   const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) sendFile(f); };
   const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
   const del = async (id) => { await api.deleteTicketAttachment(id).catch(() => {}); reload(); };
+  // Recording from an EXISTING ticket's Attachments tab, mirroring the create
+  // form's onRecChange (recordingDraft.js): sendFile already uploads fine
+  // even if this component unmounts mid-flight (it's just async API calls,
+  // no navigation involved). What's missing without this is getting the
+  // person BACK to this ticket once they stop - if they're still looking at
+  // it, isTicketDrawerOpen is true and there's nothing to do (sendFile's own
+  // reload() refreshes the list). If they navigated away - closed the
+  // drawer, switched tickets, or left the module entirely - stash the id and
+  // fire both the live event (drawer already mounted, showing something
+  // else) and the module navigate (TicketsView itself unmounted) so
+  // whichever one applies brings this exact ticket back up.
+  const onRecChange = (v) => {
+    if (v || isTicketDrawerOpen(ticketId)) return;
+    setPendingOpen('ticket', ticketId);
+    window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } }));
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tickets' } }));
+  };
 
   return (
     <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <RecordUploadButtons onFile={sendFile} disabled={busy} showRecord={!NO_RECORDING_TYPES.includes(ticketType)} />
+        <RecordUploadButtons onFile={sendFile} disabled={busy} showRecord={!NO_RECORDING_TYPES.includes(ticketType)}
+          onRecordingChange={onRecChange} />
         {busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: NX.faint }} />}
         <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
       </div>
-      {rows === null ? <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>
-        : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No attachments yet.</div>
-          : (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {rows.map((a) => {
-                const thumb = a.kind === 'image' && a.url ? <img src={a.url} alt={a.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover' }} />
-                  : a.kind === 'video' && a.url ? <video src={a.url} muted style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', background: '#000' }} />
-                  : a.kind === 'video' ? <Play size={13} style={{ color: NX.faint }} />
-                  : <Paperclip size={13} style={{ color: NX.dim }} />;
-                return (
-                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12 }}>
-                    {a.url ? (
-                      // Opens the IN-APP viewer (images/recordings/PDFs render
-                      // inline; other types get a download card) - never a new tab.
-                      <button type="button" onClick={() => setView(a)} title={`View ${a.name}`}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: 'inherit', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit' }}>
-                        {thumb}
-                        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
-                      </button>
+      {rows === null ? (
+        <div style={{ padding: '6px 0' }}>
+          <SkeletonBlocks count={4} height={ATT_THUMB_H + 40} borderRadius={12}
+            gridTemplateColumns={`repeat(auto-fill, minmax(${ATT_CARD_W}px, ${ATT_CARD_W}px))`} />
+        </div>
+      ) : rows.length === 0 ? (
+        <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No attachments yet.</div>
+      ) : (
+        // A small card gallery, not a row of tags: a real thumbnail earns a
+        // click, a filename buried in a chip does not - a screen recording
+        // especially needs to read as "press play", not as a broken image.
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+          {rows.map((a) => {
+            const failed = !a.url;
+            const showActions = isMobile || hoverId === a.id;
+            const actionBtn = { width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.62)', color: '#fff', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'none' };
+            return (
+              <div key={a.id} onMouseEnter={() => setHoverId(a.id)} onMouseLeave={() => setHoverId((h) => (h === a.id ? null : h))}
+                style={{ width: ATT_CARD_W, border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface, position: 'relative' }}>
+                <button type="button" disabled={failed} onClick={() => a.url && setView(a)}
+                  title={failed ? "This file failed to upload and isn't available - remove it and re-attach" : `View ${a.name}`}
+                  style={{ display: 'block', width: '100%', padding: 0, border: 'none', background: 'none', textAlign: 'left', font: 'inherit', color: 'inherit', cursor: failed ? 'default' : 'pointer' }}>
+                  <div style={{ position: 'relative', width: '100%', height: ATT_THUMB_H, background: NX.border2, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: failed ? 0.5 : 1 }}>
+                    {a.kind === 'image' && a.url ? (
+                      <img src={a.url} alt={a.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : a.kind === 'video' && a.url ? (
+                      <>
+                        {/* preload+seek past frame 0 - webm's first frame is often
+                            solid black, which used to make every recording look
+                            like a broken embed rather than a clickable preview. */}
+                        <video src={a.url} muted preload="metadata" playsInline
+                          onLoadedMetadata={(e) => { try { e.currentTarget.currentTime = 0.1; } catch { /* ignore */ } }}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', background: '#000' }} />
+                        <span style={{ position: 'absolute', width: 30, height: 30, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Play size={14} fill="#fff" style={{ color: '#fff', marginLeft: 2 }} />
+                        </span>
+                      </>
+                    ) : a.kind === 'video' ? (
+                      <Play size={22} style={{ color: NX.faint }} />
                     ) : (
-                      <span title="This file failed to upload and isn't available - remove it and re-attach"
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, color: NX.faint }}>
-                        {thumb}
-                        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'line-through' }}>{a.name}</span>
+                      <Paperclip size={22} style={{ color: NX.faint }} />
+                    )}
+                    {failed && (
+                      <span title="Upload failed" style={{ position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: '50%', background: NX.red, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <ShieldAlert size={12} style={{ color: '#fff' }} />
                       </span>
                     )}
-                    <span style={{ color: NX.faint }}>{a.size}</span>
-                    {a.url && <a href={a.url} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
-                    <button onClick={() => del(a.id)} title="Remove" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  <div style={{ padding: '7px 9px' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: failed ? NX.faint : NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: failed ? 'line-through' : 'none' }}>{a.name}</div>
+                    <div style={{ fontSize: 11, color: NX.faint, marginTop: 1 }}>{a.size}</div>
+                  </div>
+                </button>
+                {showActions && (
+                  <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', gap: 4 }}>
+                    {a.url && <a href={a.url} download={a.name} title="Download" style={actionBtn}><Download size={12} /></a>}
+                    <button onClick={() => del(a.id)} title="Remove" style={actionBtn}><X size={12} /></button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
       {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
     </div>
   );
