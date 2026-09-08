@@ -129,7 +129,7 @@ def delete_ticket_view(view_id: str, db: Session = Depends(get_db)):
 def ticket_to_dict(t: models.TaskTicket) -> dict:
     return {"id": t.id, "code": t.code or "", "subject": t.subject, "description": t.description or "",
             "type": t.type or "request",
-            "status": t.status or "new", "priority": t.priority or "medium",
+            "status": t.status if (t.status and t.status != "new") else "open", "priority": t.priority or "medium",
             "requesterId": _nz(t.requester_email), "assigneeId": _nz(t.assignee_email),
             "assignedById": _nz(t.assigned_by_email),
             "departmentId": _nz(t.department_id), "companyId": _nz(t.company_id), "hrDepartmentId": _nz(t.hr_department_id),
@@ -312,7 +312,7 @@ class TicketBody(BaseModel):
     subject: str
     description: Optional[str] = ""
     type: Optional[str] = "request"
-    status: Optional[str] = "new"
+    status: Optional[str] = "open"
     priority: Optional[str] = "medium"
     requester_email: Optional[str] = ""
     assignee_email: Optional[str] = ""
@@ -449,7 +449,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     t = models.TaskTicket(
         id=body.id or gen_id(), code=body.code or _next_ticket_code(db), subject=body.subject,
         description=body.description or "", type=body.type or "request",
-        status=body.status or "new", priority=body.priority or "medium",
+        status=(body.status if (body.status and body.status != "new") else "open"), priority=body.priority or "medium",
         requester_email=(body.requester_email or user["email"]).strip().lower(),
         assignee_email=(body.assignee_email or "").strip().lower(), department_id=body.department_id or "",
         # Resolved from the requester's People record when intake did not send
