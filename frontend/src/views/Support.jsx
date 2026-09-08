@@ -22,6 +22,7 @@ import { ticketNoShort, normalizeCode, TICKET_STATUS_META, TICKET_STATUS_ORDER }
 import { formatDateTime } from '../lib/datetime';
 import { NX, FONT } from '../tasks/theme';
 import { Avatar, usePeople } from '../tasks/components';
+import { useTableColumns, ColResizer } from '../tasks/tableCols';
 
 // Report a Bug used to float as its own button, hovering bottom-right over
 // every Tasks/Tickets screen. Folded into Support (Pranshu, Sep 3) since it's
@@ -101,7 +102,7 @@ function StatusCell({ status }) {
 // State by its workflow order, everything else by value.
 const SUPPORT_TABLE_COLUMNS = [
   { key: 'ticket', label: 'Ticket No', width: 110, sort: (t) => ticketNoShort(t.code) || '' },
-  { key: 'title', label: 'Title', width: 'minmax(0,1fr)', sort: (t) => (t.subject || '').toLowerCase() },
+  { key: 'title', label: 'Title', width: 320, sort: (t) => (t.subject || '').toLowerCase() },
   { key: 'status', label: 'Status', width: 140, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
   { key: 'assignedTo', label: 'Assigned To', width: 160, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
   { key: 'created', label: 'Created Date', width: 130, sort: (t) => t.createdAt || '' },
@@ -125,6 +126,11 @@ export default function Support() {
     const e = (email || '').toLowerCase();
     return people.find((p) => p.email === e)?.name || '';
   }, [people]);
+  // Same drag-to-resize kit the Ticket module's own list and the Task List
+  // use (tasks/tableCols.jsx) - a person's column widths here follow them the
+  // same way, saved to their profile under their own table key.
+  const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef } =
+    useTableColumns({ table: 'support-open-tickets', cols: SUPPORT_TABLE_COLUMNS });
 
   const load = useCallback(() => {
     api.getMyTickets()
@@ -247,19 +253,21 @@ export default function Support() {
           <>
             {/* Same grid-list DNA as the Ticket module's own table (TicketsView
                 TicketListHeader/TicketRow) - uppercase sortable headers, a
-                solid status fill, one border per row - rather than a
-                lookalike built from this page's plain <table> styles. */}
+                solid status fill, one border per row, and now the same
+                drag-to-resize handles - rather than a lookalike built from
+                this page's plain <table> styles. */}
             <div style={{ overflowX: 'auto' }}>
-              <div style={{ minWidth: 640, border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden', fontFamily: FONT }}>
-                <div style={{ display: 'grid', gridTemplateColumns: SUPPORT_TABLE_COLUMNS.map((c) => (typeof c.width === 'number' ? `${c.width}px` : c.width)).join(' '), background: NX.surface2, borderBottom: `1px solid ${NX.border}` }}>
-                  {SUPPORT_TABLE_COLUMNS.map((col) => {
+              <div ref={wrapRef} style={{ minWidth: 'fit-content', '--nx-grid': template, border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden', fontFamily: FONT }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', background: NX.surface2, borderBottom: `1px solid ${NX.border}` }}>
+                  {cols.map((col) => {
                     const active = sort.key === col.key;
                     const SortIcon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
                     return (
                       <div key={col.key} onClick={() => onSort(col.key)} title={`Sort by ${col.label}`}
-                        style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 34, padding: '0 10px', cursor: 'pointer', userSelect: 'none', borderRight: `1px solid ${NX.border2}` }}>
+                        style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4, minHeight: 34, padding: '0 10px', cursor: 'pointer', userSelect: 'none', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' }}>
                         <span style={{ flex: 1, minWidth: 0, fontSize: 11, fontWeight: 700, color: NX.ink, textTransform: 'uppercase', letterSpacing: '0.04em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
                         <SortIcon size={11} style={{ flexShrink: 0, opacity: active ? 1 : 0.4 }} />
+                        <ColResizer onMouseDown={startResize(col.key, widths[col.key] ?? col.width)} onReset={() => resetWidth(col.key)} onAutofit={() => autofitWidth(col.key)} />
                       </div>
                     );
                   })}
@@ -272,7 +280,7 @@ export default function Support() {
                   <div key={t.id} role="button" tabIndex={0} onClick={() => setViewingTicketId(t.id)}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingTicketId(t.id); } }}
                     style={{
-                      display: 'grid', gridTemplateColumns: SUPPORT_TABLE_COLUMNS.map((c) => (typeof c.width === 'number' ? `${c.width}px` : c.width)).join(' '),
+                      display: 'grid', gridTemplateColumns: 'var(--nx-grid)',
                       background: idx % 2 ? NX.zebra : NX.surface, cursor: 'pointer',
                       borderBottom: idx < paged.length - 1 ? `1px solid ${NX.border2}` : 'none',
                     }}>
