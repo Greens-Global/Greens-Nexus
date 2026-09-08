@@ -15,7 +15,7 @@ import { filesFromPaste, richBodyHtml } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { takePendingOpen, setPendingOpen } from '../lib/pendingOpen';
 import { supabase } from '../lib/supabase';
-import { startScreenRecording } from '../lib/screenRecorder';
+import { startScreenRecording, primeReturnCue } from '../lib/screenRecorder';
 import {
   stashDraft, appendDraftFile, takeDraft, peekDraft, setDraftUiMounted, finishRecording,
   setOpenTicketId, clearOpenTicketId, isTicketDrawerOpen,
@@ -1168,7 +1168,14 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
           {/* Record is the featured action here - a screen recording tells us
               more about a broken workflow than a paragraph of description
               ever will, so it's styled to be noticed, not just discoverable. */}
-          <button type="button" disabled={disabled || recording} onClick={() => setMenu((m) => !m)}
+          {/* Asks for notification permission HERE - a dedicated click, well
+              before the getDisplayMedia screen/window/tab picker shows up -
+              rather than right before that picker, where the two browser
+              prompts landing back-to-back meant the permission one (easy to
+              mistake for spam next to the picker everyone expects) was very
+              likely getting reflexively dismissed. That's the "come back"
+              cue this button promises. */}
+          <button type="button" disabled={disabled || recording} onClick={() => { primeReturnCue(); setMenu((m) => !m); }}
             style={{
               ...btn('primary'), background: NX.red, borderColor: NX.red,
               padding: '11px 18px', fontSize: 14, fontWeight: 700, borderRadius: 10,
