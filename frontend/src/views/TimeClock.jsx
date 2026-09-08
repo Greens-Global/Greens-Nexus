@@ -592,8 +592,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   }
 
   const last = status?.lastPunch;
-  const clockedIn = last && last.kind !== 'out';
-  const onBreak = last && last.kind === 'break_start';
+  // The server closes a shift left open past the 16h guard (staleOpenShift):
+  // it shows as Missing and is fixed by request, so this page is clocked OUT.
+  const staleShift = !!status?.staleOpenShift;
+  const clockedIn = !!last && last.kind !== 'out' && !staleShift;
+  const onBreak = !!last && last.kind === 'break_start' && !staleShift;
   const sinceSec = last ? Math.max(0, Math.floor((Date.now() - new Date(last.at + 'Z').getTime()) / 1000)) : 0;
   const days = status?.days || {};
 
@@ -787,6 +790,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                   Your clock-in{status.staleOpenSince ? ` at ${localTime(status.staleOpenSince)}` : ''} was never closed and is more than 16 hours old, so that shift shows as Missing.
                   Submit a Missed Punch request with the real clock-out time - and clock in to start today.
                 </span>
+                <button className="primary-btn" style={{ fontSize: 12, whiteSpace: 'nowrap' }} onClick={() => setTab('timesheet')}>
+                  Fix my punch-out
+                </button>
               </div>
             )}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 3 }}>
