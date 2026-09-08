@@ -1628,6 +1628,29 @@ class TimeBod(Base):
     last_try_at    = Column(String, default="")
 
 
+class TicketTeamsMessage(Base):
+    """Ticket-update Teams DM: queued when an agent saves a change worth
+    telling the requester about (routers/tickets.py - the same events that
+    already trigger the requester's update email), delivered the same
+    guaranteed-delivery way TimeBod posts are (teams_post.py) - posted AS THE
+    AGENT via a delegated Graph token, into a 1:1 chat with the requester that
+    Graph creates on first contact (returns the existing chat unchanged if the
+    two already have one). chat_id is cached once resolved so a retry doesn't
+    re-create it every attempt."""
+    __tablename__ = "ticket_teams_message"
+    id              = Column(String, primary_key=True)   # uuid
+    ticket_id       = Column(String, nullable=False, index=True)
+    agent_email     = Column(String, nullable=False)      # whose delegated token posts
+    requester_email = Column(String, nullable=False)      # the 1:1 chat's other member
+    html            = Column(String, default="")
+    chat_id         = Column(String, default="")
+    sent            = Column(Integer, default=0)
+    send_error      = Column(String, default="")
+    attempts        = Column(Integer, default=0)
+    last_try_at     = Column(String, default="")
+    created_at      = Column(String, default="")
+
+
 class AgentDevice(Base):
     """A desktop-agent enrollment. Silent (no-login) model: an admin mints a
     token tied to an employee, the install command drops it on the machine, and
