@@ -1839,6 +1839,17 @@ export function TicketDrawer({ ticketId, onClose }) {
   const isMobile = useIsMobile();
   const { myLevel, canAccessModule } = useRole();
   const [tab, setTab] = useState('overview');
+  // Up here with the other hooks, and NOT next to canRequestControl where it is
+  // used, because `if (!t) return null` sits between the two: a hook after that
+  // return runs on some renders and not others, which is the one thing React
+  // does not allow. The drawer's first render always takes the early path when
+  // it is opened from Support (Support.jsx lazy-mounts its own TasksProvider,
+  // so the tickets are still being fetched), and the render after the fetch
+  // landed then ran one hook more than the render before it - "Rendered more
+  // hooks than during the previous render", caught by ViewErrorBoundary as
+  // "This section hit a snag". Inside the Tickets module the store is already
+  // warm, `t` exists on the first render, and the fault never shows.
+  const [requestingControl, setRequestingControl] = useState(false);
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
   useEffect(() => {
@@ -1904,7 +1915,6 @@ export function TicketDrawer({ ticketId, onClose }) {
   // button is worth showing.
   const canRequestControl = isAssignee && !!t.requesterId && !isRequester
     && canAccessModule('employee-tracking', 'supervisor');
-  const [requestingControl, setRequestingControl] = useState(false);
   // Separate from the in_progress/assignee lock above: the moment a ticket
   // moves off its just-raised "open" status - triaged, worked, resolved,
   // whatever comes next - the person who raised it goes read-only on every
