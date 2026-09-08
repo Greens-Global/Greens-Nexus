@@ -878,19 +878,22 @@ function TicketListHeader({ colWidths, onResize, sort, onSort, allSelected, some
   useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = !!someSelected; }, [someSelected]);
   return (
     <div style={{
-      display: 'flex', alignItems: 'stretch', gap: 14, padding: '9px 16px', flexShrink: 0,
+      display: 'flex', alignItems: 'stretch', gap: 0, padding: '9px 16px', flexShrink: 0,
       background: NX.surface2, borderBottom: `1px solid ${NX.border}`,
     }}>
-      <div style={{ width: 15, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 15, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingRight: 10, marginRight: 4 }}>
         <input ref={selectAllRef} type="checkbox" checked={!!allSelected} onChange={onToggleSelectAll}
           title={allSelected ? 'Deselect all' : 'Select all'} style={{ cursor: 'pointer', width: 15, height: 15, margin: 0, accentColor: NX.blue }} />
       </div>
-      <span style={{ width: 16, flexShrink: 0 }} />
+      <span style={{ width: 16, flexShrink: 0, marginRight: 14 }} />
       {TICKET_COLUMNS.filter((col) => !(hideRequester && col.key === 'requester')).map((col) => {
         const active = sort.key === col.key;
         const SortIcon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
         return (
-          <div key={col.key} style={{ position: 'relative', flex: `0 0 ${colWidths[col.key]}px`, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
+          <div key={col.key} style={{
+            position: 'relative', flex: `0 0 ${colWidths[col.key]}px`, minWidth: 0, display: 'flex', alignItems: 'center',
+            justifyContent: 'flex-start', paddingRight: 10, marginRight: 4, borderRight: `1px solid ${NX.border2}`,
+          }}>
             <button onClick={() => onSort(col.key)} title={`Sort by ${col.label}`} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4, background: 'none', border: 'none', padding: 0, cursor: 'pointer',
               fontFamily: FONT, fontSize: 11, fontWeight: 700, color: NX.ink,
@@ -899,12 +902,10 @@ function TicketListHeader({ colWidths, onResize, sort, onSort, allSelected, some
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
               <SortIcon size={11} style={{ flexShrink: 0, opacity: active ? 1 : 0.4 }} />
             </button>
-            {/* Wide invisible strip (14px) so the grip is easy to grab; the thin
-                center line is the only visible trace. */}
+            {/* Wide invisible strip so the grip is easy to grab; the border above
+                is the only visible trace, matching the task list's cell dividers. */}
             <div onMouseDown={(e) => onResize(e, col.key, col.minWidth)} title="Drag to resize"
-              style={{ position: 'absolute', top: 0, bottom: 0, right: -14, width: 14, cursor: 'col-resize', zIndex: 1 }}>
-              <span style={{ position: 'absolute', left: 6, top: '15%', bottom: '15%', width: 1, background: NX.border }} />
-            </div>
+              style={{ position: 'absolute', top: 0, bottom: 0, right: -10, width: 16, cursor: 'col-resize', zIndex: 1 }} />
           </div>
         );
       })}
@@ -916,8 +917,10 @@ function TicketListHeader({ colWidths, onResize, sort, onSort, allSelected, some
 function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onToggle, colWidths, hideRequester, band = false }) {
   const isMobile = useIsMobile();
   // Resting background: selection wins, then the zebra band (same NX.zebra /
-  // NX.hover pair the task list rows use).
-  const rowBg = checked ? NX.surface2 : band ? NX.zebra : NX.surface;
+  // NX.hover pair the task list rows use). Selected tint matches the task
+  // list's row-select highlight exactly, rather than a plain surface swap.
+  const rowBg = checked ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : NX.surface;
+  const cellDivider = { paddingRight: 10, marginRight: 4, borderRight: `1px solid ${NX.border2}` };
   const overdue = t.slaDueOn && t.slaDueOn < today() && !CLOSED_STATES.includes(t.status);
   // The HR department is what routed this ticket, so it belongs on the row.
   const hrDept = t.hrDepartmentId ? hrDeptName(t.hrDepartmentId) : '';
@@ -964,8 +967,10 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
   return (
     <div onClick={onOpen} style={{
       // 8px, not 11 - the title cell is already two lines tall, so the row
-      // reads as roomy well before the padding does any work.
-      display: 'flex', alignItems: 'center', gap: 14, padding: '8px 16px',
+      // reads as roomy well before the padding does any work. gap:0 - each
+      // cell carries its own trailing border via cellDivider (matching the
+      // task list's spreadsheet-style cell dividers) instead of a plain gap.
+      display: 'flex', alignItems: 'center', gap: 0, padding: '8px 16px',
       borderBottom: `1px solid ${NX.border}`, cursor: 'pointer', background: rowBg,
     }}
       onMouseEnter={(e) => { if (!checked) e.currentTarget.style.background = NX.hover; }}
@@ -973,14 +978,14 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
       {/* Fixed-size wrappers (not just a sized input/icon) so native form-control
           margins can't drift this cell's box out of step with the header's plain
           spacer - that mismatch was throwing every column after it out of line. */}
-      <div style={{ width: 15, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 15, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', ...cellDivider }}>
         <input type="checkbox" checked={!!checked} onChange={onToggle} onClick={(e) => e.stopPropagation()}
           title="Select" style={{ cursor: 'pointer', width: 15, height: 15, margin: 0, accentColor: NX.blue }} />
       </div>
-      <div style={{ width: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', ...cellDivider }}>
         <TicketTypeIcon type={t.type} size={16} />
       </div>
-      <div style={{ minWidth: 0, overflow: 'hidden', flex: `0 0 ${colWidths.title}px`, textAlign: 'left' }}>
+      <div style={{ minWidth: 0, overflow: 'hidden', flex: `0 0 ${colWidths.title}px`, textAlign: 'left', ...cellDivider }}>
         <div style={{ fontSize: 14, fontWeight: 500, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {t.subject}
           {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
@@ -989,40 +994,40 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
           {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.company}px`, minWidth: 0, overflow: 'hidden' }} title={companyName(t.companyId) || ''}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.company}px`, minWidth: 0, overflow: 'hidden', ...cellDivider }} title={companyName(t.companyId) || ''}>
         <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{companyName(t.companyId) || '-'}</span>
       </div>
       {/* overflow:hidden - a chip pair wider than the column (a long status
           next to Awaiting approval) has to clip at the column edge, not spill
           over the cell after it. */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.state}px`, minWidth: 0, overflow: 'hidden' }}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.state}px`, minWidth: 0, overflow: 'hidden', ...cellDivider }}
         title={t.approvalStatus === 'pending' ? `${TICKET_STATUS_META[t.status]?.label || t.status} · awaiting approval` : (TICKET_STATUS_META[t.status]?.label || t.status)}>
         <TicketStatusChip status={t.status} />
         {/* Only shows while pending - an approved request looks like any other. */}
         {t.approvalStatus === 'pending' && <ApprovalChip ticket={t} />}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.priority}px`, minWidth: 0, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.priority}px`, minWidth: 0, overflow: 'hidden', ...cellDivider }}>
         <PriorityChip priority={t.priority} />
         <SlaBadge t={t} />
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 5, flex: `0 0 ${colWidths.due}px`, minWidth: 0, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 5, flex: `0 0 ${colWidths.due}px`, minWidth: 0, overflow: 'hidden', ...cellDivider }}>
         <Clock size={12} style={{ color: overdue ? NX.red : NX.faint, flexShrink: 0 }} />
         <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 700 : 400, textAlign: 'left' }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}</span>
       </div>
       {!hideRequester && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, overflow: 'hidden', flex: `0 0 ${colWidths.requester}px` }} title={`Requester: ${nameOf(t.requesterId) || 'Unknown'}`}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, overflow: 'hidden', flex: `0 0 ${colWidths.requester}px`, ...cellDivider }} title={`Requester: ${nameOf(t.requesterId) || 'Unknown'}`}>
           {t.requesterId ? <Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /> : <span style={{ width: 22, flexShrink: 0 }} />}
           <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.requesterId ? nameOf(t.requesterId) : '-'}</span>
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, overflow: 'hidden', flex: `0 0 ${colWidths.assignee}px` }} title={`Assignee: ${t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}`}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, overflow: 'hidden', flex: `0 0 ${colWidths.assignee}px`, ...cellDivider }} title={`Assignee: ${t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}`}>
         {/* Unassigned is the dashed avatar alone - the word said no more than
             the empty space it filled, and the icon keeps the column reading as
             a column of faces. The cell's title still spells it out on hover. */}
         {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : <UnassignedAvatar size={22} />}
         {t.assigneeId && <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(t.assigneeId)}</span>}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.created}px`, minWidth: 0, overflow: 'hidden' }} title={t.createdAt ? `Created ${fmtDate(t.createdAt)}` : ''}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.created}px`, minWidth: 0, overflow: 'hidden', ...cellDivider }} title={t.createdAt ? `Created ${fmtDate(t.createdAt)}` : ''}>
         <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.createdAt ? fmtDate(t.createdAt) : '-'}</span>
       </div>
       {t.resolvedAt
