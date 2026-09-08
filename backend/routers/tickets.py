@@ -14,6 +14,7 @@ attachment tables, keyed by ticket id - same storage, separate router.
 import json
 import re
 import html as html_lib
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -51,6 +52,28 @@ router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
 # not trusted: `mine=true` decided in the browser would be one query parameter
 # away from the whole company's queue.
 require_ticket_desk = require_any_module_grant("tasks", "tickets")
+
+
+# ── SLA policy - the due date is DERIVED from priority, not chosen freely.
+# Mirrors SLA_TARGET_HOURS in frontend/src/tickets/ticketMeta.js - keep the two
+# in step. The server is authoritative: create_ticket always computes its own
+# value (never trusts body.sla_due_on), and update_ticket recomputes it
+# whenever priority changes to a new value in a request that doesn't ALSO set
+# sla_due_on explicitly in the same request (that's a manual override via the
+# drawer's own DateField editor, and stays respected as-is). ──
+_SLA_TARGET_HOURS = {"urgent": 24, "high": 48, "medium": 72, "low": 168}
+
+
+def _sla_due_from_priority(created_at_iso: str, priority: str) -> str:
+    """created_at + the priority's target hours, as a YYYY-MM-DD date string -
+    sla_due_on is stored and compared as a plain date everywhere else (see
+    _sla_breached, ticket_to_dict), never a datetime."""
+    try:
+        start = datetime.fromisoformat((created_at_iso or now_iso()).replace("Z", "+00:00"))
+    except ValueError:
+        start = datetime.fromisoformat(now_iso())
+    hours = _SLA_TARGET_HOURS.get(priority, _SLA_TARGET_HOURS["medium"])
+    return (start + timedelta(hours=hours)).date().isoformat()
 
 
 def _has_desk_grant(user: dict, db: Session) -> bool:
@@ -150,6 +173,7 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "approvalStatus": t.approval_status or "none", "approverId": _nz(t.approver_email),
             "approvalNote": _nz(t.approval_note), "approvalDecidedAt": _nz(t.approval_decided_at),
             "slaDueOn": _nz(t.sla_due_on), "resolvedAt": _nz(t.resolved_at),
+            "lastCommentAt": _nz(t.last_comment_at),
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
 
 
@@ -350,6 +374,8 @@ class TicketBody(BaseModel):
     # derived from this application server-side, so a client cannot file a
     # ticket into a category its application does not belong to.
     application: Optional[str] = ""
+    # Accepted for backward compatibility but ignored - see create_ticket,
+    # which always derives it from priority server-side now.
     sla_due_on: Optional[str] = ""
 
 
@@ -503,7 +529,10 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         application=(body.application or "").strip(),
         # Derived, never taken from the payload - see TicketBody.application.
         service_area=service_area_for(db, body.application or ""),
-        sla_due_on=body.sla_due_on or "", resolved_at="", created_at=now, modified_at=now,
+        # Always derived from priority, never taken from the payload (see
+        # _sla_due_from_priority) - the frontend's own slaDueFromPriority call
+        # at submit time is just a same-request UI preview.
+        sla_due_on=_sla_due_from_priority(now, body.priority or "medium"), resolved_at="", created_at=now, modified_at=now,
     )
     # Approval gate, decided by the TYPE and never trusted from the client, so a
     # caller cannot post approval_status="approved" to skip it.
@@ -646,6 +675,11 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     if "application" in data and "service_area" not in data:
         t.application = (t.application or "").strip()
         t.service_area = service_area_for(db, t.application)
+    # SLA due date follows priority automatically - unless this same request
+    # ALSO set sla_due_on explicitly (the drawer's manual DateField editor),
+    # which is respected as-is and never silently overridden.
+    if "priority" in data and t.priority != prev_priority and "sla_due_on" not in data:
+        t.sla_due_on = _sla_due_from_priority(t.created_at, t.priority)
     if data.get("status") in ("resolved", "closed") and not t.resolved_at:
         t.resolved_at = now_iso()
     if data.get("status") not in ("resolved", "closed") and "status" in data:
@@ -862,6 +896,9 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     c = models.TaskComment(id=gen_id(), task_id=ticket_id, author_email=user["email"], body=body.body or "",
                            internal=internal, created_at=now_iso())
     db.add(c)
+    # Resets the "needs a comment" staleness clock - internal notes count too,
+    # any human touching the ticket is evidence someone's paying attention.
+    t.last_comment_at = now_iso()
     # JSON, not a plain string - same "structured detail" trick the "created"
     # snapshot uses (see _ticket_snapshot) - so the activity feed can show what
     # was actually said instead of just the word "commented", while still
