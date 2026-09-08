@@ -633,6 +633,9 @@ def _run_migrations():
             # so nobody's saved layout disappears. Naturally idempotent (a
             # second run matches zero rows).
             "UPDATE dashboard_views SET target = 'dashboard' WHERE target = 'manager-dashboard'",
+            # "Needs a comment" staleness highlight - timestamp of the ticket's
+            # most recent comment, separate from SLA due-date breach.
+            "ALTER TABLE task_tickets ADD COLUMN last_comment_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1324,6 +1327,9 @@ def _run_migrations():
         "AND action NOT LIKE '%\"taskId\"%'",
         # Same backfill as the SQLite list above - see the note there.
         "UPDATE dashboard_views SET target = 'dashboard' WHERE target = 'manager-dashboard'",
+        # "Needs a comment" staleness highlight - timestamp of the ticket's
+        # most recent comment, separate from SLA due-date breach.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS last_comment_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

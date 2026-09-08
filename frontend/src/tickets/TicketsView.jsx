@@ -6,7 +6,7 @@
 // Ticket statuses get their own color map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Loader2, Play, MousePointer2 } from 'lucide-react';
+import { Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Loader2, Play, MousePointer2, Check } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
@@ -23,7 +23,7 @@ import {
   setOpenTicketId, clearOpenTicketId, isTicketDrawerOpen,
 } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
-import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar } from '../tasks/components';
+import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar, SelectMenu } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
@@ -31,6 +31,7 @@ import {
   fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
   SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, isBlankFieldValue, toEmailList,
+  commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
   ticketNo, ticketNoShort, normalizeCode,
   SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
@@ -419,6 +420,9 @@ export default function TicketsView({ manageAction = null }) {
   const { tickets, ticketViews = [], createTicketView, deleteTicketView,
     myEmail, nameOf, updateTicket, deleteTicket } = useTasks();
   const people = usePeople();
+  // For the list's own inline State/Priority dropdown (TicketRow) - mirrors
+  // the drawer's canWorking gate exactly, see inlineCanWorking below.
+  const { myLevel } = useRole();
   // Desk membership comes from the server, not from holding administrator: the
   // roster is configured in Manage, and an agent need not be an admin at all.
   // Admins stay true so a mis-configured desk can always be fixed. Optimistic
@@ -844,7 +848,8 @@ export default function TicketsView({ manageAction = null }) {
                   </div>
                 )}
                 {g.rows.slice(0, 200).map((t, idx) => (
-                  <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
+                  <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={updateTicket} onOpen={() => setOpenId(t.id)}
                     checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
                 ))}
                 {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
@@ -863,7 +868,8 @@ export default function TicketsView({ manageAction = null }) {
                   <span style={{ fontSize: 12, color: NX.faint, fontWeight: 400 }}>{sortedCompleted.length}</span>
                 </button>
                 {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
-                  <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
+                  <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={updateTicket} onOpen={() => setOpenId(t.id)}
                     checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
                 ))}
                 {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
@@ -894,7 +900,8 @@ export default function TicketsView({ manageAction = null }) {
                       lists use, which is what lets the eye follow a row out to
                       the Created Date column on a wide screen. */}
                   {g.rows.slice(0, 200).map((t, idx) => (
-                    <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
+                    <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={updateTicket} onOpen={() => setOpenId(t.id)}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
@@ -915,7 +922,8 @@ export default function TicketsView({ manageAction = null }) {
                     <span style={{ fontSize: 12, color: NX.faint, fontWeight: 400 }}>{sortedCompleted.length}</span>
                   </button>
                   {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
-                    <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
+                    <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={updateTicket} onOpen={() => setOpenId(t.id)}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
@@ -992,7 +1000,17 @@ function TicketListHeader({ cols, widths, startResize, resetWidth, autofitWidth,
   useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = !!someSelected; }, [someSelected]);
   const headCell = { position: 'relative', display: 'flex', alignItems: 'center', minHeight: 34, padding: '0 10px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', padding: '9px 0', background: NX.surface2, borderBottom: `1px solid ${NX.border}` }}>
+    // Sticky, not just top-of-list - scrolling a long queue used to lose the
+    // column labels entirely (Pranshu, Sep 9 2026). Anchored to the module's
+    // own scrolling body (the "nx-scroll nx-gutter" div below list/board/
+    // reports - .nx-list-scroll itself only handles horizontal overflow),
+    // with an opaque background so rows scrolling underneath don't show
+    // through. top: -16 (not 0) cancels that scroller's own `padding: 16` -
+    // sticky's offset is measured from the padding edge, so top: 0 stuck the
+    // header 16px below the scroller's true top edge, leaving a gap the
+    // still-scrolling row directly above it could show through (Pranshu, Sep
+    // 9 2026 - "header column overlapping"). -16 pins it flush instead.
+    <div style={{ position: 'sticky', top: -16, zIndex: 3, display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', padding: '9px 0', background: NX.surface2, borderBottom: `1px solid ${NX.border}` }}>
       {cols.map((col) => {
         if (col.key === 'checkbox') {
           return (
@@ -1031,6 +1049,58 @@ function TicketListHeader({ cols, widths, startResize, resetWidth, autofitWidth,
   );
 }
 
+// Click-to-edit State/Priority directly from the list, no drawer (Pranshu,
+// Sep 2026 - clicking the pill offers a dropdown right there). Shows
+// `children` (the row's existing SolidCellPair/chip) unchanged at rest; when
+// `editable`, a click opens a small anchored option list and picking one
+// fires `onChange` immediately. Gated by the SAME canWorking the drawer
+// enforces for these exact fields (see TicketRow below) - this is UI
+// convenience only, the backend's _ticket_edit_scope is the real boundary
+// regardless, same as everywhere else in this file.
+function InlineTicketSelect({ value, options, onChange, editable, meta, children }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const anchorRef = useRef(null);
+  if (!editable) return children;
+  const pick = (id) => {
+    setOpen(false);
+    if (id === value || busy) return;
+    setBusy(true);
+    onChange(id).catch((e) => alert(`Could not update: ${e.message || e}`)).finally(() => setBusy(false));
+  };
+  return (
+    <div ref={anchorRef} onClick={(e) => { e.stopPropagation(); if (!busy) setOpen((o) => !o); }}
+      style={{ width: '100%', height: '100%', cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.65 : 1 }}>
+      {children}
+      {open && (
+        // Portaled to document.body (SelectMenu, position:fixed off the anchor's
+        // own rect) rather than absolutely positioned inside this cell - the
+        // State/Priority cells are `overflow:hidden` (SolidCellPair needs that to
+        // clip its solid fill to the cell edge), which silently clipped an
+        // in-place dropdown to invisible: it existed in the DOM, computed
+        // visible/display:block, and still never painted (Pranshu, Sep 9 2026 -
+        // reported as "clicking State/Priority does nothing").
+        <SelectMenu anchorRef={anchorRef} onClose={() => setOpen(false)} minWidth={170}>
+          {options.map(([id, optLabel]) => {
+            const m = meta[id] || {};
+            const selected = id === value;
+            return (
+              <div key={id} onClick={(e) => { e.stopPropagation(); pick(id); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', fontSize: 12.5, borderRadius: 6, cursor: 'pointer', color: NX.ink, background: selected ? NX.hover : 'transparent' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = selected ? NX.hover : 'transparent'; }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.color || NX.dim, flexShrink: 0 }} />
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{optLabel}</span>
+                {selected && <Check size={13} style={{ color: NX.blue, flexShrink: 0 }} />}
+              </div>
+            );
+          })}
+        </SelectMenu>
+      )}
+    </div>
+  );
+}
+
 // Solid, edge-to-edge colored cell fill - matches the task rich-list's
 // monday-style Priority/Status columns (tasks/views/richlist.jsx PillSelect
 // `solid`) instead of a floating pastel chip. The primary segment grows to
@@ -1054,7 +1124,7 @@ function SolidCellPair({ primaryLabel, primaryColor, secondaryLabel, secondaryCo
   );
 }
 
-function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onToggle, cols, band = false }) {
+function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updateTicket, onOpen, checked, onToggle, cols, band = false }) {
   const isMobile = useIsMobile();
   // Resting background: selection wins, then the zebra band (same NX.zebra /
   // NX.hover pair the task list rows use). Selected tint matches the task
@@ -1070,8 +1140,20 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
   const sla = slaState(t);
   const slaM = (sla === 'breached' || sla === 'at_risk') ? SLA_META[sla] : null;
   const approvalM = t.approvalStatus === 'pending' ? APPROVAL_META.pending : null;
+  const staleM = commentStale(t) ? COMMENT_STALE_META : null;
   // The HR department is what routed this ticket, so it belongs on the row.
   const hrDept = t.hrDepartmentId ? hrDeptName(t.hrDepartmentId) : '';
+
+  // Same canWorking the drawer enforces for type/status/priority/assignee/
+  // department/resolution - never let the list's inline dropdown drift from
+  // it (see TicketDrawer below and InlineTicketSelect above).
+  const myEmailLower = (myEmail || '').toLowerCase();
+  const rowIsRequester = (t.requesterId || '').toLowerCase() === myEmailLower;
+  const rowIsAssignee = (t.assigneeId || '').toLowerCase() === myEmailLower;
+  const rowPrivileged = myLevel >= 3;
+  const rowRequesterLocked = rowIsRequester && !rowPrivileged && t.status !== 'open';
+  const rowLocked = t.status === 'in_progress' && !!t.assigneeId;
+  const canWorking = rowPrivileged || (!rowRequesterLocked && (rowLocked ? rowIsAssignee : true));
 
   // Phones: two stacked lines instead of eight columns. Subject leads; the chips
   // and the assignee wrap underneath. Requester, the separate SLA date column and
@@ -1101,6 +1183,12 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
           {t.approvalStatus === 'pending' && <ApprovalChip ticket={t} />}
           <PriorityChip priority={t.priority} />
           <SlaBadge t={t} compact />
+          {staleM && (
+            <span title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h - past this priority's check-in window`}
+              style={{ ...chip(staleM.color, staleM.tint), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}>
+              <staleM.Icon size={11} />
+            </span>
+          )}
           <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
             {t.assigneeId
               ? <><Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />
@@ -1152,17 +1240,30 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onTogg
     ),
     // Solid, edge-to-edge fill - matches the task rich-list's Priority/Status
     // columns exactly, with the approval/SLA badge as a second solid segment
-    // rather than a floating chip.
+    // rather than a floating chip. Wrapped in InlineTicketSelect so clicking
+    // it offers a dropdown to change the value right there - no drawer.
     state: (
       <div style={{ ...flushCell, overflow: 'hidden' }} title={approvalM ? `${stateM.label} · awaiting approval` : stateM.label}>
-        <SolidCellPair primaryLabel={stateM.label} primaryColor={stateM.color}
-          secondaryLabel={approvalM?.label} secondaryColor={approvalM?.color} />
+        <InlineTicketSelect value={t.status} options={statusOptions()} meta={TICKET_STATUS_META} editable={canWorking}
+          onChange={(v) => updateTicket(t.id, { status: v })}>
+          <SolidCellPair primaryLabel={stateM.label} primaryColor={stateM.color}
+            secondaryLabel={approvalM?.label} secondaryColor={approvalM?.color} />
+        </InlineTicketSelect>
       </div>
     ),
+    // staleM wins the one secondary slot over slaM when both apply - the Due
+    // Date column (below) still shows the SLA breach in red regardless, so
+    // it's never fully hidden, and "needs a comment" is the more actionable
+    // of the two right now.
     priority: (
-      <div style={{ ...flushCell, overflow: 'hidden' }} title={slaM ? `${priM.label} · ${slaM.label}` : priM.label}>
-        <SolidCellPair primaryLabel={priM.label} primaryColor={priM.color}
-          secondaryLabel={slaM?.label} secondaryColor={slaM?.color} SecondaryIcon={slaM?.Icon} />
+      <div style={{ ...flushCell, overflow: 'hidden' }}
+        title={staleM ? `${priM.label} · ${staleM.label}` : slaM ? `${priM.label} · ${slaM.label}` : priM.label}>
+        <InlineTicketSelect value={t.priority} options={priorityOptions()} meta={PRIORITY_META} editable={canWorking}
+          onChange={(v) => updateTicket(t.id, { priority: v })}>
+          <SolidCellPair primaryLabel={priM.label} primaryColor={priM.color}
+            secondaryLabel={staleM?.label || slaM?.label} secondaryColor={staleM?.color || slaM?.color}
+            SecondaryIcon={staleM?.Icon || slaM?.Icon} />
+        </InlineTicketSelect>
       </div>
     ),
     due: (
@@ -2168,6 +2269,15 @@ export function TicketDrawer({ ticketId, onClose }) {
             ) : (
               <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
                 {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
+              </div>
+            )}
+            {/* "Needs a comment" - a signal separate from the due date above:
+                nobody has said anything in longer than this priority's
+                check-in cadence, whether or not the due date has passed. */}
+            {commentStale(t) && (
+              <div title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h`}
+                style={{ ...chip(COMMENT_STALE_META.color, COMMENT_STALE_META.tint), display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '2px 8px', marginTop: 6 }}>
+                <COMMENT_STALE_META.Icon size={12} />{COMMENT_STALE_META.label}
               </div>
             )}
           </div>
