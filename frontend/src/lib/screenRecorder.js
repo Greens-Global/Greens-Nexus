@@ -71,6 +71,67 @@ function _showRecordingToast(blob) {
   const timer = setTimeout(cleanup, _TOAST_MS);
 }
 
+// ── Bringing the tab back after recording ───────────────────────────────────
+// A web page cannot minimize or otherwise control a DIFFERENT application's
+// window - there is no browser API for that, by design (sandboxing means a
+// site can only ever act on itself). What we CAN do when recording ends
+// while this tab is in the background (a different app, or a different
+// browser tab) is: try to refocus ourselves (works when the browser allows
+// it - not guaranteed, since focus-stealing is deliberately restricted),
+// flash the tab title so it stands out in the taskbar/tab strip either way,
+// and - the one mechanism that reliably reaches across a totally different
+// application - show a system notification whose click handler focuses this
+// tab. All three are no-ops if the tab was already visible when recording
+// stopped.
+let _titleFlashTimer = null;
+let _titleFlashOrig = null;
+
+function _stopTitleFlash() {
+  if (_titleFlashTimer) { clearInterval(_titleFlashTimer); _titleFlashTimer = null; }
+  if (_titleFlashOrig !== null) { document.title = _titleFlashOrig; _titleFlashOrig = null; }
+  document.removeEventListener('visibilitychange', _stopTitleFlash);
+  window.removeEventListener('focus', _stopTitleFlash);
+}
+
+function _flashTitle() {
+  if (_titleFlashTimer) return;   // already flashing from an earlier recording
+  _titleFlashOrig = document.title;
+  let on = false;
+  _titleFlashTimer = setInterval(() => {
+    document.title = on ? _titleFlashOrig : '● Recording ready';
+    on = !on;
+  }, 1000);
+  // Stops itself the moment the person actually comes back - nothing to clean
+  // up on their end, and the title never gets stuck mid-flash.
+  document.addEventListener('visibilitychange', _stopTitleFlash);
+  window.addEventListener('focus', _stopTitleFlash);
+}
+
+// Requesting Notification permission only works from a user gesture, so this
+// is called from startScreenRecording (a click handler is always the caller)
+// rather than at the moment recording ends. Asked at most once per page load
+// - a person who dismisses or denies it isn't asked again this session.
+let _notifyAsked = false;
+function _maybeAskNotifyPermission() {
+  if (_notifyAsked || typeof Notification === 'undefined') return;
+  _notifyAsked = true;
+  if (Notification.permission === 'default') {
+    try { Notification.requestPermission(); } catch { /* ignore */ }
+  }
+}
+
+function _bringTabBack() {
+  if (!document.hidden && document.hasFocus()) return;   // already in view
+  try { window.focus(); } catch { /* browsers can refuse to steal focus */ }
+  _flashTitle();
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    try {
+      const n = new Notification('Recording finished', { body: 'Switch back to Nexus to continue.', tag: 'nexus-recording-done' });
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch { /* some browsers restrict Notification from a background tab - the title flash still covers it */ }
+  }
+}
+
 function _showPill(onStop, onCancel) {
   _pill = document.createElement('div');
   // z-index above every app overlay (task/ticket modals portal at 4000) - the
@@ -111,6 +172,7 @@ export async function startScreenRecording({ voice = false } = {}, onDone) {
   if (!navigator.mediaDevices?.getDisplayMedia) {
     throw new Error('Screen recording isn\'t supported in this browser.');
   }
+  _maybeAskNotifyPermission();
   _chunks = [];
   const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 10 }, audio: false });
   _screenStream = stream;
@@ -128,7 +190,7 @@ export async function startScreenRecording({ voice = false } = {}, onDone) {
     if (!_recording) return;
     _recording = false;
     const rec = _mediaRec;
-    const done = (blob) => { _removePill(); _cleanupTracks(); if (blob) _showRecordingToast(blob); onDone?.(blob); };
+    const done = (blob) => { _removePill(); _cleanupTracks(); _bringTabBack(); if (blob) _showRecordingToast(blob); onDone?.(blob); };
     if (!rec || rec.state === 'inactive') { done(_chunks.length ? new Blob(_chunks, { type: 'video/webm' }) : null); return; }
     rec.onstop = () => done(_chunks.length ? new Blob(_chunks, { type: 'video/webm' }) : null);
     try { rec.stop(); } catch { done(null); }
