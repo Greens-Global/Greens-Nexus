@@ -1681,7 +1681,15 @@ function readOnlyFieldValue(f, value, nameOf) {
   return String(value);
 }
 
-function TicketDrawer({ ticketId, onClose }) {
+// Exported so the Support page (requester-facing, no module grant needed -
+// see views/Support.jsx) can mount this exact drawer directly, the same way
+// it already mounts CreateTicketModal for "Submit a Ticket" - rather than
+// routing through the Tickets module's own view, which is grant-gated to
+// supervisor+ (App.jsx VIEW_MIN_ROLES) and would 403 a plain employee. The
+// drawer's own permission model (isRequester/privileged/etc. below) already
+// scopes what a non-desk person can see/do, same as it would inside the
+// module for someone without the desk grant.
+export function TicketDrawer({ ticketId, onClose }) {
   const { tickets, tasks, projects = [],
     addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
