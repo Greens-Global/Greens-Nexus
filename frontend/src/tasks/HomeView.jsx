@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, CheckCircle2, LayoutGrid, Plus, Circle, CalendarDays, FolderKanban, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
 import { useTasks } from './TasksContext';
+import { DeletedTasksTab as RecycleBinPanel } from './ManageView';
 import { fmtDate, taskIdFromUrl, taskAssignees } from './lib';
 import { NX, FONT, btn, card, PRIORITY_ORDER } from './theme';
 import { Avatar, useClickOutside, useIsMobile } from './components';
@@ -25,6 +26,11 @@ const WIDGET_META = [
   { key: 'teams', label: 'Teams' },
   { key: 'team_members', label: 'Team Members' },
   { key: 'notifications', label: 'Notifications' },
+  // The Recycle Bin. On Home rather than under My Tasks (Neil, Sept 9): it is
+  // not a view of my tasks, it is where deleted things wait - and it is meant
+  // to grow past tasks to projects, portfolios and teams. A widget, so someone
+  // who never deletes anything can switch it off from Customize like any other.
+  { key: 'recycle', label: 'Recycle Bin' },
 ];
 const DEFAULT_LAYOUT = ['my_tasks', 'projects', 'urgent', 'activity', 'week', 'priorities'];
 const PRIORITY_COLORS = { urgent: '#fc6363', high: '#ffb546', medium: '#0998c3', low: '#9699a6' };
@@ -306,6 +312,17 @@ export default function HomeView({ onNavigate }) {
             })}
           </div>
         )}
+      </>
+    );
+    if (key === 'recycle') return widgetBox(
+      <>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Recycle Bin</h2>
+        </div>
+        {/* scope="mine" - what YOU deleted plus what you were assigned, enforced
+            server-side and NOT widened for managers. The whole workspace's is
+            Manage > Recycle Bin, which is a different question. */}
+        <RecycleBinPanel store={store} scope="mine" />
       </>
     );
     if (key === 'teams') return widgetBox(

@@ -13,6 +13,7 @@ import {
 import { NX, FONT, btn, input as inputStyle, STATUS_META, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, ChipMultiSelect, useIsMobile, ViewToggle, ExportMenu } from './components';
 import { useTasks } from './TasksContext';
+import { useRole } from '../contexts/RoleContext';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import { topLevel, teamProjectIds, taskInProject } from './lib';
 import { CalendarView } from './views/extras';
@@ -221,6 +222,70 @@ const TEAMS_DEFAULT_SORT = { key: 'team', dir: 'asc' };
 // header to move a column, drag its right edge to resize, click it to sort.
 // Zebra bands, with hover restoring to the row's own band rather than to
 // transparent so an odd row does not flash lighter on mouse-out.
+// "Ask for approval" on your own team, and Approve / Send back for a manager
+// looking at a pending one. Both live here so the two halves of the workflow
+// cannot describe it differently.
+export function TeamApprovalAction({ team }) {
+  const { requestTeamApproval, decideTeamApproval, myEmail } = useTasks();
+  const { can } = useRole();
+  const [busy, setBusy] = useState('');
+  const st = team?.approvalStatus || 'approved';
+  if (st === 'approved') return null;
+
+  const isMine = (team.createdById || '').toLowerCase() === (myEmail || '').toLowerCase();
+  const isManager = !!can?.('manager');
+
+  const run = async (fn, key) => {
+    setBusy(key);
+    try { await fn(); } catch (e) { alert(e?.message || 'That did not work.'); } finally { setBusy(''); }
+  };
+
+  if (isManager && st === 'pending') {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <button disabled={!!busy} onClick={() => run(() => decideTeamApproval(team.id, 'approved'), 'a')}
+          title="Make this a workspace team - its members get access through the team from now on"
+          style={{ ...btn('primary'), padding: '6px 10px', fontSize: 12 }}>
+          {busy === 'a' ? 'Approving…' : 'Approve team'}
+        </button>
+        <button disabled={!!busy} onClick={() => run(() => decideTeamApproval(team.id, 'rejected'), 'r')}
+          title="Leave it as the creator's personal team"
+          style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}>
+          Send back
+        </button>
+      </div>
+    );
+  }
+  if (isMine && st === 'personal') {
+    return (
+      <button disabled={!!busy} onClick={() => run(() => requestTeamApproval(team.id), 'q')}
+        title="Ask a manager to make this a workspace team"
+        style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, flexShrink: 0 }}>
+        {busy === 'q' ? 'Sending…' : 'Ask for approval'}
+      </button>
+    );
+  }
+  return null;
+}
+
+// Personal / pending / approved, at a glance. Approved teams get NO chip -
+// that is the normal state and a badge on every row would be noise.
+export function TeamStatusChip({ team }) {
+  const st = team?.approvalStatus || 'approved';
+  if (st === 'approved') return null;
+  const meta = st === 'pending'
+    ? { label: 'Awaiting approval', color: NX.amber || '#d97706' }
+    : { label: 'Personal', color: NX.dim };
+  return (
+    <span title={st === 'pending'
+      ? 'A manager has been asked to make this a workspace team'
+      : 'Only you can see this team. Its members get individual project access until it is approved.'}
+      style={{ ...chip(meta.color, NX.border2), flexShrink: 0, whiteSpace: 'nowrap' }}>
+      {meta.label}
+    </span>
+  );
+}
+
 export function TeamList({ teams, projectsOf, nameOf, taskCountByTeam, isMobile, onOpen }) {
   const [sort, setSort] = useTableValue('teams', 'sort', TEAMS_DEFAULT_SORT);
   const { cols: listCols, template, startResize, resetWidth, autofitWidth, widths, wrapRef, dragProps } =
@@ -314,6 +379,11 @@ export function TeamList({ teams, projectsOf, nameOf, taskCountByTeam, isMobile,
                     <Icon size={14} />
                   </span>
                   <span title={team.name} style={{ minWidth: 0, fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
+                  {/* Says whose team this is and how far along it is. Without
+                      it, a personal team looks identical to a real one while
+                      behaving completely differently - nobody else can see it,
+                      and its access is individual rather than team-wide. */}
+                  <TeamStatusChip team={team} />
                 </div>
               ),
               members: (
@@ -438,7 +508,7 @@ function TeamCard({ team, teamProjects, nameOf, taskCount, onOpen }) {
   );
 }
 
-export function TeamModal({ team, onClose, onDelete }) {
+export function TeamModal({ team, onClose, onDelete, personal = false }) {
   const { createTeam, updateTeam, projects } = useTasks();
   const people = usePeople();
   const nameOfLocal = (email) => people.find((p) => p.email === email)?.name || emailToName(email);
@@ -474,7 +544,11 @@ export function TeamModal({ team, onClose, onDelete }) {
   const save = async () => {
     if (!canSave) return;
     setSaving(true);
-    const payload = { name: name.trim(), project_ids: projectIds, color, icon, memberIds: members };
+    // `personal` only matters on CREATE, and only the Teams screen sends it -
+    // Manage makes real teams. The server forces it on for a non-manager
+    // whatever we send, so this is the intent, not the enforcement.
+    const payload = { name: name.trim(), project_ids: projectIds, color, icon, memberIds: members,
+      ...(team ? {} : { personal }) };
     try {
       if (team) await updateTeam(team.id, payload);
       else await createTeam(payload);
@@ -617,6 +691,9 @@ function TeamDetail({ team, teamProjects, onBack, onEdit, onNavigate }) {
             {' · '}{taskCount} task{taskCount === 1 ? '' : 's'}
           </div>
         </div>
+        {/* The ask. Only on a team that is still the creator's own - approval
+            is what turns individual grants into team access. */}
+        <TeamApprovalAction team={team} />
         <MemberStack members={members} nameOf={nameOf} />
       </div>
 

@@ -110,7 +110,8 @@ def _hide_soft_deleted(state):
     if state.execution_options.get("include_deleted", False):
         return
     from sqlalchemy.orm import with_loader_criteria   # local: models imports us
-    from models import NexusEmployee, Task
+    from models import (NexusEmployee, Task, TaskPortfolio, TaskProject,
+                        TaskProjectTemplate, TaskTeam, TaskTemplate)
     # NULL as well as "" - a row that existed before the column was added
     # reads back NULL on databases that do not backfill.
     def _live(cls):
@@ -125,6 +126,21 @@ def _hide_soft_deleted(state):
         # .execution_options(include_deleted=True), used by the Deleted Tasks
         # tab, the restore endpoint, and trash_purge_loop.
         with_loader_criteria(Task, _live, include_aliases=True),
+        # Recycle Bin (Sept 2026): projects, portfolios and teams became
+        # soft-deletable so they can be restored. Filtered HERE rather than at
+        # the ~70 places that query them - every picker, rollup, export, the
+        # Asana sync and the notification scans all read these tables, and the
+        # one that forgets is the one that shows a binned project in a dropdown.
+        # Same escape hatch as Task: .execution_options(include_deleted=True),
+        # used by the Recycle Bin listing, restore and the purge sweep.
+        with_loader_criteria(TaskProject, _live, include_aliases=True),
+        with_loader_criteria(TaskPortfolio, _live, include_aliases=True),
+        with_loader_criteria(TaskTeam, _live, include_aliases=True),
+        # Both template kinds: the project blueprint and the single-task one.
+        # Hand-built and easy to delete by mistake, with nothing to rebuild
+        # them from.
+        with_loader_criteria(TaskProjectTemplate, _live, include_aliases=True),
+        with_loader_criteria(TaskTemplate, _live, include_aliases=True),
     )
 
 

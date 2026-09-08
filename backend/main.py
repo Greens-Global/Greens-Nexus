@@ -534,6 +534,26 @@ def _run_migrations():
             "ALTER TABLE task_custom_fields ADD COLUMN applies_to VARCHAR DEFAULT 'task'",
             "ALTER TABLE task_projects ADD COLUMN custom_field_values JSON DEFAULT '{}'",
             "ALTER TABLE task_portfolios ADD COLUMN parent_id VARCHAR DEFAULT ''",
+            # Recycle Bin (Sept 2026) - soft delete for the Task module's
+            # containers. Tasks already had deleted_at; these are its siblings.
+            "ALTER TABLE task_projects ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_projects ADD COLUMN deleted_by VARCHAR DEFAULT ''",
+            "ALTER TABLE task_portfolios ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_portfolios ADD COLUMN deleted_by VARCHAR DEFAULT ''",
+            "ALTER TABLE task_teams ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_teams ADD COLUMN deleted_by VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN deleted_with VARCHAR DEFAULT ''",
+            "ALTER TABLE task_project_templates ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_project_templates ADD COLUMN deleted_by VARCHAR DEFAULT ''",
+            "ALTER TABLE task_templates ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_templates ADD COLUMN deleted_by VARCHAR DEFAULT ''",
+            # Personal teams (Sept 2026) - see models.TaskTeam.approval_status.
+            "ALTER TABLE task_teams ADD COLUMN created_by VARCHAR DEFAULT ''",
+            "ALTER TABLE task_teams ADD COLUMN approval_status VARCHAR DEFAULT 'approved'",
+            "ALTER TABLE task_teams ADD COLUMN requested_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_teams ADD COLUMN decided_by VARCHAR DEFAULT ''",
+            "ALTER TABLE task_teams ADD COLUMN decided_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_teams ADD COLUMN granted_emails JSON DEFAULT '{}'",
             # Seed a built-in Location field so it shows on every project (new
             # or existing) without an admin having to create it first - Manage
             # -> Custom Fields is then just where new location OPTIONS get
@@ -1219,6 +1239,27 @@ def _run_migrations():
         "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS applies_to VARCHAR DEFAULT 'task'",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS custom_field_values JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE task_portfolios ADD COLUMN IF NOT EXISTS parent_id VARCHAR DEFAULT ''",
+        # Recycle Bin (Sept 2026) - see the SQLite list above.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
+        "ALTER TABLE task_portfolios ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_portfolios ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_with VARCHAR DEFAULT ''",
+        "ALTER TABLE task_project_templates ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_project_templates ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
+        # Personal teams (Sept 2026). DEFAULT 'approved' so every team that
+        # already exists stays a real one - the new state is opt-in, and a
+        # backfill to 'personal' would hide every department overnight.
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS created_by VARCHAR DEFAULT ''",
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS approval_status VARCHAR DEFAULT 'approved'",
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS requested_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS decided_by VARCHAR DEFAULT ''",
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS decided_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS granted_emails JSONB DEFAULT '{}'::jsonb",
         # Seed a built-in Location field - see the matching sqlite migration
         # above for the full rationale.
         "INSERT INTO task_custom_fields (id,name,description,type,options,project_ids,required,read_only,applies_to) "

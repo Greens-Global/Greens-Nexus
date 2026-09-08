@@ -1555,25 +1555,47 @@ def _may_untrash(user: dict, t: models.Task) -> bool:
     is the point (Neil, Sept 8): the undo toast is gone within seconds, and a
     mistake you made yourself should not need somebody else's permission to fix.
 
-    Deliberately `deleted_by`, not the assignee or the owner: the question is who
-    performed the deletion, since that is the action being reversed. Someone
-    else's deletion of your task stays a manager's call.
+    The direct ASSIGNEE counts too (Neil, Sept 9): somebody else deleting a task
+    off your plate is precisely when you need it back, and having to find a
+    manager for that is the friction this exists to remove. Followers and
+    project members do not - "on my list" is the line, not "can see it".
     """
-    return _is_manager_user(user) or (t.deleted_by or "").lower() == (user.get("email") or "").lower()
+    me = (user.get("email") or "").lower()
+    return (_is_manager_user(user)
+            or (t.deleted_by or "").lower() == me
+            or me in task_assignees(t))
 
 
 @router.get("/deleted")
-def list_deleted_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Trash. A manager sees the whole workspace's; everyone else sees only what
-    THEY deleted, which is what makes a self-service Trash possible outside
-    Manage without widening anything - you already had the task, and you are the
-    one who binned it. Newest-deleted first."""
+def list_deleted_tasks(scope: str = "", user: dict = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    """The Recycle Bin.
+
+    `scope=mine` is the surface OUTSIDE Manage: what YOU deleted, plus anything
+    you were the direct assignee of. Deliberately NOT widened for managers
+    (Neil, Sept 9) - a Global Admin opening their own bin was handed the whole
+    company's deletions, which is the Manage view wearing the wrong name. Role
+    decides what Manage shows; it does not decide what "mine" means.
+
+    No scope = the Manage view: the whole workspace, manager-only.
+
+    Assignee as well as deleter, because the person whose work it was is the one
+    who notices it has gone - somebody else deleting a task off your plate is
+    exactly the case where you need to get it back. Direct assignee only: a
+    follower or a project member is not "their" task in the sense that matters
+    here. Newest-deleted first."""
     days = _trash_retention_days()
     q = (db.query(models.Task).execution_options(include_deleted=True)
          .filter(models.Task.deleted_at != ""))
-    if not _is_manager_user(user):
-        q = q.filter(func.lower(models.Task.deleted_by) == (user["email"] or "").lower())
-    rows = wall_tasks(db, user, q.order_by(models.Task.deleted_at.desc()).all())   # company wall first
+    mine = (scope or "").lower() == "mine"
+    if not mine and not _is_manager_user(user):
+        raise HTTPException(403, "Only a manager can see the whole workspace's Recycle Bin.")
+    rows = q.order_by(models.Task.deleted_at.desc()).all()
+    if mine:
+        me = (user.get("email") or "").lower()
+        rows = [t for t in rows
+                if (t.deleted_by or "").lower() == me or me in task_assignees(t)]
+    rows = wall_tasks(db, user, rows)   # company wall first
     out = []
     for t in rows:
         d = task_to_dict(t)

@@ -7,6 +7,7 @@ import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
   Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check, AlertTriangle, RotateCcw,
+  FolderKanban, Briefcase, LayoutTemplate,
 } from 'lucide-react';
 import DataQualityTab from './DataQualityTab';
 import { useTasks } from './TasksContext';
@@ -91,7 +92,7 @@ const SUBTABS = [
   // uncommenting rather than rebuilding.
   // { key: 'intake', label: 'Intake Forms', icon: Inbox },
   { key: 'taskNotify', label: 'Task Notifications', icon: Mail },
-  { key: 'trash', label: 'Deleted Tasks', icon: Trash2 },
+  { key: 'trash', label: 'Recycle Bin', icon: Trash2 },
   { key: 'activity', label: 'Activity Log', icon: ActivityIcon },
   { key: 'reporting', label: 'Reporting', icon: BarChart3 },
 ];
@@ -1699,13 +1700,23 @@ function IntakeModal({ projects, onClose, onSave }) {
 }
 
 // ── 5.5 Deleted Tasks (Trash, Aug 27) ────────────────────────────────────────
+// What the bin can hold. Tasks were soft-deletable already; projects,
+// portfolios and teams joined them in Sept 2026 so that deleting a container
+// stops being irreversible.
+const KIND_LABEL = { task: 'Task', project: 'Project', portfolio: 'Portfolio', team: 'Team',
+  template: 'Template', task_template: 'Task Template' };
+const KIND_ICON = { task: CheckCircle2, project: FolderKanban, portfolio: Briefcase, team: Users,
+  template: LayoutTemplate, task_template: FileText };
+const KIND_COLOR = { task: NX.blue, project: NX.green, portfolio: NX.purple, team: NX.amber,
+  template: NX.teal, task_template: NX.teal };
+
 // Trash. Exported because it is now TWO surfaces, not one: Manage shows the
 // whole workspace's, and My Tasks > Deleted shows a person their own. The
 // difference is enforced SERVER-side (GET /tasks/deleted scopes a non-manager
 // to their own deletions), so this component does not branch on role at all -
 // it renders whatever it is handed, and `scope` only changes the wording.
 export function DeletedTasksTab({ store, scope = 'all' }) {
-  const { nameOf, projectName } = store;
+  const { nameOf } = store;
   const [rows, setRows] = useState(null);   // null = loading
   const [busyId, setBusyId] = useState('');
   const [err, setErr] = useState('');
@@ -1713,11 +1724,12 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
   const [bulkBusy, setBulkBusy] = useState(false);
 
   const load = () => {
-    api.getDeletedTasks()
+    api.getRecycleBin(scope === 'mine' ? 'mine' : undefined)
       .then((r) => setRows(Array.isArray(r) ? r : []))
       .catch(() => setRows([]));
   };
-  useEffect(() => { load(); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [scope]);
 
   // Whole days left before trash_purge_loop removes it for good - floors to 0
   // rather than going negative once the sweep is running a little behind.
@@ -1735,23 +1747,30 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
   const restore = async (t) => {
     setBusyId(t.id); setErr('');
     try {
-      await api.restoreTask(t.id);
+      await api.restoreRecycleItem(t.kind, t.id);
       drop([t.id]);
+      // A restored project brings its tasks back with it, and a restored
+      // portfolio changes what every rollup counts - reload the module rather
+      // than patch one row out of a list.
+      store.refresh?.();
     } catch (e) {
-      setErr(e.message || 'Could not restore that task.');
+      setErr(e.message || `Could not restore that ${t.kind || 'item'}.`);
     } finally {
       setBusyId('');
     }
   };
 
   const purgeNow = async (t) => {
-    if (!window.confirm(`Permanently delete "${t.title}"?\n\nThis cannot be undone - it will not be in Trash any more to restore from.`)) return;
+    // Naming what else goes with it: purging a project takes its tasks, and
+    // that is not recoverable.
+    const extra = t.detail && t.kind === 'project' ? `\n\nIts ${t.detail} will go too.` : '';
+    if (!window.confirm(`Permanently delete the ${KIND_LABEL[t.kind] || 'item'} "${t.name}"?${extra}\n\nThis cannot be undone.`)) return;
     setBusyId(t.id); setErr('');
     try {
-      await api.purgeTaskNow(t.id);
+      await api.purgeRecycleItem(t.kind, t.id);
       drop([t.id]);
     } catch (e) {
-      setErr(e.message || 'Could not delete that task.');
+      setErr(e.message || `Could not delete that ${t.kind || 'item'}.`);
     } finally {
       setBusyId('');
     }
@@ -1771,10 +1790,13 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
     const done = [];
     try {
       for (const id of ids) {
-        if (action === 'purge') await api.purgeTaskNow(id);
-        else await api.restoreTask(id);
+        const row = rows.find((r) => r.id === id);
+        if (!row) continue;
+        if (action === 'purge') await api.purgeRecycleItem(row.kind, id);
+        else await api.restoreRecycleItem(row.kind, id);
         done.push(id);
       }
+      if (action !== 'purge') store.refresh?.();
     } catch (e) {
       setErr(e.message || 'Some of those could not be updated.');
     } finally {
@@ -1790,17 +1812,17 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
 
   return (
     <div>
-      <SectionHead title="Deleted Tasks"
+      <SectionHead title="Recycle Bin"
         hint={mine
-          ? 'Tasks you deleted. They stay here for 90 days - restore one, or remove it for good.'
-          : 'Deleted tasks stay here for 90 days and can be restored - after that they are removed for good.'} />
+          ? 'Tasks you deleted, and tasks you were assigned that someone else deleted. They stay here for 90 days - restore one, or remove it for good.'
+          : 'Everything deleted across the workspace. Items stay here for 90 days and can be restored - after that they are removed for good.'} />
       {err && <div style={{ marginBottom: 12, fontSize: 12.5, color: NX.red }}>{err}</div>}
       {rows === null ? (
         <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>Loading...</div>
       ) : rows.length === 0 ? (
-        <EmptyState icon={Trash2} title="Trash Is Empty"
+        <EmptyState icon={Trash2} title="Recycle Bin Is Empty"
           hint={mine
-            ? 'Tasks you delete show up here for 90 days before they are gone for good.'
+            ? 'Tasks you delete - and tasks assigned to you that someone else deletes - show up here for 90 days before they are gone for good.'
             : 'Tasks people delete show up here for 90 days before they are gone for good.'} />
       ) : (
         <div style={{ ...card, padding: 6 }}>
@@ -1813,7 +1835,7 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
               onChange={() => setPicked(allPicked ? new Set() : new Set(rows.map((r) => r.id)))}
               title="Select all" style={{ cursor: 'pointer' }} />
             <span style={{ fontSize: 12.5, color: NX.dim, flex: 1 }}>
-              {picked.size ? `${picked.size} selected` : `${rows.length} task${rows.length === 1 ? '' : 's'} in trash`}
+              {picked.size ? `${picked.size} selected` : `${rows.length} item${rows.length === 1 ? '' : 's'} in the Recycle Bin`}
             </span>
             {picked.size > 0 && (
               <>
@@ -1833,11 +1855,21 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
             return (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 10px', borderRadius: 8, opacity: busy ? 0.6 : 1, background: on ? `${NX.primary}12` : i % 2 === 1 ? NX.zebra : 'transparent' }}>
                 <input type="checkbox" className="nx-check" checked={on} onChange={() => toggle(t.id)} style={{ cursor: 'pointer', flexShrink: 0 }} />
-                <span style={{ ...iconBadge, color: NX.dim }}><Trash2 size={14} /></span>
+                {/* The icon says WHAT it is, not that it is deleted - everything
+                    in this list is deleted, so a row of identical bins tells
+                    you nothing. */}
+                <span style={{ ...iconBadge, color: KIND_COLOR[t.kind] || NX.dim }} title={KIND_LABEL[t.kind] || 'Item'}>
+                  {(() => { const I = KIND_ICON[t.kind] || Trash2; return <I size={14} />; })()}
+                </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {t.name}
+                    <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: KIND_COLOR[t.kind] || NX.faint }}>
+                      {KIND_LABEL[t.kind] || ''}
+                    </span>
+                  </div>
                   <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {t.projectId ? `${projectName(t.projectId)} - ` : ''}
+                    {t.detail ? `${t.detail} - ` : ''}
                     Deleted by {t.deletedBy ? nameOf(t.deletedBy) : 'someone'} - {fmtDateTime(t.deletedAt)}
                   </div>
                 </div>

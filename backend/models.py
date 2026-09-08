@@ -87,6 +87,11 @@ class Task(Base):
     # remembering to filter. Restorable via POST /tasks/{id}/restore for 90
     # days, after which trash_purge_loop (main.py) removes it for good.
     deleted_at        = Column(String, default="", index=True)
+    # Set when this task was binned BECAUSE its project was, holding that
+    # project's id. Restoring the project restores exactly this set, and the
+    # Recycle Bin hides them: they are not independently restorable, and a
+    # project plus its 200 tasks as 201 rows is not a list anyone can use.
+    deleted_with      = Column(String, default="", index=True)
     deleted_by        = Column(String, default="")         # email of whoever deleted it
 
 
@@ -2228,6 +2233,12 @@ class TaskProject(Base):
     # applies_to). Same shape and same coerce_custom_field_values() as
     # Task.custom_field_values; the field defs table is shared.
     custom_field_values = Column(JSON, default=dict)
+    # Soft delete -> Recycle Bin (Sept 2026). A non-empty deleted_at means
+    # binned: hidden from every read by database.py's _hide_soft_deleted hook
+    # (one hook rather than a filter at 72 query sites), restorable for the
+    # retention window, then purged by task_trash.trash_purge_loop.
+    deleted_at    = Column(String, default="", index=True)
+    deleted_by    = Column(String, default="")
 
 
 class TaskPortfolio(Base):
@@ -2259,6 +2270,12 @@ class TaskPortfolio(Base):
     created_at  = Column(String, default="")
     modified_at = Column(String, default="")
     created_by  = Column(String, default="")
+    # Soft delete -> Recycle Bin (Sept 2026). A non-empty deleted_at means
+    # binned: hidden from every read by database.py's _hide_soft_deleted hook
+    # (one hook rather than a filter at 72 query sites), restorable for the
+    # retention window, then purged by task_trash.trash_purge_loop.
+    deleted_at    = Column(String, default="", index=True)
+    deleted_by    = Column(String, default="")
 
 
 class TaskTeam(Base):
@@ -2288,6 +2305,35 @@ class TaskTeam(Base):
     # panel behavior where any team member could act on the project's tasks.
     access_role   = Column(String, default="editor")
     created_at    = Column(String, default="")
+    created_by    = Column(String, default="", index=True)
+    # Personal teams (Sept 2026). A team made from the Teams screen belongs to
+    # the person who made it until somebody senior blesses it:
+    #   personal  visible only to its creator, and it grants NO team access -
+    #             see _sync_personal_team_grants, which instead pushes an
+    #             INDIVIDUAL project grant to each member. That is the whole
+    #             safety property: an unapproved team cannot widen anyone's
+    #             access by existing, because the access it hands out is the
+    #             same access its creator could already have granted by hand.
+    #   pending   personal, and waiting on a manager.
+    #   approved  a real team: visible to every member, and it grants access AS
+    #             A TEAM (project_role_for / visible_project_ids count it), at
+    #             which point the individual grants it pushed are withdrawn.
+    # Teams created from Manage are born "approved" - that screen is already
+    # manager-gated, so asking a manager to approve their own team is theatre.
+    approval_status = Column(String, default="approved")   # approved|personal|pending
+    requested_at  = Column(String, default="")
+    decided_by    = Column(String, default="")
+    decided_at    = Column(String, default="")
+    # {project_id: [email, ...]} - the individual grants this team pushed out
+    # while unapproved, recorded so approval can withdraw EXACTLY those and
+    # leave alone anyone who was a project member in their own right.
+    granted_emails = Column(JSON, default=dict)
+    # Soft delete -> Recycle Bin (Sept 2026). A non-empty deleted_at means
+    # binned: hidden from every read by database.py's _hide_soft_deleted hook
+    # (one hook rather than a filter at 72 query sites), restorable for the
+    # retention window, then purged by task_trash.trash_purge_loop.
+    deleted_at    = Column(String, default="", index=True)
+    deleted_by    = Column(String, default="")
 
 
 class TaskSection(Base):
@@ -2419,6 +2465,9 @@ class TaskTemplate(Base):
     patch          = Column(JSON, default=dict)          # Partial<Task> applied on use
     subtask_titles = Column(JSON, default=list)
     created_at     = Column(String, default="")
+    # Soft delete -> Recycle Bin (Sept 2026). See the hook in database.py.
+    deleted_at   = Column(String, default="", index=True)
+    deleted_by   = Column(String, default="")
 
 
 class TaskIntakeForm(Base):
@@ -3619,6 +3668,9 @@ class TaskProjectTemplate(Base):
     created_at  = Column(String, default="")
     modified_at = Column(String, default="")
     created_by  = Column(String, default="")
+    # Soft delete -> Recycle Bin (Sept 2026). See the hook in database.py.
+    deleted_at   = Column(String, default="", index=True)
+    deleted_by   = Column(String, default="")
 
 
 class TaskProjectBookmark(Base):

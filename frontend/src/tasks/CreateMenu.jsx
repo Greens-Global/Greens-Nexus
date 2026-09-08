@@ -21,12 +21,13 @@
 // open, so one control both opens and closes the menu and its current meaning
 // is legible without a label.
 import { useEffect, useRef, useState } from 'react';
-import { Plus, ListChecks, FolderKanban, Briefcase, FilePlus } from 'lucide-react';
+import { Plus, ListChecks, FolderKanban, Briefcase, FilePlus, Users } from 'lucide-react';
 import { NX, FONT, btn } from './theme';
 import CreateTaskModal from './CreateTaskModal';
 import { ProjectCreateModal } from './ProjectsView';
 import { PortfolioCreateModal } from './PortfoliosView';
 import { SaveTemplateModal } from './TemplatesView';
+import { TeamModal } from './TeamsView';
 
 // Each page's own create modal, reused - not re-implemented here. This menu
 // decides WHEN to open one; the screen that owns the thing decides what the
@@ -39,6 +40,10 @@ const ITEMS = [
   { key: 'project', label: 'Project', icon: FolderKanban },
   { key: 'portfolio', label: 'Portfolio', icon: Briefcase },
   { key: 'template', label: 'Template', icon: FilePlus },
+  // A team made from here is PERSONAL - yours alone until a manager approves
+  // it, granting its members individual project access meanwhile. That is what
+  // made it safe to offer outside Manage (Neil, Sept 9).
+  { key: 'team', label: 'Team', icon: Users },
 ];
 const ITEM = Object.fromEntries(ITEMS.map((i) => [i.key, i]));
 
@@ -161,6 +166,10 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
           points ask for exactly the same thing. */}
       {show === 'template' && (
         <SaveTemplateModal onClose={() => setShow(null)} onSaved={() => onNavigate && onNavigate('templates')} />
+      )}
+
+      {show === 'team' && (
+        <TeamModal personal onClose={() => { setShow(null); onNavigate && onNavigate('teams'); }} />
       )}
 
     </div>
