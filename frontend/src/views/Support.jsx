@@ -23,6 +23,7 @@ import { formatDateTime } from '../lib/datetime';
 import { NX, FONT } from '../tasks/theme';
 import { Avatar, usePeople } from '../tasks/components';
 import { useTableColumns, ColResizer } from '../tasks/tableCols';
+import { takePendingOpen } from '../lib/pendingOpen';
 
 // Report a Bug used to float as its own button, hovering bottom-right over
 // every Tasks/Tickets screen. Folded into Support (Pranshu, Sep 3) since it's
@@ -131,6 +132,37 @@ export default function Support() {
   // same way, saved to their profile under their own table key.
   const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef } =
     useTableColumns({ table: 'support-open-tickets', cols: SUPPORT_TABLE_COLUMNS });
+
+  // Deep-link support - a ticket-update email or notification points here
+  // (not the gated Tickets module, which a plain requester can't open) via
+  // "?ticket=<id>" (backend/ticket_mail_templates.py's _ticket_url). Open
+  // that ticket once on mount, then strip the param so a later refresh
+  // doesn't reopen it. Same pattern TicketsView.jsx uses for its own copy of
+  // this link, for the agent side.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tid = params.get('ticket');
+    if (!tid) return;
+    setViewingTicketId(tid);
+    params.delete('ticket');
+    const rest = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
+  }, []);
+
+  // The in-app equivalent: the notification bell's "View ticket" navigates
+  // here (instead of the gated Tickets module, for a recipient without desk
+  // access) and then fires this - a mount-time query param alone can't reach
+  // a Support page that's already mounted.
+  useEffect(() => {
+    const openTicket = (e) => { const id = e.detail?.ticketId; if (id) setViewingTicketId(id); };
+    window.addEventListener('nexus:open-ticket', openTicket);
+    // Support isn't lazy(), but the view it's switched into might not be
+    // mounted yet the instant the bell dispatches nexus:navigate - the same
+    // gap TicketsView's copy of this handles by draining the note left behind.
+    const pending = takePendingOpen('ticket');
+    if (pending) setViewingTicketId(pending);
+    return () => window.removeEventListener('nexus:open-ticket', openTicket);
+  }, []);
 
   const load = useCallback(() => {
     api.getMyTickets()
