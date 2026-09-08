@@ -85,7 +85,11 @@ const SUBTABS = [
   { key: 'fields', label: 'Custom Fields', icon: ListChecks },
   { key: 'statuses', label: 'Custom Statuses', icon: Palette },
   { key: 'templates', label: 'Templates', icon: FileText },
-  { key: 'intake', label: 'Intake Forms', icon: Inbox },
+  // Intake Forms removed from the strip (Neil, Sept 8). The tab, its store
+  // actions and the backend endpoints are all still here - this is one line,
+  // the same way the Asana tab above is parked - so putting it back is
+  // uncommenting rather than rebuilding.
+  // { key: 'intake', label: 'Intake Forms', icon: Inbox },
   { key: 'taskNotify', label: 'Task Notifications', icon: Mail },
   { key: 'trash', label: 'Deleted Tasks', icon: Trash2 },
   { key: 'activity', label: 'Activity Log', icon: ActivityIcon },
@@ -133,14 +137,20 @@ export default function ManageView({ onExit }) {
         <DataQualityTab store={store} />
       ) : (
         <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
-          <div style={{ maxWidth: 940, margin: '0 auto' }}>
+          {/* Full width (Neil, Sept 8). These tabs used to sit in a centred
+              940px column, which on a wide screen left a table of custom fields
+              or a deleted-tasks list squeezed into the middle third with empty
+              gutters either side - and the two tabs that opt out of this
+              wrapper entirely (Task List, Data Quality) were already full
+              width, so Manage looked like two different screens. */}
+          <div>
             {/* {tab === 'import' && <AsanaImportTab store={store} />}  - see SUBTABS */}
             {tab === 'departments' && <TeamsTab store={store} />}
             {tab === 'rules' && <RulesTab store={store} />}
             {tab === 'fields' && <FieldsTab store={store} />}
             {tab === 'statuses' && <StatusesTab store={store} />}
             {tab === 'templates' && <TemplatesTab store={store} />}
-            {tab === 'intake' && <IntakeTab store={store} />}
+            {/* {tab === 'intake' && <IntakeTab store={store} />}  - see the tab list */}
             {tab === 'taskNotify' && <TaskNotifySettings />}
             {tab === 'trash' && <DeletedTasksTab store={store} />}
             {tab === 'activity' && <ActivityTab store={store} />}
@@ -242,7 +252,7 @@ function AsanaImportTab({ store }) {
                 )}
                 {shown.map((p) => (
                   <label key={p.gid} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${NX.border2}` }}>
-                    <input type="checkbox" checked={picked.has(p.gid)} onChange={() => togglePick(p.gid)} />
+                    <input type="checkbox" className="nx-check" checked={picked.has(p.gid)} onChange={() => togglePick(p.gid)} />
                     <span style={{ flex: 1, minWidth: 0, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                     {p.workspace && <span style={{ fontSize: 11, color: NX.faint }}>{p.workspace}</span>}
                   </label>
@@ -733,12 +743,12 @@ function AsanaSyncPanel({ store }) {
       <SectionHead title="Two-way Sync" hint="Keep tasks in mapped Nexus projects in sync with Asana (title, description, due date, done). This toggle is separate from the Setup card's Sync toggle above - either one being on is enough to sync the projects mapped below." />
       <div style={{ ...card, padding: 16, maxWidth: 640 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13 }}>
-          <input type="checkbox" checked={!!cfg.manualSyncEnabled} onChange={(e) => saveConfig({ manual_sync_enabled: e.target.checked })} />
+          <input type="checkbox" className="nx-check" checked={!!cfg.manualSyncEnabled} onChange={(e) => saveConfig({ manual_sync_enabled: e.target.checked })} />
           <span style={{ fontWeight: 700, color: NX.ink }}>Sync Enabled</span>
           <span style={{ color: NX.faint }}>{cfg.manualSyncEnabled ? 'new tasks in mapped projects push to Asana automatically' : 'off'}</span>
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13 }}>
-          <input type="checkbox" checked={!!cfg.manualDeleteSync} onChange={(e) => saveConfig({ manual_delete_sync: e.target.checked })} />
+          <input type="checkbox" className="nx-check" checked={!!cfg.manualDeleteSync} onChange={(e) => saveConfig({ manual_delete_sync: e.target.checked })} />
           <span style={{ fontWeight: 700, color: NX.ink }}>Sync Deletions</span>
           <span style={{ color: NX.faint }}>
             {cfg.manualDeleteSync
@@ -1324,7 +1334,7 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
         <div style={{ display: 'flex', gap: 16 }}>
           {APPLIES_TO_OPTS.map((o) => (
             <label key={o.value} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={appliesTo.includes(o.value)} onChange={() => toggleAppliesTo(o.value)} style={{ width: 15, height: 15, cursor: 'pointer' }} />
+              <input type="checkbox" className="nx-check" checked={appliesTo.includes(o.value)} onChange={() => toggleAppliesTo(o.value)} style={{ width: 15, height: 15, cursor: 'pointer' }} />
               {o.label}
             </label>
           ))}
@@ -1374,7 +1384,7 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
         </div>
       )}
       <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 13, cursor: 'pointer' }}>
-        <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} style={{ width: 16, height: 16 }} />
+        <input type="checkbox" className="nx-check" checked={required} onChange={(e) => setRequired(e.target.checked)} style={{ width: 16, height: 16 }} />
         {appliesTo.includes('task') && appliesTo.includes('project')
           ? 'Required when creating a task or project'
           : appliesTo.includes('project') ? 'Required when creating a project' : 'Required when creating a task'}
@@ -1600,8 +1610,13 @@ function TemplateModal({ onClose, onSave }) {
 }
 
 // ── 5. Intake forms ───────────────────────────────────────────────────────────
+// Parked, not deleted - same treatment as AsanaImportTab above, and for the same
+// reason: the tab came off the strip, the feature did not. Store actions and
+// backend endpoints are untouched, so restoring it is uncommenting one line in
+// SUBTABS.
 const INTAKE_FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'select'];
 
+// eslint-disable-next-line no-unused-vars
 function IntakeTab({ store }) {
   const { intakeForms, projects, projectName, createIntakeForm, deleteIntakeForm } = store;
   const [adding, setAdding] = useState(false);
@@ -1684,11 +1699,18 @@ function IntakeModal({ projects, onClose, onSave }) {
 }
 
 // ── 5.5 Deleted Tasks (Trash, Aug 27) ────────────────────────────────────────
-function DeletedTasksTab({ store }) {
+// Trash. Exported because it is now TWO surfaces, not one: Manage shows the
+// whole workspace's, and My Tasks > Deleted shows a person their own. The
+// difference is enforced SERVER-side (GET /tasks/deleted scopes a non-manager
+// to their own deletions), so this component does not branch on role at all -
+// it renders whatever it is handed, and `scope` only changes the wording.
+export function DeletedTasksTab({ store, scope = 'all' }) {
   const { nameOf, projectName } = store;
   const [rows, setRows] = useState(null);   // null = loading
   const [busyId, setBusyId] = useState('');
   const [err, setErr] = useState('');
+  const [picked, setPicked] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const load = () => {
     api.getDeletedTasks()
@@ -1704,11 +1726,17 @@ function DeletedTasksTab({ store }) {
     return Math.max(0, Math.ceil((new Date(purgeAt).getTime() - Date.now()) / 86400000));
   };
 
+  const drop = (ids) => {
+    const gone = new Set(ids);
+    setRows((rs) => rs.filter((r) => !gone.has(r.id)));
+    setPicked((prev) => { const n = new Set(prev); ids.forEach((i) => n.delete(i)); return n; });
+  };
+
   const restore = async (t) => {
     setBusyId(t.id); setErr('');
     try {
       await api.restoreTask(t.id);
-      setRows((rs) => rs.filter((r) => r.id !== t.id));
+      drop([t.id]);
     } catch (e) {
       setErr(e.message || 'Could not restore that task.');
     } finally {
@@ -1717,11 +1745,11 @@ function DeletedTasksTab({ store }) {
   };
 
   const purgeNow = async (t) => {
-    if (!window.confirm(`Permanently delete "${t.title}"?\n\nThis can't be undone - it won't be in Trash any more to restore from.`)) return;
+    if (!window.confirm(`Permanently delete "${t.title}"?\n\nThis cannot be undone - it will not be in Trash any more to restore from.`)) return;
     setBusyId(t.id); setErr('');
     try {
       await api.purgeTaskNow(t.id);
-      setRows((rs) => rs.filter((r) => r.id !== t.id));
+      drop([t.id]);
     } catch (e) {
       setErr(e.message || 'Could not delete that task.');
     } finally {
@@ -1729,29 +1757,88 @@ function DeletedTasksTab({ store }) {
     }
   };
 
+  // Batch. Sequential, not Promise.all: a purge cascades subtasks server-side,
+  // and firing forty of those at once at rows that reference each other is how
+  // half of them end up failing on a race. A trash list is short enough that
+  // the wait costs nothing. Whatever succeeded before an error still leaves the
+  // list, so a partial run does not lie about what is left.
+  const runBatch = async (action) => {
+    const ids = [...picked];
+    if (!ids.length) return;
+    if (action === 'purge' && !window.confirm(
+      `Permanently delete ${ids.length} task${ids.length === 1 ? '' : 's'}?\n\nThis cannot be undone.`)) return;
+    setBulkBusy(true); setErr('');
+    const done = [];
+    try {
+      for (const id of ids) {
+        if (action === 'purge') await api.purgeTaskNow(id);
+        else await api.restoreTask(id);
+        done.push(id);
+      }
+    } catch (e) {
+      setErr(e.message || 'Some of those could not be updated.');
+    } finally {
+      drop(done);
+      setBulkBusy(false);
+    }
+  };
+
+  const toggle = (id) => setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allPicked = !!rows?.length && rows.every((r) => picked.has(r.id));
+  const somePicked = !allPicked && !!rows?.some((r) => picked.has(r.id));
+  const mine = scope === 'mine';
+
   return (
     <div>
       <SectionHead title="Deleted Tasks"
-        hint="Deleted tasks stay here for 90 days and can be restored - after that they're removed for good." />
+        hint={mine
+          ? 'Tasks you deleted. They stay here for 90 days - restore one, or remove it for good.'
+          : 'Deleted tasks stay here for 90 days and can be restored - after that they are removed for good.'} />
       {err && <div style={{ marginBottom: 12, fontSize: 12.5, color: NX.red }}>{err}</div>}
       {rows === null ? (
-        <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>Loading…</div>
+        <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>Loading...</div>
       ) : rows.length === 0 ? (
         <EmptyState icon={Trash2} title="Trash Is Empty"
-          hint="Tasks you delete will show up here for 90 days before they're gone for good." />
+          hint={mine
+            ? 'Tasks you delete show up here for 90 days before they are gone for good.'
+            : 'Tasks people delete show up here for 90 days before they are gone for good.'} />
       ) : (
         <div style={{ ...card, padding: 6 }}>
-          {rows.map((t) => {
+          {/* Select-all and the batch actions, in one row above the list. The
+              actions appear only with a selection - a permanently-visible
+              "Delete Forever" above a trash list is an accident waiting. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '7px 10px', borderBottom: `1px solid ${NX.border2}` }}>
+            <input type="checkbox" className="nx-check" checked={allPicked}
+              ref={(el) => { if (el) el.indeterminate = somePicked; }}
+              onChange={() => setPicked(allPicked ? new Set() : new Set(rows.map((r) => r.id)))}
+              title="Select all" style={{ cursor: 'pointer' }} />
+            <span style={{ fontSize: 12.5, color: NX.dim, flex: 1 }}>
+              {picked.size ? `${picked.size} selected` : `${rows.length} task${rows.length === 1 ? '' : 's'} in trash`}
+            </span>
+            {picked.size > 0 && (
+              <>
+                <button disabled={bulkBusy} onClick={() => runBatch('restore')} style={{ ...btn('outline'), padding: '4px 10px', fontSize: 12 }}>
+                  <RotateCcw size={13} />Restore
+                </button>
+                <button disabled={bulkBusy} onClick={() => runBatch('purge')} style={{ ...btn('outline'), padding: '4px 10px', fontSize: 12, color: NX.red, borderColor: NX.red }}>
+                  <Trash2 size={13} />Delete Forever
+                </button>
+              </>
+            )}
+          </div>
+          {rows.map((t, i) => {
             const left = daysLeft(t.purgeAt);
-            const busy = busyId === t.id;
+            const busy = busyId === t.id || bulkBusy;
+            const on = picked.has(t.id);
             return (
-              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 10px', borderRadius: 8, opacity: busy ? 0.6 : 1 }}>
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 10px', borderRadius: 8, opacity: busy ? 0.6 : 1, background: on ? `${NX.primary}12` : i % 2 === 1 ? NX.zebra : 'transparent' }}>
+                <input type="checkbox" className="nx-check" checked={on} onChange={() => toggle(t.id)} style={{ cursor: 'pointer', flexShrink: 0 }} />
                 <span style={{ ...iconBadge, color: NX.dim }}><Trash2 size={14} /></span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
                   <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {t.projectId ? `${projectName(t.projectId)} · ` : ''}
-                    Deleted by {t.deletedBy ? nameOf(t.deletedBy) : 'someone'} · {fmtDateTime(t.deletedAt)}
+                    {t.projectId ? `${projectName(t.projectId)} - ` : ''}
+                    Deleted by {t.deletedBy ? nameOf(t.deletedBy) : 'someone'} - {fmtDateTime(t.deletedAt)}
                   </div>
                 </div>
                 <span style={{ fontSize: 11.5, fontWeight: 600, color: left !== null && left <= 7 ? NX.red : NX.faint, whiteSpace: 'nowrap', flexShrink: 0 }}>
@@ -1845,13 +1932,38 @@ function downloadCSV(filename, headers, rows) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Five rows tall, then it scrolls (Neil, Sept 8). "Tasks by Project" is one row
+// per project - ~90 of them in the real workspace - so the card grew to the
+// height of the longest chart and the two beside it sat in a column of empty
+// space, with the KPI tiles pushed off the top of the screen. Capped, all three
+// cards are the same height whatever they contain.
+//
+// The cap is computed, not a magic pixel number: row height and gap are the same
+// constants the rows are laid out with, so restyling a row cannot silently make
+// this show four and a half of them.
+// Rows are given this height EXPLICITLY rather than left to their content, so
+// "five visible" is arithmetic rather than a guess about the label's line box -
+// otherwise a font change quietly turns it into four and a half.
+const BAR_ROW_H = 18;
+const BAR_ROW_GAP = 9;
+const BAR_VISIBLE = 5;
+const barsMaxHeight = BAR_VISIBLE * BAR_ROW_H + (BAR_VISIBLE - 1) * BAR_ROW_GAP;
+
 function BarRows({ data }) {
   const max = Math.max(1, ...data.map((d) => d.value));
   if (!data.some((d) => d.value > 0)) return <div style={{ fontSize: 13, color: NX.faint, padding: '6px 0' }}>No matching tasks.</div>;
+  const rows = data.filter((d) => d.value > 0);
+  const scrolls = rows.length > BAR_VISIBLE;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-      {data.filter((d) => d.value > 0).map((d) => (
-        <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <div className={scrolls ? 'nx-scroll' : undefined}
+      style={{
+        display: 'flex', flexDirection: 'column', gap: BAR_ROW_GAP,
+        // Only constrained when it needs to be - a 3-row chart with a fixed
+        // 5-row box would carry two rows of dead space under it.
+        ...(scrolls ? { maxHeight: barsMaxHeight, overflowY: 'auto', paddingRight: 6 } : {}),
+      }}>
+      {rows.map((d) => (
+        <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 10, height: BAR_ROW_H, flexShrink: 0 }}>
           <span style={{ width: 120, fontSize: 12.5, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>{d.label}</span>
           <span style={{ flex: 1, height: 10, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
             <span style={{ display: 'block', height: '100%', width: `${(d.value / max) * 100}%`, background: d.color || NX.blue, borderRadius: 999 }} />
@@ -2052,7 +2164,7 @@ function ExportExcelModal({ store, onClose }) {
       </div>
 
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: NX.ink, cursor: 'pointer' }}>
-        <input type="checkbox" checked={includeCompleted} onChange={(e) => setIncludeCompleted(e.target.checked)} />
+        <input type="checkbox" className="nx-check" checked={includeCompleted} onChange={(e) => setIncludeCompleted(e.target.checked)} />
         Include completed tasks
       </label>
 

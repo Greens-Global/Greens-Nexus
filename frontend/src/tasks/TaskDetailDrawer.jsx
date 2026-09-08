@@ -176,12 +176,14 @@ function DependencyPickerBody({ candidates, onPick }) {
   );
 }
 function MenuItem({ icon, onClick, danger, children }) {
-  const [hover, setHover] = useState(false);
+  // Highlight comes from .nx-menu-row (style.css), not a useState mirror of the
+  // pointer: this rendered the whole drawer on every mouse move across a menu,
+  // and it was the only menu in the module that highlighted at all.
   return (
-    <button onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} onClick={onClick} style={{
+    <button className="nx-menu-row" onClick={onClick} style={{
       display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 9px',
       borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: FONT,
-      color: danger ? NX.red : NX.ink, background: hover ? NX.hover : 'transparent',
+      color: danger ? NX.red : NX.ink, background: 'transparent',
     }}>{icon}{children}</button>
   );
 }
@@ -669,6 +671,16 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
         <Pop width={160} trigger={(t) => <button onClick={t} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip></button>}>
           {(close) => PRIORITY_ORDER.map((p) => <MenuItem key={p} onClick={() => { patch({ priority: p }); close(); }}>{PRIORITY_META[p].label}</MenuItem>)}
         </Pop>
+      </Row>
+
+      {/* Start Date was print-only here (it appears in the export block below)
+          while the List view's Timeline cell was the one place that could set
+          it. Editable, above Due Date, so the pair reads as the range the
+          Timeline column draws. Empty is normal - it fills itself when the task
+          leaves Not Started. */}
+      <Row label="Start Date">
+        <DateField value={task.startOn || ''} onChange={(v) => patch({ startOn: v || '' })} compact
+          style={task.startOn ? { ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 } : undefined} />
       </Row>
 
       <Row label="Due Date">

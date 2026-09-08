@@ -51,7 +51,7 @@ const CAMEL_TO_SNAKE = {
   customFieldValues: 'custom_field_values', startOn: 'start_on', dueOn: 'due_on',
   estimateHours: 'estimate_hours', actualHours: 'actual_hours', isMilestone: 'is_milestone',
   approvalStatus: 'approval_status', ownerId: 'owner_email', memberIds: 'member_emails',
-  portfolioId: 'portfolio_id', projectIds: 'project_ids', targetProjectId: 'target_project_id',
+  portfolioId: 'portfolio_id', parentId: 'parent_id', projectIds: 'project_ids', targetProjectId: 'target_project_id',
   requesterId: 'requester_email', linkedTaskId: 'linked_task_id', slaDueOn: 'sla_due_on', typeFields: 'type_fields',
   companyId: 'company_id', hrDepartmentId: 'hr_department_id', hrDepartmentName: 'hr_department_name',
   watcherIds: 'watcher_emails', csatRating: 'csat_rating', csatComment: 'csat_comment',
@@ -119,6 +119,13 @@ export function TasksProvider({ children }) {
   // The collections stream in one by one rather than landing together, so the
   // screen paints as soon as the three the first view needs are in instead of
   // waiting on the slowest of fifteen calls.
+  // Bookmarks. Held as a Set of project ids: every consumer asks "is THIS
+  // project bookmarked" (the star on a header, a row in the widget), which a
+  // list would turn into a linear scan on every render.
+  const [bookmarks, setBookmarks] = useState(() => new Set());
+  const bookmarksRef = useRef(bookmarks);
+  bookmarksRef.current = bookmarks;
+
   const loadCore = useCallback(async () => {
     let firstPaintLeft = FIRST_PAINT.length;
     await loadTaskData((key, value) => {
@@ -132,7 +139,15 @@ export function TasksProvider({ children }) {
     setNotifications(await api.getTaskNotifications().catch(() => []));
   }, []);
 
-  useEffect(() => { loadCore(); loadNotifications(); }, [loadCore, loadNotifications]);
+  // Bookmarks are their own small fetch rather than part of loadCore's batch:
+  // they belong to the person, not the workspace, so they neither block first
+  // paint nor need reloading when the workspace data changes.
+  const loadBookmarks = useCallback(async () => {
+    const rows = await api.getTaskBookmarks().catch(() => []);
+    setBookmarks(new Set(rows.map((b) => b.projectId)));
+  }, []);
+
+  useEffect(() => { loadCore(); loadNotifications(); loadBookmarks(); }, [loadCore, loadNotifications, loadBookmarks]);
 
   // Keep the module-scope cache in step with what's on screen, so the next
   // mount (Tasks -> Tickets, or a return trip from another module) starts from
@@ -320,6 +335,46 @@ export function TasksProvider({ children }) {
     return r;
   };
 
+  // Batch move between portfolios. The server hands back EVERY portfolio, not
+  // just the two involved: a project can only sit in one, so a move rewrites
+  // the source's list as well as the destination's, and refreshing one of them
+  // leaves the other showing a project it no longer holds. The projects' own
+  // portfolioId is mirrored here for the same reason updatePortfolio does it -
+  // ProjectsView's badge reads that field, not the portfolio's list.
+  const toggleBookmark = async (projectId) => {
+    // Read through a ref, not the closed-over `bookmarks` and not from inside
+    // the updater. The closure was the original bug (frozen in a useMemo, so
+    // the toggle only ever added); an updater that writes to an outer variable
+    // would fix that but is impure, and StrictMode double-invokes updaters in
+    // development, which is a trap to leave lying around. A ref is current and
+    // the updater stays pure.
+    const on = bookmarksRef.current.has(projectId);
+    setBookmarks((prev) => {
+      const n = new Set(prev);
+      // Optimistic: the star is a one-click toggle and waiting on the round
+      // trip makes it feel broken. Reverted below if the write fails.
+      on ? n.delete(projectId) : n.add(projectId);
+      return n;
+    });
+    try {
+      if (on) await api.removeTaskBookmark(projectId);
+      else await api.addTaskBookmark(projectId);
+    } catch (e) {
+      setBookmarks((prev) => { const n = new Set(prev); on ? n.add(projectId) : n.delete(projectId); return n; });
+      throw e;
+    }
+  };
+
+  const moveProjectsToPortfolio = async (projectIds, portfolioId) => {
+    const r = await api.moveProjectsToPortfolio(toBody({ projectIds, portfolioId: portfolioId || '' }));
+    setPortfolios(r.portfolios || []);
+    const movedSet = new Set(projectIds);
+    setProjects((prev) => prev.map((proj) => (
+      movedSet.has(proj.id) ? { ...proj, portfolioId: portfolioId || null } : proj
+    )));
+    return r;
+  };
+
   const actions = useMemo(() => ({
     createProject: mk(api.createTaskProject, setProjects),
     updateProject: mkUpd(api.updateTaskProject, setProjects),
@@ -335,6 +390,7 @@ export function TasksProvider({ children }) {
     createPortfolio: mk(api.createTaskPortfolio, setPortfolios),
     updatePortfolio,
     deletePortfolio: mkDel(api.deleteTaskPortfolio, setPortfolios),
+    moveProjectsToPortfolio,
     createTeam: mk(api.createTaskTeam, setTeams),
     updateTeam: mkUpd(api.updateTaskTeam, setTeams),
     deleteTeam: mkDel(api.deleteTaskTeam, setTeams),
@@ -439,6 +495,12 @@ export function TasksProvider({ children }) {
     createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,
     markNotificationRead, markAllNotificationsRead, refresh: loadCore,
     offerUndo,
+    // Bookmarks live HERE, not in `actions` below. That object is
+    // useMemo'd on [loadCore] - i.e. built once - so anything stateful put
+    // inside it is frozen at its first value: the star never filled in, and
+    // toggleBookmark kept reading an empty Set and so could only ever add.
+    // `value` is rebuilt every render, which is what state needs.
+    bookmarks, toggleBookmark,
     ...actions,
   };
   return (

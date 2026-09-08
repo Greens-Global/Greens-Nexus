@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
   ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus,
-  LayoutGrid, List } from 'lucide-react';
+  LayoutGrid, List, FileText, Sheet } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
@@ -210,7 +210,10 @@ export function useIsMobile(query = '(max-width: 640px)') {
 // still open the OS calendar (showPicker), keyboard and mobile pickers still
 // work, and we don't reimplement a calendar.
 // ── Nexus calendar picker (replaces the native OS date popup) ────────────────
-const CAL_WEEK = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+// Sunday-first, ending Saturday - the US convention, and what Asana, Apple and
+// Google all show (Neil, Sept 7). Every calendar surface in the app follows it;
+// the grid offset below is the other half of the change and the two must agree.
+const CAL_WEEK = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const CAL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const CAL_MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 // Years shown per page in the zoomed-out year grid - 12 keeps the same 3x4
@@ -245,7 +248,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
   }, [onClose, anchorRef]);
 
   const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-  const offset = (first.getDay() + 6) % 7; // Monday-first
+  const offset = first.getDay();   // Sunday-first: getDay() is already 0=Sun
   const days = Array.from({ length: 42 }, (_, i) => { const d = new Date(first); d.setDate(1 - offset + i); return d; });
 
   const W = 300, H = 372;
@@ -983,7 +986,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
           {filtered.map((p) => {
             const on = emails.includes(p.email);
             return (
-              <div key={p.email} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
+              <div key={p.email} className="nx-menu-row" onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
                 <Avatar email={p.email} name={p.name} size={22} card={false} />
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                 {/* Externals are offered here, so say which they are - putting a
@@ -1122,7 +1125,7 @@ export function ChipMultiSelect({ value, onChange, options, placeholder = 'Selec
           {filtered.map((o) => {
             const on = ids.includes(o.id);
             return (
-              <div key={o.id} onClick={() => toggle(o.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
+              <div key={o.id} className="nx-menu-row" onClick={() => toggle(o.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
                 {on && <Check size={14} style={{ color: NX.blue, flexShrink: 0 }} />}
               </div>
@@ -1252,6 +1255,74 @@ export function ViewToggle({ view, onChange, isMobile = false, style }) {
             boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
           }}><tb.icon size={15} />{!isMobile && ` ${tb.label}`}</button>
       ))}
+    </div>
+  );
+}
+
+// ── Export (PDF / Excel) ────────────────────────────────────────────────────
+// One button on every list screen (Tasks, Projects, Portfolios, Teams). The
+// screen supplies its VISIBLE rows and a column spec; this owns the menu, the
+// busy state and the failure message, so four screens do not each grow their
+// own copy of that.
+//
+// Exports what is on screen, filters and sort included - see exporting.js for
+// why that is client-side. Disabled with nothing to export rather than
+// producing an empty file.
+export function ExportMenu({ title, subtitle, columns, rows, filenameBase, compact = false }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const ref = useRef(null);
+  useClickOutside([ref], () => setOpen(false), open);
+
+  const run = async (format) => {
+    setBusy(format); setErr('');
+    try {
+      const { exportRows } = await import('./exporting');
+      const base = filenameBase || String(title || 'export').toLowerCase().replace(/\s+/g, '-');
+      await exportRows(format, {
+        title, subtitle, columns, rows,
+        filename: `${base}-${new Date().toISOString().slice(0, 10)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`,
+      });
+      setOpen(false);
+    } catch (e) {
+      setErr(e?.message || 'Export failed.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const empty = !rows || rows.length === 0;
+  return (
+    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
+      <button onClick={() => setOpen((o) => !o)} disabled={empty}
+        title={empty ? 'Nothing to export' : `Export these ${rows.length} row${rows.length === 1 ? '' : 's'}`}
+        aria-haspopup="menu" aria-expanded={open}
+        style={{ ...btn('outline'), ...(compact ? { padding: '6px 10px', fontSize: 12 } : {}), opacity: empty ? 0.5 : 1 }}>
+        <Download size={compact ? 14 : 15} />{compact ? 'Export' : 'Export'}
+      </button>
+      {open && (
+        <div role="menu" style={{
+          position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 186, zIndex: 2600,
+          background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
+          boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4,
+        }}>
+          <button role="menuitem" className="nx-menu-row" disabled={!!busy} onClick={() => run('pdf')}
+            style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 9 }}>
+            <FileText size={15} style={{ color: NX.red, flexShrink: 0 }} />
+            {busy === 'pdf' ? 'Building PDF…' : 'Export as PDF'}
+          </button>
+          <button role="menuitem" className="nx-menu-row" disabled={!!busy} onClick={() => run('excel')}
+            style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 9 }}>
+            <Sheet size={15} style={{ color: NX.green, flexShrink: 0 }} />
+            {busy === 'excel' ? 'Building Excel…' : 'Export as Excel'}
+          </button>
+          <div style={{ padding: '4px 9px 5px', fontSize: 11, color: NX.faint }}>
+            {rows.length} row{rows.length === 1 ? '' : 's'}, as shown
+          </div>
+          {err && <div style={{ padding: '2px 9px 6px', fontSize: 11, color: NX.red }}>{err}</div>}
+        </div>
+      )}
     </div>
   );
 }

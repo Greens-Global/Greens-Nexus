@@ -2,12 +2,12 @@
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
 import { useMemo, useState } from 'react';
-import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft, Copy, Pencil, LayoutTemplate } from 'lucide-react';
+import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft, Copy, Pencil, LayoutTemplate, Star } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees } from './lib';
-import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
-import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton, SearchSelect, UnassignedAvatar } from './components';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows } from './lib';
+import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, PRIORITY_META, chip } from './theme';
+import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton, SearchSelect, UnassignedAvatar, ExportMenu } from './components';
 import CreateTaskModal from './CreateTaskModal';
 import QuickCreateTask from './QuickCreateTask';
 import MobileTaskBar from './MobileTaskBar';
@@ -41,7 +41,7 @@ const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
 export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks', onBack,
                                          initialFilters = null, initialSearch = '' }) {
   const store = useTasks();
-  const { tasks, nameOf, projectName, teamName, projectById, portfolioById, toggleComplete, bulkUpdate, deleteTask, myEmail, teams } = store;
+  const { tasks, nameOf, projectName, teamName, projectById, portfolioById, toggleComplete, bulkUpdate, deleteTask, myEmail, teams, bookmarks, toggleBookmark } = store;
   // Owned here so the Hide / + Column controls can live in the toolbar above
   // while RichListView below renders according to them.
   const [hiddenCols, setHiddenCols] = useHiddenCols();
@@ -107,6 +107,14 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     [tasks, search, filters, sort, lockedProjectId, mine, myEmail, activeFields, store.taskById, nameOf, projectName, teamName],
   );
 
+  // Export rows: `visible` plus each row's subtasks, nested - see
+  // taskExportRows in lib.js for why the file must not inherit the list's
+  // top-level-only shape.
+  const exportRows = useMemo(
+    () => taskExportRows(visible, tasks, filter, store.taskById),
+    [visible, tasks, filter, store.taskById],
+  );
+
   const applyView = (v) => {
     if (v.filters) setFilters({ ...EMPTY_FILTER, ...v.filters });
     if (v.sort) setSort(v.sort);
@@ -134,6 +142,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   });
   const ctx = { nameOf, projectName, teamName, customFields: activeFields, taskById: store.taskById };
   const lockedProject = lockedProjectId ? projectById(lockedProjectId) : null;
+  const isBookmarked = !!lockedProject && bookmarks?.has(lockedProject.id);
   // Only select fields can group or sort meaningfully - a free-text field would
   // make one group per distinct string.
   const groupableFields = activeFields.filter((f) => f.type === 'select');
@@ -179,13 +188,30 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
                 <Copy size={14} />{!isMobile && 'Duplicate'}
               </button>
             )}
+            {/* Bookmark sits FIRST of the project actions - it is the only one
+                of them a non-admin uses daily, and it is what puts this project
+                on their dashboard (Neil, Sept 8). Filled star = bookmarked. */}
+            {lockedProject && (
+              <button onClick={() => toggleBookmark(lockedProject.id).catch(() => {})}
+                title={isBookmarked ? 'Remove from your bookmarks' : 'Bookmark - pin this project to your dashboard'}
+                aria-pressed={isBookmarked}
+                style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: isBookmarked ? NX.amber || '#d97706' : NX.dim }}>
+                <Star size={14} fill={isBookmarked ? 'currentColor' : 'none'} />
+                {!isMobile && (isBookmarked ? 'Bookmarked' : 'Bookmark')}
+              </button>
+            )}
             {lockedProject && (
               <button onClick={openProjectEdit} title="Edit Project"
                 style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: NX.dim }}>
                 <Pencil size={14} />{!isMobile && 'Edit'}
               </button>
             )}
-            <button style={btn('primary')} onClick={() => openCreate({ projectId: lockedProjectId || '' })}><Plus size={15} />New Task</button>
+            {/* No "New Task" here (Neil, Sept 7). A project screen carried a
+                THIRD create control, on top of the module bar's "+ Create" and
+                the floating "+" in the corner - three buttons for one action,
+                each opening the same modal. The two that are on every screen
+                are the ones that stay; both pre-fill this project, so nothing
+                is lost but the duplication. */}
           </div>
         )}
       </div>
@@ -220,9 +246,34 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             <ListColumnControls
               hidden={hiddenCols} setHidden={setHiddenCols}
               customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
-              lockedProjectId={lockedProjectId}
+              lockedProjectId={lockedProjectId} teams={store.teams}
             />
           )}
+          {/* `visible` is the list AFTER search, filters, sort and grouping -
+              exporting the raw store would hand back rows the person had
+              deliberately filtered away. */}
+          <ExportMenu
+            title={lockedProject ? `Tasks - ${lockedProject.name}` : 'Tasks'}
+            subtitle={`${exportRows.length} task${exportRows.length === 1 ? '' : 's'} including subtasks, as filtered`}
+            filenameBase={lockedProject ? `tasks-${lockedProject.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : 'tasks'}
+            rows={exportRows} compact
+            columns={[
+              // Indented like the screen, AND with an explicit Parent Task
+              // column - a spreadsheet loses the indent the moment it is sorted.
+              { header: 'Task', width: 30, get: (r) => `${'    '.repeat(r.depth)}${r.task.title}` },
+              { header: 'Parent Task', width: 22, get: (r) => r.parent?.title || '' },
+              { header: 'Status', width: 12, get: (r) => store.statusMeta?.[r.task.status]?.label || r.task.status || '' },
+              { header: 'Priority', width: 10, get: (r) => PRIORITY_META[r.task.priority]?.label || r.task.priority || '' },
+              { header: 'Assignee', width: 20, get: (r) => taskAssignees(r.task).map((e) => nameOf(e)).join(', ') },
+              { header: 'Project', width: 20, get: (r) => (r.task.projectId ? (projectName(r.task.projectId) || '') : '') },
+              { header: 'Team', width: 14, get: (r) => (r.task.teamId ? (teamName(r.task.teamId) || '') : '') },
+              { header: 'Start', width: 11, get: (r) => (r.task.startOn ? fmtDate(r.task.startOn) : '') },
+              { header: 'Due', width: 11, get: (r) => (r.task.dueOn ? fmtDate(r.task.dueOn) : '') },
+              { header: 'Estimate (h)', width: 11, get: (r) => (r.task.estimateHours ?? '') },
+              { header: 'Actual (h)', width: 11, get: (r) => (r.task.actualHours ?? '') },
+              { header: 'Completed', width: 10, get: (r) => (r.task.completed ? 'Yes' : 'No') },
+            ]}
+          />
         </div>
       </div>
       )}
@@ -352,7 +403,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
                 <ListColumnControls
                   hidden={hiddenCols} setHidden={setHiddenCols}
                   customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
-                  lockedProjectId={lockedProjectId}
+                  lockedProjectId={lockedProjectId} teams={store.teams}
                 />
               ) : null}
               onClose={onClose}

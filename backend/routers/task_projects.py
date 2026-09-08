@@ -69,7 +69,7 @@ def project_to_dict(p: models.TaskProject) -> dict:
 def portfolio_to_dict(p: models.TaskPortfolio, project_ids: Optional[list] = None) -> dict:
     return {
         "id": p.id, "name": p.name, "description": p.description or "", "color": _nz(p.color),
-        "ownerId": _nz(p.owner_email),
+        "ownerId": _nz(p.owner_email), "parentId": p.parent_id or "",
         "projectIds": (p.project_ids or []) if project_ids is None else project_ids,
         "archived": bool(p.archived), "createdAt": p.created_at or "", "modifiedAt": p.modified_at or "",
     }
@@ -79,6 +79,52 @@ def project_portfolio_map(db: Session) -> dict:
     """{project_id: portfolio_id} for every live project, in one query."""
     return {pid: (pf or "") for pid, pf in
             db.query(models.TaskProject.id, models.TaskProject.portfolio_id).all()}
+
+
+def _portfolio_parents(db: Session) -> dict:
+    """{portfolio_id: parent_id} for every portfolio, in one query."""
+    return {pid: (parent or "") for pid, parent in
+            db.query(models.TaskPortfolio.id, models.TaskPortfolio.parent_id).all()}
+
+
+def _would_cycle(parents: dict, child_id: str, new_parent_id: str) -> bool:
+    """Would parenting `child_id` under `new_parent_id` close a loop?
+
+    A portfolio that is its own ancestor hangs every walk of the tree - the
+    rollup, the list's indent, the delete's re-parent - in an infinite loop, and
+    nothing else in the module would ever notice the row was bad. So the check
+    is here, on the one write that can create one, rather than defended for at
+    each reader. Walks up from the proposed parent: if we meet the child, the
+    link closes a circle. The step counter is a floor under an ALREADY-cyclic
+    table (one written by an older backend, or by hand) - without it this guard
+    would itself hang on the data it exists to prevent.
+    """
+    if not new_parent_id:
+        return False
+    if new_parent_id == child_id:
+        return True
+    seen, at = set(), new_parent_id
+    while at and at not in seen and len(seen) <= len(parents):
+        seen.add(at)
+        at = parents.get(at, "")
+        if at == child_id:
+            return True
+    return False
+
+
+def portfolio_descendants(parents: dict, root_id: str) -> list:
+    """Every portfolio under `root_id`, at any depth, excluding the root."""
+    kids = {}
+    for pid, parent in parents.items():
+        kids.setdefault(parent, []).append(pid)
+    out, stack = [], list(kids.get(root_id, []))
+    while stack:
+        pid = stack.pop()
+        if pid in out or pid == root_id:
+            continue        # a cyclic row cannot make this loop forever
+        out.append(pid)
+        stack.extend(kids.get(pid, []))
+    return out
 
 
 def portfolio_project_ids(pf: models.TaskPortfolio, owner_of: dict) -> list:
@@ -595,6 +641,7 @@ class PortfolioBody(BaseModel):
     description: Optional[str] = ""
     color: Optional[str] = ""
     owner_email: Optional[str] = ""
+    parent_id: Optional[str] = None    # "" clears it back to top level
     project_ids: Optional[list] = None
     archived: Optional[bool] = None
 
@@ -611,9 +658,13 @@ def create_portfolio(body: PortfolioBody, user: dict = Depends(get_current_user)
     if not (body.name or "").strip():
         raise HTTPException(422, "Portfolio name is required")
     now = now_iso()
+    parent_id = (body.parent_id or "").strip()
+    if parent_id and not db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == parent_id).first():
+        raise HTTPException(404, "Parent portfolio not found")
     p = models.TaskPortfolio(
         id=body.id or gen_id(), name=body.name, description=body.description or "",
         color=body.color or "", owner_email=(body.owner_email or user["email"]).lower(),
+        parent_id=parent_id,
         project_ids=body.project_ids or [], archived=bool(body.archived),   # same drop as create_project had
         created_at=now, modified_at=now, created_by=user["email"],
     )
@@ -638,6 +689,17 @@ def update_portfolio(portfolio_id: str, body: PortfolioBody, db: Session = Depen
     if not p:
         raise HTTPException(404, "Portfolio not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    if "parent_id" in data:
+        parent_id = (data["parent_id"] or "").strip()
+        if parent_id:
+            if not db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == parent_id).first():
+                raise HTTPException(404, "Parent portfolio not found")
+            if _would_cycle(_portfolio_parents(db), portfolio_id, parent_id):
+                # Naming the rule, not just refusing: from the Portfolios screen
+                # the two portfolios can be far apart in the tree and the loop is
+                # not obvious from where you are standing.
+                raise HTTPException(400, "A portfolio cannot be moved inside itself or one of its own sub-portfolios.")
+        data["parent_id"] = parent_id
     prev_project_ids = set(p.project_ids or [])
     for k, v in data.items():
         if k == "owner_email" and v is not None:
@@ -664,6 +726,76 @@ def update_portfolio(portfolio_id: str, body: PortfolioBody, db: Session = Depen
     return portfolio_to_dict(p, portfolio_project_ids(p, project_portfolio_map(db)))
 
 
+class MoveProjectsBody(BaseModel):
+    project_ids: list[str]
+    portfolio_id: str = ""      # "" = out of every portfolio
+
+
+@router.post("/task-portfolios/move-projects")
+def move_projects_between_portfolios(body: MoveProjectsBody, db: Session = Depends(get_db)):
+    """Move a batch of projects into one portfolio, or out of all of them.
+
+    A project belongs to at most ONE portfolio, so a move is a remove and an add
+    that must not be separable: membership is stored on both sides
+    (TaskProject.portfolio_id AND TaskPortfolio.project_ids - see
+    portfolio_project_ids for why, and what a half-written link looks like on
+    screen). Done from the client this would be two PATCHes per project against
+    two different portfolios, and an interrupted run leaves projects listed in a
+    portfolio they no longer belong to. One endpoint, one transaction, both
+    sides.
+
+    Appends to the destination's order rather than sorting it: the list is
+    drag-ordered by hand, and arriving projects belong at the end where someone
+    can see what just landed.
+    """
+    ids = [i for i in dict.fromkeys(body.project_ids or []) if i]
+    if not ids:
+        raise HTTPException(422, "No projects selected.")
+    dest = None
+    if body.portfolio_id:
+        dest = db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == body.portfolio_id).first()
+        if not dest:
+            raise HTTPException(404, "Portfolio not found")
+    found = {p.id: p for p in db.query(models.TaskProject).filter(models.TaskProject.id.in_(ids)).all()}
+    if not found:
+        raise HTTPException(404, "None of those projects exist.")
+    # Walk the CALLER's order, not the query's. `IN` comes back in whatever order
+    # the database feels like, and these ids land at the end of a hand-curated
+    # list - so the arrivals would sit in an order nobody chose.
+    projects = [found[i] for i in ids if i in found]
+
+    now = now_iso()
+    moved, touched = [], set()
+    for proj in projects:
+        prev = proj.portfolio_id or ""
+        if prev == (body.portfolio_id or ""):
+            continue        # already where it is being sent
+        if prev:
+            touched.add(prev)
+        proj.portfolio_id = body.portfolio_id or ""
+        proj.modified_at = now
+        moved.append(proj.id)
+
+    # Drop the moved ids from every portfolio that listed them, then append to
+    # the destination. Rebuilt from the stored list rather than recomputed from
+    # portfolio_id, so a hand-curated order survives the move.
+    if moved:
+        moved_set = set(moved)
+        for pf in db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id.in_(touched)).all():
+            pf.project_ids = [pid for pid in (pf.project_ids or []) if pid not in moved_set]
+            pf.modified_at = now
+        if dest is not None:
+            existing = [pid for pid in (dest.project_ids or []) if pid not in moved_set]
+            dest.project_ids = existing + moved
+            dest.modified_at = now
+    db.commit()
+
+    owner_of = project_portfolio_map(db)
+    return {"moved": len(moved),
+            "portfolios": [portfolio_to_dict(p, portfolio_project_ids(p, owner_of))
+                           for p in db.query(models.TaskPortfolio).all()]}
+
+
 @router.delete("/task-portfolios/{portfolio_id}", status_code=204)
 def delete_portfolio(portfolio_id: str, db: Session = Depends(get_db)):
     p = db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == portfolio_id).first()
@@ -671,7 +803,76 @@ def delete_portfolio(portfolio_id: str, db: Session = Depends(get_db)):
         raise HTTPException(404, "Portfolio not found")
     for proj in db.query(models.TaskProject).filter(models.TaskProject.portfolio_id == portfolio_id).all():
         proj.portfolio_id = ""
+    # Sub-portfolios move UP to the deleted one's own parent (top level if it had
+    # none) rather than being deleted with it or left pointing at a row that is
+    # gone. Deleting a group should not silently delete the groups inside it, and
+    # an orphan with a dangling parent_id renders nowhere at all - it is in the
+    # table, absent from the tree, and looks like data loss.
+    for child in db.query(models.TaskPortfolio).filter(models.TaskPortfolio.parent_id == portfolio_id).all():
+        # `child.id` guard: on an ALREADY-cyclic table (A under B, B under A)
+        # promoting a child to the deleted row's parent would hand it itself.
+        child.parent_id = "" if (p.parent_id or "") == child.id else (p.parent_id or "")
+        child.modified_at = now_iso()
     db.delete(p)
+    db.commit()
+
+
+# ── Bookmarks (a person's own pinned projects) ───────────────────────────────
+# Self-service, like task_prefs.py: every read and write is scoped to the
+# caller's own email and nothing here widens what anyone can see - a bookmark
+# records what somebody is watching, not what they may open. So no admin gate,
+# and no way to read or write anyone else's.
+class BookmarkBody(BaseModel):
+    project_id: str
+
+
+@router.get("/task-bookmarks")
+def list_bookmarks(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """This person's bookmarks, in their chosen order.
+
+    Rows whose project is gone (deleted, or access lost) are skipped rather than
+    returned as dangling ids - the dashboard would otherwise render a bookmark
+    that cannot be opened, and there is nothing the reader could do about it.
+    """
+    rows = (db.query(models.TaskProjectBookmark)
+            .filter(models.TaskProjectBookmark.owner_email == user["email"].lower())
+            .order_by(models.TaskProjectBookmark.position).all())
+    live = {p.id for p in db.query(models.TaskProject.id).all()} if rows else set()
+    return [{"id": r.id, "projectId": r.project_id, "position": r.position or 0}
+            for r in rows if r.project_id in live]
+
+
+@router.post("/task-bookmarks", status_code=201)
+def add_bookmark(body: BookmarkBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    email = user["email"].lower()
+    if not db.query(models.TaskProject).filter(models.TaskProject.id == body.project_id).first():
+        raise HTTPException(404, "Project not found")
+    existing = (db.query(models.TaskProjectBookmark)
+                .filter(models.TaskProjectBookmark.owner_email == email,
+                        models.TaskProjectBookmark.project_id == body.project_id).first())
+    if existing:
+        # Idempotent: the star is a toggle and a double-click must not leave two
+        # rows behind for one project.
+        return {"id": existing.id, "projectId": existing.project_id, "position": existing.position or 0}
+    last = (db.query(models.TaskProjectBookmark)
+            .filter(models.TaskProjectBookmark.owner_email == email)
+            .order_by(models.TaskProjectBookmark.position.desc()).first())
+    row = models.TaskProjectBookmark(
+        id=gen_id(), owner_email=email, project_id=body.project_id,
+        position=((last.position or 0) + 1) if last else 0, created_at=now_iso(),
+    )
+    db.add(row)
+    db.commit()
+    return {"id": row.id, "projectId": row.project_id, "position": row.position}
+
+
+@router.delete("/task-bookmarks/{project_id}", status_code=204)
+def remove_bookmark(project_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Keyed by PROJECT, not by bookmark id: the caller is a star on a project
+    # header that knows the project and nothing else.
+    (db.query(models.TaskProjectBookmark)
+     .filter(models.TaskProjectBookmark.owner_email == user["email"].lower(),
+             models.TaskProjectBookmark.project_id == project_id).delete())
     db.commit()
 
 

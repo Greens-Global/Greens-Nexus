@@ -4185,6 +4185,37 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 .nx-fab-icon { transition: transform .2s cubic-bezier(.16, 1, .3, 1); }
 
+/* Checkboxes in the Task module read as greyed out until they are ticked
+   (Neil, Sept 8): an unchecked box is an offer, a checked one is a decision, and
+   at a glance down a list of 40 rows the difference has to be visible without
+   reading each box. accent-color paints the CHECKED state in the module green;
+   the muted border and reduced opacity are what make the unchecked ones recede.
+   Scoped to .nx-check rather than every input in the app - other modules have
+   their own checkbox idioms and this is not a global restyle. */
+.nx-check {
+  accent-color: var(--nx-primary, #16794a);
+  cursor: pointer;
+}
+.nx-check:not(:checked):not(:indeterminate) {
+  opacity: .5;
+  filter: grayscale(1);
+}
+.nx-check:hover:not(:disabled) { opacity: 1; }
+
+/* Dropdown/menu rows: highlight under the pointer, so you can see what you are
+   about to click (Neil, Sept 7). The task module's pickers are inline-styled,
+   and a SELECTED row already paints itself with --nx-hover - but hover is a real
+   CSS state that an inline style cannot express, so those lists had no pointer
+   feedback at all. Keyboard focus gets the same treatment: a menu you arrow
+   through should read like one you point at.
+   `!important` because each row carries its own inline background (transparent,
+   or the selected tint) and that would otherwise win on specificity. */
+.nx-menu-row { transition: background .12s ease; }
+.nx-menu-row:hover:not(:disabled),
+.nx-menu-row:focus-visible {
+  background: var(--nx-hover) !important;
+}
+
 /* Each option is a labelled pill - an icon alone would make the user guess. */
 .nx-fab-item {
   display: inline-flex;

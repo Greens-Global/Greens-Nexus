@@ -3019,8 +3019,10 @@ function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
   const byId = Object.fromEntries(employees.map(e => [e.id, e]));
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
-  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return d; });
+  // Sunday-first, ending Saturday - the app-wide calendar convention (Neil,
+  // Sept 7). getDay() is already 0=Sun, so the week's start needs no rotation.
+  const weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay());
+  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
   const isoD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   // Respect the people filter: empty selection = everyone.

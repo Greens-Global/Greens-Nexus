@@ -1691,6 +1691,36 @@ _CHANGE_TYPES = ["Bug Fix", "Performance", "New Feature", "Security Update",
                  "Hotfix", "Maintenance", "Improvement"]
 
 
+def deployment_branch() -> str:
+    """Which branch THIS deployment IS - "dev", "main", or "" off Azure.
+
+    Derived from WEBSITE_SITE_NAME the same way app_url.py splits dev from prod
+    ("dev" anywhere in the name), so neither App Service needs configuring;
+    NEXUS_CHANGELOG_BRANCH overrides it if the naming ever stops matching. Read
+    fresh on every call rather than cached at import, for app_url.py's
+    documented reason: during warm-up the value can arrive slot-suffixed, and
+    prod deploys through a staging slot.
+
+    "" means no deployment identity (a laptop) - callers decide what that
+    means for them, which is why tracked_branch() below is separate.
+    """
+    override = os.getenv("NEXUS_CHANGELOG_BRANCH", "").strip()
+    if override:
+        return override
+    site = os.getenv("WEBSITE_SITE_NAME", "").strip().lower()
+    if not site:
+        return ""
+    return "dev" if "dev" in site else "main"
+
+
+def tracked_branch() -> str:
+    """The branch this deployment summarises: which commits it reads, and the
+    only merges its changelog reacts to. Off Azure there is no deployment to
+    speak of, so it reads dev - the repo's default branch, and what a laptop
+    would have gotten anyway."""
+    return deployment_branch() or "dev"
+
+
 def _is_noise(subject: str) -> bool:
     s = (subject or "").strip().lower()
     return not s or s.startswith("merge ")
@@ -1705,7 +1735,7 @@ def _recent_commits(limit: int = 80) -> tuple[list[dict], str]:
             with httpx.Client(timeout=30) as client:
                 r = client.get(
                     f"https://api.github.com/repos/{_GITHUB_REPO}/commits",
-                    params={"per_page": min(limit, 100)},
+                    params={"per_page": min(limit, 100), "sha": tracked_branch()},
                     headers={"Authorization": f"Bearer {_GITHUB_TOKEN}",
                              "Accept": "application/vnd.github+json"},
                 )

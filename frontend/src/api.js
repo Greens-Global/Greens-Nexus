@@ -447,6 +447,20 @@ export const api = {
   createTaskPortfolio: (data) => req("/task-portfolios", { method: "POST", body: JSON.stringify(data) }),
   updateTaskPortfolio: (id, data) => req(`/task-portfolios/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskPortfolio: (id) => req(`/task-portfolios/${id}`, { method: "DELETE" }),
+  // Batch move: one transaction on the server, because membership lives on both
+  // the project and the portfolio and a half-applied move shows a project in a
+  // portfolio it has already left.
+  // Takes an already-mapped body (TasksContext's toBody), like every other
+  // write here - api.js does not know about camelCase field names.
+  moveProjectsToPortfolio: (data) => req("/task-portfolios/move-projects", {
+    method: "POST", body: JSON.stringify(data),
+  }),
+  // Bookmarks - a person's own pinned projects (self-scoped server-side).
+  getTaskBookmarks: () => req("/task-bookmarks"),
+  addTaskBookmark: (projectId) => req("/task-bookmarks", {
+    method: "POST", body: JSON.stringify({ project_id: projectId }),
+  }),
+  removeTaskBookmark: (projectId) => req(`/task-bookmarks/${projectId}`, { method: "DELETE" }),
   getTaskTeams: () => req("/task-teams"),
   createTaskTeam: (data) => req("/task-teams", { method: "POST", body: JSON.stringify(data) }),
   updateTaskTeam: (id, data) => req(`/task-teams/${id}`, { method: "PATCH", body: JSON.stringify(data) }),

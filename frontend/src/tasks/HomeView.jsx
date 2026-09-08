@@ -11,11 +11,13 @@ import { fmtDate, taskIdFromUrl, taskAssignees } from './lib';
 import { NX, FONT, btn, card, PRIORITY_ORDER } from './theme';
 import { Avatar, useClickOutside, useIsMobile } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
-import { ProjectCreateModal } from './ProjectsView';
 
 const WIDGET_META = [
   { key: 'my_tasks', label: 'My Tasks' },
-  { key: 'projects', label: 'Projects' },
+  // Key stays 'projects' though the widget is now Bookmarks: it is what every
+  // saved dashboard layout stores, and renaming it would drop the widget off
+  // everyone's Home rather than change what it shows.
+  { key: 'projects', label: 'Bookmarks' },
   { key: 'urgent', label: 'Urgent tasks' },
   { key: 'activity', label: 'Completed this week' },
   { key: 'week', label: 'Week ahead' },
@@ -69,7 +71,7 @@ const dueColor = (iso, done) => { if (!iso || done) return NX.faint; const t = t
 
 export default function HomeView({ onNavigate }) {
   const store = useTasks();
-  const { tasks, projects, teams, notifications, myEmail, nameOf, createTask, toggleComplete } = store;
+  const { tasks, projects, teams, notifications, myEmail, nameOf, createTask, toggleComplete, bookmarks } = store;
   const [tab, setTab] = useState('Upcoming');
   const [range, setRange] = useState('week');
   const [rangeOpen, setRangeOpen] = useState(false);
@@ -77,7 +79,6 @@ export default function HomeView({ onNavigate }) {
   const [newTitle, setNewTitle] = useState('');
   const [newDue, setNewDue] = useState(null);
   const [openId, setOpenId] = useState(taskIdFromUrl);
-  const [creatingProject, setCreatingProject] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   // Customize / Autofit / Done render into the module bar's slot next to
   // Manage (Sagar, Sept 1 2026), not into a header row of their own down here.
@@ -126,7 +127,13 @@ export default function HomeView({ onNavigate }) {
   const shown = tab === 'Upcoming' ? upcoming : tab === 'Overdue' ? overdue : completed;
   const myTeams = useMemo(() => teams.filter((d) => (d.memberIds || []).includes(myEmail)), [teams, myEmail]);
   const teamMembers = useMemo(() => { const s = new Set(); myTeams.forEach((d) => (d.memberIds || []).forEach((id) => s.add(id))); return [...s]; }, [myTeams]);
-  const recentProjects = projects.slice(0, 4);
+  // The bookmark rows, in the order the person set. A bookmark whose project
+  // has gone is dropped server-side (see list_bookmarks), so this only has to
+  // survive the gap between the two fetches.
+  const bookmarked = useMemo(
+    () => (projects || []).filter((p) => bookmarks?.has(p.id)),
+    [projects, bookmarks],
+  );
   // Per-project task tallies for the monday-style progress bars on project cards.
   const projStats = useMemo(() => {
     const m = {};
@@ -256,45 +263,49 @@ export default function HomeView({ onNavigate }) {
     );
     if (key === 'projects') return widgetBox(
       <>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Projects</h2>
-          {/* Create lives in the header, not as a tile in the grid. As a tile it
-              took a full card slot on every screen - the whole first row on a
-              phone - to hold one button, and it read as a project that was not
-              one. */}
-          <button onClick={() => setCreatingProject(true)} title="Create Project" aria-label="Create Project"
-            style={{ ...btn('ghost'), padding: 6, color: NX.dim, flexShrink: 0, marginTop: -2 }}>
-            <Plus size={20} />
-          </button>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Bookmarks</h2>
           {moreBtn(() => onNavigate('projects'))}
         </div>
-        {/* Kit "Recently Visit" anatomy - colored cover band (the project's real
-            color; no fabricated screenshots), then name, tally, progress. */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
-          {recentProjects.map((p) => {
-            const pc = p.color || NX.purple;
-            const st = projStats[p.id] || { total: 0, done: 0 };
-            const pct = st.total ? Math.round((st.done / st.total) * 100) : 0;
-            return (
-              <button key={p.id} onClick={() => onNavigate({ projectId: p.id })} style={{ display: 'flex', flexDirection: 'column', minWidth: 0, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 0, overflow: 'hidden', cursor: 'pointer', background: NX.surface, textAlign: 'left', fontFamily: FONT, transition: 'box-shadow 0.15s, transform 0.15s' }}
-                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,0.10)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none'; }}>
-                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: 56, background: `linear-gradient(135deg, ${pc}33, ${pc}1a)`, color: pc }}>
-                  <FolderKanban size={22} />
-                </span>
-                <span style={{ display: 'block', minWidth: 0, width: '100%', padding: '10px 12px 12px' }}>
-                  <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                  <span style={{ display: 'block', fontSize: 11.5, color: NX.faint, marginTop: 2 }}>{st.total ? `${st.done}/${st.total} tasks done` : 'No tasks yet'}</span>
-                  {st.total > 0 && (
-                    <span style={{ display: 'block', height: 5, borderRadius: 3, background: NX.border2, marginTop: 7, overflow: 'hidden' }}>
-                      <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 3, background: pct === 100 ? '#00c875' : pc }} />
-                    </span>
-                  )}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {/* Was "Projects": the four most recent, as cover-band tiles. Two
+            problems with that (Neil, Sept 8) - the list was whatever the API
+            returned rather than what you care about, and a tile is ~110px tall,
+            so four of them filled the card. Bookmarks are chosen, and rendered
+            as LINES: the same card now holds a dozen, which is the number a
+            person actually watches. Bookmark from a project's own header. */}
+        {bookmarked.length === 0 ? (
+          <div style={{ padding: '18px 0', fontSize: 13, color: NX.faint }}>
+            No bookmarks yet. Open a project and press <strong>Bookmark</strong> in its header to pin it here.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {bookmarked.map((p, i) => {
+              const pc = p.color || NX.purple;
+              const st = projStats[p.id] || { total: 0, done: 0 };
+              const pct = st.total ? Math.round((st.done / st.total) * 100) : 0;
+              return (
+                <button key={p.id} onClick={() => onNavigate({ projectId: p.id })}
+                  className="nx-menu-row"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
+                    padding: '7px 8px', border: 'none', borderRadius: 7, cursor: 'pointer',
+                    fontFamily: FONT, background: i % 2 === 1 ? NX.zebra : 'transparent',
+                  }}>
+                  <FolderKanban size={14} style={{ color: pc, flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                  {/* The bar is the whole point of a watch list - progress at a
+                      glance, without opening anything. */}
+                  <span style={{ width: 64, height: 5, borderRadius: 3, background: NX.border2, overflow: 'hidden', flexShrink: 0 }}>
+                    <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 3, background: pct === 100 ? '#00c875' : pc }} />
+                  </span>
+                  <span style={{ fontSize: 11.5, color: NX.faint, flexShrink: 0, width: 46, textAlign: 'right' }}>
+                    {st.total ? `${st.done}/${st.total}` : '-'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </>
     );
     if (key === 'teams') return widgetBox(
@@ -604,7 +615,6 @@ export default function HomeView({ onNavigate }) {
           </MasonryCell>
         ))}
       </div>
-      {creatingProject && <ProjectCreateModal onClose={() => setCreatingProject(false)} onCreated={(p) => onNavigate({ projectId: p.id })} />}
       {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
     </div>
   );
