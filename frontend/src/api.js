@@ -930,6 +930,9 @@ export const api = {
   // ledger) through the grant-gated backend proxy. Dates are YYYY-MM-DD.
   getAccountingPnl: (from, to, location) =>
     req(`/accounting/reports/pnl?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
+  // One-time sign-in URL for accounting.greensglobal.com - Nexus is the only
+  // way in there (no passwords). Open the returned url immediately.
+  launchAccounting: () => req("/accounting/launch", { method: "POST" }),
 
   // Ops
   getOpsProjects: () => req("/ops-projects"),
