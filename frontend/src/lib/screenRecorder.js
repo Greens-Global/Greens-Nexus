@@ -25,6 +25,52 @@ function _cleanupTracks() {
 
 function _removePill() { _pill?.remove(); _pill = null; }
 
+// ── "Recording captured" toast ────────────────────────────────────────────
+// Fires once a finished recording has a real blob, offering a local copy on
+// the spot rather than making someone dig it out of the ticket's attachment
+// list afterward. Plain DOM, like _showPill - it must survive whatever
+// unmount/navigation is already in flight when the caller's onDone runs.
+// Sits in the SAME corner the in-progress pill uses (bottom-right): the pill
+// is always removed before this appears, so the two never overlap, and that
+// corner is clear of the app's own notification toasts (top-right, see
+// NotificationToasts.jsx). "Captured", not "saved" - upload to the ticket
+// happens async in the caller, after onDone fires, so this can't promise
+// that part is done yet.
+const _TOAST_MS = 15000;
+
+function _showRecordingToast(blob) {
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;bottom:18px;right:18px;z-index:6000;display:flex;align-items:center;gap:10px;'
+    + 'background:#0f172a;color:#fff;border-radius:12px;padding:10px 14px;font:600 12.5px Inter,sans-serif;'
+    + 'box-shadow:0 8px 30px rgba(0,0,0,.35)';
+  toast.innerHTML = '<span>Recording captured - saving to the ticket…</span>';
+
+  let url = null;
+  const cleanup = () => { if (url) { URL.revokeObjectURL(url); url = null; } toast.remove(); clearTimeout(timer); };
+
+  const download = document.createElement('button');
+  download.textContent = 'Download';
+  download.style.cssText = 'border:none;border-radius:8px;background:#2563eb;color:#fff;font:700 12px Inter,sans-serif;padding:6px 12px;cursor:pointer;flex-shrink:0';
+  download.onclick = () => {
+    if (!url) url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ticket-recording-${Date.now()}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+  const dismiss = document.createElement('button');
+  dismiss.textContent = '✕';
+  dismiss.setAttribute('aria-label', 'Dismiss');
+  dismiss.style.cssText = 'border:none;background:none;color:#94a3b8;font:700 13px Inter,sans-serif;cursor:pointer;padding:2px 4px;flex-shrink:0';
+  dismiss.onclick = cleanup;
+
+  toast.append(download, dismiss);
+  document.body.appendChild(toast);
+  const timer = setTimeout(cleanup, _TOAST_MS);
+}
+
 function _showPill(onStop, onCancel) {
   _pill = document.createElement('div');
   // z-index above every app overlay (task/ticket modals portal at 4000) - the
@@ -82,7 +128,7 @@ export async function startScreenRecording({ voice = false } = {}, onDone) {
     if (!_recording) return;
     _recording = false;
     const rec = _mediaRec;
-    const done = (blob) => { _removePill(); _cleanupTracks(); onDone?.(blob); };
+    const done = (blob) => { _removePill(); _cleanupTracks(); if (blob) _showRecordingToast(blob); onDone?.(blob); };
     if (!rec || rec.state === 'inactive') { done(_chunks.length ? new Blob(_chunks, { type: 'video/webm' }) : null); return; }
     rec.onstop = () => done(_chunks.length ? new Blob(_chunks, { type: 'video/webm' }) : null);
     try { rec.stop(); } catch { done(null); }
