@@ -5,11 +5,11 @@ import { api } from "../api";
 import {
   LayoutDashboard, ShoppingCart, CheckSquare, BookOpen,
   Monitor, Wifi, Home, LayoutGrid, FileText,
-  ClipboardCheck, Calculator, ArrowRightLeft, PieChart, Download,
-  CreditCard, Building, Server, FileSpreadsheet, Landmark, BarChart3,
+  ClipboardCheck, Calculator,
+  Server, FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
   Settings, ChevronLeft, ChevronRight,
-  HelpCircle, Store, Calendar, MessageSquare, Package, Contact,
+  HelpCircle, Store, Calendar, Package, Contact,
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
@@ -114,17 +114,7 @@ export const NAV = [
   {
     view: "accounting", code: "ACC", label: "Accounting", icon: Calculator, minRole: 'supervisor',
     sub: [
-      { subview: "transactions",    label: "Transactions",       icon: ArrowRightLeft },
-      { subview: "invoices",        label: "Invoices",           icon: FileText },
-      { subview: "budgets",         label: "Budgets",            icon: PieChart },
-      { subview: "imports",         label: "Import Hub",         icon: Download },
-      { subview: "ramp",            label: "Ramp Cards",         icon: CreditCard },
-      { subview: "vendors",         label: "Vendors",            icon: Store },
-      { subview: "ask-accountant",  label: "Ask My Accountant",  icon: MessageSquare },
-      { subview: "ama",             label: "AMA Entities",       icon: FileText },
-      { subview: "mre",             label: "MRE",                icon: Building },
-      { subview: "mri",             label: "MRI",                icon: Server },
-      { subview: "reports",         label: "Reports",            icon: FileSpreadsheet },
+      { subview: "pnl",             label: "Profit & Loss",      icon: FileSpreadsheet },
     ],
   },
   {

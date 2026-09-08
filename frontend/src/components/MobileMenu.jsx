@@ -38,17 +38,7 @@ export const SUBMENUS = {
     { sub: 'site-staff', label: 'Site Staff & Scheduling' },
   ],
   accounting: [
-    { sub: 'transactions',   label: 'Transactions' },
-    { sub: 'invoices',       label: 'Invoices' },
-    { sub: 'budgets',        label: 'Budgets' },
-    { sub: 'imports',        label: 'Import Hub' },
-    { sub: 'ramp',           label: 'Ramp Cards' },
-    { sub: 'vendors',        label: 'Vendors' },
-    { sub: 'ask-accountant', label: 'Ask My Accountant' },
-    { sub: 'ama',            label: 'AMA Entities' },
-    { sub: 'mre',            label: 'MRE' },
-    { sub: 'mri',            label: 'MRI' },
-    { sub: 'reports',        label: 'Reports' },
+    { sub: 'pnl',            label: 'Profit & Loss' },
   ],
   hr: [
     { sub: 'hr-people', label: 'People' },

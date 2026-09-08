@@ -391,7 +391,7 @@ const DEFAULT_SUBS = {
   documents:         "documents-dashboard",
   "investor-relations": "investor-dashboard",
   marketing:         "marketing-ads",
-  accounting:        "transactions",
+  accounting:        "pnl",
   egnyte:            "browse",
   "employee-tracking": "coverage",
   // My Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
