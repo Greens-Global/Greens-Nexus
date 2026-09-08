@@ -142,17 +142,21 @@ class NestingTests(unittest.TestCase):
             create_portfolio(PortfolioBody(name="Orphan", parent_id="nope"), user=ACTOR, db=self.db)
         self.assertEqual(e.exception.status_code, 404)
 
-    def test_deleting_a_parent_lifts_its_children_up_instead_of_orphaning_them(self):
-        delete_portfolio(self.mid.id, db=self.db)
+    def test_binning_a_parent_LEAVES_the_tree_intact_for_restore(self):
+        # Child-lifting moved to the purge (Sept 2026, Recycle Bin). While a
+        # parent is only BINNED its children must keep pointing at it, or
+        # restoring it would hand back a portfolio with nothing under it.
+        # A binned parent reads as absent, so the children surface at the top
+        # level meanwhile - see portfolioRowTree's lift-orphans pass.
+        delete_portfolio(self.mid.id, user=ACTOR, db=self.db)
         self.db.refresh(self.leaf)
-        # Dashboard keeps existing, now directly under Nexus - not deleted, and
-        # not pointing at a row that is gone.
-        self.assertEqual(self.leaf.parent_id, self.root.id)
+        self.assertEqual(self.leaf.parent_id, self.mid.id)
 
-    def test_deleting_a_top_level_parent_returns_children_to_the_top(self):
-        delete_portfolio(self.root.id, db=self.db)
-        self.db.refresh(self.mid)
-        self.assertEqual(self.mid.parent_id, "")
+    def test_a_binned_parent_is_hidden_from_ordinary_reads(self):
+        delete_portfolio(self.root.id, user=ACTOR, db=self.db)
+        live = {p.name for p in self.db.query(models.TaskPortfolio).all()}
+        self.assertNotIn("Nexus", live)
+        self.assertIn("Nexus Modules", live)   # the child is untouched
 
 
 if __name__ == "__main__":

@@ -386,7 +386,21 @@ export const api = {
   bulkUpdateTasks: (ids, patch) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, patch }) }),
   // Trash (Aug 27): deleteTask above now moves to Trash - it's restorable for
   // 90 days (see task_trash.py) via these three, Manage > Deleted Tasks only.
-  getDeletedTasks: () => req("/tasks/deleted"),
+  // scope="mine" is the Recycle Bin OUTSIDE Manage - what you deleted plus what
+  // you were assigned. Omitted = the Manage view, the whole workspace, which
+  // the server refuses to anyone below manager.
+  getDeletedTasks: (scope) => req(`/tasks/deleted${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`),
+  // The Recycle Bin proper - tasks AND the containers (projects, portfolios,
+  // teams) in one list. Same two scopes: "mine" outside Manage, unscoped
+  // (manager-only, whole workspace) inside it.
+  // Personal teams: ask a manager to make one real, and the manager's decision.
+  requestTeamApproval: (id) => req(`/task-teams/${id}/request-approval`, { method: "POST" }),
+  decideTeamApproval: (id, decision) => req(`/task-teams/${id}/approval`, {
+    method: "POST", body: JSON.stringify({ decision }),
+  }),
+  getRecycleBin: (scope) => req(`/task-recycle${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`),
+  restoreRecycleItem: (kind, id) => req(`/task-recycle/${kind}/${id}/restore`, { method: "POST" }),
+  purgeRecycleItem: (kind, id) => req(`/task-recycle/${kind}/${id}`, { method: "DELETE" }),
   restoreTask: (id) => req(`/tasks/${id}/restore`, { method: "POST" }),
   purgeTaskNow: (id) => req(`/tasks/${id}/permanent`, { method: "DELETE" }),
   // Tasks as .xlsx. reqBlob, not a plain link: the endpoint is bearer-

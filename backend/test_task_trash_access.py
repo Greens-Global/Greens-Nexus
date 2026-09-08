@@ -80,13 +80,34 @@ class TrashAccessTests(unittest.TestCase):
         return t
 
     # -- the listing -------------------------------------------------------
-    def test_a_non_manager_sees_only_their_own_deletions(self):
-        titles = [t["title"] for t in list_deleted_tasks(user=OWNER, db=self.db)]
+    def test_scope_mine_is_what_you_deleted(self):
+        titles = [t["title"] for t in list_deleted_tasks(scope="mine", user=OWNER, db=self.db)]
         self.assertEqual(titles, ["Keypad rewire"])
 
-    def test_a_manager_sees_the_whole_workspace(self):
+    def test_scope_mine_also_covers_a_task_you_are_assigned(self):
+        # Somebody else binned a task off your plate - the case you most need
+        # the bin for.
+        theirs = self._trashed("Replace ballast", OTHER["email"])
+        theirs.assignee_emails = [OWNER["email"]]
+        self.db.commit()
+        titles = {t["title"] for t in list_deleted_tasks(scope="mine", user=OWNER, db=self.db)}
+        self.assertEqual(titles, {"Keypad rewire", "Replace ballast"})
+
+    def test_scope_mine_is_not_widened_for_a_manager(self):
+        # The bug this fixes: a Global Admin opening their OWN bin was handed
+        # the whole company's deletions. Role decides what Manage shows; it does
+        # not decide what "mine" means.
+        titles = [t["title"] for t in list_deleted_tasks(scope="mine", user=BOSS, db=self.db)]
+        self.assertEqual(titles, [])
+
+    def test_the_unscoped_listing_is_the_whole_workspace_for_a_manager(self):
         titles = {t["title"] for t in list_deleted_tasks(user=BOSS, db=self.db)}
         self.assertEqual(titles, {"Keypad rewire", "Q3 tax filing"})
+
+    def test_the_unscoped_listing_is_refused_to_everyone_else(self):
+        with self.assertRaises(HTTPException) as e:
+            list_deleted_tasks(user=OWNER, db=self.db)
+        self.assertEqual(e.exception.status_code, 403)
 
     # -- restore -----------------------------------------------------------
     def test_you_can_restore_what_you_deleted(self):
@@ -100,6 +121,13 @@ class TrashAccessTests(unittest.TestCase):
         self.assertEqual(e.exception.status_code, 403)
         self.db.refresh(self.theirs)
         self.assertNotEqual(self.theirs.deleted_at, "")
+
+    def test_the_assignee_can_restore_what_someone_else_binned(self):
+        self.theirs.assignee_emails = [OWNER["email"]]
+        self.db.commit()
+        restore_task(self.theirs.id, user=OWNER, db=self.db)
+        self.db.refresh(self.theirs)
+        self.assertEqual(self.theirs.deleted_at, "")
 
     def test_a_manager_can_restore_anyones(self):
         restore_task(self.theirs.id, user=BOSS, db=self.db)

@@ -58,6 +58,11 @@ const TASK_SUBS = ['home', 'mine', 'projects', 'portfolios', 'templates', 'teams
 const FAB_CREATES = {
   mine: 'task', tasks: 'task',
   projects: 'project', portfolios: 'portfolio', templates: 'template',
+  // Teams gained a "+" (Neil, Sept 9), reversing "a team is made from Manage"
+  // (Sagar, Sept 2). What changed is that a team made HERE is personal - it is
+  // visible only to its creator and grants individual project access until a
+  // manager approves it - so it no longer needs the admin screen to be safe.
+  teams: 'team',
 };
 const DEFAULT_SUB = 'home';
 const ALL_SUBS = [...TASK_SUBS, 'manage'];

@@ -412,8 +412,15 @@ def create_template(body: TemplateBody, db: Session = Depends(get_db)):
 
 
 @router.delete("/task-templates/{template_id}", status_code=204, dependencies=[Depends(require_manager)])
-def delete_template(template_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskTemplate).filter(models.TaskTemplate.id == template_id).delete()
+def delete_template(template_id: str, user: dict = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    # Soft delete -> Recycle Bin, like every other deletable thing in the
+    # module. The row stays, hidden by database.py's _hide_soft_deleted hook.
+    t = (db.query(models.TaskTemplate).execution_options(include_deleted=True)
+         .filter(models.TaskTemplate.id == template_id).first())
+    if t:
+        t.deleted_at = now_iso()
+        t.deleted_by = user["email"]
     db.commit()
 
 

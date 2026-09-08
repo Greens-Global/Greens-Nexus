@@ -501,6 +501,11 @@ export function TasksProvider({ children }) {
     // toggleBookmark kept reading an empty Set and so could only ever add.
     // `value` is rebuilt every render, which is what state needs.
     bookmarks, toggleBookmark,
+    // Personal teams. Both refetch: approval changes who can SEE the team and
+    // where its members' project access comes from, which is more than one
+    // row's worth of change.
+    requestTeamApproval: async (id) => { const r = await api.requestTeamApproval(id); await loadCore(); return r; },
+    decideTeamApproval: async (id, decision) => { const r = await api.decideTeamApproval(id, decision); await loadCore(); return r; },
     ...actions,
   };
   return (

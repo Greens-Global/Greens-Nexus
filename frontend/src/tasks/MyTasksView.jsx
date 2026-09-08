@@ -3,9 +3,8 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight, Trash2 } from 'lucide-react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { DeletedTasksTab } from './ManageView';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle } from './theme';
 import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField, TaskCountBadges, SearchSelect, ExportMenu } from './components';
@@ -26,12 +25,10 @@ const VIEW_TABS = [
   { key: 'calendar', label: 'Calendar', icon: CalIcon },
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'files', label: 'Files', icon: Paperclip },
-  // Your own Trash, outside Manage (Neil, Sept 8). Restoring a task you deleted
-  // yourself used to need a manager, because every trash endpoint was
-  // manager-gated and the only screen was inside Manage - which most people
-  // cannot open. The listing is scoped server-side to your own deletions, so
-  // this tab shows you exactly what you binned and nothing else.
-  { key: 'deleted', label: 'Deleted', icon: Trash2 },
+  // The Recycle Bin lived here for a day and moved to Home (Neil, Sept 9):
+  // it is not a way of looking at MY TASKS, it is a module-wide place where
+  // deleted things wait, and it will grow to cover projects, portfolios and
+  // teams - none of which belong under a personal task list.
 ];
 // Export columns. A function of the store rather than a constant because the
 // labels come from it (custom statuses, people names) - and identical in shape
@@ -415,8 +412,6 @@ export default function MyTasksView({ onNavigate }) {
           <FilesView tasks={allMine} onOpen={setOpenId} nameOf={nameOf} />
         ) : view === 'dashboard' ? (
           <DashboardView tasks={allMine} stats={{}} store={store} scopeKey="my-tasks" onFilter={goFiltered} />
-        ) : view === 'deleted' ? (
-          <div style={{ padding: 16 }}><DeletedTasksTab store={store} scope="mine" /></div>
         ) : (
           // Same board as a project's (status columns, drag-and-drop, WIP limits,
           // swimlanes, Add section). Completed tasks are included so the
