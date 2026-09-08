@@ -166,14 +166,22 @@ def _conversation_html(thread: list[dict]) -> str:
     </tr>"""
 
 
-def _ticket_url(base_url: str, ticket_id: str) -> str:
+def _ticket_url(base_url: str, ticket_id: str, *, for_requester: bool = False) -> str:
     # Tickets is its own top-level module (Jul 2026) - /tickets, not the old
     # /tasks/tickets sub-path. App.jsx's parsePath() still redirects old links
     # there for emails already sent. Plus a ?ticket= query param that
     # TicketsView.jsx reads once on mount to auto-open that ticket (then
     # strips it from the URL).
+    #
+    # Tickets is grant-gated to supervisor+ (App.jsx VIEW_MIN_ROLES) - a plain
+    # requester following this link hits Access Restricted instead of their
+    # own ticket. Support is the requester's own entry point: it mounts the
+    # same TicketDrawer directly (Support.jsx), unaffected by that gate, and
+    # reads the identical ?ticket= param. Every requester-facing email must
+    # route through it instead (Pranshu, Sept 8 2026).
     base = (base_url or "").rstrip("/")
-    return f"{base}/tickets?ticket={ticket_id}" if base else "#"
+    path = "support" if for_requester else "tickets"
+    return f"{base}/{path}?ticket={ticket_id}" if base else "#"
 
 
 # ── Per-event builders - each returns (subject, html) ────────────────────────
@@ -209,7 +217,7 @@ def created_email_requester(*, t: dict, base_url: str, logo_url: str) -> tuple[s
             ("Created", t.get("createdAtDisplay") or "-"),
             ("Status", TICKET_STATUS_META.get(t["status"], {}).get("label", t["status"])),
         ],
-        cta_label="View Ticket", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
+        cta_label="View Ticket", cta_url=_ticket_url(base_url, t["id"], for_requester=True), logo_url=logo_url,
     )
     return subject, html
 
@@ -253,7 +261,7 @@ def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
     return subject, html
 
 
-def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
+def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str, for_requester: bool = False) -> tuple[str, str]:
     subject = _ticket_subject(t)
     intro = (
         "You've been assigned this ticket - please review and take action."
@@ -273,13 +281,16 @@ def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
             ("Status", TICKET_STATUS_META.get(t["status"], {}).get("label", t["status"])),
             ("Due date", t.get("dueDateDisplay") or "-"),
         ],
-        cta_label="Open Ticket", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
+        cta_label="Open Ticket", cta_url=_ticket_url(base_url, t["id"], for_requester=for_requester), logo_url=logo_url,
         note="Action required." if audience == "assignee" else "",
     )
     return subject, html
 
 
 def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
+                  # "updated" events go to the requester only (ticket_notify.py
+                  # _recipients_for), so both CTAs below hardcode
+                  # for_requester=True rather than taking an audience param.
                   prev_status: str = "", latest_comment: str = "",
                   thread: list[dict] | None = None) -> tuple[str, str]:
     actor = t.get("actorName") or t.get("actorEmail")
@@ -291,7 +302,7 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
             ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
             heading=f"{actor} replied to this ticket",
             intro="Open the ticket to respond - the latest conversation is below.",
-            rows=[], cta_label="View Ticket", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
+            rows=[], cta_label="View Ticket", cta_url=_ticket_url(base_url, t["id"], for_requester=True), logo_url=logo_url,
             thread=thread,
         )
         return subject, html
@@ -309,7 +320,7 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
         heading="Your ticket has an update",
         intro=f"{actor} made a change to this ticket: {update_kind}.",
-        rows=rows, cta_label="View Ticket", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
+        rows=rows, cta_label="View Ticket", cta_url=_ticket_url(base_url, t["id"], for_requester=True), logo_url=logo_url,
         comment_label=f"Latest comment - {actor}" if latest_comment else "",
         comment_text=latest_comment,
     )
@@ -320,10 +331,11 @@ def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
     subject = _ticket_subject(t)
     secondary = None
     note = ""
+    for_requester = audience == "requester"
     if audience == "requester":
         secondary = [
-            ("Reopen Ticket", _ticket_url(base_url, t["id"])),
-            ("Provide Feedback", _ticket_url(base_url, t["id"])),
+            ("Reopen Ticket", _ticket_url(base_url, t["id"], for_requester=True)),
+            ("Provide Feedback", _ticket_url(base_url, t["id"], for_requester=True)),
         ]
         note = (f"This ticket will stay Resolved and auto-close in {t['autoCloseDays']} day(s) "
                 f"if you don't reopen it - or you can confirm/close it now from the ticket."
@@ -341,7 +353,7 @@ def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
             ("Total resolution time", t.get("resolutionDuration") or "-"),
         ],
         cta_label="Confirm Resolution" if audience == "requester" else "Review Ticket",
-        cta_url=_ticket_url(base_url, t["id"]), secondary_ctas=secondary, note=note, logo_url=logo_url,
+        cta_url=_ticket_url(base_url, t["id"], for_requester=for_requester), secondary_ctas=secondary, note=note, logo_url=logo_url,
     )
     return subject, html
 
