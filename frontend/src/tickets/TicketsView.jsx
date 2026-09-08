@@ -1909,6 +1909,15 @@ export function TicketDrawer({ ticketId, onClose }) {
   // that stays with the requester (pre-lock) or a manager. Mirrors the
   // company_id carve-out in _ticket_edit_scope.
   const canEditCompany = privileged || (!requesterLocked && !locked && isRequester);
+  // Assign To and SLA Due Date are desk decisions, not the requester's to make
+  // even in the pre-lock window where fullAccess/canWorking otherwise hand
+  // them the rest of the ticket - who works it and by when isn't theirs to
+  // pick for themselves (Pranshu, Sept 8 2026). Hidden outright rather than
+  // disabled while the ticket is still Open (nothing to show yet, and an
+  // editable-looking control they can't use is worse than no control); once
+  // it moves past Open, requesterLocked already takes the whole Overview tab
+  // read-only, which is exactly where these two belong showing up again.
+  const canSeeAssignSla = privileged || !isRequester || t.status !== 'open';
   // Delete stays with whoever raised it or owns the queue - never just the
   // assignee, and not affected by the in_progress lock, but IS affected by
   // the requester lock: once someone else is acting on a ticket, its own
@@ -2049,14 +2058,16 @@ export function TicketDrawer({ ticketId, onClose }) {
             {t.requesterId ? <><Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /><span style={{ fontSize: 13, color: NX.ink }}>{nameOf(t.requesterId)}</span></> : <span style={{ fontSize: 13, color: NX.faint }}>-</span>}
           </div>
         </div>
-        <div style={field}>
-          <label style={label}>Assign To</label>
-          {/* Locked until the request is approved - the backend refuses it anyway,
-              so showing an open picker would only produce a 409 the user can't act on. */}
-          <PersonSelect value={t.assigneeId || null} people={people} onChange={(v) => patch({ assigneeId: v || '' })}
-            disabled={!canWorking || t.approvalStatus === 'pending'}
-            placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
-        </div>
+        {canSeeAssignSla && (
+          <div style={field}>
+            <label style={label}>Assign To</label>
+            {/* Locked until the request is approved - the backend refuses it anyway,
+                so showing an open picker would only produce a 409 the user can't act on. */}
+            <PersonSelect value={t.assigneeId || null} people={people} onChange={(v) => patch({ assigneeId: v || '' })}
+              disabled={!canWorking || t.approvalStatus === 'pending'}
+              placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
+          </div>
+        )}
         {t.assignedById && (
           <div style={field}>
             <label style={label}>Assigned By</label>
@@ -2114,17 +2125,19 @@ export function TicketDrawer({ ticketId, onClose }) {
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(t.serviceArea) || '-'}</div>
           )}
         </div>
-        <div style={field}>
-          <label style={label}>SLA Due Date</label>
-          {fullAccess ? (
-            <DateField value={t.slaDueOn || ''} onChange={(v) => patch({ slaDueOn: v || '' })} color={overdue ? NX.red : undefined}
-              style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
-          ) : (
-            <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-              {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
-            </div>
-          )}
-        </div>
+        {canSeeAssignSla && (
+          <div style={field}>
+            <label style={label}>SLA Due Date</label>
+            {fullAccess ? (
+              <DateField value={t.slaDueOn || ''} onChange={(v) => patch({ slaDueOn: v || '' })} color={overdue ? NX.red : undefined}
+                style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
+            ) : (
+              <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
+                {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
+              </div>
+            )}
+          </div>
+        )}
         {CLOSED_STATES.includes(t.status) && (
           <div style={field}>
             <label style={label}>Resolution</label>
