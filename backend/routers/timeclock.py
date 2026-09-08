@@ -233,6 +233,25 @@ def _effective_last_kind(last) -> Optional[str]:
     return "out" if _stale_open_shift(last) else (last.kind if last else None)
 
 
+def _is_stray_out(db: Session, punch) -> bool:
+    """A clock-out sitting more than the 16-hour pairing guard after the
+    punch before it - the leftover of pressing Clock Out the next day for a
+    shift that was never closed. The timesheet already treats it as unpaired
+    (that shift shows Missing), so it carries no worked time; it only blocks
+    the employee's punch-fix request. 47 of these existed on Sep 8 2026."""
+    if not punch or punch.kind != "out":
+        return False
+    prev = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == punch.employee_email, TimePunch.voided == 0,
+                    TimePunch.at < punch.at).order_by(TimePunch.at.desc()).first())
+    if not prev or prev.kind == "out":
+        return False
+    a, b = _parse_iso(prev.at), _parse_iso(punch.at)
+    if not a or not b:
+        return False
+    return (b - a).total_seconds() > _MAX_SHIFT_MIN * 60
+
+
 def _serialize(p: TimePunch) -> dict:
     return {
         "id": p.id, "email": p.employee_email, "kind": p.kind, "at": p.at,
@@ -2029,12 +2048,34 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
             # not create an illegal transition (e.g. two 'in's with no 'out'
             # between), which would corrupt the FIFO worked-minute pairing. Check
             # the punch immediately BEFORE and AFTER the requested time.
-            prev = (db.query(TimePunch)
-                    .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
-                            TimePunch.at <= r.at).order_by(TimePunch.at.desc()).first())
-            nxt = (db.query(TimePunch)
-                   .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
-                           TimePunch.at > r.at).order_by(TimePunch.at.asc()).first())
+            def _neighbors():
+                p_ = (db.query(TimePunch)
+                      .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
+                              TimePunch.at <= r.at).order_by(TimePunch.at.desc()).first())
+                n_ = (db.query(TimePunch)
+                      .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
+                              TimePunch.at > r.at).order_by(TimePunch.at.asc()).first())
+                return p_, n_
+            prev, nxt = _neighbors()
+            # Stray-aware (Sep 8): when the ONLY thing in the way of a clock-out
+            # request is a stray clock-out - one pressed a day later for the very
+            # shift this request closes - void the stray and apply the request.
+            # A stray carries no worked time (its pair already exceeds the 16h
+            # guard), so voiding it changes nothing on the timesheet except
+            # letting the real clock-out land. Anything else still gets refused.
+            voided_strays = []
+            if r.punch_kind == "out":
+                for cand in (nxt, prev):
+                    if cand is not None and _is_stray_out(db, cand):
+                        cand.voided = 1
+                        cand.adjusted_by = user["email"]
+                        cand.adjusted_at = now
+                        cand.adjust_note = (f"Voided while approving a punch-fix request: stray clock-out "
+                                            f"pressed more than 16 hours after the shift's clock-in.")
+                        voided_strays.append(cand.at)
+                        db.flush()
+                if voided_strays:
+                    prev, nxt = _neighbors()
             if r.punch_kind not in _allowed_kinds(prev.kind if prev else None):
                 raise HTTPException(409,
                     f"Approving this would place a '{r.punch_kind}' after a "
@@ -2051,6 +2092,8 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                            adjust_note=f"Approved punch-fix request by {user['email']}")
             db.add(tp); db.flush()
             r.applied_punch_id = tp.id
+            if voided_strays:
+                note = (note + " " if note else "") + f"Voided stray clock-out at {', '.join(v[:16].replace('T', ' ') for v in voided_strays)} UTC."
         else:  # remove → void the target punch (kept for audit, excluded from totals)
             tp = db.query(TimePunch).filter(TimePunch.id == r.target_punch_id).first()
             if tp:
