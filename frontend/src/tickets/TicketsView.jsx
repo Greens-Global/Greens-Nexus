@@ -1939,16 +1939,20 @@ export function TicketDrawer({ ticketId, onClose }) {
   // requester deleting it out from under them is exactly the kind of change
   // this lock exists to prevent.
   const canDelete = privileged || (!requesterLocked && isRequester);
-  // Escalate is normally a canWorking action - locked out for the requester
-  // along with everything else once requesterLocked. The one exception: if
-  // the SLA has actually been breached, the requester needs a way to flag
-  // that even on a ticket they otherwise can't touch (Pranshu, Sept 8 2026) -
-  // Escalate itself doesn't edit a field, it bumps priority and pings the
-  // assignee/watchers/managers, so it's safe to carve out on its own.
-  const canEscalate = canWorking || (requesterLocked && slaState(t) === 'breached');
-
+  // Escalate is a distress flare, not a priority bump: it mails the ticket's
+  // department head that it needs instant care. The requester or the current
+  // assignee - the two people actually living the ticket - can raise it,
+  // unaffected by requesterLocked (that governs editing the ticket's fields,
+  // not asking for help on it) and not just whoever's working the queue.
+  // Mirrors the server check in escalate_ticket (backend/routers/tickets.py).
+  const canEscalate = (isRequester || isAssignee || privileged) && !CLOSED_STATES.includes(t.status);
   const patch = (p) => updateTicket(t.id, p).catch((e) => alert(`Could not update ticket: ${e.message || e}`));
-  const escalate = () => escalateTicket(t.id).catch((e) => alert(`Could not escalate: ${e.message || e}`));
+  const escalate = () => {
+    if (!window.confirm('Escalate this ticket? The department head will get an email that it needs urgent attention.')) return;
+    escalateTicket(t.id)
+      .then(() => alert('Escalated - the department head has been notified.'))
+      .catch((e) => alert(`Could not escalate: ${e.message || e}`));
+  };
   // Same "ask a reason" pattern as the approval-reject flow - the Outlook
   // reopened-ticket email includes it, so the assignee/dept lead knows why.
   const reopen = () => {
@@ -1988,11 +1992,8 @@ export function TicketDrawer({ ticketId, onClose }) {
         {canDelete && (
           <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
         )}
-        {canEscalate && t.priority !== 'urgent' && !CLOSED_STATES.includes(t.status) && (
-          <button style={{ ...btn('outline'), color: NX.amber }} onClick={escalate}
-            title={requesterLocked ? 'This ticket has missed its SLA - escalate it to get attention' : 'Bump priority and alert the assignee, watchers and managers'}>
-            <ArrowUp size={14} /> Escalate
-          </button>
+        {canEscalate && (
+          <button style={{ ...btn('outline'), color: NX.amber }} onClick={escalate} title="Alert the department head this ticket needs instant care"><ArrowUp size={14} /> Escalate</button>
         )}
         {!CLOSED_STATES.includes(t.status) ? (
           canWorking && (

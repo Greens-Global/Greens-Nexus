@@ -477,6 +477,10 @@ export const api = {
   deleteTicketView: (id) => req(`/task-ticket-views/${id}`, { method: "DELETE" }),
   getTicketCompanies: () => req("/ticket-companies"),
   getTicketDepartments: () => req("/ticket-departments"),
+  // Manage -> Service Desk -> Departments: add a department / set who gets
+  // the escalation email for it, without needing an HR module grant.
+  addTicketDepartment: (companyId, name) => req("/ticket-departments", { method: "POST", body: JSON.stringify({ company_id: companyId, name }) }),
+  setTicketDepartmentHead: (deptId, leadEmail) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ lead_email: leadEmail }) }),
   // Only the departments of the caller's own company - what ticket intake
   // offers now that company is resolved server-side instead of asked for.
   getMyTicketDepartments: () => req("/ticket-departments?mine=true"),

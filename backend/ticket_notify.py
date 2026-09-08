@@ -53,6 +53,7 @@ _DEFAULT_SETTINGS = {
     "enabledEvents": {
         "created": True, "assigned": True, "updated": True,
         "resolved": True, "reopened": True, "approval_required": True,
+        "escalated": True,
     },
 }
 
@@ -250,6 +251,21 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
     elif event_type == "approval_required":
         # Only the approver - this is their personal action item.
         add((t.approver_email or "").strip().lower(), "approver")
+    elif event_type == "escalated":
+        # The department the ticket is ABOUT, not whoever's working it - see
+        # escalate_ticket in routers/tickets.py. No head on file (or no
+        # department at all) falls back to the desk so it's never silent.
+        dept = (db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first()
+                if t.hr_department_id else None)
+        heads = [e for e in [(dept.lead_email if dept else ""), (dept.backup_email if dept else "")] if e]
+        if heads:
+            for h in heads:
+                add(h, "dept_head")
+        else:
+            add_it_admins()
+            log_activity(db, type="notify_gap", actor_email="system", entity_kind="ticket",
+                         entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                         detail="Escalated but no department head is set - routed to the service desk instead")
 
     return list(out.items())
 
@@ -382,7 +398,7 @@ def _duration(start_iso: str, end_iso: str) -> str:
 # ── Main entry point - called from routers/tickets.py via BackgroundTasks ──
 
 def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw) -> None:
-    """event_type ∈ created|assigned|updated|resolved|reopened|approval_required.
+    """event_type ∈ created|assigned|updated|resolved|reopened|approval_required|escalated.
     kw: prev_status, update_kind, latest_comment, reopen_reason (all optional,
     only relevant to specific event types - see ticket_mail_templates.py).
     Never raises - this runs in a background task after the ticket mutation's
@@ -440,6 +456,9 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
                                                      reason=kw.get("reopen_reason", ""))
             elif event_type == "approval_required":
                 subject, html = tmpl.approval_email(t=ctx, base_url=app_url(), logo_url=logo_url)
+            elif event_type == "escalated":
+                subject, html = tmpl.escalated_email(t=ctx, base_url=app_url(), logo_url=logo_url,
+                                                     audience="dept_head" if role == "dept_head" else "other")
             else:
                 continue
             _send_one(db, t=t, event_type=event_type, event_version=version,
