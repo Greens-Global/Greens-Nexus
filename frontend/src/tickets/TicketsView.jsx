@@ -6,11 +6,12 @@
 // Ticket statuses get their own color map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Loader2, Play } from 'lucide-react';
+import { Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Loader2, Play, MousePointer2 } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
 import { useRole } from '../contexts/RoleContext';
+import LiveView from '../components/LiveView';
 import { filesFromPaste, richBodyHtml } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { takePendingOpen, setPendingOpen } from '../lib/pendingOpen';
@@ -1836,7 +1837,7 @@ export function TicketDrawer({ ticketId, onClose }) {
   const apps = useTicketApps();
   const sites = useTicketSites();
   const isMobile = useIsMobile();
-  const { myLevel } = useRole();
+  const { myLevel, canAccessModule } = useRole();
   const [tab, setTab] = useState('overview');
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
@@ -1890,6 +1891,20 @@ export function TicketDrawer({ ticketId, onClose }) {
   const isRequester = (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const isAssignee = (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const privileged = myLevel >= 3;
+  // Request Control: the same consent-first remote screen control Workforce
+  // Analytics already has (components/LiveView.jsx) - reused as-is, not
+  // reimplemented, so a support agent can jump straight from "I'm assigned
+  // this ticket" to "let me see what they're seeing" without leaving the
+  // ticket. Visible only to the assignee - the requester's own screen isn't
+  // something anyone else working the ticket gets to reach for - and only to
+  // someone who could already open Workforce Analytics at all (mirrors that
+  // module's own Sidebar.jsx gate); LiveView/timeclock.py still independently
+  // enforce who may actually watch or take control server-side, same as
+  // every other caller of that component - this only decides whether the
+  // button is worth showing.
+  const canRequestControl = isAssignee && !!t.requesterId && !isRequester
+    && canAccessModule('employee-tracking', 'supervisor');
+  const [requestingControl, setRequestingControl] = useState(false);
   // Separate from the in_progress/assignee lock above: the moment a ticket
   // moves off its just-raised "open" status - triaged, worked, resolved,
   // whatever comes next - the person who raised it goes read-only on every
@@ -1964,9 +1979,10 @@ export function TicketDrawer({ ticketId, onClose }) {
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
   return (
-    // No width override - the Modal default (clamp(520px, 60vw, 980px)) is
-    // the shared "big form" sizing used across the app; the fixed 620px this
-    // used to pass read as a cramped tab next to that (Pranshu, Sept 8 2026).
+    <>
+    {/* No width override - the Modal default (clamp(520px, 60vw, 980px)) is
+        the shared "big form" sizing used across the app; the fixed 620px this
+        used to pass read as a cramped tab next to that (Pranshu, Sept 8 2026). */}
     <Modal title={ticketNo(t.code) || 'Ticket'} onClose={onClose} footer={
       <>
         {canDelete && (
@@ -2056,6 +2072,13 @@ export function TicketDrawer({ ticketId, onClose }) {
           <label style={label}>Requester</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}>
             {t.requesterId ? <><Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /><span style={{ fontSize: 13, color: NX.ink }}>{nameOf(t.requesterId)}</span></> : <span style={{ fontSize: 13, color: NX.faint }}>-</span>}
+            {canRequestControl && (
+              <button type="button" onClick={() => setRequestingControl(true)}
+                title={`Watch ${nameOf(t.requesterId) || 'their'} screen live, then ask to take control - same consent-first flow as Workforce Analytics`}
+                style={{ ...btn('outline'), marginLeft: 'auto', padding: '4px 9px', fontSize: 12, gap: 5 }}>
+                <MousePointer2 size={13} /> Request Control
+              </button>
+            )}
           </div>
         </div>
         {canSeeAssignSla && (
@@ -2209,6 +2232,10 @@ export function TicketDrawer({ ticketId, onClose }) {
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
       </div>
     </Modal>
+    {requestingControl && (
+      <LiveView email={t.requesterId} name={nameOf(t.requesterId) || t.requesterId} onClose={() => setRequestingControl(false)} />
+    )}
+    </>
   );
 }
 

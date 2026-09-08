@@ -27,6 +27,8 @@ from routers.task_util import now_iso, gen_id, log_activity, task_notify, extrac
 from ticket_code import TICKET_CODE_DIGITS, ticket_no
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents, all_agents)
+import ticket_mail_templates as tmpl
+from app_url import app_url
 
 router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
 
@@ -424,6 +426,26 @@ def _notify_participants(db: Session, t: models.TaskTicket, actor_email: str, ki
         task_notify(db, kind=kind, for_email=email, title=title, body=body, ticket_id=t.id, nexus_action=action)
 
 
+def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: str) -> None:
+    """Queue a Teams DM to the ticket's requester about this update - same
+    guaranteed-delivery queue TimeBod posts use (teams_post.py), posted AS the
+    agent who made the change into a 1:1 chat Graph creates on first contact.
+    Called for exactly the same set of changes that already trigger the
+    requester's update EMAIL (see update_ticket's Outlook-notifications
+    block) - one definition of "worth telling the requester about," not two.
+    Skipped when the actor IS the requester (their own edit needs no DM) or
+    there's no requester on file (never happens in practice, but a queued row
+    with an empty requester_email would just fail Graph forever)."""
+    requester = (t.requester_email or "").strip().lower()
+    actor = (actor_email or "").strip().lower()
+    if not requester or requester == actor:
+        return
+    link = tmpl._ticket_url(app_url(), t.id, for_requester=True)
+    html = f'{ticket_no(t.code)} has been updated. To view the ticket, please visit: <a href="{link}">{link}</a>'
+    db.add(models.TicketTeamsMessage(id=gen_id(), ticket_id=t.id, agent_email=actor,
+                                     requester_email=requester, html=html, created_at=now_iso()))
+
+
 @router.get("/task-tickets")
 def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
                  db: Session = Depends(get_db)):
@@ -755,6 +777,16 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor, update_kind="Due date changed")
     elif "resolution" in data or "description" in data or "type" in data or "hr_department_id" in data:
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor, update_kind="Ticket details updated")
+
+    # Teams DM - fires under exactly the same conditions as the email block
+    # above (see _queue_requester_teams_dm's docstring for why that's one
+    # definition, not two).
+    if ((assignee_changed and t.assignee_email) or status_changed
+            or ("priority" in data and t.priority != prev_priority)
+            or ("sla_due_on" in data and t.sla_due_on != prev_due)
+            or ("resolution" in data or "description" in data or "type" in data or "hr_department_id" in data)):
+        _queue_requester_teams_dm(db, t, actor)
+        db.commit()
 
     return ticket_to_dict(t)
 
@@ -1254,5 +1286,25 @@ def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 20
         "subject": r.subject, "status": r.status, "graphMessageId": r.graph_message_id,
         "conversationId": r.conversation_id, "attempts": r.attempts, "error": r.error,
         "createdAt": r.created_at, "updatedAt": r.updated_at,
+    } for r in rows]
+
+
+@router.get("/task-tickets/notify/teams-log", dependencies=[Depends(require_ticket_desk)])
+def get_ticket_teams_dm_log(ticket_id: str = "", sent: str = "", limit: int = 200,
+                            user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Same shape as get_ticket_notify_log, for the Teams DM queue
+    (_queue_requester_teams_dm / teams_post.py) - lets the desk see whether a
+    queued row delivered, and if not, why (send_error), without DB access.
+    `sent`: "1" or "0" to filter, blank for both."""
+    q = db.query(models.TicketTeamsMessage)
+    if ticket_id:
+        q = q.filter(models.TicketTeamsMessage.ticket_id == ticket_id)
+    if sent in ("0", "1"):
+        q = q.filter(models.TicketTeamsMessage.sent == int(sent))
+    rows = q.order_by(models.TicketTeamsMessage.created_at.desc()).limit(min(limit, 500)).all()
+    return [{
+        "id": r.id, "ticketId": r.ticket_id, "agentEmail": r.agent_email, "requesterEmail": r.requester_email,
+        "chatId": r.chat_id, "sent": bool(r.sent), "attempts": r.attempts, "lastTryAt": r.last_try_at,
+        "sendError": r.send_error, "createdAt": r.created_at,
     } for r in rows]
 
