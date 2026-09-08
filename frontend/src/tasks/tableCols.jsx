@@ -206,14 +206,26 @@ export function useTableColumns({ table, cols, trailing = '' }) {
   const saved = useTablePrefs(table);
   const orderedCols = useMemo(() => applyOrder(cols, saved.order), [cols, saved.order]);
   const widths = useMemo(() => saved.widths || {}, [saved.widths]);
+  const hidden = useMemo(() => saved.hidden || [], [saved.hidden]);
+  // A `fixed` column (checkbox, type, resolved, ...) is structure, not data,
+  // and stays hideable-proof. No saved `hidden` (every list until someone
+  // opens Customize) means an empty set here, so this is a no-op and every
+  // column renders exactly as it did before hiding existed.
+  const visibleCols = useMemo(() => {
+    if (!hidden.length) return orderedCols;
+    const hiddenSet = new Set(hidden);
+    return orderedCols.filter((c) => c.fixed || !hiddenSet.has(c.key));
+  }, [orderedCols, hidden]);
 
   const wrapRef = useRef(null);
   // Refs, not deps: startResize has to see the CURRENT columns and widths
   // without being rebuilt on every render (it is handed to every header cell).
-  const colsRef = useRef(orderedCols);
-  colsRef.current = orderedCols;
+  const colsRef = useRef(visibleCols);
+  colsRef.current = visibleCols;
   const widthsRef = useRef(widths);
   widthsRef.current = widths;
+  const hiddenRef = useRef(hidden);
+  hiddenRef.current = hidden;
 
   const templateFrom = useCallback((wd) => {
     const parts = colsRef.current.map((c) => {
@@ -378,7 +390,13 @@ export function useTableColumns({ table, cols, trailing = '' }) {
 
   const resetTable = useCallback(() => clearTable(table), [table]);
 
-  return { cols: orderedCols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps, resetTable, dragKey };
+  const toggleHidden = useCallback((key) => {
+    const current = hiddenRef.current;
+    const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
+    patchTable(table, { hidden: next });
+  }, [table]);
+
+  return { cols: visibleCols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps, resetTable, dragKey, hidden, toggleHidden };
 }
 
 // ── Sorting ─────────────────────────────────────────────────────────────────

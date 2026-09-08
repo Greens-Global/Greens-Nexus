@@ -378,6 +378,45 @@ function MoreMenu({ views, onApply, onSave, onDelete, onExport, groupBy, setGrou
   );
 }
 
+// Show/hide which non-fixed columns render in the desktop List table. `cols`
+// is the hook's already-filtered/ordered list (what's on screen right now),
+// used only to count how many data columns are currently visible - hiding
+// the last one would leave the table with nothing but the checkbox/type/
+// resolved gutters, so that one stays checked and disabled.
+function TicketColumnsMenu({ columns, hidden, toggleHidden, cols }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useClickOutside(ref, () => setOpen(false), open);
+  const hideable = columns.filter((c) => !c.fixed);
+  const visibleCount = cols.filter((c) => !c.fixed).length;
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button onClick={() => setOpen((o) => !o)} title="Customize columns" style={btn('outline')}>
+        <Columns3 size={15} /> Customize
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, padding: 8 }}>
+          <div style={{ padding: '4px 6px 8px', fontSize: 12, fontWeight: 600, color: NX.dim }}>Show columns</div>
+          {hideable.map((c) => {
+            const checked = !hidden.includes(c.key);
+            const lastOne = checked && visibleCount <= 1;
+            return (
+              <label key={c.key} style={{
+                display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 6px',
+                borderRadius: 6, cursor: lastOne ? 'default' : 'pointer', fontSize: 13, color: NX.ink,
+              }}>
+                <input type="checkbox" checked={checked} disabled={lastOne}
+                  onChange={() => toggleHidden(c.key)} />
+                {c.label}
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TicketsView({ manageAction = null }) {
   const { tickets, ticketViews = [], createTicketView, deleteTicketView,
     myEmail, nameOf, updateTicket, deleteTicket } = useTasks();
@@ -492,7 +531,7 @@ export default function TicketsView({ manageAction = null }) {
     () => TICKET_COLUMNS.filter((c) => !(scope === 'mine' && c.key === 'requester')),
     [scope],
   );
-  const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps } = useTableColumns({
+  const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps, hidden, toggleHidden } = useTableColumns({
     table: 'tickets', cols: columnDefs,
   });
   // Completed tickets (resolved/closed) collapse into their own section below
@@ -715,6 +754,9 @@ export default function TicketsView({ manageAction = null }) {
             <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={saveTicketView} onDelete={(id) => deleteTicketView(id).catch(() => {})}
               onExport={() => downloadTicketsCsv(tickets, nameOf, companyName, hrDeptName)}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'} />
+            {view === 'list' && (
+              <TicketColumnsMenu columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={cols} />
+            )}
           </div>
         </div>
       )}
