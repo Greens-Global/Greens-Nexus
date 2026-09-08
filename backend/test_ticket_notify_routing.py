@@ -99,6 +99,24 @@ class RecipientTests(unittest.TestCase):
         for event in ("created", "assigned", "resolved", "reopened"):
             self.assertNotIn(LEAD, self._to(self._ticket(assignee_email=ASSIGNEE), event), event)
 
+    # ── escalate is the one exception: it pages the department it's ABOUT ────
+    def test_escalation_goes_to_the_department_head(self):
+        got = self._to(self._ticket(assignee_email=ASSIGNEE), "escalated")
+        self.assertEqual(got.get(LEAD), "dept_head")
+        self.assertNotIn(ADMIN, got)   # the desk isn't paged when a head is on file
+
+    def test_escalation_includes_the_backup_head_too(self):
+        self.dept.backup_email = "backup@greensglobal.com"
+        self.db.commit()
+        got = self._to(self._ticket(), "escalated")
+        self.assertEqual(got.get("backup@greensglobal.com"), "dept_head")
+
+    def test_escalation_with_no_head_falls_back_to_the_desk(self):
+        self.dept.lead_email = ""
+        self.db.commit()
+        got = self._to(self._ticket(), "escalated")
+        self.assertEqual(got.get(ADMIN), "it_admin")
+
     def test_the_requester_still_gets_their_receipt(self):
         self.assertEqual(self._to(self._ticket(), "created").get(REQUESTER), "requester")
 
