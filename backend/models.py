@@ -2568,6 +2568,12 @@ class TaskTicket(Base):
     assigned_by_email = Column(String, default="", index=True)
     sla_due_on     = Column(String, default="")
     resolved_at    = Column(String, default="")
+    # Timestamp of the most recent comment (public or internal - any human
+    # touch resets the clock). Drives the "needs a comment" staleness highlight
+    # (COMMENT_STALE_HOURS in ticketMeta.js) - a signal separate from SLA due
+    # date breach. Blank on a ticket nobody has commented on yet; the frontend
+    # falls back to created_at in that case.
+    last_comment_at = Column(String, default="")
     created_at     = Column(String, default="")
     modified_at    = Column(String, default="")
 
