@@ -2027,6 +2027,94 @@ class PunchRequestDecision(BaseModel):
     note:   Optional[str] = ""
 
 
+_KIND_RANK = {"in": 0, "break_start": 1, "break_end": 2, "out": 3}
+
+
+def _kind_label(kind: str) -> str:
+    return {"in": "clock-in", "out": "clock-out", "break_start": "break start", "break_end": "break end"}.get(kind, kind)
+
+
+def _punch_neighbors(db: Session, email: str, at: str):
+    """The real (non-voided) punch immediately before and after a time."""
+    p_ = (db.query(TimePunch)
+          .filter(TimePunch.employee_email == email, TimePunch.voided == 0, TimePunch.at <= at)
+          .order_by(TimePunch.at.desc(), TimePunch.created_at.desc()).first())
+    n_ = (db.query(TimePunch)
+          .filter(TimePunch.employee_email == email, TimePunch.voided == 0, TimePunch.at > at)
+          .order_by(TimePunch.at.asc(), TimePunch.created_at.asc()).first())
+    return p_, n_
+
+
+def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
+    """Insert the punches a run of pending 'add' requests ask for (sorted by
+    time), after checking that the whole run keeps the punch sequence legal
+    between the real punches on either side. Nothing is inserted unless every
+    step passes. Raises 409 otherwise. Returns the times of any stray
+    clock-outs voided on the way (see below)."""
+    first, last = reqs[0], reqs[-1]
+    prev, _ = _punch_neighbors(db, first.employee_email, first.at)
+    _, nxt = _punch_neighbors(db, last.employee_email, last.at)
+    # Stray-aware (Sep 8): when the ONLY thing in the way of a clock-out
+    # request is a stray clock-out - one pressed a day later for the very
+    # shift this request closes - void the stray and apply the request.
+    # A stray carries no worked time (its pair already exceeds the 16h
+    # guard), so voiding it changes nothing on the timesheet except
+    # letting the real clock-out land. Anything else still gets refused.
+    voided_strays = []
+    if any(q.punch_kind == "out" for q in reqs):
+        for cand in (nxt, prev):
+            if cand is not None and _is_stray_out(db, cand):
+                cand.voided = 1
+                cand.adjusted_by = user["email"]
+                cand.adjusted_at = now
+                cand.adjust_note = ("Voided while approving a punch-fix request: stray clock-out "
+                                    "pressed more than 16 hours after the shift's clock-in.")
+                voided_strays.append(cand.at)
+                db.flush()
+        if voided_strays:
+            prev, _ = _punch_neighbors(db, first.employee_email, first.at)
+            _, nxt = _punch_neighbors(db, last.employee_email, last.at)
+    last_kind = prev.kind if prev else None
+    for q in reqs:
+        if q.punch_kind not in _allowed_kinds(last_kind):
+            raise HTTPException(409,
+                f"Approving this would place a '{q.punch_kind}' after a "
+                f"'{last_kind or 'clock-out'}', which isn't a valid punch sequence. "
+                f"Ask the employee to correct the request, or edit the punches directly.")
+        last_kind = q.punch_kind
+    if nxt and nxt.kind not in _allowed_kinds(last_kind):
+        raise HTTPException(409,
+            f"Approving this '{last_kind}' would make the following '{nxt.kind}' "
+            f"punch invalid. Edit the punches directly instead.")
+    for q in reqs:
+        tp = TimePunch(id=str(uuid.uuid4()), employee_email=q.employee_email, kind=q.punch_kind,
+                       at=q.at, local_date=q.local_date, tz_offset_min=q.tz_offset_min or 0,
+                       geo_status="no_location", source="manual", note=(q.reason or "")[:300],
+                       created_by=user["email"], created_at=now,
+                       adjust_note=f"Approved punch-fix request by {user['email']}")
+        db.add(tp); db.flush()
+        q.applied_punch_id = tp.id
+    return voided_strays
+
+
+def _pending_partners(db: Session, r) -> list:
+    """The employee's other pending 'add' requests that fall between the real
+    punches on either side of this request - the partner half of a
+    clock-in/clock-out or break pair - in the order they must be applied."""
+    prev, nxt = _punch_neighbors(db, r.employee_email, r.at)
+    q = (db.query(PunchRequest)
+         .filter(PunchRequest.employee_email == r.employee_email, PunchRequest.status == "pending",
+                 PunchRequest.action == "add", PunchRequest.id != r.id)
+         .with_for_update())
+    if prev is not None:
+        q = q.filter(PunchRequest.at >= prev.at)
+    if nxt is not None:
+        q = q.filter(PunchRequest.at <= nxt.at)
+    rows = [p for p in q.all() if p.at and p.punch_kind in _KIND_RANK]
+    rows.sort(key=lambda p: (p.at, _KIND_RANK[p.punch_kind]))
+    return rows
+
+
 @router.patch("/punch-requests/{req_id}")
 def decide_punch_request(req_id: str, body: PunchRequestDecision,
                          user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
@@ -2047,52 +2135,37 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
         if r.action == "add":
             # Re-validate the sequence at approval time: inserting this punch must
             # not create an illegal transition (e.g. two 'in's with no 'out'
-            # between), which would corrupt the FIFO worked-minute pairing. Check
-            # the punch immediately BEFORE and AFTER the requested time.
-            def _neighbors():
-                p_ = (db.query(TimePunch)
-                      .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
-                              TimePunch.at <= r.at).order_by(TimePunch.at.desc()).first())
-                n_ = (db.query(TimePunch)
-                      .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
-                              TimePunch.at > r.at).order_by(TimePunch.at.asc()).first())
-                return p_, n_
-            prev, nxt = _neighbors()
-            # Stray-aware (Sep 8): when the ONLY thing in the way of a clock-out
-            # request is a stray clock-out - one pressed a day later for the very
-            # shift this request closes - void the stray and apply the request.
-            # A stray carries no worked time (its pair already exceeds the 16h
-            # guard), so voiding it changes nothing on the timesheet except
-            # letting the real clock-out land. Anything else still gets refused.
-            voided_strays = []
-            if r.punch_kind == "out":
-                for cand in (nxt, prev):
-                    if cand is not None and _is_stray_out(db, cand):
-                        cand.voided = 1
-                        cand.adjusted_by = user["email"]
-                        cand.adjusted_at = now
-                        cand.adjust_note = (f"Voided while approving a punch-fix request: stray clock-out "
-                                            f"pressed more than 16 hours after the shift's clock-in.")
-                        voided_strays.append(cand.at)
-                        db.flush()
-                if voided_strays:
-                    prev, nxt = _neighbors()
-            if r.punch_kind not in _allowed_kinds(prev.kind if prev else None):
-                raise HTTPException(409,
-                    f"Approving this would place a '{r.punch_kind}' after a "
-                    f"'{prev.kind if prev else 'clock-out'}', which isn't a valid punch sequence. "
-                    f"Ask the employee to correct the request, or edit the punches directly.")
-            if nxt and nxt.kind not in _allowed_kinds(r.punch_kind):
-                raise HTTPException(409,
-                    f"Approving this '{r.punch_kind}' would make the following '{nxt.kind}' "
-                    f"punch invalid. Edit the punches directly instead.")
-            tp = TimePunch(id=str(uuid.uuid4()), employee_email=r.employee_email, kind=r.punch_kind,
-                           at=r.at, local_date=r.local_date, tz_offset_min=r.tz_offset_min or 0,
-                           geo_status="no_location", source="manual", note=r.reason[:300],
-                           created_by=user["email"], created_at=now,
-                           adjust_note=f"Approved punch-fix request by {user['email']}")
-            db.add(tp); db.flush()
-            r.applied_punch_id = tp.id
+            # between), which would corrupt the FIFO worked-minute pairing.
+            try:
+                voided_strays = _apply_add_chain(db, [r], user, now)
+            except HTTPException as first_err:
+                if first_err.status_code != 409:
+                    raise
+                # Requests arrive in pairs (clock-in + clock-out, break start + break
+                # end) and the approver usually clicks the later one first, so the
+                # earlier partner is still pending and the sequence looks broken
+                # (Charmi, Sep 9: "out after out"). Validate and apply the pending
+                # partners that sit between the neighboring real punches together
+                # with this request, as one chain. If the chain is still invalid
+                # the original refusal stands and nothing is applied.
+                partners = _pending_partners(db, r)
+                if not partners:
+                    raise
+                chain = sorted(partners + [r], key=lambda p: (p.at, _KIND_RANK.get(p.punch_kind, 9)))
+                try:
+                    voided_strays = _apply_add_chain(db, chain, user, now)
+                except HTTPException:
+                    raise first_err
+                for p in partners:
+                    p.status = "approved"
+                    p.decided_by, p.decided_at = user["email"], now
+                    p.decision_note = (f"Approved together with the {_kind_label(r.punch_kind)} request "
+                                       f"at {r.at[:16].replace('T', ' ')} UTC.")
+                    _hr_notify(db, p.employee_email, "Timesheet fix approved",
+                               "Your request to add a punch was approved.",
+                               ref_id=p.id, action={"view": "timeclock", "sub": "timesheet"})
+                note = (note + " " if note else "") + "Also applied the pending " + ", ".join(
+                    f"{_kind_label(p.punch_kind)} at {p.at[:16].replace('T', ' ')} UTC" for p in partners) + "."
             if voided_strays:
                 note = (note + " " if note else "") + f"Voided stray clock-out at {', '.join(v[:16].replace('T', ' ') for v in voided_strays)} UTC."
         else:  # remove → void the target punch (kept for audit, excluded from totals)
