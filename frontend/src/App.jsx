@@ -340,7 +340,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "pdf-editor":         return <Documents activeSub="documents-pdf" onSubChange={onSubChange} />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin":              return <Admin />;
-    case "admin-console":      return <AdminConsole />;
+    case "admin-console":      return <AdminConsole activeSub={activeSub} onSubChange={onSubChange} />;
     case "support":            return <Support />;
     case "timeclock":          return <TimeClock initialTab="clock" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
@@ -409,6 +409,7 @@ const DEFAULT_SUBS = {
   // activeSub sync for that half).
   myhr:              "overview",
   timeclock:         "clock",
+  "admin-console":   "settings",
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 

@@ -5240,7 +5240,7 @@ export function SendAlertModal({ onClose, toast }) {
 // (person = parent, their overdue items = children), with per-person and
 // select-all checkboxes. One send-alert call per selected person = one bell
 // notification + one email each, covering all their items in a single message.
-function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
+function OverdueAlertModal({ checkouts, onClose, toast }) {
   useEscapeKey(onClose);
   const [selected, setSelected] = useState(null); // null until groups computed → select all by default
   const [note,     setNote]     = useState('');
@@ -5374,12 +5374,6 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
           </>)}
         </div>
         <div style={{ padding:'14px 24px', borderTop:'1px solid var(--line)', display:'flex', gap:10, alignItems:'center', flexShrink:0 }}>
-          {onCustomAlert && (
-            <button onClick={onCustomAlert} disabled={sending}
-              style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', fontSize:12, fontWeight:600, fontFamily:'Inter,sans-serif', padding:0 }}>
-              Custom alert →
-            </button>
-          )}
           <div style={{ marginLeft:'auto', display:'flex', gap:10 }}>
             <button className="secondary-btn" onClick={onClose} disabled={sending}>Cancel</button>
             <button onClick={handleSend} disabled={sending || !sendable.length}
@@ -8049,12 +8043,13 @@ export default function InventoryManagement({ activeSub }) {
   const [deletedOpen,   setDeletedOpen]   = useState(false);       // recycle bin
   const [highlightItemId,    setHighlightItemId]    = useState(null); // Manage row to glow (Audit "Open item")
   const [deletedHighlightId, setDeletedHighlightId] = useState(null); // Recycle Bin row to glow
-  const [customFieldsOpen, setCustomFieldsOpen] = useState(false); // custom-field admin
-  const [typesOpen,     setTypesOpen]     = useState(false);       // Manage Types modal
+  // Manage Types / Add Custom Field / generic Send Alert moved to the Admin
+  // module in full (Pranshu, Sep 9) - no local open-state for them here any
+  // more; ManageTypesModal / CustomFieldsAdminModal / SendAlertModal stay
+  // exported from this file since Admin still borrows them from here.
   const [importOpen,    setImportOpen]    = useState(false);
   const [reportOpen,    setReportOpen]    = useState(false);
   const [reportInitial, setReportInitial] = useState(null); // seeds the report with the active filters
-  const [sendAlertOpen, setSendAlertOpen] = useState(false);       // generic compose-your-own alert
   const [overdueAlertOpen, setOverdueAlertOpen] = useState(false); // person-grouped overdue alert (default)
   // Admin-defined custom field definitions - loaded once, surfaced in the Details
   // panel and editable via the Custom Fields modal.
@@ -8070,12 +8065,6 @@ export default function InventoryManagement({ activeSub }) {
     api.getItemTypes().then(t => setItemTypes(Array.isArray(t) && t.length ? t : ITEM_TYPES)).catch(() => {});
   }, []);
   useEffect(() => { refreshItemTypes(); }, [refreshItemTypes]);
-  // How many items use each type - shown in Manage Types (Neil).
-  const typeCounts = useMemo(() => {
-    const m = {};
-    for (const i of items) { const t = i.itemType || 'Other'; m[t] = (m[t] || 0) + 1; }
-    return m;
-  }, [items]);
 
   const [toasts, setToasts] = useState([]);
   const toast = useCallback((message, kind = 'success') => {
@@ -8375,8 +8364,9 @@ export default function InventoryManagement({ activeSub }) {
           checkouts={checkouts} toast={toast}
           onAssign={openAssign} onDetails={setDetailsItem}
           onShowDeleted={() => setDeletedOpen(true)}
-          onManageCustomFields={() => setCustomFieldsOpen(true)}
-          onManageTypes={() => setTypesOpen(true)} itemTypes={itemTypes}
+          // Manage Types / Add Custom Field moved to the Admin module in full
+          // (Pranshu, Sep 9) - no longer triggered from here.
+          itemTypes={itemTypes}
           highlightId={highlightItemId} onHighlightDone={() => setHighlightItemId(null)}
           filterControls={filterSelects}
           cardFilter={cardFilter}
@@ -8481,11 +8471,9 @@ export default function InventoryManagement({ activeSub }) {
           }
         }} />}
 
-      {sendAlertOpen && <SendAlertModal onClose={() => setSendAlertOpen(false)} toast={toast} />}
       {overdueAlertOpen && (
         <OverdueAlertModal checkouts={checkouts} toast={toast}
-          onClose={() => setOverdueAlertOpen(false)}
-          onCustomAlert={() => { setOverdueAlertOpen(false); setSendAlertOpen(true); }} />
+          onClose={() => setOverdueAlertOpen(false)} />
       )}
       {assigningItem && (
         <AssignItemModal item={assigningItem.item} mode={assigningItem.mode} userEmail={userEmail}
@@ -8503,14 +8491,6 @@ export default function InventoryManagement({ activeSub }) {
       {deletedOpen && (
         <DeletedItemsModal onClose={() => { setDeletedOpen(false); setDeletedHighlightId(null); }}
           onRestored={refreshItems} toast={toast} highlightId={deletedHighlightId} />
-      )}
-      {customFieldsOpen && (
-        <CustomFieldsAdminModal fields={customFields} onClose={() => setCustomFieldsOpen(false)}
-          onChanged={refreshCustomFields} toast={toast} />
-      )}
-      {typesOpen && (
-        <ManageTypesModal types={itemTypes} counts={typeCounts} onClose={() => setTypesOpen(false)}
-          onChanged={t => setItemTypes(Array.isArray(t) && t.length ? t : ITEM_TYPES)} toast={toast} />
       )}
       {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} customFields={customFields}
         knownDepts={[...new Set([...DEPARTMENTS.filter(d => d !== 'All'), ...items.map(i => (i.department || '').trim()).filter(Boolean)])]}
