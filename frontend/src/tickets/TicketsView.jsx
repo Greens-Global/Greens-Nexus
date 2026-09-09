@@ -23,7 +23,7 @@ import {
   setOpenTicketId, clearOpenTicketId, isTicketDrawerOpen,
 } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
-import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar, SelectMenu } from '../tasks/components';
+import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar, SelectMenu } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
@@ -2313,14 +2313,14 @@ export function TicketDrawer({ ticketId, onClose }) {
         {canSeeAssignSla && (
           <div style={field}>
             <label style={label}>SLA Due Date</label>
-            {fullAccess ? (
-              <DateField value={t.slaDueOn || ''} onChange={(v) => patch({ slaDueOn: v || '' })} color={overdue ? NX.red : undefined}
-                style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
-            ) : (
-              <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-                {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
-              </div>
-            )}
+            {/* Always read-only, for everyone including a manager - the date
+                is derived from priority (backend's _sla_due_from_priority),
+                not a manual pick, and letting anyone hand-set it undermined
+                the SLA it's meant to measure (Pranshu, Sep 10 2026). Change
+                Priority to move it. */}
+            <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
+              {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
+            </div>
             {/* "Needs a comment" - a signal separate from the due date above:
                 nobody has said anything in longer than this priority's
                 check-in cadence, whether or not the due date has passed. */}

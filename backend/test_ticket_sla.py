@@ -6,8 +6,11 @@ level" - low=7d, medium=3d, high=2d, urgent=1d from creation, automatically).
 Two things pinned here:
   - create_ticket / update_ticket compute sla_due_on server-side from
     created_at + the priority's target hours - never trusted from the client,
-    and recomputed FROM CREATION (not "now") whenever priority changes, unless
-    the same request also sets sla_due_on explicitly (manual override).
+    and recomputed FROM CREATION (not "now") whenever priority changes.
+    sla_due_on isn't even a field on TicketUpdate any more (Sep 10 2026,
+    Pranshu: "SLA due date should not be editable by anyone. it should be
+    based on priority") - there is no manual override path, for anyone,
+    including a manager.
   - add_ticket_comment stamps last_comment_at, the signal the frontend's
     commentStale() uses independently of SLA breach.
 
@@ -103,9 +106,15 @@ class SlaFromPriorityTests(unittest.TestCase):
         self.assertEqual(out["slaDueOn"], expected)
         self.assertLess(out["slaDueOn"], datetime.now(timezone.utc).date().isoformat())
 
-    def test_an_explicit_sla_due_on_in_the_same_patch_is_respected(self):
-        """A manual override (the drawer's DateField) wins over the automatic
-        recompute when both are sent together."""
+    def test_sla_due_on_is_not_a_field_on_ticket_update(self):
+        """No manual override path exists at all - not "ignored if sent",
+        genuinely absent from the model a caller can construct."""
+        self.assertNotIn("sla_due_on", T.TicketUpdate.model_fields)
+
+    def test_a_client_sent_sla_due_on_is_ignored_on_update(self):
+        """Even priority-agnostic - a stray sla_due_on in the request body
+        (an old client, say) has nowhere to land; TicketUpdate silently drops
+        it, same as any other field it doesn't declare."""
         created = datetime.now(timezone.utc) - timedelta(days=1)
         t = models.TaskTicket(id="t2", code="TIC-2", subject="s", status="open",
                               priority="low", requester_email=REQUESTER["email"],
@@ -117,7 +126,9 @@ class SlaFromPriorityTests(unittest.TestCase):
         out = T.update_ticket("t2", T.TicketUpdate(priority="urgent", sla_due_on="2099-01-01"),
                               BackgroundTasks(), user=REQUESTER, db=self.db)
 
-        self.assertEqual(out["slaDueOn"], "2099-01-01")
+        self.assertNotEqual(out["slaDueOn"], "2099-01-01")
+        expected = (created + timedelta(hours=24)).date().isoformat()
+        self.assertEqual(out["slaDueOn"], expected)
 
     def test_updating_something_other_than_priority_leaves_sla_alone(self):
         created = datetime.now(timezone.utc) - timedelta(days=2)
