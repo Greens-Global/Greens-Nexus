@@ -41,6 +41,12 @@ import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
 } from './TicketAtoms';
 import { SkeletonBlocks } from '../components/AsyncState';
+import GuidedTour from '../components/GuidedTour';
+import { buildTicketTourSteps } from './ticketTourSteps';
+
+// Tour id this module reports to the server (routers/user_tours.py) - see
+// the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
+const TICKET_TOUR_ID = 'ticket';
 
 // Views offered by the mobile bar's view sheet (desktop uses the inline switcher).
 const TICKET_VIEW_TABS = [
@@ -445,7 +451,10 @@ export default function TicketsView({ manageAction = null }) {
   const people = usePeople();
   // For the list's own inline State/Priority dropdown (TicketRow) - mirrors
   // the drawer's canWorking gate exactly, see inlineCanWorking below.
-  const { myLevel } = useRole();
+  const { myLevel, can } = useRole();
+  // Same gate as Tickets.jsx's own Manage button - only Manager+ sees the
+  // guided tour's admin step, matching what they can actually reach.
+  const canManage = !!can?.('manager');
   // Desk membership comes from the server, not from holding administrator: the
   // roster is configured in Manage, and an agent need not be an admin at all.
   // Admins stay true so a mis-configured desk can always be fixed. Optimistic
@@ -534,6 +543,31 @@ export default function TicketsView({ manageAction = null }) {
     const pending = takePendingOpen('ticket');
     if (pending) setOpenId(pending);
     return () => window.removeEventListener('nexus:open-ticket', openTicket);
+  }, []);
+
+  // Guided tour - same pattern as the Task module's (views/Tasks.jsx): runs
+  // itself once per person on first visit, then only from the profile menu's
+  // "Tour" row (TopHeader, gated on activeView === 'tickets'), which fires
+  // this same nexus:tickets-tour event. "Seen" is server-side, per person -
+  // see routers/user_tours.py.
+  const [tour, setTour] = useState(false);
+  useEffect(() => {
+    if (!myEmail) return;
+    let cancelled = false;
+    api.getToursSeen()
+      .then(({ seen }) => { if (!cancelled && !seen?.[TICKET_TOUR_ID]) setTour(true); })
+      .catch(() => { /* can't confirm "seen" - skip the auto-tour rather than risk nagging on every flaky load */ });
+    return () => { cancelled = true; };
+  }, [myEmail]);
+  const closeTour = () => {
+    setTour(false);
+    // Written on close, not on finish - see the Task module's identical comment.
+    api.markTourSeen(TICKET_TOUR_ID).catch(() => {});
+  };
+  useEffect(() => {
+    const openTour = () => setTour(true);
+    window.addEventListener('nexus:tickets-tour', openTour);
+    return () => window.removeEventListener('nexus:tickets-tour', openTour);
   }, []);
 
   // Column order/widths - the same drag-to-reorder/resize kit the Task List
@@ -705,9 +739,11 @@ export default function TicketsView({ manageAction = null }) {
               button uses, and the page it sits on already says Tickets
               (Sagar, Sept 2 2026). */}
           {!isMobile && (
-            <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
+            <span data-tour="ticket-create">
+              <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
+            </span>
           )}
-          {manageAction}
+          <span data-tour="ticket-manage">{manageAction}</span>
         </div>
       </div>
 
@@ -729,7 +765,7 @@ export default function TicketsView({ manageAction = null }) {
               then view (HOW they're shown) - row 1 stays title + New Ticket,
               matching My Tasks' header anatomy. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 1, minWidth: 0 }}>
+            <div data-tour="ticket-scope" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 1, minWidth: 0 }}>
               {[['all', 'All'], ['mine', 'My Requests'], ['assigned', 'Assigned to Me'],
                 ...(routeCount > 0 ? [['route', `To Route (${routeCount})`]] : []),
                 ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
@@ -737,7 +773,7 @@ export default function TicketsView({ manageAction = null }) {
               ))}
             </div>
             <span style={{ width: 1, height: 20, background: NX.border, flexShrink: 0 }} />
-            <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 0 }}>
+            <div data-tour="ticket-views" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 0 }}>
               {TICKET_VIEW_TABS.map((tb) => (
                 <button key={tb.key} onClick={() => setView(tb.key)} title={tb.label} style={{
                   ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
@@ -747,7 +783,7 @@ export default function TicketsView({ manageAction = null }) {
               ))}
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', flexWrap: 'wrap' }}>
+          <div data-tour="ticket-toolbar" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', width: 210 }}>
               <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets…" style={{ ...inputStyle, paddingLeft: 32 }} />
@@ -806,7 +842,7 @@ export default function TicketsView({ manageAction = null }) {
           </button>
         );
         return (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '14px 24px 0', background: NX.canvas }}>
+          <div data-tour="ticket-tiles" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '14px 24px 0', background: NX.canvas }}>
             {/* Every tile counts the WHOLE workspace, so every tile clears the
                 scope on the way in - otherwise a card reading 4 opens a list of
                 1 because "My Requests" was still selected, and the number looks
@@ -836,7 +872,7 @@ export default function TicketsView({ manageAction = null }) {
       })()}
 
       {/* Body. paddingBottom clears the floating mobile bar (matches My Tasks). */}
-      <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 88 : 76 }}>
+      <div data-tour="ticket-body" className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 88 : 76 }}>
         {view === 'reports' ? (
           <TicketReports tickets={visible} nameOf={nameOf} hrDeptName={hrDeptName} />
         ) : view === 'board' ? (
@@ -984,6 +1020,11 @@ export default function TicketsView({ manageAction = null }) {
 
       {creating && <CreateTicketModal onClose={() => setCreating(false)} />}
       {openId && <TicketDrawer ticketId={openId} onClose={() => setOpenId(null)} />}
+      {tour && (
+        <GuidedTour
+          steps={buildTicketTourSteps({ setScope, setView, canManage, isMobile })}
+          onClose={closeTour} />
+      )}
     </div>
   );
 }
