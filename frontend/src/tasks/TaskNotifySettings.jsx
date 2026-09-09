@@ -98,7 +98,7 @@ export default function TaskNotifySettings() {
   };
 
   return (
-    <div style={{ fontFamily: FONT, color: NX.ink, maxWidth: 760 }}>
+    <div style={{ fontFamily: FONT, color: NX.ink }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
         <Mail size={18} style={{ color: NX.dim }} />
         <div style={{ fontSize: 18, fontWeight: 700 }}>Task Email Notifications</div>
@@ -113,49 +113,58 @@ export default function TaskNotifySettings() {
       </div>
 
       {tab === 'settings' ? (
-        <div style={{ ...card, padding: 18 }}>
-          <Field label="Shared mailbox (sender)" hint="Blank falls back to the NEXUS_FROM_EMAIL env var.">
-            <input value={cfg.fromMailbox || ''} onChange={(e) => set('fromMailbox', e.target.value)}
-              placeholder="tasks@companydomain.com" style={inputStyle} />
-          </Field>
-          <Field label="Default CC" hint="Comma-separated. Applied to every task notification.">
-            <input value={ccInput} onChange={(e) => setCcInput(e.target.value)} placeholder="ops@companydomain.com" style={inputStyle} />
-          </Field>
-          <Field label="Reply-to address">
-            <input value={cfg.replyTo || ''} onChange={(e) => set('replyTo', e.target.value)} placeholder="tasks@companydomain.com" style={inputStyle} />
-          </Field>
-          <Field label="Company logo URL" hint="Shown in the email header. Blank uses the Greens Global wordmark.">
-            <input value={cfg.logoUrl || ''} onChange={(e) => set('logoUrl', e.target.value)} placeholder="https://…/logo.png" style={inputStyle} />
-          </Field>
-          <Field label="Due-soon reminder (days before due date)" hint="0 disables due-soon reminders entirely (overdue reminders are controlled separately below).">
-            <input type="number" min={0} value={cfg.dueSoonDays ?? 0} onChange={(e) => set('dueSoonDays', Math.max(0, Number(e.target.value) || 0))}
-              style={{ ...inputStyle, width: 120 }} />
-          </Field>
-          <Field label="Overdue re-reminder interval (days)" hint="Once a task is overdue, remind again every N days until it's done or reassigned. 0 = remind only once, right when it first goes overdue.">
-            <input type="number" min={0} value={cfg.overdueRepeatDays ?? 0} onChange={(e) => set('overdueRepeatDays', Math.max(0, Number(e.target.value) || 0))}
-              style={{ ...inputStyle, width: 120 }} />
-          </Field>
+        <>
+          {/* Two cards side by side on a wide screen rather than one long
+              single-column stack, same pattern as TicketNotifySettings.jsx -
+              mail settings (plus the inbound-reply block, which is about the
+              same mailbox) and notification-type toggles are two independent
+              groups of controls, not one flow that reads top-to-bottom. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 480px) minmax(320px, 420px)', gap: 16, alignItems: 'start' }}>
+            <div style={{ ...card, padding: 18 }}>
+              <Field label="Shared mailbox (sender)" hint="Blank falls back to the NEXUS_FROM_EMAIL env var.">
+                <input value={cfg.fromMailbox || ''} onChange={(e) => set('fromMailbox', e.target.value)}
+                  placeholder="tasks@companydomain.com" style={inputStyle} />
+              </Field>
+              <Field label="Default CC" hint="Comma-separated. Applied to every task notification.">
+                <input value={ccInput} onChange={(e) => setCcInput(e.target.value)} placeholder="ops@companydomain.com" style={inputStyle} />
+              </Field>
+              <Field label="Reply-to address">
+                <input value={cfg.replyTo || ''} onChange={(e) => set('replyTo', e.target.value)} placeholder="tasks@companydomain.com" style={inputStyle} />
+              </Field>
+              <Field label="Company logo URL" hint="Shown in the email header. Blank uses the Greens Global wordmark.">
+                <input value={cfg.logoUrl || ''} onChange={(e) => set('logoUrl', e.target.value)} placeholder="https://…/logo.png" style={inputStyle} />
+              </Field>
+              <Field label="Due-soon reminder (days before due date)" hint="0 disables due-soon reminders entirely (overdue reminders are controlled separately below).">
+                <input type="number" min={0} value={cfg.dueSoonDays ?? 0} onChange={(e) => set('dueSoonDays', Math.max(0, Number(e.target.value) || 0))}
+                  style={{ ...inputStyle, width: 120 }} />
+              </Field>
+              <Field label="Overdue re-reminder interval (days)" hint="Once a task is overdue, remind again every N days until it's done or reassigned. 0 = remind only once, right when it first goes overdue.">
+                <input type="number" min={0} value={cfg.overdueRepeatDays ?? 0} onChange={(e) => set('overdueRepeatDays', Math.max(0, Number(e.target.value) || 0))}
+                  style={{ ...inputStyle, width: 120 }} />
+              </Field>
 
-          <InboundSection cfg={cfg} set={set} />
+              <InboundSection cfg={cfg} set={set} />
+            </div>
 
-          <div style={{ ...field, borderTop: `1px solid ${NX.border2}`, paddingTop: 14 }}>
-            <label style={fieldLabel}>Notification types</label>
-            {Object.entries(EVENT_LABELS).map(([k, lab]) => (
-              <div key={k} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
-                <span style={{ fontSize: 13.5 }}>{lab}</span>
-                <Toggle on={!!cfg.enabledEvents?.[k]} onChange={() => setEvent(k, !cfg.enabledEvents?.[k])} />
-              </div>
-            ))}
+            <div style={{ ...card, padding: 18 }}>
+              <label style={fieldLabel}>Notification types</label>
+              {Object.entries(EVENT_LABELS).map(([k, lab]) => (
+                <div key={k} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
+                  <span style={{ fontSize: 13.5 }}>{lab}</span>
+                  <Toggle on={!!cfg.enabledEvents?.[k]} onChange={() => setEvent(k, !cfg.enabledEvents?.[k])} />
+                </div>
+              ))}
+            </div>
           </div>
 
-          {err && <div style={{ fontSize: 12.5, color: NX.red, marginBottom: 10 }}>{err}</div>}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {err && <div style={{ fontSize: 12.5, color: NX.red, margin: '14px 0 0' }}>{err}</div>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
             <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1 }} onClick={save} disabled={saving}>
               <Save size={14} /> {saving ? 'Saving…' : 'Save Settings'}
             </button>
             {saved && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved</span>}
           </div>
-        </div>
+        </>
       ) : tab === 'log' ? (
         <DeliveryLog />
       ) : (
@@ -251,6 +260,31 @@ function InboundSection({ cfg, set }) {
   );
 }
 
+const LOG_LIMIT = 20;
+
+function LogPager({ offset, setOffset, total, limit = LOG_LIMIT }) {
+  const currentPage = Math.floor(offset / limit) + 1;
+  const totalPages = Math.ceil(total / limit);
+  if (total <= limit) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, paddingTop: 14 }}>
+      <button
+        disabled={offset === 0}
+        onClick={() => setOffset(Math.max(0, offset - limit))}
+        style={{ ...btn('ghost'), padding: '5px 14px', fontSize: 12, opacity: offset === 0 ? 0.4 : 1, cursor: offset === 0 ? 'default' : 'pointer' }}>
+        ← Prev
+      </button>
+      <span style={{ fontSize: 12, color: NX.faint }}>Page {currentPage} of {totalPages}</span>
+      <button
+        disabled={offset + limit >= total}
+        onClick={() => setOffset(offset + limit)}
+        style={{ ...btn('ghost'), padding: '5px 14px', fontSize: 12, opacity: offset + limit >= total ? 0.4 : 1, cursor: offset + limit >= total ? 'default' : 'pointer' }}>
+        Next →
+      </button>
+    </div>
+  );
+}
+
 // What the mailbox handed us and what became of it. This is the answer to "I
 // replied and nothing happened" - by the time anyone asks, the message itself
 // has been marked read and filed, so these rows are the only evidence left.
@@ -259,16 +293,20 @@ function RepliesLog({ replyTo, enabled }) {
   const [rows, setRows] = useState(null);
   const [status, setStatus] = useState('');
   const [err, setErr] = useState('');
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
   // The comment this row became lives on a task - opening it here beats making
   // the reader go hunt for a task they only know by the subject line.
   const [openId, setOpenId] = useState(null);
 
   const load = () => {
     setRows(null);
-    api.getTaskInboundLog(status ? { status } : {}).then(setRows).catch((e) => { setErr(e.message || String(e)); setRows([]); });
+    api.getTaskInboundLog({ ...(status ? { status } : {}), limit: LOG_LIMIT, offset })
+      .then(({ rows, total }) => { setRows(rows); setTotal(total); })
+      .catch((e) => { setErr(e.message || String(e)); setRows([]); setTotal(0); });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, [status]);
+  useEffect(() => { load(); }, [status, offset]);
 
   return (
     <div>
@@ -282,7 +320,7 @@ function RepliesLog({ replyTo, enabled }) {
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ ...inputStyle, appearance: 'auto', width: 'auto', cursor: 'pointer' }}>
+        <select value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0); }} style={{ ...inputStyle, appearance: 'auto', width: 'auto', cursor: 'pointer' }}>
           <option value="">All replies</option>
           <option value="posted">Posted as a comment</option>
           <option value="rejected">Refused</option>
@@ -350,6 +388,7 @@ function RepliesLog({ replyTo, enabled }) {
           })}
         </div>
       )}
+      <LogPager offset={offset} setOffset={setOffset} total={total} />
       {/* Opens on Comments, because a comment is why this row exists. */}
       {openId && <TaskDetailDrawer taskId={openId} initialTab="comments" onClose={() => setOpenId(null)} />}
     </div>
@@ -361,18 +400,22 @@ function DeliveryLog() {
   const [rows, setRows] = useState(null);
   const [status, setStatus] = useState('');
   const [err, setErr] = useState('');
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
 
   const load = () => {
     setRows(null);
-    api.getTaskNotifyLog(status ? { status } : {}).then(setRows).catch((e) => { setErr(e.message || String(e)); setRows([]); });
+    api.getTaskNotifyLog({ ...(status ? { status } : {}), limit: LOG_LIMIT, offset })
+      .then(({ rows, total }) => { setRows(rows); setTotal(total); })
+      .catch((e) => { setErr(e.message || String(e)); setRows([]); setTotal(0); });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, [status]);
+  useEffect(() => { load(); }, [status, offset]);
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ ...inputStyle, appearance: 'auto', width: 'auto', cursor: 'pointer' }}>
+        <select value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0); }} style={{ ...inputStyle, appearance: 'auto', width: 'auto', cursor: 'pointer' }}>
           <option value="">All statuses</option>
           <option value="sent">Sent</option>
           <option value="failed">Failed</option>
@@ -404,6 +447,7 @@ function DeliveryLog() {
           })}
         </div>
       )}
+      <LogPager offset={offset} setOffset={setOffset} total={total} />
     </div>
   );
 }

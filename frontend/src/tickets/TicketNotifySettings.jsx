@@ -161,22 +161,31 @@ export default function TicketNotifySettings() {
   );
 }
 
+const LOG_LIMIT = 20;
+
 function DeliveryLog() {
   const [rows, setRows] = useState(null);
+  const [total, setTotal] = useState(0);
   const [status, setStatus] = useState('');
+  const [offset, setOffset] = useState(0);
   const [err, setErr] = useState('');
 
   const load = () => {
     setRows(null);
-    api.getTicketNotifyLog(status ? { status } : {}).then(setRows).catch((e) => { setErr(e.message || String(e)); setRows([]); });
+    api.getTicketNotifyLog({ ...(status ? { status } : {}), limit: LOG_LIMIT, offset })
+      .then(({ rows: r, total: t }) => { setRows(r); setTotal(t); })
+      .catch((e) => { setErr(e.message || String(e)); setRows([]); setTotal(0); });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, [status]);
+  useEffect(() => { load(); }, [status, offset]);
+
+  const currentPage = Math.floor(offset / LOG_LIMIT) + 1;
+  const totalPages = Math.ceil(total / LOG_LIMIT);
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <TicketSelect value={status} onChange={setStatus} style={{ width: 'auto', minWidth: 150 }}
+        <TicketSelect value={status} onChange={(v) => { setOffset(0); setStatus(v); }} style={{ width: 'auto', minWidth: 150 }}
           options={[['', 'All statuses'], ['sent', 'Sent'], ['failed', 'Failed'], ['pending', 'Pending'], ['retrying', 'Retrying']]} />
         <button style={btn('ghost')} onClick={load} title="Refresh"><RefreshCw size={14} /></button>
         {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
@@ -186,22 +195,43 @@ function DeliveryLog() {
       ) : rows.length === 0 ? (
         <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>No notification attempts yet.</div>
       ) : (
-        <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
-          {rows.map((r) => {
-            const meta = STATUS_META[r.status] || STATUS_META.pending;
-            return (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5 }}>
-                <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
-                <span style={{ fontWeight: 700, flexShrink: 0, width: 78 }}>{r.ticketCode}</span>
-                <span style={{ color: NX.dim, flexShrink: 0, width: 90, textTransform: 'capitalize' }}>{r.eventType}</span>
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.subject}>{r.recipient}</span>
-                <span style={{ color: meta.color, fontWeight: 600, flexShrink: 0, textTransform: 'capitalize' }}>{r.status}</span>
-                <span style={{ color: NX.faint, flexShrink: 0 }}>{r.attempts}x</span>
-                {r.error && <span style={{ color: NX.red, flexShrink: 0, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.error}>{r.error}</span>}
-              </div>
-            );
-          })}
-        </div>
+        <>
+          <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
+            {rows.map((r) => {
+              const meta = STATUS_META[r.status] || STATUS_META.pending;
+              return (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5 }}>
+                  <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
+                  <span style={{ fontWeight: 700, flexShrink: 0, width: 78 }}>{r.ticketCode}</span>
+                  <span style={{ color: NX.dim, flexShrink: 0, width: 90, textTransform: 'capitalize' }}>{r.eventType}</span>
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.subject}>{r.recipient}</span>
+                  <span style={{ color: meta.color, fontWeight: 600, flexShrink: 0, textTransform: 'capitalize' }}>{r.status}</span>
+                  <span style={{ color: NX.faint, flexShrink: 0 }}>{r.attempts}x</span>
+                  {r.error && <span style={{ color: NX.red, flexShrink: 0, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.error}>{r.error}</span>}
+                </div>
+              );
+            })}
+          </div>
+          {total > LOG_LIMIT && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, paddingTop: 14 }}>
+              <button
+                disabled={offset === 0}
+                onClick={() => setOffset(Math.max(0, offset - LOG_LIMIT))}
+                style={{ ...btn('ghost'), opacity: offset === 0 ? 0.4 : 1, cursor: offset === 0 ? 'default' : 'pointer' }}>
+                ← Prev
+              </button>
+              <span style={{ fontSize: 12, color: NX.faint }}>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                disabled={offset + LOG_LIMIT >= total}
+                onClick={() => setOffset(offset + LOG_LIMIT)}
+                style={{ ...btn('ghost'), opacity: offset + LOG_LIMIT >= total ? 0.4 : 1, cursor: offset + LOG_LIMIT >= total ? 'default' : 'pointer' }}>
+                Next →
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
