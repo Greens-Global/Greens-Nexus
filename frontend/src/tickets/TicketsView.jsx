@@ -36,6 +36,7 @@ import {
   ticketNo, ticketNoShort, normalizeCode,
   SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
 } from './ticketMeta';
+import { useTicketConfig } from './ticketConfig';
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
 } from './TicketAtoms';
@@ -417,6 +418,11 @@ function TicketColumnsMenu({ columns, hidden, toggleHidden, cols }) {
 }
 
 export default function TicketsView({ manageAction = null }) {
+  // Applies any admin-saved SLA-hours / intake-field overrides (Sep 2026,
+  // ticketConfig.js) on top of ticketMeta.js's compiled-in defaults, and
+  // re-renders once they land - see that file for why a mutate-in-place +
+  // event pattern instead of turning these constants into fetched state.
+  useTicketConfig();
   const { tickets, ticketViews = [], createTicketView, deleteTicketView,
     myEmail, nameOf, updateTicket, deleteTicket } = useTasks();
   const people = usePeople();
@@ -1453,6 +1459,10 @@ function PendingFileChip({ file, onRemove }) {
 
 // ── Create ───────────────────────────────────────────────────────────────────
 export function CreateTicketModal({ onClose }) {
+  // Reachable standalone from Support.jsx without TicketsView ever mounting
+  // (its own ticket composer) - needs its own call so intake-field/SLA
+  // overrides are loaded before the type-dependent form renders there too.
+  useTicketConfig();
   const { createTicket, projects = [], myEmail } = useTasks();
   const people = usePeople();
   const isMobile = useIsMobile();

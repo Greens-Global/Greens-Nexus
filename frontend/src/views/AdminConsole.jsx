@@ -15,21 +15,27 @@
 //
 // In scope for this pass: Roles & Access (moved here whole, previously a
 // People tab), Item Types + Custom Fields, Ticket Desk + Notification
-// settings, Task Notifications (moved here whole, previously a Tasks →
-// Manage tab), the "Send Alert" broadcast tool, and HR's Company Setup /
-// Work Sites / Sync M365. Explicitly OUT of scope (Pranshu, Sep 9): Branding
-// (an individual employee's own choice, not an admin decision - stays in
-// the header AdminPanel drawer), shift presets, Asana sync, overtime rules,
-// QA module toggle - left where they are.
+// settings, Ticket SLA & Types (Sep 9 - was Tier 2 in the audit: no UI
+// existed, SLA_TARGET_HOURS/TICKET_TYPE_META/TYPE_FIELDS were hardcoded
+// constants requiring a code deploy to change; now backed by
+// backend/ticket_taxonomy.py + a NexusSetting row, see tickets/ticketConfig.js
+// for how the saved override reaches every ticket screen), Task
+// Notifications (moved here whole, previously a Tasks → Manage tab), the
+// "Send Alert" broadcast tool, and HR's Company Setup / Work Sites / Sync
+// M365. Explicitly OUT of scope (Pranshu, Sep 9): Branding (an individual
+// employee's own choice, not an admin decision - stays in the header
+// AdminPanel drawer), shift presets, Asana sync, overtime rules, QA module
+// toggle - left where they are.
 import { useState, useCallback, lazy, Suspense } from 'react';
 import {
   Settings2, Wrench, ChevronDown, Tag, Shield, SlidersHorizontal,
-  Headset, Bell, Megaphone, Building2, MapPin, RefreshCw, Loader2,
+  Headset, Bell, Megaphone, Building2, MapPin, RefreshCw, Loader2, Timer,
 } from 'lucide-react';
 import { api } from '../api';
 import { MODULES } from '../contexts/RoleContext';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
+import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
 // admin actually opens that section.
@@ -153,6 +159,10 @@ function TicketSettingsSections() {
       <Section icon={Bell} title="Ticket Email Notifications" defaultOpen={false}
         sub="Company-wide notification routing for the ticket desk - originally under Tickets → Manage.">
         <TicketNotifySettings />
+      </Section>
+      <Section icon={Timer} title="Ticket SLA & Types" defaultOpen={false}
+        sub="SLA target hours per priority, and each type's intake questions - previously hardcoded, no UI existed until now.">
+        <TicketTaxonomySettings />
       </Section>
       <Section icon={Bell} title="Task Notifications" defaultOpen={false}
         sub="Shared mailbox, reminder cadence, and reply handling for task emails - originally under Tasks → Manage.">

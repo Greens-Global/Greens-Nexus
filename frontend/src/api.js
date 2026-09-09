@@ -603,6 +603,8 @@ export const api = {
   // Ticket Outlook notification workflow - admin settings + delivery log (manager+)
   getTicketNotifySettings: () => req("/task-tickets/notify/settings"),
   updateTicketNotifySettings: (patch) => req("/task-tickets/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
+  getTicketTaxonomySettings: () => req("/task-tickets/taxonomy/settings"),
+  updateTicketTaxonomySettings: (patch) => req("/task-tickets/taxonomy/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTicketNotifyLog: (params = {}) => req(`/task-tickets/notify/log?${new URLSearchParams(params).toString()}`),
   // Task Outlook notification workflow - admin settings + delivery log (manager+)
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
