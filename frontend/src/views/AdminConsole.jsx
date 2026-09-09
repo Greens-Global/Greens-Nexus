@@ -15,11 +15,12 @@
 //
 // In scope for this pass: Roles & Access (moved here whole, previously a
 // People tab), Item Types + Custom Fields, Ticket Desk + Notification
-// settings, the "Send Alert" broadcast tool, and HR's Company Setup / Work
-// Sites / Sync M365. Explicitly OUT of scope (Pranshu, Sep 9): Branding (an
-// individual employee's own choice, not an admin decision - stays in the
-// header AdminPanel drawer), shift presets, Asana sync, overtime rules, QA
-// module toggle - left where they are.
+// settings, Task Notifications (moved here whole, previously a Tasks →
+// Manage tab), the "Send Alert" broadcast tool, and HR's Company Setup /
+// Work Sites / Sync M365. Explicitly OUT of scope (Pranshu, Sep 9): Branding
+// (an individual employee's own choice, not an admin decision - stays in
+// the header AdminPanel drawer), shift presets, Asana sync, overtime rules,
+// QA module toggle - left where they are.
 import { useState, useCallback, lazy, Suspense } from 'react';
 import {
   Settings2, Wrench, ChevronDown, Tag, Shield, SlidersHorizontal,
@@ -41,10 +42,21 @@ const WorkSitesModal = lazy(() => import('./HR').then(m => ({ default: m.WorkSit
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
 // `embedded` skips its own page header, since it gets one from the tab here.
 const RolesAccess = lazy(() => import('./RolesAccess'));
+// TaskNotifySettings needs TasksContext (task lookups for its delivery log's
+// "open task" link) - wrapped in its own TasksProvider here, same trick
+// Support.jsx uses for its Tasks-borrowed composers, since Admin has no
+// TasksProvider ancestor of its own.
+const TaskNotifySettingsWrapped = lazy(async () => {
+  const [{ TasksProvider }, { default: TaskNotifySettings }] = await Promise.all([
+    import('../tasks/TasksContext'),
+    import('../tasks/TaskNotifySettings'),
+  ]);
+  return { default: () => <TasksProvider><TaskNotifySettings /></TasksProvider> };
+});
 
 // Modules that already have a real settings section built below, so their
 // generic placeholder card is dropped to avoid showing the same control twice.
-const BUILT_MODULE_IDS = new Set(['inventory', 'tickets', 'hr']);
+const BUILT_MODULE_IDS = new Set(['inventory', 'tickets', 'hr', 'tasks']);
 // Modules that aren't a real "feature surface" to configure extras for.
 const EXCLUDED = new Set(['admin-console', 'admin', 'hr_comp', ...BUILT_MODULE_IDS]);
 
@@ -141,6 +153,12 @@ function TicketSettingsSections() {
       <Section icon={Bell} title="Ticket Email Notifications" defaultOpen={false}
         sub="Company-wide notification routing for the ticket desk - originally under Tickets → Manage.">
         <TicketNotifySettings />
+      </Section>
+      <Section icon={Bell} title="Task Notifications" defaultOpen={false}
+        sub="Shared mailbox, reminder cadence, and reply handling for task emails - originally under Tasks → Manage.">
+        <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>}>
+          <TaskNotifySettingsWrapped />
+        </Suspense>
       </Section>
     </>
   );
