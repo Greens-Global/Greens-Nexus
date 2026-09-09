@@ -2080,6 +2080,17 @@ export function TicketDrawer({ ticketId, onClose }) {
   // The always-open "working fields" (type/status/priority/assignee/department/
   // resolution) - open to anyone pre-lock, restricted to the assignee once locked.
   const canWorking = privileged || (!requesterLocked && (locked ? isAssignee : true));
+  // Status is carved out of canWorking for the requester specifically (Pranshu,
+  // Sep 10 2026): letting them set it straight from the dropdown - even while
+  // pre-lock, when canWorking otherwise hands them the rest of the ticket - let
+  // a ticket read "In Progress" or "Resolved" with nobody actually working it,
+  // and skipped the Mark Resolved/Reopen flows that capture a resolution or a
+  // reason. Their whole workflow once it IS resolved is exactly those two
+  // footer buttons (Confirm Resolution / Reopen, both unconditional on role
+  // below) - never the raw field. Someone who is ALSO the assignee (or
+  // privileged) keeps normal dropdown access; this only takes it away from a
+  // requester who isn't.
+  const canEditStatus = canWorking && !(isRequester && !privileged && !isAssignee);
   // Company is carved out of fullAccess: the assignee can work everything else
   // about a locked ticket, but never reassign which company it belongs to -
   // that stays with the requester (pre-lock) or a manager. Mirrors the
@@ -2163,7 +2174,11 @@ export function TicketDrawer({ ticketId, onClose }) {
           <button style={{ ...btn('outline'), color: NX.amber }} onClick={escalate} title="Alert the department head this ticket needs instant care"><ArrowUp size={14} /> Escalate</button>
         )}
         {!CLOSED_STATES.includes(t.status) ? (
-          canWorking && (
+          // canEditStatus, not canWorking - Mark Resolved is the same "raw
+          // status jump" the requester is carved out of above; their only
+          // status moves are Confirm Resolution / Reopen below, once there
+          // actually is a resolution to confirm or reopen.
+          canEditStatus && (
             <button style={{ ...btn('outline'), color: NX.green }} onClick={() => patch({ status: 'resolved', resolution: t.resolution || 'fixed' })}><CheckCircle2 size={14} /> Mark Resolved</button>
           )
         ) : (
@@ -2228,8 +2243,14 @@ export function TicketDrawer({ ticketId, onClose }) {
         </div>
         <div style={field}>
           <label style={label}>Status</label>
-          <TicketSelect value={t.status} onChange={(v) => patch({ status: v })} options={statusOptions()}
-            style={sel} disabled={!canWorking} />
+          {canEditStatus ? (
+            <TicketSelect value={t.status} onChange={(v) => patch({ status: v })} options={statusOptions()}
+              style={sel} />
+          ) : (
+            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>
+              {TICKET_STATUS_META[t.status]?.label || t.status}
+            </div>
+          )}
         </div>
         <div style={field}>
           <label style={label}>Priority</label>
