@@ -608,10 +608,10 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                   <div style={{ padding: '4px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>
                     Admin
                   </div>
-                  <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-access' } })); }}
-                    style={{ color: 'hsl(var(--color-purple))' }}>
-                    <Shield size={14} /> Roles &amp; Access
-                  </button>
+                  {/* Roles & Access removed from here (Pranshu, Sep 9) - it
+                      moved whole into the Admin module (sidebar → Admin →
+                      Roles & Access tab); this was a second, stale entry
+                      point pointing at the old People-tab location. */}
                   <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.(); }}
                     style={{ color: 'hsl(var(--color-purple))' }}>
                     <Activity size={14} /> Audit Logs

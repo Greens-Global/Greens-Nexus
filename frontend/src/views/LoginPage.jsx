@@ -22,9 +22,10 @@ import { useBranding } from "../lib/queries";
 import { BFF_MODE, clearSignedOutMarker } from "../bffAuth";
 import { externalAuthPost, useResendTimer } from "../lib/externalAuth";
 
-// Accent is a Global Admin-configurable setting (AdminPanel -> Branding), not
-// hardcoded - see backend/routers/branding.py. The hero panel needs three
-// gradient stops (not just one brand color), so this keeps its own small
+// Accent is a saved company setting, not hardcoded - see
+// backend/routers/branding.py (no admin UI to change it any more as of Sep
+// 9). The hero panel needs three gradient stops (not just one brand color),
+// so this keeps its own small
 // palette rather than trying to force everything through the single
 // --wk-brand var the rest of the app reads (see lib/brandAccent.js).
 const ACCENT_PALETTES = {

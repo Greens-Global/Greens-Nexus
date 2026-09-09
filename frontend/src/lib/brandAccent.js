@@ -1,6 +1,7 @@
 import { api } from '../api';
 
-// Applies the admin-configured accent (AdminPanel -> Branding) as the --wk-brand
+// Applies the saved company accent (backend routers/branding.py; no admin UI
+// to change it any more as of Sep 9 - see AdminPanel.jsx) as the --wk-brand
 // family every "Work OS" surface already reads from - one fetch, applied once
 // per app load, post-login (MainApp) and pre-login (LoginPage has its own richer
 // multi-stop hero palette but reads the same underlying choice). Best-effort: a
