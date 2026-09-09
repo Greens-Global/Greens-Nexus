@@ -749,11 +749,6 @@ export function CalendarPanel() {
     ...selBirthdays.map(name => ({ isBirthday: true, isAllDay: true, subject: `${name}'s Birthday` })),
     ...(byDay[selected] || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || '')),
   ];
-  const selLabel = selected === today ? 'Today'
-    : selected === agendaDay(addDays(new Date(), 1)) ? 'Tomorrow'
-    : selected === agendaDay(addDays(new Date(), -1)) ? 'Yesterday'
-    : selDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-
   // ‹ Today › steps the SELECTED day, not the visible month (Pranshu, Sep 4:
   // "when i click it... it should change the date in that current month") -
   // stepping past a month boundary follows the grid to the new month so the
@@ -799,8 +794,9 @@ export function CalendarPanel() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, height: '100%' }}>
-          {/* Left pane: the month grid. */}
-          <div style={{ flex: '1 1 220px', minWidth: 210 }}>
+          {/* Left pane: the month grid. Fixed width - only the agenda pane
+              should grow when the widget is resized wider. */}
+          <div style={{ flex: '0 0 220px', minWidth: 210 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center', marginBottom: 4 }}>
               {MONTH_WEEKDAYS.map((w, i) => (
                 <div key={i} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '2px 0' }}>{w}</div>
@@ -842,9 +838,9 @@ export function CalendarPanel() {
           {/* Right pane: My Agenda, for whichever day is selected in the grid -
               same `state.events` fetch, just filtered to `selected`, so it can
               never disagree with the dots on the left. */}
-          <div style={{ flex: '1.2 1 240px', minWidth: 220, borderLeft: '1px solid var(--line)', paddingLeft: 18, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div style={{ flex: '1 1 240px', minWidth: 220, borderLeft: '1px solid var(--line)', paddingLeft: 18, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', padding: '0 2px 8px' }}>
-              My Agenda · {selLabel}
+              My Agenda
             </div>
             <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
               {state.loading ? (
@@ -859,7 +855,7 @@ export function CalendarPanel() {
                       {ev.isBirthday ? <><CakeSlice size={12} /> All day</> : ev.isAllDay ? 'All day' : agendaTime(ev.start)}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="task-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.subject}</div>
+                      <div className="task-title" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.subject}</div>
                       {(ev.location || ev.joinUrl) && (
                         <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {ev.joinUrl ? (

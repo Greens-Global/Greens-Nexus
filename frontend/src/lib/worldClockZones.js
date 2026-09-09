@@ -187,21 +187,28 @@ export const ZONE_GROUPS = (() => {
   return map;
 })();
 
-export const MAX_ZONES = 3;
+// The system's own zone - always shown first, labeled "Local" rather than a
+// city/country (Pranshu, Sep 9: someone in India should just see "Local
+// 6:13 PM", not "India - Kolkata" for their own time). Detected once, not
+// user-editable - it follows whatever the OS/browser reports.
+export const LOCAL_TZ = canonicalTz(Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
+
+// The two EXTRA zones layered on top of Local are what My Profile's picker
+// controls. No forced default beyond Local itself (Pranshu, Sep 9) - an
+// employee who never opens the picker just sees their own local time.
+export const MAX_ZONES = 2;
 const STORAGE_KEY = 'nexus:worldClockZones';
 const EVENT = 'nexus:world-clock-zones';
-const DEFAULT_TZS = ['America/Los_Angeles', 'Asia/Kolkata']; // matches the greeting's old hardcoded pair
 
 function readStored() {
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     if (Array.isArray(raw)) {
-      const valid = raw.map((v) => canonicalTz(LEGACY_KEY_TZ[v] || v))
-        .filter(Boolean).slice(0, MAX_ZONES);
-      if (valid.length) return valid;
+      return raw.map((v) => canonicalTz(LEGACY_KEY_TZ[v] || v))
+        .filter(Boolean).filter((tz) => tz !== LOCAL_TZ).slice(0, MAX_ZONES);
     }
   } catch { /* SSR / private mode */ }
-  return DEFAULT_TZS.map(canonicalTz).filter(Boolean);
+  return [];
 }
 
 let _current = readStored();
@@ -209,13 +216,16 @@ let _current = readStored();
 export function currentZones() { return _current; }
 
 export function setZones(tzs) {
-  const next = tzs.map((tz) => tz && canonicalTz(tz)).filter(Boolean).slice(0, MAX_ZONES);
+  const next = tzs.map((tz) => tz && canonicalTz(tz)).filter(Boolean)
+    .filter((tz) => tz !== LOCAL_TZ).slice(0, MAX_ZONES);
   _current = next;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_current)); } catch { /* ignore */ }
   window.dispatchEvent(new CustomEvent(EVENT));
 }
 
-/** Subscribe to the current world-clock zone selection; re-renders on change. */
+/** Subscribe to the current world-clock zone selection (Local first, always
+ * present, then the up-to-MAX_ZONES picks from My Profile); re-renders on
+ * change. */
 export function useWorldClockZones() {
   const [zones, setZonesState] = useState(_current);
   useEffect(() => {
@@ -223,5 +233,8 @@ export function useWorldClockZones() {
     window.addEventListener(EVENT, on);
     return () => window.removeEventListener(EVENT, on);
   }, []);
-  return zones.map((tz) => ({ tz, label: zoneLabel(tz) }));
+  return [
+    { tz: LOCAL_TZ, label: 'Local' },
+    ...zones.map((tz) => ({ tz, label: zoneLabel(tz) })),
+  ];
 }

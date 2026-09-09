@@ -3,7 +3,7 @@ import { X, Camera, Loader2, Sun, Moon, Palette, Check, PanelLeft, Globe2 } from
 import { api } from '../api';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
-import { ZONE_GROUPS, MAX_ZONES, currentZones, setZones, zoneOptionLabel } from '../lib/worldClockZones';
+import { ZONE_GROUPS, MAX_ZONES, LOCAL_TZ, currentZones, setZones, zoneOptionLabel } from '../lib/worldClockZones';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
 
@@ -24,11 +24,14 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const [error,   setError]   = useState('');
   const [status,  setStatus]  = useState('');
   const [photoOpen, setPhotoOpen] = useState(false);
-  // Fixed 3 slots, '' = unset - a dropdown per slot rather than a checklist
-  // of ~400 zones (Pranshu, Sep 1: "make it a drop down").
+  // Fixed MAX_ZONES slots, '' = unset - a dropdown per slot rather than a
+  // checklist of ~400 zones (Pranshu, Sep 1: "make it a drop down"). Local
+  // (the detected system zone) is always shown first on the greeting and
+  // isn't one of these slots - these are just the extra zones layered on
+  // top of it (Pranshu, Sep 9).
   const [zoneSlots, setZoneSlots] = useState(() => {
     const cur = currentZones();
-    return [0, 1, 2].map((i) => cur[i] || '');
+    return Array.from({ length: MAX_ZONES }, (_, i) => cur[i] || '');
   });
 
   function setSlot(i, tz) {
@@ -162,16 +165,19 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             <Globe2 size={11} /> World Clock
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
-            Pick up to {MAX_ZONES} time zones to show on your Dashboard greeting.
+            Your local time always shows first. Pick up to {MAX_ZONES} more to show alongside it on your Dashboard greeting.
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--wk-hover, rgba(0,0,0,.03))', color: 'var(--muted)', fontSize: 13 }}>
+              Local — {zoneOptionLabel(LOCAL_TZ)}
+            </div>
             {zoneSlots.map((val, i) => (
               <select key={i} value={val} onChange={(e) => setSlot(i, e.target.value)}
                 style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'inherit' }}>
                 <option value="">— None —</option>
                 {Object.entries(ZONE_GROUPS).map(([region, tzs]) => (
                   <optgroup key={region} label={region.replace(/_/g, ' ')}>
-                    {tzs.map((tz) => <option key={tz} value={tz}>{zoneOptionLabel(tz)}</option>)}
+                    {tzs.filter((tz) => tz !== LOCAL_TZ).map((tz) => <option key={tz} value={tz}>{zoneOptionLabel(tz)}</option>)}
                   </optgroup>
                 ))}
               </select>
