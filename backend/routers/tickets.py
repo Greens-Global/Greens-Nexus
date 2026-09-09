@@ -624,7 +624,11 @@ def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | N
     policy). Everyone else - including the requester - is locked out entirely
     once locked (Jul 27 policy). Before that point the requester has full
     access; anyone else gets the working-field subset (self-assign, triage).
-    Manager+ is unrestricted throughout, including company_id."""
+    Manager+ is unrestricted throughout, including company_id.
+
+    "Full access" here is field-level, not value-level - the requester's
+    `status` moves specifically are narrowed further, right after this scope
+    check is applied, in update_ticket itself (see the comment there)."""
     email = user["email"].lower()
     if _ticket_privileged(db, t, user):
         return None
@@ -654,6 +658,24 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             if blocked == ["company_id"]:
                 raise HTTPException(403, "Only the requester (before the ticket is picked up) or a manager can change the company on a ticket.")
             raise HTTPException(403, f"You can only update {', '.join(sorted(scope))} on a ticket you're not the requester/owner of - not: {', '.join(blocked)}")
+    # The requester's OWN status transitions are narrower than the field-level
+    # scope above can express: pre-in_progress they otherwise have unrestricted
+    # access (see _ticket_edit_scope), which let them set status to anything -
+    # "In Progress" or "Resolved" with nobody actually working it, skipping the
+    # Mark Resolved/Reopen flows that capture a resolution or a reason (Pranshu,
+    # Sep 10 2026). Once it IS resolved, their whole workflow is exactly two
+    # moves: confirm it (close) or reopen it - never any other jump. Mirrors
+    # canEditStatus in TicketsView.jsx, which hides the raw dropdown for them
+    # the same way - keep the two in step. Privileged/assignee callers are
+    # untouched; this only narrows the pure requester.
+    email = (user.get("email") or "").lower()
+    is_requester_only = ((t.requester_email or "").lower() == email
+                         and email != (t.assignee_email or "").lower()
+                         and not _ticket_privileged(db, t, user))
+    if is_requester_only and "status" in data:
+        allowed_transitions = {("resolved", "closed"), ("resolved", "reopened"), ("closed", "reopened")}
+        if (t.status, data["status"]) not in allowed_transitions:
+            raise HTTPException(403, "You can only close or reopen your ticket from here - other status changes are the desk's to make.")
     # Work does not start before the sign-off. Assigning a ticket that is still
     # awaiting approval hands someone work the approver has not sanctioned, and
     # once it is in an assignee's queue it gets done - the gate is then decoration.
