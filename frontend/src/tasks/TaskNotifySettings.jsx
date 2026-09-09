@@ -119,7 +119,10 @@ export default function TaskNotifySettings() {
               mail settings (plus the inbound-reply block, which is about the
               same mailbox) and notification-type toggles are two independent
               groups of controls, not one flow that reads top-to-bottom. */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 480px) minmax(320px, 420px)', gap: 16, alignItems: 'start' }}>
+          {/* Columns stretch to fill the available width (Pranshu, Sep 9 -
+              a fixed max-width pair left a lot of blank space on the right
+              once Admin went full-bleed) instead of capping out early. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1fr) minmax(320px, 1fr)', gap: 16, alignItems: 'start' }}>
             <div style={{ ...card, padding: 18 }}>
               <Field label="Shared mailbox (sender)" hint="Blank falls back to the NEXUS_FROM_EMAIL env var.">
                 <input value={cfg.fromMailbox || ''} onChange={(e) => set('fromMailbox', e.target.value)}
