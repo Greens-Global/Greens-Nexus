@@ -466,6 +466,9 @@ def _run_migrations():
             "ALTER TABLE live_view_sessions ADD COLUMN control_responded_at VARCHAR DEFAULT ''",
             "ALTER TABLE live_view_sessions ADD COLUMN control_ended_at VARCHAR DEFAULT ''",
             "ALTER TABLE live_view_sessions ADD COLUMN control_ended_reason VARCHAR DEFAULT ''",
+            # Consent-first "assist" sessions (Sep 9) - ticket-launched Screen
+            # Share, vs '' for ongoing disclosed monitoring.
+            "ALTER TABLE live_view_sessions ADD COLUMN purpose VARCHAR DEFAULT ''",
             # Personal Link -> Credential Vault personal credential pointer (Aug 13)
             "ALTER TABLE personal_links ADD COLUMN vault_cred_id VARCHAR DEFAULT ''",
             # Personal Links department/category (Aug 14)
@@ -667,6 +670,9 @@ def _run_migrations():
         "ALTER TABLE live_view_sessions ADD COLUMN IF NOT EXISTS control_responded_at VARCHAR DEFAULT ''",
         "ALTER TABLE live_view_sessions ADD COLUMN IF NOT EXISTS control_ended_at VARCHAR DEFAULT ''",
         "ALTER TABLE live_view_sessions ADD COLUMN IF NOT EXISTS control_ended_reason VARCHAR DEFAULT ''",
+        # Consent-first "assist" sessions (Sep 9) - ticket-launched Screen
+        # Share, vs '' for ongoing disclosed monitoring.
+        "ALTER TABLE live_view_sessions ADD COLUMN IF NOT EXISTS purpose VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS employee_email VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS read_by VARCHAR DEFAULT ''",
         # inventory_requests: return-flow columns added after initial table creation

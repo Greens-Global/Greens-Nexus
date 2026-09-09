@@ -2012,19 +2012,23 @@ export function TicketDrawer({ ticketId, onClose }) {
   const isRequester = (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const isAssignee = (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const privileged = myLevel >= 3;
-  // Request Control: the same consent-first remote screen control Workforce
-  // Analytics already has (components/LiveView.jsx) - reused as-is, not
-  // reimplemented, so a support agent can jump straight from "I'm assigned
-  // this ticket" to "let me see what they're seeing" without leaving the
-  // ticket. Visible only to the assignee - the requester's own screen isn't
-  // something anyone else working the ticket gets to reach for - and only to
-  // someone who could already open Workforce Analytics at all (mirrors that
-  // module's own Sidebar.jsx gate); LiveView/timeclock.py still independently
-  // enforce who may actually watch or take control server-side, same as
-  // every other caller of that component - this only decides whether the
-  // button is worth showing.
+  // Screen Share: LiveView's `assist` mode (components/LiveView.jsx) -
+  // consent-first, NOT the Workforce Analytics roster's disclosed-monitoring
+  // model. Nothing is visible until the requester accepts a control prompt
+  // shown the instant it's sent, and the whole session closes the moment
+  // control ends - never falls back to a passive view (Pranshu, Sep 9: "we
+  // should not be able to watch the requester screen"). Visible only to the
+  // assignee - the requester's own screen isn't something anyone else
+  // working the ticket gets to reach for - and gated at the SAME level the
+  // backend requires for an assist request (administrator, or a "full"
+  // employee-tracking grant - live_request in routers/timeclock.py), not
+  // the looser "viewer grant or supervisor role" that plain watching would
+  // use, since an assist request effectively asks for control from the
+  // start. LiveView/timeclock.py still independently enforce this
+  // server-side, same as every other caller of that component - this only
+  // decides whether the button is worth showing.
   const canRequestControl = isAssignee && !!t.requesterId && !isRequester
-    && canAccessModule('employee-tracking', 'supervisor');
+    && canAccessModule('employee-tracking', 'administrator', 'full');
   // Separate from the in_progress/assignee lock above: the moment a ticket
   // moves off its just-raised "open" status - triaged, worked, resolved,
   // whatever comes next - the person who raised it goes read-only on every
@@ -2195,9 +2199,9 @@ export function TicketDrawer({ ticketId, onClose }) {
             {t.requesterId ? <><Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /><span style={{ fontSize: 13, color: NX.ink }}>{nameOf(t.requesterId)}</span></> : <span style={{ fontSize: 13, color: NX.faint }}>-</span>}
             {canRequestControl && (
               <button type="button" onClick={() => setRequestingControl(true)}
-                title={`Watch ${nameOf(t.requesterId) || 'their'} screen live, then ask to take control - same consent-first flow as Workforce Analytics`}
+                title={`Ask ${nameOf(t.requesterId) || 'them'} for permission to view and control their screen - nothing is visible until they accept`}
                 style={{ ...btn('outline'), marginLeft: 'auto', padding: '4px 9px', fontSize: 12, gap: 5 }}>
-                <MousePointer2 size={13} /> Request Control
+                <MousePointer2 size={13} /> Screen Share
               </button>
             )}
           </div>
@@ -2363,7 +2367,7 @@ export function TicketDrawer({ ticketId, onClose }) {
       </div>
     </Modal>
     {requestingControl && (
-      <LiveView email={t.requesterId} name={nameOf(t.requesterId) || t.requesterId} onClose={() => setRequestingControl(false)} />
+      <LiveView assist email={t.requesterId} name={nameOf(t.requesterId) || t.requesterId} onClose={() => setRequestingControl(false)} />
     )}
     </>
   );
