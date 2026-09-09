@@ -2012,7 +2012,7 @@ export function TicketDrawer({ ticketId, onClose }) {
   const isRequester = (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const isAssignee = (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const privileged = myLevel >= 3;
-  // Screen Share: LiveView's `assist` mode (components/LiveView.jsx) -
+  // Request Control: LiveView's `assist` mode (components/LiveView.jsx) -
   // consent-first, NOT the Workforce Analytics roster's disclosed-monitoring
   // model. Nothing is visible until the requester accepts a control prompt
   // shown the instant it's sent, and the whole session closes the moment
@@ -2201,7 +2201,7 @@ export function TicketDrawer({ ticketId, onClose }) {
               <button type="button" onClick={() => setRequestingControl(true)}
                 title={`Ask ${nameOf(t.requesterId) || 'them'} for permission to view and control their screen - nothing is visible until they accept`}
                 style={{ ...btn('outline'), marginLeft: 'auto', padding: '4px 9px', fontSize: 12, gap: 5 }}>
-                <MousePointer2 size={13} /> Screen Share
+                <MousePointer2 size={13} /> Request Control
               </button>
             )}
           </div>
