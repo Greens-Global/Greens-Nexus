@@ -1999,9 +1999,19 @@ export function TicketDrawer({ ticketId, onClose }) {
   const [requestingControl, setRequestingControl] = useState(false);
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
+  // getTicketDepartments(), NOT getMyTicketDepartments() - "mine=true" scopes
+  // to the VIEWER's own company, which is right for the create form (a
+  // requester can only ever file under their own company) but wrong here: an
+  // agent whose own company differs from the ticket's had no department in
+  // the list matching t.hrDepartmentId, so the field rendered blank even
+  // though the requester had picked one (Pranshu, Sep 10 2026 - "department
+  // is not visible whereas user already mentioned a department"). This drawer
+  // needs every company's departments so the filter below (allDepts.filter(d
+  // => d.companyId === t.companyId)) can resolve whichever company the ticket
+  // actually belongs to.
   useEffect(() => {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
-    api.getMyTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
+    api.getTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
   }, []);
   // Lets a recording started from this drawer's Attachments tab know, on
   // Stop, whether it should bring the app back here - see setOpenTicketId in
