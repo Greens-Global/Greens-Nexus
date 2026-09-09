@@ -581,6 +581,15 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                   <PlayCircle size={14} /> Tour
                 </button>
               )}
+              {/* Ticket module's own guided walkthrough - same pattern as the Task
+                  module's above, but gated on activeView === 'tickets' and firing
+                  TicketsView's nexus:tickets-tour instead (tickets/TicketsView.jsx
+                  owns that tour's state). */}
+              {activeView === 'tickets' && (
+                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:tickets-tour')); }}>
+                  <PlayCircle size={14} /> Tour
+                </button>
+              )}
 
               {/* Act As (Jul 2026): visible to Manager/IT Admin/Global Admin (or an
                   'act-as' Access Group grant). Exit is always shown while a session
