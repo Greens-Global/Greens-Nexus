@@ -4551,10 +4551,11 @@ export default function HR({ activeSub, onSubChange }) {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [addPreset,   setAddPreset]   = useState('full_time');   // employment type the Add form opens with
   const [inviteOpen,  setInviteOpen]  = useState(false);
+  // Company Setup / Work Sites / Sync M365 moved to the Admin module in full
+  // (Pranshu, Sep 9) - entities/sites data stays (used throughout this
+  // screen for filters, dropdowns, scope names), the editors don't.
   const [entities,  setEntities]  = useState([]);
-  const [entitiesOpen, setEntitiesOpen] = useState(false);
   const [sites,     setSites]     = useState([]);
-  const [sitesOpen, setSitesOpen] = useState(false);
   const [toast,     setToast]     = useState(null);
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = canAccessModule('hr_comp', 'owner', 'viewer');
@@ -4587,51 +4588,6 @@ export default function HR({ activeSub, onSubChange }) {
     window.addEventListener('nexus:person', h);
     return () => window.removeEventListener('nexus:person', h);
   }, [employees, extEmployees]);   // eslint-disable-line react-hooks/exhaustive-deps
-
-  const [syncBusy, setSyncBusy] = useState(false);
-  const [syncLabel, setSyncLabel] = useState('');
-  // ONE button, the whole sync: the server pulls the directory (link/backfill,
-  // as before), then pushes EVERY linked profile back to Entra - Nexus values
-  // win, job titles go out level-stripped. It runs server-side as a background
-  // job (a few minutes of Graph calls), so this just starts it and polls the
-  // status row; the photos pass stays a separate best-effort follow-up.
-  async function runSync() {
-    if (syncBusy) return;
-    setSyncBusy(true);
-    setSyncLabel('Starting…');
-    try {
-      await api.syncM365TwoWay();
-      let s = null;
-      for (;;) {
-        await new Promise(r => setTimeout(r, 2500));
-        try { s = await api.syncM365TwoWayStatus(); } catch { continue; }
-        if (s.phase === 'pull') setSyncLabel('Pulling directory…');
-        else if (s.phase === 'push') setSyncLabel(`Pushing ${s.done}/${s.total}…`);
-        else break;
-      }
-      if (s?.phase === 'failed') {
-        toastErr(`M365 sync failed: ${s.errors?.[0]?.error || 'see server logs'}.`);
-      } else {
-        const bits = [];
-        const p = s?.pull || {};
-        if (p.created) bits.push(`${p.created} added`);
-        bits.push(`${p.linked || 0} linked`, `${p.updated || 0} updated`);
-        bits.push(`${s?.pushedOk || 0} pushed to M365`);
-        if (s?.pushFailed) bits.push(`${s.pushFailed} push failure${s.pushFailed > 1 ? 's' : ''} (${(s.errors || []).slice(0, 3).map(e => e.email).join(', ')}${(s.errors || []).length > 3 ? '…' : ''})`);
-        if (p.removed?.length) bits.push(`${p.removed.length} removed (shared/inactive)`);
-        if (p.unlinked?.length) bits.push(`unlinked (account deleted): ${p.unlinked.join(', ')}`);
-        try {
-          setSyncLabel('Syncing photos…');
-          const ph = await api.syncM365Photos();
-          if (ph.updated) bits.push(`${ph.updated} photos`);
-        } catch { /* photo pass is best-effort */ }
-        toastOk(`M365 sync: ${bits.join(' · ')}.`);
-      }
-      load();
-    } catch (err) { toastErr(err?.message || 'Sync failed.'); }
-    setSyncBusy(false);
-    setSyncLabel('');
-  }
 
   function load() {
     api.getEmployees()
@@ -4788,23 +4744,8 @@ export default function HR({ activeSub, onSubChange }) {
                 <Building2 size={13} /> Showing: {scopeNames.length ? scopeNames.join(', ') : 'your companies'}
               </span>
             )}
-            {!isScoped && (
-            <button className="secondary-btn" disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Two-way sync: pulls the M365 directory in (new people added, profiles linked, empty fields + photos backfilled), then pushes every linked profile back to Entra - Nexus values win, job titles go out without level markers."
-              onClick={runSync}>
-              {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} {syncBusy && syncLabel ? syncLabel : 'Sync M365'}
-            </button>
-            )}
-            <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Manage companies & their departments"
-              onClick={() => setEntitiesOpen(true)}>
-              <Building2 size={14} /> Company setup
-            </button>
-            <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Manage work sites (for geofenced clock-in)"
-              onClick={() => setSitesOpen(true)}>
-              <MapPinned size={14} /> Work sites
-            </button>
+            {/* Sync M365 / Company setup / Work sites moved to the Admin
+                module in full (Pranshu, Sep 9) - no longer buttons here. */}
             {/* One Add control (Neil, Aug 24): employee, independent contractor
                 or external partner - all into the same master list. */}
             <div style={{ position: 'relative' }}>
@@ -5076,14 +5017,6 @@ export default function HR({ activeSub, onSubChange }) {
             inviteOutcomeToast(result, toastOk, toastErr);
             load();   // the new external lands in the directory (master list)
           }} />
-      )}
-      {entitiesOpen && (
-        <EntitiesModal entities={entities} employees={employees} onClose={() => setEntitiesOpen(false)}
-          onChanged={() => { load(); return loadEntities(); }} toastOk={toastOk} toastErr={toastErr} scoped={isScoped} />
-      )}
-      {sitesOpen && (
-        <WorkSitesModal sites={sites} entities={entities} onClose={() => setSitesOpen(false)}
-          onChanged={loadSites} toastOk={toastOk} toastErr={toastErr} />
       )}
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>
