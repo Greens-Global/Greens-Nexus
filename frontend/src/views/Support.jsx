@@ -21,9 +21,16 @@ import { api } from '../api';
 import { ticketNoShort, normalizeCode, TICKET_STATUS_META, TICKET_STATUS_ORDER } from '../tickets/ticketMeta';
 import { formatDateTime } from '../lib/datetime';
 import { NX, FONT } from '../tasks/theme';
+import { useRole } from '../contexts/RoleContext';
 import { Avatar, usePeople } from '../tasks/components';
 import { useTableColumns, ColResizer } from '../tasks/tableCols';
 import { takePendingOpen } from '../lib/pendingOpen';
+import GuidedTour from '../components/GuidedTour';
+import { buildSupportTourSteps } from './supportTourSteps';
+
+// Tour id this page reports to the server (routers/user_tours.py) - same
+// pattern as the Task and Ticket modules' own TASK_TOUR_ID/TICKET_TOUR_ID.
+const SUPPORT_TOUR_ID = 'support';
 
 // Report a Bug used to float as its own button, hovering bottom-right over
 // every Tasks/Tickets screen. Folded into Support (Pranshu, Sep 3) since it's
@@ -122,6 +129,7 @@ export default function Support() {
   // one long unbroken list.
   const [sort, setSort] = useState({ key: 'created', dir: 'desc' });
   const [page, setPage] = useState(1);
+  const { myEmail } = useRole();
   const people = usePeople();
   const nameOf = useCallback((email) => {
     const e = (email || '').toLowerCase();
@@ -164,6 +172,30 @@ export default function Support() {
     return () => window.removeEventListener('nexus:open-ticket', openTicket);
   }, []);
 
+  // Guided tour - same pattern as the Task and Ticket modules' own (see
+  // views/Tasks.jsx / tickets/TicketsView.jsx): runs itself once per person on
+  // first visit, then again from the profile menu's "Tour" row (TopHeader,
+  // gated on activeView === 'support'), which fires this same event. "Seen"
+  // is server-side, per person - see routers/user_tours.py.
+  const [tour, setTour] = useState(false);
+  useEffect(() => {
+    if (!myEmail) return;
+    let cancelled = false;
+    api.getToursSeen()
+      .then(({ seen }) => { if (!cancelled && !seen?.[SUPPORT_TOUR_ID]) setTour(true); })
+      .catch(() => { /* can't confirm "seen" - skip the auto-tour rather than risk nagging on every flaky load */ });
+    return () => { cancelled = true; };
+  }, [myEmail]);
+  const closeTour = () => {
+    setTour(false);
+    api.markTourSeen(SUPPORT_TOUR_ID).catch(() => {});
+  };
+  useEffect(() => {
+    const openTour = () => setTour(true);
+    window.addEventListener('nexus:support-tour', openTour);
+    return () => window.removeEventListener('nexus:support-tour', openTour);
+  }, []);
+
   const load = useCallback(() => {
     api.getMyTickets()
       .then((rows) => setTickets(rows || []))
@@ -175,9 +207,9 @@ export default function Support() {
 
   const OPTIONS = [
     { icon: Ticket, title: 'Submit a Ticket', desc: 'Report an issue or request help from any department.',
-      onOpen: () => setSubmitting(true) },
+      onOpen: () => setSubmitting(true), tour: 'support-submit-ticket' },
     { icon: Bug, title: 'Report a Bug', desc: 'Flag something broken in Nexus, with screenshots if you have them.',
-      onOpen: () => setReportingBug(true) },
+      onOpen: () => setReportingBug(true), tour: 'support-report-bug' },
     { icon: Users, title: 'Contact Directory', desc: 'Find the right person across your organization.',
       onOpen: () => go('people') },
     // Folded in from their own left-nav entries (Aug 31) to shrink the nav -
@@ -227,14 +259,14 @@ export default function Support() {
         </div>
       </div>
 
-      <div className="support-grid">
+      <div className="support-grid" data-tour="support-options">
         {OPTIONS.map((o) => (
           // The whole tile is the button - the card already lifts on hover and
           // shows a pointer, so anything less than a full-tile hit area was
           // just a smaller target that looked the same (Sagar, Sept 2 2026).
           // "Open" stays as the affordance, but as a span: a button inside a
           // button is invalid, and it would swallow clicks meant for the tile.
-          <button key={o.title} type="button" className="support-card" onClick={o.onOpen}>
+          <button key={o.title} type="button" className="support-card" data-tour={o.tour} onClick={o.onOpen}>
             <div className="support-icon"><o.icon size={20} /></div>
             <div className="support-card-title">{o.title}</div>
             <p className="support-card-desc">{o.desc}</p>
@@ -243,7 +275,7 @@ export default function Support() {
         ))}
       </div>
 
-      <div className="dash-card">
+      <div className="dash-card" data-tour="support-open-tickets">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
           <div className="dash-card-title" style={{ margin: 0 }}>My Open Tickets</div>
           {tickets !== null && open.length > 0 && (
@@ -376,6 +408,8 @@ export default function Support() {
           <TicketDetail ticketId={viewingTicketId} onClose={() => { setViewingTicketId(null); load(); }} />
         </Suspense>
       )}
+
+      {tour && <GuidedTour steps={buildSupportTourSteps()} onClose={closeTour} />}
     </div>
   );
 }
