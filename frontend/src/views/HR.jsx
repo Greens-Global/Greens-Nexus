@@ -24,7 +24,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
-import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
+import { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
 // External tab folded into People (Neil, Aug 24: one master list) - only the
 // shared pieces remain in use: badge, invite modal, lifecycle section.
 import { ExternalBadge, InviteExternalModal, inviteOutcomeToast, ExternalPersonSection } from './ExternalUsersPanel';
@@ -4509,15 +4509,20 @@ export default function HR({ activeSub, onSubChange }) {
   // 'hr-esign*' deep-links are redirected there by the effect below.
   // hr-external intentionally absent (Neil, Aug 24: External tab folded into
   // People) - old deep links fall through to hr-people, where externals live now.
-  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-access'].includes(activeSub) ? activeSub : 'hr-people';
+  // hr-access moved to the Admin module (Pranshu, Sep 9) - old deep links
+  // redirect there by the effect below, so it's not in this list any more.
+  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time'].includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
 
   // Old notifications/URLs still point at hr/hr-esign* - bounce them to Documents
-  // so those links don't dead-end on the People tab.
+  // so those links don't dead-end on the People tab. Same for hr-access, now
+  // that Roles & Access moved to the Admin module in full.
   useEffect(() => {
     if (String(activeSub || '').startsWith('hr-esign')) {
       const dst = activeSub === 'hr-esign-requests' ? 'documents-esign-requests' : 'documents-esign';
       window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: dst } }));
+    } else if (activeSub === 'hr-access') {
+      window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'access' } }));
     }
   }, [activeSub]);
 
@@ -4756,7 +4761,8 @@ export default function HR({ activeSub, onSubChange }) {
     // The External tab is gone (Neil, Aug 24): external/guest people live in
     // the People directory with a worker-type filter, and their lifecycle
     // actions sit on their profile card.
-    ...(isAdmin ? [{ key: 'hr-access', label: 'Roles & Access', Icon: Shield }] : []),
+    // Roles & Access moved to the Admin module in full (Pranshu, Sep 9) - no
+    // longer a People tab.
   ];
 
   return (
@@ -4851,7 +4857,6 @@ export default function HR({ activeSub, onSubChange }) {
       {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin employees={employees} toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-access' && isAdmin && <RolesAccess embedded />}
 
       {sub === 'hr-people' && (<>
         <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />

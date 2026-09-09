@@ -13,15 +13,16 @@
 // Support.jsx borrows Tasks' composers, so this module's chunk doesn't drag
 // the whole Item Management / HR bundles in eagerly.
 //
-// In scope for this pass: Item Types + Custom Fields, Ticket Desk +
-// Notification settings, the "Send Alert" broadcast tool, and HR's Company
-// Setup / Work Sites / Sync M365. Explicitly OUT of scope (Pranshu, Sep 9):
-// Branding (an individual employee's own choice, not an admin decision -
-// stays in the header AdminPanel drawer), shift presets, Asana sync,
-// overtime rules, QA module toggle - left where they are.
+// In scope for this pass: Roles & Access (moved here whole, previously a
+// People tab), Item Types + Custom Fields, Ticket Desk + Notification
+// settings, the "Send Alert" broadcast tool, and HR's Company Setup / Work
+// Sites / Sync M365. Explicitly OUT of scope (Pranshu, Sep 9): Branding (an
+// individual employee's own choice, not an admin decision - stays in the
+// header AdminPanel drawer), shift presets, Asana sync, overtime rules, QA
+// module toggle - left where they are.
 import { useState, useCallback, lazy, Suspense } from 'react';
 import {
-  Settings2, Wrench, ChevronDown, Tag,
+  Settings2, Wrench, ChevronDown, Tag, Shield, SlidersHorizontal,
   Headset, Bell, Megaphone, Building2, MapPin, RefreshCw, Loader2,
 } from 'lucide-react';
 import { api } from '../api';
@@ -36,6 +37,10 @@ const CustomFieldsAdminModal = lazy(() => import('./InventoryManagement').then(m
 const SendAlertModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.SendAlertModal })));
 const EntitiesModal = lazy(() => import('./HR').then(m => ({ default: m.EntitiesModal })));
 const WorkSitesModal = lazy(() => import('./HR').then(m => ({ default: m.WorkSitesModal })));
+// Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
+// (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
+// `embedded` skips its own page header, since it gets one from the tab here.
+const RolesAccess = lazy(() => import('./RolesAccess'));
 
 // Modules that already have a real settings section built below, so their
 // generic placeholder card is dropped to avoid showing the same control twice.
@@ -248,7 +253,12 @@ function CompanySection({ toastOk, toastErr }) {
   );
 }
 
-export default function AdminConsole() {
+const TOP_TABS = [
+  ['settings', 'Company Settings', SlidersHorizontal],
+  ['access',   'Roles & Access',   Shield],
+];
+
+export default function AdminConsole({ activeSub, onSubChange }) {
   const modules = MODULES.filter(m => !EXCLUDED.has(m.id));
   const [toast, setToast] = useState(null); // { msg, kind }
   const showToast = useCallback((msg, kind = 'success') => {
@@ -258,43 +268,63 @@ export default function AdminConsole() {
   const toastOk = useCallback((msg) => showToast(msg, 'success'), [showToast]);
   const toastErr = useCallback((msg) => showToast(msg, 'error'), [showToast]);
 
+  const topTab = activeSub === 'access' ? 'access' : 'settings';
+  const setTopTab = (id) => onSubChange ? onSubChange(id) : undefined;
+
   return (
-    <div style={{ padding: '28px 32px 60px', fontFamily: 'Inter, sans-serif', maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ padding: '28px 32px 60px', fontFamily: 'Inter, sans-serif', maxWidth: topTab === 'access' ? 1280 : 1100, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
         <div style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
           <Settings2 size={18} style={{ color: 'var(--ink)' }} />
         </div>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Admin</h1>
       </div>
-      <div style={{ fontSize: 13.5, color: 'var(--muted)', marginBottom: 24, maxWidth: 640, lineHeight: 1.5 }}>
-        Company-wide settings the admin team controls with a click - no code change required. Each one below is the
-        same control its home module already had; it just also lives here now so admins have one place to look.
+      <div style={{ fontSize: 13.5, color: 'var(--muted)', marginBottom: 20, maxWidth: 640, lineHeight: 1.5 }}>
+        Company-wide settings and access control, all in one place - no code change required for any of it.
       </div>
 
-      <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', letterSpacing: '.06em', marginBottom: 8 }}>
-        COMPANY SETTINGS
-      </div>
-      <ItemSettingsSection toast={showToast} />
-      <TicketSettingsSections />
-      <CompanyAlertSection toast={showToast} />
-      <CompanySection toastOk={toastOk} toastErr={toastErr} />
-
-      <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', letterSpacing: '.06em', margin: '28px 0 8px' }}>
-        OTHER MODULES
-      </div>
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-        No admin-configurable settings promoted here yet.
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
-        {modules.map(m => (
-          <div key={m.id} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '12px 14px' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 3 }}>{m.label}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--muted)' }}>
-              <Wrench size={11} /> No configurable options yet
-            </div>
-          </div>
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 6, marginBottom: 22, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
+        {TOP_TABS.map(([id, label, Icon]) => (
+          <button key={id} onClick={() => setTopTab(id)}
+            style={{ background: 'none', border: 'none', padding: '9px 14px', fontFamily: 'Inter,sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: topTab === id ? 'var(--ink)' : 'var(--muted)', position: 'relative', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap' }}>
+            <Icon size={15} /> {label}
+            {topTab === id && <span style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 2.5, background: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
+          </button>
         ))}
       </div>
+
+      {topTab === 'access' ? (
+        <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0' }}>Loading…</div>}>
+          <RolesAccess embedded />
+        </Suspense>
+      ) : (
+        <>
+          <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', letterSpacing: '.06em', marginBottom: 8 }}>
+            COMPANY SETTINGS
+          </div>
+          <ItemSettingsSection toast={showToast} />
+          <TicketSettingsSections />
+          <CompanyAlertSection toast={showToast} />
+          <CompanySection toastOk={toastOk} toastErr={toastErr} />
+
+          <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', letterSpacing: '.06em', margin: '28px 0 8px' }}>
+            OTHER MODULES
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+            No admin-configurable settings promoted here yet.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+            {modules.map(m => (
+              <div key={m.id} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '12px 14px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 3 }}>{m.label}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--muted)' }}>
+                  <Wrench size={11} /> No configurable options yet
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>
