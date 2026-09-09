@@ -476,8 +476,18 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
 @router.get("/task-tickets")
 def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
                  db: Session = Depends(get_db)):
-    """`mine=true` narrows to the tickets this person raised or is watching -
-    what the Support page's end-user view needs.
+    """`mine=true` narrows to just the tickets THIS person raised - what the
+    Support page's "My Open Tickets" needs. Being cc'd on someone else's
+    ticket (mentioned in a comment, added as a watcher) does not make it
+    "mine": that list showing a ticket Ankush raised, just because Pranshu
+    was watching it, read as a gap in the requester scoping, not a feature
+    (Pranshu, Sep 10 2026).
+
+    Without `mine`, an employee who lacks the desk grant still gets scoped
+    automatically rather than seeing the whole company's queue - but a little
+    more generously, raised OR watching, so they can still reach a ticket
+    they're only mentioned on from wherever their own Tickets/Tasks context
+    surfaces it.
 
     Scoped server-side rather than filtered in the browser: the unscoped list is
     the agent queue and carries every ticket in the company, so a client-side
@@ -491,11 +501,13 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     _cscope = auth.company_scope(user, db)
     if _cscope is not None:
         rows = [t for t in rows if (t.company_id or "") in _cscope]
+    me = (user.get("email") or "").lower()
+    if mine:
+        rows = [t for t in rows if (t.requester_email or "").lower() == me]
     # Without the desk grant the scope is forced, not requested: the unscoped
     # list IS the agent queue, so honouring `mine` only when asked would leave
     # the whole company's tickets one query parameter away from any employee.
-    if mine or not _has_desk_grant(user, db):
-        me = (user.get("email") or "").lower()
+    elif not _has_desk_grant(user, db):
         rows = [t for t in rows
                 if (t.requester_email or "").lower() == me
                 or me in [(w or "").lower() for w in (t.watcher_emails or [])]]
@@ -1305,24 +1317,33 @@ def remove_ticket_link(ticket_id: str, target_id: str, db: Session = Depends(get
 @router.post("/task-tickets/{ticket_id}/escalate")
 def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Either the requester or the current assignee - the two people actually
-    living the ticket, not just the desk running the queue - can raise this
-    (superseding the earlier SLA-breach-only carve-out for a locked-out
-    requester). It no longer touches priority; it mails the department the
-    ticket is ABOUT (HrDepartment.lead_email/backup_email, set from Manage ->
-    Service Desk -> Departments) that the ticket needs urgent attention. A
-    department with no head on file falls back to the company's ticket agents
-    via notify_ticket_event's own recipient resolution, so it's never emailed
-    to nobody."""
+    """The assignee or a manager - whoever is actually working the ticket -
+    can raise this any time it's open. The requester is different: escalating
+    before the SLA is even due would just be "I'm impatient," not "this is
+    overdue" - so for them it's gated on the SLA actually being breached
+    (Pranshu, Sep 10 2026, reinstating that carve-out). It no longer touches
+    priority; it mails the department the ticket is ABOUT
+    (HrDepartment.lead_email/backup_email, set from Manage -> Service Desk ->
+    Departments) that the ticket needs urgent attention. A department with no
+    head on file falls back to the company's ticket agents via
+    notify_ticket_event's own recipient resolution, so it's never emailed to
+    nobody."""
     t = _ticket_or_404(db, ticket_id)
     _require_ticket_participant(db, user, t)
     email = (user["email"] or "").lower()
     is_requester = (t.requester_email or "").lower() == email
     is_assignee = (t.assignee_email or "").lower() == email
-    if not (is_requester or is_assignee or _ticket_privileged(db, t, user)):
-        raise HTTPException(403, "Only the requester or assignee can escalate this ticket")
+    privileged = _ticket_privileged(db, t, user)
+    # Closed-status check first: a requester hitting this on a closed ticket
+    # should hear "already closed," not a confusing SLA-gate 403 - and
+    # _sla_breached itself always reads a closed ticket as never breached, so
+    # checking access first would never let them reach this message at all.
     if t.status in ("resolved", "closed"):
         raise HTTPException(400, "This ticket is already closed out - nothing to escalate")
+    if not (is_assignee or privileged or (is_requester and _sla_breached(t))):
+        if is_requester:
+            raise HTTPException(403, "You can escalate once the SLA due date has passed - it hasn't yet.")
+        raise HTTPException(403, "Only the requester or assignee can escalate this ticket")
 
     t.modified_at = now_iso()
     log_activity(db, type="escalated", actor_email=user["email"], entity_kind="ticket",
