@@ -25,14 +25,17 @@
 // M365. Explicitly OUT of scope (Pranshu, Sep 9): Branding (an individual
 // employee's own choice, not an admin decision - stays in the header
 // AdminPanel drawer), shift presets, Asana sync, overtime rules, QA module
-// toggle - left where they are.
+// toggle - left where they are. The placeholder "Other modules" grid (one
+// card per module with no settings yet) was dropped (Pranshu, Sep 9) - it
+// only ever said "no configurable options yet" for every module not listed
+// above, which isn't useful information; a module gets a section here when
+// it actually has one.
 import { useState, useCallback, lazy, Suspense } from 'react';
 import {
-  Settings2, Wrench, ChevronDown, Tag, Shield, SlidersHorizontal,
+  Settings2, ChevronDown, Tag, Shield, SlidersHorizontal,
   Headset, Bell, Megaphone, Building2, MapPin, RefreshCw, Loader2, Timer,
 } from 'lucide-react';
 import { api } from '../api';
-import { MODULES } from '../contexts/RoleContext';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
@@ -59,12 +62,6 @@ const TaskNotifySettingsWrapped = lazy(async () => {
   ]);
   return { default: () => <TasksProvider><TaskNotifySettings /></TasksProvider> };
 });
-
-// Modules that already have a real settings section built below, so their
-// generic placeholder card is dropped to avoid showing the same control twice.
-const BUILT_MODULE_IDS = new Set(['inventory', 'tickets', 'hr', 'tasks']);
-// Modules that aren't a real "feature surface" to configure extras for.
-const EXCLUDED = new Set(['admin-console', 'admin', 'hr_comp', ...BUILT_MODULE_IDS]);
 
 function ModalFallback() {
   return (
@@ -287,7 +284,6 @@ const TOP_TABS = [
 ];
 
 export default function AdminConsole({ activeSub, onSubChange }) {
-  const modules = MODULES.filter(m => !EXCLUDED.has(m.id));
   const [toast, setToast] = useState(null); // { msg, kind }
   const showToast = useCallback((msg, kind = 'success') => {
     setToast({ msg, kind });
@@ -339,23 +335,6 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           <TicketSettingsSections />
           <CompanyAlertSection toast={showToast} />
           <CompanySection toastOk={toastOk} toastErr={toastErr} />
-
-          <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', letterSpacing: '.06em', margin: '28px 0 8px' }}>
-            OTHER MODULES
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-            No admin-configurable settings promoted here yet.
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
-            {modules.map(m => (
-              <div key={m.id} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '12px 14px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 3 }}>{m.label}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--muted)' }}>
-                  <Wrench size={11} /> No configurable options yet
-                </div>
-              </div>
-            ))}
-          </div>
         </>
       )}
 
