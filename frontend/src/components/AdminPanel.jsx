@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 
 const FragmentRow = Fragment;   // expanded audit rows render as <tr> pairs
-import { X, Shield, Activity, Search, RefreshCw, ChevronDown, Users, Clock, Palette, Check, Loader2 } from 'lucide-react';
+import { X, Shield, Activity, Search, RefreshCw, ChevronDown, Users, Clock } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
 import Admin from '../views/Admin';
-import { applyBrandAccent } from '../lib/brandAccent';
 import { formatDateTime } from '../lib/datetime';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -339,78 +338,16 @@ function AuditLogs() {
   );
 }
 
-// ── Branding tab ──────────────────────────────────────────────────────────────
-// Deliberately NOT in the Admin module (Pranshu, Sep 9): unlike the settings
-// that live there, this is an individual admin's own call, not a company
-// policy tracked by the admin team - stays here where it always was.
-
-const ACCENT_OPTIONS = [
-  { value: 'green', label: 'Green', swatch: 'hsl(var(--color-green))' },
-  { value: 'blue',  label: 'Blue',  swatch: '#2b45e1' },
-];
-
-function BrandingSettings() {
-  const [accent, setAccent] = useState(null); // null = still loading
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState('');
-
-  useEffect(() => {
-    api.getBrandingConfig().then(cfg => setAccent(cfg.accent)).catch(() => setError('Failed to load branding settings'));
-  }, []);
-
-  async function choose(next) {
-    if (next === accent || saving) return;
-    setSaving(true);
-    setError('');
-    try {
-      await api.updateBrandingConfig(next);
-      setAccent(next);
-      await applyBrandAccent();   // reflect immediately in this session too
-    } catch {
-      setError("Couldn't save — check your permissions and try again.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div style={{ maxWidth: 480 }}>
-      <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)', marginBottom: 4 }}>Accent Color</div>
-      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
-        The brand color used across the app - Time Clock, badges, and the login screen. Changes apply immediately for everyone.
-      </p>
-      {error && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginBottom: 12 }}>{error}</div>}
-      {accent === null && !error ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading…</div>
-      ) : (
-        <div style={{ display: 'flex', gap: 12 }}>
-          {ACCENT_OPTIONS.map(o => (
-            <button key={o.value} onClick={() => choose(o.value)} disabled={saving}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 10,
-                border: accent === o.value ? `2px solid ${o.swatch}` : '1px solid var(--line)',
-                background: 'var(--card)', cursor: saving ? 'default' : 'pointer',
-                fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: 'var(--ink)',
-              }}>
-              <span style={{ width: 18, height: 18, borderRadius: '50%', background: o.swatch, flexShrink: 0 }} />
-              {o.label}
-              {accent === o.value && (saving
-                ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
-                : <Check size={14} style={{ color: o.swatch }} />)}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+// Branding (accent color) removed from here entirely (Pranshu, Sep 9) -
+// My Profile already has a Work OS theme picker (Cobalt/Warm Sand) that
+// covers the same "pick a color scheme" need, so a second one here was
+// pure duplication. See components/MyProfileModal.jsx.
 
 // ── AdminPanel ────────────────────────────────────────────────────────────────
 
 export default function AdminPanel({ open, onClose }) {
   const { can } = useRole();
   const panelRef = useRef(null);
-  const [tab, setTab] = useState('activity'); // 'activity' | 'branding'
 
   // Close on ESC
   useEffect(() => {
@@ -467,9 +404,7 @@ export default function AdminPanel({ open, onClose }) {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Admin Settings</div>
-              <div className="admin-drawer-sub" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
-                {tab === 'branding' ? 'Branding' : 'Activity logs'}
-              </div>
+              <div className="admin-drawer-sub" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>Activity logs</div>
             </div>
             <button
               onClick={onClose}
@@ -478,23 +413,11 @@ export default function AdminPanel({ open, onClose }) {
               <X size={18} />
             </button>
           </div>
-          <div style={{ display: 'flex', gap: 4, padding: '0 20px' }}>
-            {[['activity', 'Activity Log', Activity], ['branding', 'Branding', Palette]].map(([id, label, Icon]) => (
-              <button key={id} onClick={() => setTab(id)}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', marginBottom: -1,
-                  background: 'none', border: 'none', borderBottom: tab === id ? '2px solid hsl(var(--color-purple))' : '2px solid transparent',
-                  color: tab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: 600, fontSize: 12.5, cursor: 'pointer', fontFamily: 'Inter, sans-serif',
-                }}>
-                <Icon size={13} /> {label}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Content */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-          {tab === 'branding' ? <BrandingSettings /> : <AuditLogs />}
+          <AuditLogs />
         </div>
       </div>
     </>

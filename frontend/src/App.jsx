@@ -561,8 +561,9 @@ function MainApp() {
     localStorage.setItem("gg-theme", theme);
   }, [theme]);
 
-  // Global Admin-configurable accent (AdminPanel -> Branding). Applied once on
-  // load; LoginPage applies it independently for the pre-login screen.
+  // Saved company accent (backend routers/branding.py; no admin UI to change
+  // it any more as of Sep 9). Applied once on load; LoginPage applies it
+  // independently for the pre-login screen.
   useEffect(() => { applyBrandAccent(); }, []);
 
   useEffect(() => {
