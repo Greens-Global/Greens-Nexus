@@ -13,19 +13,19 @@
 // Support.jsx borrows Tasks' composers, so this module's chunk doesn't drag
 // the whole Item Management / HR bundles in eagerly.
 //
-// In scope for this pass: Branding, Item Types + Custom Fields, Ticket Desk
-// + Notification settings, the "Send Alert" broadcast tool, and HR's
-// Company Setup / Work Sites / Sync M365. Explicitly OUT of scope (Pranshu,
-// Sep 9): shift presets, Asana sync, overtime rules, QA module toggle -
-// left where they are.
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+// In scope for this pass: Item Types + Custom Fields, Ticket Desk +
+// Notification settings, the "Send Alert" broadcast tool, and HR's Company
+// Setup / Work Sites / Sync M365. Explicitly OUT of scope (Pranshu, Sep 9):
+// Branding (an individual employee's own choice, not an admin decision -
+// stays in the header AdminPanel drawer), shift presets, Asana sync,
+// overtime rules, QA module toggle - left where they are.
+import { useState, useCallback, lazy, Suspense } from 'react';
 import {
-  Settings2, Wrench, ChevronDown, Palette, Tag,
-  Headset, Bell, Megaphone, Building2, MapPin, RefreshCw, Loader2, Check,
+  Settings2, Wrench, ChevronDown, Tag,
+  Headset, Bell, Megaphone, Building2, MapPin, RefreshCw, Loader2,
 } from 'lucide-react';
 import { api } from '../api';
 import { MODULES } from '../contexts/RoleContext';
-import { applyBrandAccent } from '../lib/brandAccent';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 
@@ -72,68 +72,9 @@ function Section({ icon: Icon, title, sub, children, defaultOpen = false, onTogg
   );
 }
 
-// ── Branding ─────────────────────────────────────────────────────────────────
-// Moved wholesale from AdminPanel.jsx, where it was defined but never
-// rendered (the drawer only ever showed AuditLogs).
-const ACCENT_OPTIONS = [
-  { value: 'green', label: 'Green', swatch: 'hsl(var(--color-green))' },
-  { value: 'blue',  label: 'Blue',  swatch: '#2b45e1' },
-];
-
-function BrandingSection() {
-  const [accent, setAccent] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState('');
-
-  useEffect(() => {
-    api.getBrandingConfig().then(cfg => setAccent(cfg.accent)).catch(() => setError('Failed to load branding settings'));
-  }, []);
-
-  async function choose(next) {
-    if (next === accent || saving) return;
-    setSaving(true);
-    setError('');
-    try {
-      await api.updateBrandingConfig(next);
-      setAccent(next);
-      await applyBrandAccent();
-    } catch {
-      setError("Couldn't save — check your permissions and try again.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div>
-      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
-        The brand color used across the app - Time Clock, badges, and the login screen. Changes apply immediately for everyone.
-      </p>
-      {error && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginBottom: 12 }}>{error}</div>}
-      {accent === null && !error ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading…</div>
-      ) : (
-        <div style={{ display: 'flex', gap: 12 }}>
-          {ACCENT_OPTIONS.map(o => (
-            <button key={o.value} onClick={() => choose(o.value)} disabled={saving}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 10,
-                border: accent === o.value ? `2px solid ${o.swatch}` : '1px solid var(--line)',
-                background: 'var(--card)', cursor: saving ? 'default' : 'pointer',
-                fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: 'var(--ink)',
-              }}>
-              <span style={{ width: 18, height: 18, borderRadius: '50%', background: o.swatch, flexShrink: 0 }} />
-              {o.label}
-              {accent === o.value && (saving
-                ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
-                : <Check size={14} style={{ color: o.swatch }} />)}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+// Branding (accent color) is NOT here - Pranshu, Sep 9: it's an individual
+// employee's own choice, not an admin-team decision, so it stays in the
+// header's AdminPanel drawer where it originally lived (components/AdminPanel.jsx).
 
 // ── Item Management: types + custom fields ────────────────────────────────────
 function ItemSettingsSection({ toast }) {
@@ -333,9 +274,6 @@ export default function AdminConsole() {
       <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', letterSpacing: '.06em', marginBottom: 8 }}>
         COMPANY SETTINGS
       </div>
-      <Section icon={Palette} title="Branding" defaultOpen sub="Accent color used across the app.">
-        <BrandingSection />
-      </Section>
       <ItemSettingsSection toast={showToast} />
       <TicketSettingsSections />
       <CompanyAlertSection toast={showToast} />
