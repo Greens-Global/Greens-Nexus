@@ -2003,6 +2003,15 @@ export function TicketDrawer({ ticketId, onClose }) {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
     api.getMyTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
   }, []);
+  // Overview edits are staged here, not sent to the server on every keystroke
+  // - see the `save`/`stage`/`draftView` trio defined after `t` resolves
+  // below (Pranshu, Sep 10 2026: "whatever changes i make in ticket it
+  // should not make the change untill i click on save"). Cleared whenever
+  // the drawer switches to a different ticket, so a staged edit on one
+  // ticket can never leak onto the next one this drawer happens to open.
+  const [draft, setDraft] = useState({});
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setDraft({}); }, [ticketId]);
   // Lets a recording started from this drawer's Attachments tab know, on
   // Stop, whether it should bring the app back here - see setOpenTicketId in
   // recordingDraft.js. The functional clear only drops the id if it still
@@ -2113,7 +2122,33 @@ export function TicketDrawer({ ticketId, onClose }) {
   const slaBreached = !!(t.slaDueOn && t.slaDueOn < today());
   const canEscalate = !CLOSED_STATES.includes(t.status)
     && ((isRequester && slaBreached) || isAssignee || privileged);
+  // Still used for the relationship actions below (spawn/link/unlink a task,
+  // rate CSAT) - those are their own explicit, one-shot clicks, not fields in
+  // the staged Overview form, so they keep saving immediately.
   const patch = (p) => updateTicket(t.id, p).catch((e) => alert(`Could not update ticket: ${e.message || e}`));
+  // `draftView` is what the Overview form actually shows: the saved ticket
+  // with any staged edits laid over it. The permission checks above stay off
+  // the saved `t` on purpose - a staged status change must not unlock a field
+  // early, only a saved one does. `stage` is what every Overview field's
+  // onChange calls now, instead of patching straight through.
+  const dirty = Object.keys(draft).length > 0;
+  const stage = (p) => setDraft((d) => ({ ...d, ...p }));
+  const draftView = { ...t, ...draft };
+  // One request for everything staged plus whatever this specific action
+  // adds (Mark Resolved, Reopen, Update itself) - so clicking a status
+  // action never silently drops an edit made just before it. Only rejects
+  // (and keeps the draft, for a retry) on a real failure; nothing here
+  // swallows the error the way `patch` above does, because the caller needs
+  // to know whether it's safe to close the drawer.
+  const save = (extra = {}) => {
+    const payload = { ...draft, ...extra };
+    if (Object.keys(payload).length === 0) return Promise.resolve();
+    setSaving(true);
+    return updateTicket(t.id, payload)
+      .then(() => setDraft({}))
+      .catch((e) => { alert(`Could not update ticket: ${e.message || e}`); throw e; })
+      .finally(() => setSaving(false));
+  };
   const escalate = () => {
     if (!window.confirm('Escalate this ticket? The department head will get an email that it needs urgent attention.')) return;
     escalateTicket(t.id)
@@ -2125,7 +2160,7 @@ export function TicketDrawer({ ticketId, onClose }) {
   const reopen = () => {
     const reason = window.prompt('Why are you reopening this ticket?');
     if (reason === null) return;
-    patch({ status: 'reopened', reopen_reason: reason.trim() });
+    save({ status: 'reopened', reopen_reason: reason.trim() }).catch(() => {});
   };
   // ticket → many tasks: union of the spawned list + the legacy single linkedTaskId
   const taskIds = [...(t.taskIds || []), ...(t.linkedTaskId && !(t.taskIds || []).includes(t.linkedTaskId) ? [t.linkedTaskId] : [])];
@@ -2164,18 +2199,27 @@ export function TicketDrawer({ ticketId, onClose }) {
         )}
         {!CLOSED_STATES.includes(t.status) ? (
           canWorking && (
-            <button style={{ ...btn('outline'), color: NX.green }} onClick={() => patch({ status: 'resolved', resolution: t.resolution || 'fixed' })}><CheckCircle2 size={14} /> Mark Resolved</button>
+            <button style={{ ...btn('outline'), color: NX.green }} disabled={saving}
+              onClick={() => save({ status: 'resolved', resolution: t.resolution || 'fixed' }).catch(() => {})}><CheckCircle2 size={14} /> Mark Resolved</button>
           )
         ) : (
           <>
             {t.status === 'resolved' && (
-              <button style={{ ...btn('outline'), color: NX.green }} onClick={() => patch({ status: 'closed' })}
+              <button style={{ ...btn('outline'), color: NX.green }} disabled={saving}
+                onClick={() => save({ status: 'closed' }).catch(() => {})}
                 title="Close this ticket now instead of waiting for it to auto-close"><CheckCircle2 size={14} /> Confirm Resolution</button>
             )}
             <button style={btn('outline')} onClick={reopen}>Reopen</button>
           </>
         )}
-        <button style={btn('primary')} onClick={onClose}>Done</button>
+        {/* Renamed from "Done" (Pranshu, Sep 10 2026) - it now does real work
+            when there's a staged edit, not just close, so it needed a verb
+            that says so. Saves whatever's staged (if anything) THEN closes -
+            a plain close with nothing staged is still one click, same as
+            before. */}
+        <button style={btn('primary')} disabled={saving} onClick={() => save().then(onClose).catch(() => {})}>
+          {saving ? 'Saving…' : 'Update'}
+        </button>
       </>
     }>
       <div style={{ marginBottom: 6 }}>
@@ -2223,17 +2267,17 @@ export function TicketDrawer({ ticketId, onClose }) {
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
           <label style={label}>Type</label>
-          <TicketSelect value={t.type || 'request'} onChange={(v) => patch({ type: v })} options={typeOptions()}
+          <TicketSelect value={draftView.type || 'request'} onChange={(val) => stage({ type: val })} options={typeOptions()}
             style={sel} disabled={!canWorking} />
         </div>
         <div style={field}>
           <label style={label}>Status</label>
-          <TicketSelect value={t.status} onChange={(v) => patch({ status: v })} options={statusOptions()}
+          <TicketSelect value={draftView.status} onChange={(val) => stage({ status: val })} options={statusOptions()}
             style={sel} disabled={!canWorking} />
         </div>
         <div style={field}>
           <label style={label}>Priority</label>
-          <TicketSelect value={t.priority} onChange={(v) => patch({ priority: v })} options={priorityOptions()}
+          <TicketSelect value={draftView.priority} onChange={(val) => stage({ priority: val })} options={priorityOptions()}
             style={sel} disabled={!canWorking} />
         </div>
         <div style={field}>
@@ -2254,7 +2298,7 @@ export function TicketDrawer({ ticketId, onClose }) {
             <label style={label}>Assign To</label>
             {/* Locked until the request is approved - the backend refuses it anyway,
                 so showing an open picker would only produce a 409 the user can't act on. */}
-            <PersonSelect value={t.assigneeId || null} people={people} onChange={(v) => patch({ assigneeId: v || '' })}
+            <PersonSelect value={draftView.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
               disabled={!canWorking || t.approvalStatus === 'pending'}
               placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
           </div>
@@ -2271,7 +2315,7 @@ export function TicketDrawer({ ticketId, onClose }) {
         <div style={field}>
           <label style={label}>Company</label>
           {canEditCompany ? (
-            <TicketSelect value={t.companyId || ''} onChange={(v) => patch({ companyId: v, hrDepartmentId: '' })}
+            <TicketSelect value={draftView.companyId || ''} onChange={(val) => stage({ companyId: val, hrDepartmentId: '' })}
               style={sel} placeholder="Select company" searchPlaceholder="Search companies…"
               options={[['', 'Select company'], ...companies.map((c) => [c.id, c.name])]} />
           ) : (
@@ -2282,11 +2326,11 @@ export function TicketDrawer({ ticketId, onClose }) {
         </div>
         <div style={field}>
           <label style={label}>Department</label>
-          <TicketSelect value={t.hrDepartmentId || ''} onChange={(v) => patch({ hrDepartmentId: v })} style={sel}
-            disabled={!t.companyId || !canWorking} searchPlaceholder="Search departments…"
-            placeholder={t.companyId ? 'Select department' : 'Select a company first'}
-            options={[['', t.companyId ? 'Select department' : 'Select a company first'],
-              ...allDepts.filter((d) => d.companyId === t.companyId).map((d) => [d.id, d.name])]} />
+          <TicketSelect value={draftView.hrDepartmentId || ''} onChange={(val) => stage({ hrDepartmentId: val })} style={sel}
+            disabled={!draftView.companyId || !canWorking} searchPlaceholder="Search departments…"
+            placeholder={draftView.companyId ? 'Select department' : 'Select a company first'}
+            options={[['', draftView.companyId ? 'Select department' : 'Select a company first'],
+              ...allDepts.filter((d) => d.companyId === draftView.companyId).map((d) => [d.id, d.name])]} />
         </div>
         {/* What the ticket is about. fullAccess, NOT canWorking: `application`
             is not one of the backend's _WORKING_FIELDS, so a triaging third
@@ -2296,9 +2340,9 @@ export function TicketDrawer({ ticketId, onClose }) {
         <div style={field}>
           <label style={label}>Application</label>
           {fullAccess ? (
-            <ApplicationSelect apps={apps} value={t.application || ''}
-              deptName={allDepts.find((d) => d.id === t.hrDepartmentId)?.name || ''}
-              onChange={(name) => patch({ application: name })} />
+            <ApplicationSelect apps={apps} value={draftView.application || ''}
+              deptName={allDepts.find((d) => d.id === draftView.hrDepartmentId)?.name || ''}
+              onChange={(name) => stage({ application: name })} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{t.application || '-'}</div>
           )}
@@ -2310,7 +2354,7 @@ export function TicketDrawer({ ticketId, onClose }) {
         <div style={field}>
           <label style={label}>Service Area</label>
           {fullAccess ? (
-            <TicketSelect value={t.serviceArea || ''} onChange={(v) => patch({ serviceArea: v })} style={sel}
+            <TicketSelect value={draftView.serviceArea || ''} onChange={(val) => stage({ serviceArea: val })} style={sel}
               placeholder="Not set" options={[['', 'Not set'], ...serviceAreaOptions()]} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(t.serviceArea) || '-'}</div>
@@ -2320,7 +2364,7 @@ export function TicketDrawer({ ticketId, onClose }) {
           <div style={field}>
             <label style={label}>SLA Due Date</label>
             {fullAccess ? (
-              <DateField value={t.slaDueOn || ''} onChange={(v) => patch({ slaDueOn: v || '' })} color={overdue ? NX.red : undefined}
+              <DateField value={draftView.slaDueOn || ''} onChange={(val) => stage({ slaDueOn: val || '' })} color={overdue ? NX.red : undefined}
                 style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
             ) : (
               <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
@@ -2341,7 +2385,7 @@ export function TicketDrawer({ ticketId, onClose }) {
         {CLOSED_STATES.includes(t.status) && (
           <div style={field}>
             <label style={label}>Resolution</label>
-            <TicketSelect value={t.resolution || ''} onChange={(v) => patch({ resolution: v })} style={sel}
+            <TicketSelect value={draftView.resolution || ''} onChange={(val) => stage({ resolution: val })} style={sel}
               disabled={!canWorking} placeholder="- pick -"
               options={[['', '- pick -'], ...TICKET_RESOLUTION.map((r) => [r.key, r.label])]} />
           </div>
@@ -2356,7 +2400,7 @@ export function TicketDrawer({ ticketId, onClose }) {
               <div key={f.key} style={{ gridColumn: (f.full || f.type === 'textarea' || f.type === 'checklist') ? '1 / -1' : 'auto' }}>
                 <div style={{ ...label, fontSize: 11 }}>{f.label}</div>
                 {fullAccess ? (
-                  <TypeFieldInput field={f} value={t.typeFields?.[f.key]} onChange={(v) => patch({ typeFields: { ...(t.typeFields || {}), [f.key]: v } })} people={people} projects={projects} />
+                  <TypeFieldInput field={f} value={draftView.typeFields?.[f.key]} onChange={(val) => stage({ typeFields: { ...(draftView.typeFields || {}), [f.key]: val } })} people={people} projects={projects} />
                 ) : (
                   <div style={{ fontSize: 13, color: NX.ink, whiteSpace: f.type === 'textarea' ? 'pre-wrap' : 'normal' }}>{readOnlyFieldValue(f, t.typeFields?.[f.key], nameOf)}</div>
                 )}
@@ -2374,7 +2418,7 @@ export function TicketDrawer({ ticketId, onClose }) {
               <div key={f.key} style={{ gridColumn: (f.full || f.type === 'textarea') ? '1 / -1' : 'auto' }}>
                 <div style={{ ...label, fontSize: 11 }}>{f.label}</div>
                 {fullAccess ? (
-                  <TypeFieldInput field={f} value={t.typeFields?.[f.key]} onChange={(v) => patch({ typeFields: { ...(t.typeFields || {}), [f.key]: v } })} people={people} projects={projects} />
+                  <TypeFieldInput field={f} value={draftView.typeFields?.[f.key]} onChange={(val) => stage({ typeFields: { ...(draftView.typeFields || {}), [f.key]: val } })} people={people} projects={projects} />
                 ) : (
                   <div style={{ fontSize: 13, color: NX.ink }}>{readOnlyFieldValue(f, t.typeFields?.[f.key], nameOf)}</div>
                 )}
@@ -2406,7 +2450,11 @@ export function TicketDrawer({ ticketId, onClose }) {
         </>)}
         {tab === 'conversation' && <TicketConversation ticketId={t.id} nameOf={nameOf} />}
         {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} />}
-        {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
+        {/* refreshToken: modifiedAt changes on every server-side save, so
+            Activity re-fetches once Update actually lands - without it, a
+            save made while this tab was already open would show nothing new
+            until the whole drawer was reopened. */}
+        {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} refreshToken={t.modifiedAt} />}
       </div>
     </Modal>
     {requestingControl && (
@@ -3076,9 +3124,9 @@ function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
 // attachments and approvals, each with a real actor and timestamp. The
 // "created" entry is the one exception - rendered as the original-submission
 // audit card above, not a one-line "created this ticket".
-function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
+function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [], refreshToken }) {
   const [rows, setRows] = useState(null);
-  useEffect(() => { api.getTicketActivity(ticketId).then(setRows).catch(() => setRows([])); }, [ticketId]);
+  useEffect(() => { api.getTicketActivity(ticketId).then(setRows).catch(() => setRows([])); }, [ticketId, refreshToken]);
   if (rows === null) return <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>;
   if (rows.length === 0) return <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No activity yet.</div>;
   return (
