@@ -1,4 +1,4 @@
-// The Ticket module tour is access-based, same reasoning as the Task
+// The Ticket module tour is layout-based, same reasoning as the Task
 // module's own taskTourSteps.test.js: what it shows depends on what the
 // viewer can actually reach, so these pin the filtering rather than the
 // wording.
@@ -6,24 +6,20 @@ import { describe, it, expect, vi } from 'vitest';
 import { buildTicketTourSteps } from './ticketTourSteps';
 
 const build = (over = {}) =>
-  buildTicketTourSteps({ setScope: vi.fn(), setView: vi.fn(), canManage: false, isMobile: false, ...over });
+  buildTicketTourSteps({ setScope: vi.fn(), setView: vi.fn(), isMobile: false, ...over });
 
 const targets = (steps) => steps.map((s) => s.target);
 
 describe('buildTicketTourSteps', () => {
-  it('never shows an employee the Manage step', () => {
-    const t = targets(build({ canManage: false }));
+  it('never points at a Manage button, which does not exist in Tickets any more', () => {
+    // The module's admin surface moved to the Admin module (Sep 9 2026).
+    const t = targets(build());
     expect(t).not.toContain('ticket-manage');
   });
 
-  it('shows a manager the Manage step', () => {
-    const t = targets(build({ canManage: true }));
-    expect(t).toContain('ticket-manage');
-  });
-
-  it('gives everyone the day-to-day screens regardless of role', () => {
-    for (const canManage of [false, true]) {
-      const t = targets(build({ canManage }));
+  it('gives everyone the day-to-day screens regardless of layout', () => {
+    for (const isMobile of [false, true]) {
+      const t = targets(build({ isMobile }));
       expect(t).toEqual(expect.arrayContaining(['ticket-scope', 'ticket-body']));
     }
   });
@@ -36,7 +32,6 @@ describe('buildTicketTourSteps', () => {
     expect(t).not.toContain('ticket-views');
     expect(t).not.toContain('ticket-tiles');
     expect(t).not.toContain('ticket-toolbar');
-    expect(t).not.toContain('ticket-manage');
   });
 
   it('keeps that chrome on desktop', () => {
@@ -49,7 +44,7 @@ describe('buildTicketTourSteps', () => {
 
   it('hands GuidedTour only the shape it documents', () => {
     // `when` is our filtering mechanism, not part of GuidedTour's contract.
-    for (const step of build({ canManage: true })) {
+    for (const step of build()) {
       expect(step).not.toHaveProperty('when');
       expect(typeof step.title).toBe('string');
       expect(typeof step.body).toBe('string');
@@ -59,7 +54,7 @@ describe('buildTicketTourSteps', () => {
   });
 
   it('opens and closes on the scope tabs, so the tour ends where it started', () => {
-    const steps = build({ canManage: true });
+    const steps = build();
     expect(steps[0].target).toBe('ticket-scope');
     expect(steps[steps.length - 1].target).toBe('ticket-scope');
   });
@@ -69,16 +64,10 @@ describe('buildTicketTourSteps', () => {
     // showing a stale scope/view left over from an earlier step.
     const setScope = vi.fn();
     const setView = vi.fn();
-    const steps = buildTicketTourSteps({ setScope, setView, canManage: true, isMobile: false });
+    const steps = buildTicketTourSteps({ setScope, setView, isMobile: false });
     const first = steps[0];
     first.before();
     expect(setScope).toHaveBeenCalledWith('all');
     expect(setView).toHaveBeenCalledWith('list');
-  });
-
-  it('tells a manager and an employee different things at the end', () => {
-    const last = (canManage) => build({ canManage }).slice(-1)[0].body;
-    expect(last(true)).not.toBe(last(false));
-    expect(last(true)).toContain('Manage');
   });
 });

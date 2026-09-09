@@ -440,7 +440,7 @@ function TicketColumnsMenu({ columns, hidden, toggleHidden, cols }) {
   );
 }
 
-export default function TicketsView({ manageAction = null }) {
+export default function TicketsView() {
   // Applies any admin-saved SLA-hours / intake-field overrides (Sep 2026,
   // ticketConfig.js) on top of ticketMeta.js's compiled-in defaults, and
   // re-renders once they land - see that file for why a mutate-in-place +
@@ -451,10 +451,7 @@ export default function TicketsView({ manageAction = null }) {
   const people = usePeople();
   // For the list's own inline State/Priority dropdown (TicketRow) - mirrors
   // the drawer's canWorking gate exactly, see inlineCanWorking below.
-  const { myLevel, can } = useRole();
-  // Same gate as Tickets.jsx's own Manage button - only Manager+ sees the
-  // guided tour's admin step, matching what they can actually reach.
-  const canManage = !!can?.('manager');
+  const { myLevel } = useRole();
   // Desk membership comes from the server, not from holding administrator: the
   // roster is configured in Manage, and an agent need not be an admin at all.
   // Admins stay true so a mis-configured desk can always be fixed. Optimistic
@@ -743,7 +740,6 @@ export default function TicketsView({ manageAction = null }) {
               <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
             </span>
           )}
-          <span data-tour="ticket-manage">{manageAction}</span>
         </div>
       </div>
 
@@ -1022,7 +1018,7 @@ export default function TicketsView({ manageAction = null }) {
       {openId && <TicketDrawer ticketId={openId} onClose={() => setOpenId(null)} />}
       {tour && (
         <GuidedTour
-          steps={buildTicketTourSteps({ setScope, setView, canManage, isMobile })}
+          steps={buildTicketTourSteps({ setScope, setView, isMobile })}
           onClose={closeTour} />
       )}
     </div>
