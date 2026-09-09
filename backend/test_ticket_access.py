@@ -76,6 +76,29 @@ class TicketAccessTests(unittest.TestCase):
 
         self.assertEqual([r["subject"] for r in rows], ["my broken laptop"])
 
+    def test_mine_true_excludes_a_ticket_theyre_only_watching(self):
+        """Support's "My Open Tickets" is what THIS person raised, not
+        everything they're cc'd on - a ticket someone else filed showing up
+        there just because this person was a watcher on it read as a gap in
+        the requester scoping, not a feature (Pranshu, Sep 10 2026)."""
+        self._ticket("cc'd on someone else's", requester="other@greensglobal.com",
+                     watchers=[EMPLOYEE["email"]])
+
+        rows = T.list_tickets(mine=True, user=EMPLOYEE, db=self.db)
+
+        self.assertEqual([r["subject"] for r in rows], ["my broken laptop"])
+
+    def test_watching_still_surfaces_the_ticket_without_a_grant_and_without_mine(self):
+        """A different scope: the implicit fallback for someone with no desk
+        grant at all fetching the unscoped list - they still need to reach a
+        ticket they're only mentioned on, so that one stays generous."""
+        watched = self._ticket("cc'd on someone else's", requester="other@greensglobal.com",
+                               watchers=[EMPLOYEE["email"]])
+
+        rows = T.list_tickets(mine=False, user=EMPLOYEE, db=self.db)
+
+        self.assertIn(watched.id, [r["id"] for r in rows])
+
     def test_an_employee_can_see_the_departments_the_form_needs(self):
         """The submit form is unusable without this - "No departments to choose
         from" was the visible symptom."""
@@ -140,10 +163,33 @@ class TicketAccessTests(unittest.TestCase):
 
     # ── escalate: requester/assignee-only, not desk-gated (Sep 8 2026 - it's
     #    a distress flare to the department head, not a desk action) ─────────
-    def test_a_requester_can_escalate_their_own_ticket(self):
+    def test_a_requester_can_escalate_once_the_sla_is_breached(self):
+        self.mine.sla_due_on = "2020-01-01"   # long past
+        self.db.commit()
+
         out = T.escalate_ticket(self.mine.id, BackgroundTasks(), user=EMPLOYEE, db=self.db)
 
         self.assertEqual(out["id"], self.mine.id)
+
+    def test_a_requester_cannot_escalate_before_the_sla_is_breached(self):
+        """Sep 10 2026 (Pranshu): the requester's escalate button is a
+        distress flare for "this is overdue," not "I want to nudge someone" -
+        so it stays refused until the SLA due date has actually passed.
+        Unset entirely (self.mine's default) must refuse too, not read as
+        "no due date, so nothing to breach"."""
+        with self.assertRaises(HTTPException) as ctx:
+            T.escalate_ticket(self.mine.id, BackgroundTasks(), user=EMPLOYEE, db=self.db)
+
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_a_requester_cannot_escalate_with_a_future_due_date(self):
+        self.mine.sla_due_on = "2099-01-01"
+        self.db.commit()
+
+        with self.assertRaises(HTTPException) as ctx:
+            T.escalate_ticket(self.mine.id, BackgroundTasks(), user=EMPLOYEE, db=self.db)
+
+        self.assertEqual(ctx.exception.status_code, 403)
 
     def test_an_employee_cannot_escalate_somebody_elses_ticket(self):
         with self.assertRaises(HTTPException) as ctx:
@@ -168,6 +214,9 @@ class TicketAccessTests(unittest.TestCase):
         self.assertEqual(out["id"], self.theirs.id)
 
     def test_escalating_a_closed_ticket_is_refused(self):
+        # Checked before the requester's SLA gate (see escalate_ticket) - a
+        # closed ticket is never "breached" either way, so this must not
+        # resolve to a 403 about the SLA instead of "already closed."
         self.mine.status = "closed"
         self.db.commit()
 

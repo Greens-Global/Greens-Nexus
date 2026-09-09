@@ -2101,12 +2101,18 @@ export function TicketDrawer({ ticketId, onClose }) {
   // this lock exists to prevent.
   const canDelete = privileged || (!requesterLocked && isRequester);
   // Escalate is a distress flare, not a priority bump: it mails the ticket's
-  // department head that it needs instant care. The requester or the current
-  // assignee - the two people actually living the ticket - can raise it,
+  // department head that it needs instant care. The assignee or a manager -
+  // whoever is actually working it - can raise it any time it's open,
   // unaffected by requesterLocked (that governs editing the ticket's fields,
   // not asking for help on it) and not just whoever's working the queue.
+  // The requester is different: showing them a distress flare while the
+  // ticket is still comfortably within its SLA reads as "escalate whenever
+  // you feel like it," which is not what the button is for - so it stays
+  // hidden for them until the SLA is actually missed (Pranshu, Sep 10 2026).
   // Mirrors the server check in escalate_ticket (backend/routers/tickets.py).
-  const canEscalate = (isRequester || isAssignee || privileged) && !CLOSED_STATES.includes(t.status);
+  const slaBreached = !!(t.slaDueOn && t.slaDueOn < today());
+  const canEscalate = !CLOSED_STATES.includes(t.status)
+    && ((isRequester && slaBreached) || isAssignee || privileged);
   const patch = (p) => updateTicket(t.id, p).catch((e) => alert(`Could not update ticket: ${e.message || e}`));
   const escalate = () => {
     if (!window.confirm('Escalate this ticket? The department head will get an email that it needs urgent attention.')) return;
@@ -2135,7 +2141,7 @@ export function TicketDrawer({ ticketId, onClose }) {
     if (t.linkedTaskId === taskId) p.linkedTaskId = '';
     patch(p);
   };
-  const overdue = t.slaDueOn && t.slaDueOn < today() && !CLOSED_STATES.includes(t.status);
+  const overdue = slaBreached && !CLOSED_STATES.includes(t.status);
 
   const remove = () => {
     if (!window.confirm(`Delete ${ticketNo(t.code) || 'this ticket'}? This cannot be undone.`)) return;
