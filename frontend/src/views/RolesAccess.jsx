@@ -44,7 +44,7 @@ const FAMILIES = [
   { id: 'money',    label: 'Money',         modules: ['accounting', 'investor-relations'] },
   { id: 'field',    label: 'Field & assets', modules: ['inventory', 'property-asset', 'ops', 'operations'] },
   { id: 'growth',   label: 'Growth',        modules: ['marketing', 'development'] },
-  { id: 'adminit',  label: 'Admin & IT',    modules: ['it', 'testing', 'credvault'] },
+  { id: 'adminit',  label: 'Admin & IT',    modules: ['it', 'testing', 'credvault', 'admin-console'] },
 ].map(f => ({ ...f, modules: f.modules.filter(id => GRANTABLE.some(m => m.id === id)) }));
 
 const moduleLabel = id => MODULES.find(m => m.id === id)?.label || id;

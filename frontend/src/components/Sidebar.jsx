@@ -159,6 +159,9 @@ export const NAV = [
   // Dev-only: the item renders only when the backend says the QA module is
   // enabled (NEXUS_QA_MODULE env on dev; absent on prod).
   { view: "testing", code: "QA",        label: "Testing",        icon: FlaskConical, minRole: 'supervisor', qaGated: true },
+  // Admin - grant-driven per-module extras (Pranshu, Sep 9), separate from the
+  // header's AdminPanel modal and the search-only Nexus Access Manager.
+  { view: "admin-console", code: "ADM", label: "Admin",          icon: Settings,     minRole: 'supervisor' },
 ];
 
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
