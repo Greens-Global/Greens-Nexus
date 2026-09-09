@@ -237,9 +237,23 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     }
     setBulkBusy(true);
     let ok = 0; const fails = [];
-    for (const id of ids) {
+    // Apply in punch order (oldest first, clock-in before clock-out) so a
+    // selected pair never hits the sequence guard because its later half
+    // happened to be approved first.
+    const kindRank = { in: 0, break_start: 1, break_end: 2, out: 3 };
+    const byId = new Map(punchReqs.map(r => [r.id, r]));
+    const ordered = [...ids].sort((x, y) => {
+      const a = byId.get(x) || {}, b = byId.get(y) || {};
+      return (a.at || '').localeCompare(b.at || '') || ((kindRank[a.punchKind] ?? 9) - (kindRank[b.punchKind] ?? 9));
+    });
+    for (const id of ordered) {
+      const r = byId.get(id);
+      if (r && r.status && r.status !== 'pending') { ok += 1; continue; }   // partner already applied by an earlier approval
       try { await api.timeDecidePunchRequest(id, { status, note }); ok += 1; }
-      catch (e) { fails.push(e?.message || 'failed'); }
+      catch (e) {
+        if (/already approved/i.test(e?.message || '')) { ok += 1; continue; }
+        fails.push(e?.message || 'failed');
+      }
     }
     setBulkBusy(false);
     setSelReqs(new Set());
@@ -766,6 +780,11 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           if (!groups.has(key)) groups.set(key, { email: r.employeeEmail, name: r.employeeName || r.employeeEmail, items: [] });
           groups.get(key).items.push(r);
         });
+        // Oldest first within a person, clock-in before clock-out at equal times:
+        // approving top-down then follows the punch sequence (the server also
+        // pulls in a pending partner when the later half is approved first).
+        const kindRank = { in: 0, break_start: 1, break_end: 2, out: 3 };
+        groups.forEach(g => g.items.sort((a, b) => (a.at || '').localeCompare(b.at || '') || ((kindRank[a.punchKind] ?? 9) - (kindRank[b.punchKind] ?? 9))));
         const people = [...groups.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         const visibleIds = visible.map(r => r.id);
         const selected = visibleIds.filter(id => selReqs.has(id));
