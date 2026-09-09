@@ -1,7 +1,7 @@
 // Ticket module guided tour - same shape and purpose as the Task module's
 // (tasks/taskTourSteps.js): a step list built from what the viewer can
 // actually reach, filtered by a `when` predicate before GuidedTour ever sees
-// it, so someone below Manager isn't shown a Manage button that isn't there.
+// it, so a step never spotlights chrome that doesn't exist on this layout.
 //
 // Rendered by GuidedTour (components/GuidedTour.jsx) via TicketsView, which
 // spotlights [data-tour="<target>"]. This file only decides WHAT to say and
@@ -11,15 +11,18 @@
 //   target - the data-tour value to spotlight; null centers the card
 //   before - run before locating the element (switch scope/view, …)
 //   when   - OUR addition, filtered out here so GuidedTour never sees it
+//
+// No Manage step: the module's admin surface moved to the Admin module in
+// full (Pranshu, Sep 9 2026) - there is no Manage button left in Tickets to
+// point at.
 
 /**
  * @param {object} ctx
  * @param {(k: string) => void} ctx.setScope   switch the scope tab (all/mine/assigned/…)
  * @param {(k: string) => void} ctx.setView    switch the List/Board/Reports view
- * @param {boolean}             ctx.canManage  viewer holds Manager or above
  * @param {boolean}             ctx.isMobile   phone layout (toolbar/tiles are hidden)
  */
-export function buildTicketTourSteps({ setScope, setView, canManage, isMobile }) {
+export function buildTicketTourSteps({ setScope, setView, isMobile }) {
   const steps = [
     {
       target: 'ticket-scope',
@@ -61,21 +64,11 @@ export function buildTicketTourSteps({ setScope, setView, canManage, isMobile })
     },
   ];
 
-  // ── Manager and above ────────────────────────────────────────────────
-  steps.push({
-    target: 'ticket-manage',
-    when: () => canManage && !isMobile,
-    title: 'Manage is the admin side',
-    body: 'Only Managers and above see this button. It configures the module itself - notification rules and desk setup - not any one ticket.',
-  });
-
   steps.push({
     target: 'ticket-scope',
     before: () => { setScope('all'); setView('list'); },
     title: 'That is the tour',
-    body: canManage
-      ? 'Day to day you will be in All, My Requests or Assigned to Me, working tickets straight from the list. Manage is there when the module itself needs changing. You can run this again any time from the profile menu\'s Tour row.'
-      : 'Day to day you will be in All, My Requests or Assigned to Me, working tickets straight from the list. You can run this again any time from the profile menu\'s Tour row.',
+    body: 'Day to day you will be in All, My Requests or Assigned to Me, working tickets straight from the list. You can run this again any time from the profile menu\'s Tour row.',
   });
 
   // `when` is ours, not GuidedTour's - strip it so the component only ever
