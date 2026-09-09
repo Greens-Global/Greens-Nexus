@@ -81,6 +81,12 @@ async def report_trial_balance(from_: str = Query(alias="from"), to: str = Query
     return await _acct_get("/api/internal/reports/trial-balance", {"from": from_, "to": to, "location": location})
 
 
+@router.get("/reports/cash-position")
+async def report_cash_position(asof: str | None = None, location: str | None = None):
+    """Bank and cash account balances as of an ISO date (today by default), optionally for one entity."""
+    return await _acct_get("/api/internal/reports/cash-position", {"asof": asof, "location": location})
+
+
 # ── Single sign-on into the accounting app (Nexus is the access authority) ──
 # Nobody gets a password on accounting.greensglobal.com. Holding the Nexus
 # "accounting" grant (or an administrator+ role, which bypasses grants app-wide)
