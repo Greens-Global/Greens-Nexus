@@ -28,6 +28,7 @@ from routers.task_util import now_iso, gen_id, log_activity, task_notify, extrac
 from ticket_code import TICKET_CODE_DIGITS, ticket_no
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents, all_agents)
+import ticket_taxonomy
 import ticket_mail_templates as tmpl
 from app_url import app_url
 
@@ -55,16 +56,16 @@ require_ticket_desk = require_any_module_grant("tasks", "tickets")
 
 
 # ── SLA policy - the due date is DERIVED from priority, not chosen freely.
-# Mirrors SLA_TARGET_HOURS in frontend/src/tickets/ticketMeta.js - keep the two
-# in step. The server is authoritative: create_ticket always computes its own
+# Target hours are admin-configurable (ticket_taxonomy.py, Sep 2026 - was a
+# hardcoded dict here, mirrored by a second hardcoded copy in
+# frontend/src/tickets/ticketMeta.js that the two had to be kept in step by
+# hand). The server is authoritative: create_ticket always computes its own
 # value (never trusts body.sla_due_on), and update_ticket recomputes it
 # whenever priority changes to a new value in a request that doesn't ALSO set
 # sla_due_on explicitly in the same request (that's a manual override via the
 # drawer's own DateField editor, and stays respected as-is). ──
-_SLA_TARGET_HOURS = {"urgent": 24, "high": 48, "medium": 72, "low": 168}
 
-
-def _sla_due_from_priority(created_at_iso: str, priority: str) -> str:
+def _sla_due_from_priority(db: Session, created_at_iso: str, priority: str) -> str:
     """created_at + the priority's target hours, as a YYYY-MM-DD date string -
     sla_due_on is stored and compared as a plain date everywhere else (see
     _sla_breached, ticket_to_dict), never a datetime."""
@@ -72,7 +73,7 @@ def _sla_due_from_priority(created_at_iso: str, priority: str) -> str:
         start = datetime.fromisoformat((created_at_iso or now_iso()).replace("Z", "+00:00"))
     except ValueError:
         start = datetime.fromisoformat(now_iso())
-    hours = _SLA_TARGET_HOURS.get(priority, _SLA_TARGET_HOURS["medium"])
+    hours = ticket_taxonomy.sla_hours(db, priority)
     return (start + timedelta(hours=hours)).date().isoformat()
 
 
@@ -532,7 +533,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         # Always derived from priority, never taken from the payload (see
         # _sla_due_from_priority) - the frontend's own slaDueFromPriority call
         # at submit time is just a same-request UI preview.
-        sla_due_on=_sla_due_from_priority(now, body.priority or "medium"), resolved_at="", created_at=now, modified_at=now,
+        sla_due_on=_sla_due_from_priority(db, now, body.priority or "medium"), resolved_at="", created_at=now, modified_at=now,
     )
     # Approval gate, decided by the TYPE and never trusted from the client, so a
     # caller cannot post approval_status="approved" to skip it.
@@ -679,7 +680,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # ALSO set sla_due_on explicitly (the drawer's manual DateField editor),
     # which is respected as-is and never silently overridden.
     if "priority" in data and t.priority != prev_priority and "sla_due_on" not in data:
-        t.sla_due_on = _sla_due_from_priority(t.created_at, t.priority)
+        t.sla_due_on = _sla_due_from_priority(db, t.created_at, t.priority)
     if data.get("status") in ("resolved", "closed") and not t.resolved_at:
         t.resolved_at = now_iso()
     if data.get("status") not in ("resolved", "closed") and "status" in data:
@@ -1367,6 +1368,17 @@ def get_ticket_notify_settings(user: dict = Depends(require_manager), db: Sessio
 @router.put("/task-tickets/notify/settings", dependencies=[Depends(require_ticket_desk)])
 def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     return save_notify_settings(db, patch, user["email"])
+
+
+# ── Taxonomy settings (admin): SLA target hours + per-type intake fields ──────
+@router.get("/task-tickets/taxonomy/settings")
+def get_ticket_taxonomy_settings(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    return ticket_taxonomy.get_config(db)
+
+
+@router.put("/task-tickets/taxonomy/settings")
+def put_ticket_taxonomy_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    return ticket_taxonomy.save_config(db, patch, user["email"])
 
 
 @router.get("/task-tickets/notify/log", dependencies=[Depends(require_ticket_desk)])
