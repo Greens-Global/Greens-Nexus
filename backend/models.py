@@ -1750,6 +1750,14 @@ class LiveSession(Base):
     control_responded_at   = Column(String, default="")   # accept/decline moment
     control_ended_at       = Column(String, default="")
     control_ended_reason   = Column(String, default="")   # employee_ended | viewer_ended | declined | request_expired | session_ended
+    # '' (default) = ongoing disclosed monitoring, view starts immediately -
+    # the Workforce Analytics roster's model. 'assist' (Sep 9, ticket-launched
+    # "Screen Share") = consent-first: no view at all until the employee
+    # accepts a control prompt shown the instant their agent picks this
+    # session up, and the whole session ends the moment control does - never
+    # falls back to a passive view. See live_request/agent_live_pending in
+    # routers/timeclock.py and desktop-agent/src/live.js.
+    purpose                = Column(String, default="")
 
 
 class Shift(Base):
