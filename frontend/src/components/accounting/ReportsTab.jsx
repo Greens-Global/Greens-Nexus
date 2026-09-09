@@ -14,6 +14,7 @@ const REPORTS = [
   { key: 'pnl', label: 'Profit & Loss', period: 'range' },
   { key: 'balance-sheet', label: 'Balance Sheet', period: 'asof' },
   { key: 'trial-balance', label: 'Trial Balance', period: 'range' },
+  { key: 'cash-position', label: 'Cash Position', period: 'asof' },
 ];
 
 const PRESETS = [
@@ -93,7 +94,9 @@ export default function ReportsTab() {
       ? api.getAccountingPnl(from, to, entity || undefined)
       : report === 'balance-sheet'
         ? api.getAccountingBalanceSheet(asof, entity || undefined)
-        : api.getAccountingTrialBalance(from, to, entity || undefined);
+        : report === 'cash-position'
+          ? api.getAccountingCashPosition(asof, entity || undefined)
+          : api.getAccountingTrialBalance(from, to, entity || undefined);
     call.then((d) => setData({ report, ...d }))
       .catch((e) => { setData(null); setError(e?.message || 'Could not load the report.'); })
       .finally(() => setLoading(false));
@@ -142,6 +145,10 @@ export default function ReportsTab() {
       rows.push(['Section', 'Account', 'Title', 'Balance']);
       data.sections.forEach((s) => { s.accounts.forEach((a) => rows.push([s.label, a.account_no, a.title, a.amount])); rows.push([`Total ${s.label}`, '', '', s.total]); });
       rows.push(['Total Liabilities and Equity', '', '', data.totals.liabilities_and_equity]);
+    } else if (data.report === 'cash-position') {
+      rows.push(['Account', 'Title', 'Balance', 'Last Activity']);
+      data.accounts.forEach((a) => rows.push([a.gl_code, a.account_name, a.balance, a.last_activity ? formatDate(a.last_activity) : '']));
+      rows.push(['Total Cash', '', data.total, '']);
     } else {
       rows.push(['Account', 'Title', 'Type', 'Opening', 'Debit', 'Credit', 'Closing']);
       data.rows.forEach((r) => rows.push([r.account_no, r.title, r.type, r.opening, r.debit, r.credit, r.closing]));
@@ -215,7 +222,7 @@ export default function ReportsTab() {
                 {data.org} · {entityName(entity)} · {periodLabel} · accrual{loading ? ' · refreshing' : ''}
               </div>
             </div>
-            {data.report !== 'trial-balance' && (
+            {data.report !== 'trial-balance' && data.report !== 'cash-position' && (
               <button type="button" className="secondary-btn" style={{ fontSize: '0.75rem', padding: '4px 10px' }} onClick={() => setShowAccounts((v) => !v)}>
                 {showAccounts ? 'Hide Accounts' : 'Show Accounts'}
               </button>
@@ -223,7 +230,28 @@ export default function ReportsTab() {
           </div>
 
           <div className="req-table-wrapper">
-            {data.report === 'trial-balance' ? (
+            {data.report === 'cash-position' ? (
+              <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                <thead>
+                  <tr><th>Account</th><th>Title</th><th style={{ textAlign: 'right' }}>Balance</th><th>Last Activity</th></tr>
+                </thead>
+                <tbody>
+                  {data.accounts.map((a) => (
+                    <tr key={a.gl_code}>
+                      <td style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>{a.gl_code}</td>
+                      <td>{a.account_name}</td>
+                      <td style={{ textAlign: 'right', color: a.balance < 0 ? 'var(--bad-fg, #dc2626)' : undefined }}>{money(a.balance)}</td>
+                      <td style={{ color: 'var(--text-secondary)' }}>{a.last_activity ? formatDate(a.last_activity) : '-'}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ fontWeight: 800, borderTop: '2px solid var(--border-color)', fontSize: '1.02rem' }}>
+                    <td colSpan={2}>Total Cash as of {formatDate(asof)}</td>
+                    <td style={{ textAlign: 'right', color: data.total >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' }}>{money(data.total)}</td>
+                    <td />
+                  </tr>
+                </tbody>
+              </table>
+            ) : data.report === 'trial-balance' ? (
               <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
                 <thead>
                   <tr><th>Account</th><th>Title</th><th style={{ textAlign: 'right' }}>Opening</th><th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th><th style={{ textAlign: 'right' }}>Closing</th></tr>

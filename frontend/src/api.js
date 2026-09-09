@@ -967,6 +967,8 @@ export const api = {
     req(`/accounting/reports/balance-sheet?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
   getAccountingTrialBalance: (from, to, location) =>
     req(`/accounting/reports/trial-balance?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
+  getAccountingCashPosition: (asof, location) =>
+    req(`/accounting/reports/cash-position?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
   // One-time sign-in URL for accounting.greensglobal.com - Nexus is the only
   // way in there (no passwords). Open the returned url immediately.
   launchAccounting: (next) => req(`/accounting/launch${next ? `?next=${encodeURIComponent(next)}` : ""}`, { method: "POST" }),
