@@ -1382,21 +1382,22 @@ def put_ticket_taxonomy_settings(patch: dict, user: dict = Depends(require_manag
 
 
 @router.get("/task-tickets/notify/log", dependencies=[Depends(require_ticket_desk)])
-def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 200,
+def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 20, offset: int = 0,
                           user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     q = db.query(models.TicketEmailLog)
     if ticket_id:
         q = q.filter(models.TicketEmailLog.ticket_id == ticket_id)
     if status:
         q = q.filter(models.TicketEmailLog.status == status)
-    rows = q.order_by(models.TicketEmailLog.created_at.desc()).limit(min(limit, 500)).all()
-    return [{
+    total = q.count()
+    rows = q.order_by(models.TicketEmailLog.created_at.desc()).offset(offset).limit(min(limit, 500)).all()
+    return {"rows": [{
         "id": r.id, "ticketId": r.ticket_id, "ticketCode": r.ticket_code, "eventType": r.event_type,
         "eventVersion": r.event_version, "recipient": r.recipient, "recipientRole": r.recipient_role,
         "subject": r.subject, "status": r.status, "graphMessageId": r.graph_message_id,
         "conversationId": r.conversation_id, "attempts": r.attempts, "error": r.error,
         "createdAt": r.created_at, "updatedAt": r.updated_at,
-    } for r in rows]
+    } for r in rows], "total": total}
 
 
 @router.get("/task-tickets/notify/teams-log", dependencies=[Depends(require_ticket_desk)])
