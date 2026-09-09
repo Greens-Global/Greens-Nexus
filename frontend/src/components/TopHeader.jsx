@@ -590,6 +590,14 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                   <PlayCircle size={14} /> Tour
                 </button>
               )}
+              {/* Support page's own guided walkthrough - same pattern as the
+                  Task/Ticket rows above, gated on activeView === 'support' and
+                  firing Support.jsx's own nexus:support-tour. */}
+              {activeView === 'support' && (
+                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:support-tour')); }}>
+                  <PlayCircle size={14} /> Tour
+                </button>
+              )}
 
               {/* Act As (Jul 2026): visible to Manager/IT Admin/Global Admin (or an
                   'act-as' Access Group grant). Exit is always shown while a session
