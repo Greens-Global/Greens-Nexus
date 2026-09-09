@@ -156,18 +156,24 @@ export default function LiveView({ email, name, onClose, assist = false }) {
     // break, walked away, or the connection dropped), tear down and keep trying to
     // reconnect on a timer. The moment they're back and their agent is capturing,
     // begin() succeeds and the video resumes - the admin never has to reload.
-    // NOT for assist (consent-first, ticket-launched Screen Share): the whole
-    // point is no fallback to a passive/reconnecting state, so any failure
-    // just closes the modal instead of retrying in the background.
+    // NOT for assist (consent-first, ticket-launched Screen Share): it never
+    // retries in the background - but it still SHOWS the reason (offline,
+    // reconnecting, etc, via the normal `overlay` states below) for `delay`
+    // first, instead of closing the instant something fails with nothing
+    // displayed. That bug looked exactly like the modal "shows the popup for
+    // 3 seconds and then disappears" (Pranshu, Sep 9, watching a recording
+    // of it) with no way to tell "they didn't respond" apart from "their
+    // agent isn't even online" - it was closing on `onClose()` before ever
+    // calling `setStatus`, so the overlay never updated from the initial
+    // 'connecting' text.
     const scheduleRetry = (statusText, delay = 4000) => {
       if (cancelled) return;
-      if (assist) { onClose(); return; }
       closePc();
       sid = null; sidRef.current = null;
       setControl('');
       setStatus(statusText);
       clearTimer();
-      timer = setTimeout(begin, delay);
+      timer = setTimeout(assist ? onClose : begin, delay);
     };
 
     async function begin() {
@@ -255,9 +261,21 @@ export default function LiveView({ email, name, onClose, assist = false }) {
       }
       if (cancelled) return;
       if (r.state === 'ended') {
+        const reason = r.endedReason || '';
+        if (assist) {
+          // Distinct reasons so "they said no" / "they never answered" /
+          // "they ended it" don't all collapse into the same generic
+          // "offline" text - see routers/timeclock.py's assist_declined /
+          // request_expired / assist_ended.
+          scheduleRetry(
+            reason === 'assist_declined' ? 'declined'
+              : reason === 'request_expired' ? 'no_response'
+              : reason === 'assist_ended' ? 'ended'
+              : reason.indexOf('on_break') >= 0 ? 'break' : 'offline');
+          return;
+        }
         // subject_on_break -> frozen frame + "On break"; anything else
         // (subject_offline, agent_lost, locked PC) -> offline. Both self-heal.
-        const reason = r.endedReason || '';
         scheduleRetry(reason.indexOf('on_break') >= 0 ? 'break' : 'offline');
         return;
       }
@@ -580,14 +598,28 @@ export default function LiveView({ email, name, onClose, assist = false }) {
   // instead of the generic "Connecting…", and never show anything ONCE
   // active either - that path renders exactly like the normal controlling
   // UI below, gated the same way.
+  const firstName = name.split(' ')[0];
   const overlay = (assist && control === 'requested' && !controlling)
-    ? { text: `Waiting for ${name.split(' ')[0]} to accept…`, sub: 'Nothing is visible until they accept - this closes automatically if they decline or don’t respond.', color: 'var(--muted)', spin: true }
-    : status === 'break'
-    ? { text: 'On break', sub: 'Screen paused while this person is on break. Resumes automatically when they’re back.', color: 'hsl(var(--color-orange))' }
+    ? { text: `Waiting for ${firstName} to accept…`, sub: 'Nothing is visible until they accept - this closes automatically if they decline or don’t respond.', color: 'var(--muted)', spin: true }
+    // The assist-only ended-reasons below all close the modal after showing
+    // this (see scheduleRetry) - each gets its own text instead of
+    // collapsing into the generic monitor-mode "Offline"/"Reconnecting"
+    // wording, which read as a dead end rather than something that just
+    // closed on purpose.
+    : assist && status === 'declined'
+      ? { text: 'Declined', sub: `${firstName} declined the request. Closing…`, color: 'hsl(var(--color-red))' }
+      : assist && status === 'no_response'
+        ? { text: 'No response', sub: `${firstName} didn’t respond in time. Closing - you can request again.`, color: 'var(--muted)' }
+        : assist && status === 'ended'
+          ? { text: 'Session ended', sub: `${firstName} ended the session. Closing…`, color: 'var(--muted)' }
+          : assist && status === 'offline'
+            ? { text: 'Not reachable', sub: `${firstName}’s device is offline or unreachable right now. Closing - try again once they’re back.`, color: 'var(--muted)' }
+            : status === 'break'
+    ? { text: 'On break', sub: assist ? `${firstName} is on break right now. Closing - try again once they're back.` : 'Screen paused while this person is on break. Resumes automatically when they’re back.', color: 'hsl(var(--color-orange))' }
     : status === 'offline'
       ? { text: 'Offline', sub: 'Their screen is locked or the agent is unreachable. Reconnects automatically the moment they’re back.', color: 'var(--muted)' }
       : status === 'reconnecting'
-        ? { text: 'Reconnecting…', sub: 'The connection dropped (locked PC or network). This resumes on its own - no need to reload.', color: 'var(--muted)', spin: true }
+        ? { text: assist ? 'Could not reach them' : 'Reconnecting…', sub: assist ? 'Closing…' : 'The connection dropped (locked PC or network). This resumes on its own - no need to reload.', color: 'var(--muted)', spin: !assist }
         : status === 'error'
           ? { text: 'Could not connect', sub: 'Live view is unavailable right now.', color: 'hsl(var(--color-red))' }
           : status === 'connecting'
