@@ -283,19 +283,35 @@ function TicketFilterMenu({
   serviceAreaFilter, setServiceAreaFilter,
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useClickOutside(ref, () => setOpen(false), open);
+  // Not useClickOutside: every filter here is a TicketSelect, which renders
+  // its own dropdown to a document.body portal (SelectMenu) - a containment
+  // check against this component's own ref sees a click on any option as
+  // "outside" (the portal node isn't a DOM descendant of it) and closed the
+  // WHOLE panel on mousedown, before the option's own click handler ever
+  // ran, so nothing you picked ever applied (Pranshu, Sep 9 - "the filter
+  // button... is not functional"). A full-screen backdrop that only closes
+  // on a direct click on ITSELF - the same technique MoreMenu below already
+  // uses successfully with its own portaled "Group by" select - has no such
+  // false positive, since a portal click never bubbles through it.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
   const active = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter].filter((v) => v !== 'all').length;
   const rowStyle = { width: '100%' };
   const wrap = { marginBottom: 10 };
   const lab = { ...label, fontSize: 12 };
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div style={{ position: 'relative' }}>
       <button onClick={() => setOpen((o) => !o)} title="Filters" style={{ ...btn('outline'), borderColor: active ? NX.blue : NX.border, color: active ? NX.blue : NX.ink }}>
         <SlidersHorizontal size={15} /> Filters{active ? ` (${active})` : ''}
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 260, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, padding: 12 }}>
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 260, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 41, padding: 12 }}>
           <div style={wrap}>
             <label style={lab}>Status</label>
             <TicketSelect value={statusFilter} onChange={setStatusFilter} options={statusFilterOptions()} style={rowStyle} />
@@ -330,7 +346,8 @@ function TicketFilterMenu({
             <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); setServiceAreaFilter('all'); }}
               style={{ ...btn('ghost'), width: '100%', justifyContent: 'center', color: NX.red, fontSize: 12.5 }}>Clear filters</button>
           )}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );
@@ -439,7 +456,7 @@ export default function TicketsView({ manageAction = null }) {
     let alive = true;
     // onDesk, not canAct: the queues are shown to the people whose work they
     // are. An administrator who was not picked in Manage can still act on a
-    // ticket, but "To Assign" is not their inbox - and they are not notified
+    // ticket, but "To Route" is not their inbox - and they are not notified
     // about those tickets either, so showing them the queue would contradict
     // their own bell.
     api.getMyTicketAccess()
@@ -448,8 +465,8 @@ export default function TicketsView({ manageAction = null }) {
     return () => { alive = false; };
   }, []);
   const isMobile = useIsMobile();
-  // HR departments carry the triage lead/backup; used for the Triage scope and the
-  // department filter. Loaded here rather than in context - tickets are the only
+  // HR departments carry the triage lead/backup; used for the department
+  // filter. Loaded here rather than in context - tickets are the only
   // consumer today.
   const [hrDepts, setHrDepts] = useState([]);
   useEffect(() => { api.getTicketDepartments().then(setHrDepts).catch(() => setHrDepts([])); }, []);
@@ -458,16 +475,6 @@ export default function TicketsView({ manageAction = null }) {
   useEffect(() => { api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([])); }, []);
   const companyName = (id) => companies.find((c) => c.id === id)?.name || '';
   const hrDeptName = (id) => hrDepts.find((d) => d.id === id)?.name || '';
-  // Badge on the Triage tab - counts the whole queue, not the filtered view, so it
-  // doesn't shrink as you narrow other filters. The queue belongs to the IT Admin
-  // desk, irrespective of department: it used to be scoped to the departments you
-  // lead, which put a ticket in front of whoever it was ABOUT rather than whoever
-  // resolves it. Requests still awaiting approval are excluded - they can't be
-  // assigned yet and live in To Route.
-  const triageCount = useMemo(() => (itAdmin
-    ? tickets.filter((t) => !t.assigneeId && t.approvalStatus !== 'pending'
-        && !CLOSED_STATES.includes(t.status)).length
-    : 0), [tickets, itAdmin]);
   // Requests parked on my approval - same reasoning: count the queue, not the view.
   const approvalCount = useMemo(() => {
     const me = (myEmail || '').toLowerCase();
@@ -481,7 +488,7 @@ export default function TicketsView({ manageAction = null }) {
   const routeCount = useMemo(() => (itAdmin
     ? tickets.filter((t) => t.approvalStatus === 'pending' && !t.approverId).length
     : 0), [tickets, itAdmin]);
-  const [scope, setScope] = useState('all');   // all | mine (requester) | assigned | triage | approve | route
+  const [scope, setScope] = useState('all');   // all | mine (requester) | assigned | approve | route
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
@@ -584,10 +591,6 @@ export default function TicketsView({ manageAction = null }) {
     return tickets.filter((t) => {
       if (scope === 'mine' && (t.requesterId || '').toLowerCase() !== me) return false;
       if (scope === 'assigned' && (t.assigneeId || '').toLowerCase() !== me) return false;
-      // Triage queue: everything unassigned and approved - the work the IT Admin
-      // desk is notified about and expected to hand out.
-      if (scope === 'triage' && ((t.assigneeId || '') || t.approvalStatus === 'pending'
-        || CLOSED_STATES.includes(t.status))) return false;
       // Approval queue: requests parked on my decision.
       if (scope === 'approve' && !(t.approvalStatus === 'pending'
         && (t.approverId || '').toLowerCase() === me)) return false;
@@ -714,7 +717,6 @@ export default function TicketsView({ manageAction = null }) {
         <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '0 12px 8px', overflowX: 'auto' }}>
           {[['all', 'All'], ['mine', 'Mine'], ['assigned', 'Assigned'],
             ...(routeCount > 0 ? [['route', `To Route (${routeCount})`]] : []),
-            ...(itAdmin ? [['triage', `To Assign${triageCount ? ` (${triageCount})` : ''}`]] : []),
             ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
             <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
           ))}
@@ -730,7 +732,6 @@ export default function TicketsView({ manageAction = null }) {
             <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '8px 0', overflowX: 'auto', flexShrink: 1, minWidth: 0 }}>
               {[['all', 'All'], ['mine', 'My Requests'], ['assigned', 'Assigned to Me'],
                 ...(routeCount > 0 ? [['route', `To Route (${routeCount})`]] : []),
-                ...(itAdmin ? [['triage', `To Assign${triageCount ? ` (${triageCount})` : ''}`]] : []),
                 ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
                 <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
               ))}
@@ -809,7 +810,7 @@ export default function TicketsView({ manageAction = null }) {
             {/* Every tile counts the WHOLE workspace, so every tile clears the
                 scope on the way in - otherwise a card reading 4 opens a list of
                 1 because "My Requests" was still selected, and the number looks
-                broken. (To assign is itself a scope, so it sets one instead.) */}
+                broken. */}
             {tile('Open', 'rgba(9,152,195,0.14)', '#0998c3', openCount, 'not yet resolved',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'open' ? 'all' : 'open'); },
               statusFilter === 'open')}
@@ -821,8 +822,6 @@ export default function TicketsView({ manageAction = null }) {
               unassignedCount > 0 ? NX.red : '#7c3aed', unassignedCount, 'nobody working them',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
               statusFilter === 'unassigned')}
-            {itAdmin && tile('To assign', 'rgba(217,119,6,0.15)', NX.amber, triageCount, 'waiting for triage',
-              () => setScope('triage'), scope === 'triage')}
             {tile('SLA breached', 'rgba(220,38,38,0.12)', NX.red, breachedCount, 'past their target',
               () => { setScope('all'); setStatusFilter('all'); setSlaFilter(slaFilter === 'breached' ? 'all' : 'breached'); },
               slaFilter === 'breached')}
