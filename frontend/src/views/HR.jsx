@@ -3298,7 +3298,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   );
 }
 
-function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, toastErr, scoped = false }) {
+export function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, toastErr, scoped = false }) {
   const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '', domains: '', manager_email: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [f, setF] = useState(blank);
@@ -4022,7 +4022,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
 }
 
 // ── Work sites registry (HR Section A - geofence foundation for Time Clock) ───
-function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr }) {
+export function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr }) {
   const blank = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, company: '', notes: '' };
   const [mode, setMode] = useState(null);
   const [f, setF] = useState(blank);

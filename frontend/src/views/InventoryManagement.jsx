@@ -4815,7 +4815,7 @@ const CUSTOM_FIELD_TYPE_OPTS = [
 ];
 // Manager-curated item types (Neil): managers extend the list here; a CSV import
 // can never invent a type, so people can't spray in ridiculous ones by convenience.
-function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast }) {
+export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast }) {
   const [list, setList] = useState(types);
   const [newType, setNewType] = useState('');
   const [busy, setBusy] = useState(false);
@@ -4890,7 +4890,7 @@ function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast }) {
   );
 }
 
-function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
+export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
   useEscapeKey(onClose);
   const [label,      setLabel]      = useState('');
   const [fieldType,  setFieldType]  = useState('text');
@@ -5113,7 +5113,7 @@ function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
 }
 
 // ── Send Alert Modal ──────────────────────────────────────────────────────────
-function SendAlertModal({ onClose, toast }) {
+export function SendAlertModal({ onClose, toast }) {
   useEscapeKey(onClose);
   const { accounts } = useMsal();
   const senderName  = cleanName(accounts[0]?.name ?? 'Manager');
