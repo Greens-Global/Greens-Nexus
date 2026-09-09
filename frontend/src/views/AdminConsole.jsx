@@ -289,8 +289,13 @@ export default function AdminConsole({ activeSub, onSubChange }) {
   const topTab = activeSub === 'access' ? 'access' : 'settings';
   const setTopTab = (id) => onSubChange ? onSubChange(id) : undefined;
 
+  // Full-bleed, like every other module (HR, Item Management, Tickets) - no
+  // maxWidth cap or extra padding of its own. .viewport (App.jsx) already
+  // supplies the edge margin; a centered ~1100px column here just wasted the
+  // rest of a wide monitor and forced a lot of scrolling on the bigger
+  // embedded panels (Pranshu, Sep 9).
   return (
-    <div style={{ padding: '28px 32px 60px', fontFamily: 'Inter, sans-serif', maxWidth: topTab === 'access' ? 1280 : 1100, margin: '0 auto' }}>
+    <div style={{ fontFamily: 'Inter, sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
         <div style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
           <Settings2 size={18} style={{ color: 'var(--ink)' }} />
