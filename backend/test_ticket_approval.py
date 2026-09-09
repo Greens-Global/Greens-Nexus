@@ -72,13 +72,13 @@ class _Case(unittest.TestCase):
         # NexusSetting included deliberately: the desk roster lives there, and a
         # class that configures one would otherwise leave it set for every test
         # that runs after it.
-        for m in (models.NexusEmployee, models.HrDepartment, models.TaskTicket,
+        for m in (models.NexusEmployee, models.TicketDepartment, models.TaskTicket,
                   models.NexusRole, models.TaskNotification, models.TaskActivity,
                   models.NexusSetting):
             self.db.query(m).delete()
         self.db.commit()
-        self.dept = models.HrDepartment(id=str(uuid.uuid4()), company_id="co", name="IT",
-                                        lead_email=LEAD, backup_email="")
+        self.dept = models.TicketDepartment(id=str(uuid.uuid4()), company_id="co", name="IT",
+                                            lead_email=LEAD, backup_email="")
         self.db.add(self.dept)
         for email in (ADMIN, OTHER_ADMIN):
             self.db.add(models.NexusRole(email=email, role="administrator"))

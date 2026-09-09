@@ -1291,6 +1291,31 @@ class HrDepartment(Base):
     created_at = Column(String, default="")
 
 
+class TicketDepartment(Base):
+    """A department for TICKET ROUTING ONLY - deliberately its own table, not
+    HrDepartment. Ticket departments used to be the exact same rows an
+    employee picks as their own HR department, so renaming or deleting one to
+    fix ticket routing silently changed what showed on a person's profile,
+    and vice versa (Pranshu, Sep 10 2026: "I don't want department connection
+    between people department and ticket department... i have the choice to
+    delete and add the departments for ticket and that shouldn't impact
+    people department"). Seeded once, at migration time, from whatever
+    HrDepartment rows already existed - same ids, so every ticket's existing
+    hr_department_id keeps resolving without a data migration on
+    task_tickets itself. After that seed, the two lists are fully
+    independent: add/rename/delete here never touches People, or vice versa.
+    New table - create_all builds it, no ALTER TABLE column migration needed
+    (the one-time seed lives in main.py's migration step instead)."""
+    __tablename__ = "ticket_departments"
+    id           = Column(String, primary_key=True)   # uuid
+    company_id   = Column(String, nullable=False)     # HrEntity.id this department belongs to
+    name         = Column(String, nullable=False)
+    sort_order   = Column(Integer, default=0)
+    # Same triage-escalation fields as HrDepartment's, independent copies.
+    lead_email   = Column(String, default="")
+    backup_email = Column(String, default="")
+
+
 class HrWorkSite(Base):
     """A physical work site (HR Section A) - used later for geofenced time-clock
     validation. lat/long + radius define the geofence."""

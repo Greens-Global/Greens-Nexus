@@ -1105,6 +1105,9 @@ def _run_migrations():
         # by hand on prod and dev the same night. Kept here so a fresh database
         # never exposes it to the anon key.
         "ALTER TABLE task_project_bookmarks ENABLE ROW LEVEL SECURITY",
+        # New table (Sep 10 2026 - ticket departments forked off HrDepartment,
+        # see the startup seed in lifespan()): same recurring create_all gap.
+        "ALTER TABLE ticket_departments ENABLE ROW LEVEL SECURITY",
         # An emailed reply is matched back to its task by threading header when
         # the signed reply address didn't survive the round trip - the lookup is
         # per inbound message, so it needs the index.
@@ -1707,6 +1710,35 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] letterhead seed skipped: {e}")
+    # Ticket departments used to BE the HrDepartment rows - fork the list once
+    # (Pranshu, Sep 10 2026: ticket departments must never be linked to People
+    # departments again). Same ids, so every ticket's existing hr_department_id
+    # keeps resolving with no change to task_tickets itself; after this one-time
+    # copy the two tables are independent - add_ticket_department/
+    # update_ticket_department/delete_ticket_department (routers/tickets.py)
+    # only ever touch ticket_departments. Guarded on the new table being empty,
+    # so this never re-copies (or resurrects a deleted ticket department) on a
+    # later boot.
+    try:
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            if not db.query(models.TicketDepartment).first():
+                copied = 0
+                for d in db.query(models.HrDepartment).all():
+                    db.add(models.TicketDepartment(
+                        id=d.id, company_id=d.company_id, name=d.name,
+                        sort_order=d.sort_order, lead_email=d.lead_email or "",
+                        backup_email=d.backup_email or "",
+                    ))
+                    copied += 1
+                if copied:
+                    db.commit()
+                    print(f"[startup] ticket_departments seeded from hr_departments ({copied} rows)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] ticket_departments seed skipped: {e}")
     # Asana sync fallback poll (webhooks handle real-time; this is the safety net).
     try:
         from asana_sync import start_auto_pull, is_sync_worker

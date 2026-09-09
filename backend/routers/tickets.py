@@ -765,7 +765,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     if (t.description or "") != prev_description:
         _log("description_changed", "updated the description")
     if t.hr_department_id != prev_dept:
-        name = db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first() if t.hr_department_id else None
+        name = db.query(models.TicketDepartment).filter(models.TicketDepartment.id == t.hr_department_id).first() if t.hr_department_id else None
         _log("department_changed", f"changed department to {name.name if name else '-'}")
     if t.company_id != prev_company:
         c = db.query(models.HrEntity).filter(models.HrEntity.id == t.company_id).first() if t.company_id else None
@@ -1044,21 +1044,25 @@ def list_ticket_departments(mine: bool = False, user: dict = Depends(get_current
     Intake no longer asks which company a ticket belongs to - a person works for
     one, the server knows which, and picking it was a question with exactly one
     right answer that a requester could still get wrong. Default is unchanged so
-    the agent queue and Manage keep seeing every department."""
-    q = db.query(models.HrDepartment)
+    the agent queue and Manage keep seeing every department.
+
+    Reads ticket_departments, NOT hr_departments - see TicketDepartment's
+    docstring in models.py. The two were forked apart Sep 10 2026; this table
+    is never touched by the People module and vice versa."""
+    q = db.query(models.TicketDepartment)
     if mine:
         company = company_for(db, user.get("email") or "")
         # No People record -> no company -> no departments to offer. The ticket
         # is still valid without one; triage routes it.
-        q = q.filter(models.HrDepartment.company_id == (company or "\x00"))
-    rows = q.order_by(models.HrDepartment.sort_order, models.HrDepartment.name).all()
+        q = q.filter(models.TicketDepartment.company_id == (company or "\x00"))
+    rows = q.order_by(models.TicketDepartment.sort_order, models.TicketDepartment.name).all()
     return [{"id": d.id, "name": d.name, "companyId": d.company_id,
              "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or ""} for d in rows]
 
 
 def _dept_list(db: Session, company_id: str) -> list[dict]:
-    rows = (db.query(models.HrDepartment).filter(models.HrDepartment.company_id == company_id)
-            .order_by(models.HrDepartment.sort_order, models.HrDepartment.name).all())
+    rows = (db.query(models.TicketDepartment).filter(models.TicketDepartment.company_id == company_id)
+            .order_by(models.TicketDepartment.sort_order, models.TicketDepartment.name).all())
     return [{"id": d.id, "name": d.name, "companyId": d.company_id,
              "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or ""} for d in rows]
 
@@ -1068,11 +1072,13 @@ class TicketDepartmentIn(BaseModel):
     name: str
 
 
-# Write endpoints for the SAME hr_departments table, under the ticket router
-# rather than routers/hr.py - same reason /ticket-companies and
-# /ticket-departments (read) exist here instead of reusing the HR module's
-# own: whoever runs the service desk (Manage -> Service Desk -> Departments)
-# is rarely also an HR admin, and require_hr_write would 403 them.
+# Write endpoints for ticket_departments, under the ticket router rather than
+# routers/hr.py - same reason /ticket-companies and /ticket-departments (read)
+# exist here instead of reusing the HR module's own: whoever runs the service
+# desk (Manage -> Service Desk -> Departments) is rarely also an HR admin,
+# and require_hr_write would 403 them. Also, critically, this table is NOT
+# hr_departments (see models.py) - add/rename/delete here can never reach a
+# People record, on purpose.
 @router.post("/ticket-departments", status_code=201, dependencies=[Depends(require_ticket_desk)])
 def add_ticket_department(body: TicketDepartmentIn, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     name = (body.name or "").strip()
@@ -1083,36 +1089,66 @@ def add_ticket_department(body: TicketDepartmentIn, user: dict = Depends(require
     company = db.query(models.HrEntity).filter(models.HrEntity.id == body.company_id).first()
     if not company:
         raise HTTPException(404, "Company not found")
-    siblings = db.query(models.HrDepartment).filter(models.HrDepartment.company_id == body.company_id).all()
+    siblings = db.query(models.TicketDepartment).filter(models.TicketDepartment.company_id == body.company_id).all()
     if any((s.name or "").strip().lower() == name.lower() for s in siblings):
         raise HTTPException(409, f"“{name}” already exists for this company")
     nxt = max([s.sort_order for s in siblings], default=-1) + 1
-    db.add(models.HrDepartment(id=gen_id(), company_id=body.company_id, name=name,
-                               sort_order=nxt, created_by=user["email"], created_at=now_iso()))
+    db.add(models.TicketDepartment(id=gen_id(), company_id=body.company_id, name=name, sort_order=nxt))
     db.commit()
     return _dept_list(db, body.company_id)
 
 
-class TicketDepartmentHeadIn(BaseModel):
+class TicketDepartmentUpdateIn(BaseModel):
+    name:         Optional[str] = None
     lead_email:   Optional[str] = None
     backup_email: Optional[str] = None
 
 
 @router.patch("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])
-def set_ticket_department_head(dept_id: str, body: TicketDepartmentHeadIn,
-                               user: dict = Depends(require_manager), db: Session = Depends(get_db)):
-    """Sets who gets the escalation email for this department - see
-    escalate_ticket. Same field HR's own department screen documents as the
-    triage lead/backup; one person can be both without conflict."""
-    row = db.query(models.HrDepartment).filter(models.HrDepartment.id == dept_id).first()
+def update_ticket_department(dept_id: str, body: TicketDepartmentUpdateIn,
+                             user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Rename a ticket department and/or set who gets the escalation email
+    for it - see escalate_ticket. Renaming here never touches an employee's
+    own HR department string; the two lists parted ways Sep 10 2026."""
+    row = db.query(models.TicketDepartment).filter(models.TicketDepartment.id == dept_id).first()
     if not row:
         raise HTTPException(404, "Department not found")
+    if body.name is not None:
+        new_name = (body.name or "").strip()
+        if not new_name:
+            raise HTTPException(400, "Department name cannot be empty")
+        if len(new_name) > 40:
+            raise HTTPException(400, "Department name is too long (40 characters max)")
+        siblings = db.query(models.TicketDepartment).filter(
+            models.TicketDepartment.company_id == row.company_id, models.TicketDepartment.id != dept_id).all()
+        if any((s.name or "").strip().lower() == new_name.lower() for s in siblings):
+            raise HTTPException(409, f"“{new_name}” already exists for this company")
+        row.name = new_name
     if body.lead_email is not None:
         row.lead_email = (body.lead_email or "").strip().lower()
     if body.backup_email is not None:
         row.backup_email = (body.backup_email or "").strip().lower()
     db.commit()
     return _dept_list(db, row.company_id)
+
+
+@router.delete("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])
+def delete_ticket_department(dept_id: str, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Any ticket currently filed against this department just loses that
+    classification (hr_department_id cleared) - unlike an employee's own
+    department, a ticket has nowhere else it needs to be reassigned to;
+    triage still has the ticket itself, just no department to escalate it
+    to. Mirrors HR's own delete_department, minus the reassignment step that
+    only makes sense for people."""
+    row = db.query(models.TicketDepartment).filter(models.TicketDepartment.id == dept_id).first()
+    if not row:
+        raise HTTPException(404, "Department not found")
+    company_id = row.company_id
+    for t in db.query(models.TaskTicket).filter(models.TaskTicket.hr_department_id == dept_id).all():
+        t.hr_department_id = ""
+    db.delete(row)
+    db.commit()
+    return _dept_list(db, company_id)
 
 
 
@@ -1323,11 +1359,11 @@ def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
     overdue" - so for them it's gated on the SLA actually being breached
     (Pranshu, Sep 10 2026, reinstating that carve-out). It no longer touches
     priority; it mails the department the ticket is ABOUT
-    (HrDepartment.lead_email/backup_email, set from Manage -> Service Desk ->
-    Departments) that the ticket needs urgent attention. A department with no
-    head on file falls back to the company's ticket agents via
-    notify_ticket_event's own recipient resolution, so it's never emailed to
-    nobody."""
+    (TicketDepartment.lead_email/backup_email, set from Manage -> Service
+    Desk -> Departments) that the ticket needs urgent attention. A
+    department with no head on file falls back to the company's ticket
+    agents via notify_ticket_event's own recipient resolution, so it's never
+    emailed to nobody."""
     t = _ticket_or_404(db, ticket_id)
     _require_ticket_participant(db, user, t)
     email = (user["email"] or "").lower()

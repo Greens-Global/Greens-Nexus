@@ -24,7 +24,7 @@
 // company with no roster of its own falls back to, before the backend's last
 // resort of "every administrator" (see ticket_notify.ticket_agents).
 import { useEffect, useState } from 'react';
-import { Headset, Save, Building2, Siren, Plus, ChevronDown, ChevronRight } from 'lucide-react';
+import { Headset, Save, Building2, Siren, Plus, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, card } from '../tasks/theme';
@@ -66,7 +66,13 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // their specific department. Lives here (not People -> Companies) so setting
 // it doesn't require an HR module grant - same reasoning as /ticket-companies
 // and /ticket-departments existing as their own read endpoints.
-function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead }) {
+//
+// This list is its own table (ticket_departments, models.py) - fully
+// independent of the People module's departments (Pranshu, Sep 10 2026: "i
+// have the choice to delete and add the departments for ticket and that
+// shouldn't impact people department"). Renaming or deleting one here never
+// touches an HrEntity's People department, and vice versa.
+function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead, onRename, onDelete }) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   // Collapsed by default - a company with a lot of departments (a real one
@@ -81,6 +87,22 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
     try { await onAdd(companyId, n); setName(''); }
     catch (e) { alert(e.message || 'Could not add department.'); }
     finally { setBusy(false); }
+  };
+  const rename = async (d) => {
+    const next = window.prompt('Rename department', d.name);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === d.name) return;
+    try { await onRename(d.id, trimmed); }
+    catch (e) { alert(e.message || 'Could not rename department.'); }
+  };
+  const remove = async (d) => {
+    // A ticket already filed against it keeps its own history - only the
+    // classification drops, same as HR's own department delete leaving an
+    // employee's record alone rather than silently reassigning them.
+    if (!window.confirm(`Delete "${d.name}"? Any ticket already filed against it loses that classification and its escalation falls back to ${companyName}'s ticket agents.`)) return;
+    try { await onDelete(d.id); }
+    catch (e) { alert(e.message || 'Could not delete department.'); }
   };
   const hasDepts = depts.length > 0;
   return (
@@ -115,6 +137,12 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
                   onChange={(email) => onSetHead(d.id, email || '').catch((e) => alert(e.message || 'Could not set department head.'))}
                   placeholder="No department head set" />
               </div>
+              <button onClick={() => rename(d)} title="Rename department" style={{ ...btn('ghost'), padding: 5, color: NX.faint, flexShrink: 0 }}>
+                <Pencil size={12} />
+              </button>
+              <button onClick={() => remove(d)} title="Delete department" style={{ ...btn('ghost'), padding: 5, color: NX.faint, flexShrink: 0 }}>
+                <Trash2 size={12} />
+              </button>
             </div>
           ))}
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
@@ -215,6 +243,14 @@ export default function TicketDeskSettings() {
     const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
     return api.setTicketDepartmentHead(deptId, email).then((rows) => mergeDepts(companyId, rows));
   };
+  const renameDept = (deptId, name) => {
+    const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
+    return api.renameTicketDepartment(deptId, name).then((rows) => mergeDepts(companyId, rows));
+  };
+  const deleteDept = (deptId) => {
+    const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
+    return api.deleteTicketDepartment(deptId).then((rows) => mergeDepts(companyId, rows));
+  };
 
   const save = async () => {
     setSaving(true); setErr(''); setSaved(false);
@@ -268,7 +304,7 @@ export default function TicketDeskSettings() {
               >
                 <DepartmentHeads companyId={c.id} companyName={c.name} people={people}
                   depts={depts.filter((d) => d.companyId === c.id)}
-                  onAdd={addDept} onSetHead={setDeptHead} />
+                  onAdd={addDept} onSetHead={setDeptHead} onRename={renameDept} onDelete={deleteDept} />
               </DeskRoster>
             ))}
           </div>

@@ -255,7 +255,7 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
         # The department the ticket is ABOUT, not whoever's working it - see
         # escalate_ticket in routers/tickets.py. No head on file (or no
         # department at all) falls back to the desk so it's never silent.
-        dept = (db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first()
+        dept = (db.query(models.TicketDepartment).filter(models.TicketDepartment.id == t.hr_department_id).first()
                 if t.hr_department_id else None)
         heads = [e for e in [(dept.lead_email if dept else ""), (dept.backup_email if dept else "")] if e]
         if heads:
@@ -349,7 +349,7 @@ def _comment_thread(db: Session, ticket_id: str, limit: int = 3) -> list[dict]:
 def _ticket_context(db: Session, t: models.TaskTicket, actor_email: str) -> dict:
     dept_name = ""
     if t.hr_department_id:
-        dept = db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first()
+        dept = db.query(models.TicketDepartment).filter(models.TicketDepartment.id == t.hr_department_id).first()
         dept_name = dept.name if dept else ""
     company_name = ""
     if t.company_id:

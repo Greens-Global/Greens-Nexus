@@ -58,14 +58,14 @@ class RecipientTests(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         self.addCleanup(self.db.close)
-        for m in (models.NexusEmployee, models.HrDepartment, models.TaskTicket,
+        for m in (models.NexusEmployee, models.TicketDepartment, models.TaskTicket,
                   models.NexusRole, models.TaskActivity):
             self.db.query(m).delete()
         self.db.commit()
         # A department that still has a lead configured - nothing should route
         # to them any more.
-        self.dept = models.HrDepartment(id=str(uuid.uuid4()), company_id="co", name="IT",
-                                        lead_email=LEAD, backup_email="")
+        self.dept = models.TicketDepartment(id=str(uuid.uuid4()), company_id="co", name="IT",
+                                            lead_email=LEAD, backup_email="")
         self.db.add(self.dept)
         self.db.add(models.NexusRole(email=ADMIN, role="administrator"))
         self.db.add(models.NexusRole(email=OWNER, role="owner"))
