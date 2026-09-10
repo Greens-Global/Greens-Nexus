@@ -48,13 +48,38 @@ def send_chat_message(token: str, chat_id: str, html: str) -> None:
         raise RuntimeError(f"Graph {r.status_code}: {r.text[:180]}")
 
 
+CLAIM_WINDOW_SEC = 90      # one deliverer owns a row for this long per attempt
+SWEEP_MIN_AGE_SEC = 120    # sweeps leave rows this young to the endpoint's inline attempt
+
+
+def _claim(db, model, row) -> bool:
+    """Take the row for one delivery attempt with a single conditional UPDATE, so
+    a second process (another sweep, or the inline attempt racing a sweep) sees
+    zero rows affected and backs off instead of posting the same message again.
+    A Graph POST is not idempotent - this is the only thing between a race and a
+    duplicate in the chat."""
+    from sqlalchemy import func, or_
+    now = datetime.now(timezone.utc)
+    stale = (now - timedelta(seconds=CLAIM_WINDOW_SEC)).isoformat()
+    n = (db.query(model)
+         .filter(model.id == row.id, model.sent == 0,
+                 or_(model.last_try_at == "", model.last_try_at == None, model.last_try_at < stale))  # noqa: E711
+         .update({model.attempts: func.coalesce(model.attempts, 0) + 1, model.last_try_at: now.isoformat()},
+                 synchronize_session=False))
+    db.commit()
+    if n:
+        db.refresh(row)
+    return bool(n)
+
+
 def deliver_row(db, row) -> bool:
     """One delivery attempt for a queued TimeBod row; commits the outcome either
     way. Synchronous (outbound HTTP) - callers must be off the event loop:
     sync endpoints run in FastAPI's threadpool, the loop uses to_thread."""
     import bff_session
-    row.attempts = (row.attempts or 0) + 1
-    row.last_try_at = _now_iso()
+    from models import TimeBod
+    if not _claim(db, TimeBod, row):
+        return False   # already sent, or another deliverer holds it
     try:
         tok = bff_session.graph_token_for_email(db, row.employee_email)
         if not tok:
@@ -76,10 +101,13 @@ def _sweep_once() -> int:
     db = SessionLocal()
     delivered = 0
     try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=MAX_AGE_HOURS)).isoformat()
+        now = datetime.now(timezone.utc)
+        cutoff = (now - timedelta(hours=MAX_AGE_HOURS)).isoformat()
+        fresh = (now - timedelta(seconds=SWEEP_MIN_AGE_SEC)).isoformat()
         rows = (db.query(TimeBod)
                 .filter(TimeBod.sent == 0, TimeBod.html != "", TimeBod.channel_id != "",
-                        TimeBod.attempts < MAX_ATTEMPTS, TimeBod.created_at >= cutoff)
+                        TimeBod.attempts < MAX_ATTEMPTS, TimeBod.created_at >= cutoff,
+                        TimeBod.created_at < fresh)
                 .order_by(TimeBod.created_at.asc()).limit(25).all())
         for row in rows:
             if deliver_row(db, row):
@@ -141,8 +169,9 @@ def deliver_ticket_row(db, row) -> bool:
     """One delivery attempt for a queued TicketTeamsMessage row; commits the
     outcome either way. Synchronous - see deliver_row's note above."""
     import bff_session
-    row.attempts = (row.attempts or 0) + 1
-    row.last_try_at = _now_iso()
+    from models import TicketTeamsMessage
+    if not _claim(db, TicketTeamsMessage, row):
+        return False
     try:
         tok = bff_session.graph_token_for_email(db, row.agent_email)
         if not tok:
@@ -168,10 +197,13 @@ def _sweep_ticket_once() -> int:
     db = SessionLocal()
     delivered = 0
     try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=MAX_AGE_HOURS)).isoformat()
+        now = datetime.now(timezone.utc)
+        cutoff = (now - timedelta(hours=MAX_AGE_HOURS)).isoformat()
+        fresh = (now - timedelta(seconds=SWEEP_MIN_AGE_SEC)).isoformat()
         rows = (db.query(TicketTeamsMessage)
                 .filter(TicketTeamsMessage.sent == 0, TicketTeamsMessage.html != "",
-                        TicketTeamsMessage.attempts < MAX_ATTEMPTS, TicketTeamsMessage.created_at >= cutoff)
+                        TicketTeamsMessage.attempts < MAX_ATTEMPTS, TicketTeamsMessage.created_at >= cutoff,
+                        TicketTeamsMessage.created_at < fresh)
                 .order_by(TicketTeamsMessage.created_at.asc()).limit(25).all())
         for row in rows:
             if deliver_ticket_row(db, row):
