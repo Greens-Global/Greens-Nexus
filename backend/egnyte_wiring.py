@@ -478,11 +478,12 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
     a real folder; re-matching it could only un-fix what they fixed).
 
     My HR - My Documents no longer has its own slot: it shows the SAME folder
-    as people.person-folder, filtered down by list_person_documents() below
-    (which drops subfolders named in people.my-documents-excluded-subfolder-
-    names) - so there is exactly one root to resolve and one place a manager
-    points it, and the employee view can never drift out of sync with where
-    HR's own Documents panel is looking."""
+    as people.person-folder, grouped by subfolder via
+    list_person_document_groups() below (which drops subfolders named in
+    people.my-documents-excluded-subfolder-names) - so there is exactly one
+    root to resolve and one place a manager points it, and the employee view
+    can never drift out of sync with where HR's own Documents panel is
+    looking."""
     email = (getattr(emp, "work_email", "") or "").lower()
     override = raw_value(slot, email)
     if override:
@@ -575,13 +576,17 @@ def is_excluded_path(root: str, path: str) -> bool:
     return bool(first_seg) and is_excluded_child(first_seg)
 
 
-def list_person_documents(root: str) -> list[dict] | None:
-    """Every file an employee should see under their My Documents: files
-    sitting directly in `root` plus one level into each subfolder, except
+def list_person_document_groups(root: str) -> dict | None:
+    """What an employee should see under My Documents, keeping the SAME
+    folder shape as Egnyte itself (Neil/Visesh, Sep 10 - "I want the folder
+    also same they are in Egnyte", not one flattened list): the subfolders
+    of `root`, in Egnyte's own order, each with its own files, except
     subfolders matching is_excluded_child (Confidential/Internal &
-    Confidential etc). Not recursive past that first level - deep enough to
-    show "all the folders under their name" without an unbounded walk on
-    every My HR page load. None if `root` can't be listed at all."""
+    Confidential etc); plus any files sitting loose directly in `root`.
+    Not recursive past that first level - deep enough to mirror the real
+    folder tree without an unbounded walk on every My HR page load.
+    Returns {"rootFiles": [...], "folders": [{"name", "files": [...]}]},
+    or None if `root` can't be listed at all."""
     from services import egnyte as svc
     try:
         listing = svc.list_folder(root)
@@ -595,7 +600,7 @@ def list_person_documents(root: str) -> list[dict] | None:
             for f in entries
         ]
 
-    files = _files(listing.get("files", []))
+    folders = []
     for sub in listing.get("folders", []):
         if is_excluded_child(sub["name"]):
             continue
@@ -604,8 +609,8 @@ def list_person_documents(root: str) -> list[dict] | None:
             sub_listing = svc.list_folder(sub_path)
         except svc.EgnyteError:
             continue
-        files.extend(_files(sub_listing.get("files", [])))
-    return files
+        folders.append({"name": sub["name"], "files": _files(sub_listing.get("files", []))})
+    return {"rootFiles": _files(listing.get("files", [])), "folders": folders}
 
 
 def provision_person_folder(emp, db) -> str:
