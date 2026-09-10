@@ -26,7 +26,6 @@ signer-level events are already in section 2, and a chain head plus an event
 count that a verifier can check is a stronger claim than printed rows.
 """
 from html import escape
-from typing import Optional
 
 _SHEET_W = 816       # 8.5in at 96dpi
 _SHEET_H = 1056      # 11in at 96dpi

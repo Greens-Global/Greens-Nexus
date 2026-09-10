@@ -12,7 +12,6 @@ acknowledgment is written into the hash-chained log and onto the certificate.
 """
 import os
 import unittest
-import uuid
 
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 

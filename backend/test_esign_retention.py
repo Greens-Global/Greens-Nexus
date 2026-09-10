@@ -409,7 +409,7 @@ class RetentionScheduleTests(unittest.TestCase):
         self.db.commit()
 
     def test_a_class_with_no_retention_period_is_never_swept(self):
-        from routers.esign import run_retention_sweep, _ensure_document_classes
+        from routers.esign import _ensure_document_classes
         _ensure_document_classes(self.db)
         seeded = [c for c in self.db.query(models.HrDocumentClass).all()
                   if c.code != self.CLS]

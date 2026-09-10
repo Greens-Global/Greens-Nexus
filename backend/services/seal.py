@@ -256,10 +256,6 @@ def describe_seals(pdf_bytes: bytes) -> list:
     """Read the signatures back OFF a sealed PDF and report whether each one
     still covers the file. This is what proves the incremental update worked:
     after a second signature, the first must still validate."""
-    from pyhanko.pdf_utils.reader import PdfFileReader
-    from pyhanko.sign.validation import validate_pdf_signature
-    from pyhanko_certvalidator import ValidationContext
-
     # pyHanko logs a full traceback when a chain does not validate. For a
     # self-signed dev seal that is the EXPECTED outcome, not an incident, and a
     # scary traceback in the logs teaches people to ignore logs.

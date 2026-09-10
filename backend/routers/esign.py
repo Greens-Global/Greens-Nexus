@@ -43,7 +43,7 @@ from models import (HrSignTemplate, HrSignRequest, HrSignParty, HrSignEvent,
                     HrSignDocument, HrSignSeal)
 # Reuse the HR module's storage/Graph/notification plumbing - same bucket, same
 # service key, same bell. hr.py owns those constants; do not duplicate them.
-from services.seal import seal_pdf, describe_seals, policy_sentence as seal_policy_sentence
+from services.seal import seal_pdf, policy_sentence as seal_policy_sentence
 from services.certificate import (build_snapshot as build_certificate_snapshot,
                                   render_html as render_certificate_html)
 from routers.hr import (require_hr_read, require_hr_write, require_hr_delete,

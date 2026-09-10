@@ -17,7 +17,6 @@ Covers what was added and, just as importantly, what was deliberately NOT:
 import hashlib
 import os
 import unittest
-import uuid
 
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 

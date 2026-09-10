@@ -16,7 +16,6 @@ are normalized (trimmed, lowercased, de-duped) so tag search behaves.
 """
 import os
 import unittest
-import uuid
 
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 
