@@ -35,7 +35,11 @@ _IS_SQLITE = DATABASE_URL.startswith("sqlite")
 # Stable per-process identity. Azure sets WEBSITE_INSTANCE_ID (unique per instance);
 # locally we make one up so two dev processes wouldn't fight (they won't - SQLite is
 # short-circuited above anyway).
-_INSTANCE = os.getenv("WEBSITE_INSTANCE_ID") or ("local-" + uuid.uuid4().hex[:10])
+# Per PROCESS, not per instance: gunicorn runs several workers per Azure instance
+# and they all see the same WEBSITE_INSTANCE_ID. With a shared identity every
+# worker on the leader instance "held" the lease and ran every loop in lockstep
+# (Sep 10: one break post delivered four times by four sweepers).
+_INSTANCE = (os.getenv("WEBSITE_INSTANCE_ID") or ("local-" + uuid.uuid4().hex[:10])) + f":{os.getpid()}"
 _HEARTBEAT_SECONDS = 15
 _LEASE_STALE_SECONDS = 45   # a leader silent this long is considered dead
 # Hard ceiling on ONE claim attempt. The DB call runs in asyncio's to_thread
