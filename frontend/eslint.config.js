@@ -40,6 +40,15 @@ export default defineConfig([
     },
   },
   {
+    // Vitest specs run under jsdom but are loaded by vite-node, which injects the
+    // Node module globals (__dirname, process, ...). The browser global set alone
+    // flags those as no-undef errors. import.meta.url is NOT the alternative here:
+    // under the jsdom environment it resolves against jsdom's http:// location,
+    // so fileURLToPath on it throws at runtime.
+    files: ['**/*.test.{js,jsx}', 'vitest.setup.js'],
+    languageOptions: { globals: { ...globals.node } },
+  },
+  {
     // Pre-existing conditional hook: ManagerDashboard calls useEffect after an
     // early return. Keep rules-of-hooks as an ERROR everywhere else; exempt this
     // one known legacy spot so the release isn't blocked. TODO: hoist the effect

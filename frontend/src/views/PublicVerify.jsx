@@ -92,9 +92,10 @@ export default function PublicVerify({ token }) {
 
   return shell(
     <>
-      <h2 style={{ fontSize: 18, margin: '0 0 4px', color: 'var(--ink, #111827)' }}>{data.title}</h2>
+      <h2 style={{ fontSize: 18, margin: '0 0 4px', color: 'var(--ink, #111827)' }}>Signature record verified</h2>
       <p style={{ fontSize: 12.5, color: 'var(--muted, #6b7280)', margin: '0 0 18px' }}>
         Envelope {data.envelopeIdShort} · Completed {(data.completedAt || '').slice(0, 19).replace('T', '  ')} UTC
+        {' · '}{data.signedCount} of {data.signerCount} signed
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
@@ -107,17 +108,31 @@ export default function PublicVerify({ token }) {
             : 'This envelope was completed before the audit hash-chain feature existed.'} />
       </div>
 
-      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted, #6b7280)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Signers</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {(data.signers || []).map((s, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13.5, padding: '8px 0', borderBottom: i < data.signers.length - 1 ? '1px solid var(--line, #e5e7eb)' : 'none' }}>
-            <span style={{ fontWeight: 600, color: 'var(--ink, #111827)' }}>{s.name || '-'}</span>
-            <span style={{ color: 'var(--muted, #6b7280)' }}>
-              {s.signedAt ? `Signed ${s.signedAt.slice(0, 19).replace('T', '  ')} UTC` : 'Not yet signed'}
-            </span>
+      {/* The comparison values. This page deliberately shows no names, emails
+          or document content: the token travels on a QR code printed on a
+          document that gets photocopied and filed, and anyone who scans it is
+          here to check the certificate's numbers against the system's, not to
+          learn who signed what. */}
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted, #6b7280)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+        Compare with your certificate
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {[['Document digest (SHA-256)', data.documentDigest],
+          ['Audit chain head', data.auditChain?.head],
+          ['Recorded events', String(data.auditChain?.eventCount ?? '')]].map(([label, value]) => (
+          <div key={label}>
+            <div style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)', marginBottom: 2 }}>{label}</div>
+            <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11.5, wordBreak: 'break-all', color: 'var(--ink, #111827)' }}>
+              {value || 'Not recorded'}
+            </div>
           </div>
         ))}
       </div>
+      <p style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)', marginTop: 18, lineHeight: 1.55 }}>
+        These values must match the Certificate of Completion attached to your copy. Signer
+        identities and document contents are not shown here - they are on the certificate itself,
+        which only the parties hold.
+      </p>
     </>
   );
 }

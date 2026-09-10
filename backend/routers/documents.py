@@ -36,7 +36,7 @@ from models import (DocFolder, Document, DocumentVersion, DocTemplate, DocTempla
                     DocLetterhead, HrSignRequest, HrSignParty)
 from services.merge_fields import resolve_merge_data
 from services.doc_export import tiptap_to_blocks, render_pdf, render_docx
-from routers.hr import require_hr_read
+from routers.hr import require_hr_read, _hr_notify
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -112,6 +112,42 @@ def _sign_statuses(db: Session, docs: list) -> dict:
     return {rid: status for rid, status in rows}
 
 
+_MAX_TAGS = 20
+_MAX_TAG_LEN = 40
+
+
+def _clean_tags(tags) -> list:
+    """Normalize a tag list before persisting: trimmed, lowercased, de-duped,
+    order preserved. Lowercasing is what makes tag search predictable - the
+    search endpoint ILIKEs the serialized JSON, so "HR" and "hr" would
+    otherwise be two tags that both match and neither groups by."""
+    if not isinstance(tags, list):
+        return []
+    out = []
+    for t in tags:
+        if not isinstance(t, str):
+            continue
+        t = t.strip().lower()[:_MAX_TAG_LEN]
+        if t and t not in out:
+            out.append(t)
+        if len(out) >= _MAX_TAGS:
+            break
+    return out
+
+
+def _assert_folder_ok(db: Session, folder_id: str, user: dict) -> None:
+    """A document may live in any shared folder, or in the caller's OWN
+    Personal folder - never in someone else's (that would file it where only
+    they can see it, which _get_readable then honors)."""
+    if not folder_id:
+        return
+    folder = db.query(DocFolder).filter(DocFolder.id == folder_id).first()
+    if not folder:
+        raise HTTPException(400, "Folder not found")
+    if folder.key == "personal" and folder.owner_email != user["email"]:
+        raise HTTPException(403, "That is someone else's Personal folder")
+
+
 def _visible(q, user: dict):
     """Shared-folder documents are org-visible; documents whose folder is the
     caller's own Personal folder are the only ones scoped to just them. Admins
@@ -167,9 +203,15 @@ def list_folders(user: dict = Depends(get_current_user), db: Session = Depends(g
 def create_folder(body: FolderIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if user["level"] < _ADMIN_LEVEL:
         raise HTTPException(403, "Only administrators can add folders")
-    if not body.name.strip():
+    name = body.name.strip()
+    if not name:
         raise HTTPException(400, "name is required")
-    row = DocFolder(id=str(uuid.uuid4()), name=body.name.strip(), key="", is_system=False,
+    # Folders are picked from a flat <select>; two same-named entries are
+    # indistinguishable there, so reject the twin rather than create it.
+    clash = db.query(DocFolder).filter(DocFolder.name.ilike(name), DocFolder.owner_email == "").first()
+    if clash:
+        raise HTTPException(400, f'A folder named "{clash.name}" already exists')
+    row = DocFolder(id=str(uuid.uuid4()), name=name, key="", is_system=False,
                      owner_email="", created_by=user["email"], created_at=_now_iso())
     db.add(row); db.commit(); db.refresh(row)
     return _ser_folder(row)
@@ -207,6 +249,7 @@ def list_documents(folder_id: str = "", status: str = "", q: str = "", mine: boo
 def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if not body.title.strip():
         raise HTTPException(400, "title is required")
+    _assert_folder_ok(db, body.folderId or "", user)
     now = _now_iso()
     content = body.content if body.content is not None else {}
     letterhead_id = ""
@@ -248,7 +291,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
     row = Document(id=str(uuid.uuid4()), title=body.title.strip(), folder_id=body.folderId or "",
                     template_id=body.templateId or "", content=content, letterhead_id=letterhead_id,
                     merge_overrides=merge_overrides,
-                    status="draft", owner_email=user["email"].lower(), tags=body.tags or [], current_version=1,
+                    status="draft", owner_email=user["email"].lower(), tags=_clean_tags(body.tags or []), current_version=1,
                     created_by=user["email"], created_at=now, updated_by=user["email"], updated_at=now)
     db.add(row); db.flush()
     db.add(DocumentVersion(id=str(uuid.uuid4()), document_id=row.id, version_no=1, content=content,
@@ -752,10 +795,48 @@ def search_documents(q: str = "", user: dict = Depends(get_current_user), db: Se
     return results
 
 
-def _get_owned_or_admin(db: Session, did: str, user: dict) -> Document:
+def _get_readable(db: Session, did: str, user: dict) -> Document:
+    """Fetch one document by id through the same walls _visible() puts on the
+    list endpoints: the company wall (another company's document is 404,
+    owner-derived) and the Personal-folder rule this module's header promises.
+
+    Every by-id READ path goes through here. A document you cannot list must
+    not be readable, version-browsable, exportable or copyable through its id
+    either - the list filter alone only made personal drafts unenumerable, not
+    private, and the ids travel (links, search results, an old bookmark).
+    """
     row = db.query(Document).filter(Document.id == did).first()
     if not row:
         raise HTTPException(404, "Document not found")
+    import auth
+    auth.assert_company(auth.company_of(row.owner_email or "", db), user, db)
+    if user["level"] >= _ADMIN_LEVEL or (row.owner_email or "") == user["email"].lower():
+        return row
+    # Mirrors _visible(): a shared system folder is org-visible, and only a
+    # Personal folder is scoped - to its owner alone. 404 (not 403) so the
+    # existence of someone else's personal draft stays unconfirmed.
+    folder = db.query(DocFolder).filter(DocFolder.id == row.folder_id).first() if row.folder_id else None
+    if folder is not None and folder.key == "personal" and folder.owner_email != user["email"]:
+        raise HTTPException(404, "Document not found")
+    return row
+
+
+def _notify_owner(db: Session, row: Document, user: dict, title: str, body: str) -> None:
+    """Bell the owner when SOMEONE ELSE (an administrator - nobody else gets
+    through the write gate) archives or deletes their document. Server-side
+    only, targeted at one recipient, never a broadcast - the items.py contract.
+    Acting on your own document notifies nobody."""
+    owner = (row.owner_email or "").strip().lower()
+    if not owner or owner == user["email"].lower():
+        return
+    _hr_notify(db, owner, title, body, ref_id=row.id,
+               requested_by=user["email"], action={"view": "documents", "sub": "documents-browse"})
+
+
+def _get_owned_or_admin(db: Session, did: str, user: dict) -> Document:
+    """Write gate - readable first (so another company's row is 404 rather than
+    a 403 that confirms it exists), then ownership."""
+    row = _get_readable(db, did, user)
     if user["level"] < _ADMIN_LEVEL and row.owner_email != user["email"].lower():
         raise HTTPException(403, "You don't own this document")
     return row
@@ -763,12 +844,7 @@ def _get_owned_or_admin(db: Session, did: str, user: dict) -> Document:
 
 @router.get("/{did}")
 def get_document(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    row = db.query(Document).filter(Document.id == did).first()
-    if not row:
-        raise HTTPException(404, "Document not found")
-    # Company wall: another company's document is 404 (owner-derived).
-    import auth
-    auth.assert_company(auth.company_of(row.owner_email or "", db), user, db)
+    row = _get_readable(db, did, user)
     statuses = _sign_statuses(db, [row])
     return _ser_document(row, statuses.get(row.sign_request_id, ""))
 
@@ -824,9 +900,10 @@ def update_document(did: str, body: DocumentUpdate, user: dict = Depends(get_cur
             raise HTTPException(400, "title cannot be blank")
         row.title = body.title.strip()
     if body.folderId is not None:
+        _assert_folder_ok(db, body.folderId, user)
         row.folder_id = body.folderId
     if body.tags is not None:
-        row.tags = body.tags
+        row.tags = _clean_tags(body.tags)
     if body.letterheadId is not None:
         row.letterhead_id = body.letterheadId
     if body.employeeId is not None:
@@ -858,6 +935,11 @@ def delete_document(did: str, user: dict = Depends(get_current_user), db: Sessio
     row = _get_owned_or_admin(db, did, user)
     if row.status != "draft":
         raise HTTPException(400, "Only drafts can be permanently deleted - archive it instead")
+    # Notify before the delete: after it there is no row left to read a title
+    # or an owner off, and a permanent delete is exactly the event an owner
+    # most needs to hear about.
+    _notify_owner(db, row, user, "A draft of yours was deleted",
+                  f'"{row.title}" was permanently deleted by {user["email"]}.')
     db.query(DocumentVersion).filter(DocumentVersion.document_id == did).delete()
     db.delete(row); db.commit()
     return {"ok": True}
@@ -869,6 +951,9 @@ def archive_document(did: str, user: dict = Depends(get_current_user), db: Sessi
     row.status = "archived"
     row.archived_at = _now_iso()
     row.updated_by = user["email"]; row.updated_at = _now_iso()
+    _notify_owner(db, row, user, "A document of yours was archived",
+                  f'"{row.title}" was archived by {user["email"]}. '
+                  "You can restore it from My Documents -> Archived.")
     db.commit(); db.refresh(row)
     return _ser_document(row)
 
@@ -887,9 +972,7 @@ def restore_document(did: str, user: dict = Depends(get_current_user), db: Sessi
 
 @router.post("/{did}/duplicate")
 def duplicate_document(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    src = db.query(Document).filter(Document.id == did).first()
-    if not src:
-        raise HTTPException(404, "Document not found")
+    src = _get_readable(db, did, user)
     now = _now_iso()
     row = Document(id=str(uuid.uuid4()), title=f"{src.title} (Copy)", folder_id=src.folder_id,
                     template_id=src.template_id, content=src.content, letterhead_id=src.letterhead_id,
@@ -906,6 +989,7 @@ def duplicate_document(did: str, user: dict = Depends(get_current_user), db: Ses
 
 @router.get("/{did}/versions")
 def list_versions(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _get_readable(db, did, user)
     rows = db.query(DocumentVersion).filter(DocumentVersion.document_id == did).order_by(DocumentVersion.version_no.desc()).all()
     return [{"id": v.id, "versionNo": v.version_no, "editedBy": v.edited_by, "editedAt": v.edited_at, "note": v.note}
             for v in rows]
@@ -915,6 +999,7 @@ def list_versions(did: str, user: dict = Depends(get_current_user), db: Session 
 def get_version(did: str, vid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Full content snapshot for one version - kept out of the list endpoint
     above so browsing history stays cheap; only fetched when a user opens it."""
+    _get_readable(db, did, user)
     v = db.query(DocumentVersion).filter(DocumentVersion.id == vid, DocumentVersion.document_id == did).first()
     if not v:
         raise HTTPException(404, "Version not found")
@@ -937,12 +1022,10 @@ def _content_disposition(title: str, ext: str) -> str:
 
 def _export_prep(db: Session, did: str, user: dict):
     """Shared setup for both export endpoints: load the document (same
-    visibility as GET /{did} - no ownership check, matches read access),
-    resolve its merge data, walk header/body/footer to blocks, and fetch its
-    letterhead (if any) serialized for the renderers."""
-    row = db.query(Document).filter(Document.id == did).first()
-    if not row:
-        raise HTTPException(404, "Document not found")
+    visibility as GET /{did} - read access, not ownership: anyone who may open
+    the document may export it), resolve its merge data, walk header/body/footer
+    to blocks, and fetch its letterhead (if any) serialized for the renderers."""
+    row = _get_readable(db, did, user)
     merge = resolve_merge_data(db, employee_id=row.employee_id, entity_id=row.entity_id,
                                overrides=row.merge_overrides or {})
     # Template Builder (Phase 13) - a signature/initials/image/file field is

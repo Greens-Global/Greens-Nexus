@@ -1087,6 +1087,8 @@ export const api = {
   getSignAttachmentUrl: (path)    => req(`/esign/templates/attachment-url?path=${encodeURIComponent(path)}`),
   sendSignRequest:    (data)      => req('/esign/requests', { method: 'POST', body: JSON.stringify(data) }),
   sendSignPdf:        (form)      => req('/esign/requests/pdf', { method: 'POST', body: form }),
+  getEsignExcludedCategories: ()  => req('/esign/excluded-categories'),
+  getEsignDocumentClasses:    ()  => req('/esign/document-classes'),
   getSignRequests:    ()          => req('/esign/requests'),
   getSignRequest:     (id)        => req(`/esign/requests/${id}`),
   remindSign:         (id)        => req(`/esign/requests/${id}/remind`, { method: 'POST' }),

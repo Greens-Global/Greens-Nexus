@@ -61,3 +61,8 @@ backend/asana_import_state.json
 # Local-only e-sign storage fallback (no Supabase credentials configured) —
 # never exists in any deployed environment, see routers/esign.py
 backend/Generated File/
+
+# Self-signed development seal key + cert (services/seal.py). Never committed:
+# a signing key in the repo is a signing key everyone has.
+.seal-dev/
+*-seal-key.pem
