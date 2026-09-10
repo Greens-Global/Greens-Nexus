@@ -3,11 +3,13 @@ import {
   User, Phone, Mail, Heart, Briefcase, Building2, CalendarDays, MapPin, Network,
   FileText, Download, CalendarOff, Loader2, Pencil, Check, X, BadgeCheck,
   Clock, Banknote, MessageSquarePlus, Package, ArrowRight, Hourglass,
-  HardDrive, Folder, FolderOpen, ChevronRight,
+  HardDrive, Folder, FolderOpen, ChevronRight, ChevronLeft, Eye,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { formatDateLong, formatTime } from '../lib/datetime';
+import EgnytePreview from '../egnyte/EgnytePreview';
+import { canPreview } from '../egnyte/lib';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -164,6 +166,8 @@ export function MyHROverview({ onOpenTimeOff }) {
   const [range, setRange] = useState('week');         // hours card + tile
   const [docQuery, setDocQuery] = useState('');
   const [openDocSections, setOpenDocSections] = useState({});   // { [sectionKey]: true } - collapsed by default, click a folder to list its files
+  const [docPage, setDocPage] = useState({});                   // { [sectionKey]: pageNumber } - a folder with >10 files paginates
+  const [previewFile, setPreviewFile] = useState(null);         // file object for the in-app viewer, or null
   const [stubQuery, setStubQuery] = useState('');
   // { rootFiles, folders: [{ name, files }] } - my own Egnyte person folder,
   // in the SAME folder shape as Egnyte (Neil/Visesh, Sep 10: "I want the
@@ -231,8 +235,22 @@ export function MyHROverview({ onOpenTimeOff }) {
     finally { setBusy(p => ({ ...p, ['egn' + f.path]: false })); }
   };
 
+  // My HR's own-folder-only endpoint, not the general-purpose /egnyte/file -
+  // passed into EgnytePreview so View/Download stay behind the SAME
+  // authorization check (own folder, hidden subfolders excluded) as the row's
+  // regular download button.
+  const myhrFetchPreview = async (path) => (await api.myhrEgnyteFilePreview(path)).blob;
+  const myhrDownloadFile = async (path, name) => {
+    const { blob } = await api.myhrEgnyteFile(path);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name || 'download';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
+
   const egnyteFileRow = (f) => ({
-    key: 'g:' + f.path, kind: 'egnyte', title: f.name,
+    key: 'g:' + f.path, kind: 'egnyte', title: f.name, file: f,
     meta: f.size ? `${Math.max(1, Math.round(f.size / 1024))} KB` : 'File', sortKey: f.lastModified || '',
     busyKey: 'egn' + f.path, onDownload: () => downloadEgnyte(f),
   });
@@ -268,6 +286,8 @@ export function MyHROverview({ onOpenTimeOff }) {
   }, [esignRows, egnyteSections]);
   const totalDocCount = docSections.reduce((n, s) => n + s.rows.length, 0);
 
+  const DOCS_PAGE_SIZE = 10;
+
   const docFileRow = (d) => (
     <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
       {d.kind === 'egnyte'
@@ -277,9 +297,40 @@ export function MyHROverview({ onOpenTimeOff }) {
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
         <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{d.meta}</div>
       </div>
+      {d.kind === 'egnyte' && canPreview(d.file) && (
+        <button className="secondary-btn" onClick={() => setPreviewFile(d.file)}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
+          <Eye size={12} /> View
+        </button>
+      )}
       <button className="secondary-btn" onClick={d.onDownload} disabled={!!busy[d.busyKey]}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
         {busy[d.busyKey] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} {d.kind === 'egnyte' ? 'Download' : 'PDF'}
+      </button>
+    </div>
+  );
+
+  // A folder's rows for the CURRENT page - >10 files paginates instead of one
+  // long scroll (Pranshu, Sep 10). Page resets implicitly whenever the
+  // filtered row count shrinks below the stored page (e.g. a new search).
+  const docPageFor = (s) => {
+    const totalPages = Math.max(1, Math.ceil(s.rows.length / DOCS_PAGE_SIZE));
+    const page = Math.min(docPage[s.key] || 1, totalPages);
+    return { page, totalPages, rows: s.rows.slice((page - 1) * DOCS_PAGE_SIZE, page * DOCS_PAGE_SIZE) };
+  };
+
+  const DocPager = ({ sectionKey, page, totalPages }) => totalPages <= 1 ? null : (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '10px 0 4px' }}>
+      <button type="button" className="secondary-btn" disabled={page <= 1}
+        onClick={() => setDocPage(p => ({ ...p, [sectionKey]: page - 1 }))}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, padding: '4px 9px' }}>
+        <ChevronLeft size={12} /> Prev
+      </button>
+      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Page {page} of {totalPages}</span>
+      <button type="button" className="secondary-btn" disabled={page >= totalPages}
+        onClick={() => setDocPage(p => ({ ...p, [sectionKey]: page + 1 }))}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, padding: '4px 9px' }}>
+        Next <ChevronRight size={12} />
       </button>
     </div>
   );
@@ -538,12 +589,19 @@ export function MyHROverview({ onOpenTimeOff }) {
                   }
                   // Single-section case (no Egnyte wiring, just e-sign docs): no folders to browse, list flat as before.
                   if (docSections.length <= 1) {
-                    return filtered[0].rows.map(d => docFileRow(d));
+                    const { page, totalPages, rows } = docPageFor(filtered[0]);
+                    return (
+                      <>
+                        {rows.map(d => docFileRow(d))}
+                        <DocPager sectionKey={filtered[0].key} page={page} totalPages={totalPages} />
+                      </>
+                    );
                   }
                   return filtered.map(s => {
                     // While searching, every section with a match stays expanded so results are visible;
                     // otherwise it follows whatever the employee last clicked (collapsed by default).
                     const open = searching || !!openDocSections[s.key];
+                    const { page, totalPages, rows } = docPageFor(s);
                     return (
                       <div key={s.key}>
                         <button type="button" onClick={() => setOpenDocSections(p => ({ ...p, [s.key]: !p[s.key] }))}
@@ -562,7 +620,8 @@ export function MyHROverview({ onOpenTimeOff }) {
                         </button>
                         {open && (
                           <div style={{ paddingLeft: 19 }}>
-                            {s.rows.map(d => docFileRow(d))}
+                            {rows.map(d => docFileRow(d))}
+                            <DocPager sectionKey={s.key} page={page} totalPages={totalPages} />
                           </div>
                         )}
                       </div>
@@ -570,6 +629,10 @@ export function MyHROverview({ onOpenTimeOff }) {
                   });
                 })()}
               </div>
+              {previewFile && (
+                <EgnytePreview file={previewFile} onClose={() => setPreviewFile(null)}
+                  fetchPreview={myhrFetchPreview} downloadFile={myhrDownloadFile} />
+              )}
 
               <div className="dash-card">
                 {cardHead('My paystubs', 'Uploaded by HR each pay period',

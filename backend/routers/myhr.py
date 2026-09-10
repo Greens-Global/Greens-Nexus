@@ -454,11 +454,12 @@ def my_egnyte_documents(user: dict = Depends(get_current_user), db: Session = De
 
 
 @router.get("/egnyte-documents/file")
-def my_egnyte_document_file(path: str, user: dict = Depends(get_current_user),
+def my_egnyte_document_file(path: str, inline: bool = False, user: dict = Depends(get_current_user),
                             db: Session = Depends(get_db)):
     import egnyte_wiring as wiring
     from services import egnyte as svc
     from fastapi import Response
+    from routers.egnyte import preview_type
     if not svc.configured():
         raise HTTPException(503, "Egnyte is not connected")
     emp = _me(db, user["email"])
@@ -469,9 +470,15 @@ def my_egnyte_document_file(path: str, user: dict = Depends(get_current_user),
         raise HTTPException(403, "That file is not in your documents folder")
     content = svc.read_file(want)
     name = want.rsplit("/", 1)[-1] or "download"
+    # inline=true asks to VIEW rather than download - same allowlist as
+    # /egnyte/file (PDFs, images, text) so a non-allowlisted type still
+    # forces a download instead of the browser guessing at content type.
+    kind = preview_type(name) if inline else None
+    disposition = "inline" if kind else "attachment"
     return Response(
         content=content,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{name}"',
-                 "X-Content-Type-Options": "nosniff"},
+        media_type=kind or "application/octet-stream",
+        headers={"Content-Disposition": f'{disposition}; filename="{name}"',
+                 "X-Content-Type-Options": "nosniff",
+                 "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"},
     )

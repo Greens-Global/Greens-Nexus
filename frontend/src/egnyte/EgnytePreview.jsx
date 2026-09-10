@@ -122,7 +122,14 @@ function SheetTable({ sheet, onPick }) {
   );
 }
 
-export default function EgnytePreview({ file, onClose, onNav = null, navIndex = -1, navCount = 0 }) {
+export default function EgnytePreview({
+  file, onClose, onNav = null, navIndex = -1, navCount = 0,
+  // Overridable so a scoped caller (e.g. My HR's own-folder-only endpoint)
+  // can preview/download through its OWN authorization check instead of the
+  // general-purpose /egnyte/file route - default to that general route for
+  // every other caller.
+  fetchPreview = fetchEgnytePreview, downloadFile = downloadEgnyteFile,
+}) {
   const [state, setState] = useState({ loading: true, url: '', text: '', error: '' });
   const [sheet, setSheet] = useState(null);   // {names, active, rows, truncated}
   const [downloading, setDownloading] = useState(false);
@@ -161,7 +168,7 @@ export default function EgnytePreview({ file, onClose, onNav = null, navIndex = 
     setState({ loading: true, url: '', text: '', error: '' });
     setSheet(null);
 
-    fetchEgnytePreview(file.path)
+    fetchPreview(file.path)
       .then(async (blob) => {
         if (!alive) return;
         if (kind === 'text') {
@@ -206,7 +213,7 @@ export default function EgnytePreview({ file, onClose, onNav = null, navIndex = 
   const download = async () => {
     setDownloading(true);
     try {
-      await downloadEgnyteFile(file.path, file.name);
+      await downloadFile(file.path, file.name);
     } catch (err) {
       setState(s => ({ ...s, error: egnyteErrorMessage(err, `Could not download ${file.name}.`) }));
     } finally {
