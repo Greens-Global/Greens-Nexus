@@ -111,7 +111,8 @@ export function DeskGreeting({ summary = null }) {
   useEffect(() => { api.timeStatus().then(setStatus).catch(() => {}); }, []);
 
   const last = status?.lastPunch;
-  const clockedIn = !!(last && last.kind !== 'out');
+  // Stale open shift (clock-in >16h, server treats it as closed) reads as clocked out here too.
+  const clockedIn = !!(last && last.kind !== 'out') && !status?.staleOpenShift;
   const elapsed = clockedIn && last?.at
     ? Math.max(0, Math.floor((now.getTime() - new Date(last.at + 'Z').getTime()) / 1000))
     : 0;
@@ -169,7 +170,8 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
   }, [can]);
 
   const last = status?.lastPunch;
-  const clockedIn = !!(last && last.kind !== 'out');
+  // Stale open shift (clock-in >16h, server treats it as closed) reads as clocked out here too.
+  const clockedIn = !!(last && last.kind !== 'out') && !status?.staleOpenShift;
   const elapsed = clockedIn && last?.at
     ? Math.max(0, Math.floor((now.getTime() - new Date(last.at + 'Z').getTime()) / 1000))
     : 0;
