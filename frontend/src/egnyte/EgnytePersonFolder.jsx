@@ -122,7 +122,7 @@ export default function EgnytePersonFolder({ email, personName = '' }) {
         </div>
       </div>
       {error && <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>}
-      <EgnyteFolderBrowser initialPath={state.folder} canWrite={canWrite} rootLabel={personName || 'Person folder'} />
+      <EgnyteFolderBrowser initialPath={state.folder} rootPath={state.folder} canWrite={canWrite} rootLabel={personName || 'Person folder'} />
       {pickerModal}
     </div>
   );

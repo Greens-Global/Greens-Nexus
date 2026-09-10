@@ -46,6 +46,15 @@ export default function EgnyteFolderBrowser({
   initialPath = '',
   canWrite = false,
   rootLabel = 'Egnyte',
+  // When set, the browser is PINNED here: the breadcrumb never shows (or lets
+  // you click into) anything above this folder, and the root button returns
+  // HERE rather than to Egnyte's true root. Used by the HR person card (Sep
+  // 10 - "we shouldn't have the option to go back, it should be fixed to
+  // employee folder") so HR can browse an employee's OWN subfolders without a
+  // path back out to the entity register or other employees. '' (default) is
+  // the original unrestricted browser, used by the main Egnyte module and the
+  // Wiring folder picker.
+  rootPath = '',
   showUpload = true,
   showTree = false,
   // Pick mode: when set, the browser doubles as a folder PICKER - a "Use This
@@ -53,6 +62,15 @@ export default function EgnyteFolderBrowser({
   // Used by the Wiring tab; a plain browse mount is unchanged.
   onPick = null,
 }) {
+  const pinnedRoot = normPath(rootPath);
+  // Belt and braces alongside the breadcrumb filtering below: even a stray
+  // call (a bookmark, a stale prefetch) can never actually navigate above the
+  // pin - anything outside it snaps back to the pin itself.
+  const clampToPin = (p) => {
+    if (!pinnedRoot) return p;
+    const n = normPath(p);
+    return (n === pinnedRoot || n.startsWith(pinnedRoot + '/')) ? p : pinnedRoot;
+  };
   const [path, setPath] = useState(normPath(initialPath));
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -155,7 +173,7 @@ export default function EgnyteFolderBrowser({
       .finally(() => { if (pathRef.current === next) setLoading(false); });
   }, []);
 
-  useEffect(() => { load(initialPath); }, [load, initialPath]);
+  useEffect(() => { load(clampToPin(initialPath)); }, [load, initialPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── selection, bookmarks, row-menu, file-manager verbs (Aug 11) ──
   const [selected, setSelected] = useState(() => new Set());
@@ -187,13 +205,14 @@ export default function EgnyteFolderBrowser({
   };
 
   const openFolder = (p, url) => {
-    if (url) webUrls.current.set(normPath(p), url);
+    const next = clampToPin(p);
+    if (url) webUrls.current.set(normPath(next), url);
     setResults(null);
     setSearchTerm('');
     setQuery('');
     setNewFolderOpen(false);
     setSelected(new Set());
-    load(p);
+    load(next);
   };
 
   const download = async (file) => {
@@ -478,6 +497,12 @@ export default function EgnyteFolderBrowser({
   if (connectRequired) return <ConnectRequired />;
 
   const crumbs = crumbsFor(path);
+  // The breadcrumb TRAIL shown in the header: unrestricted browsers show the
+  // whole chain; a pinned one shows only what's BELOW the pin (the pin itself
+  // is the root button, not a crumb) - `crumbs` above stays the full chain
+  // since the current folder's own name (title, search placeholder, bookmark
+  // label) is read from crumbs[crumbs.length - 1] in several places below.
+  const trailCrumbs = pinnedRoot ? crumbs.filter(c => c.path.startsWith(pinnedRoot + '/')) : crumbs;
 
   // What the arrows walk: the files the person is currently looking at, in the
   // order shown. Shortcuts are skipped - the viewer has nothing to show for a
@@ -498,18 +523,19 @@ export default function EgnyteFolderBrowser({
           <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0, overflowX: 'auto' }}>
             <button
               type="button"
-              onClick={() => openFolder('')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 5, fontFamily: 'inherit', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', whiteSpace: 'nowrap' }}
+              onClick={() => openFolder(pinnedRoot || '')}
+              disabled={pinnedRoot ? path === pinnedRoot : false}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: (pinnedRoot && path === pinnedRoot) ? 'default' : 'pointer', padding: '2px 4px', borderRadius: 5, fontFamily: 'inherit', fontSize: 12, fontWeight: (pinnedRoot && trailCrumbs.length === 0) ? 600 : 500, color: (pinnedRoot && trailCrumbs.length === 0) ? 'var(--wk-ink)' : 'var(--wk-dim)', whiteSpace: 'nowrap' }}
             >
               <HardDrive size={12} /> {rootLabel}
             </button>
-            {crumbs.map((c, i) => (
+            {trailCrumbs.map((c, i) => (
               <span key={c.path} style={{ display: 'inline-flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
                 <ChevronRight size={11} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />
                 <button
                   type="button"
                   onClick={() => openFolder(c.path)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 5, fontFamily: 'inherit', fontSize: 12, fontWeight: i === crumbs.length - 1 ? 600 : 500, color: i === crumbs.length - 1 ? 'var(--wk-ink)' : 'var(--wk-dim)', whiteSpace: 'nowrap', maxWidth: 180, ...ELLIPSIS }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 5, fontFamily: 'inherit', fontSize: 12, fontWeight: i === trailCrumbs.length - 1 ? 600 : 500, color: i === trailCrumbs.length - 1 ? 'var(--wk-ink)' : 'var(--wk-dim)', whiteSpace: 'nowrap', maxWidth: 180, ...ELLIPSIS }}
                 >
                   {c.name}
                 </button>
