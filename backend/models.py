@@ -1345,6 +1345,36 @@ class HrSignTemplate(Base):
     body_locked   = Column(Boolean, default=False)      # statutory form (CA lien waiver, TX release) - body text is not editable
 
 
+class HrSignSeal(Base):
+    """What was ACTUALLY applied to a completed packet, read back off the
+    signed PDF rather than copied from configuration.
+
+    Kept separate from the certificate on purpose: the certificate is inside
+    the bytes being sealed, so it cannot state the outcome of its own sealing.
+    It describes the policy; this row records the result, including failures -
+    a seal that did not apply must leave evidence, not silence."""
+    __tablename__ = "hr_sign_seals"
+    id                  = Column(String, primary_key=True)   # uuid
+    request_id          = Column(String, nullable=False, index=True)
+    status              = Column(String, default="applied")  # applied | failed | skipped
+    detail              = Column(String, default="")         # why, when not applied
+    profile             = Column(String, default="")         # e.g. PAdES B-B
+    signature_algorithm = Column(String, default="")         # e.g. sha256_rsa
+    cert_subject        = Column(String, default="")
+    cert_issuer         = Column(String, default="")
+    cert_serial         = Column(String, default="")
+    cert_not_after      = Column(String, default="")
+    # False for the self-signed development certificate. A reader will report
+    # the signer as unknown, and nothing may describe it as trusted until an
+    # AATL-issued certificate is in place.
+    publicly_trusted    = Column(Boolean, default=False)
+    key_custody         = Column(String, default="")         # software | hsm - what actually held the key
+    timestamp_authority = Column(String, default="")         # '' = no third-party timestamp
+    timestamped_at      = Column(String, default="")
+    sealed_sha256       = Column(String, default="")         # digest of the sealed bytes
+    created_at          = Column(String, default="")
+
+
 class HrSignRetentionHold(Base):
     """A legal hold on one envelope: while any unreleased hold exists, nothing
     may purge it. Holds always win over retention schedules - a record under

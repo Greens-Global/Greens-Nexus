@@ -76,9 +76,19 @@ maybe('Certificate determinism (criterion 5)', () => {
 
   it('states no cryptographic control the system does not have', () => {
     const html = renderCertificate(3).toLowerCase();
-    for (const claim of ['pades', 'cades', 'b-lta', 'fips 140', 'hardware security module',
-      'adobe approved trust list', 'aatl', 'worm', 'seal intact', 'ial2', 'aal2']) {
+    // Never, under any configuration - these describe controls nobody bought.
+    for (const claim of ['cades', 'b-lta', 'fips 140', 'hardware security module',
+      'adobe approved trust list', 'aatl', 'trusted root', 'worm', 'seal intact',
+      'ial2', 'aal2', '800-63']) {
       expect(html, `certificate claims ${claim}`).not.toContain(claim);
+    }
+    // PAdES may be named - it is a true statement about the signature actually
+    // applied - but only alongside what it is NOT. The lie would be implying
+    // the self-signed development seal is publicly trusted.
+    if (html.includes('pades')) {
+      expect(html, 'a PAdES seal is claimed without saying it is untrusted')
+        .toContain('not publicly trusted');
+      expect(html).toContain('self-signed development');
     }
   });
 

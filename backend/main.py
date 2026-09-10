@@ -904,6 +904,7 @@ def _run_migrations():
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS aal TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS signed_geo TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_documents ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_sign_seals ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS body_locked BOOLEAN DEFAULT FALSE",
         "ALTER TABLE hr_sign_retention_holds ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_sign_events ADD COLUMN IF NOT EXISTS hash_version INTEGER DEFAULT 1",

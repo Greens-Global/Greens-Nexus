@@ -36,6 +36,13 @@ _FORMAT_LABELS = {
     "pdf_rendered_in_session": "PDF rendered in session",
     "html_rendered_in_session": "Document rendered in session",
 }
+# What the Sealing row says when no signer is configured. Defined once so the
+# HTML certificate and the sealed PDF cannot disagree about what was applied.
+_NO_SEAL_POLICY = (
+    "The completed packet is hashed with SHA-256 and stored; the digest above detects any "
+    "later change. The file carries no embedded PKI signature, so integrity is verified "
+    "against this record, not from the file alone.")
+
 _LAW_NAMES = {"CA": "California", "TX": "Texas", "NV": "Nevada", "AZ": "Arizona",
               "WA": "Washington", "OR": "Oregon", "NY": "New York", "FL": "Florida"}
 
@@ -127,6 +134,10 @@ def build_snapshot(*, req, parties, events, consents, doc_digests, content_sha,
         },
         "verify_url": system.get("verify_url", ""),
         "retention": system.get("retention", ""),
+        # The certificate sits INSIDE the bytes being sealed, so it cannot
+        # report the outcome of its own sealing. It states the policy in force;
+        # the applied seal is on the envelope's seal row and in the PDF itself.
+        "seal_policy": system.get("seal_policy") or _NO_SEAL_POLICY,
     }
 
 
@@ -383,8 +394,7 @@ def render_html(snapshot: dict) -> str:
                       f'privileges withheld at the database level. {escape(chain_note)}'),
         ("Timestamps", "Recorded by the Nexus application clock in UTC at the moment of each act. "
                        "Not a third-party RFC 3161 timestamp."),
-        ("Sealing", "The completed packet is hashed with SHA-256 and stored. The file carries no "
-                    "embedded PKI signature, so integrity is verified against this record."),
+        ("Sealing", escape(snapshot.get("seal_policy") or _NO_SEAL_POLICY)),
         ("Retention", escape(snapshot["retention"] or "-")
                       + " Every party may retrieve the completed record from the verification "
                         "link for as long as it is retained (15 U.S.C. 7001(d))."),
@@ -590,6 +600,10 @@ def demo_snapshot(signer_count: int, verify_url: str = "https://nexus.greensglob
         "verify_url": verify_url,
         "retention": "10 years after substantial completion, in Nexus document storage with a "
                      "copy in the sending team's Egnyte folder.",
+        "seal_policy": ("The completed packet is sealed with a PAdES B-B digital signature "
+                        "(SHA-256 with RSA-3072) using a SELF-SIGNED DEVELOPMENT certificate "
+                        "that is not publicly trusted - a PDF reader will report the signer as "
+                        "unknown. The applied seal is recorded on this envelope's seal record."),
     }
 
 

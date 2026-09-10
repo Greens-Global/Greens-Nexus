@@ -40,9 +40,10 @@ from auth import get_current_user
 from models import (HrSignTemplate, HrSignRequest, HrSignParty, HrSignEvent,
                     HrDocument, HrEntity, HrCandidate, NexusEmployee,
                     HrDocumentClass, HrSignConsent, HrSignRetentionHold,
-                    HrSignDocument)
+                    HrSignDocument, HrSignSeal)
 # Reuse the HR module's storage/Graph/notification plumbing - same bucket, same
 # service key, same bell. hr.py owns those constants; do not duplicate them.
+from services.seal import seal_pdf, describe_seals, policy_sentence as seal_policy_sentence
 from services.certificate import (build_snapshot as build_certificate_snapshot,
                                   render_html as render_certificate_html)
 from routers.hr import (require_hr_read, require_hr_write, require_hr_delete,
@@ -2109,6 +2110,22 @@ def public_copy(token: str, request: Request, code: str = "",
     return resp.json()
 
 
+def _ser_seal(db: Session, request_id: str) -> dict:
+    """The applied seal, or an honest statement that there is none."""
+    row = (db.query(HrSignSeal).filter(HrSignSeal.request_id == request_id)
+           .order_by(HrSignSeal.created_at.desc()).first())
+    if row is None or row.status != "applied":
+        return {"applied": False,
+                "detail": (row.detail if row else "") or "No cryptographic seal was applied."}
+    return {"applied": True, "profile": row.profile,
+            "algorithm": row.signature_algorithm,
+            "certSubject": row.cert_subject, "certIssuer": row.cert_issuer,
+            "publiclyTrusted": bool(row.publicly_trusted),
+            "keyCustody": row.key_custody,
+            "timestampAuthority": row.timestamp_authority or "",
+            "sealedSha256": row.sealed_sha256 or ""}
+
+
 @router.get("/public/verify/{verify_token}")
 def public_verify(verify_token: str, request: Request, db: Session = Depends(get_db)):
     """Public, unauthenticated certificate verification - what the QR code on
@@ -2158,6 +2175,10 @@ def public_verify(verify_token: str, request: Request, db: Session = Depends(get
         "signedCount": sum(1 for p in signers if p.status == "signed"),
         # The comparison values: what the certificate prints must match these.
         "documentDigest": req.final_sha256 or "",
+        # What was ACTUALLY sealed, read off the stored record. A self-signed
+        # development seal reports publiclyTrusted false - the endpoint never
+        # describes a seal as trusted that a reader would not.
+        "seal": _ser_seal(db, req.id),
         "documentIntegrity": {"valid": integrity["valid"]},
         "auditChain": {"valid": chain["valid"], "eventCount": chain["eventCount"],
                        "chainAvailable": chain["chainAvailable"], "head": chain_head},
@@ -2729,9 +2750,7 @@ def _certificate_pdf(snapshot: dict) -> bytes:
                       f"withheld at the database level. {escape(chain_note)}"),
         ("Timestamps", "Recorded by the Nexus application clock in UTC at the moment of each act. "
                        "Not a third-party RFC 3161 timestamp."),
-        ("Sealing", "The completed packet is hashed with SHA-256 and stored; the digest above "
-                    "detects any later change. The file carries no embedded PKI signature, so "
-                    "integrity is verified against this record, not from the file alone."),
+        ("Sealing", escape(snapshot.get("seal_policy") or "")),
         ("Retention", escape(snapshot["retention"] or "-")
                       + " Every party may retrieve the completed record from the verification "
                         "link for as long as it is retained (15 U.S.C. &sect; 7001(d))."),
@@ -2914,6 +2933,7 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
         doc_digests=_document_digests_from_rows(db, req, packet), content_sha=content_sha,
         entity_name=entity_name, generated_at=req.completed_at,
         system={"name": _SOR_NAME, "operator": _SOR_OPERATOR, "support": _SUPPORT_CONTACT,
+                "seal_policy": seal_policy_sentence(),
                 "verify_url": f"{_app_url_fn()}/verify/{req.verify_token}",
                 "retention": _RETENTION_POLICY},
         chain=_verify_chain(events))
@@ -2932,6 +2952,33 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     out = io.BytesIO()
     writer.write(out)
     final = out.getvalue()
+
+    # Seal LAST, over content + certificate, by incremental update. A seal
+    # failure never loses the document: seal_pdf returns the unsealed bytes and
+    # a record saying what happened, and that record is stored either way -
+    # silence about a seal that did not apply is the thing to avoid.
+    final, seal_record = seal_pdf(final, field_name="NexusSeal",
+                                  reason=f"Certified complete - envelope {req.id}")
+    db.add(HrSignSeal(id=str(uuid.uuid4()), request_id=req.id,
+                      status=seal_record.get("status", "skipped"),
+                      detail=seal_record.get("detail", "")[:500],
+                      profile=seal_record.get("profile", ""),
+                      signature_algorithm=seal_record.get("signature_algorithm", ""),
+                      cert_subject=seal_record.get("cert_subject", "")[:500],
+                      cert_issuer=seal_record.get("cert_issuer", "")[:500],
+                      cert_serial=seal_record.get("cert_serial", ""),
+                      cert_not_after=seal_record.get("cert_not_after", ""),
+                      publicly_trusted=bool(seal_record.get("publicly_trusted", False)),
+                      key_custody=seal_record.get("key_custody", ""),
+                      timestamp_authority=seal_record.get("timestamp_authority", ""),
+                      timestamped_at=seal_record.get("timestamped_at", ""),
+                      sealed_sha256=seal_record.get("sealed_sha256", ""),
+                      created_at=seal_record.get("created_at", "")))
+    if seal_record.get("status") == "applied":
+        _log(db, req.id, "sealed",
+             f"{seal_record.get('profile', 'seal')} - {seal_record.get('cert_subject', '')[:120]}")
+    elif seal_record.get("status") == "failed":
+        _log(db, req.id, "seal_failed", seal_record.get("detail", "")[:300])
 
     path = f"esign/{req.id}/final.pdf"
     up = _storage_put(_DOC_BUCKET, path, final, "application/pdf", upsert=True)
