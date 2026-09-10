@@ -56,6 +56,9 @@ KNOWN_PUBLIC = {
     "/esign/public/{token}/sign",          # + access-code lockout
     "/esign/public/{token}/decline",       # + per-IP guessing throttle
     "/esign/public/{token}/download",
+    # UETA section 8 retention copy - same token credential, same access-code
+    # check and per-IP throttle as the signing view it sits beside.
+    "/esign/public/{token}/copy",
     "/esign/public/verify/{verify_token}",
     "/timeclock/agent/checkin",            # agent device token (get_agent_device)
     "/timeclock/agent/screenshot",

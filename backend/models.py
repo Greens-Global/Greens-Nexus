@@ -1342,6 +1342,21 @@ class HrSignTemplate(Base):
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
     egnyte_folder = Column(String, default="")       # Egnyte path for a copy of the sealed PDF ('' = don't copy)
+    body_locked   = Column(Boolean, default=False)      # statutory form (CA lien waiver, TX release) - body text is not editable
+
+
+class HrSignRetentionHold(Base):
+    """A legal hold on one envelope: while any unreleased hold exists, nothing
+    may purge it. Holds always win over retention schedules - a record under
+    hold is evidence, and destroying it is spoliation."""
+    __tablename__ = "hr_sign_retention_holds"
+    id          = Column(String, primary_key=True)   # uuid
+    request_id  = Column(String, nullable=False, index=True)
+    reason      = Column(String, default="")
+    placed_by   = Column(String, default="")
+    placed_at   = Column(String, default="")
+    released_by = Column(String, default="")
+    released_at = Column(String, default="")         # '' = still holding
 
 
 class HrSignRequest(Base):
@@ -1370,6 +1385,13 @@ class HrSignRequest(Base):
     routing          = Column(String, default="sequential")  # sequential (ordered) | parallel (everyone at once)
     egnyte_folder    = Column(String, default="")         # frozen from the template at send; sealed PDF is copied here
     verify_token     = Column(String, default="")         # public, unauthenticated /verify/{token} credential - set at completion
+    excluded_ack_at  = Column(String, default="")         # sender confirmed this is not an ESIGN 7003 / Civ. Code 1633.3 excluded record
+    excluded_ack_by  = Column(String, default="")         # who confirmed it
+    certificate_html = Column(Text, default="")           # the certificate of record - deterministic, regenerable from the snapshot
+    certificate_sha256 = Column(String, default="")       # digest of certificate_html as issued
+    certificate_snapshot = Column(JSON, default=dict)     # the frozen inputs; re-render must reproduce certificate_html byte for byte
+    document_class   = Column(String, default="")         # hr_document_classes.code - gates electronic signing
+    governing_law    = Column(String, default="")         # 'CA', 'TX', ... - routes the consent flow (Cal. Civ. Code 1633.5(b))
 
 
 class HrSignParty(Base):
@@ -1396,11 +1418,35 @@ class HrSignParty(Base):
     field_values         = Column(JSON, default=dict)         # filled text/check/date/initials values
     party_role           = Column(String, default="signer")   # signer | cc (receives the sealed copy, never signs)
     access_code          = Column(String, default="")         # optional code an external signer must enter to open the link
+    authenticated_at     = Column(String, default="")         # when this party cleared auth - set BEFORE any document is rendered
+    org                  = Column(String, default="")         # the company this person signed for
+    title                = Column(String, default="")         # their role in it - evidence of capacity to bind
+    # What the system ACTUALLY did to authenticate this party, recorded at the
+    # time. Deriving it later from kind/access_code would let the certificate's
+    # account of a past signing change if the party row is edited afterwards.
+    auth_method          = Column(String, default="")         # entra_sso | emailed_token | emailed_token+access_code
+    auth_factors         = Column(JSON, default=list)         # ["session"] | ["token"] | ["token","access_code"]
+    failed_auth_count    = Column(Integer, default=0)         # wrong access-code attempts - disclosed on the certificate
+    signature_digest     = Column(String, default="")         # sha256 of the submitted signature, frozen at signing
+    # Deliberately UNPOPULATED until the vendors in build note section 9 are
+    # integrated. The columns exist so the schema matches the spec, but nothing
+    # writes them: Nexus runs no identity proofing, so a NIST SP 800-63 level
+    # would be a claim nobody assessed, and no geo-IP lookup happens, so a city
+    # would be invented. The certificate prints neither. See test_esign_party_evidence.
+    ial                  = Column(String, default="")         # IAL1 | IAL2 - requires an identity-proofing vendor
+    aal                  = Column(String, default="")         # AAL1 | AAL2 | AAL3 - requires an assessed authenticator
+    signed_geo           = Column(String, default="")         # requires a geo-IP resolver
 
 
 class HrSignEvent(Base):
-    """Immutable audit trail - one row per action on an envelope."""
+    """Immutable audit trail - one row per action on an envelope.
+
+    Append-only is enforced at the DATABASE (main.py: rules on Postgres,
+    triggers on SQLite), not here - application-level immutability is worth
+    nothing as evidence. The unique constraint on (request_id, seq) is what
+    stops two concurrent appends from forking the hash chain."""
     __tablename__ = "hr_sign_events"
+    __table_args__ = (UniqueConstraint("request_id", "seq", name="uq_hr_sign_events_seq"),)
     id          = Column(String, primary_key=True)   # uuid
     request_id  = Column(String, nullable=False)
     party_id    = Column(String, default="")
@@ -1410,7 +1456,78 @@ class HrSignEvent(Base):
     user_agent  = Column(String, default="")
     at          = Column(String, default="")
     seq         = Column(Integer, default=0)          # tamper-evident hash chain (added later): 1,2,3... per request_id
-    event_hash  = Column(String, default="")          # sha256(prev_hash|request_id|type|detail|ip|user_agent|at|seq) - 0/'' on pre-upgrade rows
+    event_hash  = Column(String, default="")          # see hash_version for how it was computed
+    # 1 = the original pipe-joined digest; 2 = RFC 8785 JCS canonicalization.
+    # The algorithm is VERSIONED rather than swapped because changing how a
+    # hash is computed retroactively invalidates every chain ever written -
+    # every historical envelope would fail replay and the nightly sweep would
+    # alert on all of them. Old rows keep verifying under v1 forever; new rows
+    # are written under v2, and a chain that spans the change verifies each
+    # entry by its own version.
+    hash_version = Column(Integer, default=1)
+
+
+class HrSignDocument(Base):
+    """One file in an envelope's packet, with its digest AT SEND and AT
+    COMPLETION.
+
+    The digests used to be computed at finalize from whatever was in storage,
+    which quietly assumed the source file could not change between send and
+    completion. It can - storage is writable - and the certificate would then
+    print the swapped file's digest as its "digest at send" and call it
+    unaltered. Capturing at send closes that: the value is frozen when the
+    envelope goes out, and the completion digest is compared against it."""
+    __tablename__ = "hr_sign_documents"
+    id                    = Column(String, primary_key=True)   # uuid
+    request_id            = Column(String, nullable=False, index=True)
+    ordinal               = Column(Integer, default=1)         # order in the packet
+    name                  = Column(String, default="")
+    storage_path          = Column(String, default="")
+    page_count            = Column(Integer, default=0)
+    digest_at_send        = Column(String, default="")         # sha256 of the bytes that went out
+    digest_at_completion  = Column(String, default="")         # sha256 of the same file, stamped
+    created_at            = Column(String, default="")
+
+
+class HrDocumentClass(Base):
+    """What KIND of record an envelope carries, and whether the law lets it be
+    signed electronically at all (ESIGN 15 U.S.C. 7003 / Cal. Civ. Code 1633.3).
+
+    A class table rather than a code constant because the answer is a legal
+    fact that changes without a deploy (statutes move, and counsel may want a
+    category blocked pending review). Seeded at boot; `electronic_permitted`
+    False is a HARD BLOCK at send, not a warning."""
+    __tablename__ = "hr_document_classes"
+    code                  = Column(String, primary_key=True)   # 'subcontract', 'will', ...
+    label                 = Column(String, nullable=False)
+    electronic_permitted  = Column(Boolean, default=True)
+    citation              = Column(String, default="")         # why, when not permitted
+    note                  = Column(String, default="")         # what to do instead
+    sort_order            = Column(Integer, default=100)
+
+
+class HrSignConsent(Base):
+    """One signer's consent to transact electronically - its own row, not three
+    columns on the party.
+
+    ESIGN 7001(c) is about what was SHOWN and what the signer demonstrated they
+    could open, so the evidence is the disclosure digest (the exact bytes of the
+    text presented) plus `format_demonstrated`. A version string alone proves
+    nothing if the text behind that version ever changed."""
+    __tablename__ = "hr_sign_consents"
+    id                  = Column(String, primary_key=True)   # uuid
+    party_id            = Column(String, nullable=False, index=True)
+    request_id          = Column(String, nullable=False, index=True)
+    disclosure_version  = Column(String, default="")
+    disclosure_digest   = Column(String, default="")         # sha256 of the exact text shown
+    scope               = Column(String, default="transaction")   # transaction | category
+    format_demonstrated = Column(String, default="")         # 'pdf_rendered_in_session' | ''
+    accepted_at         = Column(String, default="")
+    accepted_ip         = Column(String, default="")
+    session_id          = Column(String, default="")
+    standing_basis      = Column(String, default="")         # internal signers: the clause relied on
+    withdrawn_at        = Column(String, default="")
+    withdrawal_method   = Column(String, default="")
 
 
 # ── Documents (DMS) - Phase 1 ──────────────────────────────────────────────────

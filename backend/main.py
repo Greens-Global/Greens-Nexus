@@ -115,6 +115,44 @@ def _run_migrations():
             "ALTER TABLE hr_sign_events ADD COLUMN seq INTEGER DEFAULT 0",
             "ALTER TABLE hr_sign_events ADD COLUMN event_hash VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_requests ADD COLUMN verify_token VARCHAR DEFAULT ''",
+            # E-sign: sender's ESIGN 7003 / Cal. Civ. Code 1633.3 excluded-record acknowledgment
+            # ── E-sign audit log: append-only, enforced by the DATABASE ──────
+            # "The application never updates it" is not evidence. FRE 902(13)
+            # asks what the SYSTEM does, and the answer has to survive the
+            # question "could a developer have changed a row?" - so UPDATE and
+            # DELETE are refused by the engine itself. SQLite has no grants, so
+            # triggers are the equivalent control here (and they let CI assert
+            # the behavior locally instead of only on Postgres).
+            "CREATE TRIGGER IF NOT EXISTS hr_sign_events_no_update "
+            "BEFORE UPDATE ON hr_sign_events "
+            "BEGIN SELECT RAISE(ABORT, 'hr_sign_events is append-only'); END",
+            "CREATE TRIGGER IF NOT EXISTS hr_sign_events_no_delete "
+            "BEFORE DELETE ON hr_sign_events "
+            "BEGIN SELECT RAISE(ABORT, 'hr_sign_events is append-only'); END",
+            # One chain per envelope: no two events may share a sequence number.
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_sign_events_seq "
+            "ON hr_sign_events (request_id, seq)",
+            "ALTER TABLE hr_sign_parties ADD COLUMN authenticated_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_parties ADD COLUMN org VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_parties ADD COLUMN title VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_parties ADD COLUMN auth_method VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_parties ADD COLUMN auth_factors JSON",
+            "ALTER TABLE hr_sign_parties ADD COLUMN failed_auth_count INTEGER DEFAULT 0",
+            "ALTER TABLE hr_sign_parties ADD COLUMN signature_digest VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_parties ADD COLUMN ial VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_parties ADD COLUMN aal VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_parties ADD COLUMN signed_geo VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_templates ADD COLUMN body_locked BOOLEAN DEFAULT 0",
+            # Audit chain: how each entry's hash was computed (1 = pipe, 2 = JCS).
+            # Existing rows default to 1 - they were written that way.
+            "ALTER TABLE hr_sign_events ADD COLUMN hash_version INTEGER DEFAULT 1",
+            "ALTER TABLE hr_sign_requests ADD COLUMN certificate_html TEXT DEFAULT ''",
+            "ALTER TABLE hr_sign_requests ADD COLUMN certificate_sha256 VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_requests ADD COLUMN certificate_snapshot JSON",
+            "ALTER TABLE hr_sign_requests ADD COLUMN document_class VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_requests ADD COLUMN governing_law VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_requests ADD COLUMN excluded_ack_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_requests ADD COLUMN excluded_ack_by VARCHAR DEFAULT ''",
             "ALTER TABLE time_bod ADD COLUMN kind VARCHAR DEFAULT 'bod'",
             "ALTER TABLE time_bod ADD COLUMN html VARCHAR DEFAULT ''",
             "ALTER TABLE time_bod ADD COLUMN attempts INTEGER DEFAULT 0",
@@ -831,6 +869,56 @@ def _run_migrations():
         "ALTER TABLE hr_sign_events ADD COLUMN IF NOT EXISTS seq INTEGER DEFAULT 0",
         "ALTER TABLE hr_sign_events ADD COLUMN IF NOT EXISTS event_hash TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS verify_token TEXT DEFAULT ''",
+        # E-sign: sender's ESIGN 7003 / Cal. Civ. Code 1633.3 excluded-record acknowledgment
+        # ── E-sign audit log: append-only, enforced by the DATABASE ──────────
+        # See the SQLite list above for why this is not an application concern.
+        # On Postgres the grants are the real control and the rules are belt and
+        # braces; both are idempotent enough to run every boot (REVOKE on an
+        # already-revoked privilege is a no-op, and the rules are dropped and
+        # recreated). Note honestly: the table OWNER and any superuser still
+        # bypass both - that residual risk is why segregation of duties and a
+        # WORM archive are on the roadmap, and why the certificate describes
+        # the control as "privileges withheld at the database level" rather
+        # than claiming the log is immutable to everyone.
+        "REVOKE UPDATE, DELETE, TRUNCATE ON hr_sign_events FROM PUBLIC",
+        "DROP RULE IF EXISTS hr_sign_events_no_update ON hr_sign_events",
+        "DROP RULE IF EXISTS hr_sign_events_no_delete ON hr_sign_events",
+        "CREATE RULE hr_sign_events_no_update AS ON UPDATE TO hr_sign_events DO INSTEAD NOTHING",
+        "CREATE RULE hr_sign_events_no_delete AS ON DELETE TO hr_sign_events DO INSTEAD NOTHING",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_sign_events_seq "
+        "ON hr_sign_events (request_id, seq)",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS authenticated_at TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS org TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS title TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS auth_method TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS auth_factors JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS failed_auth_count INTEGER DEFAULT 0",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS signature_digest TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS ial TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS aal TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS signed_geo TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_documents ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS body_locked BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE hr_sign_retention_holds ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_sign_events ADD COLUMN IF NOT EXISTS hash_version INTEGER DEFAULT 1",
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS certificate_html TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS certificate_sha256 TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS certificate_snapshot JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS document_class TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS governing_law TEXT DEFAULT ''",
+        # New tables from create_all start with RLS OFF - the recurring gap.
+        "ALTER TABLE hr_document_classes ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_sign_consents ENABLE ROW LEVEL SECURITY",
+        # The Documents (DMS) tables missed this when they shipped - same gap,
+        # same one-line fix, idempotent on every boot.
+        "ALTER TABLE documents ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE doc_folders ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE doc_templates ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE doc_letterheads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE doc_versions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE doc_template_versions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS excluded_ack_at TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS excluded_ack_by TEXT DEFAULT ''",
         "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'bod'",
         "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS html TEXT DEFAULT ''",
         "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",

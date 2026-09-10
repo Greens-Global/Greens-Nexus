@@ -28,9 +28,17 @@ from models import (
     HrCandidate,
     HrDocument,
     HrSignRequest,
+    HrSignParty,
+    HrSignEvent,
 )
 
 _SCAN_HOUR_UTC = 13  # ~6am PT / 6:30pm IST - start of the US workday
+
+# E-sign auto-chase (see section 9 of run_daily_scan). Deliberately gentle:
+# three days of silence before the first nudge, and at most three nudges ever -
+# after that the envelope is the sender's problem, not the signer's inbox's.
+_CHASE_AFTER_DAYS = 3
+_MAX_AUTO_CHASES = 3
 
 
 def _now_iso() -> str:
@@ -119,6 +127,190 @@ def _days_until(date_str: str):
         return (d - datetime.now(timezone.utc).date()).days
     except Exception:
         return None
+
+
+def run_esign_chase(db) -> int:
+    """Chase the signer who is holding a pending envelope up. Returns how many
+    notifications were created (the nudge itself is a bell + email to the
+    party; the count is the sender-facing "we have stopped chasing" alert).
+
+    The sender already gets an "expiring soon" nudge (section 6), but that
+    only tells the SENDER to go press Remind by hand; nothing ever reached
+    the person actually holding the envelope up, so a request with no
+    expiry date could sit silently forever. This is that missing half.
+
+    State lives entirely in the hr_sign_events log - no new columns: the
+    last sent/reminded/viewed event dates the last contact, and the count
+    of automatic reminders caps the chasing. That also makes the whole
+    thing self-deduping across restarts (a nudge today moves "last
+    contact" to today, so tomorrow's scan skips it).
+    """
+    sent = 0
+    from routers.esign import _its_their_turn, _notify_party, _log
+
+    _today_d = datetime.now(timezone.utc).date()
+    pending_reqs = (
+        db.query(HrSignRequest).filter(HrSignRequest.status == "pending").all()
+    )
+    chased = 0
+    for req in pending_reqs:
+        # An envelope past its date is run_esign_expiry's, not chased.
+        if req.expires_on and (_days_until(req.expires_on) or 0) < 0:
+            continue
+        parties = (
+            db.query(HrSignParty)
+            .filter(HrSignParty.request_id == req.id)
+            .order_by(HrSignParty.ordinal)
+            .all()
+        )
+        for p in parties:
+            if not _its_their_turn(req, p):
+                continue
+            events = (
+                db.query(HrSignEvent)
+                .filter(
+                    HrSignEvent.request_id == req.id,
+                    HrSignEvent.party_id == p.id,
+                )
+                .all()
+            )
+            contacts = [
+                e.at for e in events
+                if e.type in ("sent", "reminded", "viewed") and e.at
+            ]
+            if not contacts:
+                continue  # never notified at all - nothing to chase yet
+            auto_sent = sum(
+                1 for e in events
+                if e.type == "reminded" and (e.detail or "").startswith("automatic")
+            )
+            if auto_sent >= _MAX_AUTO_CHASES:
+                continue
+            try:
+                last = datetime.fromisoformat(max(contacts)).date()
+            except ValueError:
+                continue
+            quiet_days = (_today_d - last).days
+            if quiet_days < _CHASE_AFTER_DAYS:
+                continue
+            sender = (req.created_by or "").split("@")[0].replace(".", " ").title()
+            try:
+                _notify_party(db, p, req, sender)
+            except Exception as ex:  # noqa: BLE001 - one bad party never stops the sweep
+                print(f"[reminders] e-sign chase failed for {p.email}: {ex}")
+                continue
+            _log(
+                db,
+                req.id,
+                "reminded",
+                f"automatic reminder - no response in {quiet_days} day"
+                f"{'s' if quiet_days != 1 else ''} "
+                f"({auto_sent + 1} of {_MAX_AUTO_CHASES})",
+                party_id=p.id,
+            )
+            chased += 1
+            # Last automatic nudge: hand it back to the sender, who can
+            # still Remind, extend or void by hand.
+            if auto_sent + 1 >= _MAX_AUTO_CHASES:
+                sent += _notify(
+                    db,
+                    "esign_stalled",
+                    req.created_by,
+                    "Signature request still unsigned",
+                    f'"{req.title}" has been waiting on {p.name} for {quiet_days} days. '
+                    f"Automatic reminders have stopped - remind, extend or void it.",
+                    ref_id=req.id,
+                    action={"view": "documents", "sub": "documents-esign"},
+                )
+    if chased:
+        print(f"[reminders] e-sign: chased {chased} stalled signature(s)")
+
+    return sent
+
+
+def run_esign_expiry(db) -> int:
+    """Flip pending envelopes that passed their expiry date and tell the sender.
+    Expiry used to be lazy (esign._check_expiry runs only when someone opens the
+    request), so a passed-expiry envelope kept reading as "pending" on every
+    list until somebody happened to click it - and the sender was never told."""
+    sent = 0
+    from routers.esign import _check_expiry
+
+    for req in db.query(HrSignRequest).filter(HrSignRequest.status == "pending").all():
+        _check_expiry(db, req)
+        if req.status == "expired":
+            sent += _notify(
+                db,
+                "esign_expired",
+                req.created_by,
+                "Signature request expired",
+                f'"{req.title}" reached its expiry date without being fully signed. '
+                f"Send it again if it is still needed.",
+                ref_id=req.id,
+                action={"view": "documents", "sub": "documents-esign"},
+            )
+    return sent
+
+
+def run_chain_verification(db) -> int:
+    """Replay every e-sign envelope's audit hash chain and alert on divergence.
+
+    A chain that is only checked when somebody asks is a chain nobody trusts:
+    the whole value of tamper EVIDENCE is that the evidence surfaces on its
+    own, close to when the tampering happened, rather than years later in
+    discovery when it is also a surprise to us. This runs nightly over every
+    envelope and bells the administrators on the first divergence.
+
+    Returns the number of envelopes whose chain failed to replay.
+    """
+    from routers.esign import _verify_chain
+
+    broken = []
+    checked = 0
+    ids = [r.id for r in db.query(HrSignRequest.id).all()]
+    for rid in ids:
+        events = (db.query(HrSignEvent).filter(HrSignEvent.request_id == rid)
+                  .order_by(HrSignEvent.seq).all())
+        if not events:
+            continue
+        result = _verify_chain(events)
+        if not result["chainAvailable"]:
+            continue                      # predates the chain - not a failure
+        checked += 1
+        if result["valid"] is False:
+            broken.append(rid)
+
+    if broken:
+        # Deliberately loud and deliberately NOT self-healing. There is no
+        # correct automatic response to a broken audit chain: rewriting it
+        # would destroy the only evidence of what happened.
+        print(f"[reminders] AUDIT CHAIN DIVERGENCE on {len(broken)} envelope(s): "
+              f"{', '.join(broken[:20])}")
+        for email in _admin_emails(db):
+            _notify(
+                db, "esign_chain_broken", email,
+                "E-sign audit trail integrity alert",
+                f"{len(broken)} signature envelope(s) failed audit-chain verification "
+                f"tonight: {', '.join(broken[:5])}"
+                f"{'...' if len(broken) > 5 else ''}. The stored events no longer match "
+                "their hash chain. Do not modify the records - escalate this.",
+                ref_id=broken[0],
+                action={"view": "documents", "sub": "documents-esign"},
+            )
+    else:
+        print(f"[reminders] e-sign audit chains verified - {checked} envelope(s), no divergence")
+    return len(broken)
+
+
+def _admin_emails(db) -> list:
+    """Administrators, for integrity alerts - the same group-grant idiom
+    _hr_team_emails uses, but scoped to the admin module."""
+    out = set()
+    for g in db.query(NexusGroup).all():
+        if "admin:" in (g.allowed_modules or ""):
+            for m in db.query(NexusGroupMember).filter(NexusGroupMember.group_id == g.id).all():
+                out.add(m.email.lower())
+    return sorted(out)
 
 
 def run_daily_scan() -> int:
@@ -369,7 +561,16 @@ def run_daily_scan() -> int:
                     print(f"[reminders] time&attendance skipped {e.work_email}: {ex}")
                     continue
 
-        # 8. Field-tracking retention: purge raw location pings past the window
+        # 8-9. E-sign chasing: nudge a stalled signer, and expire what is past
+        # its date. Both live in their own functions so they can be tested (and
+        # re-run) without the rest of this scan.
+        sent += run_esign_chase(db)
+        sent += run_esign_expiry(db)
+
+        # 9b. Nightly audit-chain verification across every envelope.
+        run_chain_verification(db)
+
+        # 10. Field-tracking retention: purge raw location pings past the window
         # (data-minimization guardrail - keep only recent breadcrumbs).
         from routers.timeclock import purge_old_track_pings
 

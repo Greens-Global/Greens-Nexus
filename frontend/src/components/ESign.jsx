@@ -414,10 +414,154 @@ function PdfDoc({ url, file, zoom = 1, renderOverlay }) {
 
 // ── Guided signing screen - progress, START/NEXT tab, yellow sign-here tabs ───
 // Shared by the internal modal AND the public /sign/{token} page.
+// ── ESIGN consumer disclosures (15 U.S.C. 7001(c)) ───────────────────────────
+// These have to be AVAILABLE TO READ BEFORE the signer consents, not hidden in
+// a tooltip: 7001(c) is the one part of US e-signature law that prescribes
+// content (paper copy, withdrawal, scope, how to get copies, hardware/software
+// requirements), and the Certificate of Completion states they were shown.
+// The backend ships them with the signing payload so this panel and the
+// certificate always quote the same version.
+function ConsentDisclosures({ payload }) {
+  const [open, setOpen] = useState(false);
+  const items = payload.disclosures || [];
+  if (!items.length) return null;
+  return (
+    <>
+      <button type="button" onClick={(e) => { e.preventDefault(); setOpen(o => !o); }}
+        style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', textDecoration: 'underline', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        {open ? 'Hide disclosures' : 'Read disclosures'}
+      </button>
+      {open && (
+        <div style={{ flexBasis: '100%', order: 9, marginTop: 4, border: '1px solid var(--line)', borderRadius: 10, background: 'var(--mist)', padding: '12px 14px', maxHeight: 260, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700 }}>Electronic Records and Signatures Disclosure</div>
+            <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Version {payload.consentVersion}</div>
+          </div>
+          {items.map(d => (
+            <div key={d.heading} style={{ marginBottom: 9 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 2 }}>{d.heading}</div>
+              <div style={{ fontSize: 11.5, lineHeight: 1.55, color: 'var(--ink)' }}>{d.body}</div>
+            </div>
+          ))}
+          <div style={{ fontSize: 11.5, lineHeight: 1.55, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+            <b>By checking the box you confirm:</b> {payload.consentText}
+          </div>
+          <button type="button" onClick={() => window.print()}
+            style={{ marginTop: 10, background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '5px 10px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+            Print or Save a Copy
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Standalone consent gate (Cal. Civ. Code 1633.5(b)) ───────────────────────
+// California will not treat an agreement to conduct business electronically as
+// given if it is bundled into the transaction itself - a checkbox sitting next
+// to the contract is exactly the bundling the statute is about. So for CA
+// envelopes the disclosure is its OWN screen, shown BEFORE the document
+// renders, and declining is offered as plainly as accepting: the deal must not
+// be conditioned on consenting.
+//
+// It also carries the 7001(c)(1)(C)(ii) demonstration. The signer opens the
+// document in this session before consenting, and what actually rendered is
+// what gets recorded - `format_demonstrated` is reported by the viewer, never
+// assumed.
+function ConsentGate({ payload, onAccept, onDecline }) {
+  const [read, setRead] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const items = payload.disclosures || [];
+  const scrollRef = useRef(null);
+
+  // "Read" means the disclosure was actually scrolled to the end - not that a
+  // box was ticked next to a collapsed panel.
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (el && el.scrollTop + el.clientHeight >= el.scrollHeight - 24) setRead(true);
+  };
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && el.scrollHeight <= el.clientHeight + 4) setRead(true);   // short enough to be fully visible
+  }, [items.length]);
+
+  return (
+    <div style={{ maxWidth: 680, margin: '0 auto', padding: '18px 4px' }}>
+      <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 14, overflow: 'hidden' }}>
+        <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
+          <h2 style={{ fontSize: 16, fontWeight: 800, margin: '0 0 4px' }}>Before You Sign</h2>
+          <p style={{ fontSize: 12.5, color: 'var(--muted, #6b7280)', margin: 0, lineHeight: 1.55 }}>
+            California law asks you to agree separately to doing this electronically. Please read
+            the disclosure below. Agreeing is your choice - if you would rather sign on paper, say
+            so and we will arrange it. The agreement itself is not affected either way.
+          </p>
+        </div>
+
+        <div ref={scrollRef} onScroll={onScroll}
+          style={{ padding: '16px 22px', maxHeight: 340, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Electronic Records and Signatures Disclosure</div>
+            <div style={{ fontSize: 10.5, color: 'var(--muted, #6b7280)' }}>Version {payload.consentVersion}</div>
+          </div>
+          {items.map(d => (
+            <div key={d.heading} style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 3 }}>{d.heading}</div>
+              <div style={{ fontSize: 12, lineHeight: 1.6 }}>{d.body}</div>
+            </div>
+          ))}
+          <div style={{ fontSize: 12, lineHeight: 1.6, borderTop: '1px solid var(--line, #e5e7eb)', paddingTop: 10 }}>
+            <b>What you are agreeing to:</b> {payload.consentText}
+          </div>
+        </div>
+
+        <div style={{ padding: '14px 22px', borderTop: '1px solid var(--line, #e5e7eb)', background: 'var(--mist, #f6f7f9)' }}>
+          <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: read ? 'pointer' : 'not-allowed', opacity: read ? 1 : 0.55 }}>
+            <input type="checkbox" checked={agreed} disabled={!read}
+              onChange={e => setAgreed(e.target.checked)}
+              style={{ width: 15, height: 15, marginTop: 1, flexShrink: 0, accentColor: 'var(--pine, #166534)' }} />
+            <span style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+              I have read the disclosure and I agree to use electronic records and signatures for
+              this document.
+            </span>
+          </label>
+          {!read && (
+            <div style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)', marginTop: 8, marginLeft: 24 }}>
+              Scroll to the end of the disclosure to continue.
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
+            <button className="primary-btn" disabled={!agreed} onClick={onAccept}
+              style={{ opacity: agreed ? 1 : 0.5, fontSize: 13 }}>
+              Agree and Continue
+            </button>
+            <button onClick={onDecline}
+              style={{ background: 'none', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              I would rather sign on paper
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted, #6b7280)', marginTop: 10 }}>
+            You can withdraw this agreement at any time before you sign - see the disclosure above.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
   const [sig, setSig] = useState(null);
   const [padOpen, setPadOpen] = useState(false);
   const [consent, setConsent] = useState(false);
+  // California envelopes gate the document behind a standalone consent screen
+  // (Cal. Civ. Code 1633.5(b)); everywhere else consent rides in the action bar
+  // as before. `gatePassed` is only ever set by the gate's own button.
+  const [gatePassed, setGatePassed] = useState(false);
+  const needsGate = !!payload.standaloneConsent && payload.myTurn && !gatePassed;
+  // What the signer's browser actually rendered, reported to the server as the
+  // 7001(c)(1)(C)(ii) demonstration - never assumed, so a template-bodied
+  // envelope reports HTML and a PDF one reports PDF.
+  const formatDemonstrated = payload.source === 'template'
+    ? 'html_rendered_in_session' : 'pdf_rendered_in_session';
   const [values, setValues] = useState({});
   const [declineOpen, setDeclineOpen] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
@@ -605,6 +749,12 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
     </>
   );
 
+  if (needsGate) return (
+    <ConsentGate payload={payload}
+      onAccept={() => { setGatePassed(true); setConsent(true); }}
+      onDecline={() => setDeclineOpen(true)} />
+  );
+
   return (
     <div>
       {/* Sticky action bar - consent + progress + Finish, DocuSign style */}
@@ -612,8 +762,14 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
         <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', flex: 1, minWidth: 240 }}>
             <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} style={{ width: 16, height: 16, flexShrink: 0, accentColor: 'var(--pine)' }} />
-            <span>I agree to use electronic records &amp; signatures. <span title={payload.consentText} style={{ textDecoration: 'underline dotted', cursor: 'help', color: 'var(--muted)' }}>Details</span></span>
+            <span>I agree to use electronic records &amp; signatures, and I have read the disclosures.</span>
           </label>
+          <ConsentDisclosures payload={payload} />
+          {gatePassed && (
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+              Consent recorded on the previous screen.
+            </span>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ fontSize: 11.5, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: 90, height: 5, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
@@ -621,9 +777,18 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
               </span>
               {doneCount}/{required.length}
             </div>
+            {/* UETA section 8: the signer must be able to keep a copy of what
+                they are being asked to sign, while they are deciding - not
+                only after everyone has signed. Never gated on consent. */}
+            {payload.copyUrl && (
+              <a href={payload.copyUrl} target="_blank" rel="noreferrer" download
+                style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <Download size={12} /> Download a copy
+              </a>
+            )}
             <button onClick={() => setDeclineOpen(true)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Decline</button>
             <button className="primary-btn" disabled={!canFinish || busy}
-              onClick={() => onSubmit({ consent, signature_kind: sig?.kind === 'drawn' ? 'drawn' : 'typed', signature_data: sig?.data || payload.myName, field_values: values })}
+              onClick={() => onSubmit({ consent, signature_kind: sig?.kind === 'drawn' ? 'drawn' : 'typed', signature_data: sig?.data || payload.myName, field_values: values, format_demonstrated: formatDemonstrated })}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canFinish && !busy ? 1 : 0.5, fontSize: 13 }}>
               {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Finish
             </button>
@@ -1263,6 +1428,21 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
 function SendWizard({ templates, employees, entities, prefill, onClose, onSent, toastOk, toastErr }) {
   const [boxRef, boxH] = useFillHeight();
   const [step, setStep] = useState(0);
+  // Excluded-record acknowledgment (ESIGN 15 U.S.C. 7003 / Cal. Civ. Code
+  // 1633.3). The list comes from the server so this checklist and the
+  // guardrail that enforces it can never drift apart.
+  const [excludedAck, setExcludedAck] = useState(false);
+  const [excludedOpen, setExcludedOpen] = useState(false);
+  const [excludedCats, setExcludedCats] = useState([]);
+  // Document class drives the HARD block (the server refuses a class the law
+  // does not allow); governing law routes the signer's consent flow.
+  const [docClasses, setDocClasses] = useState([]);
+  const [documentClass, setDocumentClass] = useState('');
+  const [governingLaw, setGoverningLaw] = useState('CA');
+  useEffect(() => { api.getEsignExcludedCategories().then(setExcludedCats).catch(() => setExcludedCats([])); }, []);
+  useEffect(() => { api.getEsignDocumentClasses().then(setDocClasses).catch(() => setDocClasses([])); }, []);
+  const pickedClass = docClasses.find(c => c.code === documentClass);
+  const classBlocked = !!pickedClass && !pickedClass.electronicPermitted;
   const [source, setSource] = useState(prefill?.source === 'pdf' ? 'pdf' : (prefill ? 'template' : ''));
   const [templateId, setTemplateId] = useState('');
   const [file, setFile] = useState(null);
@@ -1491,7 +1671,8 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
           template_id: tpl.id, title: title.trim(), ...subject, entity_id: entityId,
           message, expires_on: expiresOn, routing,
           merge: Object.fromEntries(Object.entries(merge).filter(([, v]) => String(v).trim())),
-          parties: withRoles.map(p => ({ role_key: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, party_role: p.party_role || 'signer', access_code: p.access_code || '' })),
+          excluded_ack: excludedAck, document_class: documentClass, governing_law: governingLaw,
+          parties: withRoles.map(p => ({ role_key: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, party_role: p.party_role || 'signer', access_code: p.access_code || '', org: p.org || '', title: p.title || '' })),
         });
       } else {
         const form = new FormData();
@@ -1500,8 +1681,9 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
           title: title.trim() || file.name,
           ...(subject.employee_id ? { employeeId: subject.employee_id } : {}),
           ...(subject.candidate_id ? { candidateId: subject.candidate_id } : {}),
-          entityId, message, expiresOn, fields, routing,
-          parties: withRoles.map(p => ({ roleKey: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, partyRole: p.party_role || 'signer', accessCode: p.access_code || '' })),
+          entityId, message, expiresOn, fields, routing, excludedAck,
+          documentClass, governingLaw,
+          parties: withRoles.map(p => ({ roleKey: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, partyRole: p.party_role || 'signer', accessCode: p.access_code || '', org: p.org || '', title: p.title || '' })),
         }));
         sent = await api.sendSignPdf(form);
       }
@@ -1570,7 +1752,12 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
               Next <ChevronRight size={13} />
             </button>
           ) : (
-            <button className="primary-btn" onClick={send} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: busy ? 0.6 : 1 }}>
+            <button className="primary-btn" onClick={send}
+              disabled={busy || !excludedAck || !documentClass || classBlocked}
+              title={classBlocked ? 'This document type cannot be signed electronically'
+                : !documentClass ? 'Pick the document type first'
+                : excludedAck ? '' : 'Confirm the document type first'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: (busy || !excludedAck || !documentClass || classBlocked) ? 0.6 : 1 }}>
               {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} Send
             </button>
           )}
@@ -1714,6 +1901,17 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                         onChange={v => setParty(i, 'name', v)} onPick={emp => pickEmployee(i, emp.id)} />
                       <input className="form-input" placeholder="email@…" value={p.email} onChange={e => setParty(i, 'email', e.target.value)} />
                     </div>
+                    {!cc && (
+                      /* Capacity to bind - printed on the Certificate of
+                         Completion next to the signature. Optional: an employee
+                         signing for themselves needs neither. */
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
+                        <input className="form-input" style={{ fontSize: 12 }} placeholder="Title (optional)"
+                          value={p.title || ''} onChange={e => setParty(i, 'title', e.target.value)} />
+                        <input className="form-input" style={{ fontSize: 12 }} placeholder="Company (optional)"
+                          value={p.org || ''} onChange={e => setParty(i, 'org', e.target.value)} />
+                      </div>
+                    )}
                     {p.kind === 'external' && !cc && (
                       <input className="form-input" style={{ marginTop: 8, width: '100%', fontSize: 12 }}
                         placeholder="Access code (optional) - share it with them separately; the link will ask for it"
@@ -1894,6 +2092,75 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                   <label style={FL}>Expires</label>
                   <input type="date" className="form-input" style={{ width: '100%' }} value={expiresOn} onChange={e => setExpiresOn(e.target.value)} />
                 </div>
+              </div>
+              <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '2fr 1fr', marginTop: 14 }}>
+                <div>
+                  <label style={FL}>Document type</label>
+                  <select className="form-input" style={{ width: '100%' }} value={documentClass}
+                    onChange={e => setDocumentClass(e.target.value)}>
+                    <option value="">Select the type…</option>
+                    {docClasses.map(c => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}{c.electronicPermitted ? '' : ' - cannot be signed electronically'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={FL}>Governing law</label>
+                  <select className="form-input" style={{ width: '100%' }} value={governingLaw}
+                    onChange={e => setGoverningLaw(e.target.value)}>
+                    {['CA', 'TX', 'NV', 'AZ', 'WA', 'OR', 'NY', 'FL'].map(x => <option key={x} value={x}>{x}</option>)}
+                  </select>
+                </div>
+              </div>
+              {classBlocked && (
+                <div style={{ marginTop: 10, padding: '11px 13px', borderRadius: 10, background: 'hsla(var(--color-red),0.10)', border: '1px solid hsla(var(--color-red),0.35)' }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'hsl(var(--color-red))' }}>
+                    This cannot be signed electronically
+                  </div>
+                  <div style={{ fontSize: 11.5, lineHeight: 1.55, marginTop: 4 }}>
+                    {pickedClass.citation}. {pickedClass.note}
+                  </div>
+                </div>
+              )}
+              {governingLaw === 'CA' && !classBlocked && (
+                <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  California: each signer gets a standalone consent screen before the document
+                  opens, and may choose paper instead (Cal. Civ. Code 1633.5(b)).
+                </div>
+              )}
+
+              {/* Excluded records - the threshold question, asked once, on the
+                  last screen before it goes out. ESIGN 15 U.S.C. 7003 and Cal.
+                  Civ. Code 1633.3 make an electronic signature legally
+                  INEFFECTIVE on these, so no audit trail can rescue one; the
+                  server refuses the send without this acknowledgment, and the
+                  certificate records who gave it. */}
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+                <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={excludedAck} onChange={e => setExcludedAck(e.target.checked)}
+                    style={{ width: 15, height: 15, marginTop: 1, flexShrink: 0, accentColor: 'var(--pine)' }} />
+                  <span style={{ fontSize: 12, lineHeight: 1.5 }}>
+                    I confirm this is not a record that cannot be signed electronically.{' '}
+                    <button type="button" onClick={(e) => { e.preventDefault(); setExcludedOpen(o => !o); }}
+                      style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--muted)', textDecoration: 'underline', cursor: 'pointer' }}>
+                      {excludedOpen ? 'Hide the list' : 'See the list'}
+                    </button>
+                  </span>
+                </label>
+                {excludedOpen && (
+                  <ul style={{ margin: '10px 0 0', padding: '10px 12px 10px 26px', background: 'var(--mist)', borderRadius: 10, fontSize: 11.5, lineHeight: 1.6 }}>
+                    {excludedCats.map(c => (
+                      <li key={c.label} style={{ marginBottom: 3 }}>
+                        {c.label} <span style={{ color: 'var(--muted)' }}>- {c.citation}</span>
+                      </li>
+                    ))}
+                    <li style={{ listStyle: 'none', marginLeft: -14, marginTop: 8, color: 'var(--muted)' }}>
+                      Send these on paper, or through a notary. This list is a checklist, not legal advice.
+                    </li>
+                  </ul>
+                )}
               </div>
             </div>
             <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 12, textAlign: 'center' }}>
