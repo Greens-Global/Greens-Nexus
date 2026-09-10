@@ -37,7 +37,8 @@ from sqlalchemy import func
 
 from database import get_db
 from auth import (get_current_user, require_level_or_module, require_administrator,
-                  require_module_grant, require_level_or_modules)
+                  require_module_grant, require_level_or_modules, _module_level, _LEVELS,
+                  _MODULE_LEVEL_RANK)
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
                     AgentDevice, AgentPairing, AgentRelease, LiveSession, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
@@ -231,6 +232,25 @@ def _stale_open_shift(last) -> bool:
 
 def _effective_last_kind(last) -> Optional[str]:
     return "out" if _stale_open_shift(last) else (last.kind if last else None)
+
+
+def _is_stray_out(db: Session, punch) -> bool:
+    """A clock-out sitting more than the 16-hour pairing guard after the
+    punch before it - the leftover of pressing Clock Out the next day for a
+    shift that was never closed. The timesheet already treats it as unpaired
+    (that shift shows Missing), so it carries no worked time; it only blocks
+    the employee's punch-fix request. 47 of these existed on Sep 8 2026."""
+    if not punch or punch.kind != "out":
+        return False
+    prev = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == punch.employee_email, TimePunch.voided == 0,
+                    TimePunch.at < punch.at).order_by(TimePunch.at.desc()).first())
+    if not prev or prev.kind == "out":
+        return False
+    a, b = _parse_iso(prev.at), _parse_iso(punch.at)
+    if not a or not b:
+        return False
+    return (b - a).total_seconds() > _MAX_SHIFT_MIN * 60
 
 
 def _serialize(p: TimePunch) -> dict:
@@ -2007,6 +2027,94 @@ class PunchRequestDecision(BaseModel):
     note:   Optional[str] = ""
 
 
+_KIND_RANK = {"in": 0, "break_start": 1, "break_end": 2, "out": 3}
+
+
+def _kind_label(kind: str) -> str:
+    return {"in": "clock-in", "out": "clock-out", "break_start": "break start", "break_end": "break end"}.get(kind, kind)
+
+
+def _punch_neighbors(db: Session, email: str, at: str):
+    """The real (non-voided) punch immediately before and after a time."""
+    p_ = (db.query(TimePunch)
+          .filter(TimePunch.employee_email == email, TimePunch.voided == 0, TimePunch.at <= at)
+          .order_by(TimePunch.at.desc(), TimePunch.created_at.desc()).first())
+    n_ = (db.query(TimePunch)
+          .filter(TimePunch.employee_email == email, TimePunch.voided == 0, TimePunch.at > at)
+          .order_by(TimePunch.at.asc(), TimePunch.created_at.asc()).first())
+    return p_, n_
+
+
+def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
+    """Insert the punches a run of pending 'add' requests ask for (sorted by
+    time), after checking that the whole run keeps the punch sequence legal
+    between the real punches on either side. Nothing is inserted unless every
+    step passes. Raises 409 otherwise. Returns the times of any stray
+    clock-outs voided on the way (see below)."""
+    first, last = reqs[0], reqs[-1]
+    prev, _ = _punch_neighbors(db, first.employee_email, first.at)
+    _, nxt = _punch_neighbors(db, last.employee_email, last.at)
+    # Stray-aware (Sep 8): when the ONLY thing in the way of a clock-out
+    # request is a stray clock-out - one pressed a day later for the very
+    # shift this request closes - void the stray and apply the request.
+    # A stray carries no worked time (its pair already exceeds the 16h
+    # guard), so voiding it changes nothing on the timesheet except
+    # letting the real clock-out land. Anything else still gets refused.
+    voided_strays = []
+    if any(q.punch_kind == "out" for q in reqs):
+        for cand in (nxt, prev):
+            if cand is not None and _is_stray_out(db, cand):
+                cand.voided = 1
+                cand.adjusted_by = user["email"]
+                cand.adjusted_at = now
+                cand.adjust_note = ("Voided while approving a punch-fix request: stray clock-out "
+                                    "pressed more than 16 hours after the shift's clock-in.")
+                voided_strays.append(cand.at)
+                db.flush()
+        if voided_strays:
+            prev, _ = _punch_neighbors(db, first.employee_email, first.at)
+            _, nxt = _punch_neighbors(db, last.employee_email, last.at)
+    last_kind = prev.kind if prev else None
+    for q in reqs:
+        if q.punch_kind not in _allowed_kinds(last_kind):
+            raise HTTPException(409,
+                f"Approving this would place a '{q.punch_kind}' after a "
+                f"'{last_kind or 'clock-out'}', which isn't a valid punch sequence. "
+                f"Ask the employee to correct the request, or edit the punches directly.")
+        last_kind = q.punch_kind
+    if nxt and nxt.kind not in _allowed_kinds(last_kind):
+        raise HTTPException(409,
+            f"Approving this '{last_kind}' would make the following '{nxt.kind}' "
+            f"punch invalid. Edit the punches directly instead.")
+    for q in reqs:
+        tp = TimePunch(id=str(uuid.uuid4()), employee_email=q.employee_email, kind=q.punch_kind,
+                       at=q.at, local_date=q.local_date, tz_offset_min=q.tz_offset_min or 0,
+                       geo_status="no_location", source="manual", note=(q.reason or "")[:300],
+                       created_by=user["email"], created_at=now,
+                       adjust_note=f"Approved punch-fix request by {user['email']}")
+        db.add(tp); db.flush()
+        q.applied_punch_id = tp.id
+    return voided_strays
+
+
+def _pending_partners(db: Session, r) -> list:
+    """The employee's other pending 'add' requests that fall between the real
+    punches on either side of this request - the partner half of a
+    clock-in/clock-out or break pair - in the order they must be applied."""
+    prev, nxt = _punch_neighbors(db, r.employee_email, r.at)
+    q = (db.query(PunchRequest)
+         .filter(PunchRequest.employee_email == r.employee_email, PunchRequest.status == "pending",
+                 PunchRequest.action == "add", PunchRequest.id != r.id)
+         .with_for_update())
+    if prev is not None:
+        q = q.filter(PunchRequest.at >= prev.at)
+    if nxt is not None:
+        q = q.filter(PunchRequest.at <= nxt.at)
+    rows = [p for p in q.all() if p.at and p.punch_kind in _KIND_RANK]
+    rows.sort(key=lambda p: (p.at, _KIND_RANK[p.punch_kind]))
+    return rows
+
+
 @router.patch("/punch-requests/{req_id}")
 def decide_punch_request(req_id: str, body: PunchRequestDecision,
                          user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
@@ -2027,30 +2135,39 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
         if r.action == "add":
             # Re-validate the sequence at approval time: inserting this punch must
             # not create an illegal transition (e.g. two 'in's with no 'out'
-            # between), which would corrupt the FIFO worked-minute pairing. Check
-            # the punch immediately BEFORE and AFTER the requested time.
-            prev = (db.query(TimePunch)
-                    .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
-                            TimePunch.at <= r.at).order_by(TimePunch.at.desc()).first())
-            nxt = (db.query(TimePunch)
-                   .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
-                           TimePunch.at > r.at).order_by(TimePunch.at.asc()).first())
-            if r.punch_kind not in _allowed_kinds(prev.kind if prev else None):
-                raise HTTPException(409,
-                    f"Approving this would place a '{r.punch_kind}' after a "
-                    f"'{prev.kind if prev else 'clock-out'}', which isn't a valid punch sequence. "
-                    f"Ask the employee to correct the request, or edit the punches directly.")
-            if nxt and nxt.kind not in _allowed_kinds(r.punch_kind):
-                raise HTTPException(409,
-                    f"Approving this '{r.punch_kind}' would make the following '{nxt.kind}' "
-                    f"punch invalid. Edit the punches directly instead.")
-            tp = TimePunch(id=str(uuid.uuid4()), employee_email=r.employee_email, kind=r.punch_kind,
-                           at=r.at, local_date=r.local_date, tz_offset_min=r.tz_offset_min or 0,
-                           geo_status="no_location", source="manual", note=r.reason[:300],
-                           created_by=user["email"], created_at=now,
-                           adjust_note=f"Approved punch-fix request by {user['email']}")
-            db.add(tp); db.flush()
-            r.applied_punch_id = tp.id
+            # between), which would corrupt the FIFO worked-minute pairing.
+            try:
+                voided_strays = _apply_add_chain(db, [r], user, now)
+            except HTTPException as first_err:
+                if first_err.status_code != 409:
+                    raise
+                # Requests arrive in pairs (clock-in + clock-out, break start + break
+                # end) and the approver usually clicks the later one first, so the
+                # earlier partner is still pending and the sequence looks broken
+                # (Charmi, Sep 9: "out after out"). Validate and apply the pending
+                # partners that sit between the neighboring real punches together
+                # with this request, as one chain. If the chain is still invalid
+                # the original refusal stands and nothing is applied.
+                partners = _pending_partners(db, r)
+                if not partners:
+                    raise
+                chain = sorted(partners + [r], key=lambda p: (p.at, _KIND_RANK.get(p.punch_kind, 9)))
+                try:
+                    voided_strays = _apply_add_chain(db, chain, user, now)
+                except HTTPException:
+                    raise first_err
+                for p in partners:
+                    p.status = "approved"
+                    p.decided_by, p.decided_at = user["email"], now
+                    p.decision_note = (f"Approved together with the {_kind_label(r.punch_kind)} request "
+                                       f"at {r.at[:16].replace('T', ' ')} UTC.")
+                    _hr_notify(db, p.employee_email, "Timesheet fix approved",
+                               "Your request to add a punch was approved.",
+                               ref_id=p.id, action={"view": "timeclock", "sub": "timesheet"})
+                note = (note + " " if note else "") + "Also applied the pending " + ", ".join(
+                    f"{_kind_label(p.punch_kind)} at {p.at[:16].replace('T', ' ')} UTC" for p in partners) + "."
+            if voided_strays:
+                note = (note + " " if note else "") + f"Voided stray clock-out at {', '.join(v[:16].replace('T', ' ') for v in voided_strays)} UTC."
         else:  # remove → void the target punch (kept for audit, excluded from totals)
             tp = db.query(TimePunch).filter(TimePunch.id == r.target_punch_id).first()
             if tp:
@@ -2918,6 +3035,10 @@ def _control_expire(db: Session, s):
         s.control_state = ""
         s.control_ended_reason = "request_expired"
         db.commit()
+        # Consent-first assist sessions never fall back to a passive view - an
+        # unanswered request ends the whole thing, same as an explicit decline.
+        if s.purpose == "assist":
+            _live_end(db, s, "request_expired")
 
 
 def _live_fresh_within(iso: str, ttl: int) -> bool:
@@ -2971,6 +3092,14 @@ def _online_device_for(db: Session, email: str):
 class LiveRequestIn(BaseModel):
     email: str
     fps: Optional[int] = 60
+    # '' = disclosed monitoring (default, Workforce Analytics roster) - view
+    # starts immediately. 'assist' = ticket-launched Screen Share: consent-
+    # first, no view until the employee accepts a control prompt shown the
+    # moment their agent picks this session up (see agent_live_pending /
+    # desktop-agent/src/live.js). Requires the same "full" grant
+    # live_control_request already requires for taking control, since an
+    # assist request effectively asks for control from the start.
+    purpose: Optional[str] = ""
 
 
 @router.post("/live/request")
@@ -2981,6 +3110,10 @@ def live_request(body: LiveRequestIn, user: dict = Depends(require_tracking),
     no agent) so the viewer can show the right placeholder instead of a black feed."""
     if not _LIVE_ENABLED:
         raise HTTPException(503, "Live view is not configured on this server.")
+    purpose = "assist" if (body.purpose or "").strip().lower() == "assist" else ""
+    if purpose == "assist" and user["level"] < _LEVELS["administrator"] \
+            and _module_level(user["email"], "employee-tracking", db) < _MODULE_LEVEL_RANK["full"]:
+        raise HTTPException(403, "Insufficient permissions")
     email = (body.email or "").strip().lower()
     if "@" not in email:
         raise HTTPException(400, "A valid employee email is required")
@@ -2999,11 +3132,20 @@ def live_request(body: LiveRequestIn, user: dict = Depends(require_tracking),
                 .filter(LiveSession.viewer_email == user["email"],
                         LiveSession.employee_email == email, LiveSession.state != "ended").all()):
         _live_end(db, old, "superseded")
+    if purpose == "assist":
+        _check_no_other_controller(db, dev.id, "")
     now = _now_iso()
     fps = 30 if int(body.fps or 60) <= 30 else 60
     s = LiveSession(id=str(uuid.uuid4()), device_id=dev.id, employee_email=email,
                     viewer_email=user["email"], state="requested", fps=fps,
-                    created_at=now, updated_at=now, viewer_seen=now)
+                    created_at=now, updated_at=now, viewer_seen=now, purpose=purpose)
+    if purpose == "assist":
+        # Consent is requested from the moment the session exists, not after a
+        # separate "connected -> click Request Control" step - the agent shows
+        # the prompt as soon as it picks this session up, before any capture.
+        s.control_state = "requested"
+        s.control_requester_name = _display_name(db, user["email"])
+        s.control_requested_at = now
     db.add(s)
     db.commit()
     return {"ok": True, "sessionId": s.id, "subjectState": "live", "fps": fps,
@@ -3071,6 +3213,32 @@ def live_end(sid: str, user: dict = Depends(require_tracking), db: Session = Dep
 # session is still active. Either side ends it instantly; every transition is
 # stamped on the LiveSession row as the audit record.
 
+# One controller per PC. Many admins can WATCH the same screen, but only one
+# may drive it - two people injecting input at once would fight over the
+# mouse/keyboard. If another live session on this device already holds or is
+# requesting control, raise with a clear message naming who, and re-check the
+# freshness so a dead viewer's stale lock can't wedge the machine forever.
+# Shared by live_control_request (normal monitor-then-control flow) and
+# live_request's assist path (which requests control from the moment the
+# session is created).
+def _check_no_other_controller(db: Session, device_id: str, session_id: str):
+    if not device_id:
+        return
+    others = (db.query(LiveSession)
+              .filter(LiveSession.device_id == device_id, LiveSession.id != session_id,
+                      LiveSession.state != "ended",
+                      LiveSession.control_state.in_(("requested", "active"))).all())
+    for o in others:
+        _control_expire(db, o)
+        if o.control_state == "active" and not _live_fresh(o.viewer_seen):
+            _control_end(db, o, "controller_gone")
+            _live_end(db, o, "viewer_gone")
+        if o.control_state in ("requested", "active"):
+            who = o.control_requester_name or _display_name(db, o.viewer_email)
+            verb = "is controlling" if o.control_state == "active" else "is requesting control of"
+            raise HTTPException(409, f"{who} {verb} this computer. Only one person can control a PC at a time.")
+
+
 @router.post("/live/{sid}/control/request")
 def live_control_request(sid: str, user: dict = Depends(require_tracking_full),
                          db: Session = Depends(get_db)):
@@ -3083,25 +3251,7 @@ def live_control_request(sid: str, user: dict = Depends(require_tracking_full),
         raise HTTPException(409, "Control is already active.")
     if s.control_state == "requested":
         raise HTTPException(409, "A control request is already waiting.")
-    # One controller per PC. Many admins can WATCH the same screen, but only one
-    # may drive it - two people injecting input at once would fight over the
-    # mouse/keyboard. If another live session on this device already holds or is
-    # requesting control, block with a clear message naming who, and re-check the
-    # freshness so a dead viewer's stale lock can't wedge the machine forever.
-    if s.device_id:
-        others = (db.query(LiveSession)
-                  .filter(LiveSession.device_id == s.device_id, LiveSession.id != s.id,
-                          LiveSession.state != "ended",
-                          LiveSession.control_state.in_(("requested", "active"))).all())
-        for o in others:
-            _control_expire(db, o)
-            if o.control_state == "active" and not _live_fresh(o.viewer_seen):
-                _control_end(db, o, "controller_gone")
-                _live_end(db, o, "viewer_gone")
-            if o.control_state in ("requested", "active"):
-                who = o.control_requester_name or _display_name(db, o.viewer_email)
-                verb = "is controlling" if o.control_state == "active" else "is requesting control of"
-                raise HTTPException(409, f"{who} {verb} this computer. Only one person can control a PC at a time.")
+    _check_no_other_controller(db, s.device_id, s.id)
     s.control_state = "requested"
     s.control_requester_name = _display_name(db, user["email"])
     s.control_requested_at = _now_iso()
@@ -3202,6 +3352,13 @@ def agent_live_control(sid: str, body: AgentControlIn, dev: AgentDevice = Depend
         raise HTTPException(400, "action must be accept, decline or end")
     s.agent_seen = s.updated_at = now
     db.commit()
+    # Consent-first assist sessions never fall back to a passive view - a
+    # decline, or the employee ending an active session, ends the whole
+    # thing (accept does not: capture starts right after, agent-side).
+    if s.purpose == "assist" and action == "decline":
+        _live_end(db, s, "assist_declined")
+    elif s.purpose == "assist" and action == "end":
+        _live_end(db, s, "assist_ended")
     return {"ok": True, "controlState": s.control_state}
 
 
@@ -3223,7 +3380,8 @@ def agent_live_pending(dev: AgentDevice = Depends(get_agent_device), db: Session
         _live_end(db, s, "not_live"); return {"session": None}
     s.agent_seen = _now_iso()
     db.commit()
-    return {"session": {"id": s.id, "fps": s.fps, "iceServers": _live_ice_servers()}}
+    return {"session": {"id": s.id, "fps": s.fps, "iceServers": _live_ice_servers(),
+                         "purpose": s.purpose or "", "requesterName": s.control_requester_name or ""}}
 
 
 @router.post("/agent/live/{sid}/offer")

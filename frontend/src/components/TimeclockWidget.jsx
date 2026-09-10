@@ -133,8 +133,12 @@ export default function TimeclockWidget() {
   }, [expanded]);
 
   const last = status?.lastPunch;
-  const clockedIn = !!(last && last.kind !== 'out');
-  const onBreak = last?.kind === 'break_start';
+  // A clock-in older than 16 hours is a stale open shift: the server treats it
+  // as closed (Punch Out is refused, the timesheet shows Missing), so this
+  // capsule must not keep counting to 88 hours with a Punch Out button the
+  // server will bounce (Neil, Sep 9). Same rule as the clock page.
+  const clockedIn = !!(last && last.kind !== 'out') && !status?.staleOpenShift;
+  const onBreak = clockedIn && last?.kind === 'break_start';
   const elapsedSec = last ? Math.max(0, Math.floor((Date.now() - new Date(last.at + 'Z').getTime()) / 1000)) : 0;
 
   // Disclosed-monitoring policy drives whether capture is offered and its cadence.

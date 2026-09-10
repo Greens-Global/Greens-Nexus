@@ -62,7 +62,10 @@ async function agentPair(token, nonce) {
 // through the server's LiveSession mailbox. Media itself never touches these.
 
 // Is a manager waiting to watch this PC right now? Returns {session:{id,fps,
-// iceServers}} to answer, or {session:null}. The server re-gates the live shift.
+// iceServers,purpose,requesterName}} to answer, or {session:null}. purpose
+// 'assist' (ticket-launched Screen Share) means show the consent prompt
+// before any capture; '' (default) is ongoing disclosed monitoring. The
+// server re-gates the live shift.
 async function agentLivePending(token) {
   const r = await fetch(`${config.apiBase}/timeclock/agent/live/pending`, {
     headers: { 'X-Agent-Token': token },

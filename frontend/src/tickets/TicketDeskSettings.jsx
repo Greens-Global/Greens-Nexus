@@ -24,7 +24,7 @@
 // company with no roster of its own falls back to, before the backend's last
 // resort of "every administrator" (see ticket_notify.ticket_agents).
 import { useEffect, useState } from 'react';
-import { Headset, Save, Building2, Siren, Plus } from 'lucide-react';
+import { Headset, Save, Building2, Siren, Plus, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, card } from '../tasks/theme';
@@ -69,6 +69,11 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead }) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  // Collapsed by default - a company with a lot of departments (a real one
+  // has 11) made its card towering over its grid neighbors, forcing scroll
+  // through every card just to reach the Save button. Independent per card,
+  // no need to persist across reloads.
+  const [open, setOpen] = useState(false);
   const add = async () => {
     const n = name.trim();
     if (!n || busy) return;
@@ -77,37 +82,55 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
     catch (e) { alert(e.message || 'Could not add department.'); }
     finally { setBusy(false); }
   };
+  const hasDepts = depts.length > 0;
   return (
     <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${NX.border}` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        <Siren size={13} style={{ color: NX.dim }} />
-        <div style={{ fontSize: 12, fontWeight: 700, color: NX.ink }}>Departments &amp; Escalation</div>
-      </div>
-      {depts.length === 0 && (
+      {hasDepts ? (
+        <button onClick={() => setOpen((o) => !o)} style={{
+          display: 'flex', alignItems: 'center', gap: 6, width: '100%', background: 'transparent',
+          border: 'none', padding: 0, marginBottom: open ? 6 : 0, cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
+        }}>
+          <Siren size={13} style={{ color: NX.dim }} />
+          <div style={{ fontSize: 12, fontWeight: 700, color: NX.ink, flex: 1 }}>
+            Departments &amp; Escalation ({depts.length})
+          </div>
+          {open ? <ChevronDown size={14} style={{ color: NX.dim }} /> : <ChevronRight size={14} style={{ color: NX.dim }} />}
+        </button>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+          <Siren size={13} style={{ color: NX.dim }} />
+          <div style={{ fontSize: 12, fontWeight: 700, color: NX.ink }}>Departments &amp; Escalation</div>
+        </div>
+      )}
+      {!hasDepts && (
         <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>No departments yet for {companyName}.</div>
       )}
-      {depts.map((d) => (
-        <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <div style={{ fontSize: 12.5, color: NX.ink, width: 110, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.name}>{d.name}</div>
-          <div style={{ flex: 1 }}>
-            <PersonSelect value={d.leadEmail || null} people={people}
-              onChange={(email) => onSetHead(d.id, email || '').catch((e) => alert(e.message || 'Could not set department head.'))}
-              placeholder="No department head set" />
+      {(hasDepts && !open) ? null : (
+        <>
+          {depts.map((d) => (
+            <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <div style={{ fontSize: 12.5, color: NX.ink, width: 110, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.name}>{d.name}</div>
+              <div style={{ flex: 1 }}>
+                <PersonSelect value={d.leadEmail || null} people={people}
+                  onChange={(email) => onSetHead(d.id, email || '').catch((e) => alert(e.message || 'Could not set department head.'))}
+                  placeholder="No department head set" />
+              </div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40}
+              onKeyDown={(e) => e.key === 'Enter' && add()}
+              placeholder="Add a department…"
+              style={{ flex: 1, fontFamily: FONT, fontSize: 12.5, padding: '6px 9px', border: `1px solid ${NX.border}`, borderRadius: 7, color: NX.ink, background: 'transparent' }} />
+            <button onClick={add} disabled={!name.trim() || busy} style={{ ...btn('outline'), padding: '6px 10px', opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
+              <Plus size={13} />
+            </button>
           </div>
-        </div>
-      ))}
-      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-        <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40}
-          onKeyDown={(e) => e.key === 'Enter' && add()}
-          placeholder="Add a department…"
-          style={{ flex: 1, fontFamily: FONT, fontSize: 12.5, padding: '6px 9px', border: `1px solid ${NX.border}`, borderRadius: 7, color: NX.ink, background: 'transparent' }} />
-        <button onClick={add} disabled={!name.trim() || busy} style={{ ...btn('outline'), padding: '6px 10px', opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
-          <Plus size={13} />
-        </button>
-      </div>
-      <div style={{ fontSize: 11, color: NX.faint, marginTop: 6, lineHeight: 1.5 }}>
-        A ticket filed against a department with no head falls back to this company's ticket agents when escalated.
-      </div>
+          <div style={{ fontSize: 11, color: NX.faint, marginTop: 6, lineHeight: 1.5 }}>
+            A ticket filed against a department with no head falls back to this company's ticket agents when escalated.
+          </div>
+        </>
+      )}
     </div>
   );
 }

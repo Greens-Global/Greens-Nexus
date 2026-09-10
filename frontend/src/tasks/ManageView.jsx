@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
-  Circle, Palette, Users, List, Mail, FolderPlus, ChevronDown, Check, AlertTriangle, RotateCcw,
+  Circle, Palette, Users, List, FolderPlus, ChevronDown, Check, AlertTriangle, RotateCcw,
   FolderKanban, Briefcase, LayoutTemplate,
 } from 'lucide-react';
 import DataQualityTab from './DataQualityTab';
@@ -20,7 +20,6 @@ import { Avatar, EmptyState, Modal, SearchSelect, ChipMultiSelect } from './comp
 import { taskStats, topLevel, fmtDateTime, teamProjectIds } from './lib';
 import TasksWorkspace from './TasksWorkspace';
 import { TeamModal, deptIcon } from './TeamsView';
-import TaskNotifySettings from './TaskNotifySettings';
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -91,7 +90,8 @@ const SUBTABS = [
   // the same way the Asana tab above is parked - so putting it back is
   // uncommenting rather than rebuilding.
   // { key: 'intake', label: 'Intake Forms', icon: Inbox },
-  { key: 'taskNotify', label: 'Task Notifications', icon: Mail },
+  // Task Notifications moved to the Admin module in full (Pranshu, Sep 9) -
+  // no longer a Manage tab. TaskNotifySettings.jsx itself is unchanged.
   { key: 'trash', label: 'Recycle Bin', icon: Trash2 },
   { key: 'activity', label: 'Activity Log', icon: ActivityIcon },
   { key: 'reporting', label: 'Reporting', icon: BarChart3 },
@@ -152,7 +152,6 @@ export default function ManageView({ onExit }) {
             {tab === 'statuses' && <StatusesTab store={store} />}
             {tab === 'templates' && <TemplatesTab store={store} />}
             {/* {tab === 'intake' && <IntakeTab store={store} />}  - see the tab list */}
-            {tab === 'taskNotify' && <TaskNotifySettings />}
             {tab === 'trash' && <DeletedTasksTab store={store} />}
             {tab === 'activity' && <ActivityTab store={store} />}
             {tab === 'reporting' && <ReportingTab store={store} />}

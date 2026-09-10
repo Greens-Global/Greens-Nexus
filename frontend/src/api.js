@@ -603,6 +603,8 @@ export const api = {
   // Ticket Outlook notification workflow - admin settings + delivery log (manager+)
   getTicketNotifySettings: () => req("/task-tickets/notify/settings"),
   updateTicketNotifySettings: (patch) => req("/task-tickets/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
+  getTicketTaxonomySettings: () => req("/task-tickets/taxonomy/settings"),
+  updateTicketTaxonomySettings: (patch) => req("/task-tickets/taxonomy/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTicketNotifyLog: (params = {}) => req(`/task-tickets/notify/log?${new URLSearchParams(params).toString()}`),
   // Task Outlook notification workflow - admin settings + delivery log (manager+)
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
@@ -967,6 +969,8 @@ export const api = {
     req(`/accounting/reports/balance-sheet?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
   getAccountingTrialBalance: (from, to, location) =>
     req(`/accounting/reports/trial-balance?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
+  getAccountingCashPosition: (asof, location) =>
+    req(`/accounting/reports/cash-position?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
   // One-time sign-in URL for accounting.greensglobal.com - Nexus is the only
   // way in there (no passwords). Open the returned url immediately.
   launchAccounting: (next) => req(`/accounting/launch${next ? `?next=${encodeURIComponent(next)}` : ""}`, { method: "POST" }),
@@ -1203,7 +1207,10 @@ export const api = {
   // Live screen view (on-demand WebRTC). request returns a session + TURN creds
   // when the person is clocked in with an online agent; poll for the agent's offer;
   // answer with the browser's SDP; ping keeps it alive; end closes it.
-  timeLiveRequest:   (email, fps) => req('/timeclock/live/request', { method: 'POST', body: JSON.stringify({ email, fps: fps || 60 }) }),
+  // purpose 'assist' (ticket-launched Screen Share) is consent-first - no
+  // view until the employee accepts a control prompt; '' (default) is
+  // ongoing disclosed monitoring, view starts immediately.
+  timeLiveRequest:   (email, fps, purpose = '') => req('/timeclock/live/request', { method: 'POST', body: JSON.stringify({ email, fps: fps || 60, purpose }) }),
   timeLivePoll:      (id)        => req(`/timeclock/live/${id}`),
   timeLiveAnswer:    (id, sdp)   => req(`/timeclock/live/${id}/answer`, { method: 'POST', body: JSON.stringify({ sdp }) }),
   timeLiveEnd:       (id)        => req(`/timeclock/live/${id}/end`, { method: 'POST', body: '{}' }),
