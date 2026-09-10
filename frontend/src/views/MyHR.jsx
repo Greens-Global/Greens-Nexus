@@ -3,7 +3,7 @@ import {
   User, Phone, Mail, Heart, Briefcase, Building2, CalendarDays, MapPin, Network,
   FileText, Download, CalendarOff, Loader2, Pencil, Check, X, BadgeCheck,
   Clock, Banknote, MessageSquarePlus, Package, ArrowRight, Hourglass,
-  HardDrive, Folder,
+  HardDrive, Folder, FolderOpen, ChevronRight,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
@@ -163,6 +163,7 @@ export function MyHROverview({ onOpenTimeOff }) {
   // ── Card filters ──
   const [range, setRange] = useState('week');         // hours card + tile
   const [docQuery, setDocQuery] = useState('');
+  const [openDocSections, setOpenDocSections] = useState({});   // { [sectionKey]: true } - collapsed by default, click a folder to list its files
   const [stubQuery, setStubQuery] = useState('');
   // { rootFiles, folders: [{ name, files }] } - my own Egnyte person folder,
   // in the SAME folder shape as Egnyte (Neil/Visesh, Sep 10: "I want the
@@ -266,6 +267,22 @@ export function MyHROverview({ onOpenTimeOff }) {
     return sections;
   }, [esignRows, egnyteSections]);
   const totalDocCount = docSections.reduce((n, s) => n + s.rows.length, 0);
+
+  const docFileRow = (d) => (
+    <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
+      {d.kind === 'egnyte'
+        ? <HardDrive size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
+        : <FileText size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{d.meta}</div>
+      </div>
+      <button className="secondary-btn" onClick={d.onDownload} disabled={!!busy[d.busyKey]}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
+        {busy[d.busyKey] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} {d.kind === 'egnyte' ? 'Download' : 'PDF'}
+      </button>
+    </div>
+  );
 
   const submitAsk = async () => {
     if (!askForm.message.trim()) return;
@@ -512,39 +529,45 @@ export function MyHROverview({ onOpenTimeOff }) {
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No documents yet.</div>
                 ) : (() => {
                   const q = docQuery.trim().toLowerCase();
+                  const searching = !!q;
                   const filtered = docSections
-                    .map(s => ({ ...s, rows: q ? s.rows.filter(d => (d.title || '').toLowerCase().includes(q)) : s.rows }))
+                    .map(s => ({ ...s, rows: searching ? s.rows.filter(d => (d.title || '').toLowerCase().includes(q)) : s.rows }))
                     .filter(s => s.rows.length);
                   if (!filtered.length) {
                     return <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No documents match your search.</div>;
                   }
-                  return filtered.map(s => (
-                    <div key={s.key}>
-                      {docSections.length > 1 && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '12px 0 5px' }}>
+                  // Single-section case (no Egnyte wiring, just e-sign docs): no folders to browse, list flat as before.
+                  if (docSections.length <= 1) {
+                    return filtered[0].rows.map(d => docFileRow(d));
+                  }
+                  return filtered.map(s => {
+                    // While searching, every section with a match stays expanded so results are visible;
+                    // otherwise it follows whatever the employee last clicked (collapsed by default).
+                    const open = searching || !!openDocSections[s.key];
+                    return (
+                      <div key={s.key}>
+                        <button type="button" onClick={() => setOpenDocSections(p => ({ ...p, [s.key]: !p[s.key] }))}
+                          disabled={searching}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 0', margin: 0,
+                            border: 'none', background: 'none', cursor: searching ? 'default' : 'pointer', width: '100%', textAlign: 'left' }}>
+                          <ChevronRight size={13} style={{ color: 'var(--muted)', flexShrink: 0,
+                            transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
                           {s.key === 'esign'
-                            ? <FileText size={12} style={{ color: 'var(--muted)' }} />
-                            : <Folder size={12} style={{ color: 'var(--muted)' }} />}
-                          <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>{s.name}</span>
-                        </div>
-                      )}
-                      {s.rows.map(d => (
-                        <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-                          {d.kind === 'egnyte'
-                            ? <HardDrive size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
-                            : <FileText size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
-                            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{d.meta}</div>
+                            ? <FileText size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                            : open
+                              ? <FolderOpen size={13} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
+                              : <Folder size={13} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />}
+                          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{s.name}</span>
+                          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.rows.length}</span>
+                        </button>
+                        {open && (
+                          <div style={{ paddingLeft: 19 }}>
+                            {s.rows.map(d => docFileRow(d))}
                           </div>
-                          <button className="secondary-btn" onClick={d.onDownload} disabled={!!busy[d.busyKey]}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
-                            {busy[d.busyKey] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} {d.kind === 'egnyte' ? 'Download' : 'PDF'}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ));
+                        )}
+                      </div>
+                    );
+                  });
                 })()}
               </div>
 
