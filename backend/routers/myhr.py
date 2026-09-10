@@ -424,11 +424,13 @@ def download_my_document(rid: str, user: dict = Depends(get_current_user), db: S
 
 
 # ── my Egnyte documents (Aug 10 - Neil's "wire Contractor Documents to their
-# My Documents"). Read-only: the employee sees and downloads what HR filed in
-# their WIRED subfolder (people.my-documents), never the person folder root -
-# the Confidential folder beside it (Aadhaar/PAN) must stay HR-only. Download
-# goes through here rather than /egnyte/file so the server checks the path is
-# inside the caller's own resolved folder.
+# My Documents"; Sep 10 - widened to every folder under the person, not just
+# one wired subfolder). Read-only: the employee sees and downloads everything
+# under their OWN person folder (people.person-folder) except the subfolders
+# named in people.my-documents-excluded-subfolder-names (Confidential etc) -
+# see egnyte_wiring.list_person_documents / is_excluded_path. Download goes
+# through here rather than /egnyte/file so the server checks the path is
+# inside the caller's own resolved folder and not inside a hidden one.
 
 @router.get("/egnyte-documents")
 def my_egnyte_documents(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -440,22 +442,13 @@ def my_egnyte_documents(user: dict = Depends(get_current_user), db: Session = De
         emp = _me(db, user["email"])
     except HTTPException:
         return {"available": False}
-    res = wiring.resolve_person_folder("people.my-documents", emp, db)
+    res = wiring.resolve_person_folder("people.person-folder", emp, db)
     if not res["folder"]:
         return {"available": False}
-    try:
-        listing = svc.list_folder(res["folder"])
-    except svc.EgnyteError:
-        return {"available": False}     # wired folder not created yet - show nothing
-    return {
-        "available": True,
-        "folder": res["folder"],
-        "files": [
-            {"name": f["name"], "path": f["path"], "size": f.get("size"),
-             "lastModified": f.get("last_modified") or f.get("lastModified")}
-            for f in listing["files"]
-        ],
-    }
+    files = wiring.list_person_documents(res["folder"])
+    if files is None:
+        return {"available": False}     # folder not created yet - show nothing
+    return {"available": True, "folder": res["folder"], "files": files}
 
 
 @router.get("/egnyte-documents/file")
@@ -467,10 +460,10 @@ def my_egnyte_document_file(path: str, user: dict = Depends(get_current_user),
     if not svc.configured():
         raise HTTPException(503, "Egnyte is not connected")
     emp = _me(db, user["email"])
-    res = wiring.resolve_person_folder("people.my-documents", emp, db)
+    res = wiring.resolve_person_folder("people.person-folder", emp, db)
     folder = res["folder"]
     want = svc.norm(path)
-    if not folder or not want.startswith(svc.norm(folder) + "/"):
+    if not folder or not want.startswith(svc.norm(folder) + "/") or wiring.is_excluded_path(folder, want):
         raise HTTPException(403, "That file is not in your documents folder")
     content = svc.read_file(want)
     name = want.rsplit("/", 1)[-1] or "download"

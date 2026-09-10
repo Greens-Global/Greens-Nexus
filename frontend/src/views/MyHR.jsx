@@ -164,8 +164,9 @@ export function MyHROverview({ onOpenTimeOff }) {
   const [range, setRange] = useState('week');         // hours card + tile
   const [docQuery, setDocQuery] = useState('');
   const [stubQuery, setStubQuery] = useState('');
-  // Files HR filed in my wired Egnyte folder (people.my-documents). null =
-  // not available (no wiring / no folder / Egnyte off) - the card hides.
+  // Every file under my own Egnyte person folder, except subfolders wired as
+  // hidden (people.my-documents-excluded-subfolder-names, e.g. Confidential).
+  // null = not available (no wiring / no folder / Egnyte off) - the card hides.
   const [egnyteDocs, setEgnyteDocs] = useState(null);
   const [assetFilter, setAssetFilter] = useState('all');
   const [askFilter, setAskFilter] = useState('all');

@@ -31,13 +31,9 @@ const FRIENDLY = {
     title: "Documents on a person's HR card",
     plain: 'When HR opens someone on the People screen, the Documents section shows this Egnyte folder. It is the whole folder - including Confidential - so only HR ever sees it.',
   },
-  'people.my-documents': {
+  'people.my-documents-excluded-subfolder-names': {
     title: 'My Documents (what employees see)',
-    plain: 'When someone opens My HR - My Documents, they see this folder: only the Contractor Documents part of their folder, never the Confidential folder next to it.',
-  },
-  'people.my-documents-subfolder-names': {
-    title: 'The documents subfolder inside a person\'s folder',
-    plain: 'Inside a person\'s folder, My Documents shows the first of these subfolder names that actually exists there. Add a new company\'s name here if it files under something different - no developer needed.',
+    plain: 'When someone opens My HR - My Documents, they see their whole person folder - every subfolder - except the ones named here. Add a company\'s name for its Confidential folder here if it files under something different - no developer needed.',
   },
   'property.roots': {
     title: "Where property folders are found",
