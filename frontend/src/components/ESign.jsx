@@ -370,9 +370,13 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
 // ── PDF renderer (pdfjs) - takes a File OR a URL; overlay via render-prop ─────
 // Passing the File's bytes directly (not fetch(blobUrl)) sidesteps CSP blocks
 // on blob: fetches - the "Failed to fetch" bug in v1.
-function PdfDoc({ url, file, zoom = 1, renderOverlay }) {
+function PdfDoc({ url, file, zoom = 1, renderOverlay, onPageSeen }) {
   const [pages, setPages] = useState(null);
   const [error, setError] = useState('');
+  // Which pages were actually SCROLLED INTO VIEW. The certificate may only say
+  // "all pages viewed before signing" if that really happened, so this watches
+  // the rendered elements rather than assuming a signature implies reading.
+  const seenRef = useRef(new Set());
   useEffect(() => {
     let live = true;
     (async () => {
@@ -402,6 +406,17 @@ function PdfDoc({ url, file, zoom = 1, renderOverlay }) {
     <div style={{ display: 'grid', gap: 26, justifyItems: 'center' }}>
       {pages.map((p, i) => (
         <div key={i}
+          ref={el => {
+            if (!el || !onPageSeen || seenRef.current.has(i)) return;
+            const io = new IntersectionObserver(entries => {
+              if (entries.some(e => e.isIntersecting) && !seenRef.current.has(i)) {
+                seenRef.current.add(i);
+                onPageSeen(i, pages.length);
+                io.disconnect();
+              }
+            }, { threshold: 0.35 });
+            io.observe(el);
+          }}
           style={{ position: 'relative', width: `${Math.round(zoom * 100)}%`, maxWidth: 980, boxShadow: '0 2px 12px rgba(0,0,0,0.14)', borderRadius: 4, background: '#fff' }}>
           <img src={p.dataUrl} alt={`Page ${i + 1}`} style={{ width: '100%', display: 'block', borderRadius: 4 }} draggable={false} />
           {renderOverlay?.(i)}
@@ -562,6 +577,14 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
   // envelope reports HTML and a PDF one reports PDF.
   const formatDemonstrated = payload.source === 'template'
     ? 'html_rendered_in_session' : 'pdf_rendered_in_session';
+  // Pages this session actually displayed. Reported verbatim to the server; a
+  // partial count is recorded as a partial count, never rounded up.
+  const seenPages = useRef(new Set());
+  const [pagesTotal, setPagesTotal] = useState(0);
+  const notePageSeen = useCallback((index, total) => {
+    seenPages.current.add(index);
+    setPagesTotal(t => (total > t ? total : t));
+  }, []);
   const [values, setValues] = useState({});
   const [declineOpen, setDeclineOpen] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
@@ -788,7 +811,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
             )}
             <button onClick={() => setDeclineOpen(true)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Decline</button>
             <button className="primary-btn" disabled={!canFinish || busy}
-              onClick={() => onSubmit({ consent, signature_kind: sig?.kind === 'drawn' ? 'drawn' : 'typed', signature_data: sig?.data || payload.myName, field_values: values, format_demonstrated: formatDemonstrated })}
+              onClick={() => onSubmit({ consent, signature_kind: sig?.kind === 'drawn' ? 'drawn' : 'typed', signature_data: sig?.data || payload.myName, field_values: values, format_demonstrated: formatDemonstrated, pages_viewed: seenPages.current.size, pages_total: pagesTotal })}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canFinish && !busy ? 1 : 0.5, fontSize: 13 }}>
               {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Finish
             </button>
@@ -817,7 +840,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
         <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: isTemplate ? '30px 38px' : '24px 12px', background: isTemplate ? '#fff' : 'var(--mist)', color: '#111827' }}>
           {isTemplate
             ? (payload.body || []).map(renderPara)
-            : <PdfDoc url={payload.pdfUrl} renderOverlay={signingOverlay(payload.fields)} />}
+            : <PdfDoc url={payload.pdfUrl} renderOverlay={signingOverlay(payload.fields)} onPageSeen={notePageSeen} />}
         </div>
         {/* Packet documents - attached PDFs signed in the same session */}
         {(payload.documents || []).map((d, di) => (
@@ -826,7 +849,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
               <FileText size={13} /> {d.name || `Document ${di + 2}`}
             </div>
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '24px 12px', background: 'var(--mist)' }}>
-              <PdfDoc url={d.pdfUrl} renderOverlay={signingOverlay(d.fields)} />
+              <PdfDoc url={d.pdfUrl} renderOverlay={signingOverlay(d.fields)} onPageSeen={notePageSeen} />
             </div>
           </div>
         ))}
@@ -1471,7 +1494,11 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
 
   const tpl = templates.find(t => t.id === templateId);
   const isPdf = source === 'pdf';
-  const isCC = (p) => (p.party_role || 'signer') === 'cc';
+  // "No fields to place" - a CC, an approver and a certified-delivery
+  // recipient all receive the document without signing it, so none of them
+  // gets a signature field or a recipient color.
+  const NON_SIGNING_ROLES = ['cc', 'approver', 'certified_delivery'];
+  const isCC = (p) => NON_SIGNING_ROLES.includes(p.party_role || 'signer');
   // Signers with their party-array index (colors key off the array index)
   const signerParties = parties.map((p, i) => ({ p, i })).filter(x => !isCC(x.p));
 
@@ -1555,7 +1582,10 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
   // Flipping someone to CC drops their placed fields - CC recipients never sign.
   const setPartyRole = (i, role) => {
     const p = parties[i];
-    if (role === 'cc' && isPdf && p?._rk) setFields(fs => fs.filter(f => f.role !== p._rk));
+    // Approvers and certified-delivery recipients never sign, so any field
+    // already placed for them is meaningless - drop it, exactly as for a CC.
+    const nonSigning = ['cc', 'approver', 'certified_delivery'].includes(role);
+    if (nonSigning && isPdf && p?._rk) setFields(fs => fs.filter(f => f.role !== p._rk));
     setParty(i, 'party_role', role);
     setActiveRecipient(0);
   };
@@ -1878,8 +1908,13 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                           Free (pdf/CC) parties can flip between signing and copy-only. */}
                       {(isPdf || cc) && (
                         <div style={{ display: 'inline-flex', borderRadius: 8, border: '1px solid var(--line)', overflow: 'hidden' }}>
-                          {[['signer', 'Needs to sign'], ['cc', 'Receives a copy']].map(([v, l]) => (
+                          {[['signer', 'Needs to sign'], ['approver', 'Approves'],
+                            ['certified_delivery', 'Confirms receipt'],
+                            ['cc', 'Receives a copy']].map(([v, l]) => (
                             <button key={v} onClick={() => setPartyRole(i, v)} disabled={!isPdf && v === 'signer'}
+                              title={v === 'approver' ? 'Approves without signing - the envelope waits for them'
+                                : v === 'certified_delivery' ? 'Must confirm receipt - never signs'
+                                : v === 'cc' ? 'Receives the completed copy, never acts' : 'Signs the document'}
                               style={{ padding: '4px 11px', fontSize: 11, fontWeight: 700, border: 'none', cursor: (!isPdf && v === 'signer') ? 'default' : 'pointer', fontFamily: 'Inter,sans-serif', background: (p.party_role || 'signer') === v ? 'var(--pine)' : 'var(--card)', color: (p.party_role || 'signer') === v ? '#fff' : 'var(--muted)', opacity: (!isPdf && v === 'signer') ? 0.45 : 1 }}>{l}</button>
                           ))}
                         </div>
@@ -1976,7 +2011,8 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, flexWrap: 'wrap' }}>
                             <span style={{ width: 20, height: 20, borderRadius: '50%', background: cc ? 'var(--mist)' : c.solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: cc ? 9 : 11, fontWeight: 800, flexShrink: 0 }}>{cc ? 'CC' : i + 1}</span>
                             <div style={{ display: 'inline-flex', borderRadius: 7, border: '1px solid var(--line)', overflow: 'hidden' }}>
-                              {[['signer', 'Signs'], ['cc', 'Copy']].map(([v, l]) => (
+                              {[['signer', 'Signs'], ['approver', 'Approves'],
+                                ['certified_delivery', 'Receipt'], ['cc', 'Copy']].map(([v, l]) => (
                                 <button key={v} onClick={() => setPartyRole(i, v)}
                                   style={{ padding: '2px 8px', fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: (p.party_role || 'signer') === v ? 'var(--pine)' : 'var(--card)', color: (p.party_role || 'signer') === v ? '#fff' : 'var(--muted)' }}>{l}</button>
                               ))}
@@ -2072,11 +2108,14 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                   Recipients - {routing === 'parallel' ? 'everyone signs at once' : 'they sign in order'}
                 </label>
                 {withRoles.map((p, i) => {
-                  const cc = (p.party_role || 'signer') === 'cc';
+                  const cc = NON_SIGNING_ROLES.includes(p.party_role || 'signer');
+                  const roleNote = { approver: 'approves, does not sign',
+                                     certified_delivery: 'confirms receipt',
+                                     cc: 'receives a copy' }[p.party_role || 'signer'];
                   return (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0' }}>
                       <span style={{ width: 22, height: 22, borderRadius: '50%', background: cc ? 'var(--mist)' : rcolor(i).solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: cc ? 9 : 11, fontWeight: 800, flexShrink: 0 }}>{cc ? 'CC' : i + 1}</span>
-                      <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{p.name}{cc && <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}> · receives a copy</span>}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{p.name}{roleNote && <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}> · {roleNote}</span>}</span>
                       <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {p.kind}{p.access_code ? ' · 🔒 code' : ''}</span>
                     </div>
                   );

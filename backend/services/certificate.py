@@ -43,6 +43,11 @@ _NO_SEAL_POLICY = (
     "later change. The file carries no embedded PKI signature, so integrity is verified "
     "against this record, not from the file alone.")
 
+_ROLE_LABELS = {
+    "signer": "Signer", "countersigner": "Countersigner", "witness": "Witness",
+    "approver": "Approver", "certified_delivery": "Certified delivery", "cc": "Copy",
+}
+
 _LAW_NAMES = {"CA": "California", "TX": "Texas", "NV": "Nevada", "AZ": "Arizona",
               "WA": "Washington", "OR": "Oregon", "NY": "New York", "FL": "Florida"}
 
@@ -56,8 +61,12 @@ def build_snapshot(*, req, parties, events, consents, doc_digests, content_sha,
     `generated_at` is passed in, never read from a clock here - the caller owns
     the timestamp so a regeneration can reproduce the original exactly.
     """
-    signers = [p for p in parties if (p.party_role or "signer") == "signer"]
-    signers = sorted(signers, key=lambda p: (p.ordinal or 0, p.id or ""))
+    # Everyone the envelope waited on, in order - signers, countersigners,
+    # witnesses, approvers and certified-delivery recipients alike. Section 2
+    # states what each of them actually DID; an approver is never described as
+    # having signed.
+    acting = [p for p in parties if (p.party_role or "signer") != "cc"]
+    signers = sorted(acting, key=lambda p: (p.ordinal or 0, p.id or ""))
     ccs = sorted([p for p in parties if (p.party_role or "signer") == "cc"],
                  key=lambda p: (p.ordinal or 0, p.id or ""))
     chain_head = ""
@@ -74,6 +83,12 @@ def build_snapshot(*, req, parties, events, consents, doc_digests, content_sha,
             "kind": (p.kind or "").lower(),
             "ordinal": p.ordinal or 0,
             "status": p.status or "",
+            "role": (p.party_role or "signer"),
+            "role_label": _ROLE_LABELS.get(p.party_role or "signer", "Signer"),
+            "signs": (p.party_role or "signer") in ("signer", "countersigner", "witness"),
+            "acknowledged_at": getattr(p, "acknowledged_at", "") or "",
+            "pages_viewed": int(getattr(p, "pages_viewed", 0) or 0),
+            "pages_total": int(getattr(p, "pages_total", 0) or 0),
             "org": getattr(p, "org", "") or "",
             "title": getattr(p, "title", "") or "",
             "auth_method": _auth_method(p),
@@ -87,7 +102,12 @@ def build_snapshot(*, req, parties, events, consents, doc_digests, content_sha,
                 "standing_basis": (rec.standing_basis if rec else "") or "",
                 "withdrawn_at": (rec.withdrawn_at if rec else "") or "",
             },
-            "executed_at": p.signed_at or "",
+            # The moment this party did their part - signed, approved or
+            # acknowledged. Reading signed_at for an approver would print a
+            # blank where a real act happened.
+            "executed_at": (p.signed_at or "") if (p.party_role or "signer") in
+                           ("signer", "countersigner", "witness")
+                           else (getattr(p, "acknowledged_at", "") or p.consent_at or ""),
             "ip": _strip_port(p.ip or ""),
             "client": _ua_summary(p.user_agent or ""),
             "signature_kind": p.signature_kind or "",
@@ -301,11 +321,14 @@ def render_html(snapshot: dict) -> str:
     chain_state = ("Verified" if integ["chain_valid"] else
                    "BROKEN" if integ["chain_valid"] is False else "Not available")
     declined = [s for s in signers if s["status"] == "declined"]
+    # "Signatures" counts parties who actually sign - an approver is not a
+    # missing signature, they are a different kind of participant.
+    signing_parties = [s for s in signers if s.get("signs", True)]
     signed = [s for s in signers if s["status"] == "signed"]
 
     def status_strip():
         cells = [("Status", escape(env["status"] or "-")),
-                 ("Signatures", f"{len(signed)} of {len(signers)}"),
+                 ("Signatures", f"{len(signed)} of {len(signing_parties)}"),
                  ("Declined", str(len(declined)) if declined else "None"),
                  ("Integrity", escape(chain_state)),
                  ("Governing law", escape(env["governing_law_label"] or "-")),
@@ -327,10 +350,18 @@ def render_html(snapshot: dict) -> str:
             who = (f'<b>{escape(s["name"] or "-")}</b>'
                    + (f'<br><span class="m">{escape(capacity)}</span>' if capacity else "")
                    + f'<br><span class="m">{escape(s["email"])}</span>'
-                     f'<br><span class="m">{escape(s["kind"].title())} - order {s["ordinal"]}</span>')
+                     f'<br><span class="m">{escape(s.get("role_label", "Signer"))}'
+                     f' - {escape(s["kind"].title())} - order {s["ordinal"]}</span>')
             c = s["consent"]
             if c["accepted_at"]:
-                extra = " - ".join(x for x in (c["format"], c["standing_basis"]) if x)
+                # Page viewing rides with the demonstrated format - both answer
+                # "what was this person actually shown". Only claimed when the
+                # session really reported it; silence means not recorded, never
+                # "did not happen".
+                pv, pt = s.get("pages_viewed", 0), s.get("pages_total", 0)
+                pages = (f"all {pt} pages viewed" if pt and pv >= pt
+                         else f"{pv} of {pt} pages viewed" if pt else "")
+                extra = " - ".join(x for x in (c["format"], pages, c["standing_basis"]) if x)
                 cons = [f'v{escape(c["version"] or "-")} accepted {_dt(c["accepted_at"])}']
                 if c["digest"]:
                     cons.append(f'<span class="hex">{_hex(c["digest"][:32])}</span>')
@@ -348,11 +379,18 @@ def render_html(snapshot: dict) -> str:
             else:
                 exec_cell = (f'{_dt(s["executed_at"])}<br>{escape(s["ip"] or "IP not recorded")}'
                              f'<br><span class="m">{escape(s["client"])}</span>')
-            sig = escape((s["signature_kind"] or "-").title())
-            if s.get("signature_field"):
-                sig += f'<br><span class="m">{escape(s["signature_field"])}</span>'
-            if s["signature_digest"]:
-                sig += f'<br><span class="hex">{_hex(s["signature_digest"][:32])}</span>'
+            if not s.get("signs", True):
+                # Approvers and certified-delivery recipients never sign, and
+                # the certificate must not imply a signature they did not give.
+                sig = ('<span class="m">Approved - no signature</span>'
+                       if s.get("role") == "approver"
+                       else '<span class="m">Receipt acknowledged - no signature</span>')
+            else:
+                sig = escape((s["signature_kind"] or "-").title())
+                if s.get("signature_field"):
+                    sig += f'<br><span class="m">{escape(s["signature_field"])}</span>'
+                if s["signature_digest"]:
+                    sig += f'<br><span class="hex">{_hex(s["signature_digest"][:32])}</span>'
             auth = escape(s["auth_method"])
             # Disclosed failures make a log credible; hiding them makes it look
             # curated (build note section 7).
@@ -545,6 +583,7 @@ def demo_snapshot(signer_count: int, verify_url: str = "https://nexus.greensglob
             "org": "MCD Service Inc., DBA Aarav Construction" if i % 2 == 0 else "Coastline Concrete & Grading, Inc.",
             "title": "Vice President, Construction" if i % 2 == 0 else "President",
             "failed_auth_count": 1 if i == 1 else 0,
+            "pages_viewed": 18, "pages_total": 18,
             "email": f"{names[i % len(names)].lower().replace(' ', '.')}@greensglobal.com",
             "kind": "internal" if i % 2 == 0 else "external",
             "ordinal": i + 1,

@@ -133,6 +133,10 @@ def _run_migrations():
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_sign_events_seq "
             "ON hr_sign_events (request_id, seq)",
             "ALTER TABLE hr_sign_parties ADD COLUMN authenticated_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_parties ADD COLUMN acknowledged_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_parties ADD COLUMN pages_viewed INTEGER DEFAULT 0",
+            "ALTER TABLE hr_sign_parties ADD COLUMN pages_total INTEGER DEFAULT 0",
+            "ALTER TABLE hr_document_classes ADD COLUMN retention_months INTEGER DEFAULT 0",
             "ALTER TABLE hr_sign_parties ADD COLUMN org VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_parties ADD COLUMN title VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_parties ADD COLUMN auth_method VARCHAR DEFAULT ''",
@@ -894,6 +898,10 @@ def _run_migrations():
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_sign_events_seq "
         "ON hr_sign_events (request_id, seq)",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS authenticated_at TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS acknowledged_at TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS pages_viewed INTEGER DEFAULT 0",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS pages_total INTEGER DEFAULT 0",
+        "ALTER TABLE hr_document_classes ADD COLUMN IF NOT EXISTS retention_months INTEGER DEFAULT 0",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS org TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS title TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS auth_method TEXT DEFAULT ''",

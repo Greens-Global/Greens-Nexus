@@ -369,3 +369,118 @@ class RetentionCopyTests(unittest.TestCase):
         payload = self.client.get(f"/esign/public/{self.token}").json()
         self.assertIn("/copy", payload["copyUrl"])
         self.assertIn(self.token, payload["copyUrl"])
+
+
+class RetentionScheduleTests(unittest.TestCase):
+    """Per-class retention (build note N10), scheduled but inert by default.
+
+    Deleting executed agreements on a timer is a decision each document class
+    has to be given deliberately. So: every seeded class is 0 = keep forever,
+    the sweep does nothing until a number is set, and it only deletes when
+    NEXUS_ESIGN_RETENTION_ENFORCE says so.
+    """
+
+    CLS = "retention-sweep-test-class"
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self._cleanup()
+        self.db.add(models.HrDocumentClass(
+            code=self.CLS, label="Sweep Test", electronic_permitted=True,
+            retention_months=12, sort_order=999))
+        self.rid = f"env-sweep-{uuid.uuid4()}"
+        self.db.add(models.HrSignRequest(
+            id=self.rid, title="Old Agreement", source="pdf", status="completed",
+            routing="sequential", created_by=USER, document_class=self.CLS,
+            created_at=_iso(900), completed_at=_iso(800)))
+        self.db.commit()
+
+    def tearDown(self):
+        self._cleanup()
+        self.db.close()
+
+    def _cleanup(self):
+        self.db.query(models.HrSignRetentionHold).filter(
+            models.HrSignRetentionHold.request_id == getattr(self, "rid", "")).delete()
+        self.db.query(models.HrSignRequest).filter(
+            models.HrSignRequest.id == getattr(self, "rid", "")).delete()
+        self.db.query(models.HrDocumentClass).filter(
+            models.HrDocumentClass.code == self.CLS).delete()
+        self.db.commit()
+
+    def test_a_class_with_no_retention_period_is_never_swept(self):
+        from routers.esign import run_retention_sweep, _ensure_document_classes
+        _ensure_document_classes(self.db)
+        seeded = [c for c in self.db.query(models.HrDocumentClass).all()
+                  if c.code != self.CLS]
+        self.assertTrue(seeded)
+        for c in seeded:
+            self.assertEqual(c.retention_months or 0, 0,
+                             f"{c.code} ships with a retention period set")
+
+    def test_the_sweep_reports_but_does_not_delete_by_default(self):
+        from routers.esign import run_retention_sweep
+        out = run_retention_sweep(self.db)
+        self.assertTrue(out["dryRun"])
+        self.assertIn(self.rid, out["eligible"])
+        self.assertEqual(out["purged"], [])
+        self.assertIsNotNone(self.db.query(models.HrSignRequest).filter(
+            models.HrSignRequest.id == self.rid).first())
+
+    def test_a_legal_hold_beats_the_schedule(self):
+        from routers.esign import run_retention_sweep
+        self.db.add(models.HrSignRetentionHold(
+            id=str(uuid.uuid4()), request_id=self.rid, reason="Litigation",
+            placed_by=USER, placed_at=_iso(1), released_at=""))
+        self.db.commit()
+        out = run_retention_sweep(self.db, dry_run=False)
+        self.assertIn(self.rid, out["held"])
+        self.assertNotIn(self.rid, out["purged"])
+        self.assertIsNotNone(self.db.query(models.HrSignRequest).filter(
+            models.HrSignRequest.id == self.rid).first())
+
+    def test_an_unheld_record_past_its_period_is_purged_when_enforced(self):
+        from routers.esign import run_retention_sweep
+        out = run_retention_sweep(self.db, dry_run=False)
+        self.assertIn(self.rid, out["purged"])
+        self.assertIsNone(self.db.query(models.HrSignRequest).filter(
+            models.HrSignRequest.id == self.rid).first())
+
+    def test_a_record_inside_its_period_is_left_alone(self):
+        from routers.esign import run_retention_sweep
+        recent = f"env-recent-{uuid.uuid4()}"
+        self.db.add(models.HrSignRequest(
+            id=recent, title="Recent", source="pdf", status="completed",
+            routing="sequential", created_by=USER, document_class=self.CLS,
+            created_at=_iso(40), completed_at=_iso(30)))
+        self.db.commit()
+        try:
+            out = run_retention_sweep(self.db, dry_run=False)
+            self.assertNotIn(recent, out["purged"])
+        finally:
+            self.db.query(models.HrSignRequest).filter(
+                models.HrSignRequest.id == recent).delete()
+            self.db.commit()
+
+
+class PageViewEvidenceTests(unittest.TestCase):
+    """"All pages viewed before signing" is claimed only when it happened."""
+
+    def _snapshot_with(self, viewed, total):
+        from services import certificate as C
+        snap = C.demo_snapshot(1)
+        snap["signers"][0]["pages_viewed"] = viewed
+        snap["signers"][0]["pages_total"] = total
+        return C.render_html(snap)
+
+    def test_all_pages_viewed_is_stated_when_the_session_reported_them_all(self):
+        self.assertIn("all 18 pages viewed", self._snapshot_with(18, 18))
+
+    def test_a_partial_read_is_reported_as_partial(self):
+        html = self._snapshot_with(4, 18)
+        self.assertIn("4 of 18 pages viewed", html)
+        self.assertNotIn("all 18 pages viewed", html)
+
+    def test_nothing_is_claimed_when_the_session_reported_nothing(self):
+        html = self._snapshot_with(0, 0)
+        self.assertNotIn("pages viewed", html)

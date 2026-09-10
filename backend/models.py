@@ -1433,7 +1433,7 @@ class HrSignParty(Base):
     email                = Column(String, default="")
     kind                 = Column(String, default="internal") # internal|external
     ordinal              = Column(Integer, default=1)         # signing order (matches request.current_order)
-    status               = Column(String, default="waiting")  # waiting|notified|viewed|signed|declined
+    status               = Column(String, default="waiting")  # waiting|notified|viewed|signed|approved|acknowledged|declined
     token                = Column(String, default="")         # secrets.token_urlsafe(32) - the public-link credential
     token_expires_at     = Column(String, default="")
     signature_kind       = Column(String, default="")         # drawn|typed
@@ -1446,7 +1446,16 @@ class HrSignParty(Base):
     signed_at            = Column(String, default="")
     decline_reason       = Column(String, default="")
     field_values         = Column(JSON, default=dict)         # filled text/check/date/initials values
-    party_role           = Column(String, default="signer")   # signer | cc (receives the sealed copy, never signs)
+    # signer | countersigner | witness | approver | certified_delivery | cc.
+    # Each behaves differently in the engine - see _ACTING_ROLES in esign.py.
+    party_role           = Column(String, default="signer")
+    acknowledged_at      = Column(String, default="")         # certified delivery: when receipt was acknowledged
+    # Pages the signing session reported as actually displayed, out of the
+    # packet's total. The certificate says "all pages viewed before signing"
+    # only when these agree - it is never inferred from the fact that someone
+    # signed, because scrolling past is not the same as being shown.
+    pages_viewed         = Column(Integer, default=0)
+    pages_total          = Column(Integer, default=0)
     access_code          = Column(String, default="")         # optional code an external signer must enter to open the link
     authenticated_at     = Column(String, default="")         # when this party cleared auth - set BEFORE any document is rendered
     org                  = Column(String, default="")         # the company this person signed for
@@ -1533,6 +1542,11 @@ class HrDocumentClass(Base):
     electronic_permitted  = Column(Boolean, default=True)
     citation              = Column(String, default="")         # why, when not permitted
     note                  = Column(String, default="")         # what to do instead
+    # How long a completed envelope of this class is kept, in months. 0 = keep
+    # indefinitely, which is the default for every seeded class: destroying
+    # executed agreements on a timer is a decision each class has to be given
+    # deliberately, not one that arrives with a schema migration.
+    retention_months      = Column(Integer, default=0)
     sort_order            = Column(Integer, default=100)
 
 

@@ -597,11 +597,75 @@ def _parties(db: Session, request_id: str) -> List[HrSignParty]:
             .order_by(HrSignParty.ordinal).all())
 
 
+# ── Recipient roles ──────────────────────────────────────────────────────────
+# Build note section 3. Each role here has DIFFERENT behaviour in the engine -
+# a role that behaved identically to `signer` would be a label pretending to be
+# a control, and worse than not having it.
+#
+#   signer            signs
+#   countersigner     signs, on the other side of the agreement. Ordering does
+#                     the "counter" part; the label is what the certificate and
+#                     the audit trail need to say who signed in what capacity.
+#   witness           signs, attesting to another party's execution. Ordered
+#                     after the party witnessed.
+#   approver          APPROVES without signing. Blocks the envelope until they
+#                     do. No signature is captured and none is claimed.
+#   certified_delivery  must ACKNOWLEDGE RECEIPT. Never signs. Proves delivery
+#                     rather than agreement - the point of the role.
+#   cc                receives the sealed copy, never acts.
+#
+# `notary` is deliberately absent: notarial documents are blocked outright by
+# the excluded-record class, because Nexus performs no notarial act and
+# California remote online notarization is not operational.
+_SIGNING_ROLES = ("signer", "countersigner", "witness")
+_APPROVAL_ROLES = ("approver",)
+_ACK_ROLES = ("certified_delivery",)
+# Everyone whose turn the envelope waits on.
+_ACTING_ROLES = _SIGNING_ROLES + _APPROVAL_ROLES + _ACK_ROLES
+_PARTY_ROLES = _ACTING_ROLES + ("cc",)
+
+_ROLE_LABELS = {
+    "signer": "Signer",
+    "countersigner": "Countersigner",
+    "witness": "Witness",
+    "approver": "Approver",
+    "certified_delivery": "Certified delivery",
+    "cc": "Copy",
+}
+
+# What each acting role's finished state is called. The status a party lands in
+# says what they actually DID - an approver is never recorded as having signed.
+_ROLE_DONE_STATUS = {
+    "signer": "signed", "countersigner": "signed", "witness": "signed",
+    "approver": "approved", "certified_delivery": "acknowledged",
+}
+
+
+def _role_of(p) -> str:
+    return (p.party_role or "signer") if (p.party_role or "signer") in _PARTY_ROLES else "signer"
+
+
+def _is_done(p) -> bool:
+    """Has this party finished whatever their role requires?"""
+    role = _role_of(p)
+    if role == "cc":
+        return True
+    return p.status == _ROLE_DONE_STATUS.get(role, "signed")
+
+
+def _signs(p) -> bool:
+    return _role_of(p) in _SIGNING_ROLES
+
+
 def _its_their_turn(req: HrSignRequest, party: HrSignParty) -> bool:
-    if req.status != "pending" or (party.party_role or "signer") != "signer" \
-            or party.status not in ("waiting", "notified", "viewed"):
+    """Whether this party may act NOW - sign, approve or acknowledge, whichever
+    their role calls for. An approver holds the envelope up exactly as a signer
+    does; that is precisely what separates an approver from a CC."""
+    if req.status != "pending" or _role_of(party) not in _ACTING_ROLES:
         return False
-    # Parallel envelopes have no order - every unsigned signer may sign now.
+    if party.status not in ("waiting", "notified", "viewed"):
+        return False
+    # Parallel envelopes have no order - everyone outstanding may act now.
     if (req.routing or "sequential") == "parallel":
         return True
     return party.ordinal == req.current_order
@@ -981,7 +1045,7 @@ class SendIn(BaseModel):
 
 
 def _validate_parties(parties: List[PartyIn], needed_roles: set) -> None:
-    signers = [p for p in parties if (p.party_role or "signer") == "signer"]
+    signers = [p for p in parties if (p.party_role or "signer") in _SIGNING_ROLES]
     if not signers:
         raise HTTPException(400, "At least one signing party is required")
     seen_roles = set()
@@ -992,11 +1056,11 @@ def _validate_parties(parties: List[PartyIn], needed_roles: set) -> None:
             raise HTTPException(400, "Every party needs a name")
         if p.kind not in ("internal", "external"):
             raise HTTPException(400, "party kind must be internal or external")
-        if (p.party_role or "signer") not in ("signer", "cc"):
-            raise HTTPException(400, "party_role must be signer or cc")
+        if (p.party_role or "signer") not in _PARTY_ROLES:
+            raise HTTPException(400, f"party_role must be one of {', '.join(_PARTY_ROLES)}")
         if (p.access_code or "").strip() and len(p.access_code.strip()) > 40:
             raise HTTPException(400, "Access codes are limited to 40 characters")
-        if (p.party_role or "signer") == "signer":
+        if (p.party_role or "signer") in _SIGNING_ROLES:
             seen_roles.add(p.role_key)
     missing = needed_roles - seen_roles
     if missing:
@@ -1068,7 +1132,8 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                      f"{cls.note}".strip())
     now = _now_iso()
     ordered = sorted(parties, key=lambda p: p.ordinal or 1)
-    signer_ordinals = [p.ordinal or 1 for p in ordered if (p.party_role or "signer") == "signer"]
+    signer_ordinals = [p.ordinal or 1 for p in ordered
+                       if (p.party_role or "signer") in _ACTING_ROLES]
     req = HrSignRequest(id=str(uuid.uuid4()), title=title, source=source, template_id=template_id,
                         employee_id=employee_id or "", candidate_id=candidate_id or "",
                         entity_id=entity_id or "", body_snapshot=body_snapshot,
@@ -1101,8 +1166,10 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
     sender_name = user["email"].split("@")[0].replace(".", " ").title()
     # Sequential: only the first signer hears about it now. Parallel: every
     # signer is invited at once. CC parties hear at completion, not at send.
-    signers = [r for r in rows if r.party_role == "signer"]
-    to_notify = signers if routing == "parallel" else signers[:1]
+    # Everyone who must act is invited, not only signers - an approver first
+    # in the order is who the envelope is waiting on.
+    actors = [r for r in rows if _role_of(r) in _ACTING_ROLES]
+    to_notify = actors if routing == "parallel" else actors[:1]
     for r in to_notify:
         _notify_party(db, r, req, sender_name)
     db.commit()
@@ -1349,7 +1416,41 @@ def is_on_hold(db: Session, request_id: str) -> bool:
                     HrSignRetentionHold.released_at == "").first() is not None)
 
 
-def purge_expired_envelopes(db: Session, retain_days: int, dry_run: bool = True) -> dict:
+def run_retention_sweep(db: Session, dry_run: bool = True) -> dict:
+    """Per-document-class retention, holds always winning.
+
+    Runs from the nightly scan but does NOTHING until a class is given a
+    retention period: every seeded class is 0 = keep indefinitely. Deleting an
+    executed agreement is a decision someone has to make per class, with a
+    number attached - it must never be something that starts happening because
+    a migration shipped.
+
+    dry_run stays the default here too. The scheduled call passes
+    dry_run=False only when NEXUS_ESIGN_RETENTION_ENFORCE is set, so switching
+    real deletion on is one deliberate environment change, visible in config
+    rather than buried in code.
+    """
+    from models import HrDocumentClass as _Cls
+    classes = [c for c in db.query(_Cls).all() if (c.retention_months or 0) > 0]
+    if not classes:
+        return {"classes": 0, "eligible": [], "held": [], "purged": [], "dryRun": dry_run}
+    eligible, held, purged = [], [], []
+    for cls in classes:
+        days = int(cls.retention_months) * 31          # deliberately generous
+        out = purge_expired_envelopes(db, retain_days=days, dry_run=dry_run,
+                                      document_class=cls.code)
+        eligible += out["eligible"]
+        held += out["held"]
+        purged += out["purged"]
+    if purged or held:
+        print(f"[reminders] e-sign retention: purged {len(purged)}, "
+              f"{len(held)} under legal hold, dry_run={dry_run}")
+    return {"classes": len(classes), "eligible": eligible, "held": held,
+            "purged": purged, "dryRun": dry_run}
+
+
+def purge_expired_envelopes(db: Session, retain_days: int, dry_run: bool = True,
+                            document_class: str = "") -> dict:
     """Purge completed envelopes older than `retain_days`, EXCEPT any under a
     legal hold. Returns what it did (or would do, when dry_run).
 
@@ -1359,10 +1460,13 @@ def purge_expired_envelopes(db: Session, retain_days: int, dry_run: bool = True)
     if retain_days <= 0:
         return {"eligible": [], "held": [], "purged": [], "dryRun": dry_run}
     cutoff = (datetime.now(timezone.utc) - timedelta(days=retain_days)).isoformat()
-    candidates = (db.query(HrSignRequest)
-                  .filter(HrSignRequest.status == "completed",
-                          HrSignRequest.completed_at != "",
-                          HrSignRequest.completed_at < cutoff).all())
+    q = (db.query(HrSignRequest)
+         .filter(HrSignRequest.status == "completed",
+                 HrSignRequest.completed_at != "",
+                 HrSignRequest.completed_at < cutoff))
+    if document_class:
+        q = q.filter(HrSignRequest.document_class == document_class)
+    candidates = q.all()
     eligible, held = [], []
     for req in candidates:
         (held if is_on_hold(db, req.id) else eligible).append(req.id)
@@ -1646,8 +1750,8 @@ def my_signatures(user: dict = Depends(get_current_user), db: Session = Depends(
                HrSignParty.status.in_(["waiting", "notified", "viewed"])).all())
     out = []
     for p in parties:
-        if (p.party_role or "signer") != "signer":
-            continue                       # CC recipients never have anything to sign
+        if _role_of(p) not in _ACTING_ROLES:
+            continue                       # CC recipients never have anything to do
         req = db.query(HrSignRequest).filter(HrSignRequest.id == p.request_id).first()
         if not req:
             continue
@@ -1722,6 +1826,11 @@ class SignIn(BaseModel):
     # verbatim and never invents a value.
     format_demonstrated: Optional[str] = ""  # 'pdf_rendered_in_session' | 'html_rendered_in_session' | ''
     session_id:          Optional[str] = ""
+    # Reported by the signing screen: how many of the packet's pages it
+    # actually displayed to this signer. Recorded verbatim - the server never
+    # assumes a page was seen because a signature arrived.
+    pages_viewed:        Optional[int] = 0
+    pages_total:         Optional[int] = 0
 
 
 def _validate_signature(body: SignIn) -> None:
@@ -1740,6 +1849,101 @@ def _validate_signature(body: SignIn) -> None:
             raise HTTPException(400, "Signature image is empty or too large")
     elif not body.signature_data.strip():
         raise HTTPException(400, "Type your full name to sign")
+
+
+class ActIn(BaseModel):
+    """An approval or a delivery acknowledgment. No signature: these roles do
+    not sign, and capturing one would misdescribe what they did."""
+    consent:     bool = True             # approvers still consent to transact electronically
+    note:        Optional[str] = ""
+    access_code: Optional[str] = ""
+    format_demonstrated: Optional[str] = ""
+    session_id:  Optional[str] = ""
+
+
+def _apply_act(db: Session, req: HrSignRequest, party: HrSignParty, body: ActIn,
+               ip: str, ua: str) -> dict:
+    """Record an approval or an acknowledgment, then advance exactly as a
+    signature does.
+
+    Serialized on the request row for the same reason _apply_signature is: the
+    last outstanding party might be an approver, and two concurrent actions
+    must not both decide the envelope is finished (or both decide it is not).
+    """
+    db.query(HrSignRequest).filter(HrSignRequest.id == req.id).with_for_update().first()
+    db.expire_all()
+    req = db.query(HrSignRequest).filter(HrSignRequest.id == req.id).first()
+    party = db.query(HrSignParty).filter(HrSignParty.id == party.id).first()
+    if not req or not party:
+        raise HTTPException(404, "Not found")
+    _check_expiry(db, req)
+    if req.status != "pending":
+        raise HTTPException(409, f"This document is {req.status}")
+
+    role = _role_of(party)
+    if role not in _APPROVAL_ROLES + _ACK_ROLES:
+        raise HTTPException(400, "This party signs - use the signing endpoint, not this one")
+    if not _its_their_turn(req, party):
+        raise HTTPException(409, "It is not your turn yet" if not _is_done(party)
+                            else "You have already responded")
+
+    now = _now_iso()
+    party.ip, party.user_agent = ip, ua
+    party.status = _ROLE_DONE_STATUS[role]
+    if role in _APPROVAL_ROLES:
+        # An approver is agreeing to the record electronically too, so the
+        # consent evidence is captured the same way a signer's is.
+        party.consent_at = now
+        party.consent_text_version = _CONSENT_VERSION
+        db.add(HrSignConsent(
+            id=str(uuid.uuid4()), party_id=party.id, request_id=req.id,
+            disclosure_version=_CONSENT_VERSION, disclosure_digest=_disclosure_digest(),
+            scope="transaction", format_demonstrated=(body.format_demonstrated or "")[:64],
+            accepted_at=now, accepted_ip=ip, session_id=(body.session_id or "")[:64],
+            standing_basis=("Employment agreement - enterprise electronic records consent"
+                            if party.kind == "internal" else "")))
+        _log(db, req.id, "approved",
+             f"{party.name} approved" + (f": {body.note.strip()[:200]}" if body.note else ""),
+             party_id=party.id, ip=ip, user_agent=ua)
+    else:
+        party.acknowledged_at = now
+        _log(db, req.id, "acknowledged",
+             f"{party.name} acknowledged receipt"
+             + (f": {body.note.strip()[:200]}" if body.note else ""),
+             party_id=party.id, ip=ip, user_agent=ua)
+
+    _advance_or_finalize(db, req)
+    db.commit()
+    return {"ok": True, "status": req.status, "role": role, "recorded": party.status}
+
+
+def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:
+    """Move to the next party, or seal when everyone has done their part.
+
+    "Everyone" means every ACTING party, by their own role's definition of
+    done: signers signed, approvers approved, certified-delivery recipients
+    acknowledged. An envelope that finalized once its signatures were in while
+    an approver was still outstanding would be exactly the bug the role is
+    there to prevent.
+    """
+    remaining = [p for p in _parties(db, req.id)
+                 if _role_of(p) in _ACTING_ROLES and not _is_done(p)]
+    if remaining:
+        if (req.routing or "sequential") == "sequential":
+            nxt = min(remaining, key=lambda p: p.ordinal)
+            req.current_order = nxt.ordinal
+            sender_name = req.created_by.split("@")[0].replace(".", " ").title()
+            _notify_party(db, nxt, req, sender_name)
+        # parallel: everyone was invited at send - nothing to advance
+        return remaining
+    try:
+        _finalize(db, req)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"The sealed PDF could not be generated ({str(e)[:150]}). "
+                                 f"Your response was not saved - please try again or contact HR.")
+    return []
 
 
 def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: SignIn,
@@ -1765,6 +1969,9 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
     _check_expiry(db, req)
     if req.status != "pending":
         raise HTTPException(409, f"This document is {req.status}")
+    if not _signs(party):
+        raise HTTPException(400, f"A {_ROLE_LABELS[_role_of(party)].lower()} does not sign this "
+                                 f"document - use the approve or acknowledge action instead")
     if not _its_their_turn(req, party):
         raise HTTPException(409, "It is not your turn to sign yet" if party.status != "signed"
                             else "You have already signed")
@@ -1775,6 +1982,8 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
     # Frozen now, over the bytes actually submitted, rather than recomputed from
     # signature_data whenever a certificate is rendered.
     party.signature_digest = hashlib.sha256((body.signature_data or "").encode()).hexdigest()
+    party.pages_viewed = max(0, int(body.pages_viewed or 0))
+    party.pages_total = max(0, int(body.pages_total or 0))
     party.consent_at = now
     party.consent_text_version = _CONSENT_VERSION
     party.field_values = body.field_values or {}
@@ -1797,27 +2006,7 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
     _log(db, req.id, "signed", f"{party.name} signed ({body.signature_kind})",
          party_id=party.id, ip=ip, user_agent=ua)
 
-    remaining = [p for p in _parties(db, req.id)
-                 if (p.party_role or "signer") == "signer" and p.status != "signed"]
-    if remaining:
-        if (req.routing or "sequential") == "sequential":
-            nxt = min(remaining, key=lambda p: p.ordinal)
-            req.current_order = nxt.ordinal
-            sender_name = req.created_by.split("@")[0].replace(".", " ").title()
-            _notify_party(db, nxt, req, sender_name)
-        # parallel: every signer was invited at send - nothing to advance
-    else:
-        # Sealing must never surface as a raw 500 - an unhandled exception here
-        # bypasses CORSMiddleware and the browser reports a bare "Failed to
-        # fetch". Convert to a real error response; nothing is committed, so
-        # the signer can simply retry once the cause is fixed.
-        try:
-            _finalize(db, req)
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(502, f"The sealed PDF could not be generated ({str(e)[:150]}). "
-                                     f"Your signature was not saved - please try again or contact HR.")
+    remaining = _advance_or_finalize(db, req)
     db.commit()
     return {"ok": True, "status": req.status,
             "next": remaining[0].name if remaining else None}
@@ -2042,6 +2231,27 @@ def public_sign(token: str, body: SignIn, request: Request, db: Session = Depend
         raise HTTPException(403, "Wrong access code")
     ip, ua = _client_meta(request)
     return _apply_signature(db, req, party, body, ip, ua)
+
+
+@router.post("/mine/{party_id}/act")
+def my_act(party_id: str, body: ActIn, request: Request,
+           user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Approve, or acknowledge delivery - whichever this party's role calls for."""
+    party = db.query(HrSignParty).filter(HrSignParty.id == party_id).first()
+    if not party or party.email != user["email"].lower():
+        raise HTTPException(404, "Not found")
+    req = db.query(HrSignRequest).filter(HrSignRequest.id == party.request_id).first()
+    ip, ua = _client_meta(request)
+    return _apply_act(db, req, party, body, ip, ua)
+
+
+@router.post("/public/{token}/act")
+def public_act(token: str, body: ActIn, request: Request, db: Session = Depends(get_db)):
+    req, party = _party_by_token(db, token, request)
+    if not _check_access_code(db, req, party, body.access_code or "", request):
+        raise HTTPException(403, "Wrong access code")
+    ip, ua = _client_meta(request)
+    return _apply_act(db, req, party, body, ip, ua)
 
 
 @router.post("/public/{token}/decline")
@@ -2612,6 +2822,7 @@ def _certificate_pdf(snapshot: dict) -> bytes:
         return t
 
     signed = [s for s in signers if s["status"] == "signed"]
+    signing_parties = [s for s in signers if s.get("signs", True)]
     declined = [s for s in signers if s["status"] == "declined"]
     chain_state = ("Verified" if integ["chain_valid"] else
                    "BROKEN" if integ["chain_valid"] is False else "Not available")
@@ -2638,7 +2849,7 @@ def _certificate_pdf(snapshot: dict) -> bytes:
     strip = Table([[PH("Status"), PH("Signatures"), PH("Declined"), PH("Integrity"),
                     PH("Governing law"), PH("Issued")],
                    [P(f"<b>{escape(env['status'] or '-')}</b>"),
-                    P(f"{len(signed)} of {len(signers)}"),
+                    P(f"{len(signed)} of {len(signing_parties)}"),
                     P(str(len(declined)) if declined else "None"),
                     P(escape(chain_state)),
                     P(escape(env["governing_law_label"] or "-")),
@@ -2673,10 +2884,14 @@ def _certificate_pdf(snapshot: dict) -> bytes:
         who = (f"<b>{escape(s['name'] or '-')}</b>"
                + (f"<br/><font color='#6b7280'>{escape(capacity)}</font>" if capacity else "")
                + f"<br/>{escape(s['email'])}"
-                 f"<br/><font color='#6b7280'>{escape(s['kind'].title())} - order {s['ordinal']}</font>")
+                 f"<br/><font color='#6b7280'>{escape(s.get('role_label', 'Signer'))}"
+                 f" - {escape(s['kind'].title())} - order {s['ordinal']}</font>")
         c = s["consent"]
         if c["accepted_at"]:
-            extra = " - ".join(x for x in (c["format"], c["standing_basis"]) if x)
+            pv, pt = s.get("pages_viewed", 0), s.get("pages_total", 0)
+            pages = (f"all {pt} pages viewed" if pt and pv >= pt
+                     else f"{pv} of {pt} pages viewed" if pt else "")
+            extra = " - ".join(x for x in (c["format"], pages, c["standing_basis"]) if x)
             lines = [f"v{escape(c['version'] or '-')} accepted {ts(c['accepted_at'])}"]
             if c["digest"]:
                 lines.append(f"<font face='Courier' size='6'>{escape(c['digest'][:32])}</font>")
@@ -2694,11 +2909,16 @@ def _certificate_pdf(snapshot: dict) -> bytes:
         else:
             executed = (f"{ts(s['executed_at'])}<br/>{escape(s['ip'] or 'IP not recorded')}"
                         f"<br/><font color='#6b7280'>{escape(s['client'])}</font>")
-        sig = escape((s["signature_kind"] or "-").title())
-        if s.get("signature_field"):
-            sig += f"<br/><font color='#6b7280'>{escape(s['signature_field'])}</font>"
-        if s["signature_digest"]:
-            sig += f"<br/><font face='Courier' size='6'>{escape(s['signature_digest'][:32])}</font>"
+        if not s.get("signs", True):
+            sig = ("<font color='#6b7280'>Approved - no signature</font>"
+                   if s.get("role") == "approver"
+                   else "<font color='#6b7280'>Receipt acknowledged - no signature</font>")
+        else:
+            sig = escape((s["signature_kind"] or "-").title())
+            if s.get("signature_field"):
+                sig += f"<br/><font color='#6b7280'>{escape(s['signature_field'])}</font>"
+            if s["signature_digest"]:
+                sig += f"<br/><font face='Courier' size='6'>{escape(s['signature_digest'][:32])}</font>"
         auth = escape(s["auth_method"])
         if s.get("failed_auth_count"):
             n = s["failed_auth_count"]

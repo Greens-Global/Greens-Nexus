@@ -15,6 +15,7 @@ double-pings.
 """
 
 import asyncio
+import os
 import json
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -569,6 +570,14 @@ def run_daily_scan() -> int:
 
         # 9b. Nightly audit-chain verification across every envelope.
         run_chain_verification(db)
+
+        # 9c. E-sign retention. Does nothing until a document class is given a
+        # retention period, and only DELETES when NEXUS_ESIGN_RETENTION_ENFORCE
+        # is set - otherwise it reports what it would remove. Legal holds win
+        # either way.
+        from routers.esign import run_retention_sweep
+        _enforce = (os.getenv("NEXUS_ESIGN_RETENTION_ENFORCE", "") or "").strip().lower()             in ("1", "true", "yes")
+        run_retention_sweep(db, dry_run=not _enforce)
 
         # 10. Field-tracking retention: purge raw location pings past the window
         # (data-minimization guardrail - keep only recent breadcrumbs).

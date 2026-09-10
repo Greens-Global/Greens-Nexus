@@ -59,6 +59,9 @@ KNOWN_PUBLIC = {
     # UETA section 8 retention copy - same token credential, same access-code
     # check and per-IP throttle as the signing view it sits beside.
     "/esign/public/{token}/copy",
+    # Approve / acknowledge receipt - same token credential, same access-code
+    # check and per-IP throttle as signing.
+    "/esign/public/{token}/act",
     "/esign/public/verify/{verify_token}",
     "/timeclock/agent/checkin",            # agent device token (get_agent_device)
     "/timeclock/agent/screenshot",
