@@ -424,13 +424,15 @@ def download_my_document(rid: str, user: dict = Depends(get_current_user), db: S
 
 
 # ── my Egnyte documents (Aug 10 - Neil's "wire Contractor Documents to their
-# My Documents"; Sep 10 - widened to every folder under the person, not just
-# one wired subfolder). Read-only: the employee sees and downloads everything
-# under their OWN person folder (people.person-folder) except the subfolders
-# named in people.my-documents-excluded-subfolder-names (Confidential etc) -
-# see egnyte_wiring.list_person_documents / is_excluded_path. Download goes
-# through here rather than /egnyte/file so the server checks the path is
-# inside the caller's own resolved folder and not inside a hidden one.
+# My Documents"; Sep 10 - widened to every folder under the person, keeping
+# Egnyte's own folder shape rather than one flattened list). Read-only: the
+# employee sees and downloads everything under their OWN person folder
+# (people.person-folder), grouped by subfolder exactly as Egnyte has it,
+# except the subfolders named in people.my-documents-excluded-subfolder-names
+# (Confidential etc) - see egnyte_wiring.list_person_document_groups /
+# is_excluded_path. Download goes through here rather than /egnyte/file so
+# the server checks the path is inside the caller's own resolved folder and
+# not inside a hidden one.
 
 @router.get("/egnyte-documents")
 def my_egnyte_documents(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -445,10 +447,10 @@ def my_egnyte_documents(user: dict = Depends(get_current_user), db: Session = De
     res = wiring.resolve_person_folder("people.person-folder", emp, db)
     if not res["folder"]:
         return {"available": False}
-    files = wiring.list_person_documents(res["folder"])
-    if files is None:
+    groups = wiring.list_person_document_groups(res["folder"])
+    if groups is None:
         return {"available": False}     # folder not created yet - show nothing
-    return {"available": True, "folder": res["folder"], "files": files}
+    return {"available": True, "folder": res["folder"], **groups}
 
 
 @router.get("/egnyte-documents/file")

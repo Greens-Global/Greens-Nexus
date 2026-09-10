@@ -3,7 +3,7 @@ import {
   User, Phone, Mail, Heart, Briefcase, Building2, CalendarDays, MapPin, Network,
   FileText, Download, CalendarOff, Loader2, Pencil, Check, X, BadgeCheck,
   Clock, Banknote, MessageSquarePlus, Package, ArrowRight, Hourglass,
-  HardDrive,
+  HardDrive, Folder,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
@@ -164,9 +164,11 @@ export function MyHROverview({ onOpenTimeOff }) {
   const [range, setRange] = useState('week');         // hours card + tile
   const [docQuery, setDocQuery] = useState('');
   const [stubQuery, setStubQuery] = useState('');
-  // Every file under my own Egnyte person folder, except subfolders wired as
-  // hidden (people.my-documents-excluded-subfolder-names, e.g. Confidential).
-  // null = not available (no wiring / no folder / Egnyte off) - the card hides.
+  // { rootFiles, folders: [{ name, files }] } - my own Egnyte person folder,
+  // in the SAME folder shape as Egnyte (Neil/Visesh, Sep 10: "I want the
+  // folder also same they are in Egnyte"), minus subfolders wired as hidden
+  // (people.my-documents-excluded-subfolder-names, e.g. Confidential). null =
+  // not available (no wiring / no folder / Egnyte off) - the card hides.
   const [egnyteDocs, setEgnyteDocs] = useState(null);
   const [assetFilter, setAssetFilter] = useState('all');
   const [askFilter, setAskFilter] = useState('all');
@@ -180,7 +182,7 @@ export function MyHROverview({ onOpenTimeOff }) {
     api.myPaystubs().then(setStubs).catch(() => {});
     api.myAssets().then(setAssets).catch(() => setAssets({ assignments: [], checkouts: [] }));
     api.myHrRequests().then(setAsks).catch(() => {});
-    api.myhrEgnyteDocs().then(d => setEgnyteDocs(d?.available ? (d.files || []) : null)).catch(() => {});
+    api.myhrEgnyteDocs().then(d => setEgnyteDocs(d?.available ? { rootFiles: d.rootFiles || [], folders: d.folders || [] } : null)).catch(() => {});
   }, []);
 
   // Hours follow the selected range.
@@ -228,22 +230,42 @@ export function MyHROverview({ onOpenTimeOff }) {
     finally { setBusy(p => ({ ...p, ['egn' + f.path]: false })); }
   };
 
-  // Sealed e-sign PDFs and HR-filed Egnyte files, combined into one "My
-  // documents" list, newest first (Neil: merge Egnyte docs into My documents
-  // rather than a separate card).
-  const combinedDocs = useMemo(() => {
-    const esign = docs.map(d => ({
-      key: 'e:' + d.requestId, kind: 'esign', title: d.title,
-      meta: `Completed ${fmtD(d.completedAt?.slice(0, 10))}`, sortKey: d.completedAt || '',
-      busyKey: 'doc' + d.requestId, onDownload: () => download(d.requestId),
-    }));
-    const filed = (egnyteDocs || []).map(f => ({
-      key: 'g:' + f.path, kind: 'egnyte', title: f.name,
-      meta: f.size ? `${Math.max(1, Math.round(f.size / 1024))} KB` : 'File', sortKey: f.lastModified || '',
-      busyKey: 'egn' + f.path, onDownload: () => downloadEgnyte(f),
-    }));
-    return [...esign, ...filed].sort((a, b) => (b.sortKey || '').localeCompare(a.sortKey || ''));
-  }, [docs, egnyteDocs]);
+  const egnyteFileRow = (f) => ({
+    key: 'g:' + f.path, kind: 'egnyte', title: f.name,
+    meta: f.size ? `${Math.max(1, Math.round(f.size / 1024))} KB` : 'File', sortKey: f.lastModified || '',
+    busyKey: 'egn' + f.path, onDownload: () => downloadEgnyte(f),
+  });
+
+  // Sealed e-sign PDFs, newest first - always its own section. Kept separate
+  // from the Egnyte groups below since it isn't part of the Egnyte tree.
+  const esignRows = useMemo(() => docs.map(d => ({
+    key: 'e:' + d.requestId, kind: 'esign', title: d.title,
+    meta: `Completed ${fmtD(d.completedAt?.slice(0, 10))}`, sortKey: d.completedAt || '',
+    busyKey: 'doc' + d.requestId, onDownload: () => download(d.requestId),
+  })).sort((a, b) => (b.sortKey || '').localeCompare(a.sortKey || '')), [docs]);
+
+  // One section per real Egnyte subfolder, in Egnyte's own order, plus a
+  // trailing "Other files" section for anything sitting loose at the root of
+  // the person folder - mirrors the actual Egnyte tree instead of a single
+  // flattened list (Pranshu, Sep 10).
+  const egnyteSections = useMemo(() => {
+    if (!egnyteDocs) return [];
+    const sections = (egnyteDocs.folders || [])
+      .filter(g => (g.files || []).length)
+      .map(g => ({ key: 'f:' + g.name, name: g.name, rows: g.files.map(egnyteFileRow) }));
+    if ((egnyteDocs.rootFiles || []).length) {
+      sections.push({ key: 'f:root', name: 'Other files', rows: egnyteDocs.rootFiles.map(egnyteFileRow) });
+    }
+    return sections;
+  }, [egnyteDocs]);
+
+  const docSections = useMemo(() => {
+    const sections = [];
+    if (esignRows.length) sections.push({ key: 'esign', name: 'Signed Documents', rows: esignRows });
+    sections.push(...egnyteSections);
+    return sections;
+  }, [esignRows, egnyteSections]);
+  const totalDocCount = docSections.reduce((n, s) => n + s.rows.length, 0);
 
   const submitAsk = async () => {
     if (!askForm.message.trim()) return;
@@ -320,7 +342,7 @@ export function MyHROverview({ onOpenTimeOff }) {
               <Stat hero label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`} value={sheet ? hm(workedTotal) : '…'} hint={`${daysWorked} day${daysWorked === 1 ? '' : 's'} worked`} color="blue" Icon={Clock} />
             )}
             <Stat label="Leave this year" value={`${leaveDaysThisYear}d`} hint="Approved time off" color="green" Icon={CalendarOff} />
-            <Stat label="My documents" value={combinedDocs.length} hint="Signed & filed" color="purple" Icon={FileText} />
+            <Stat label="My documents" value={totalDocCount} hint="Signed & filed" color="purple" Icon={FileText} />
             <Stat label="Time with us" value={tenure} hint={profile.startDate ? `Since ${fmtD(profile.startDate)}` : ''} color="orange" Icon={Hourglass} />
           </div>
 
@@ -481,28 +503,49 @@ export function MyHROverview({ onOpenTimeOff }) {
               )}
 
               <div className="dash-card">
-                {cardHead('My documents', 'Signed copies and files HR filed for you',
-                  combinedDocs.length > 3 ? (
+                {cardHead('My documents', 'Signed copies and files HR filed for you, by folder',
+                  totalDocCount > 3 ? (
                     <input className="form-input" placeholder="Search…" value={docQuery} onChange={e => setDocQuery(e.target.value)}
                       style={{ fontSize: 12, padding: '5px 10px', height: 'auto', width: 130 }} />
                   ) : <FileText size={15} style={{ color: 'var(--muted)' }} />)}
-                {combinedDocs.length === 0 ? (
+                {totalDocCount === 0 ? (
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No documents yet.</div>
-                ) : combinedDocs.filter(d => !docQuery || (d.title || '').toLowerCase().includes(docQuery.toLowerCase())).map(d => (
-                  <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-                    {d.kind === 'egnyte'
-                      ? <HardDrive size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
-                      : <FileText size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{d.meta}</div>
+                ) : (() => {
+                  const q = docQuery.trim().toLowerCase();
+                  const filtered = docSections
+                    .map(s => ({ ...s, rows: q ? s.rows.filter(d => (d.title || '').toLowerCase().includes(q)) : s.rows }))
+                    .filter(s => s.rows.length);
+                  if (!filtered.length) {
+                    return <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No documents match your search.</div>;
+                  }
+                  return filtered.map(s => (
+                    <div key={s.key}>
+                      {docSections.length > 1 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '12px 0 5px' }}>
+                          {s.key === 'esign'
+                            ? <FileText size={12} style={{ color: 'var(--muted)' }} />
+                            : <Folder size={12} style={{ color: 'var(--muted)' }} />}
+                          <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>{s.name}</span>
+                        </div>
+                      )}
+                      {s.rows.map(d => (
+                        <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
+                          {d.kind === 'egnyte'
+                            ? <HardDrive size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
+                            : <FileText size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
+                            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{d.meta}</div>
+                          </div>
+                          <button className="secondary-btn" onClick={d.onDownload} disabled={!!busy[d.busyKey]}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
+                            {busy[d.busyKey] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} {d.kind === 'egnyte' ? 'Download' : 'PDF'}
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    <button className="secondary-btn" onClick={d.onDownload} disabled={!!busy[d.busyKey]}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
-                      {busy[d.busyKey] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} {d.kind === 'egnyte' ? 'Download' : 'PDF'}
-                    </button>
-                  </div>
-                ))}
+                  ));
+                })()}
               </div>
 
               <div className="dash-card">
