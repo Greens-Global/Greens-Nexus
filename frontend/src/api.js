@@ -1381,6 +1381,7 @@ export const api = {
   egnytePersonProvision: (email)              => req(`/egnyte/person/${encodeURIComponent(email)}/provision`, { method: 'POST' }),
   myhrEgnyteDocs:    ()                       => req('/myhr/egnyte-documents'),
   myhrEgnyteFile:    (path)                   => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}`),
+  myhrEgnyteFilePreview: (path)               => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}&inline=true`),
   // ── Step-up MFA (fresh verification before sensitive data) ──
   stepupConfig:  ()      => req('/stepup/config'),
   stepupStatus:  ()      => req('/stepup/status'),
