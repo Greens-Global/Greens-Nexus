@@ -54,6 +54,7 @@ const Documents           = lazy(() => import("./views/Documents"));
 const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
 const Marketing           = lazy(() => import("./views/Marketing"));
 const Admin               = lazy(() => import("./views/Admin"));
+const AdminConsole         = lazy(() => import("./views/AdminConsole"));
 // External Links folded into Dashboard as a tab (Sep 3) - Dashboard.jsx lazy-
 // imports views/ExternalLinks itself now; no separate top-level route.
 const Support             = lazy(() => import("./views/Support"));
@@ -119,6 +120,10 @@ const VIEW_MIN_ROLES = {
   'documents':          'supervisor',
   'marketing':          'supervisor',
   'admin':              'administrator',
+  // Admin (per-module extras) is grant-driven like Tasks/IT/etc - IT Admin /
+  // Global Admin always reach it, others only via an explicit Access Group
+  // grant on 'admin-console'.
+  'admin-console':      'supervisor',
   // Employee Tracking (monitoring) module - IT Admin + Global Admin ONLY. The
   // Grant-driven (Aug 13): IT Admin / Global Admin always reach it; below that it
   // opens ONLY via an explicit Access-Group/job-role grant on 'employee-tracking'
@@ -335,6 +340,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "pdf-editor":         return <Documents activeSub="documents-pdf" onSubChange={onSubChange} />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin":              return <Admin />;
+    case "admin-console":      return <AdminConsole activeSub={activeSub} onSubChange={onSubChange} />;
     case "support":            return <Support />;
     case "timeclock":          return <TimeClock initialTab="clock" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
@@ -403,6 +409,7 @@ const DEFAULT_SUBS = {
   // activeSub sync for that half).
   myhr:              "overview",
   timeclock:         "clock",
+  "admin-console":   "settings",
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 
@@ -554,8 +561,9 @@ function MainApp() {
     localStorage.setItem("gg-theme", theme);
   }, [theme]);
 
-  // Global Admin-configurable accent (AdminPanel -> Branding). Applied once on
-  // load; LoginPage applies it independently for the pre-login screen.
+  // Saved company accent (backend routers/branding.py; no admin UI to change
+  // it any more as of Sep 9). Applied once on load; LoginPage applies it
+  // independently for the pre-login screen.
   useEffect(() => { applyBrandAccent(); }, []);
 
   useEffect(() => {

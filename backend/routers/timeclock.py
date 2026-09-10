@@ -37,7 +37,8 @@ from sqlalchemy import func
 
 from database import get_db
 from auth import (get_current_user, require_level_or_module, require_administrator,
-                  require_module_grant, require_level_or_modules)
+                  require_module_grant, require_level_or_modules, _module_level, _LEVELS,
+                  _MODULE_LEVEL_RANK)
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
                     AgentDevice, AgentPairing, AgentRelease, LiveSession, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
@@ -3034,6 +3035,10 @@ def _control_expire(db: Session, s):
         s.control_state = ""
         s.control_ended_reason = "request_expired"
         db.commit()
+        # Consent-first assist sessions never fall back to a passive view - an
+        # unanswered request ends the whole thing, same as an explicit decline.
+        if s.purpose == "assist":
+            _live_end(db, s, "request_expired")
 
 
 def _live_fresh_within(iso: str, ttl: int) -> bool:
@@ -3087,6 +3092,14 @@ def _online_device_for(db: Session, email: str):
 class LiveRequestIn(BaseModel):
     email: str
     fps: Optional[int] = 60
+    # '' = disclosed monitoring (default, Workforce Analytics roster) - view
+    # starts immediately. 'assist' = ticket-launched Screen Share: consent-
+    # first, no view until the employee accepts a control prompt shown the
+    # moment their agent picks this session up (see agent_live_pending /
+    # desktop-agent/src/live.js). Requires the same "full" grant
+    # live_control_request already requires for taking control, since an
+    # assist request effectively asks for control from the start.
+    purpose: Optional[str] = ""
 
 
 @router.post("/live/request")
@@ -3097,6 +3110,10 @@ def live_request(body: LiveRequestIn, user: dict = Depends(require_tracking),
     no agent) so the viewer can show the right placeholder instead of a black feed."""
     if not _LIVE_ENABLED:
         raise HTTPException(503, "Live view is not configured on this server.")
+    purpose = "assist" if (body.purpose or "").strip().lower() == "assist" else ""
+    if purpose == "assist" and user["level"] < _LEVELS["administrator"] \
+            and _module_level(user["email"], "employee-tracking", db) < _MODULE_LEVEL_RANK["full"]:
+        raise HTTPException(403, "Insufficient permissions")
     email = (body.email or "").strip().lower()
     if "@" not in email:
         raise HTTPException(400, "A valid employee email is required")
@@ -3115,11 +3132,20 @@ def live_request(body: LiveRequestIn, user: dict = Depends(require_tracking),
                 .filter(LiveSession.viewer_email == user["email"],
                         LiveSession.employee_email == email, LiveSession.state != "ended").all()):
         _live_end(db, old, "superseded")
+    if purpose == "assist":
+        _check_no_other_controller(db, dev.id, "")
     now = _now_iso()
     fps = 30 if int(body.fps or 60) <= 30 else 60
     s = LiveSession(id=str(uuid.uuid4()), device_id=dev.id, employee_email=email,
                     viewer_email=user["email"], state="requested", fps=fps,
-                    created_at=now, updated_at=now, viewer_seen=now)
+                    created_at=now, updated_at=now, viewer_seen=now, purpose=purpose)
+    if purpose == "assist":
+        # Consent is requested from the moment the session exists, not after a
+        # separate "connected -> click Request Control" step - the agent shows
+        # the prompt as soon as it picks this session up, before any capture.
+        s.control_state = "requested"
+        s.control_requester_name = _display_name(db, user["email"])
+        s.control_requested_at = now
     db.add(s)
     db.commit()
     return {"ok": True, "sessionId": s.id, "subjectState": "live", "fps": fps,
@@ -3187,6 +3213,32 @@ def live_end(sid: str, user: dict = Depends(require_tracking), db: Session = Dep
 # session is still active. Either side ends it instantly; every transition is
 # stamped on the LiveSession row as the audit record.
 
+# One controller per PC. Many admins can WATCH the same screen, but only one
+# may drive it - two people injecting input at once would fight over the
+# mouse/keyboard. If another live session on this device already holds or is
+# requesting control, raise with a clear message naming who, and re-check the
+# freshness so a dead viewer's stale lock can't wedge the machine forever.
+# Shared by live_control_request (normal monitor-then-control flow) and
+# live_request's assist path (which requests control from the moment the
+# session is created).
+def _check_no_other_controller(db: Session, device_id: str, session_id: str):
+    if not device_id:
+        return
+    others = (db.query(LiveSession)
+              .filter(LiveSession.device_id == device_id, LiveSession.id != session_id,
+                      LiveSession.state != "ended",
+                      LiveSession.control_state.in_(("requested", "active"))).all())
+    for o in others:
+        _control_expire(db, o)
+        if o.control_state == "active" and not _live_fresh(o.viewer_seen):
+            _control_end(db, o, "controller_gone")
+            _live_end(db, o, "viewer_gone")
+        if o.control_state in ("requested", "active"):
+            who = o.control_requester_name or _display_name(db, o.viewer_email)
+            verb = "is controlling" if o.control_state == "active" else "is requesting control of"
+            raise HTTPException(409, f"{who} {verb} this computer. Only one person can control a PC at a time.")
+
+
 @router.post("/live/{sid}/control/request")
 def live_control_request(sid: str, user: dict = Depends(require_tracking_full),
                          db: Session = Depends(get_db)):
@@ -3199,25 +3251,7 @@ def live_control_request(sid: str, user: dict = Depends(require_tracking_full),
         raise HTTPException(409, "Control is already active.")
     if s.control_state == "requested":
         raise HTTPException(409, "A control request is already waiting.")
-    # One controller per PC. Many admins can WATCH the same screen, but only one
-    # may drive it - two people injecting input at once would fight over the
-    # mouse/keyboard. If another live session on this device already holds or is
-    # requesting control, block with a clear message naming who, and re-check the
-    # freshness so a dead viewer's stale lock can't wedge the machine forever.
-    if s.device_id:
-        others = (db.query(LiveSession)
-                  .filter(LiveSession.device_id == s.device_id, LiveSession.id != s.id,
-                          LiveSession.state != "ended",
-                          LiveSession.control_state.in_(("requested", "active"))).all())
-        for o in others:
-            _control_expire(db, o)
-            if o.control_state == "active" and not _live_fresh(o.viewer_seen):
-                _control_end(db, o, "controller_gone")
-                _live_end(db, o, "viewer_gone")
-            if o.control_state in ("requested", "active"):
-                who = o.control_requester_name or _display_name(db, o.viewer_email)
-                verb = "is controlling" if o.control_state == "active" else "is requesting control of"
-                raise HTTPException(409, f"{who} {verb} this computer. Only one person can control a PC at a time.")
+    _check_no_other_controller(db, s.device_id, s.id)
     s.control_state = "requested"
     s.control_requester_name = _display_name(db, user["email"])
     s.control_requested_at = _now_iso()
@@ -3318,6 +3352,13 @@ def agent_live_control(sid: str, body: AgentControlIn, dev: AgentDevice = Depend
         raise HTTPException(400, "action must be accept, decline or end")
     s.agent_seen = s.updated_at = now
     db.commit()
+    # Consent-first assist sessions never fall back to a passive view - a
+    # decline, or the employee ending an active session, ends the whole
+    # thing (accept does not: capture starts right after, agent-side).
+    if s.purpose == "assist" and action == "decline":
+        _live_end(db, s, "assist_declined")
+    elif s.purpose == "assist" and action == "end":
+        _live_end(db, s, "assist_ended")
     return {"ok": True, "controlState": s.control_state}
 
 
@@ -3339,7 +3380,8 @@ def agent_live_pending(dev: AgentDevice = Depends(get_agent_device), db: Session
         _live_end(db, s, "not_live"); return {"session": None}
     s.agent_seen = _now_iso()
     db.commit()
-    return {"session": {"id": s.id, "fps": s.fps, "iceServers": _live_ice_servers()}}
+    return {"session": {"id": s.id, "fps": s.fps, "iceServers": _live_ice_servers(),
+                         "purpose": s.purpose or "", "requesterName": s.control_requester_name or ""}}
 
 
 @router.post("/agent/live/{sid}/offer")

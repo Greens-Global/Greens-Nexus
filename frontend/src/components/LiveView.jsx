@@ -14,6 +14,15 @@ import { usePhotoMap } from '../lib/peoplePhotos';
 // States: connecting -> live (video) -> break (frozen last frame) / offline.
 // Disclosure: the employee's tray shows the live state the whole time; control
 // additionally requires their explicit Accept and shows an End Session banner.
+//
+// `assist` (ticket-launched Screen Share, Sep 9) flips the model entirely:
+// consent-first, not disclosed-monitoring. No video ever flows until the
+// employee accepts a prompt shown the instant their agent picks up the
+// session (before any capture starts - see live_request/agent_live_pending
+// in routers/timeclock.py and desktop-agent/src/live.js), and the whole
+// session closes automatically the moment control ends, declines, or times
+// out - it never falls back to a passive view. Same component, same wire
+// protocol; only the request's `purpose` and this prop differ.
 
 const CLIP_MAX = 1024 * 1024;              // clipboard text sync cap, matches the agent
 // Effectively "any file". The only reason for a ceiling at all is so a mistaken
@@ -66,7 +75,7 @@ const iconBtn = {
   borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', color: 'var(--muted)',
 };
 
-export default function LiveView({ email, name, onClose }) {
+export default function LiveView({ email, name, onClose, assist = false }) {
   const { myEmail } = useRole();       // the support person - their avatar rides the control cursor
   const photos = usePhotoMap();
   const myPhoto = myEmail ? photos[myEmail.toLowerCase()] : '';
@@ -147,6 +156,16 @@ export default function LiveView({ email, name, onClose }) {
     // break, walked away, or the connection dropped), tear down and keep trying to
     // reconnect on a timer. The moment they're back and their agent is capturing,
     // begin() succeeds and the video resumes - the admin never has to reload.
+    // NOT for assist (consent-first, ticket-launched Screen Share): it never
+    // retries in the background - but it still SHOWS the reason (offline,
+    // reconnecting, etc, via the normal `overlay` states below) for `delay`
+    // first, instead of closing the instant something fails with nothing
+    // displayed. That bug looked exactly like the modal "shows the popup for
+    // 3 seconds and then disappears" (Pranshu, Sep 9, watching a recording
+    // of it) with no way to tell "they didn't respond" apart from "their
+    // agent isn't even online" - it was closing on `onClose()` before ever
+    // calling `setStatus`, so the overlay never updated from the initial
+    // 'connecting' text.
     const scheduleRetry = (statusText, delay = 4000) => {
       if (cancelled) return;
       closePc();
@@ -154,17 +173,18 @@ export default function LiveView({ email, name, onClose }) {
       setControl('');
       setStatus(statusText);
       clearTimer();
-      timer = setTimeout(begin, delay);
+      timer = setTimeout(assist ? onClose : begin, delay);
     };
 
     async function begin() {
       if (cancelled) return;
       let res;
-      try { res = await api.timeLiveRequest(email, fps); }
+      try { res = await api.timeLiveRequest(email, fps, assist ? 'assist' : ''); }
       catch (_) { scheduleRetry('reconnecting'); return; }
       if (cancelled) return;
       if (!res || !res.ok) {
-        // on_break -> frozen frame + "On break"; otherwise offline. Both retry.
+        // on_break -> frozen frame + "On break"; otherwise offline. Both retry
+        // (or close, for assist).
         scheduleRetry(res && res.subjectState === 'on_break' ? 'break' : 'offline');
         return;
       }
@@ -241,9 +261,21 @@ export default function LiveView({ email, name, onClose }) {
       }
       if (cancelled) return;
       if (r.state === 'ended') {
+        const reason = r.endedReason || '';
+        if (assist) {
+          // Distinct reasons so "they said no" / "they never answered" /
+          // "they ended it" don't all collapse into the same generic
+          // "offline" text - see routers/timeclock.py's assist_declined /
+          // request_expired / assist_ended.
+          scheduleRetry(
+            reason === 'assist_declined' ? 'declined'
+              : reason === 'request_expired' ? 'no_response'
+              : reason === 'assist_ended' ? 'ended'
+              : reason.indexOf('on_break') >= 0 ? 'break' : 'offline');
+          return;
+        }
         // subject_on_break -> frozen frame + "On break"; anything else
         // (subject_offline, agent_lost, locked PC) -> offline. Both self-heal.
-        const reason = r.endedReason || '';
         scheduleRetry(reason.indexOf('on_break') >= 0 ? 'break' : 'offline');
         return;
       }
@@ -559,12 +591,35 @@ export default function LiveView({ email, name, onClose }) {
   const fileInputRef = useRef(null);
 
   // ── Render ──────────────────────────────────────────────────────────────────
-  const overlay = status === 'break'
-    ? { text: 'On break', sub: 'Screen paused while this person is on break. Resumes automatically when they’re back.', color: 'hsl(var(--color-orange))' }
+  // Assist (ticket-launched Screen Share): consent is requested the instant
+  // the session is created (server-side, live_request), so there's never a
+  // moment to show video before that - status stays 'connecting' the whole
+  // time the employee hasn't answered. Override with an accurate message
+  // instead of the generic "Connecting…", and never show anything ONCE
+  // active either - that path renders exactly like the normal controlling
+  // UI below, gated the same way.
+  const firstName = name.split(' ')[0];
+  const overlay = (assist && control === 'requested' && !controlling)
+    ? { text: `Waiting for ${firstName} to accept…`, sub: 'Nothing is visible until they accept - this closes automatically if they decline or don’t respond.', color: 'var(--muted)', spin: true }
+    // The assist-only ended-reasons below all close the modal after showing
+    // this (see scheduleRetry) - each gets its own text instead of
+    // collapsing into the generic monitor-mode "Offline"/"Reconnecting"
+    // wording, which read as a dead end rather than something that just
+    // closed on purpose.
+    : assist && status === 'declined'
+      ? { text: 'Declined', sub: `${firstName} declined the request. Closing…`, color: 'hsl(var(--color-red))' }
+      : assist && status === 'no_response'
+        ? { text: 'No response', sub: `${firstName} didn’t respond in time. Closing - you can request again.`, color: 'var(--muted)' }
+        : assist && status === 'ended'
+          ? { text: 'Session ended', sub: `${firstName} ended the session. Closing…`, color: 'var(--muted)' }
+          : assist && status === 'offline'
+            ? { text: 'Not reachable', sub: `${firstName}’s device is offline or unreachable right now. Closing - try again once they’re back.`, color: 'var(--muted)' }
+            : status === 'break'
+    ? { text: 'On break', sub: assist ? `${firstName} is on break right now. Closing - try again once they're back.` : 'Screen paused while this person is on break. Resumes automatically when they’re back.', color: 'hsl(var(--color-orange))' }
     : status === 'offline'
       ? { text: 'Offline', sub: 'Their screen is locked or the agent is unreachable. Reconnects automatically the moment they’re back.', color: 'var(--muted)' }
       : status === 'reconnecting'
-        ? { text: 'Reconnecting…', sub: 'The connection dropped (locked PC or network). This resumes on its own - no need to reload.', color: 'var(--muted)', spin: true }
+        ? { text: assist ? 'Could not reach them' : 'Reconnecting…', sub: assist ? 'Closing…' : 'The connection dropped (locked PC or network). This resumes on its own - no need to reload.', color: 'var(--muted)', spin: !assist }
         : status === 'error'
           ? { text: 'Could not connect', sub: 'Live view is unavailable right now.', color: 'hsl(var(--color-red))' }
           : status === 'connecting'
@@ -631,7 +686,11 @@ export default function LiveView({ email, name, onClose }) {
               <button onClick={stopControl} style={{ ...hdrBtn, color: 'hsl(var(--color-red))' }}>Stop Control</button>
             </>
           )}
-          {status === 'live' && control !== 'requested' && control !== 'active' && (
+          {/* Not for assist: control is already auto-requested at session
+              creation, and any end-of-control there also ends the whole
+              session within one poll cycle - this button would only ever
+              flash briefly in that gap. */}
+          {!assist && status === 'live' && control !== 'requested' && control !== 'active' && (
             <>
               {control === 'declined' && <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-red))' }}>Declined</span>}
               <button onClick={requestControl} title={`Ask ${name} to allow remote control`} style={hdrBtn}>
@@ -759,7 +818,9 @@ export default function LiveView({ email, name, onClose }) {
           </div>
         )}
         <div style={{ padding: '9px 16px', fontSize: 11, color: 'var(--muted)', borderTop: '1px solid var(--line)', lineHeight: 1.5 }}>
-          Disclosed monitoring - live viewing is covered in the employee's privacy policy, terms of service, and employment agreement. Remote control additionally requires the employee's explicit acceptance on their PC, shows them a persistent banner they can end at any time, and every session is recorded in the monitoring audit log. While controlling: drag a file onto the screen to copy it over, copy/paste text works both ways, and full screen also sends system shortcuts to their PC.
+          {assist
+            ? `Consent-first: nothing is visible until ${name.split(' ')[0]} explicitly accepts, they see a persistent banner while it's active and can end it any time, and the whole session closes the moment they do. Every session is recorded in the monitoring audit log. While controlling: drag a file onto the screen to copy it over, copy/paste text works both ways, and full screen also sends system shortcuts to their PC.`
+            : "Disclosed monitoring - live viewing is covered in the employee's privacy policy, terms of service, and employment agreement. Remote control additionally requires the employee's explicit acceptance on their PC, shows them a persistent banner they can end at any time, and every session is recorded in the monitoring audit log. While controlling: drag a file onto the screen to copy it over, copy/paste text works both ways, and full screen also sends system shortcuts to their PC."}
         </div>
       </div>
     </div>

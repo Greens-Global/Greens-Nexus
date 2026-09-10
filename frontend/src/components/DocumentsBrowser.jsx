@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { generateJSON } from '@tiptap/core';
-import { Search, Loader2, FilePlus2, Copy, Archive, RotateCcw, Trash2, FileText, Folder, Pencil, PenTool, Upload, Cloud } from 'lucide-react';
+import { Search, Loader2, FilePlus2, Copy, Archive, RotateCcw, Trash2, FileText, Folder, FolderPlus, Tag, X, Pencil, PenTool, Upload, Cloud } from 'lucide-react';
 import { api } from '../api';
+import { useRole } from '../contexts/RoleContext';
+import { formatDate } from '../lib/datetime';
 import DocumentBuilder from './DocumentBuilder';
 import EgnyteBrowser from './EgnyteBrowser';
 import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
@@ -218,6 +220,118 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
   );
 }
 
+function NewFolderModal({ onClose, onCreated, toastErr }) {
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const create = () => {
+    if (!name.trim()) return;
+    setBusy(true);
+    api.createDocFolder({ name: name.trim() })
+      .then(f => { onCreated(f); onClose(); })
+      .catch(e => toastErr?.(e.message || 'Failed to create folder'))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={cardStyle(400)} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700 }}>New Folder</div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Folder name</label>
+          <input className="form-input" autoFocus value={name} onChange={e => setName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') create(); }} placeholder="e.g. Board Minutes" />
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+            Shared with everyone who can see Documents. Your own drafts can stay in Personal.
+          </div>
+        </div>
+        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button className="primary-btn" disabled={!name.trim() || busy} onClick={create} style={{ opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
+            {busy ? 'Creating…' : 'Create Folder'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Folder + tags on one document. Both are plain PATCH fields the API has
+// always accepted - and no version row is written unless `content` changes, so
+// re-filing or re-tagging never pollutes the document's history.
+function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
+  const [folderId, setFolderId] = useState(doc.folderId || '');
+  const [tags, setTags] = useState(doc.tags || []);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const addTag = (raw) => {
+    const t = String(raw || '').trim().toLowerCase();
+    setDraft('');
+    if (!t || tags.includes(t) || tags.length >= 20) return;
+    setTags([...tags, t]);
+  };
+  const onTagKey = (e) => {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(draft); }
+    // Backspace on an empty box pulls the last chip back off.
+    else if (e.key === 'Backspace' && !draft && tags.length) setTags(tags.slice(0, -1));
+  };
+
+  const save = () => {
+    setBusy(true);
+    // Whatever is still sitting in the box counts as typed - saving without
+    // pressing Enter first should not silently drop it.
+    const typed = draft.trim().toLowerCase();
+    const finalTags = typed && !tags.includes(typed) ? [...tags, typed] : tags;
+    api.updateDocument(doc.id, { folderId, tags: finalTags })
+      .then(d => { onSaved(d); onClose(); })
+      .catch(e => toastErr?.(e.message || 'Failed to save'))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div style={cardStyle(440)} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', fontSize: 15, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          Folder and Tags
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.title}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Folder</label>
+            <select className="form-input" style={{ width: '100%' }} value={folderId} onChange={e => setFolderId(e.target.value)}>
+              <option value="">No folder</option>
+              {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Tags</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 9px', minHeight: 38 }}>
+              {tags.map(t => (
+                <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: 'var(--mist)', color: 'var(--ink)' }}>
+                  {t}
+                  <button type="button" aria-label={'Remove ' + t} onClick={() => setTags(tags.filter(x => x !== t))}
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', color: 'var(--muted)' }}><X size={11} /></button>
+                </span>
+              ))}
+              <input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onTagKey} onBlur={() => addTag(draft)}
+                aria-label="Add a tag" placeholder={tags.length ? '' : 'Add a tag and press Enter'}
+                style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', flex: '1 1 90px', minWidth: 90 }} />
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              Tags are searchable from the Documents search bar. Up to 20 per document.
+            </div>
+          </div>
+        </div>
+        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button className="primary-btn" disabled={busy} onClick={save} style={{ opacity: busy ? 0.6 : 1 }}>{busy ? 'Saving…' : 'Save'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DocumentsBrowser({ openCreateSignal, openDocSignal, employees = [], entities = [], toastOk, toastErr }) {
   const [folders, setFolders] = useState([]);
   const [docs, setDocs] = useState(null);
@@ -227,6 +341,13 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
   const [createOpen, setCreateOpen] = useState(false);
   const [busyId, setBusyId] = useState('');
   const [editingDoc, setEditingDoc] = useState(null);
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [organizeDoc, setOrganizeDoc] = useState(null);
+  // Adding a shared folder is an admin action server-side (POST
+  // /documents/folders is level >= administrator), so don't offer the button
+  // to anyone who would only get a 403 out of it.
+  const { can } = useRole();
+  const canAddFolder = can('administrator');
 
   const load = () => {
     api.getDocuments({ ...(folderId ? { folder_id: folderId } : {}), ...(statusFilter !== 'all' ? { status: statusFilter } : {}), ...(search.trim() ? { q: search.trim() } : {}) })
@@ -259,6 +380,12 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
             {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
         </div>
+        {canAddFolder && (
+          <button title="New Folder" onClick={() => setNewFolderOpen(true)}
+            style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', flexShrink: 0 }}>
+            <FolderPlus size={14} /> New Folder
+          </button>
+        )}
         <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
           {[['all', 'All'], ['draft', 'Drafts'], ['final', 'Final'], ['archived', 'Archived']].map(([v, l]) => (
             <button key={v} onClick={() => setStatusFilter(v)}
@@ -299,8 +426,18 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                {folder ? folder.name : 'No folder'} · v{d.currentVersion} · updated {(d.updatedAt || '').slice(0, 10)}
+                {folder ? folder.name : 'No folder'} · v{d.currentVersion} · updated {formatDate(d.updatedAt)}
               </div>
+              {(d.tags || []).length > 0 && (
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                  {(d.tags || []).slice(0, 6).map(t => (
+                    <span key={t} style={{ padding: '1px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: 'var(--mist)', color: 'var(--muted)' }}>{t}</span>
+                  ))}
+                  {(d.tags || []).length > 6 && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)' }}>+{d.tags.length - 6}</span>
+                  )}
+                </div>
+              )}
             </div>
             <span style={{ padding: '2px 9px', borderRadius: 12, fontSize: 10.5, fontWeight: 800, color: st.fg, background: st.bg, whiteSpace: 'nowrap' }}>{st.label}</span>
             {signSt && (
@@ -313,6 +450,8 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
             <div style={{ display: 'flex', gap: 6 }}>
               <button title="Edit" onClick={() => setEditingDoc(d.id)}
                 style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Pencil size={14} /></button>
+              <button title="Folder & Tags" onClick={() => setOrganizeDoc(d)}
+                style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Tag size={14} /></button>
               <button title="Duplicate" disabled={busyId === d.id} onClick={() => act(d.id, api.duplicateDocument, 'Duplicated')}
                 style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Copy size={14} /></button>
               {d.status === 'archived' ? (
@@ -336,6 +475,17 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
         <CreateDocModal folders={folders} toastErr={toastErr}
           onClose={() => setCreateOpen(false)}
           onCreated={(doc) => { toastOk?.('Draft created'); setEditingDoc(doc.id); }} />
+      )}
+
+      {newFolderOpen && (
+        <NewFolderModal toastErr={toastErr} onClose={() => setNewFolderOpen(false)}
+          onCreated={(f) => { setFolders(prev => [...prev, f].sort((a, b) => a.name.localeCompare(b.name))); toastOk?.(`Folder "${f.name}" created`); }} />
+      )}
+
+      {organizeDoc && (
+        <OrganizeModal doc={organizeDoc} folders={folders} toastErr={toastErr}
+          onClose={() => setOrganizeDoc(null)}
+          onSaved={() => { toastOk?.('Saved'); load(); }} />
       )}
     </div>
   );

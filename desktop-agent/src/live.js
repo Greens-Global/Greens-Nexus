@@ -71,9 +71,36 @@ async function screenSources() {
   return list;
 }
 
+// 'assist' (ticket-launched Screen Share, Sep 9) is consent-first: show the
+// SAME Accept/Decline prompt control-request already uses, but before any
+// capture starts - not after. The server has already stamped control_state
+// 'requested' at session creation (live_request), so this just surfaces it
+// locally rather than waiting for a poll to report it. Declining, timing
+// out, or the employee ending an active assist session all end the WHOLE
+// session server-side now (routers/timeclock.py) - the next poll reports
+// state 'ended' and pollAnswer's own teardown handles the rest, so nothing
+// extra is needed here for those exits.
 async function startSession(sess) {
-  current = { id: sess.id };
-  controlState = '';
+  if (sess.purpose === 'assist') {
+    current = { id: sess.id, purpose: 'assist' };
+    controlState = 'requested';
+    logFn(`assist request from ${sess.requesterName || 'IT'} (session ${sess.id})`);
+    control.showConsent(sess.requesterName, async (accepted) => {
+      if (!current || current.id !== sess.id) return;
+      logFn(`assist ${accepted ? 'accepted' : 'declined'} by employee (session ${sess.id})`);
+      try { await api.agentLiveControl(getToken(), sess.id, accepted ? 'accept' : 'decline'); }
+      catch (e) { logFn(`assist response failed: ${e.message || e}`); }
+      if (!current || current.id !== sess.id) return;
+      if (accepted) { controlState = ''; await beginCapture(sess); }
+      else { current = null; controlState = ''; }
+    });
+    return;
+  }
+  await beginCapture(sess);
+}
+
+async function beginCapture(sess) {
+  current = current && current.id === sess.id ? current : { id: sess.id };
   onLiveChange(true);
   try {
     const sources = await screenSources();

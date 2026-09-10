@@ -24,7 +24,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
-import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
+import { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
 // External tab folded into People (Neil, Aug 24: one master list) - only the
 // shared pieces remain in use: badge, invite modal, lifecycle section.
 import { ExternalBadge, InviteExternalModal, inviteOutcomeToast, ExternalPersonSection } from './ExternalUsersPanel';
@@ -3298,7 +3298,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   );
 }
 
-function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, toastErr, scoped = false }) {
+export function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, toastErr, scoped = false }) {
   const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '', domains: '', manager_email: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [f, setF] = useState(blank);
@@ -4022,7 +4022,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
 }
 
 // ── Work sites registry (HR Section A - geofence foundation for Time Clock) ───
-function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr }) {
+export function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr }) {
   const blank = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, company: '', notes: '' };
   const [mode, setMode] = useState(null);
   const [f, setF] = useState(blank);
@@ -4509,15 +4509,20 @@ export default function HR({ activeSub, onSubChange }) {
   // 'hr-esign*' deep-links are redirected there by the effect below.
   // hr-external intentionally absent (Neil, Aug 24: External tab folded into
   // People) - old deep links fall through to hr-people, where externals live now.
-  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-access'].includes(activeSub) ? activeSub : 'hr-people';
+  // hr-access moved to the Admin module (Pranshu, Sep 9) - old deep links
+  // redirect there by the effect below, so it's not in this list any more.
+  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time'].includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
 
   // Old notifications/URLs still point at hr/hr-esign* - bounce them to Documents
-  // so those links don't dead-end on the People tab.
+  // so those links don't dead-end on the People tab. Same for hr-access, now
+  // that Roles & Access moved to the Admin module in full.
   useEffect(() => {
     if (String(activeSub || '').startsWith('hr-esign')) {
       const dst = activeSub === 'hr-esign-requests' ? 'documents-esign-requests' : 'documents-esign';
       window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: dst } }));
+    } else if (activeSub === 'hr-access') {
+      window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'access' } }));
     }
   }, [activeSub]);
 
@@ -4546,10 +4551,11 @@ export default function HR({ activeSub, onSubChange }) {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [addPreset,   setAddPreset]   = useState('full_time');   // employment type the Add form opens with
   const [inviteOpen,  setInviteOpen]  = useState(false);
+  // Company Setup / Work Sites / Sync M365 moved to the Admin module in full
+  // (Pranshu, Sep 9) - entities/sites data stays (used throughout this
+  // screen for filters, dropdowns, scope names), the editors don't.
   const [entities,  setEntities]  = useState([]);
-  const [entitiesOpen, setEntitiesOpen] = useState(false);
   const [sites,     setSites]     = useState([]);
-  const [sitesOpen, setSitesOpen] = useState(false);
   const [toast,     setToast]     = useState(null);
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = canAccessModule('hr_comp', 'owner', 'viewer');
@@ -4582,51 +4588,6 @@ export default function HR({ activeSub, onSubChange }) {
     window.addEventListener('nexus:person', h);
     return () => window.removeEventListener('nexus:person', h);
   }, [employees, extEmployees]);   // eslint-disable-line react-hooks/exhaustive-deps
-
-  const [syncBusy, setSyncBusy] = useState(false);
-  const [syncLabel, setSyncLabel] = useState('');
-  // ONE button, the whole sync: the server pulls the directory (link/backfill,
-  // as before), then pushes EVERY linked profile back to Entra - Nexus values
-  // win, job titles go out level-stripped. It runs server-side as a background
-  // job (a few minutes of Graph calls), so this just starts it and polls the
-  // status row; the photos pass stays a separate best-effort follow-up.
-  async function runSync() {
-    if (syncBusy) return;
-    setSyncBusy(true);
-    setSyncLabel('Starting…');
-    try {
-      await api.syncM365TwoWay();
-      let s = null;
-      for (;;) {
-        await new Promise(r => setTimeout(r, 2500));
-        try { s = await api.syncM365TwoWayStatus(); } catch { continue; }
-        if (s.phase === 'pull') setSyncLabel('Pulling directory…');
-        else if (s.phase === 'push') setSyncLabel(`Pushing ${s.done}/${s.total}…`);
-        else break;
-      }
-      if (s?.phase === 'failed') {
-        toastErr(`M365 sync failed: ${s.errors?.[0]?.error || 'see server logs'}.`);
-      } else {
-        const bits = [];
-        const p = s?.pull || {};
-        if (p.created) bits.push(`${p.created} added`);
-        bits.push(`${p.linked || 0} linked`, `${p.updated || 0} updated`);
-        bits.push(`${s?.pushedOk || 0} pushed to M365`);
-        if (s?.pushFailed) bits.push(`${s.pushFailed} push failure${s.pushFailed > 1 ? 's' : ''} (${(s.errors || []).slice(0, 3).map(e => e.email).join(', ')}${(s.errors || []).length > 3 ? '…' : ''})`);
-        if (p.removed?.length) bits.push(`${p.removed.length} removed (shared/inactive)`);
-        if (p.unlinked?.length) bits.push(`unlinked (account deleted): ${p.unlinked.join(', ')}`);
-        try {
-          setSyncLabel('Syncing photos…');
-          const ph = await api.syncM365Photos();
-          if (ph.updated) bits.push(`${ph.updated} photos`);
-        } catch { /* photo pass is best-effort */ }
-        toastOk(`M365 sync: ${bits.join(' · ')}.`);
-      }
-      load();
-    } catch (err) { toastErr(err?.message || 'Sync failed.'); }
-    setSyncBusy(false);
-    setSyncLabel('');
-  }
 
   function load() {
     api.getEmployees()
@@ -4756,7 +4717,8 @@ export default function HR({ activeSub, onSubChange }) {
     // The External tab is gone (Neil, Aug 24): external/guest people live in
     // the People directory with a worker-type filter, and their lifecycle
     // actions sit on their profile card.
-    ...(isAdmin ? [{ key: 'hr-access', label: 'Roles & Access', Icon: Shield }] : []),
+    // Roles & Access moved to the Admin module in full (Pranshu, Sep 9) - no
+    // longer a People tab.
   ];
 
   return (
@@ -4782,23 +4744,8 @@ export default function HR({ activeSub, onSubChange }) {
                 <Building2 size={13} /> Showing: {scopeNames.length ? scopeNames.join(', ') : 'your companies'}
               </span>
             )}
-            {!isScoped && (
-            <button className="secondary-btn" disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Two-way sync: pulls the M365 directory in (new people added, profiles linked, empty fields + photos backfilled), then pushes every linked profile back to Entra - Nexus values win, job titles go out without level markers."
-              onClick={runSync}>
-              {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} {syncBusy && syncLabel ? syncLabel : 'Sync M365'}
-            </button>
-            )}
-            <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Manage companies & their departments"
-              onClick={() => setEntitiesOpen(true)}>
-              <Building2 size={14} /> Company setup
-            </button>
-            <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Manage work sites (for geofenced clock-in)"
-              onClick={() => setSitesOpen(true)}>
-              <MapPinned size={14} /> Work sites
-            </button>
+            {/* Sync M365 / Company setup / Work sites moved to the Admin
+                module in full (Pranshu, Sep 9) - no longer buttons here. */}
             {/* One Add control (Neil, Aug 24): employee, independent contractor
                 or external partner - all into the same master list. */}
             <div style={{ position: 'relative' }}>
@@ -4851,7 +4798,6 @@ export default function HR({ activeSub, onSubChange }) {
       {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin employees={employees} toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-access' && isAdmin && <RolesAccess embedded />}
 
       {sub === 'hr-people' && (<>
         <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />
@@ -5071,14 +5017,6 @@ export default function HR({ activeSub, onSubChange }) {
             inviteOutcomeToast(result, toastOk, toastErr);
             load();   // the new external lands in the directory (master list)
           }} />
-      )}
-      {entitiesOpen && (
-        <EntitiesModal entities={entities} employees={employees} onClose={() => setEntitiesOpen(false)}
-          onChanged={() => { load(); return loadEntities(); }} toastOk={toastOk} toastErr={toastErr} scoped={isScoped} />
-      )}
-      {sitesOpen && (
-        <WorkSitesModal sites={sites} entities={entities} onClose={() => setSitesOpen(false)}
-          onChanged={loadSites} toastOk={toastOk} toastErr={toastErr} />
       )}
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>

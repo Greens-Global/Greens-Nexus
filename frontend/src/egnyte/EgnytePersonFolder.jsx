@@ -12,7 +12,8 @@
 //
 // HR-only by construction: the backend endpoints carry the hr module grant,
 // and this folder includes the Confidential subfolder - the employee-facing
-// counterpart (My HR) uses the separate people.my-documents wiring.
+// counterpart (My HR) shows this SAME folder with Confidential-named
+// subfolders filtered out (people.my-documents-excluded-subfolder-names).
 import { useCallback, useEffect, useState } from 'react';
 import { FolderPlus, FolderSearch, FolderX, HardDrive, Loader2 } from 'lucide-react';
 import { api } from '../api';
@@ -121,7 +122,7 @@ export default function EgnytePersonFolder({ email, personName = '' }) {
         </div>
       </div>
       {error && <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>}
-      <EgnyteFolderBrowser initialPath={state.folder} canWrite={canWrite} rootLabel={personName || 'Person folder'} />
+      <EgnyteFolderBrowser initialPath={state.folder} rootPath={state.folder} canWrite={canWrite} rootLabel={personName || 'Person folder'} />
       {pickerModal}
     </div>
   );

@@ -603,6 +603,8 @@ export const api = {
   // Ticket Outlook notification workflow - admin settings + delivery log (manager+)
   getTicketNotifySettings: () => req("/task-tickets/notify/settings"),
   updateTicketNotifySettings: (patch) => req("/task-tickets/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
+  getTicketTaxonomySettings: () => req("/task-tickets/taxonomy/settings"),
+  updateTicketTaxonomySettings: (patch) => req("/task-tickets/taxonomy/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTicketNotifyLog: (params = {}) => req(`/task-tickets/notify/log?${new URLSearchParams(params).toString()}`),
   // Task Outlook notification workflow - admin settings + delivery log (manager+)
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
@@ -1085,6 +1087,8 @@ export const api = {
   getSignAttachmentUrl: (path)    => req(`/esign/templates/attachment-url?path=${encodeURIComponent(path)}`),
   sendSignRequest:    (data)      => req('/esign/requests', { method: 'POST', body: JSON.stringify(data) }),
   sendSignPdf:        (form)      => req('/esign/requests/pdf', { method: 'POST', body: form }),
+  getEsignExcludedCategories: ()  => req('/esign/excluded-categories'),
+  getEsignDocumentClasses:    ()  => req('/esign/document-classes'),
   getSignRequests:    ()          => req('/esign/requests'),
   getSignRequest:     (id)        => req(`/esign/requests/${id}`),
   remindSign:         (id)        => req(`/esign/requests/${id}/remind`, { method: 'POST' }),
@@ -1203,7 +1207,10 @@ export const api = {
   // Live screen view (on-demand WebRTC). request returns a session + TURN creds
   // when the person is clocked in with an online agent; poll for the agent's offer;
   // answer with the browser's SDP; ping keeps it alive; end closes it.
-  timeLiveRequest:   (email, fps) => req('/timeclock/live/request', { method: 'POST', body: JSON.stringify({ email, fps: fps || 60 }) }),
+  // purpose 'assist' (ticket-launched Screen Share) is consent-first - no
+  // view until the employee accepts a control prompt; '' (default) is
+  // ongoing disclosed monitoring, view starts immediately.
+  timeLiveRequest:   (email, fps, purpose = '') => req('/timeclock/live/request', { method: 'POST', body: JSON.stringify({ email, fps: fps || 60, purpose }) }),
   timeLivePoll:      (id)        => req(`/timeclock/live/${id}`),
   timeLiveAnswer:    (id, sdp)   => req(`/timeclock/live/${id}/answer`, { method: 'POST', body: JSON.stringify({ sdp }) }),
   timeLiveEnd:       (id)        => req(`/timeclock/live/${id}/end`, { method: 'POST', body: '{}' }),
@@ -1374,6 +1381,7 @@ export const api = {
   egnytePersonProvision: (email)              => req(`/egnyte/person/${encodeURIComponent(email)}/provision`, { method: 'POST' }),
   myhrEgnyteDocs:    ()                       => req('/myhr/egnyte-documents'),
   myhrEgnyteFile:    (path)                   => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}`),
+  myhrEgnyteFilePreview: (path)               => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}&inline=true`),
   // ── Step-up MFA (fresh verification before sensitive data) ──
   stepupConfig:  ()      => req('/stepup/config'),
   stepupStatus:  ()      => req('/stepup/status'),

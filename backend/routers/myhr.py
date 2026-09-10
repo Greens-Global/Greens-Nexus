@@ -424,11 +424,15 @@ def download_my_document(rid: str, user: dict = Depends(get_current_user), db: S
 
 
 # ── my Egnyte documents (Aug 10 - Neil's "wire Contractor Documents to their
-# My Documents"). Read-only: the employee sees and downloads what HR filed in
-# their WIRED subfolder (people.my-documents), never the person folder root -
-# the Confidential folder beside it (Aadhaar/PAN) must stay HR-only. Download
-# goes through here rather than /egnyte/file so the server checks the path is
-# inside the caller's own resolved folder.
+# My Documents"; Sep 10 - widened to every folder under the person, keeping
+# Egnyte's own folder shape rather than one flattened list). Read-only: the
+# employee sees and downloads everything under their OWN person folder
+# (people.person-folder), grouped by subfolder exactly as Egnyte has it,
+# except the subfolders named in people.my-documents-excluded-subfolder-names
+# (Confidential etc) - see egnyte_wiring.list_person_document_groups /
+# is_excluded_path. Download goes through here rather than /egnyte/file so
+# the server checks the path is inside the caller's own resolved folder and
+# not inside a hidden one.
 
 @router.get("/egnyte-documents")
 def my_egnyte_documents(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -440,43 +444,41 @@ def my_egnyte_documents(user: dict = Depends(get_current_user), db: Session = De
         emp = _me(db, user["email"])
     except HTTPException:
         return {"available": False}
-    res = wiring.resolve_person_folder("people.my-documents", emp, db)
+    res = wiring.resolve_person_folder("people.person-folder", emp, db)
     if not res["folder"]:
         return {"available": False}
-    try:
-        listing = svc.list_folder(res["folder"])
-    except svc.EgnyteError:
-        return {"available": False}     # wired folder not created yet - show nothing
-    return {
-        "available": True,
-        "folder": res["folder"],
-        "files": [
-            {"name": f["name"], "path": f["path"], "size": f.get("size"),
-             "lastModified": f.get("last_modified") or f.get("lastModified")}
-            for f in listing["files"]
-        ],
-    }
+    groups = wiring.list_person_document_groups(res["folder"])
+    if groups is None:
+        return {"available": False}     # folder not created yet - show nothing
+    return {"available": True, "folder": res["folder"], **groups}
 
 
 @router.get("/egnyte-documents/file")
-def my_egnyte_document_file(path: str, user: dict = Depends(get_current_user),
+def my_egnyte_document_file(path: str, inline: bool = False, user: dict = Depends(get_current_user),
                             db: Session = Depends(get_db)):
     import egnyte_wiring as wiring
     from services import egnyte as svc
     from fastapi import Response
+    from routers.egnyte import preview_type
     if not svc.configured():
         raise HTTPException(503, "Egnyte is not connected")
     emp = _me(db, user["email"])
-    res = wiring.resolve_person_folder("people.my-documents", emp, db)
+    res = wiring.resolve_person_folder("people.person-folder", emp, db)
     folder = res["folder"]
     want = svc.norm(path)
-    if not folder or not want.startswith(svc.norm(folder) + "/"):
+    if not folder or not want.startswith(svc.norm(folder) + "/") or wiring.is_excluded_path(folder, want):
         raise HTTPException(403, "That file is not in your documents folder")
     content = svc.read_file(want)
     name = want.rsplit("/", 1)[-1] or "download"
+    # inline=true asks to VIEW rather than download - same allowlist as
+    # /egnyte/file (PDFs, images, text) so a non-allowlisted type still
+    # forces a download instead of the browser guessing at content type.
+    kind = preview_type(name) if inline else None
+    disposition = "inline" if kind else "attachment"
     return Response(
         content=content,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{name}"',
-                 "X-Content-Type-Options": "nosniff"},
+        media_type=kind or "application/octet-stream",
+        headers={"Content-Disposition": f'{disposition}; filename="{name}"',
+                 "X-Content-Type-Options": "nosniff",
+                 "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox"},
     )

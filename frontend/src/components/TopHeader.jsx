@@ -581,6 +581,23 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                   <PlayCircle size={14} /> Tour
                 </button>
               )}
+              {/* Ticket module's own guided walkthrough - same pattern as the Task
+                  module's above, but gated on activeView === 'tickets' and firing
+                  TicketsView's nexus:tickets-tour instead (tickets/TicketsView.jsx
+                  owns that tour's state). */}
+              {activeView === 'tickets' && (
+                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:tickets-tour')); }}>
+                  <PlayCircle size={14} /> Tour
+                </button>
+              )}
+              {/* Support page's own guided walkthrough - same pattern as the
+                  Task/Ticket rows above, gated on activeView === 'support' and
+                  firing Support.jsx's own nexus:support-tour. */}
+              {activeView === 'support' && (
+                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:support-tour')); }}>
+                  <PlayCircle size={14} /> Tour
+                </button>
+              )}
 
               {/* Act As (Jul 2026): visible to Manager/IT Admin/Global Admin (or an
                   'act-as' Access Group grant). Exit is always shown while a session
@@ -608,10 +625,10 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                   <div style={{ padding: '4px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>
                     Admin
                   </div>
-                  <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-access' } })); }}
-                    style={{ color: 'hsl(var(--color-purple))' }}>
-                    <Shield size={14} /> Roles &amp; Access
-                  </button>
+                  {/* Roles & Access removed from here (Pranshu, Sep 9) - it
+                      moved whole into the Admin module (sidebar → Admin →
+                      Roles & Access tab); this was a second, stale entry
+                      point pointing at the old People-tab location. */}
                   <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.(); }}
                     style={{ color: 'hsl(var(--color-purple))' }}>
                     <Activity size={14} /> Audit Logs

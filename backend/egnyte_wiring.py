@@ -50,30 +50,18 @@ KNOWN_SLOTS = [
         "overrides": "person",
     },
     {
-        "slot": "people.my-documents",
+        "slot": "people.my-documents-excluded-subfolder-names",
         "group": "People documents",
-        "label": "My Documents (employee view)",
-        "description": "What a person sees under My HR - My Documents. Deliberately a SUBFOLDER "
-                       "of the person folder: the Confidential folder (Aadhaar/PAN) next to it "
-                       "must never be wired here.",
-        "kind": "path",
-        "placeholders": ["entity", "bucket", "person", "email"],
-        "env": [],
-        "default": "/Shared/#Entities/{entity}/Human Resources/{bucket}/{person}/Contractor Documents",
-        "overrides": "person",
-    },
-    {
-        "slot": "people.my-documents-subfolder-names",
-        "group": "People documents",
-        "label": "My Documents subfolder names",
-        "description": "Names tried, in order, for the documents subfolder inside a person's folder "
-                       "(the last part of 'My Documents (employee view)' above). First name that "
-                       "actually exists there wins. Add a new company's name here when their filer "
-                       "uses a different one - no code change needed.",
+        "label": "My Documents hidden folders",
+        "description": "What a person sees under My HR - My Documents is their WHOLE person folder "
+                       "(same folder as the HR card) with these subfolder names left out - so the "
+                       "Confidential folder (Aadhaar/PAN) never shows to the employee. Add a new "
+                       "company's name here when their filer uses a different name for it - no code "
+                       "change needed.",
         "kind": "csv",
         "placeholders": [],
         "env": [],
-        "default": "Contractor Documents,1. Employment Documents",
+        "default": "Confidential,Internal & Confidential",
         "overrides": None,
     },
     {
@@ -489,13 +477,13 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
     An explicit per-person override is trusted verbatim (the manager pointed at
     a real folder; re-matching it could only un-fix what they fixed).
 
-    people.my-documents does its OWN resolution: it resolves the person's
-    folder exactly like people.person-folder (override -> group -> template,
-    including that slot's own per-person override), then searches inside it
-    for whichever name in the people.my-documents-subfolder-names wiring list
-    actually exists - so a new entity with its own subfolder-naming
-    convention resolves automatically once someone adds its name to that
-    list in the Wiring tab, with no code change and no per-person override."""
+    My HR - My Documents no longer has its own slot: it shows the SAME folder
+    as people.person-folder, grouped by subfolder via
+    list_person_document_groups() below (which drops subfolders named in
+    people.my-documents-excluded-subfolder-names) - so there is exactly one
+    root to resolve and one place a manager points it, and the employee view
+    can never drift out of sync with where HR's own Documents panel is
+    looking."""
     email = (getattr(emp, "work_email", "") or "").lower()
     override = raw_value(slot, email)
     if override:
@@ -503,36 +491,6 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
 
     template, _src = effective(slot)
     ctx = _person_context(emp, db)
-
-    if slot == "people.my-documents":
-        root = resolve_person_folder("people.person-folder", emp, db)
-        tail = fill(template.split("{person}", 1)[1], ctx) if "{person}" in template else ""
-        default_name = (tail.strip("/").split("/")[-1] if tail else "")
-        names_csv, _src = effective("people.my-documents-subfolder-names")
-        candidates = [c.strip() for c in names_csv.split(",") if c.strip()] or ["Contractor Documents"]
-        if default_name and default_name not in candidates:
-            candidates = [default_name] + candidates
-        if root["folder"]:
-            names = _list_children(root["folder"])
-            if names is not None:
-                for loose in (False, True):
-                    # Strict pass first (existing, exact-ish behavior);
-                    # loose pass strips a leading "1. "/"01 - " list marker
-                    # from both sides, so a candidate written with a number
-                    # still matches a company's unnumbered folder and vice
-                    # versa - no numbering variant needs to be listed by hand.
-                    for cand in candidates:
-                        hit = _best_match(names, cand, loose=loose)
-                        if hit:
-                            found = f"{root['folder'].rstrip('/')}/{hit}"
-                            return {"folder": found, "source": root["source"], "proposed": found}
-            proposed = f"{root['folder'].rstrip('/')}/{candidates[0]}"
-            if root["source"] == "override":
-                # the manager pointed the person FOLDER at a real place by
-                # hand; trust it even if we can't confirm the subfolder name.
-                return {"folder": proposed, "source": "override", "proposed": proposed}
-            return {"folder": None, "source": root["source"], "proposed": proposed}
-        return {"folder": None, "source": "template", "proposed": root["proposed"] + tail}
 
     # Folder group: a rule-matched cohort parent beats the template. The person
     # is a SUBFOLDER of the group's folder (matched by name, same folding as
@@ -591,6 +549,68 @@ def resolve_person_folder(slot: str, emp, db) -> dict:
         if found:
             return {"folder": found, "source": "discovered", "proposed": filled}
     return {"folder": None, "source": "template", "proposed": filled}
+
+
+# ── My Documents (employee view): whole person folder, minus hidden names ──
+
+def _excluded_subfolder_names() -> list[str]:
+    csv, _src = effective("people.my-documents-excluded-subfolder-names")
+    return [c.strip() for c in csv.split(",") if c.strip()]
+
+
+def is_excluded_child(name: str) -> bool:
+    """True if `name` matches one of the wired hidden-folder names (Confidential
+    etc) - folded and loose-folded, same matching as everywhere else so a
+    numbered variant ("2. Confidential") still hides."""
+    excluded = _excluded_subfolder_names()
+    return any(_fold(name) == _fold(x) or _fold_loose(name) == _fold_loose(x) for x in excluded)
+
+
+def is_excluded_path(root: str, path: str) -> bool:
+    """True if `path` (already confirmed to live under `root`) falls inside an
+    excluded subfolder of root - checked by name on the first path segment
+    past root, so the download endpoint can block it without re-listing."""
+    from services import egnyte as svc
+    rel = svc.norm(path)[len(svc.norm(root)):].strip("/")
+    first_seg = rel.split("/", 1)[0] if rel else ""
+    return bool(first_seg) and is_excluded_child(first_seg)
+
+
+def list_person_document_groups(root: str) -> dict | None:
+    """What an employee should see under My Documents, keeping the SAME
+    folder shape as Egnyte itself (Neil/Visesh, Sep 10 - "I want the folder
+    also same they are in Egnyte", not one flattened list): the subfolders
+    of `root`, in Egnyte's own order, each with its own files, except
+    subfolders matching is_excluded_child (Confidential/Internal &
+    Confidential etc); plus any files sitting loose directly in `root`.
+    Not recursive past that first level - deep enough to mirror the real
+    folder tree without an unbounded walk on every My HR page load.
+    Returns {"rootFiles": [...], "folders": [{"name", "files": [...]}]},
+    or None if `root` can't be listed at all."""
+    from services import egnyte as svc
+    try:
+        listing = svc.list_folder(root)
+    except svc.EgnyteError:
+        return None
+
+    def _files(entries):
+        return [
+            {"name": f["name"], "path": f["path"], "size": f.get("size"),
+             "lastModified": f.get("last_modified") or f.get("lastModified")}
+            for f in entries
+        ]
+
+    folders = []
+    for sub in listing.get("folders", []):
+        if is_excluded_child(sub["name"]):
+            continue
+        sub_path = f"{root.rstrip('/')}/{sub['name']}"
+        try:
+            sub_listing = svc.list_folder(sub_path)
+        except svc.EgnyteError:
+            continue
+        folders.append({"name": sub["name"], "files": _files(sub_listing.get("files", []))})
+    return {"rootFiles": _files(listing.get("files", [])), "folders": folders}
 
 
 def provision_person_folder(emp, db) -> str:

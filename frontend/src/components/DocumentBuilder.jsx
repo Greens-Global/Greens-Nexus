@@ -314,7 +314,16 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     }
     setSelectionTick((t) => t + 1);
   }, [goToPage]);
-  const onPageUpdate = useCallback(() => { scheduleSave(); setSelectionTick((t) => t + 1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Every page edit routes its autosave through this ref, NOT through a
+  // captured scheduleSave. It used to close over the first render's
+  // scheduleSave -> doSave -> currentContent, whose `pages` was still the
+  // initial [] - so every keystroke scheduled a save that persisted
+  // `pages: []` and wiped the document body. A plain dependency cannot fix it
+  // (scheduleSave is declared further down, and naming it here would read the
+  // binding before its declaration), so the ref is refreshed on every render
+  // just below scheduleSave itself.
+  const scheduleSaveRef = useRef(null);
+  const onPageUpdate = useCallback(() => { scheduleSaveRef.current?.(); setSelectionTick((t) => t + 1); }, []);
   const onPageActivity = useCallback((pageId) => {
     setActivePageId(pageId);
     setSelectionTick((t) => t + 1);
@@ -411,6 +420,15 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     pageSetup,
   }), [pages, headerEditor, footerEditor, headerVisible, footerVisible, pageSetup]);
 
+  // Every save goes through this ref, never through a captured currentContent.
+  // TipTap/useEditor option callbacks and any useCallback that forgets a dep
+  // hold whichever closure existed when they were created; serializing the
+  // document from one of those means writing state as it was on some earlier
+  // render. Refreshed on every render (the ModuleTabs onChangeRef idiom), so
+  // "what is in the editor right now" has exactly one answer.
+  const currentContentRef = useRef(currentContent);
+  useEffect(() => { currentContentRef.current = currentContent; });
+
   // Page Setup panel changes save immediately (like the letterhead/employee
   // pickers) rather than going through the debounced content autosave -
   // these are deliberate, infrequent choices, not typing.
@@ -435,21 +453,38 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     // Defensive, belt-and-suspenders: even if something calls doSave directly
     // (Ctrl+S, the close-flush) before load finishes, never persist an
     // unhydrated editor's empty default doc over real saved content.
-    if (!hydratedRef.current) return;
+    if (!hydratedRef.current) return Promise.resolve();
+    const content = currentContentRef.current();
+    // A document ALWAYS has at least one page: applyContent seeds one for even
+    // an empty/legacy document, and Delete Page refuses to remove the last.
+    // So an empty `pages` here is never the user's document - it is some
+    // pre-hydration state leaking into a save, and writing it destroys the
+    // body (that is exactly how a real Loan Agreement lost its content).
+    // Drop the write instead; the next legitimate save persists real content.
+    if (!Array.isArray(content.pages) || content.pages.length === 0) {
+      console.warn('[DocumentBuilder] refusing to save a document with no pages');
+      return Promise.resolve();
+    }
     setSaveStatus('saving');
-    const payload = kind === 'document'
-      ? { content: currentContent(), note: 'Autosave' }
-      : { content: currentContent() };
-    apiUpdate(docId, payload)
+    const payload = kind === 'document' ? { content, note: 'Autosave' } : { content };
+    return apiUpdate(docId, payload)
       .then(() => { setSaveStatus('saved'); onContentSaved?.(payload.content); })
       .catch(() => setSaveStatus('error'));
-  }, [docId, currentContent, kind, apiUpdate, onContentSaved]);
+  }, [docId, kind, apiUpdate, onContentSaved]);
+
+  // The server renders PDF/DOCX from the SAVED row, so anything that asks the
+  // backend to render (Preview & Send, Export, Send for Signature) has to let
+  // the debounced autosave land first - otherwise it renders the document as
+  // it was up to AUTOSAVE_MS ago, which reads as "my preview is blank/stale".
+  const flushPendingSave = useCallback(
+    () => (saveTimer.current ? doSave() : Promise.resolve()), [doSave]);
 
   const scheduleSave = useCallback(() => {
     setSaveStatus('idle');
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(doSave, AUTOSAVE_MS);
   }, [doSave]);
+  useEffect(() => { scheduleSaveRef.current = scheduleSave; });
 
   useEffect(() => {
     const onKey = (e) => {
@@ -563,8 +598,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
 
   const doExport = (format) => {
     setExporting(format);
-    const call = format === 'pdf' ? api.exportDocumentPdf(docId) : api.exportDocumentDocx(docId);
-    call.then(downloadBlob).catch(e => toastErr?.(e.message || 'Export failed')).finally(() => setExporting(''));
+    flushPendingSave()
+      .then(() => (format === 'pdf' ? api.exportDocumentPdf(docId) : api.exportDocumentDocx(docId)))
+      .then(downloadBlob).catch(e => toastErr?.(e.message || 'Export failed')).finally(() => setExporting(''));
   };
 
   // In-app PDF Preview - renders the exported PDF in an iframe (browsers have
@@ -572,7 +608,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // rendering like PdfEditor.jsx does for field placement, a different problem.
   const openPdfPreview = () => {
     setPdfPreviewLoading(true);
-    api.exportDocumentPdf(docId).then(({ blob }) => setPdfPreviewUrl(URL.createObjectURL(blob)))
+    flushPendingSave()
+      .then(() => api.exportDocumentPdf(docId))
+      .then(({ blob }) => setPdfPreviewUrl(URL.createObjectURL(blob)))
       .catch(e => toastErr?.(e.message || 'Failed to prepare preview'))
       .finally(() => setPdfPreviewLoading(false));
   };
@@ -936,7 +974,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const doSendForSignature = () => {
     if (doc?.signRequestId && !window.confirm('This document was already sent for signature. Start a new envelope anyway?')) return;
     setExporting('send');
-    api.exportDocumentPdf(docId).then(({ blob, filename }) => {
+    flushPendingSave().then(() => api.exportDocumentPdf(docId)).then(({ blob, filename }) => {
       const pdfFile = new File([blob], filename.endsWith('.pdf') ? filename : `${filename}.pdf`, { type: 'application/pdf' });
       window.__esignPrefill = { title, file: pdfFile, source: 'pdf', sourceDocumentId: docId, parties: [] };
       window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign' } }));

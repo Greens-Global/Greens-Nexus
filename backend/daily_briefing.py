@@ -136,7 +136,45 @@ def _collaborator_emails(t: "models.Task") -> set:
            {f.lower() for f in (t.follower_emails or []) if isinstance(f, str)}
 
 
-def _red_rows(db: Session, email: str) -> list:
+def _item_action_rows(db: Session, email: str, is_manager: bool) -> list:
+    """Read-only against models.ItemCheckout / models.ItemAssignment - mirrors
+    the same "query the shared table directly" pattern _red_rows already uses
+    for Task/TimeOffRequest, without touching routers/items.py (Visesh's
+    file). Status vocab + responsible-party fields confirmed against
+    items.py's own _notify call sites (approver_email / assigned_allocator_email
+    / requested_by_email / assignee_email)."""
+    rows = []
+    items_url = f"{app_url()}/itemmanagement"
+    for c in (db.query(models.ItemCheckout)
+              .filter(models.ItemCheckout.status == "pending",
+                      models.ItemCheckout.approver_email == email).all()):
+        rows.append({"title": f"Approve checkout: {c.item_name}",
+                     "detail": f"Requested by {c.requested_by}", "url": items_url})
+    for c in (db.query(models.ItemCheckout)
+              .filter(models.ItemCheckout.status == "approved",
+                      models.ItemCheckout.assigned_allocator_email == email).all()):
+        rows.append({"title": f"Hand over: {c.item_name}",
+                     "detail": f"Approved for {c.requested_by}", "url": items_url})
+    for c in (db.query(models.ItemCheckout)
+              .filter(models.ItemCheckout.status == "pending_receipt",
+                      models.ItemCheckout.requested_by_email == email).all()):
+        rows.append({"title": f"Confirm receipt: {c.item_name}",
+                     "detail": "Handed over - confirm you received it", "url": items_url})
+    for a in (db.query(models.ItemAssignment)
+              .filter(models.ItemAssignment.status == "pending_acceptance",
+                      models.ItemAssignment.assignee_email == email).all()):
+        rows.append({"title": f"Accept assignment: {a.item_name}",
+                     "detail": f"Assigned by {a.assigned_by}", "url": items_url})
+    if is_manager:
+        for c in (db.query(models.ItemCheckout)
+                  .filter(models.ItemCheckout.extension_status == "pending").all()):
+            rows.append({"title": f"Approve extension: {c.item_name}",
+                         "detail": f"{c.requested_by} requested {c.extension_days} more day(s)",
+                         "url": items_url})
+    return rows
+
+
+def _red_rows(db: Session, email: str, my_reports: dict) -> list:
     rows = []
     # Filtered in Python rather than SQL: assignee_emails is a JSON list and
     # there is no containment predicate that works on both SQLite and Postgres.
@@ -150,9 +188,6 @@ def _red_rows(db: Session, email: str) -> list:
             "detail": "Waiting on your decision",
             "url": f"{app_url()}/tasks/mine?task={t.id}",
         })
-    my_reports = {(e.work_email or "").lower(): e for e in
-                  db.query(models.NexusEmployee)
-                  .filter(func.lower(models.NexusEmployee.manager_email) == email.lower()).all()}
     if my_reports:
         for r in (db.query(models.TimeOffRequest)
                   .filter(models.TimeOffRequest.status == "pending",
@@ -165,6 +200,7 @@ def _red_rows(db: Session, email: str) -> list:
                 "url": f"{app_url()}/timeclock",
             })
     rows.extend(_timecard_rows(db, email))
+    rows.extend(_item_action_rows(db, email, bool(my_reports)))
     return rows
 
 
@@ -199,16 +235,35 @@ def _timecard_rows(db: Session, email: str) -> list:
     return []
 
 
-def _amber_rows(db: Session, email: str, since_iso: str) -> list:
+def _item_needs_to_know_rows(db: Session, email: str, since_iso: str, is_manager: bool) -> list:
+    rows = []
+    items_url = f"{app_url()}/itemmanagement"
+    for c in (db.query(models.ItemCheckout)
+              .filter(models.ItemCheckout.status.in_(["approved", "rejected"]),
+                      models.ItemCheckout.resolved_at >= since_iso,
+                      models.ItemCheckout.requested_by_email == email).all()):
+        rows.append({"title": f"Checkout {c.status}: {c.item_name}",
+                     "detail": c.reject_reason if c.status == "rejected" else "Awaiting handover",
+                     "url": items_url})
+    if is_manager:
+        # No fixed approver field for a return confirmation - items.py's
+        # perm_return notification broadcasts the same way (recipient="").
+        for a in (db.query(models.ItemAssignment)
+                  .filter(models.ItemAssignment.status == "return_initiated").all()):
+            rows.append({"title": f"Return pending confirmation: {a.item_name}",
+                         "detail": f"{a.assignee_name or a.assignee_email} initiated a return",
+                         "url": items_url})
+    return rows
+
+
+def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> list:
     activity = (db.query(models.TaskActivity)
                 .filter(models.TaskActivity.entity_kind == "task",
                         models.TaskActivity.at >= since_iso)
                 .order_by(models.TaskActivity.at.desc())
                 .limit(500).all())
-    if not activity:
-        return []
     task_ids = {a.entity_id for a in activity}
-    tasks = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(task_ids)).all()}
+    tasks = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(task_ids)).all()} if task_ids else {}
     rows, seen_tasks = [], set()
     for a in activity:
         t = tasks.get(a.entity_id)
@@ -222,6 +277,24 @@ def _amber_rows(db: Session, email: str, since_iso: str) -> list:
             "detail": a.detail or a.type,
             "url": f"{app_url()}/tasks/mine?task={t.id}",
         })
+    rows.extend(_item_needs_to_know_rows(db, email, since_iso, bool(my_reports)))
+    return rows
+
+
+def _item_completed_rows(db: Session, email: str, since_iso: str) -> list:
+    rows = []
+    items_url = f"{app_url()}/itemmanagement"
+    for c in (db.query(models.ItemCheckout)
+              .filter(models.ItemCheckout.status == "returned",
+                      models.ItemCheckout.returned_at >= since_iso,
+                      models.ItemCheckout.requested_by_email == email).all()):
+        rows.append({"title": f"{c.item_name} returned", "detail": "Checkout closed out", "url": items_url})
+    for a in (db.query(models.ItemAssignment)
+              .filter(models.ItemAssignment.status == "closed",
+                      models.ItemAssignment.return_accepted_at >= since_iso,
+                      (models.ItemAssignment.assignee_email == email) |
+                      (models.ItemAssignment.assigned_by_email == email)).all()):
+        rows.append({"title": f"{a.item_name} assignment closed", "detail": "Return accepted", "url": items_url})
     return rows
 
 
@@ -237,15 +310,15 @@ def _green_rows(db: Session, email: str, since_iso: str) -> list:
             "detail": "Completed",
             "url": f"{app_url()}/tasks/mine?task={t.id}",
         })
+    rows.extend(_item_completed_rows(db, email, since_iso))
     return rows
 
 
-def _blue_rows_manager(db: Session, email: str) -> list:
+def _blue_rows_manager(db: Session, email: str, my_reports: dict) -> list:
     """Manager add-on only - direct reports out today, plus the day-before
     nudge for anyone whose leave STARTS tomorrow (Neil, 8/21: 'I want the
     e-mail on the prior today')."""
-    reports = (db.query(models.NexusEmployee)
-               .filter(func.lower(models.NexusEmployee.manager_email) == email.lower()).all())
+    reports = list(my_reports.values())
     if not reports:
         return []
     report_emails = {e.work_email for e in reports if e.work_email}
@@ -278,11 +351,13 @@ def _blue_rows_manager(db: Session, email: str) -> list:
 
 
 def build_sections(db: Session, email: str, since_iso: str) -> dict:
+    my_reports = {(e.work_email or "").lower(): e for e in
+                  db.query(models.NexusEmployee)
+                  .filter(func.lower(models.NexusEmployee.manager_email) == email.lower()).all()}
     sections = {
-        "red":   _red_rows(db, email),
-        "amber": _amber_rows(db, email, since_iso),
-        "blue":  _blue_rows_manager(db, email),
-        "green": _green_rows(db, email, since_iso),
+        "action_required": _red_rows(db, email, my_reports),
+        "needs_to_know":   _amber_rows(db, email, since_iso, my_reports) + _blue_rows_manager(db, email, my_reports),
+        "completed":       _green_rows(db, email, since_iso),
     }
     return {k: v for k, v in sections.items() if v}
 
@@ -290,13 +365,12 @@ def build_sections(db: Session, email: str, since_iso: str) -> dict:
 # ── Render (email-safe: inline styles, Segoe UI stack, table layout) ──────
 
 _BADGE = {
-    "red":   ("Action required",        "#b8433a", "#faece9"),
-    "amber": ("Might need a look",      "#a8721f", "#faf1de"),
-    "blue":  ("FYI - no action needed", "#2f5f8a", "#e9f1f8"),
-    "green": ("Completed since your last briefing", "#3c7a52", "#e9f5ec"),
+    "action_required": ("Action required",                    "#b8433a", "#faece9"),
+    "needs_to_know":   ("Needs to know",                       "#a8721f", "#faf1de"),
+    "completed":       ("Completed since your last briefing",  "#3c7a52", "#e9f5ec"),
 }
-_ORDER = ["red", "amber", "blue", "green"]
-_SUMMARY_NOUN = {"red": "need your approval", "amber": "updates to check", "blue": "FYI", "green": "completed"}
+_ORDER = ["action_required", "needs_to_know", "completed"]
+_SUMMARY_NOUN = {"action_required": "need your approval", "needs_to_know": "updates to check", "completed": "completed"}
 
 
 def _card_html(color: str, row: dict) -> str:
@@ -386,8 +460,11 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
     db.add(models.NexusDailyBriefingLog(
         id=str(uuid.uuid4()), employee_email=emp.work_email, briefing_date=briefing_date,
         sent_at=sent_at, mode=mode,
-        red_count=len(sections.get("red", [])), amber_count=len(sections.get("amber", [])),
-        blue_count=len(sections.get("blue", [])), green_count=len(sections.get("green", [])),
+        # NexusDailyBriefingLog kept its 4-column shape from the old red/amber/
+        # blue/green model rather than a migration - blue_count is unused now
+        # that amber+blue merged into needs_to_know.
+        red_count=len(sections.get("action_required", [])), amber_count=len(sections.get("needs_to_know", [])),
+        blue_count=0, green_count=len(sections.get("completed", [])),
         created_at=_now_iso(),
     ))
     db.commit()

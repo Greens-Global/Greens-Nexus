@@ -2175,26 +2175,27 @@ def put_task_notify_settings(patch: dict, user: dict = Depends(require_manager),
 
 
 @router.get("/notify/log")
-def get_task_notify_log(task_id: str = "", status: str = "", limit: int = 200,
+def get_task_notify_log(task_id: str = "", status: str = "", limit: int = 20, offset: int = 0,
                         user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     q = db.query(models.TaskEmailLog)
     if task_id:
         q = q.filter(models.TaskEmailLog.task_id == task_id)
     if status:
         q = q.filter(models.TaskEmailLog.status == status)
-    rows = q.order_by(models.TaskEmailLog.created_at.desc()).limit(min(limit, 500)).all()
-    return [{
+    total = q.count()
+    rows = q.order_by(models.TaskEmailLog.created_at.desc()).offset(offset).limit(min(limit, 500)).all()
+    return {"rows": [{
         "id": r.id, "taskId": r.task_id, "taskCode": r.task_code, "eventType": r.event_type,
         "eventVersion": r.event_version, "recipient": r.recipient, "recipientRole": r.recipient_role,
         "subject": r.subject, "status": r.status, "graphMessageId": r.graph_message_id,
         "conversationId": r.conversation_id, "attempts": r.attempts, "error": r.error,
         "createdAt": r.created_at, "updatedAt": r.updated_at,
-    } for r in rows]
+    } for r in rows], "total": total}
 
 
 # ── Inbound email (replies -> comments) ──────────────────────────────────────
 @router.get("/inbound/log")
-def get_task_inbound_log(task_id: str = "", status: str = "", limit: int = 200,
+def get_task_inbound_log(task_id: str = "", status: str = "", limit: int = 20, offset: int = 0,
                          user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     """What the task mailbox has handed us and what became of it. The answer to
     "I replied and nothing happened" - `reason` says which check refused it."""
@@ -2203,13 +2204,14 @@ def get_task_inbound_log(task_id: str = "", status: str = "", limit: int = 200,
         q = q.filter(models.TaskInboundEmail.task_id == task_id)
     if status:
         q = q.filter(models.TaskInboundEmail.status == status)
-    rows = q.order_by(models.TaskInboundEmail.processed_at.desc()).limit(min(limit, 500)).all()
-    return [{
+    total = q.count()
+    rows = q.order_by(models.TaskInboundEmail.processed_at.desc()).offset(offset).limit(min(limit, 500)).all()
+    return {"rows": [{
         "id": r.id, "taskId": r.task_id, "commentId": r.comment_id, "from": r.from_email,
         "subject": r.subject, "status": r.status, "reason": r.reason, "matchedBy": r.matched_by,
         "attachmentCount": r.attachment_count, "receivedAt": r.received_at,
         "processedAt": r.processed_at,
-    } for r in rows]
+    } for r in rows], "total": total}
 
 
 @router.post("/inbound/drain")

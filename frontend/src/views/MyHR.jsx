@@ -3,11 +3,13 @@ import {
   User, Phone, Mail, Heart, Briefcase, Building2, CalendarDays, MapPin, Network,
   FileText, Download, CalendarOff, Loader2, Pencil, Check, X, BadgeCheck,
   Clock, Banknote, MessageSquarePlus, Package, ArrowRight, Hourglass,
-  HardDrive,
+  HardDrive, Folder, FolderOpen, ChevronRight, ChevronLeft, Eye,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { formatDateLong, formatTime } from '../lib/datetime';
+import EgnytePreview from '../egnyte/EgnytePreview';
+import { canPreview } from '../egnyte/lib';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -163,8 +165,14 @@ export function MyHROverview({ onOpenTimeOff }) {
   // ── Card filters ──
   const [range, setRange] = useState('week');         // hours card + tile
   const [docQuery, setDocQuery] = useState('');
+  const [openDocSections, setOpenDocSections] = useState({});   // { [sectionKey]: true } - collapsed by default, click a folder to list its files
+  const [docPage, setDocPage] = useState({});                   // { [sectionKey]: pageNumber } - a folder with >10 files paginates
+  const [previewFile, setPreviewFile] = useState(null);         // file object for the in-app viewer, or null
   const [stubQuery, setStubQuery] = useState('');
-  // Files HR filed in my wired Egnyte folder (people.my-documents). null =
+  // { rootFiles, folders: [{ name, files }] } - my own Egnyte person folder,
+  // in the SAME folder shape as Egnyte (Neil/Visesh, Sep 10: "I want the
+  // folder also same they are in Egnyte"), minus subfolders wired as hidden
+  // (people.my-documents-excluded-subfolder-names, e.g. Confidential). null =
   // not available (no wiring / no folder / Egnyte off) - the card hides.
   const [egnyteDocs, setEgnyteDocs] = useState(null);
   const [assetFilter, setAssetFilter] = useState('all');
@@ -179,7 +187,7 @@ export function MyHROverview({ onOpenTimeOff }) {
     api.myPaystubs().then(setStubs).catch(() => {});
     api.myAssets().then(setAssets).catch(() => setAssets({ assignments: [], checkouts: [] }));
     api.myHrRequests().then(setAsks).catch(() => {});
-    api.myhrEgnyteDocs().then(d => setEgnyteDocs(d?.available ? (d.files || []) : null)).catch(() => {});
+    api.myhrEgnyteDocs().then(d => setEgnyteDocs(d?.available ? { rootFiles: d.rootFiles || [], folders: d.folders || [] } : null)).catch(() => {});
   }, []);
 
   // Hours follow the selected range.
@@ -227,22 +235,105 @@ export function MyHROverview({ onOpenTimeOff }) {
     finally { setBusy(p => ({ ...p, ['egn' + f.path]: false })); }
   };
 
-  // Sealed e-sign PDFs and HR-filed Egnyte files, combined into one "My
-  // documents" list, newest first (Neil: merge Egnyte docs into My documents
-  // rather than a separate card).
-  const combinedDocs = useMemo(() => {
-    const esign = docs.map(d => ({
-      key: 'e:' + d.requestId, kind: 'esign', title: d.title,
-      meta: `Completed ${fmtD(d.completedAt?.slice(0, 10))}`, sortKey: d.completedAt || '',
-      busyKey: 'doc' + d.requestId, onDownload: () => download(d.requestId),
-    }));
-    const filed = (egnyteDocs || []).map(f => ({
-      key: 'g:' + f.path, kind: 'egnyte', title: f.name,
-      meta: f.size ? `${Math.max(1, Math.round(f.size / 1024))} KB` : 'File', sortKey: f.lastModified || '',
-      busyKey: 'egn' + f.path, onDownload: () => downloadEgnyte(f),
-    }));
-    return [...esign, ...filed].sort((a, b) => (b.sortKey || '').localeCompare(a.sortKey || ''));
-  }, [docs, egnyteDocs]);
+  // My HR's own-folder-only endpoint, not the general-purpose /egnyte/file -
+  // passed into EgnytePreview so View/Download stay behind the SAME
+  // authorization check (own folder, hidden subfolders excluded) as the row's
+  // regular download button.
+  const myhrFetchPreview = async (path) => (await api.myhrEgnyteFilePreview(path)).blob;
+  const myhrDownloadFile = async (path, name) => {
+    const { blob } = await api.myhrEgnyteFile(path);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name || 'download';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
+
+  const egnyteFileRow = (f) => ({
+    key: 'g:' + f.path, kind: 'egnyte', title: f.name, file: f,
+    meta: f.size ? `${Math.max(1, Math.round(f.size / 1024))} KB` : 'File', sortKey: f.lastModified || '',
+    busyKey: 'egn' + f.path, onDownload: () => downloadEgnyte(f),
+  });
+
+  // Sealed e-sign PDFs, newest first - always its own section. Kept separate
+  // from the Egnyte groups below since it isn't part of the Egnyte tree.
+  const esignRows = useMemo(() => docs.map(d => ({
+    key: 'e:' + d.requestId, kind: 'esign', title: d.title,
+    meta: `Completed ${fmtD(d.completedAt?.slice(0, 10))}`, sortKey: d.completedAt || '',
+    busyKey: 'doc' + d.requestId, onDownload: () => download(d.requestId),
+  })).sort((a, b) => (b.sortKey || '').localeCompare(a.sortKey || '')), [docs]);
+
+  // One section per real Egnyte subfolder, in Egnyte's own order, plus a
+  // trailing "Other files" section for anything sitting loose at the root of
+  // the person folder - mirrors the actual Egnyte tree instead of a single
+  // flattened list (Pranshu, Sep 10).
+  const egnyteSections = useMemo(() => {
+    if (!egnyteDocs) return [];
+    const sections = (egnyteDocs.folders || [])
+      .filter(g => (g.files || []).length)
+      .map(g => ({ key: 'f:' + g.name, name: g.name, rows: g.files.map(egnyteFileRow) }));
+    if ((egnyteDocs.rootFiles || []).length) {
+      sections.push({ key: 'f:root', name: 'Other files', rows: egnyteDocs.rootFiles.map(egnyteFileRow) });
+    }
+    return sections;
+  }, [egnyteDocs]);
+
+  const docSections = useMemo(() => {
+    const sections = [];
+    if (esignRows.length) sections.push({ key: 'esign', name: 'Signed Documents', rows: esignRows });
+    sections.push(...egnyteSections);
+    return sections;
+  }, [esignRows, egnyteSections]);
+  const totalDocCount = docSections.reduce((n, s) => n + s.rows.length, 0);
+
+  const DOCS_PAGE_SIZE = 10;
+
+  const docFileRow = (d) => (
+    <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
+      {d.kind === 'egnyte'
+        ? <HardDrive size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
+        : <FileText size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{d.meta}</div>
+      </div>
+      {d.kind === 'egnyte' && canPreview(d.file) && (
+        <button className="secondary-btn" onClick={() => setPreviewFile(d.file)}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
+          <Eye size={12} /> View
+        </button>
+      )}
+      <button className="secondary-btn" onClick={d.onDownload} disabled={!!busy[d.busyKey]}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
+        {busy[d.busyKey] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} {d.kind === 'egnyte' ? 'Download' : 'PDF'}
+      </button>
+    </div>
+  );
+
+  // A folder's rows for the CURRENT page - >10 files paginates instead of one
+  // long scroll (Pranshu, Sep 10). Page resets implicitly whenever the
+  // filtered row count shrinks below the stored page (e.g. a new search).
+  const docPageFor = (s) => {
+    const totalPages = Math.max(1, Math.ceil(s.rows.length / DOCS_PAGE_SIZE));
+    const page = Math.min(docPage[s.key] || 1, totalPages);
+    return { page, totalPages, rows: s.rows.slice((page - 1) * DOCS_PAGE_SIZE, page * DOCS_PAGE_SIZE) };
+  };
+
+  const DocPager = ({ sectionKey, page, totalPages }) => totalPages <= 1 ? null : (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '10px 0 4px' }}>
+      <button type="button" className="secondary-btn" disabled={page <= 1}
+        onClick={() => setDocPage(p => ({ ...p, [sectionKey]: page - 1 }))}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, padding: '4px 9px' }}>
+        <ChevronLeft size={12} /> Prev
+      </button>
+      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Page {page} of {totalPages}</span>
+      <button type="button" className="secondary-btn" disabled={page >= totalPages}
+        onClick={() => setDocPage(p => ({ ...p, [sectionKey]: page + 1 }))}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, padding: '4px 9px' }}>
+        Next <ChevronRight size={12} />
+      </button>
+    </div>
+  );
 
   const submitAsk = async () => {
     if (!askForm.message.trim()) return;
@@ -319,7 +410,7 @@ export function MyHROverview({ onOpenTimeOff }) {
               <Stat hero label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`} value={sheet ? hm(workedTotal) : '…'} hint={`${daysWorked} day${daysWorked === 1 ? '' : 's'} worked`} color="blue" Icon={Clock} />
             )}
             <Stat label="Leave this year" value={`${leaveDaysThisYear}d`} hint="Approved time off" color="green" Icon={CalendarOff} />
-            <Stat label="My documents" value={combinedDocs.length} hint="Signed & filed" color="purple" Icon={FileText} />
+            <Stat label="My documents" value={totalDocCount} hint="Signed & filed" color="purple" Icon={FileText} />
             <Stat label="Time with us" value={tenure} hint={profile.startDate ? `Since ${fmtD(profile.startDate)}` : ''} color="orange" Icon={Hourglass} />
           </div>
 
@@ -480,29 +571,68 @@ export function MyHROverview({ onOpenTimeOff }) {
               )}
 
               <div className="dash-card">
-                {cardHead('My documents', 'Signed copies and files HR filed for you',
-                  combinedDocs.length > 3 ? (
+                {cardHead('My documents', 'Signed copies and files HR filed for you, by folder',
+                  totalDocCount > 3 ? (
                     <input className="form-input" placeholder="Search…" value={docQuery} onChange={e => setDocQuery(e.target.value)}
                       style={{ fontSize: 12, padding: '5px 10px', height: 'auto', width: 130 }} />
                   ) : <FileText size={15} style={{ color: 'var(--muted)' }} />)}
-                {combinedDocs.length === 0 ? (
+                {totalDocCount === 0 ? (
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No documents yet.</div>
-                ) : combinedDocs.filter(d => !docQuery || (d.title || '').toLowerCase().includes(docQuery.toLowerCase())).map(d => (
-                  <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-                    {d.kind === 'egnyte'
-                      ? <HardDrive size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
-                      : <FileText size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{d.meta}</div>
-                    </div>
-                    <button className="secondary-btn" onClick={d.onDownload} disabled={!!busy[d.busyKey]}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
-                      {busy[d.busyKey] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} {d.kind === 'egnyte' ? 'Download' : 'PDF'}
-                    </button>
-                  </div>
-                ))}
+                ) : (() => {
+                  const q = docQuery.trim().toLowerCase();
+                  const searching = !!q;
+                  const filtered = docSections
+                    .map(s => ({ ...s, rows: searching ? s.rows.filter(d => (d.title || '').toLowerCase().includes(q)) : s.rows }))
+                    .filter(s => s.rows.length);
+                  if (!filtered.length) {
+                    return <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No documents match your search.</div>;
+                  }
+                  // Single-section case (no Egnyte wiring, just e-sign docs): no folders to browse, list flat as before.
+                  if (docSections.length <= 1) {
+                    const { page, totalPages, rows } = docPageFor(filtered[0]);
+                    return (
+                      <>
+                        {rows.map(d => docFileRow(d))}
+                        <DocPager sectionKey={filtered[0].key} page={page} totalPages={totalPages} />
+                      </>
+                    );
+                  }
+                  return filtered.map(s => {
+                    // While searching, every section with a match stays expanded so results are visible;
+                    // otherwise it follows whatever the employee last clicked (collapsed by default).
+                    const open = searching || !!openDocSections[s.key];
+                    const { page, totalPages, rows } = docPageFor(s);
+                    return (
+                      <div key={s.key}>
+                        <button type="button" onClick={() => setOpenDocSections(p => ({ ...p, [s.key]: !p[s.key] }))}
+                          disabled={searching}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 0', margin: 0,
+                            border: 'none', background: 'none', cursor: searching ? 'default' : 'pointer', width: '100%', textAlign: 'left' }}>
+                          <ChevronRight size={13} style={{ color: 'var(--muted)', flexShrink: 0,
+                            transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                          {s.key === 'esign'
+                            ? <FileText size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                            : open
+                              ? <FolderOpen size={13} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
+                              : <Folder size={13} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />}
+                          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{s.name}</span>
+                          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.rows.length}</span>
+                        </button>
+                        {open && (
+                          <div style={{ paddingLeft: 19 }}>
+                            {rows.map(d => docFileRow(d))}
+                            <DocPager sectionKey={s.key} page={page} totalPages={totalPages} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
+              {previewFile && (
+                <EgnytePreview file={previewFile} onClose={() => setPreviewFile(null)}
+                  fetchPreview={myhrFetchPreview} downloadFile={myhrDownloadFile} />
+              )}
 
               <div className="dash-card">
                 {cardHead('My paystubs', 'Uploaded by HR each pay period',

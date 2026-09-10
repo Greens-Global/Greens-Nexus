@@ -6,34 +6,19 @@
 // App.jsx (shared with the Tasks view at that call site) so switching between
 // Tasks and Tickets in the sidebar doesn't refetch everything each time -
 // see App.jsx's ProtectedView.
-import { useState } from 'react';
-import { Settings } from 'lucide-react';
+//
+// The "Manage" admin surface (Service Desk + Email Notifications) moved to
+// the Admin module in full (Pranshu, Sep 9) - it was the only thing this
+// screen's Manage button led to, so the button and TicketManageView.jsx are
+// both gone rather than left pointing at an empty screen.
 import TicketsView from '../tickets/TicketsView';
-import TicketManageView from '../tickets/TicketManageView';
-import { useRole } from '../contexts/RoleContext';
-import { NX, FONT, btn } from '../tasks/theme';
+import { NX, FONT } from '../tasks/theme';
 
 export default function Tickets() {
-  const { can } = useRole();
-  const canManage = !!can?.('manager');
-  const [manage, setManage] = useState(false);
-
-  // Manage is an admin surface (ticket notifications today) - hidden from
-  // anyone below Manager, same gate as the Task module's Manage tab. It rides
-  // in the Tickets header next to New Ticket instead of in a bar of its own,
-  // and Exit rides on the Manage screen's tab strip.
-  // Sized off the same btn() scale as New Ticket so the pair reads as one
-  // control group rather than two buttons from different screens.
-  const manageBtn = canManage ? (
-    <button className="nx-iconbtn" onClick={() => setManage(true)} title="Manage" style={btn('outline')}>
-      <Settings size={15} /> <span className="nx-btn-label">Manage</span>
-    </button>
-  ) : null;
-
   return (
     <div className="nx-tasks" style={{ fontFamily: FONT, display: 'flex', flexDirection: 'column', height: '100%', background: NX.canvas }}>
       <div style={{ flex: 1, minHeight: 0 }}>
-        {manage ? <TicketManageView onExit={() => setManage(false)} /> : <TicketsView manageAction={manageBtn} />}
+        <TicketsView />
       </div>
     </div>
   );

@@ -28,6 +28,7 @@ from routers.task_util import now_iso, gen_id, log_activity, task_notify, extrac
 from ticket_code import TICKET_CODE_DIGITS, ticket_no
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents, all_agents)
+import ticket_taxonomy
 import ticket_mail_templates as tmpl
 from app_url import app_url
 
@@ -55,16 +56,16 @@ require_ticket_desk = require_any_module_grant("tasks", "tickets")
 
 
 # ── SLA policy - the due date is DERIVED from priority, not chosen freely.
-# Mirrors SLA_TARGET_HOURS in frontend/src/tickets/ticketMeta.js - keep the two
-# in step. The server is authoritative: create_ticket always computes its own
+# Target hours are admin-configurable (ticket_taxonomy.py, Sep 2026 - was a
+# hardcoded dict here, mirrored by a second hardcoded copy in
+# frontend/src/tickets/ticketMeta.js that the two had to be kept in step by
+# hand). The server is authoritative: create_ticket always computes its own
 # value (never trusts body.sla_due_on), and update_ticket recomputes it
 # whenever priority changes to a new value in a request that doesn't ALSO set
 # sla_due_on explicitly in the same request (that's a manual override via the
 # drawer's own DateField editor, and stays respected as-is). ──
-_SLA_TARGET_HOURS = {"urgent": 24, "high": 48, "medium": 72, "low": 168}
 
-
-def _sla_due_from_priority(created_at_iso: str, priority: str) -> str:
+def _sla_due_from_priority(db: Session, created_at_iso: str, priority: str) -> str:
     """created_at + the priority's target hours, as a YYYY-MM-DD date string -
     sla_due_on is stored and compared as a plain date everywhere else (see
     _sla_breached, ticket_to_dict), never a datetime."""
@@ -72,7 +73,7 @@ def _sla_due_from_priority(created_at_iso: str, priority: str) -> str:
         start = datetime.fromisoformat((created_at_iso or now_iso()).replace("Z", "+00:00"))
     except ValueError:
         start = datetime.fromisoformat(now_iso())
-    hours = _SLA_TARGET_HOURS.get(priority, _SLA_TARGET_HOURS["medium"])
+    hours = ticket_taxonomy.sla_hours(db, priority)
     return (start + timedelta(hours=hours)).date().isoformat()
 
 
@@ -475,8 +476,18 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
 @router.get("/task-tickets")
 def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
                  db: Session = Depends(get_db)):
-    """`mine=true` narrows to the tickets this person raised or is watching -
-    what the Support page's end-user view needs.
+    """`mine=true` narrows to just the tickets THIS person raised - what the
+    Support page's "My Open Tickets" needs. Being cc'd on someone else's
+    ticket (mentioned in a comment, added as a watcher) does not make it
+    "mine": that list showing a ticket Ankush raised, just because Pranshu
+    was watching it, read as a gap in the requester scoping, not a feature
+    (Pranshu, Sep 10 2026).
+
+    Without `mine`, an employee who lacks the desk grant still gets scoped
+    automatically rather than seeing the whole company's queue - but a little
+    more generously, raised OR watching, so they can still reach a ticket
+    they're only mentioned on from wherever their own Tickets/Tasks context
+    surfaces it.
 
     Scoped server-side rather than filtered in the browser: the unscoped list is
     the agent queue and carries every ticket in the company, so a client-side
@@ -490,11 +501,13 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     _cscope = auth.company_scope(user, db)
     if _cscope is not None:
         rows = [t for t in rows if (t.company_id or "") in _cscope]
+    me = (user.get("email") or "").lower()
+    if mine:
+        rows = [t for t in rows if (t.requester_email or "").lower() == me]
     # Without the desk grant the scope is forced, not requested: the unscoped
     # list IS the agent queue, so honouring `mine` only when asked would leave
     # the whole company's tickets one query parameter away from any employee.
-    if mine or not _has_desk_grant(user, db):
-        me = (user.get("email") or "").lower()
+    elif not _has_desk_grant(user, db):
         rows = [t for t in rows
                 if (t.requester_email or "").lower() == me
                 or me in [(w or "").lower() for w in (t.watcher_emails or [])]]
@@ -532,7 +545,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         # Always derived from priority, never taken from the payload (see
         # _sla_due_from_priority) - the frontend's own slaDueFromPriority call
         # at submit time is just a same-request UI preview.
-        sla_due_on=_sla_due_from_priority(now, body.priority or "medium"), resolved_at="", created_at=now, modified_at=now,
+        sla_due_on=_sla_due_from_priority(db, now, body.priority or "medium"), resolved_at="", created_at=now, modified_at=now,
     )
     # Approval gate, decided by the TYPE and never trusted from the client, so a
     # caller cannot post approval_status="approved" to skip it.
@@ -611,7 +624,11 @@ def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | N
     policy). Everyone else - including the requester - is locked out entirely
     once locked (Jul 27 policy). Before that point the requester has full
     access; anyone else gets the working-field subset (self-assign, triage).
-    Manager+ is unrestricted throughout, including company_id."""
+    Manager+ is unrestricted throughout, including company_id.
+
+    "Full access" here is field-level, not value-level - the requester's
+    `status` moves specifically are narrowed further, right after this scope
+    check is applied, in update_ticket itself (see the comment there)."""
     email = user["email"].lower()
     if _ticket_privileged(db, t, user):
         return None
@@ -641,6 +658,24 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             if blocked == ["company_id"]:
                 raise HTTPException(403, "Only the requester (before the ticket is picked up) or a manager can change the company on a ticket.")
             raise HTTPException(403, f"You can only update {', '.join(sorted(scope))} on a ticket you're not the requester/owner of - not: {', '.join(blocked)}")
+    # The requester's OWN status transitions are narrower than the field-level
+    # scope above can express: pre-in_progress they otherwise have unrestricted
+    # access (see _ticket_edit_scope), which let them set status to anything -
+    # "In Progress" or "Resolved" with nobody actually working it, skipping the
+    # Mark Resolved/Reopen flows that capture a resolution or a reason (Pranshu,
+    # Sep 10 2026). Once it IS resolved, their whole workflow is exactly two
+    # moves: confirm it (close) or reopen it - never any other jump. Mirrors
+    # canEditStatus in TicketsView.jsx, which hides the raw dropdown for them
+    # the same way - keep the two in step. Privileged/assignee callers are
+    # untouched; this only narrows the pure requester.
+    email = (user.get("email") or "").lower()
+    is_requester_only = ((t.requester_email or "").lower() == email
+                         and email != (t.assignee_email or "").lower()
+                         and not _ticket_privileged(db, t, user))
+    if is_requester_only and "status" in data:
+        allowed_transitions = {("resolved", "closed"), ("resolved", "reopened"), ("closed", "reopened")}
+        if (t.status, data["status"]) not in allowed_transitions:
+            raise HTTPException(403, "You can only close or reopen your ticket from here - other status changes are the desk's to make.")
     # Work does not start before the sign-off. Assigning a ticket that is still
     # awaiting approval hands someone work the approver has not sanctioned, and
     # once it is in an assignee's queue it gets done - the gate is then decoration.
@@ -679,7 +714,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # ALSO set sla_due_on explicitly (the drawer's manual DateField editor),
     # which is respected as-is and never silently overridden.
     if "priority" in data and t.priority != prev_priority and "sla_due_on" not in data:
-        t.sla_due_on = _sla_due_from_priority(t.created_at, t.priority)
+        t.sla_due_on = _sla_due_from_priority(db, t.created_at, t.priority)
     if data.get("status") in ("resolved", "closed") and not t.resolved_at:
         t.resolved_at = now_iso()
     if data.get("status") not in ("resolved", "closed") and "status" in data:
@@ -1304,24 +1339,33 @@ def remove_ticket_link(ticket_id: str, target_id: str, db: Session = Depends(get
 @router.post("/task-tickets/{ticket_id}/escalate")
 def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Either the requester or the current assignee - the two people actually
-    living the ticket, not just the desk running the queue - can raise this
-    (superseding the earlier SLA-breach-only carve-out for a locked-out
-    requester). It no longer touches priority; it mails the department the
-    ticket is ABOUT (HrDepartment.lead_email/backup_email, set from Manage ->
-    Service Desk -> Departments) that the ticket needs urgent attention. A
-    department with no head on file falls back to the company's ticket agents
-    via notify_ticket_event's own recipient resolution, so it's never emailed
-    to nobody."""
+    """The assignee or a manager - whoever is actually working the ticket -
+    can raise this any time it's open. The requester is different: escalating
+    before the SLA is even due would just be "I'm impatient," not "this is
+    overdue" - so for them it's gated on the SLA actually being breached
+    (Pranshu, Sep 10 2026, reinstating that carve-out). It no longer touches
+    priority; it mails the department the ticket is ABOUT
+    (HrDepartment.lead_email/backup_email, set from Manage -> Service Desk ->
+    Departments) that the ticket needs urgent attention. A department with no
+    head on file falls back to the company's ticket agents via
+    notify_ticket_event's own recipient resolution, so it's never emailed to
+    nobody."""
     t = _ticket_or_404(db, ticket_id)
     _require_ticket_participant(db, user, t)
     email = (user["email"] or "").lower()
     is_requester = (t.requester_email or "").lower() == email
     is_assignee = (t.assignee_email or "").lower() == email
-    if not (is_requester or is_assignee or _ticket_privileged(db, t, user)):
-        raise HTTPException(403, "Only the requester or assignee can escalate this ticket")
+    privileged = _ticket_privileged(db, t, user)
+    # Closed-status check first: a requester hitting this on a closed ticket
+    # should hear "already closed," not a confusing SLA-gate 403 - and
+    # _sla_breached itself always reads a closed ticket as never breached, so
+    # checking access first would never let them reach this message at all.
     if t.status in ("resolved", "closed"):
         raise HTTPException(400, "This ticket is already closed out - nothing to escalate")
+    if not (is_assignee or privileged or (is_requester and _sla_breached(t))):
+        if is_requester:
+            raise HTTPException(403, "You can escalate once the SLA due date has passed - it hasn't yet.")
+        raise HTTPException(403, "Only the requester or assignee can escalate this ticket")
 
     t.modified_at = now_iso()
     log_activity(db, type="escalated", actor_email=user["email"], entity_kind="ticket",
@@ -1369,22 +1413,34 @@ def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager
     return save_notify_settings(db, patch, user["email"])
 
 
+# ── Taxonomy settings (admin): SLA target hours + per-type intake fields ──────
+@router.get("/task-tickets/taxonomy/settings")
+def get_ticket_taxonomy_settings(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    return ticket_taxonomy.get_config(db)
+
+
+@router.put("/task-tickets/taxonomy/settings")
+def put_ticket_taxonomy_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    return ticket_taxonomy.save_config(db, patch, user["email"])
+
+
 @router.get("/task-tickets/notify/log", dependencies=[Depends(require_ticket_desk)])
-def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 200,
+def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 20, offset: int = 0,
                           user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     q = db.query(models.TicketEmailLog)
     if ticket_id:
         q = q.filter(models.TicketEmailLog.ticket_id == ticket_id)
     if status:
         q = q.filter(models.TicketEmailLog.status == status)
-    rows = q.order_by(models.TicketEmailLog.created_at.desc()).limit(min(limit, 500)).all()
-    return [{
+    total = q.count()
+    rows = q.order_by(models.TicketEmailLog.created_at.desc()).offset(offset).limit(min(limit, 500)).all()
+    return {"rows": [{
         "id": r.id, "ticketId": r.ticket_id, "ticketCode": r.ticket_code, "eventType": r.event_type,
         "eventVersion": r.event_version, "recipient": r.recipient, "recipientRole": r.recipient_role,
         "subject": r.subject, "status": r.status, "graphMessageId": r.graph_message_id,
         "conversationId": r.conversation_id, "attempts": r.attempts, "error": r.error,
         "createdAt": r.created_at, "updatedAt": r.updated_at,
-    } for r in rows]
+    } for r in rows], "total": total}
 
 
 @router.get("/task-tickets/notify/teams-log", dependencies=[Depends(require_ticket_desk)])
