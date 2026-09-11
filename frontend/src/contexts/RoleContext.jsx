@@ -36,7 +36,7 @@ export const MODULES = [
   { id: 'external-links',      label: 'External Links' },
   { id: 'inventory',           label: 'Item Management' },
   { id: 'admin',               label: 'Nexus Access Manager' },
-  { id: 'admin-console',       label: 'Admin' },
+  { id: 'admin-console',       label: 'Settings' },
   { id: 'support',             label: 'Support' },
   { id: 'testing',             label: 'Testing' },
   { id: 'credvault',           label: 'Credential Vault' },
