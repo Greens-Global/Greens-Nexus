@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, DoorOpen, Archive, PlayCircle, Eye } from "lucide-react";
+import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, Archive, PlayCircle, Eye } from "lucide-react";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
 import { useHeaderTabs } from "./ModuleTabs";
-import ActAsModal from "./ActAsModal";
 import AccountSettingsModal from "./AccountSettingsModal";
 import MyProfileModal from "./MyProfileModal";
 import { useMsal }        from "@azure/msal-react";
@@ -26,9 +25,9 @@ const SEARCH_GROUPS = [
 ];
 const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams: [] };
 
-export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
+export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, helpKey, helpLabel }) {
   const { instance, accounts } = useMsal();
-  const { myRole, can, myGrantedModules, actingAs, startActAs, stopActAs, isExternal } = useRole();
+  const { myRole, can, myGrantedModules, actingAs, stopActAs, isExternal } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>). When
   // present it takes the header center (Work OS shell) and the global search
   // collapses to a magnifier icon on the right.
@@ -41,11 +40,6 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   const displayTitle = (headerTabs?.syncTitle && activeTabMeta)
     ? (activeTabMeta.title || activeTabMeta.label)
     : title;
-  // Manager/IT Admin/Global Admin get Act As by role today; an 'act-as' Access
-  // Group grant (added to MODULES later) will let a Global Admin extend it to
-  // specific other employees without a backend change.
-  const canActAs = (can?.('manager') ?? false) || !!myGrantedModules?.has?.('act-as');
-  const [actAsModalOpen, setActAsModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [myProfileOpen, setMyProfileOpen] = useState(false);
   // Asana severed (Aug 27). This used to catch the OAuth callback's
@@ -76,7 +70,6 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   const photo    = usePersonPhoto(email);
   // External guests read "External", never a tier name (Visesh, Aug 18).
   const roleMeta = isExternal ? EXTERNAL_ROLE_META : (ROLES[myRole] ?? ROLES.employee);
-  const isAdmin  = can?.('administrator') ?? false;
   // What Teams shows under your name is your job title, not an access level -
   // "Global Admin" there is meaningless to a colleague who just wants to know
   // what you do. Nexus's own permission tier stays visible as the badge in the
@@ -599,44 +592,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                 </button>
               )}
 
-              {/* Act As (Jul 2026): visible to Manager/IT Admin/Global Admin (or an
-                  'act-as' Access Group grant). Exit is always shown while a session
-                  is active - myRole may have dropped below manager because it's
-                  now reporting the impersonated employee's own role. */}
-              {(canActAs || actingAs) && (
-                <>
-                  <div className="hud-divider" />
-                  {actingAs ? (
-                    <button className="hud-item" onClick={() => { setOpen(false); handleExitActAs(); }} disabled={actAsStopping}
-                      style={{ color: 'hsl(var(--color-red))' }}>
-                      <DoorOpen size={14} /> {actAsStopping ? 'Exiting…' : `Exit Act As (${actingAs.targetName})`}
-                    </button>
-                  ) : (
-                    <button className="hud-item" onClick={() => { setOpen(false); setActAsModalOpen(true); }}>
-                      <UserCog size={14} /> Act As
-                    </button>
-                  )}
-                </>
-              )}
-
-              {isAdmin && (
-                <>
-                  <div className="hud-divider" />
-                  <div style={{ padding: '4px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>
-                    Admin
-                  </div>
-                  {/* Roles & Access removed from here (Pranshu, Sep 9) - it
-                      moved whole into the Admin module (sidebar → Admin →
-                      Roles & Access tab); this was a second, stale entry
-                      point pointing at the old People-tab location. */}
-                  <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.(); }}
-                    style={{ color: 'hsl(var(--color-purple))' }}>
-                    <Activity size={14} /> Audit Logs
-                  </button>
-                  {/* Screenshots + Employee Tracking moved to the Employee Tracking
-                      sidebar module (IT Admin / Global Admin only). */}
-                </>
-              )}
+              {/* Act As and Audit Logs removed from here (Pranshu, Sep 11) - both
+                  moved whole into the Admin module (sidebar → Admin → Act As /
+                  Audit Logs tabs), same treatment as Roles & Access on Sep 9.
+                  The "Exit Act As" affordance stays available at all times via
+                  the sticky orange banner below, independent of this menu. */}
 
               <div className="hud-divider" />
               <button className="hud-item hud-signout" onClick={handleSignOut}>
@@ -674,13 +634,6 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
           {actAsStopping ? 'Exiting…' : 'Exit Act As'}
         </button>
       </div>
-    )}
-
-    {actAsModalOpen && (
-      <ActAsModal
-        onClose={() => setActAsModalOpen(false)}
-        onStart={startActAs}
-      />
     )}
 
     {settingsOpen && (

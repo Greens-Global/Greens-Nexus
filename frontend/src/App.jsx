@@ -11,7 +11,6 @@ import MobileNav from "./components/MobileNav";
 import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
 import { HeaderTabsProvider } from "./components/ModuleTabs";
-import AdminPanel from "./components/AdminPanel";
 import NotificationToasts from "./components/NotificationToasts";
 import TimeclockWidget from "./components/TimeclockWidget";
 import { StepUpOverlay } from "./stepup/StepUp";
@@ -500,7 +499,6 @@ function MainApp() {
   const [canGoBack, setCanGoBack] = useState(false);
   const [prevLabel, setPrevLabel] = useState(null);
   const prevLocRef = useRef({ view: activeView, sub: activeSub });
-  const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
   const [backendDown,      setBackendDown]      = useState(false);
   // PDF Editor tells us (via PdfEditorModule → window event) whether a document
   // is open. We hide the top header only while editing a doc; the landing screen
@@ -714,7 +712,6 @@ function MainApp() {
               onBack={goBack}
               onNavigate={navigate}
               prevLabel={prevLabel}
-              onOpenAdmin={() => setAdminPanelOpen(true)}
             />
             )}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
@@ -745,10 +742,6 @@ function MainApp() {
           </main>
           </HeaderTabsProvider>
         </div>
-        <AdminPanel
-          open={adminPanelOpen}
-          onClose={() => setAdminPanelOpen(false)}
-        />
         </InventoryProvider>
         </RequisitionProvider>
         </RoleGate>
