@@ -4,13 +4,14 @@ import { api } from '../api';
 import { graphTokenSilent, graphTokenInteractive, listMyChats } from '../teamsGraph';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import { ZONE_GROUPS, zoneOptionLabel } from '../lib/worldClockZones';
 
 // ── Shifts, groups & bulk assignment ──────────────────────────────────────────
 // Define shifts (time + weekdays + grace), bundle people into reusable groups,
 // and apply a shift to a whole group (or a hand-picked set) in one click.
 
 const DAYS = [['1', 'Mon'], ['2', 'Tue'], ['3', 'Wed'], ['4', 'Thu'], ['5', 'Fri'], ['6', 'Sat'], ['7', 'Sun']];
-const BLANK = { name: '', code: '', start_hhmm: '09:00', end_hhmm: '17:00', days: '1,2,3,4,5', grace_min: 10, color: '#2563eb' };
+const BLANK = { name: '', code: '', start_hhmm: '09:00', end_hhmm: '17:00', days: '1,2,3,4,5', grace_min: 10, color: '#2563eb', timezone: 'America/Los_Angeles' };
 const COLORS = ['#2563eb', '#16a34a', '#8b5cf6', '#f59e0b', '#ec4899', '#0891b2', '#dc2626', '#64748b'];
 
 function daysLabel(csv) {
@@ -151,7 +152,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
                 <button onClick={() => delShift(s.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', display: 'flex' }}><Trash2 size={12} /></button>
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>{s.start}–{s.end} · {daysLabel(s.days)}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{s.graceMin}m grace</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{s.graceMin}m grace · {zoneOptionLabel(s.timezone || 'America/Los_Angeles')}</div>
             </div>
           ))}
         </div>
@@ -241,6 +242,20 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
                 <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>End<input type="time" className="form-input" value={form.end_hhmm} onChange={e => setForm({ ...form, end_hhmm: e.target.value })} style={{ width: '100%', fontSize: 13 }} /></label>
                 <label style={{ width: 74, fontSize: 11, color: 'var(--muted)' }}>Grace<input type="number" min="0" className="form-input" value={form.grace_min} onChange={e => setForm({ ...form, grace_min: e.target.value })} style={{ width: '100%', fontSize: 13 }} /></label>
               </div>
+              <label style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Time zone this team's shift runs on
+                <select className="form-input" value={form.timezone || 'America/Los_Angeles'}
+                  onChange={e => setForm({ ...form, timezone: e.target.value })} style={{ width: '100%', fontSize: 13, marginTop: 4 }}>
+                  {Object.entries(ZONE_GROUPS).map(([region, zones]) => (
+                    <optgroup key={region} label={region}>
+                      {zones.map(tz => <option key={tz} value={tz}>{zoneOptionLabel(tz)}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4, fontWeight: 400 }}>
+                  Start/end above are this zone's local time - the daily briefing and Late status fire against it, not the employee's own clock.
+                </div>
+              </label>
               <div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Days</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
