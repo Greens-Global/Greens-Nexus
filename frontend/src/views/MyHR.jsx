@@ -587,8 +587,14 @@ export function MyHROverview({ onOpenTimeOff }) {
                   if (!filtered.length) {
                     return <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No documents match your search.</div>;
                   }
-                  // Single-section case (no Egnyte wiring, just e-sign docs): no folders to browse, list flat as before.
-                  if (docSections.length <= 1) {
+                  // No Egnyte folder data at all (not wired/connected, or nothing filed there yet) -
+                  // just e-sign docs, so there is nothing to browse by folder: list flat as before.
+                  // NOT the same as "exactly one Egnyte folder" - an employee whose real Egnyte
+                  // folder isn't broken into subfolders (everything sits loose at the root) still
+                  // gets ONE labeled, collapsible section rather than being silently flattened -
+                  // that flattening is what made prod look "missing" the folder view dev had
+                  // (Pranshu, Sep 11: dev's test tenant has 5 subfolders, prod's real one had 1).
+                  if (egnyteSections.length === 0) {
                     const { page, totalPages, rows } = docPageFor(filtered[0]);
                     return (
                       <>
