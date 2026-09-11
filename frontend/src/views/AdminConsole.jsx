@@ -374,7 +374,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
         <div style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
           <Settings2 size={18} style={{ color: 'var(--ink)' }} />
         </div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Admin</h1>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Settings</h1>
       </div>
       <div style={{ fontSize: 13.5, color: 'var(--muted)', marginBottom: 20, maxWidth: 640, lineHeight: 1.5 }}>
         Company-wide settings and access control, all in one place - no code change required for any of it.
