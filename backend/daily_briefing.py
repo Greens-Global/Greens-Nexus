@@ -20,10 +20,12 @@ same pattern as ticket_notify.py. `mode`:
   - "live" - sends to the real employee.
 
 Dedupe + "since last briefing" cursor is NexusDailyBriefingLog (models.py) -
-one row per (employee, employee-local calendar day). Shift-start resolution
-reuses routers.timeclock._shift_start_for / _employee_now rather than
+one row per (employee, shift-local calendar day). Shift-start resolution
+reuses routers.timeclock._shift_start_for / _shift_local_now rather than
 reimplementing shift lookup - those already handle ScheduledShift ->
-ShiftAssignment -> preset fallback and the employee's own tz offset.
+ShiftAssignment -> preset fallback and, as of Sep 11, the Shift preset's own
+`timezone` field (e.g. GG India's shift stays anchored to IST) instead of
+guessing the employee's zone from their last punch's browser offset.
 """
 import asyncio
 import json
@@ -39,7 +41,7 @@ from database import SessionLocal
 import graph_mail
 from app_url import app_url
 from routers.task_util import task_assignees
-from routers.timeclock import _shift_start_for, _employee_now
+from routers.timeclock import _shift_start_for, _shift_local_now
 
 _SETTINGS_KEY = "daily_briefing_config"
 _DEFAULT_SETTINGS = {
@@ -107,23 +109,31 @@ def _already_logged_today(db: Session, email: str, briefing_date: str) -> bool:
 
 def _trigger_due(db: Session, email: str) -> tuple:
     """(due: bool, briefing_date: str, local_now: datetime) - due once the
-    employee's local wall-clock time has reached shift_start minus
-    TRIGGER_MINUTES_BEFORE_SHIFT, for a shift on today's or tomorrow's local
-    date (whichever the trigger window actually falls on - a person whose
+    employee's SHIFT's own timezone has reached shift_start minus
+    TRIGGER_MINUTES_BEFORE_SHIFT, for a shift on today's or tomorrow's date in
+    that zone (whichever the trigger window actually falls on - a person whose
     shift starts at 1am local needs their briefing to fire while "today" by
     wall clock is still yesterday's date, exactly like the call-out to reject
-    a fixed UTC hour)."""
-    local_now = _employee_now(db, email)
-    for dd in (local_now.date(), local_now.date() + timedelta(days=1)):
+    a fixed UTC hour). Uses the Shift preset's own `timezone` field (e.g. GG
+    India's 18:00 shift stays on IST) rather than guessing the employee's
+    timezone from their last punch - a team's shift clock doesn't move just
+    because someone hasn't punched in yet."""
+    # Candidate dates span a full day either side of UTC-today rather than the
+    # employee's own local date: which calendar date a shift is scheduled/
+    # assigned on is independent of the timezone the shift then runs in, and a
+    # +/-1 day window comfortably covers every real-world UTC offset (-12..+14).
+    utc_today = datetime.now(timezone.utc).date()
+    for dd in (utc_today - timedelta(days=1), utc_today, utc_today + timedelta(days=1)):
         shift = _shift_start_for(db, email, dd)
         if not shift:
             continue
         hh, mm = shift[0].split(":")
+        local_now = _shift_local_now(shift[2])
         shift_start = datetime.combine(dd, datetime.min.time()).replace(hour=int(hh), minute=int(mm))
         trigger_at = shift_start - timedelta(minutes=TRIGGER_MINUTES_BEFORE_SHIFT)
         if trigger_at <= local_now < shift_start and not _already_logged_today(db, email, dd.isoformat()):
             return True, dd.isoformat(), local_now
-    return False, "", local_now
+    return False, "", _shift_local_now("America/Los_Angeles")
 
 
 # ── Content ───────────────────────────────────────────────────────────────

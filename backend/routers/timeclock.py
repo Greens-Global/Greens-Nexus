@@ -27,6 +27,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone, date
 from typing import List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -3867,11 +3868,22 @@ class ShiftIn(BaseModel):
     days: str = "1,2,3,4,5"
     grace_min: int = 10
     color: Optional[str] = "#2563eb"
+    timezone: Optional[str] = "America/Los_Angeles"
+
+
+def _valid_tz(tz: str) -> str:
+    tz = (tz or "").strip()
+    try:
+        ZoneInfo(tz)
+        return tz
+    except (ZoneInfoNotFoundError, ValueError):
+        return "America/Los_Angeles"
 
 
 def _shift_dict(s: Shift) -> dict:
     return {"id": s.id, "name": s.name, "code": s.code or "", "start": s.start_hhmm,
-            "end": s.end_hhmm, "days": s.days, "graceMin": s.grace_min, "color": s.color}
+            "end": s.end_hhmm, "days": s.days, "graceMin": s.grace_min, "color": s.color,
+            "timezone": s.timezone or "America/Los_Angeles"}
 
 
 @router.get("/shifts")
@@ -3886,7 +3898,8 @@ def create_shift(body: ShiftIn, user: dict = Depends(require_team_write), db: Se
     s = Shift(id=str(uuid.uuid4()), name=body.name.strip()[:80], code=(body.code or "").strip()[:12],
               start_hhmm=body.start_hhmm[:5], end_hhmm=body.end_hhmm[:5],
               days=body.days[:40], grace_min=max(0, int(body.grace_min or 0)),
-              color=(body.color or "#2563eb")[:9], created_by=user["email"], created_at=_now_iso())
+              color=(body.color or "#2563eb")[:9], timezone=_valid_tz(body.timezone),
+              created_by=user["email"], created_at=_now_iso())
     db.add(s)
     db.commit()
     return _shift_dict(s)
@@ -3904,6 +3917,7 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_team
     s.days = body.days[:40]
     s.grace_min = max(0, int(body.grace_min or 0))
     s.color = (body.color or "#2563eb")[:9]
+    s.timezone = _valid_tz(body.timezone)
     db.commit()
     return _shift_dict(s)
 
@@ -4467,30 +4481,46 @@ def _employee_now(db: Session, email: str) -> datetime:
 
 
 def _shift_start_for(db: Session, email: str, dd: date):
-    """The scheduled shift start (HH:MM) + grace minutes for this employee on this
-    date, or None if they have no shift that day. Prefers a ScheduledShift placed on
-    the exact date; else the employee's assigned Shift preset when the weekday is one
-    of its working days. Used ONLY to drive the live 'Late' status for salaried staff
-    (it never affects pay)."""
+    """The scheduled shift start (HH:MM) + grace minutes + IANA timezone for this
+    employee on this date, or None if they have no shift that day. Prefers a
+    ScheduledShift placed on the exact date; else the employee's assigned Shift
+    preset when the weekday is one of its working days. Drives the live 'Late'
+    status for salaried staff (never affects pay) and the daily briefing's
+    per-team trigger time - the timezone tags which team's own local clock the
+    HH:MM is wall-clock-local to (e.g. a GG India shift stays on IST regardless
+    of where the employee last punched from)."""
     sched = (db.query(ScheduledShift)
              .filter(ScheduledShift.employee_email == email,
                      ScheduledShift.work_date == dd.isoformat(),
                      ScheduledShift.published == 1).first())   # unpublished drafts don't drive Late
     if sched:
-        grace = 10
+        grace, tz = 10, "America/Los_Angeles"
         if sched.shift_id:
             preset = db.query(Shift).filter(Shift.id == sched.shift_id).first()
             if preset:
                 grace = preset.grace_min or 0
-        return (sched.start_hhmm or "09:00", grace)
+                tz = preset.timezone or tz
+        return (sched.start_hhmm or "09:00", grace, tz)
     assign = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == email).first()
     if assign and assign.shift_id:
         preset = db.query(Shift).filter(Shift.id == assign.shift_id).first()
         if preset:
             days = {int(x) for x in (preset.days or "").split(",") if x.strip().isdigit()}
             if dd.isoweekday() in days:   # Mon=1 .. Sun=7
-                return (preset.start_hhmm or "09:00", preset.grace_min or 0)
+                return (preset.start_hhmm or "09:00", preset.grace_min or 0,
+                        preset.timezone or "America/Los_Angeles")
     return None
+
+
+def _shift_local_now(tz: str) -> datetime:
+    """Current wall-clock time (naive) in the shift's own IANA zone - the
+    replacement for guessing an employee's local time from their last punch's
+    browser offset. Falls back to America/Los_Angeles for an unset/invalid zone."""
+    try:
+        zone = ZoneInfo(tz or "America/Los_Angeles")
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = ZoneInfo("America/Los_Angeles")
+    return datetime.now(zone).replace(tzinfo=None)
 
 
 # ── Bi-weekly pay period (California: Sunday→Saturday × 2 = 14 days) ───────────
@@ -4583,7 +4613,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     if _sh:
         try:
             _hh, _mm = (int(x) for x in _sh[0].split(":")[:2])
-            _now = _employee_now(db, em)
+            _now = _shift_local_now(_sh[2])
             late_today = (_now.hour * 60 + _now.minute) >= (_hh * 60 + _mm + int(_sh[1] or 0))
         except (ValueError, TypeError):
             late_today = False
