@@ -1,11 +1,9 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 
 const FragmentRow = Fragment;   // expanded audit rows render as <tr> pairs
-import { X, Shield, Activity, Search, RefreshCw, ChevronDown, Users, Clock } from 'lucide-react';
-import { useRole } from '../contexts/RoleContext';
+import { X, Activity, Search, RefreshCw, ChevronDown, Users, Clock } from 'lucide-react';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
-import Admin from '../views/Admin';
 import { formatDateTime } from '../lib/datetime';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -126,7 +124,7 @@ const ACTION_CATEGORIES = [
 
 // ── Audit Logs tab ────────────────────────────────────────────────────────────
 
-function AuditLogs() {
+export function AuditLogs() {
   const nameOf = useNameResolver();
   const [rows,       setRows]       = useState([]);
   const [total,      setTotal]      = useState(0);
@@ -343,83 +341,7 @@ function AuditLogs() {
 // covers the same "pick a color scheme" need, so a second one here was
 // pure duplication. See components/MyProfileModal.jsx.
 
-// ── AdminPanel ────────────────────────────────────────────────────────────────
-
-export default function AdminPanel({ open, onClose }) {
-  const { can } = useRole();
-  const panelRef = useRef(null);
-
-  // Close on ESC
-  useEffect(() => {
-    if (!open) return;
-    const handler = e => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [open, onClose]);
-
-  // Prevent body scroll when open
-  useEffect(() => {
-    document.body.style.overflow = open ? 'hidden' : '';
-    return () => { document.body.style.overflow = ''; };
-  }, [open]);
-
-  if (!can('administrator')) return null;
-
-  return (
-    <>
-      {/* Backdrop */}
-      <div
-        onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
-          zIndex: 1200, opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none',
-          transition: 'opacity 0.25s ease',
-        }}
-      />
-
-      {/* Drawer */}
-      <div
-        ref={panelRef}
-        className="admin-drawer"
-        style={{
-          position: 'fixed', top: 0, right: 0, height: '100vh',
-          width: 'min(900px, 92vw)',
-          background: 'var(--card)',
-          boxShadow: open ? '-12px 0 48px rgba(0,0,0,0.22)' : 'none',
-          zIndex: 1201,
-          display: 'flex', flexDirection: 'column',
-          transform: open ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
-        }}
-      >
-        {/* Panel header - title row, then an underline tab bar of its own. */}
-        <div style={{ borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px 12px', gap: 12 }}>
-            <div style={{
-              width: 34, height: 34, borderRadius: 10,
-              background: 'hsla(var(--color-purple),0.12)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              <Shield size={17} style={{ color: 'hsl(var(--color-purple))' }} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Admin Settings</div>
-              <div className="admin-drawer-sub" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>Activity logs</div>
-            </div>
-            <button
-              onClick={onClose}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 6, borderRadius: 8, display: 'flex', flexShrink: 0 }}
-              title="Close">
-              <X size={18} />
-            </button>
-          </div>
-        </div>
-
-        {/* Content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-          <AuditLogs />
-        </div>
-      </div>
-    </>
-  );
-}
+// The drawer wrapper that used to live here (header → Audit Logs) is gone
+// (Pranshu, Sep 11) - Audit Logs moved whole into the Admin module tab,
+// same as Roles & Access on Sep 9. AuditLogs itself stays, named-exported
+// for AdminConsole.jsx to embed directly.
