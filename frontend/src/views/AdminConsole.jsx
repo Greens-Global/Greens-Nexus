@@ -63,10 +63,10 @@ const RolesAccess = lazy(() => import('./RolesAccess'));
 // header AdminPanel drawer that used to render this is gone; AuditLogs is
 // named-exported from that file and embedded directly here now.
 const AuditLogs = lazy(() => import('../components/AdminPanel').then(m => ({ default: m.AuditLogs })));
-// Act As (Sep 11) - the picker itself is a fixed-overlay modal (shared with
-// the header's own Act As entry point), so the tab is just a status card
-// that opens it, not a reimplementation of the picker inline.
-const ActAsModal = lazy(() => import('../components/ActAsModal'));
+// Act As (Sep 11) - ActAsPicker is the search box + people list, shared with
+// the header dropdown's fixed-overlay ActAsModal so both stay in lockstep;
+// here it just renders inline instead of behind a modal.
+const ActAsPicker = lazy(() => import('../components/ActAsModal').then(m => ({ default: m.ActAsPicker })));
 // TaskNotifySettings needs TasksContext (task lookups for its delivery log's
 // "open task" link) - wrapped in its own TasksProvider here, same trick
 // Support.jsx uses for its Tasks-borrowed composers, since Admin has no
@@ -295,12 +295,12 @@ function CompanySection({ toastOk, toastErr }) {
 }
 
 // ── Act As ───────────────────────────────────────────────────────────────────
-// Status card + launcher for the same Act As flow as the header dropdown
-// (useRole's startActAs/stopActAs) - not a second implementation of the
-// picker, just another door into it.
+// The people list shows straight away (Pranshu, Sep 11) - no accordion to
+// open, no dropdown/modal to click through first, same as picking someone in
+// a search box anywhere else in Nexus. Reuses useRole's startActAs/stopActAs,
+// same as the header dropdown's own Act As entry point.
 function ActAsSection() {
   const { actingAs, startActAs, stopActAs } = useRole();
-  const [modalOpen, setModalOpen] = useState(false);
   const [stopping, setStopping] = useState(false);
 
   async function handleExit() {
@@ -309,10 +309,19 @@ function ActAsSection() {
   }
 
   return (
-    <Section icon={UserCog} title="Act As"
-      sub="Temporarily see and act in Nexus as another employee, scoped to roles below your own.">
+    <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <span style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+          <UserCog size={14} style={{ color: 'var(--ink)' }} />
+        </span>
+        <span>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>Act As</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Temporarily see and act in Nexus as another employee, scoped to roles below your own.</div>
+        </span>
+      </div>
+
       {actingAs ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
           <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>
             Currently acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}).
           </span>
@@ -322,16 +331,13 @@ function ActAsSection() {
           </button>
         </div>
       ) : (
-        <button className="secondary-btn" onClick={() => setModalOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <UserCog size={14} /> Act As…
-        </button>
+        <div style={{ marginTop: 14 }}>
+          <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>}>
+            <ActAsPicker onStart={startActAs} autoFocus={false} />
+          </Suspense>
+        </div>
       )}
-      {modalOpen && (
-        <Suspense fallback={<ModalFallback />}>
-          <ActAsModal onClose={() => setModalOpen(false)} onStart={startActAs} />
-        </Suspense>
-      )}
-    </Section>
+    </div>
   );
 }
 
