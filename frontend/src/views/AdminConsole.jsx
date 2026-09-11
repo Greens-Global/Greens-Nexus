@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
+import ModuleTabs from '../components/ModuleTabs';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
@@ -342,10 +343,10 @@ function ActAsSection() {
 }
 
 const TOP_TABS = [
-  ['settings', 'Company Settings', SlidersHorizontal],
-  ['access',   'Roles & Access',   Shield],
-  ['actas',    'Act As',           UserCog],
-  ['audit',    'Audit Logs',       Activity],
+  { key: 'settings', label: 'Company Settings', Icon: SlidersHorizontal },
+  { key: 'access',   label: 'Roles & Access',   Icon: Shield },
+  { key: 'actas',    label: 'Act As',           Icon: UserCog },
+  { key: 'audit',    label: 'Audit Logs',       Icon: Activity },
 ];
 
 export default function AdminConsole({ activeSub, onSubChange }) {
@@ -359,8 +360,8 @@ export default function AdminConsole({ activeSub, onSubChange }) {
   const toastOk = useCallback((msg) => showToast(msg, 'success'), [showToast]);
   const toastErr = useCallback((msg) => showToast(msg, 'error'), [showToast]);
 
-  const visibleTabs = TOP_TABS.filter(([id]) => id !== 'actas' || canActAs || actingAs);
-  const topTab = visibleTabs.some(([id]) => id === activeSub) ? activeSub : 'settings';
+  const visibleTabs = TOP_TABS.filter(({ key }) => key !== 'actas' || canActAs || actingAs);
+  const topTab = visibleTabs.some(t => t.key === activeSub) ? activeSub : 'settings';
   const setTopTab = (id) => onSubChange ? onSubChange(id) : undefined;
 
   // Full-bleed, like every other module (HR, Item Management, Tickets) - no
@@ -370,25 +371,23 @@ export default function AdminConsole({ activeSub, onSubChange }) {
   // embedded panels (Pranshu, Sep 9).
   return (
     <div style={{ fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-        <div style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-          <Settings2 size={18} style={{ color: 'var(--ink)' }} />
+      {/* Icon-chip page title (Work OS grammar), matching every other module's
+          .view-header instead of a bespoke h1 (Pranshu, Sep 12). */}
+      <div className="view-header" style={{ marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Settings2 size={19} />
+          </span>
+          <div className="view-title-group">
+            <h2 style={{ fontFamily: 'var(--wk-font)' }}>Settings</h2>
+            <p>Company-wide settings and access control, all in one place - no code change required for any of it.</p>
+          </div>
         </div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Settings</h1>
-      </div>
-      <div style={{ fontSize: 13.5, color: 'var(--muted)', marginBottom: 20, maxWidth: 640, lineHeight: 1.5 }}>
-        Company-wide settings and access control, all in one place - no code change required for any of it.
       </div>
 
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 6, marginBottom: 22, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
-        {visibleTabs.map(([id, label, Icon]) => (
-          <button key={id} onClick={() => setTopTab(id)}
-            style={{ background: 'none', border: 'none', padding: '9px 14px', fontFamily: 'Inter,sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: topTab === id ? 'var(--ink)' : 'var(--muted)', position: 'relative', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap' }}>
-            <Icon size={15} /> {label}
-            {topTab === id && <span style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 2.5, background: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
-          </button>
-        ))}
-      </div>
+      {/* Tabs - desktop renders them centered in the top header; phones keep
+          the in-page strip (ModuleTabs handles both) */}
+      <ModuleTabs tabs={visibleTabs} active={topTab} onChange={setTopTab} />
 
       {topTab === 'access' ? (
         <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0' }}>Loading…</div>}>
