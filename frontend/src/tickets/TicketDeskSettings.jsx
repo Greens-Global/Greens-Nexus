@@ -23,9 +23,10 @@
 // own roster now. The flat list above becomes the DEFAULT: it's what a
 // company with no roster of its own falls back to, before the backend's last
 // resort of "every administrator" (see ticket_notify.ticket_agents).
-import { useEffect, useState } from 'react';
-import { Headset, Save, Building2, Siren, Plus, ChevronDown, ChevronRight } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Headset, Save, Building2, Siren, Plus, ChevronDown, ChevronRight, Pencil, X } from 'lucide-react';
 import { api } from '../api';
+import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, card } from '../tasks/theme';
 import { PersonMultiSelect, PersonSelect, usePeople } from '../tasks/components';
@@ -66,7 +67,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // their specific department. Lives here (not People -> Companies) so setting
 // it doesn't require an HR module grant - same reasoning as /ticket-companies
 // and /ticket-departments existing as their own read endpoints.
-function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead }) {
+function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead, onRename, onDelete }) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   // Collapsed by default - a company with a lot of departments (a real one
@@ -74,6 +75,9 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
   // through every card just to reach the Save button. Independent per card,
   // no need to persist across reloads.
   const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState(null);   // department being renamed
+  const [editName, setEditName] = useState('');
+  const cancelRef = useRef(false);   // set on Escape so the ensuing onBlur doesn't SAVE
   const add = async () => {
     const n = name.trim();
     if (!n || busy) return;
@@ -81,6 +85,20 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
     try { await onAdd(companyId, n); setName(''); }
     catch (e) { alert(e.message || 'Could not add department.'); }
     finally { setBusy(false); }
+  };
+  const rename = async (d) => {
+    const n = editName.trim();
+    setEditId(null);
+    if (!n || n === d.name) return;
+    try { await onRename(d.id, n); }
+    catch (e) { alert(e.message || 'Could not rename department.'); }
+  };
+  const remove = async (d) => {
+    if (!await dialog.confirm(
+      `Delete the "${d.name}" department from ${companyName}'s ticket desk? Tickets already filed against it are untouched - it just stops being a pickable choice. This only affects the ticket desk, not Company Setup.`,
+      { title: 'Delete department', confirmText: 'Delete', danger: true })) return;
+    try { await onDelete(d.id); }
+    catch (e) { alert(e.message || 'Could not delete department.'); }
   };
   const hasDepts = depts.length > 0;
   return (
@@ -109,12 +127,30 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
         <>
           {depts.map((d) => (
             <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <div style={{ fontSize: 12.5, color: NX.ink, width: 110, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.name}>{d.name}</div>
+              {editId === d.id ? (
+                <input autoFocus value={editName} maxLength={40}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } if (e.key === 'Escape') { cancelRef.current = true; setEditId(null); } }}
+                  onBlur={() => { if (cancelRef.current) { cancelRef.current = false; return; } rename(d); }}
+                  style={{ width: 110, flexShrink: 0, fontFamily: FONT, fontSize: 12.5, padding: '3px 6px', border: `1px solid ${NX.border}`, borderRadius: 6, color: NX.ink, background: 'transparent' }} />
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 110, flexShrink: 0 }}>
+                  <span style={{ fontSize: 12.5, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.name}>{d.name}</span>
+                  <button onClick={() => { setEditId(d.id); setEditName(d.name); }} title={`Rename ${d.name}`} aria-label={`Rename ${d.name}`}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: NX.dim, display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0, flexShrink: 0 }}>
+                    <Pencil size={11} />
+                  </button>
+                </div>
+              )}
               <div style={{ flex: 1 }}>
                 <PersonSelect value={d.leadEmail || null} people={people}
                   onChange={(email) => onSetHead(d.id, email || '').catch((e) => alert(e.message || 'Could not set department head.'))}
                   placeholder="No department head set" />
               </div>
+              <button onClick={() => remove(d)} title={`Delete ${d.name}`} aria-label={`Delete ${d.name}`}
+                style={{ border: 'none', background: 'none', cursor: 'pointer', color: NX.dim, display: 'grid', placeItems: 'center', width: 20, height: 20, borderRadius: '50%', padding: 0, flexShrink: 0 }}>
+                <X size={13} />
+              </button>
             </div>
           ))}
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
@@ -215,6 +251,14 @@ export default function TicketDeskSettings() {
     const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
     return api.setTicketDepartmentHead(deptId, email).then((rows) => mergeDepts(companyId, rows));
   };
+  const renameDept = (deptId, name) => {
+    const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
+    return api.renameTicketDepartment(deptId, name).then((rows) => mergeDepts(companyId, rows));
+  };
+  const deleteDept = (deptId) => {
+    const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
+    return api.deleteTicketDepartment(deptId).then((rows) => mergeDepts(companyId, rows));
+  };
 
   const save = async () => {
     setSaving(true); setErr(''); setSaved(false);
@@ -268,7 +312,7 @@ export default function TicketDeskSettings() {
               >
                 <DepartmentHeads companyId={c.id} companyName={c.name} people={people}
                   depts={depts.filter((d) => d.companyId === c.id)}
-                  onAdd={addDept} onSetHead={setDeptHead} />
+                  onAdd={addDept} onSetHead={setDeptHead} onRename={renameDept} onDelete={deleteDept} />
               </DeskRoster>
             ))}
           </div>

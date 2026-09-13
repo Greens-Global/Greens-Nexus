@@ -491,9 +491,13 @@ export const api = {
   deleteTicketView: (id) => req(`/task-ticket-views/${id}`, { method: "DELETE" }),
   getTicketCompanies: () => req("/ticket-companies"),
   getTicketDepartments: () => req("/ticket-departments"),
-  // Manage -> Service Desk -> Departments: add a department / set who gets
-  // the escalation email for it, without needing an HR module grant.
+  // Manage -> Service Desk -> Departments: add / rename / delete a department,
+  // or set who gets the escalation email for it, without needing an HR module
+  // grant. Its own ticket_departments table - independent of the People ->
+  // Companies -> Global Company Setup department list (Sept 13, 2026).
   addTicketDepartment: (companyId, name) => req("/ticket-departments", { method: "POST", body: JSON.stringify({ company_id: companyId, name }) }),
+  renameTicketDepartment: (deptId, name) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+  deleteTicketDepartment: (deptId) => req(`/ticket-departments/${deptId}`, { method: "DELETE" }),
   setTicketDepartmentHead: (deptId, leadEmail) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ lead_email: leadEmail }) }),
   // Only the departments of the caller's own company - what ticket intake
   // offers now that company is resolved server-side instead of asked for.
@@ -1380,6 +1384,7 @@ export const api = {
   egnyteOauthDisconnect: () => req('/egnyte-oauth/me', { method: 'DELETE' }),
   egnytePersonProvision: (email)              => req(`/egnyte/person/${encodeURIComponent(email)}/provision`, { method: 'POST' }),
   myhrEgnyteDocs:    ()                       => req('/myhr/egnyte-documents'),
+  myhrEgnyteNewFolder: (name)                 => req('/myhr/egnyte-documents/folder', { method: 'POST', body: JSON.stringify({ name }) }),
   myhrEgnyteFile:    (path)                   => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}`),
   myhrEgnyteFilePreview: (path)               => reqBlob(`/myhr/egnyte-documents/file?path=${encodeURIComponent(path)}&inline=true`),
   // ── Step-up MFA (fresh verification before sensitive data) ──
