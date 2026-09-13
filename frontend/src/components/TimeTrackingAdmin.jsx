@@ -480,10 +480,87 @@ const MON_SUBTABS = [
   { id: 'coverage',    label: 'Coverage' },
   { id: 'activity',    label: 'Activity' },
   { id: 'locations',   label: 'Locations' },
-  { id: 'policy',      label: 'Policy' },
   { id: 'computers',   label: 'Computers' },
   { id: 'screenshots', label: 'Screenshots' },
 ];
+
+// ── Monitoring Policy (standalone) ─────────────────────────────────────────────
+// Named-exported so the Admin module can embed it directly as "Workforce
+// Analytics Policy" (Pranshu, Sep 11) - this used to be a Policy tab here,
+// now it lives only under Admin -> Company Settings.
+export function MonitoringPolicy() {
+  const [policy, setPolicy] = useState(null);
+  const [policyMsg, setPolicyMsg] = useState(null);   // {ok, text}
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  useEffect(() => { api.timeMonitoringPolicy().then(setPolicy).catch(() => setPolicy(null)); }, []);
+
+  async function savePolicy() {
+    if (!policy || savingPolicy) return;
+    setSavingPolicy(true); setPolicyMsg(null);
+    try {
+      const saved = await api.timeSetMonitoringPolicy({
+        enabled:         !!policy.enabled,
+        interval_minutes: Math.min(60, Math.max(1, Number(policy.intervalMinutes) || 5)),
+        randomize:       !!policy.randomize,
+        track_screens:   !!policy.trackScreens,
+        track_windows:   !!policy.trackWindows,
+        track_input:     !!policy.trackInput,
+      });
+      setPolicy(saved);
+      setPolicyMsg({ ok: true, text: 'Monitoring policy saved.' });
+    } catch (e) {
+      setPolicyMsg({ ok: false, text: e?.message || 'Could not save the policy.' });
+    }
+    setSavingPolicy(false);
+  }
+
+  return (
+    <div>
+      <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
+        Sets what Nexus records while people are clocked in. Capture runs in the browser (Chrome screen sharing) -
+        there’s no separate app to install. Employees see this notice and acknowledge it the first time they clock in
+        each day. Changes take effect the next time someone starts a session.
+      </p>
+      {policy === null ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading policy…
+        </div>
+      ) : (<>
+        <div style={{ display: 'grid', gap: 10 }}>
+          {MON_TOGGLES.map(([key, label, help]) => (
+            <div key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              <PolicySwitch on={!!policy[key]} onToggle={() => setPolicy(p => ({ ...p, [key]: !p[key] }))} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{label}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>{help}</div>
+              </div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 2 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>Capture interval</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>How often a frame is captured, in minutes (1–60).</div>
+            </div>
+            <input className="form-input" type="number" min={1} max={60}
+              value={policy.intervalMinutes ?? 5}
+              onChange={e => setPolicy(p => ({ ...p, intervalMinutes: e.target.value }))}
+              style={{ width: 88, fontSize: 13, textAlign: 'center', flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>min</span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
+          <button className="primary-btn" onClick={savePolicy} disabled={savingPolicy}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+            {savingPolicy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={13} />} Save policy
+          </button>
+          {policyMsg && (
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: policyMsg.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{policyMsg.text}</span>
+          )}
+        </div>
+      </>)}
+    </div>
+  );
+}
 
 // Activity/Insights (apps, sites, active vs idle, productivity) for a chosen day.
 function ActivityInsights() {
@@ -508,9 +585,6 @@ function ActivityInsights() {
 }
 
 export default function TimeTrackingAdmin({ initialSub = 'coverage', module = false }) {
-  const [policy, setPolicy] = useState(null);
-  const [policyMsg, setPolicyMsg] = useState(null);   // {ok, text}
-  const [savingPolicy, setSavingPolicy] = useState(false);
   const [sub, setSub] = useState(initialSub);
   const [shotReq, setShotReq] = useState({ email: '', date: '' });   // Coverage -> Screenshots deep-link
   useEffect(() => {
@@ -519,27 +593,6 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
     // clear any leftover Coverage deep-link so it doesn't reopen the last person.
     if (initialSub === 'screenshots') setShotReq({ email: '', date: '' });
   }, [initialSub]);
-  useEffect(() => { api.timeMonitoringPolicy().then(setPolicy).catch(() => setPolicy(null)); }, []);
-
-  async function savePolicy() {
-    if (!policy || savingPolicy) return;
-    setSavingPolicy(true); setPolicyMsg(null);
-    try {
-      const saved = await api.timeSetMonitoringPolicy({
-        enabled:         !!policy.enabled,
-        interval_minutes: Math.min(60, Math.max(1, Number(policy.intervalMinutes) || 5)),
-        randomize:       !!policy.randomize,
-        track_screens:   !!policy.trackScreens,
-        track_windows:   !!policy.trackWindows,
-        track_input:     !!policy.trackInput,
-      });
-      setPolicy(saved);
-      setPolicyMsg({ ok: true, text: 'Monitoring policy saved.' });
-    } catch (e) {
-      setPolicyMsg({ ok: false, text: e?.message || 'Could not save the policy.' });
-    }
-    setSavingPolicy(false);
-  }
 
   return (
     <div style={module
@@ -584,57 +637,6 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
 
       {sub === 'screenshots' && (
         <ScreenshotsAdmin embedded initialEmail={shotReq.email} initialDate={shotReq.date} onBack={() => { setShotReq({ email: '', date: '' }); setSub('coverage'); }} />
-      )}
-
-      {sub === 'policy' && (
-      <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <ShieldCheck size={16} style={{ color: 'hsl(var(--color-green))' }} />
-          <span style={{ fontSize: 13.5, fontWeight: 800 }}>Monitoring Policy</span>
-        </div>
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
-          Sets what Nexus records while people are clocked in. Capture runs in the browser (Chrome screen sharing) -
-          there’s no separate app to install. Employees see this notice and acknowledge it the first time they clock in
-          each day. Changes take effect the next time someone starts a session.
-        </p>
-        {policy === null ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-            <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading policy…
-          </div>
-        ) : (<>
-          <div style={{ display: 'grid', gap: 10 }}>
-            {MON_TOGGLES.map(([key, label, help]) => (
-              <div key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                <PolicySwitch on={!!policy[key]} onToggle={() => setPolicy(p => ({ ...p, [key]: !p[key] }))} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{label}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>{help}</div>
-                </div>
-              </div>
-            ))}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 2 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>Capture interval</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>How often a frame is captured, in minutes (1–60).</div>
-              </div>
-              <input className="form-input" type="number" min={1} max={60}
-                value={policy.intervalMinutes ?? 5}
-                onChange={e => setPolicy(p => ({ ...p, intervalMinutes: e.target.value }))}
-                style={{ width: 88, fontSize: 13, textAlign: 'center', flexShrink: 0 }} />
-              <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>min</span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
-            <button className="primary-btn" onClick={savePolicy} disabled={savingPolicy}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-              {savingPolicy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={13} />} Save policy
-            </button>
-            {policyMsg && (
-              <span style={{ fontSize: 11.5, fontWeight: 600, color: policyMsg.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{policyMsg.text}</span>
-            )}
-          </div>
-        </>)}
-      </div>
       )}
 
       {sub === 'computers' && <AgentInstall />}

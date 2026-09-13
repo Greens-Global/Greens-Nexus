@@ -161,7 +161,7 @@ export const NAV = [
   { view: "testing", code: "QA",        label: "Testing",        icon: FlaskConical, minRole: 'supervisor', qaGated: true },
   // Admin - grant-driven per-module extras (Pranshu, Sep 9), separate from the
   // header's AdminPanel modal and the search-only Nexus Access Manager.
-  { view: "admin-console", code: "ADM", label: "Admin",          icon: Settings,     minRole: 'supervisor' },
+  { view: "admin-console", code: "ADM", label: "Settings",       icon: Settings,     minRole: 'supervisor' },
 ];
 
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {

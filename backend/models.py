@@ -1934,6 +1934,11 @@ class Shift(Base):
     days       = Column(String, default="1,2,3,4,5")  # ISO weekday nums (Mon=1)
     grace_min  = Column(Integer, default=10)
     color      = Column(String, default="#2563eb")
+    # IANA zone this shift's start/end times are wall-clock-local to (e.g.
+    # "Asia/Kolkata" for a team that starts 18:00 IST). Lets each team's
+    # briefing/late-detection trigger fire against its own local clock instead
+    # of guessing from the employee's last punch timezone.
+    timezone   = Column(String, default="America/Los_Angeles")
     created_by = Column(String, default="")
     created_at = Column(String, default="")
 

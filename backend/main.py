@@ -681,6 +681,10 @@ def _run_migrations():
             # "Needs a comment" staleness highlight - timestamp of the ticket's
             # most recent comment, separate from SLA due-date breach.
             "ALTER TABLE task_tickets ADD COLUMN last_comment_at VARCHAR DEFAULT ''",
+            # Per-shift IANA timezone (Sep 11): the shift's start/end times are
+            # wall-clock-local to this zone, so a team's own clock drives its
+            # briefing/late trigger instead of the employee's last punch tz.
+            "ALTER TABLE shifts ADD COLUMN timezone VARCHAR DEFAULT 'America/Los_Angeles'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1437,6 +1441,8 @@ def _run_migrations():
         # "Needs a comment" staleness highlight - timestamp of the ticket's
         # most recent comment, separate from SLA due-date breach.
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS last_comment_at VARCHAR DEFAULT ''",
+        # Same addition as the SQLite list above - see the note there.
+        "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS timezone VARCHAR DEFAULT 'America/Los_Angeles'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

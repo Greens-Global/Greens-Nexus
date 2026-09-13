@@ -1,8 +1,8 @@
 // Admin - the one place admin-team UI settings live (Pranshu, Sep 9).
-// Deliberately separate from the two existing admin surfaces: the header's
-// AdminPanel modal (now just the audit log) and the search-only "Nexus
-// Access Manager" (roles/access grants, module id 'admin') - neither is
-// touched here.
+// Deliberately separate from the search-only "Nexus Access Manager"
+// (roles/access grants, module id 'admin') - not touched here. The header's
+// old AdminPanel drawer (Audit Logs) is gone (Sep 11) - see the Audit Logs
+// tab below.
 //
 // "Build out the module" (Sep 9) means: relocate every admin-only setting
 // that's a UI click (not a code change) here, even when it was originally
@@ -20,22 +20,30 @@
 // constants requiring a code deploy to change; now backed by
 // backend/ticket_taxonomy.py + a NexusSetting row, see tickets/ticketConfig.js
 // for how the saved override reaches every ticket screen), Task
-// Notifications (moved here whole, previously a Tasks → Manage tab), the
-// "Send Alert" broadcast tool, and HR's Company Setup / Work Sites / Sync
-// M365. Explicitly OUT of scope (Pranshu, Sep 9): Branding (an individual
-// employee's own choice, not an admin decision - stays in the header
-// AdminPanel drawer), shift presets, Asana sync, overtime rules, QA module
-// toggle - left where they are. The placeholder "Other modules" grid (one
-// card per module with no settings yet) was dropped (Pranshu, Sep 9) - it
-// only ever said "no configurable options yet" for every module not listed
-// above, which isn't useful information; a module gets a section here when
-// it actually has one.
+// Notifications (moved here whole, previously a Tasks → Manage tab), Act As
+// and Audit Logs (Sep 11, moved whole out of the header dropdown), and HR's
+// Company Setup / Work Sites / Sync M365. Explicitly OUT of scope (Pranshu,
+// Sep 9): Branding (an individual employee's own choice, not an admin
+// decision - stays in the header's account menu), shift presets, Asana sync,
+// overtime rules, QA module toggle - left where they are. The placeholder
+// "Other modules" grid (one card per module with no settings yet) was
+// dropped (Pranshu, Sep 9) - it only ever said "no configurable options yet"
+// for every module not listed above, which isn't useful information; a
+// module gets a section here when it actually has one.
+//
+// Company Alert / "Send Alert" broadcast tool was dropped from here entirely
+// (Pranshu, Sep 11) - unused. Workforce Analytics Policy (the old Policy tab
+// under Employee Tracking) moved in as its replacement in the Company
+// Settings list.
 import { useState, useCallback, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronDown, Tag, Shield, SlidersHorizontal,
-  Headset, Bell, Megaphone, Building2, MapPin, RefreshCw, Loader2, Timer,
+  Headset, Bell, Building2, MapPin, RefreshCw, Loader2, Timer,
+  UserCog, Activity, DoorOpen, ShieldCheck,
 } from 'lucide-react';
 import { api } from '../api';
+import { useRole } from '../contexts/RoleContext';
+import ModuleTabs from '../components/ModuleTabs';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
@@ -44,13 +52,22 @@ import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
 // admin actually opens that section.
 const ManageTypesModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.ManageTypesModal })));
 const CustomFieldsAdminModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.CustomFieldsAdminModal })));
-const SendAlertModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.SendAlertModal })));
 const EntitiesModal = lazy(() => import('./HR').then(m => ({ default: m.EntitiesModal })));
 const WorkSitesModal = lazy(() => import('./HR').then(m => ({ default: m.WorkSitesModal })));
+// Workforce Analytics Policy (Sep 11) - named-exported from TimeTrackingAdmin.jsx.
+const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
 // `embedded` skips its own page header, since it gets one from the tab here.
 const RolesAccess = lazy(() => import('./RolesAccess'));
+// Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
+// header AdminPanel drawer that used to render this is gone; AuditLogs is
+// named-exported from that file and embedded directly here now.
+const AuditLogs = lazy(() => import('../components/AdminPanel').then(m => ({ default: m.AuditLogs })));
+// Act As (Sep 11) - ActAsPicker is the search box + people list, shared with
+// the header dropdown's fixed-overlay ActAsModal so both stay in lockstep;
+// here it just renders inline instead of behind a modal.
+const ActAsPicker = lazy(() => import('../components/ActAsModal').then(m => ({ default: m.ActAsPicker })));
 // TaskNotifySettings needs TasksContext (task lookups for its delivery log's
 // "open task" link) - wrapped in its own TasksProvider here, same trick
 // Support.jsx uses for its Tasks-borrowed composers, since Admin has no
@@ -171,18 +188,18 @@ function TicketSettingsSections() {
   );
 }
 
-// ── Company Alert (Send Alert) ─────────────────────────────────────────────────
-function CompanyAlertSection({ toast }) {
-  const [open, setOpen] = useState(false);
+// ── Workforce Analytics Policy ──────────────────────────────────────────────────
+// Moved here whole (Pranshu, Sep 11) - was the Policy tab on Workforce
+// Analytics (Employee Tracking); that screen's own tab strip no longer
+// carries it. Reuses MonitoringPolicy exactly, named-exported from
+// TimeTrackingAdmin.jsx so behavior can't drift between here and there.
+function WorkforceAnalyticsPolicySection() {
   return (
-    <Section icon={Megaphone} title="Company Alert" defaultOpen={false}
-      sub="Broadcast a bell + email alert to selected people - originally in Item Management's toolbar.">
-      <button className="secondary-btn" onClick={() => setOpen(true)}>Send Alert…</button>
-      {open && (
-        <Suspense fallback={<ModalFallback />}>
-          <SendAlertModal onClose={() => setOpen(false)} toast={toast} />
-        </Suspense>
-      )}
+    <Section icon={ShieldCheck} title="Workforce Analytics Policy" defaultOpen={false}
+      sub="What Nexus records while people are clocked in, and how often - originally the Policy tab under Workforce Analytics.">
+      <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>}>
+        <MonitoringPolicy />
+      </Suspense>
     </Section>
   );
 }
@@ -278,12 +295,63 @@ function CompanySection({ toastOk, toastErr }) {
   );
 }
 
+// ── Act As ───────────────────────────────────────────────────────────────────
+// The people list shows straight away (Pranshu, Sep 11) - no accordion to
+// open, no dropdown/modal to click through first, same as picking someone in
+// a search box anywhere else in Nexus. Reuses useRole's startActAs/stopActAs,
+// same as the header dropdown's own Act As entry point.
+function ActAsSection() {
+  const { actingAs, startActAs, stopActAs } = useRole();
+  const [stopping, setStopping] = useState(false);
+
+  async function handleExit() {
+    setStopping(true);
+    try { await stopActAs(); } finally { setStopping(false); }
+  }
+
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <span style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+          <UserCog size={14} style={{ color: 'var(--ink)' }} />
+        </span>
+        <span>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>Act As</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Temporarily see and act in Nexus as another employee, scoped to roles below your own.</div>
+        </span>
+      </div>
+
+      {actingAs ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
+          <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>
+            Currently acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}).
+          </span>
+          <button className="secondary-btn" onClick={handleExit} disabled={stopping}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'hsl(var(--color-red))' }}>
+            <DoorOpen size={14} /> {stopping ? 'Exiting…' : 'Exit Act As'}
+          </button>
+        </div>
+      ) : (
+        <div style={{ marginTop: 14 }}>
+          <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>}>
+            <ActAsPicker onStart={startActAs} autoFocus={false} />
+          </Suspense>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const TOP_TABS = [
-  ['settings', 'Company Settings', SlidersHorizontal],
-  ['access',   'Roles & Access',   Shield],
+  { key: 'settings', label: 'Company Settings', Icon: SlidersHorizontal },
+  { key: 'access',   label: 'Roles & Access',   Icon: Shield },
+  { key: 'actas',    label: 'Act As',           Icon: UserCog },
+  { key: 'audit',    label: 'Audit Logs',       Icon: Activity },
 ];
 
 export default function AdminConsole({ activeSub, onSubChange }) {
+  const { can, myGrantedModules, actingAs } = useRole();
+  const canActAs = (can?.('manager') ?? false) || !!myGrantedModules?.has?.('act-as');
   const [toast, setToast] = useState(null); // { msg, kind }
   const showToast = useCallback((msg, kind = 'success') => {
     setToast({ msg, kind });
@@ -292,7 +360,8 @@ export default function AdminConsole({ activeSub, onSubChange }) {
   const toastOk = useCallback((msg) => showToast(msg, 'success'), [showToast]);
   const toastErr = useCallback((msg) => showToast(msg, 'error'), [showToast]);
 
-  const topTab = activeSub === 'access' ? 'access' : 'settings';
+  const visibleTabs = TOP_TABS.filter(({ key }) => key !== 'actas' || canActAs || actingAs);
+  const topTab = visibleTabs.some(t => t.key === activeSub) ? activeSub : 'settings';
   const setTopTab = (id) => onSubChange ? onSubChange(id) : undefined;
 
   // Full-bleed, like every other module (HR, Item Management, Tickets) - no
@@ -302,30 +371,34 @@ export default function AdminConsole({ activeSub, onSubChange }) {
   // embedded panels (Pranshu, Sep 9).
   return (
     <div style={{ fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-        <div style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-          <Settings2 size={18} style={{ color: 'var(--ink)' }} />
+      {/* Icon-chip page title (Work OS grammar), matching every other module's
+          .view-header instead of a bespoke h1 (Pranshu, Sep 12). */}
+      <div className="view-header" style={{ marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Settings2 size={19} />
+          </span>
+          <div className="view-title-group">
+            <h2 style={{ fontFamily: 'var(--wk-font)' }}>Settings</h2>
+            <p>Company-wide settings and access control, all in one place - no code change required for any of it.</p>
+          </div>
         </div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Admin</h1>
-      </div>
-      <div style={{ fontSize: 13.5, color: 'var(--muted)', marginBottom: 20, maxWidth: 640, lineHeight: 1.5 }}>
-        Company-wide settings and access control, all in one place - no code change required for any of it.
       </div>
 
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 6, marginBottom: 22, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
-        {TOP_TABS.map(([id, label, Icon]) => (
-          <button key={id} onClick={() => setTopTab(id)}
-            style={{ background: 'none', border: 'none', padding: '9px 14px', fontFamily: 'Inter,sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: topTab === id ? 'var(--ink)' : 'var(--muted)', position: 'relative', display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap' }}>
-            <Icon size={15} /> {label}
-            {topTab === id && <span style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 2.5, background: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
-          </button>
-        ))}
-      </div>
+      {/* Tabs - desktop renders them centered in the top header; phones keep
+          the in-page strip (ModuleTabs handles both) */}
+      <ModuleTabs tabs={visibleTabs} active={topTab} onChange={setTopTab} />
 
       {topTab === 'access' ? (
         <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0' }}>Loading…</div>}>
           <RolesAccess embedded />
         </Suspense>
+      ) : topTab === 'audit' ? (
+        <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0' }}>Loading…</div>}>
+          <AuditLogs />
+        </Suspense>
+      ) : topTab === 'actas' ? (
+        <ActAsSection />
       ) : (
         <>
           <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', letterSpacing: '.06em', marginBottom: 8 }}>
@@ -333,7 +406,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           </div>
           <ItemSettingsSection toast={showToast} />
           <TicketSettingsSections />
-          <CompanyAlertSection toast={showToast} />
+          <WorkforceAnalyticsPolicySection />
           <CompanySection toastOk={toastOk} toastErr={toastErr} />
         </>
       )}
