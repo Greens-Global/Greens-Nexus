@@ -34,7 +34,7 @@ const CARD = { background: 'var(--card)', border: '1px solid var(--line)', borde
 
 // Sensible starting geometry per module - the picker can always override it.
 const DEFAULT_GEOMETRY = {
-  tasks: 'bar', attendance: 'area', agents: 'table', tickets: 'donut',
+  tasks: 'bar', attendance: 'area', tickets: 'donut',
   knowledge_base: 'treemap', operations: 'card', documents: 'stack',
   it: 'card', construction: 'bar', asset_management: 'card',
   people: 'funnel', credential_vault: 'bar', accounting: 'card',
@@ -137,20 +137,21 @@ function VisualPicker({ value, onPick }) {
 }
 
 // ── Plain "Card" / "Multi-row card" visual ──
-function KpiCard({ stat }) {
+function KpiCard({ stat, onClick }) {
   const color = TONE_COLOR[stat.tone] || 'blue';
   return (
-    <div style={{ ...CARD, background: `hsla(var(--color-${color}), 0.10)`, border: `1px solid hsla(var(--color-${color}), 0.25)`, padding: '12px 14px', minWidth: 0 }}>
+    <div onClick={onClick ? () => onClick(stat) : undefined}
+      style={{ ...CARD, background: `hsla(var(--color-${color}), 0.10)`, border: `1px solid hsla(var(--color-${color}), 0.25)`, padding: '12px 14px', minWidth: 0, cursor: onClick ? 'pointer' : 'default' }}>
       <div style={{ fontSize: 24, fontWeight: 800, color: C(color), fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{stat.value}</div>
       <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 4 }}>{stat.label}</div>
     </div>
   );
 }
-function KpiCardRow({ rows }) {
+function KpiCardRow({ rows, onClick }) {
   if (!rows.length) return null;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
-      {rows.map(s => <KpiCard key={s.label} stat={s} />)}
+      {rows.map(s => <KpiCard key={s.label} stat={s} onClick={onClick} />)}
     </div>
   );
 }
@@ -162,7 +163,7 @@ function StatsTable({ rows, columns }) {
   return (
     <div style={{ border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'var(--mist)', fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
-        {cols.map(c => <span key={c}>{c === 'label' ? 'Metric' : c === 'value' ? 'Value' : c}</span>)}
+        {cols.map(c => <span key={c}>{c === 'label' ? 'Metric' : c === 'value' ? 'Value' : c === 'detail' ? 'Detail' : c}</span>)}
       </div>
       <div style={{ maxHeight: 168, overflow: 'auto' }}>
         {rows.map((r, i) => (
@@ -177,7 +178,7 @@ function StatsTable({ rows, columns }) {
 }
 
 // ── Bar / Column (same geometry, transposed) ──
-function BarGeom({ data, vertical }) {
+function BarGeom({ data, vertical, onBarClick }) {
   const height = vertical ? Math.max(90, data.length * 30) : 180;
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -191,7 +192,8 @@ function BarGeom({ data, vertical }) {
         )}
         {vertical ? <XAxis type="number" hide /> : <YAxis tick={{ fontSize: 10.5, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />}
         <Tooltip cursor={{ fill: 'var(--mist)' }} contentStyle={{ fontSize: 12, borderRadius: 6 }} />
-        <Bar dataKey="value" radius={vertical ? [0, 4, 4, 0] : [4, 4, 0, 0]} barSize={vertical ? 13 : 28} isAnimationActive={false}>
+        <Bar dataKey="value" radius={vertical ? [0, 4, 4, 0] : [4, 4, 0, 0]} barSize={vertical ? 13 : 28} isAnimationActive={false}
+          onClick={onBarClick ? (d) => onBarClick(d?.payload) : undefined} cursor={onBarClick ? 'pointer' : 'default'}>
           {data.map((d, i) => <Cell key={i} fill={d.fill} />)}
           {vertical && <LabelList dataKey="value" position="right" style={{ fontSize: 11, fontWeight: 700, fill: 'var(--ink)' }} />}
         </Bar>
@@ -328,19 +330,20 @@ const FUNNEL_PALETTE = ['blue', 'purple', 'gold', 'orange', 'green'];
 // The dispatcher: one geometry key, the right data source for it (preferring
 // the module's real shaped data - breakdown/trend/funnel/table - over the
 // generic stats list when the chosen visual can use it), one render path.
-function CategoryChart({ geometry, mod, stats }) {
+function CategoryChart({ geometry, mod, stats, onDrill }) {
   const tinted = (rows) => rows.map(d => ({ ...d, fill: C(TONE_COLOR[d.tone] || 'blue') }));
+  const drill = onDrill ? (datum) => datum?.key && onDrill(mod.id, datum.key, datum.label) : undefined;
   switch (geometry) {
     case 'card':
-      return <KpiCardRow rows={stats} />;
+      return <KpiCardRow rows={stats} onClick={drill ? (s) => drill(s) : undefined} />;
     case 'table': {
       if (mod.table?.length) return <StatsTable rows={mod.table.map(r => ({ label: r.employee, value: r.device }))} columns={['label', 'value']} />;
       return <StatsTable rows={stats.map(s => ({ label: s.label, value: s.value, tone: s.tone }))} />;
     }
     case 'bar':
-      return <BarGeom data={tinted(stats)} vertical />;
+      return <BarGeom data={tinted(stats)} vertical onBarClick={drill} />;
     case 'column':
-      return <BarGeom data={tinted(stats)} vertical={false} />;
+      return <BarGeom data={tinted(stats)} vertical={false} onBarClick={drill} />;
     case 'stack':
       return <StackedBarGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} />;
     case 'line':
@@ -405,7 +408,7 @@ function Ribbon({ modules }) {
   );
 }
 
-function ModuleCard({ mod, tone, query, geometry, onGeometry }) {
+function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill }) {
   const stats = (mod.stats || []).filter(s => matchesFilters(s, tone, query));
   const hasAny = stats.length || mod.breakdown?.length || mod.trend?.length || mod.funnel?.length || mod.table?.length;
   if (!hasAny) return null;
@@ -434,18 +437,65 @@ function ModuleCard({ mod, tone, query, geometry, onGeometry }) {
         </div>
       </div>
 
-      <CategoryChart geometry={geometry} mod={mod} stats={stats} />
+      <CategoryChart geometry={geometry} mod={mod} stats={stats} onDrill={onDrill} />
 
       {geometry !== 'card' && stats.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
           {stats.map(s => (
-            <div key={s.key}>
+            <div key={s.key} onClick={onDrill ? () => onDrill(mod.id, s.key, s.label) : undefined}
+              style={{ cursor: onDrill ? 'pointer' : 'default' }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: C(TONE_COLOR[s.tone] || 'blue'), fontVariantNumeric: 'tabular-nums' }}>{s.value}</div>
               <div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600 }}>{s.label}</div>
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Drill-down modal: "click Open, see who" (Pranshu, Sep 14) - the real
+// employee-level breakdown behind whichever bar/tile was clicked, from
+// GET /dashboards/insights/drilldown. Not every metric has one (there's no
+// "who" for SSL Expiring) - a 404 shows a plain explanation instead of an
+// empty chart pretending to be real data. ──
+function DrilldownModal({ request, onClose }) {
+  const [state, setState] = useState({ loading: true, kind: 'by_person', rows: [], title: '', error: '' });
+  useEffect(() => {
+    let alive = true;
+    setState({ loading: true, kind: 'by_person', rows: [], title: '', error: '' });
+    api.dashInsightsDrilldown(request.moduleId, request.metric)
+      .then(r => { if (alive) setState({ loading: false, kind: r.kind || 'by_person', rows: r.rows || [], title: r.title || request.label, error: '' }); })
+      .catch(e => { if (alive) setState({ loading: false, kind: 'by_person', rows: [], title: request.label, error: e?.message || 'No breakdown available for this metric yet.' }); });
+    return () => { alive = false; };
+  }, [request.moduleId, request.metric]);
+
+  // "by_person" rows are {label, value} - a real count per person, charted.
+  // "list" rows are {label, detail} - the affected records themselves (no
+  // "who" for e.g. a down website), shown as a plain list, not faked into bars.
+  const barData = state.kind === 'by_person' ? state.rows.map(r => ({ ...r, fill: C('blue') })) : [];
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ ...CARD, width: '100%', maxWidth: 480, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>{state.title || request.label}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: 18, overflow: 'auto' }}>
+          {state.loading ? (
+            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading…</div>
+          ) : state.error ? (
+            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{state.error}</div>
+          ) : !state.rows.length ? (
+            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nothing currently matches this metric.</div>
+          ) : state.kind === 'list' ? (
+            <StatsTable rows={state.rows} columns={['label', 'detail']} />
+          ) : (
+            <BarGeom data={barData} vertical />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -487,7 +537,9 @@ export default function BiInsights() {
   const [tone, setTone] = useState('all');
   const [query, setQuery] = useState('');
   const [picks, setPicks] = useState(loadPicks);
+  const [drillRequest, setDrillRequest] = useState(null);
   const alive = useRef(true);
+  const onDrill = (moduleId, metric, label) => setDrillRequest({ moduleId, metric, label });
 
   const load = useCallback(async () => {
     try {
@@ -601,9 +653,9 @@ export default function BiInsights() {
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ marginBottom: 14 }}><Ribbon modules={moduleFiltered} /></div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, alignItems: 'start' }}>
               {moduleFiltered.map(mod => (
-                <ModuleCard key={mod.id} mod={mod} tone={tone} query={q} geometry={geometryFor(mod.id)} onGeometry={setGeometry} />
+                <ModuleCard key={mod.id} mod={mod} tone={tone} query={q} geometry={geometryFor(mod.id)} onGeometry={setGeometry} onDrill={onDrill} />
               ))}
             </div>
             {moduleFiltered.length === 0 && (
@@ -614,6 +666,8 @@ export default function BiInsights() {
           <AttentionFeed modules={state.modules} onPick={pickOnly} />
         </div>
       )}
+
+      {drillRequest && <DrilldownModal request={drillRequest} onClose={() => setDrillRequest(null)} />}
     </div>
   );
 }
