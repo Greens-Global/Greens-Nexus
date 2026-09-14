@@ -7,7 +7,7 @@ import {
   Treemap,
 } from 'recharts';
 import {
-  RefreshCw, Download, Search, X,
+  RefreshCw, Download, Search, X, SlidersHorizontal, Check,
   BarChartHorizontal, ChartColumn, ChartBarStacked, ChartLine, ChartArea,
   ChartPie, PieChart as PieChartIcon, Grid2x2, Funnel as FunnelIcon, Table2, Hash,
 } from 'lucide-react';
@@ -61,6 +61,26 @@ function loadPicks() {
 function savePicks(picks) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(picks)); } catch { /* ignore */ }
 }
+
+// Customize (Pranshu, Sep 14): which cards show, and how big each one is -
+// saved per browser so the board looks the same on the next visit, same
+// persistence pattern as the visual-type picks above.
+const LS_VISIBLE = 'nexus:bi-visible-modules';
+const LS_SIZES = 'nexus:bi-card-sizes';
+function loadVisible() {
+  try { const v = JSON.parse(localStorage.getItem(LS_VISIBLE)); return Array.isArray(v) ? v : null; } catch { return null; }
+}
+function saveVisible(ids) {
+  try { localStorage.setItem(LS_VISIBLE, JSON.stringify(ids)); } catch { /* ignore */ }
+}
+function loadSizes() {
+  try { return JSON.parse(localStorage.getItem(LS_SIZES) || '{}'); } catch { return {}; }
+}
+function saveSizes(sizes) {
+  try { localStorage.setItem(LS_SIZES, JSON.stringify(sizes)); } catch { /* ignore */ }
+}
+const SIZE_MULT = { sm: 0.62, md: 1, lg: 1.6 };
+const SIZE_LABEL = { sm: 'S', md: 'M', lg: 'L' };
 
 const csvCell = (v) => {
   const s = v == null ? '' : String(v);
@@ -137,27 +157,27 @@ function VisualPicker({ value, onPick }) {
 }
 
 // ── Plain "Card" / "Multi-row card" visual ──
-function KpiCard({ stat, onClick }) {
+function KpiCard({ stat, onClick, sizeMult = 1 }) {
   const color = TONE_COLOR[stat.tone] || 'blue';
   return (
     <div onClick={onClick ? () => onClick(stat) : undefined}
       style={{ ...CARD, background: `hsla(var(--color-${color}), 0.10)`, border: `1px solid hsla(var(--color-${color}), 0.25)`, padding: '12px 14px', minWidth: 0, cursor: onClick ? 'pointer' : 'default' }}>
-      <div style={{ fontSize: 24, fontWeight: 800, color: C(color), fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{stat.value}</div>
+      <div style={{ fontSize: Math.round(24 * sizeMult), fontWeight: 800, color: C(color), fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{stat.value}</div>
       <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 4 }}>{stat.label}</div>
     </div>
   );
 }
-function KpiCardRow({ rows, onClick }) {
+function KpiCardRow({ rows, onClick, sizeMult = 1 }) {
   if (!rows.length) return null;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
-      {rows.map(s => <KpiCard key={s.label} stat={s} onClick={onClick} />)}
+      {rows.map(s => <KpiCard key={s.label} stat={s} onClick={onClick} sizeMult={sizeMult} />)}
     </div>
   );
 }
 
 // ── Generic table visual ──
-function StatsTable({ rows, columns }) {
+function StatsTable({ rows, columns, maxHeight = 168 }) {
   if (!rows.length) return <div style={{ fontSize: 12, color: 'var(--muted)' }}>No data.</div>;
   const cols = columns || ['label', 'value'];
   return (
@@ -165,7 +185,7 @@ function StatsTable({ rows, columns }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'var(--mist)', fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
         {cols.map(c => <span key={c}>{c === 'label' ? 'Metric' : c === 'value' ? 'Value' : c === 'detail' ? 'Detail' : c}</span>)}
       </div>
-      <div style={{ maxHeight: 168, overflow: 'auto' }}>
+      <div style={{ maxHeight, overflow: 'auto' }}>
         {rows.map((r, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '7px 10px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 12 }}>
             <span title={String(r[cols[0]] ?? '')} style={{ fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r[cols[0]]}</span>
@@ -199,8 +219,8 @@ function makeTruncatingTick(pixelWidth) {
   };
 }
 
-function BarGeom({ data, vertical, onBarClick, labelWidth = 150 }) {
-  const height = vertical ? Math.max(90, data.length * 30) : 180;
+function BarGeom({ data, vertical, onBarClick, labelWidth = 150, sizeMult = 1 }) {
+  const height = Math.round((vertical ? Math.max(90, data.length * 30) : 180) * sizeMult);
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} layout={vertical ? 'vertical' : 'horizontal'}
@@ -246,9 +266,9 @@ function StackedBarGeom({ data }) {
 }
 
 // ── Line / Area ──
-function LineAreaGeom({ data, area }) {
+function LineAreaGeom({ data, area, sizeMult = 1 }) {
   return (
-    <ResponsiveContainer width="100%" height={160}>
+    <ResponsiveContainer width="100%" height={Math.round(160 * sizeMult)}>
       {area ? (
         <AreaChart data={data} margin={{ top: 6, right: 8, left: -18, bottom: 2 }}>
           <defs>
@@ -277,15 +297,16 @@ function LineAreaGeom({ data, area }) {
 }
 
 // ── Pie / Donut ──
-function PieGeom({ data, donut }) {
+function PieGeom({ data, donut, sizeMult = 1 }) {
   const total = data.reduce((a, d) => a + d.value, 0);
   if (!total) return null;
+  const size = Math.round(96 * sizeMult);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-      <div style={{ width: 96, height: 96, flexShrink: 0 }}>
+      <div style={{ width: size, height: size, flexShrink: 0 }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={data} dataKey="value" nameKey="label" innerRadius={donut ? 28 : 0} outerRadius={44} paddingAngle={2} stroke="none" isAnimationActive={false}>
+            <Pie data={data} dataKey="value" nameKey="label" innerRadius={donut ? size * 0.29 : 0} outerRadius={size * 0.46} paddingAngle={2} stroke="none" isAnimationActive={false}>
               {data.map(d => <Cell key={d.label} fill={d.fill} />)}
             </Pie>
             <Tooltip formatter={(v, n) => [v, n]} contentStyle={{ fontSize: 12, borderRadius: 6 }} />
@@ -306,11 +327,11 @@ function PieGeom({ data, donut }) {
 }
 
 // ── Treemap ──
-function TreemapGeom({ data }) {
+function TreemapGeom({ data, sizeMult = 1 }) {
   const rows = data.filter(d => d.value > 0);
   if (!rows.length) return null;
   return (
-    <ResponsiveContainer width="100%" height={140}>
+    <ResponsiveContainer width="100%" height={Math.round(140 * sizeMult)}>
       <Treemap data={rows} dataKey="value" nameKey="label" stroke="var(--card)" isAnimationActive={false}
         content={({ x, y, width, height, name, value, fill }) => (
           <g>
@@ -330,10 +351,10 @@ function TreemapGeom({ data }) {
 }
 
 // ── Funnel ──
-function FunnelGeom({ data }) {
+function FunnelGeom({ data, sizeMult = 1 }) {
   if (!data.length || !data.some(d => d.value > 0)) return null;
   return (
-    <ResponsiveContainer width="100%" height={180}>
+    <ResponsiveContainer width="100%" height={Math.round(180 * sizeMult)}>
       <FunnelChart>
         <Tooltip contentStyle={{ fontSize: 12, borderRadius: 6 }} />
         <Funnel dataKey="value" data={data} nameKey="label" isAnimationActive={false}>
@@ -351,36 +372,37 @@ const FUNNEL_PALETTE = ['blue', 'purple', 'gold', 'orange', 'green'];
 // The dispatcher: one geometry key, the right data source for it (preferring
 // the module's real shaped data - breakdown/trend/funnel/table - over the
 // generic stats list when the chosen visual can use it), one render path.
-function CategoryChart({ geometry, mod, stats, onDrill }) {
+function CategoryChart({ geometry, mod, stats, onDrill, sizeMult = 1 }) {
   const tinted = (rows) => rows.map(d => ({ ...d, fill: C(TONE_COLOR[d.tone] || 'blue') }));
   const drill = onDrill ? (datum) => datum?.key && onDrill(mod.id, datum.key, datum.label) : undefined;
   switch (geometry) {
     case 'card':
-      return <KpiCardRow rows={stats} onClick={drill ? (s) => drill(s) : undefined} />;
+      return <KpiCardRow rows={stats} onClick={drill ? (s) => drill(s) : undefined} sizeMult={sizeMult} />;
     case 'table': {
-      if (mod.table?.length) return <StatsTable rows={mod.table.map(r => ({ label: r.employee, value: r.device }))} columns={['label', 'value']} />;
-      return <StatsTable rows={stats.map(s => ({ label: s.label, value: s.value, tone: s.tone }))} />;
+      const h = Math.round(168 * sizeMult);
+      if (mod.table?.length) return <StatsTable rows={mod.table.map(r => ({ label: r.employee, value: r.device }))} columns={['label', 'value']} maxHeight={h} />;
+      return <StatsTable rows={stats.map(s => ({ label: s.label, value: s.value, tone: s.tone }))} maxHeight={h} />;
     }
     case 'bar':
-      return <BarGeom data={tinted(stats)} vertical onBarClick={drill} />;
+      return <BarGeom data={tinted(stats)} vertical onBarClick={drill} sizeMult={sizeMult} />;
     case 'column':
-      return <BarGeom data={tinted(stats)} vertical={false} onBarClick={drill} />;
+      return <BarGeom data={tinted(stats)} vertical={false} onBarClick={drill} sizeMult={sizeMult} />;
     case 'stack':
       return <StackedBarGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} />;
     case 'line':
-      return <LineAreaGeom data={mod.trend?.length ? mod.trend : stats} area={false} />;
+      return <LineAreaGeom data={mod.trend?.length ? mod.trend : stats} area={false} sizeMult={sizeMult} />;
     case 'area':
-      return <LineAreaGeom data={mod.trend?.length ? mod.trend : stats} area />;
+      return <LineAreaGeom data={mod.trend?.length ? mod.trend : stats} area sizeMult={sizeMult} />;
     case 'pie':
-      return <PieGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} donut={false} />;
+      return <PieGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} donut={false} sizeMult={sizeMult} />;
     case 'donut':
-      return <PieGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} donut />;
+      return <PieGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} donut sizeMult={sizeMult} />;
     case 'treemap':
-      return <TreemapGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} />;
+      return <TreemapGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} sizeMult={sizeMult} />;
     case 'funnel': {
       const src = mod.funnel?.length ? mod.funnel : stats;
       const withFill = src.map((d, i) => ({ ...d, fill: d.tone ? C(TONE_COLOR[d.tone]) : C(FUNNEL_PALETTE[i % FUNNEL_PALETTE.length]) }));
-      return <FunnelGeom data={withFill} />;
+      return <FunnelGeom data={withFill} sizeMult={sizeMult} />;
     }
     default:
       return null;
@@ -429,7 +451,7 @@ function Ribbon({ modules }) {
   );
 }
 
-function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill }) {
+function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill, size = 'md' }) {
   const stats = (mod.stats || []).filter(s => matchesFilters(s, tone, query));
   const hasAny = stats.length || mod.breakdown?.length || mod.trend?.length || mod.funnel?.length || mod.table?.length;
   if (!hasAny) return null;
@@ -458,7 +480,7 @@ function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill }) {
         </div>
       </div>
 
-      <CategoryChart geometry={geometry} mod={mod} stats={stats} onDrill={onDrill} />
+      <CategoryChart geometry={geometry} mod={mod} stats={stats} onDrill={onDrill} sizeMult={SIZE_MULT[size] ?? 1} />
 
       {geometry !== 'card' && stats.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
@@ -521,6 +543,58 @@ function DrilldownModal({ request, onClose }) {
   );
 }
 
+// ── Customize: which cards show, and how big (Pranshu, Sep 14 - "add or
+// remove card as per our choice and also make the card big or small"). Both
+// choices persist per browser (see loadVisible/loadSizes above), so the
+// board still looks like this on the next visit - not just a session filter. ──
+function CustomizeModal({ modules, selected, onToggle, sizes, onSize, onClose }) {
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ ...CARD, width: 'min(60vw, 640px)', minWidth: 320, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>Customize Your Board</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Show or hide cards, and set how big each one is</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: 10, overflow: 'auto' }}>
+          {modules.map(mod => {
+            const on = selected.has(mod.id);
+            const size = sizes[mod.id] || 'md';
+            return (
+              <div key={mod.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 8px', borderRadius: 8 }}>
+                <button onClick={() => onToggle(mod.id)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 5, flexShrink: 0, border: `1px solid ${on ? 'var(--wk-brand)' : 'var(--line)'}`, background: on ? 'var(--wk-brand)' : 'var(--card)', cursor: 'pointer' }}
+                  title={on ? 'Hide this card' : 'Show this card'}>
+                  {on && <Check size={13} color="#fff" />}
+                </button>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: on ? 'var(--ink)' : 'var(--muted)' }}>{mod.label}</div>
+                <div style={{ display: 'flex', gap: 3 }}>
+                  {['sm', 'md', 'lg'].map(s => (
+                    <button key={s} onClick={() => onSize(mod.id, s)} disabled={!on} title={s === 'sm' ? 'Small' : s === 'md' ? 'Medium' : 'Large'}
+                      style={{
+                        width: 26, height: 24, fontSize: 11, fontWeight: 700, borderRadius: 5, cursor: on ? 'pointer' : 'default',
+                        border: `1px solid ${size === s ? 'var(--wk-brand)' : 'var(--line)'}`,
+                        background: size === s ? 'var(--wk-brand-tint)' : 'var(--card)',
+                        color: size === s ? 'var(--wk-brand)' : 'var(--muted)', opacity: on ? 1 : 0.4,
+                      }}>
+                      {SIZE_LABEL[s]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ padding: '12px 18px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end' }}>
+          <button className="primary-btn" onClick={onClose} style={{ fontSize: 12.5, fontWeight: 700 }}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Right rail: live feed of every critical/warning metric across every
 // module (unaffected by the module picker) - drill-in list. ──
 function AttentionFeed({ modules, onPick }) {
@@ -558,9 +632,17 @@ export default function BiInsights() {
   const [tone, setTone] = useState('all');
   const [query, setQuery] = useState('');
   const [picks, setPicks] = useState(loadPicks);
+  const [sizes, setSizes] = useState(loadSizes);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
   const [drillRequest, setDrillRequest] = useState(null);
   const alive = useRef(true);
   const onDrill = (moduleId, metric, label) => setDrillRequest({ moduleId, metric, label });
+
+  // Which cards show is a saved preference (Customize), not just a session
+  // filter - persisted the first time real module ids are known so a fresh
+  // save always includes every module unless the viewer has already hidden
+  // some.
+  const updateSelected = (next) => { setSelected(next); saveVisible([...next]); };
 
   const load = useCallback(async () => {
     try {
@@ -568,7 +650,11 @@ export default function BiInsights() {
       if (!alive.current) return;
       const modules = r.modules || [];
       setState({ loading: false, modules, at: r.at || '' });
-      setSelected(prev => prev || new Set(modules.map(m => m.id)));
+      setSelected(prev => {
+        if (prev) return prev;
+        const saved = loadVisible();
+        return saved ? new Set(saved.filter(id => modules.some(m => m.id === id))) : new Set(modules.map(m => m.id));
+      });
     } catch {
       if (alive.current) setState(s => ({ ...s, loading: false }));
     }
@@ -587,13 +673,19 @@ export default function BiInsights() {
     return next;
   });
   const geometryFor = (modId) => picks[modId] || DEFAULT_GEOMETRY[modId] || 'bar';
+  const setModSize = (modId, size) => setSizes(prev => {
+    const next = { ...prev, [modId]: size };
+    saveSizes(next);
+    return next;
+  });
+  const sizeFor = (modId) => sizes[modId] || 'md';
 
   const selectedSet = selected || new Set(state.modules.map(m => m.id));
   const q = query.trim().toLowerCase();
   const moduleFiltered = useMemo(() => state.modules.filter(m => selectedSet.has(m.id)), [state.modules, selectedSet]);
   const activeFilterCount = (selectedSet.size !== state.modules.length ? 1 : 0) + (tone !== 'all' ? 1 : 0) + (q ? 1 : 0);
-  const clearFilters = () => { setSelected(new Set(state.modules.map(m => m.id))); setTone('all'); setQuery(''); };
-  const pickOnly = (id) => setSelected(new Set([id]));
+  const clearFilters = () => { updateSelected(new Set(state.modules.map(m => m.id))); setTone('all'); setQuery(''); };
+  const pickOnly = (id) => updateSelected(new Set([id]));
 
   const exportAll = () => {
     const rows = [['Module', 'Metric', 'Value', 'Alert Level']];
@@ -631,6 +723,7 @@ export default function BiInsights() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="secondary-btn" onClick={() => setCustomizeOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}><SlidersHorizontal size={13} /> Customize</button>
           <button className="secondary-btn" onClick={exportAll} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}><Download size={13} /> Export</button>
           <button className="secondary-btn" onClick={load} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}><RefreshCw size={13} /> Refresh</button>
         </div>
@@ -658,7 +751,7 @@ export default function BiInsights() {
               <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Modules</div>
               <SlicerGrid cols={1} options={state.modules.map(m => ({ value: m.id, label: m.label, dot: C(TONE_COLOR[worstTone(m)]) }))}
                 isActive={v => selectedSet.has(v)}
-                onPick={id => setSelected(prev => { const next = new Set(prev || selectedSet); next.has(id) ? next.delete(id) : next.add(id); return next; })}
+                onPick={id => { const next = new Set(selectedSet); next.has(id) ? next.delete(id) : next.add(id); updateSelected(next); }}
               />
             </div>
 
@@ -684,7 +777,7 @@ export default function BiInsights() {
                 space" behavior that was asked for. */}
             <div style={{ columns: '320px', columnGap: 14 }}>
               {moduleFiltered.map(mod => (
-                <ModuleCard key={mod.id} mod={mod} tone={tone} query={q} geometry={geometryFor(mod.id)} onGeometry={setGeometry} onDrill={onDrill} />
+                <ModuleCard key={mod.id} mod={mod} tone={tone} query={q} geometry={geometryFor(mod.id)} onGeometry={setGeometry} onDrill={onDrill} size={sizeFor(mod.id)} />
               ))}
             </div>
             {moduleFiltered.length === 0 && (
@@ -695,6 +788,11 @@ export default function BiInsights() {
       )}
 
       {drillRequest && <DrilldownModal request={drillRequest} onClose={() => setDrillRequest(null)} />}
+      {customizeOpen && (
+        <CustomizeModal modules={state.modules} selected={selectedSet} onToggle={id => {
+          const next = new Set(selectedSet); next.has(id) ? next.delete(id) : next.add(id); updateSelected(next);
+        }} sizes={sizes} onSize={setModSize} onClose={() => setCustomizeOpen(false)} />
+      )}
     </div>
   );
 }
