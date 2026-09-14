@@ -672,6 +672,8 @@ export default function BiInsights() {
             </div>
           </aside>
 
+          <AttentionFeed modules={state.modules} onPick={pickOnly} />
+
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ marginBottom: 14 }}><Ribbon modules={moduleFiltered} /></div>
             {/* CSS multi-column masonry, not CSS Grid - a Grid row's height is
@@ -689,8 +691,6 @@ export default function BiInsights() {
               <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No modules selected. Pick at least one on the left.</div>
             )}
           </div>
-
-          <AttentionFeed modules={state.modules} onPick={pickOnly} />
         </div>
       )}
 
