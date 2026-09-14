@@ -122,14 +122,16 @@ export default function LoginPage() {
   const P = ACCENT_PALETTES[accent];
   // What Nexus IS, at a glance. Insights & BI carries its own card next to
   // Operations rather than living inside the Operations line (Sagar, Sep 15).
+  // Subtitles are Pranshu's wording from a2b2738 (#211), kept when that change
+  // and this one collided on the same brief.
   const PANELS = [
     { Icon: CheckSquare, tint: "#dff3fc", fg: "#0998c3", title: "Tasks", sub: "Projects, boards and deadlines" },
     { Icon: Clock,       tint: P.tint,     fg: P.base,    title: "Time & Attendance", sub: "Punch in, timesheets, payroll" },
     { Icon: Users,       tint: "#e6f7ef", fg: "#00a25b", title: "People", sub: "Profiles, leave and documents" },
-    { Icon: Boxes,       tint: "#fff3e3", fg: "#c26f00", title: "Operations", sub: "Items, purchases and requisitions" },
+    { Icon: Boxes,       tint: "#fff3e3", fg: "#c26f00", title: "Operations", sub: "Sites, staffing and vendors" },
     { Icon: Gauge,       tint: "#ecebfe", fg: "#5145cd", title: "Insights & BI", sub: "KPIs and analytics, every module" },
-    { Icon: Receipt,     tint: "#f1ecfe", fg: "#6c3ef4", title: "Accounting", sub: "Invoices, bills and reconciliation" },
-    { Icon: FolderOpen,  tint: "#e8f5f7", fg: "#0d7f94", title: "Files", sub: "Documents, storage and sharing" },
+    { Icon: Receipt,     tint: "#f1ecfe", fg: "#6c3ef4", title: "Accounting", sub: "P&L, reports and reconciliation" },
+    { Icon: FolderOpen,  tint: "#e8f5f7", fg: "#0d7f94", title: "Files", sub: "Documents, uploads and storage" },
   ];
 
   return (
