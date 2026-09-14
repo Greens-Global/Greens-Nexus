@@ -16,7 +16,7 @@ Jul 28); craft bar monday.com's login.
 */
 import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
-import { CheckSquare, Clock, Users } from "lucide-react";
+import { CheckSquare, Clock, Users, Store, Calculator, Gauge, HardDrive } from "lucide-react";
 import { loginRequest } from "../authConfig";
 import { useBranding } from "../lib/queries";
 import { BFF_MODE, clearSignedOutMarker } from "../bffAuth";
@@ -120,10 +120,16 @@ export default function LoginPage() {
   };
 
   const P = ACCENT_PALETTES[accent];
+  // Same seven modules as the sidebar's own icon choices (Sidebar.jsx) - kept
+  // in sync so the login hero never promises a module the app doesn't have.
   const PANELS = [
     { Icon: CheckSquare, tint: "#dff3fc", fg: "#0998c3", title: "Tasks", sub: "Projects, boards and deadlines" },
-    { Icon: Clock,       tint: P.tint,     fg: P.base,    title: "Time Clock", sub: "Punch in, timesheets, payroll" },
+    { Icon: Clock,       tint: P.tint,    fg: P.base,    title: "Time & Attendance", sub: "Punch in, timesheets, payroll" },
     { Icon: Users,       tint: "#e6f7ef", fg: "#00a25b", title: "People", sub: "Profiles, leave and documents" },
+    { Icon: Store,       tint: "#f3ecff", fg: "#7c5cfc", title: "Operations", sub: "Sites, staffing and vendors" },
+    { Icon: Calculator,  tint: "#fff6db", fg: "#b8860a", title: "Accounting", sub: "P&L, reports and reconciliation" },
+    { Icon: Gauge,       tint: "#eef0ff", fg: "#4f46e5", title: "Insights & BI", sub: "KPIs and analytics, every module" },
+    { Icon: HardDrive,   tint: "#fde8f3", fg: "#db2777", title: "Files", sub: "Documents, uploads and storage" },
   ];
 
   return (
@@ -311,16 +317,20 @@ export default function LoginPage() {
           max-width: 42ch;
         }
 
-        .nxl-cards { display: flex; flex-direction: column; gap: 14px; margin-top: 40px; max-width: 340px; }
+        .nxl-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; margin-top: 40px; max-width: 480px; }
         .nxl-card {
           display: flex; align-items: center; gap: 12px;
           background: #ffffff; color: #323338;
-          border-radius: 13px; padding: 13px 16px;
+          border-radius: 13px; padding: 13px 16px; min-width: 0;
           box-shadow: 0 14px 34px rgba(15, 23, 90, .28);
         }
         .nxl-card:nth-child(1) { transform: rotate(-1.2deg) translateX(-6px); }
         .nxl-card:nth-child(2) { transform: rotate(.8deg) translateX(14px); }
         .nxl-card:nth-child(3) { transform: rotate(-.6deg); }
+        .nxl-card:nth-child(4) { transform: rotate(.7deg) translateX(6px); }
+        .nxl-card:nth-child(5) { transform: rotate(-.9deg); }
+        .nxl-card:nth-child(6) { transform: rotate(.5deg) translateX(-4px); }
+        .nxl-card:nth-child(7) { transform: rotate(-.4deg); }
         .nxl-card-chip {
           width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
           display: inline-flex; align-items: center; justify-content: center;
@@ -346,6 +356,10 @@ export default function LoginPage() {
         .nxl-on .nxl-card:nth-child(1) { transform: rotate(-1.2deg) translateX(-6px); }
         .nxl-on .nxl-card:nth-child(2) { transform: rotate(.8deg) translateX(14px); }
         .nxl-on .nxl-card:nth-child(3) { transform: rotate(-.6deg); }
+        .nxl-on .nxl-card:nth-child(4) { transform: rotate(.7deg) translateX(6px); }
+        .nxl-on .nxl-card:nth-child(5) { transform: rotate(-.9deg); }
+        .nxl-on .nxl-card:nth-child(6) { transform: rotate(.5deg) translateX(-4px); }
+        .nxl-on .nxl-card:nth-child(7) { transform: rotate(-.4deg); }
 
         .nxl-badge {
           width: 60px; height: 60px; border-radius: 15px;
