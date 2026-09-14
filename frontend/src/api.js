@@ -1170,6 +1170,7 @@ export const api = {
   dashSetDefault: (id)         => req(`/dashboards/views/${id}/default`, { method: 'PUT' }),
   dashDeleteView: (id)         => req(`/dashboards/views/${id}`, { method: 'DELETE' }),
   dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}`),
+  dashInsights:   ()               => req('/dashboards/insights'),
   // The caller's own Outlook agenda (M365 staff only - {available:false} otherwise)
   dashAgenda:     (start, end, tz) => req(`/dashboards/agenda?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&tz=${encodeURIComponent(tz)}`),
   // Whole-roster birthdays (month/day only, no year) - active Nexus employees.

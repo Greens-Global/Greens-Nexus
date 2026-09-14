@@ -107,6 +107,10 @@ dashboard_kpis   = TTLCache("dashboard_kpis",   ttl=20)    # /dashboards/kpis - 
                                                            # staleness; single-flight also collapses the burst of
                                                            # identical loads when a dashboard/its widgets mount.
 dashboard_birthdays = TTLCache("dashboard_birthdays", ttl=3600)  # /dashboards/birthdays - whole roster, changes rarely
+dashboard_insights = TTLCache("dashboard_insights", ttl=20)  # /dashboards/insights (BI board) - company-wide, so
+                                                              # ONE entry (key ()) serves every viewer, not per-email
+                                                              # like dashboard_kpis - a dozen managers open the BI
+                                                              # board without multiplying the query cost.
 
 # Watched model -> caches to drop when a commit touches it. HrEntity feeds the
 # directory's company names; group/member rows feed the grant map; employees
@@ -121,6 +125,27 @@ _WATCHED = {
     "EgnyteFolderGroup": (egnyte_wirings,),
     "ItemType":         (item_types,),
     "NexusRole":        (role_holders,),
+    "Task":             (dashboard_insights,),
+    "TaskTicket":       (dashboard_insights,),
+    "TimePunch":        (dashboard_insights,),
+    "AgentDevice":      (dashboard_insights,),
+    "KbDocument":       (dashboard_insights,),
+    "Document":         (dashboard_insights,),
+    "HrSignRequest":    (dashboard_insights,),
+    "Website":          (dashboard_insights,),
+    "HardwareAsset":    (dashboard_insights,),
+    "ConstructionProject":   (dashboard_insights,),
+    "ConstructionDailyLog":  (dashboard_insights,),
+    "ConstructionRfi":       (dashboard_insights,),
+    "ConstructionSubmittal": (dashboard_insights,),
+    "ConstructionMilestone": (dashboard_insights,),
+    "PropertyAsset":    (dashboard_insights,),
+    "PropertyRecord":   (dashboard_insights,),
+    "HrCandidate":      (dashboard_insights,),
+    "HrLeaveRequest":   (dashboard_insights,),
+    "HrDocument":       (dashboard_insights,),
+    "VaultCredential":  (dashboard_insights,),
+    "VaultShareRequest": (dashboard_insights,),
 }
 
 
