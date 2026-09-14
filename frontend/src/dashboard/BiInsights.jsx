@@ -459,7 +459,7 @@ function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill, collapsed
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: collapsed ? 0 : 10, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           <button onClick={onToggleCollapse} title={collapsed ? 'Expand' : 'Collapse'}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 0, flexShrink: 0 }}>
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 0, flexShrink: 0, pointerEvents: 'auto' }}>
             {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
           </button>
           <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: 0.4, cursor: mod.nav ? 'pointer' : 'default', flexShrink: 0 }}
@@ -549,8 +549,10 @@ function DrilldownModal({ request, onClose }) {
   );
 }
 
-// ── Right rail: live feed of every critical/warning metric across every
-// module (unaffected by the module picker) - drill-in list. ──
+// ── Live feed of every critical/warning metric across every module
+// (unaffected by the module picker) - drill-in list. Sits BELOW the module
+// cards, full width, as a wrapping row grid rather than a tall narrow list
+// (Pranshu, Sep 14: "bring Needs Attention below modules"). ──
 function AttentionFeed({ modules, onPick }) {
   const rows = [];
   for (const mod of modules) for (const s of mod.stats || []) {
@@ -560,23 +562,26 @@ function AttentionFeed({ modules, onPick }) {
   }
   rows.sort((a, b) => (SEVERITY_RANK[b.tone] - SEVERITY_RANK[a.tone]) || (b.value - a.value));
   return (
-    <aside style={{ width: 230, flexShrink: 0, ...CARD, padding: 12, maxHeight: 620, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>Needs Attention</div>
-      <div style={{ overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-        {rows.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)', padding: '10px 0' }}>Nothing needs attention right now.</div>}
-        {rows.map((r, i) => (
-          <button key={i} onClick={() => onPick(r.moduleId)} className="bi-feed-row"
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 4px', border: 'none', borderTop: i ? '1px solid var(--line)' : 'none', background: 'none', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
-            <span style={{ width: 6, height: 6, borderRadius: 99, background: C(TONE_COLOR[r.tone]), flexShrink: 0 }} />
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</div>
-              <div style={{ fontSize: 10, color: 'var(--muted)' }}>{r.moduleLabel}</div>
-            </div>
-            <div style={{ fontSize: 12.5, fontWeight: 800, color: C(TONE_COLOR[r.tone]), fontVariantNumeric: 'tabular-nums' }}>{r.value}</div>
-          </button>
-        ))}
-      </div>
-    </aside>
+    <div style={{ ...CARD, padding: 14 }}>
+      <div style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 10 }}>Needs Attention</div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>Nothing needs attention right now.</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+          {rows.map((r, i) => (
+            <button key={i} onClick={() => onPick(r.moduleId)} className="bi-feed-row"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 7, background: 'none', cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ width: 6, height: 6, borderRadius: 99, background: C(TONE_COLOR[r.tone]), flexShrink: 0 }} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</div>
+                <div style={{ fontSize: 10, color: 'var(--muted)' }}>{r.moduleLabel}</div>
+              </div>
+              <div style={{ fontSize: 12.5, fontWeight: 800, color: C(TONE_COLOR[r.tone]), fontVariantNumeric: 'tabular-nums' }}>{r.value}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -639,7 +644,7 @@ export default function BiInsights() {
   // edit mode, but also reachable from the sidebar list and from "Needs
   // Attention" without entering Customize first.
   const toggleModule = (id) => {
-    if (visibleIds.has(id)) { setLayout(safeLayout.filter(it => it.i !== id)); return; }
+    if (visibleIds.has(id)) { setLayout(compactLayout(safeLayout.filter(it => it.i !== id))); return; }
     const maxY = safeLayout.reduce((m, it) => Math.max(m, it.y + it.h), 0);
     setLayout([...safeLayout, { i: id, x: 0, y: maxY, ...sizeOf(id) }]);
   };
@@ -736,9 +741,10 @@ export default function BiInsights() {
             {safeLayout.length === 0 && (
               <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No cards on this board. Click Customize to add some.</div>
             )}
+            <div style={{ marginTop: 16 }}>
+              <AttentionFeed modules={state.modules} onPick={pickOnly} />
+            </div>
           </div>
-
-          <AttentionFeed modules={state.modules} onPick={pickOnly} />
 
           <aside style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ position: 'relative' }}>
