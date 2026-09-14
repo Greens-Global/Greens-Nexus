@@ -420,7 +420,7 @@ function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill }) {
   };
 
   return (
-    <div style={{ ...CARD, padding: 16, borderLeft: `3px solid ${C(TONE_COLOR[worstTone(mod)])}` }}>
+    <div style={{ ...CARD, padding: 16, borderLeft: `3px solid ${C(TONE_COLOR[worstTone(mod)])}`, breakInside: 'avoid', marginBottom: 14, display: 'inline-block', width: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
         <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: 0.4, cursor: mod.nav ? 'pointer' : 'default', flexShrink: 0 }}
           onClick={() => mod.nav && navigate(mod.nav)}>
@@ -477,7 +477,7 @@ function DrilldownModal({ request, onClose }) {
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ ...CARD, width: '100%', maxWidth: 480, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div onClick={e => e.stopPropagation()} style={{ ...CARD, width: 'min(60vw, 1100px)', minWidth: 320, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>{state.title || request.label}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
@@ -653,7 +653,13 @@ export default function BiInsights() {
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ marginBottom: 14 }}><Ribbon modules={moduleFiltered} /></div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, alignItems: 'start' }}>
+            {/* CSS multi-column masonry, not CSS Grid - a Grid row's height is
+                still set by its tallest item even with align-items:start, so
+                a short card leaves dead space instead of letting the next
+                card ride up into it. `columns` genuinely packs each column
+                top-to-bottom, which is the "auto-assign to fill the blank
+                space" behavior that was asked for. */}
+            <div style={{ columns: '320px', columnGap: 14 }}>
               {moduleFiltered.map(mod => (
                 <ModuleCard key={mod.id} mod={mod} tone={tone} query={q} geometry={geometryFor(mod.id)} onGeometry={setGeometry} onDrill={onDrill} />
               ))}
