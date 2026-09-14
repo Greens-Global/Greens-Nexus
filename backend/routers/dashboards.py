@@ -25,10 +25,7 @@ router = APIRouter(prefix="/dashboards", tags=["Dashboards"], dependencies=[Depe
 # per-widget by minRole instead of a whole second board. 'manager-dashboard'
 # stays out of _TARGETS so no new view can be created against it; the startup
 # migration (main.py) already relabeled every existing row to 'dashboard'.
-# 'bi-dashboard' (Sep 14, Neil: cross-module BI board) is a second board of the
-# SAME widget system - same views CRUD, same /kpis feed - so every widget the
-# personal Dashboard has stays reusable there instead of forking a parallel one.
-_TARGETS = ("dashboard", "bi-dashboard")
+_TARGETS = ("dashboard",)
 
 
 def _now() -> str:
@@ -266,6 +263,368 @@ def kpis(scope: str = "self", user: dict = Depends(get_current_user), db: Sessio
 
     out = cache.dashboard_kpis.get_or_load((email, team), _compute)
     return {"kpis": out, "at": _now()}
+
+
+# ── BI insights (Neil, Sep 14) ──────────────────────────────────────────────
+# "From every module take all the data which needs to be in watch of the
+# management level" - one company-wide payload (never per-viewer - see
+# cache.dashboard_insights) of real per-module numbers, not the personal
+# /kpis feed. Each module block is `safe`-guarded independently so one wrong
+# query (a bad status string, a renamed column) degrades that one card to
+# zeros instead of blanking the whole board - same defensive shape as /kpis.
+def _safe_insight(modules: list, mod_id: str, label: str, nav: str, fn):
+    try:
+        block = fn()
+    except Exception as e:
+        print(f"[dashboards] insight module {mod_id} failed: {type(e).__name__}: {e}")
+        block = {"stats": [], "breakdown": []}
+    modules.append({"id": mod_id, "label": label, "nav": nav, **block})
+
+
+@router.get("/insights")
+def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user["level"] < 2:
+        raise HTTPException(403, "Manager access required")
+    M = models
+
+    def _compute() -> dict:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+        week_ahead = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
+        month_ahead = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
+        ninety_ahead = (datetime.now(timezone.utc) + timedelta(days=90)).strftime("%Y-%m-%d")
+        month_start = datetime.now(timezone.utc).strftime("%Y-%m-01")
+        modules: list = []
+
+        def tasks_block():
+            live = db.query(M.Task).filter(M.Task.deleted_at == "")
+            overdue = live.filter(M.Task.completed == False, M.Task.due_on != "", M.Task.due_on < today).count()  # noqa: E712
+            upcoming = live.filter(M.Task.completed == False, M.Task.due_on >= today, M.Task.due_on <= week_ahead).count()  # noqa: E712
+            completed_7d = live.filter(M.Task.completed == True, M.Task.completed_at >= week_ago).count()  # noqa: E712
+            open_total = live.filter(M.Task.completed == False).count()  # noqa: E712
+            on_track = max(0, open_total - overdue)
+            return {
+                "stats": [
+                    {"key": "overdue", "label": "Overdue", "value": overdue, "tone": "critical"},
+                    {"key": "upcoming", "label": "Due This Week", "value": upcoming, "tone": "warning"},
+                    {"key": "completed_7d", "label": "Completed (7d)", "value": completed_7d, "tone": "good"},
+                    {"key": "open_total", "label": "Open", "value": open_total, "tone": "neutral"},
+                ],
+                "breakdown": [
+                    {"label": "On Track", "value": on_track, "tone": "neutral"},
+                    {"label": "Overdue", "value": overdue, "tone": "critical"},
+                    {"label": "Completed (7d)", "value": completed_7d, "tone": "good"},
+                ],
+            }
+        _safe_insight(modules, "tasks", "Tasks", "tasks", tasks_block)
+
+        def attendance_block():
+            total_active = db.query(M.NexusEmployee).filter(M.NexusEmployee.status == "active").count()
+            rows = (db.query(M.TimePunch)
+                    .filter(M.TimePunch.local_date == today)
+                    .order_by(M.TimePunch.at).all())
+            latest: dict[str, str] = {}
+            for p in rows:
+                latest[p.employee_email] = p.kind
+            working = sum(1 for k in latest.values() if k == "in")
+            on_break = sum(1 for k in latest.values() if k == "break_start")
+            clocked_in = working + on_break
+            not_clocked_in = max(0, total_active - clocked_in)
+            # 7-day trend: distinct employees with an in-punch each day - a
+            # real line, not a single snapshot. Small table, cheap to scan.
+            day_list = [(datetime.now(timezone.utc) - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
+            week_rows = db.query(M.TimePunch.local_date, M.TimePunch.employee_email).filter(
+                M.TimePunch.local_date >= day_list[0], M.TimePunch.kind == "in").all()
+            by_day: dict[str, set] = {}
+            for d, email in week_rows:
+                by_day.setdefault(d, set()).add(email)
+            trend = [{"label": d[5:], "value": len(by_day.get(d, ()))} for d in day_list]
+            return {
+                "stats": [
+                    {"key": "clocked_in", "label": "Clocked In", "value": clocked_in, "tone": "good"},
+                    {"key": "on_break", "label": "On Break", "value": on_break, "tone": "warning"},
+                    {"key": "not_clocked_in", "label": "Not Clocked In", "value": not_clocked_in, "tone": "neutral"},
+                ],
+                "breakdown": [
+                    {"label": "Working", "value": working, "tone": "good"},
+                    {"label": "On Break", "value": on_break, "tone": "warning"},
+                    {"label": "Not Clocked In", "value": not_clocked_in, "tone": "neutral"},
+                ],
+                "trend": trend,
+            }
+        _safe_insight(modules, "attendance", "Time & Attendance", "employee-tracking", attendance_block)
+
+        def agents_block():
+            enrolled = db.query(M.AgentDevice).filter(M.AgentDevice.revoked == 0)
+            enrolled_count = enrolled.count()
+            active_rows = enrolled.filter(M.AgentDevice.active_email != "").order_by(M.AgentDevice.last_seen_at.desc()).limit(25).all()
+            return {
+                "stats": [
+                    {"key": "active_agents", "label": "Agents In Use", "value": len(active_rows), "tone": "good"},
+                    {"key": "enrolled_devices", "label": "Enrolled Devices", "value": enrolled_count, "tone": "neutral"},
+                    {"key": "idle_devices", "label": "Idle Devices", "value": max(0, enrolled_count - len(active_rows)), "tone": "neutral"},
+                ],
+                "breakdown": [],
+                # Directly answers "agents working for whom" - who's on which
+                # enrolled machine right now, not just a count.
+                "table": [{"employee": d.active_email, "device": d.device_name or d.label or d.id[:8],
+                           "lastSeen": d.last_seen_at or ""} for d in active_rows],
+            }
+        _safe_insight(modules, "agents", "Desktop Agents", "employee-tracking", agents_block)
+
+        def tickets_block():
+            live = db.query(M.TaskTicket)
+            closed_states = ["resolved", "closed"]
+            open_q = live.filter(M.TaskTicket.status.notin_(closed_states))
+            open_count = open_q.count()
+            closed = live.filter(M.TaskTicket.status == "closed").count()
+            resolved = live.filter(M.TaskTicket.status == "resolved").count()
+            unassigned = open_q.filter(M.TaskTicket.assignee_email == "").count()
+            # Mirrors _sla_breached in routers/tickets.py: no due date, or
+            # already resolved/closed, never counts as breached.
+            sla_breached = open_q.filter(M.TaskTicket.sla_due_on != "", M.TaskTicket.sla_due_on < today).count()
+            waiting = live.filter(M.TaskTicket.status.in_(["waiting_user", "waiting_vendor", "on_hold"])).count()
+            active_open = max(0, open_count - waiting)
+            return {
+                "stats": [
+                    {"key": "open", "label": "Open", "value": open_count, "tone": "warning"},
+                    {"key": "unassigned", "label": "Unassigned", "value": unassigned, "tone": "critical"},
+                    {"key": "sla_breached", "label": "SLA Breached", "value": sla_breached, "tone": "critical"},
+                    {"key": "resolved", "label": "Resolved", "value": resolved, "tone": "good"},
+                    {"key": "closed", "label": "Closed", "value": closed, "tone": "neutral"},
+                ],
+                "breakdown": [
+                    {"label": "Active", "value": active_open, "tone": "warning"},
+                    {"label": "Waiting", "value": waiting, "tone": "neutral"},
+                    {"label": "Resolved", "value": resolved, "tone": "good"},
+                    {"label": "Closed", "value": closed, "tone": "neutral"},
+                ],
+            }
+        _safe_insight(modules, "tickets", "Tickets", "tickets", tickets_block)
+
+        def kb_block():
+            live = db.query(M.KbDocument)
+            draft = live.filter(M.KbDocument.status == "draft").count()
+            in_review = live.filter(M.KbDocument.status == "in_review").count()
+            changes = live.filter(M.KbDocument.status == "changes_requested").count()
+            approved = live.filter(M.KbDocument.status == "approved").count()
+            archived = live.filter(M.KbDocument.status == "archived").count()
+            return {
+                "stats": [
+                    {"key": "pending_review", "label": "Pending Review", "value": in_review, "tone": "warning"},
+                    {"key": "changes_requested", "label": "Changes Requested", "value": changes, "tone": "critical"},
+                    {"key": "published", "label": "Published", "value": approved, "tone": "good"},
+                    {"key": "draft", "label": "In Draft", "value": draft, "tone": "neutral"},
+                ],
+                "breakdown": [
+                    {"label": "Draft", "value": draft, "tone": "neutral"},
+                    {"label": "Pending Review", "value": in_review + changes, "tone": "warning"},
+                    {"label": "Published", "value": approved, "tone": "good"},
+                    {"label": "Archived", "value": archived, "tone": "neutral"},
+                ],
+            }
+        _safe_insight(modules, "knowledge_base", "Knowledge Base", "sop", kb_block)
+
+        def ops_block():
+            return {
+                "stats": [
+                    {"key": "pending_requisitions", "label": "Requisitions to Approve", "value": db.query(M.Requisition).filter(M.Requisition.status == "pending_manager").count(), "tone": "warning"},
+                    {"key": "open_purchases", "label": "Open Purchases", "value": db.query(M.PurchaseRequest).filter(M.PurchaseRequest.status == "pending").count(), "tone": "warning"},
+                    {"key": "pending_inventory", "label": "Inventory Requests", "value": db.query(M.ItemCheckout).filter(M.ItemCheckout.status == "pending").count(), "tone": "warning"},
+                ],
+                "breakdown": [],
+            }
+        _safe_insight(modules, "operations", "Company Operations", "dashboard", ops_block)
+
+        def documents_block():
+            docs = db.query(M.Document)
+            draft = docs.filter(M.Document.status == "draft").count()
+            final = docs.filter(M.Document.status == "final").count()
+            archived = docs.filter(M.Document.status == "archived").count()
+            sign = db.query(M.HrSignRequest)
+            pending_sig = sign.filter(M.HrSignRequest.status == "pending").count()
+            completed_7d = sign.filter(M.HrSignRequest.status == "completed", M.HrSignRequest.completed_at >= week_ago).count()
+            # declined/voided/expired all mean "this envelope needs a human to
+            # act" - resend, chase a party, or clean it up - so they're grouped
+            # for the management view rather than split three ways.
+            needs_attention = sign.filter(M.HrSignRequest.status.in_(["declined", "voided", "expired"])).count()
+            return {
+                "stats": [
+                    {"key": "pending_signatures", "label": "Pending Signatures", "value": pending_sig, "tone": "warning"},
+                    {"key": "signed_7d", "label": "Signed (7d)", "value": completed_7d, "tone": "good"},
+                    {"key": "needs_attention", "label": "Declined / Expired", "value": needs_attention, "tone": "critical"},
+                    {"key": "total_documents", "label": "Documents", "value": draft + final + archived, "tone": "neutral"},
+                ],
+                "breakdown": [
+                    {"label": "Draft", "value": draft, "tone": "neutral"},
+                    {"label": "Final", "value": final, "tone": "good"},
+                    {"label": "Archived", "value": archived, "tone": "neutral"},
+                ],
+            }
+        _safe_insight(modules, "documents", "Documents", "documents", documents_block)
+
+        def it_block():
+            sites = db.query(M.Website)
+            sites_down = sites.filter(M.Website.status != "Online").count()
+            ssl_expiring = sites.filter(M.Website.ssl_days <= 30).count()
+            hw = db.query(M.HardwareAsset)
+            hw_unassigned = hw.filter(M.HardwareAsset.assigned_to == "Unassigned").count()
+            warranties_expiring = hw.filter(
+                M.HardwareAsset.warranty_end != "", M.HardwareAsset.warranty_end >= today,
+                M.HardwareAsset.warranty_end <= month_ahead).count()
+            return {
+                "stats": [
+                    {"key": "sites_down", "label": "Sites Down / Degraded", "value": sites_down, "tone": "critical"},
+                    {"key": "ssl_expiring", "label": "SSL Expiring (30d)", "value": ssl_expiring, "tone": "warning"},
+                    {"key": "warranties_expiring", "label": "Warranties Expiring (30d)", "value": warranties_expiring, "tone": "warning"},
+                    {"key": "hw_unassigned", "label": "Unassigned Hardware", "value": hw_unassigned, "tone": "neutral"},
+                ],
+                "breakdown": [],
+            }
+        _safe_insight(modules, "it", "IT", "it", it_block)
+
+        def construction_block():
+            proj = db.query(M.ConstructionProject).filter(M.ConstructionProject.deleted_at == "")
+            active = proj.filter(M.ConstructionProject.status == "active").count()
+            on_hold = proj.filter(M.ConstructionProject.status == "on_hold").count()
+            logs_pending = db.query(M.ConstructionDailyLog).filter(
+                M.ConstructionDailyLog.status == "submitted", M.ConstructionDailyLog.deleted_at == "").count()
+            overdue_rfis = db.query(M.ConstructionRfi).filter(
+                M.ConstructionRfi.status == "open", M.ConstructionRfi.due_on != "", M.ConstructionRfi.due_on < today).count()
+            pending_submittals = db.query(M.ConstructionSubmittal).filter(
+                M.ConstructionSubmittal.status.in_(["pending", "submitted"]), M.ConstructionSubmittal.deleted_at == "").count()
+            at_risk_milestones = db.query(M.ConstructionMilestone).filter(
+                M.ConstructionMilestone.status.in_(["at_risk", "missed"]), M.ConstructionMilestone.deleted_at == "").count()
+            return {
+                "stats": [
+                    {"key": "active_projects", "label": "Active Projects", "value": active, "tone": "good"},
+                    {"key": "logs_pending", "label": "Logs Pending Review", "value": logs_pending, "tone": "warning"},
+                    {"key": "overdue_rfis", "label": "Overdue RFIs", "value": overdue_rfis, "tone": "critical"},
+                    {"key": "pending_submittals", "label": "Pending Submittals", "value": pending_submittals, "tone": "warning"},
+                    {"key": "at_risk_milestones", "label": "At-Risk Milestones", "value": at_risk_milestones, "tone": "critical"},
+                ],
+                "breakdown": [
+                    {"label": "Active", "value": active, "tone": "good"},
+                    {"label": "On Hold", "value": on_hold, "tone": "warning"},
+                ],
+            }
+        _safe_insight(modules, "construction", "Construction", "ops", construction_block)
+
+        def asset_block():
+            total_props = db.query(M.PropertyAsset).filter(M.PropertyAsset.parent_id == "").count()
+            # Warranties/inspections live as generic {collection, payload} rows
+            # (see routers/property_assets.py) - same date fields and windows
+            # scan_reminders() already uses for the bell, read straight rather
+            # than re-derived, so this can never drift from what that scan flags.
+            records = db.query(M.PropertyRecord).filter(M.PropertyRecord.collection.in_(["warranties", "inspections"])).all()
+            warranties_expiring = sum(
+                1 for r in records if r.collection == "warranties"
+                and (r.payload or {}).get("expiration", "")[:10] and (r.payload or {}).get("expiration", "")[:10] <= ninety_ahead)
+            inspections_due = sum(
+                1 for r in records if r.collection == "inspections"
+                and (r.payload or {}).get("nextDue", "")[:10] and (r.payload or {}).get("nextDue", "")[:10] <= month_ahead)
+            return {
+                "stats": [
+                    {"key": "total_properties", "label": "Properties", "value": total_props, "tone": "neutral"},
+                    {"key": "warranties_expiring", "label": "Warranties Expiring (90d)", "value": warranties_expiring, "tone": "warning"},
+                    {"key": "inspections_due", "label": "Inspections Due (30d)", "value": inspections_due, "tone": "critical"},
+                ],
+                "breakdown": [],
+            }
+        _safe_insight(modules, "asset_management", "Asset Management", "property-asset", asset_block)
+
+        def people_block():
+            headcount = db.query(M.NexusEmployee).filter(M.NexusEmployee.status == "active").count()
+            pipeline = db.query(M.HrCandidate).filter(M.HrCandidate.stage.notin_(["hired", "rejected"]))
+            open_candidates = pipeline.count()
+            interviews_7d = pipeline.filter(
+                M.HrCandidate.interview_at != "", M.HrCandidate.interview_at >= today,
+                M.HrCandidate.interview_at <= week_ahead + "T23:59:59").count()
+            leave_pending = db.query(M.HrLeaveRequest).filter(M.HrLeaveRequest.status == "pending").count()
+            docs_expiring = db.query(M.HrDocument).filter(
+                M.HrDocument.expires_on != "", M.HrDocument.expires_on >= today, M.HrDocument.expires_on <= month_ahead).count()
+            # Current pipeline distribution by stage (not a cumulative "ever
+            # reached" funnel - HrCandidate only tracks a candidate's CURRENT
+            # stage, not history - but the current headcount at each stage,
+            # in order, is exactly the shape a funnel visual is for).
+            stage_order = [("applied", "Applied"), ("screening", "Screening"),
+                           ("interview", "Interview"), ("offer", "Offer"), ("hired", "Hired")]
+            stage_counts = {s: 0 for s, _ in stage_order}
+            for (stage,) in db.query(M.HrCandidate.stage).filter(M.HrCandidate.stage != "rejected").all():
+                if stage in stage_counts:
+                    stage_counts[stage] += 1
+            funnel = [{"label": label, "value": stage_counts[s]} for s, label in stage_order]
+            return {
+                "stats": [
+                    {"key": "headcount", "label": "Active Headcount", "value": headcount, "tone": "neutral"},
+                    {"key": "open_candidates", "label": "In Hiring Pipeline", "value": open_candidates, "tone": "warning"},
+                    {"key": "interviews_7d", "label": "Interviews This Week", "value": interviews_7d, "tone": "neutral"},
+                    {"key": "leave_pending", "label": "Leave to Approve", "value": leave_pending, "tone": "warning"},
+                    {"key": "docs_expiring", "label": "Employee Docs Expiring (30d)", "value": docs_expiring, "tone": "critical"},
+                ],
+                "breakdown": [],
+                "funnel": funnel,
+            }
+        _safe_insight(modules, "people", "People", "hr", people_block)
+
+        def vault_block():
+            creds = db.query(M.VaultCredential).filter(M.VaultCredential.deleted_at == "")
+            total = creds.count()
+            weak = creds.filter(M.VaultCredential.strength == "weak").count()
+            breached = creds.filter(M.VaultCredential.breached == True).count()  # noqa: E712
+            pending_shares = db.query(M.VaultShareRequest).filter(M.VaultShareRequest.status == "pending").count()
+            # rotation_max is per-credential, so this needs real date math per
+            # row, not a single SQL window - same pattern as the reminders scan
+            # in routers/property_assets.py (small table, fine to load + loop).
+            rotation_overdue = 0
+            for c in creds.filter(M.VaultCredential.rotated_at != "").all():
+                try:
+                    rotated = datetime.fromisoformat(c.rotated_at.replace("Z", "+00:00"))
+                    if rotated.tzinfo is None:
+                        rotated = rotated.replace(tzinfo=timezone.utc)
+                    if (datetime.now(timezone.utc) - rotated).days > (c.rotation_max or 90):
+                        rotation_overdue += 1
+                except Exception:
+                    continue
+            return {
+                "stats": [
+                    {"key": "breached", "label": "Breached Credentials", "value": breached, "tone": "critical"},
+                    {"key": "weak", "label": "Weak Credentials", "value": weak, "tone": "warning"},
+                    {"key": "rotation_overdue", "label": "Rotation Overdue", "value": rotation_overdue, "tone": "warning"},
+                    {"key": "pending_shares", "label": "Pending Share Requests", "value": pending_shares, "tone": "neutral"},
+                    {"key": "total", "label": "Total Credentials", "value": total, "tone": "neutral"},
+                ],
+                "breakdown": [],
+            }
+        _safe_insight(modules, "credential_vault", "Credential Vault", "credvault", vault_block)
+
+        def accounting_block():
+            # Nexus has no ledger of its own - Accounting proxies read-only
+            # reports from the real accounting app (see routers/accounting.py).
+            # Calling the same sync helper directly is safe here: this whole
+            # endpoint is a sync `def`, so FastAPI already runs it in a
+            # worker thread, not on the event loop (see CLAUDE.md's blocking-
+            # I/O rule). Degrades to an empty card (via _safe_insight) if the
+            # service isn't configured or isn't reachable - never fabricated.
+            from routers.accounting import _acct_get_sync
+            cash = _acct_get_sync("/api/internal/reports/cash-position", {"asof": today, "location": None})
+            pnl = _acct_get_sync("/api/internal/reports/pnl", {"from": month_start, "to": today, "location": None})
+            totals = pnl.get("totals") or {}
+            net_income = totals.get("net_income", 0) or 0
+            return {
+                "stats": [
+                    {"key": "cash_on_hand", "label": "Cash on Hand", "value": f"${cash.get('total', 0):,.0f}", "tone": "good"},
+                    {"key": "net_income_mtd", "label": "Net Income (MTD)", "value": f"${net_income:,.0f}", "tone": "good" if net_income >= 0 else "critical"},
+                    {"key": "gross_profit_mtd", "label": "Gross Profit (MTD)", "value": f"${totals.get('gross_profit', 0):,.0f}", "tone": "neutral"},
+                ],
+                "breakdown": [],
+            }
+        _safe_insight(modules, "accounting", "Accounting", "accounting", accounting_block)
+
+        return {"modules": [m for m in modules if m["stats"] or m["breakdown"] or m.get("table") or m.get("trend") or m.get("funnel")]}
+
+    out = cache.dashboard_insights.get_or_load((), _compute)
+    return {**out, "at": _now()}
 
 
 # ── My Agenda (Outlook calendar via Graph) ────────────────────────────────────

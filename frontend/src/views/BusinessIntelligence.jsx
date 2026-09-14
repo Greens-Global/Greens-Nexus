@@ -1,25 +1,14 @@
-import { Gauge } from 'lucide-react';
-import CustomDashboard from '../dashboard/CustomDashboard';
+import BiInsights from '../dashboard/BiInsights';
 
-// BI module (Sep 14, Neil): "Relevant KPI from all modules sit here... And
-// sortable filterable, looks at all data and builds insights." Reuses the
-// exact widget-grid engine the personal Dashboard runs on (own board target
-// 'bi-dashboard', own saved views, same KPI feed and widget catalog) instead
-// of a parallel build - see CustomDashboard.jsx and dashboard/useDashboards.js.
-// "Independent dashboards built for each module... components of that can be
-// added to the BI dashboard or regular dashboard" is a later phase: each
-// module gets its own board the same way, and every widget stays droppable
-// on any of them since they all read from one WIDGETS catalog.
+// BI module (Sep 14, Neil): real per-module management metrics - overdue/
+// upcoming/completed tasks, clocked-in vs not, desktop agents in use, ticket
+// SLA/assignment/status breakdowns, KB review pipeline, company operations -
+// not a customizable widget board. See dashboard/BiInsights.jsx and the
+// backend's GET /dashboards/insights for what's actually computed and why.
 export default function BusinessIntelligence() {
   return (
     <div className="dashboard-view">
-      <CustomDashboard
-        target="bi-dashboard"
-        title="Business Intelligence"
-        subtitle="KPIs across every module"
-        icon={Gauge}
-        showDeskHome={false}
-      />
+      <BiInsights />
     </div>
   );
 }

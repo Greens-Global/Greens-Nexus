@@ -58,13 +58,7 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
 // Access Group grant, which is how a Supervisor's job role hands them manager-
 // tier widgets today (see jobroles.py) without requiring the Manager role
 // itself. A widget with no minRole is open to everyone.
-// `target`/`title`/`subtitle`/`icon` let the same board power more than one
-// screen (Sep 14: the BI module reuses this whole component - views CRUD,
-// widget grid, Add Widget gallery - rather than forking a parallel one; see
-// useDashboards.js and views/BusinessIntelligence.jsx). `showDeskHome` is
-// false for boards where the designed personal "Operations Desk" landing
-// (greeting, DeskHome) makes no sense - they just show the widget grid.
-export default function CustomDashboard({ target = 'dashboard', title = 'Dashboard', subtitle = 'Your day at a glance', icon: HeaderIcon = LayoutGrid, showDeskHome = true }) {
+export default function CustomDashboard() {
   const { can, myEmail, myGrantedModules } = useRole();
   const { notifications, markRead, markAllRead, dismiss, clearRead } = useNotifications();
   const canSeeWidget = (def) => !def.minRole || can(def.minRole) || myGrantedModules.has('manager-dashboard');
@@ -75,7 +69,7 @@ export default function CustomDashboard({ target = 'dashboard', title = 'Dashboa
   // fuller tier too, same as canSeeWidget treats it.
   const widgetTier = (can('manager') || myGrantedModules.has('manager-dashboard')) ? 'manager'
     : can('supervisor') ? 'supervisor' : 'employee';
-  const d = useDashboards(widgetTier, target);
+  const d = useDashboards(widgetTier);
   const [gallery, setGallery] = useState(false);
   const [configItem, setConfigItem] = useState(null);
   const [menu, setMenu] = useState(false);
@@ -219,7 +213,7 @@ export default function CustomDashboard({ target = 'dashboard', title = 'Dashboa
               onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
               className="form-input" title="Switch dashboard view"
               style={{ fontSize: 12.5, fontWeight: 600, width: 170, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto' }}>
-              <option value="">{showDeskHome ? 'Home' : 'Default'}</option>
+              <option value="">Home</option>
               {d.views.filter(v => v.scope === 'personal').length > 0 && (
                 <optgroup label="My views">
                   {d.views.filter(v => v.scope === 'personal').map(v => (
@@ -283,11 +277,11 @@ export default function CustomDashboard({ target = 'dashboard', title = 'Dashboa
                 cramped wrap (Neil screenshot, Sep 5). */}
             <div className="dashboard-header-title" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
               <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <HeaderIcon size={19} />
+                <LayoutGrid size={19} />
               </span>
               <div className="view-title-group">
-                <h2 style={{ margin: 0 }}>{title}</h2>
-                <p style={{ margin: '2px 0 0' }}>{d.activeView?.name ? `Viewing “${d.activeView.name}”` : subtitle}</p>
+                <h2 style={{ margin: 0 }}>Dashboard</h2>
+                <p style={{ margin: '2px 0 0' }}>{d.activeView?.name ? `Viewing “${d.activeView.name}”` : 'Your day at a glance'}</p>
               </div>
             </div>
             {controls}
@@ -297,18 +291,16 @@ export default function CustomDashboard({ target = 'dashboard', title = 'Dashboa
 
       {d.loading ? (
         <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={90} /></div>
-      ) : (!d.editing && !d.activeId && showDeskHome) ? (
+      ) : (!d.editing && !d.activeId) ? (
         /* The Operations Desk home - the designed default. Saved views and
            Customize keep the widget grid untouched below. */
         <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} />
       ) : (
         /* Saved views + Customize keep the page greeting - it belongs to the
            Dashboard, not to a layout, so picking a custom view (or saving one
-           as default) can never make "Good morning" disappear. Boards without
-           a DeskHome landing (the BI board) skip the personal greeting too -
-           it's a company view, not "your day at a glance". */
+           as default) can never make "Good morning" disappear. */
         <>
-          {showDeskHome && <div style={{ margin: '2px 0 18px' }}><DeskGreeting /></div>}
+          <div style={{ margin: '2px 0 18px' }}><DeskGreeting /></div>
           <DashboardGrid
             layout={d.layout}
             editing={d.editing}

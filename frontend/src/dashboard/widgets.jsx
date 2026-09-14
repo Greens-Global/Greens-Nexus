@@ -6,7 +6,7 @@ import {
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
   ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
   CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
-  Ticket as TicketIcon, Table2, ArrowUpDown, Search,
+  Ticket as TicketIcon,
 } from 'lucide-react';
 import { formatTime } from '../lib/datetime';
 import { api } from '../api';
@@ -55,14 +55,6 @@ export const KPI_CATALOG = {
   clocked_in_now:       { label: 'Clocked In Now',          color: 'green',  Icon: Users,         hint: 'On the clock now',     nav: { view: 'dashboard' } },
   time_off_pending:     { label: 'Time Off to Review',      color: 'orange', Icon: CalendarClock, hint: 'Awaiting your review',  nav: { view: 'dashboard' } },
 };
-
-// Which module a KPI belongs to, for the BI board's KPI Explorer (grouping/
-// filtering) - derived from the same nav target every stat tile already
-// navigates to, so there is nothing new to keep in sync.
-export function moduleOfKpi(key) {
-  const nav = KPI_CATALOG[key]?.nav;
-  return nav ? labelFor(nav) : 'General';
-}
 
 // Curated shortcut destinations for the picker (module + optional sub-screen).
 export const SHORTCUT_TARGETS = [
@@ -161,78 +153,6 @@ function KpiBarWidget({ config, kpis }) {
           </div>
         ))}
       </div>
-    </DashCard>
-  );
-}
-
-// KPI Explorer - every metric the /dashboards/kpis feed returns, as a single
-// sortable/filterable table (Neil, Sep 14: "sortable filterable, looks at all
-// data and builds insights"). A widget like any other in WIDGETS so it can be
-// dropped onto the personal Dashboard too, not just the BI board - same
-// "components... added to the BI dashboard or regular dashboard" reuse the
-// stat tiles already get.
-function KpiTableWidget({ kpis }) {
-  const [sort, setSort] = useState({ key: 'label', dir: 1 });
-  const [moduleFilter, setModuleFilter] = useState('');
-  const [q, setQ] = useState('');
-
-  const rows = Object.keys(KPI_CATALOG).map(key => ({
-    key, label: KPI_CATALOG[key].label, module: moduleOfKpi(key),
-    value: kpis?.[key] ?? 0, meta: KPI_CATALOG[key],
-  }));
-  const modules = [...new Set(rows.map(r => r.module))].sort();
-  const filtered = rows
-    .filter(r => !moduleFilter || r.module === moduleFilter)
-    .filter(r => !q.trim() || r.label.toLowerCase().includes(q.trim().toLowerCase()))
-    .sort((a, b) => {
-      const av = a[sort.key], bv = b[sort.key];
-      const cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv));
-      return cmp * sort.dir;
-    });
-
-  const toggleSort = (key) => setSort(s => s.key === key ? { key, dir: -s.dir } : { key, dir: 1 });
-  const Th = ({ k, label, align }) => (
-    <th onClick={() => toggleSort(k)} style={{ cursor: 'pointer', textAlign: align || 'left', padding: '7px 8px', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3, whiteSpace: 'nowrap' }}>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>{label} {sort.key === k && <ArrowUpDown size={11} />}</span>
-    </th>
-  );
-
-  return (
-    <DashCard title="KPI Explorer" sub="Every metric, across every module" action={
-      <div style={{ display: 'flex', gap: 6 }}>
-        <div style={{ position: 'relative' }}>
-          <Search size={12} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…"
-            className="form-input" style={{ fontSize: 12, padding: '5px 8px 5px 24px', width: 110, height: 'auto' }} />
-        </div>
-        <select value={moduleFilter} onChange={e => setModuleFilter(e.target.value)}
-          className="form-input" style={{ fontSize: 12, padding: '5px 8px', width: 120, height: 'auto' }}>
-          <option value="">All modules</option>
-          {modules.map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
-      </div>
-    }>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr style={{ borderBottom: '1px solid var(--line)' }}>
-          <Th k="label" label="Metric" />
-          <Th k="module" label="Module" />
-          <Th k="value" label="Value" align="right" />
-        </tr></thead>
-        <tbody>
-          {filtered.map(r => (
-            <tr key={r.key} onClick={() => r.meta.nav && navigate(r.meta.nav.view, r.meta.nav.sub)}
-              style={{ borderBottom: '1px solid var(--line)', cursor: r.meta.nav ? 'pointer' : 'default' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-              <td style={{ padding: '8px', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>{r.label}</td>
-              <td style={{ padding: '8px', fontSize: 12, color: 'var(--muted)' }}>{r.module}</td>
-              <td style={{ padding: '8px', fontSize: 12.5, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: C(r.meta.color) }}>{r.value}</td>
-            </tr>
-          ))}
-          {filtered.length === 0 && (
-            <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>No metrics match.</td></tr>
-          )}
-        </tbody>
-      </table>
     </DashCard>
   );
 }
@@ -619,7 +539,6 @@ const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
 export const WIDGETS = {
   kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi' },
   'kpi-bar':     { title: 'KPI Bar Chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget },
-  'kpi-table':   { title: 'KPI Explorer',    cat: 'Metrics',   icon: Table2,       size: { w: 8, h: 6 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 10 }, render: KpiTableWidget },
   shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut' },
   links:         { title: 'Quick Links',     cat: 'Navigation', icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
   'links-folder': { title: 'Links Folder',   cat: 'Navigation', icon: FolderOpen,  size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder' },
