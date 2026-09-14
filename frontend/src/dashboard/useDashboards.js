@@ -47,7 +47,21 @@ const ROLE_EXTRAS = {
   ],
 };
 
-const defaultLayoutFor = (widgetTier) => [...DEFAULT_PERSONAL, ...(ROLE_EXTRAS[widgetTier] || [])];
+// BI board default (Sep 14, Neil: "relevant KPI from all modules sit here...
+// sortable filterable, looks at all data and builds insights") - the SAME
+// widget types the personal Dashboard uses (kpi/kpi-bar/kpi-table), just
+// seeded to show cross-module metrics up front instead of "my" ones.
+const DEFAULT_BI = [
+  { i: 'bi1', type: 'kpi',       x: 0, y: 0, w: 3, h: 2, config: { metric: 'open_tasks', hero: true } },
+  { i: 'bi2', type: 'kpi',       x: 3, y: 0, w: 3, h: 2, config: { metric: 'pending_requisitions' } },
+  { i: 'bi3', type: 'kpi',       x: 6, y: 0, w: 3, h: 2, config: { metric: 'open_purchases' } },
+  { i: 'bi4', type: 'kpi',       x: 9, y: 0, w: 3, h: 2, config: { metric: 'open_tickets' } },
+  { i: 'bi5', type: 'kpi-bar',   x: 0, y: 2, w: 4, h: 4, config: { metrics: ['open_tasks', 'pending_requisitions', 'pending_inventory', 'open_purchases', 'warranties_expiring', 'open_tickets'] } },
+  { i: 'bi6', type: 'kpi-table', x: 4, y: 2, w: 8, h: 6 },
+];
+
+const defaultLayoutFor = (widgetTier, target = 'dashboard') =>
+  target === 'bi-dashboard' ? DEFAULT_BI : [...DEFAULT_PERSONAL, ...(ROLE_EXTRAS[widgetTier] || [])];
 
 const rid = () => `w${Math.random().toString(36).slice(2, 8)}`;
 
@@ -97,19 +111,19 @@ export function compactLayout(items) {
   return items.map(it => best.find(p => p.i === it.i) || it);
 }
 
-// One target now - see the DEFAULTS comment above. `widgetTier`: 'manager' |
-// 'supervisor' | 'employee' - CustomDashboard.jsx computes it from role +
-// the 'manager-dashboard' grant (same tiering canSeeWidget() uses). Drives
-// both which role-tiered widgets seed a pristine board (defaultLayoutFor)
-// and whether team-wide KPIs (clocked_in_now, time_off_pending) get pulled
-// alongside the personal ones, so those widgets have data wherever they end
-// up on the board.
-const TARGET = 'dashboard';
-
-export function useDashboards(widgetTier) {
+// `widgetTier`: 'manager' | 'supervisor' | 'employee' - CustomDashboard.jsx
+// computes it from role + the 'manager-dashboard' grant (same tiering
+// canSeeWidget() uses). Drives both which role-tiered widgets seed a pristine
+// board (defaultLayoutFor) and whether team-wide KPIs (clocked_in_now,
+// time_off_pending) get pulled alongside the personal ones, so those widgets
+// have data wherever they end up on the board.
+// `target`: which board - 'dashboard' (personal, the default) or
+// 'bi-dashboard' (Sep 14). Both are the same views CRUD / /kpis feed, just a
+// different saved-layout namespace and default seed.
+export function useDashboards(widgetTier, target = 'dashboard') {
   const [views, setViews] = useState([]);
   const [activeId, setActiveId] = useState(null);   // null = built-in default
-  const [layout, setLayoutState] = useState(() => defaultLayoutFor(widgetTier));
+  const [layout, setLayoutState] = useState(() => defaultLayoutFor(widgetTier, target));
   const [kpis, setKpis] = useState({});
   const [department, setDepartment] = useState('');
   const [canPublish, setCanPublish] = useState(false);
@@ -123,17 +137,17 @@ export function useDashboards(widgetTier) {
     // clampToLimits normalizes layouts saved before per-widget size caps existed
     // (e.g. a KPI tile stretched over half the page).
     const items = (view && Array.isArray(view.layout) && view.layout.length)
-      ? view.layout : defaultLayoutFor(widgetTier);
+      ? view.layout : defaultLayoutFor(widgetTier, target);
     setActiveId(view?.id ?? null);
     setLayoutState(items.map(clampToLimits));
     setDirty(false);
-  }, [widgetTier]);
+  }, [widgetTier, target]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [v, k] = await Promise.all([
-        api.dashViews(TARGET).catch(() => ({ views: [] })),
+        api.dashViews(target).catch(() => ({ views: [] })),
         api.dashKpis(widgetTier !== 'employee' ? 'team' : 'self').catch(() => ({ kpis: {} })),
       ]);
       setViews(v.views || []);
@@ -147,7 +161,7 @@ export function useDashboards(widgetTier) {
     } finally {
       setLoading(false);
     }
-  }, [widgetTier, applyView]);
+  }, [widgetTier, target, applyView]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -169,7 +183,7 @@ export function useDashboards(widgetTier) {
   const switchView = (id) => {
     const v = views.find(x => x.id === id);
     if (v) applyView(v);
-    else { setActiveId(null); setLayoutState(defaultLayoutFor(widgetTier)); setDirty(false); }
+    else { setActiveId(null); setLayoutState(defaultLayoutFor(widgetTier, target)); setDirty(false); }
     setEditing(false);
   };
 
@@ -185,7 +199,7 @@ export function useDashboards(widgetTier) {
       const updated = await api.dashUpdateView(activeId, { layout: cur });
       setViews(vs => vs.map(v => v.id === updated.id ? updated : v));
     } else {
-      const created = await api.dashCreateView({ target: TARGET, name: 'My view', layout: cur, is_default: true });
+      const created = await api.dashCreateView({ target, name: 'My view', layout: cur, is_default: true });
       setViews(vs => [...vs, created]);
       setActiveId(created.id);
     }
@@ -194,7 +208,7 @@ export function useDashboards(widgetTier) {
   };
 
   const saveAsNew = async (name) => {
-    const created = await api.dashCreateView({ target: TARGET, name: name || 'New view', layout: layoutRef.current });
+    const created = await api.dashCreateView({ target, name: name || 'New view', layout: layoutRef.current });
     setViews(vs => [...vs, created]);
     setActiveId(created.id);
     setDirty(false);
@@ -204,7 +218,7 @@ export function useDashboards(widgetTier) {
   // Brand-new view starting from the built-in default layout (vs. saveAsNew,
   // which copies whatever is currently on screen).
   const createNewView = async (name) => {
-    const created = await api.dashCreateView({ target: TARGET, name: name || 'New view', layout: defaultLayoutFor(widgetTier) });
+    const created = await api.dashCreateView({ target, name: name || 'New view', layout: defaultLayoutFor(widgetTier, target) });
     setViews(vs => [...vs, created]);
     applyView(created);
     setEditing(true);
@@ -212,7 +226,7 @@ export function useDashboards(widgetTier) {
   };
 
   const publishDepartment = async (name) => {
-    const created = await api.dashCreateView({ target: TARGET, name: name || `${department || 'Department'} view`, layout: layoutRef.current, scope: 'department', department });
+    const created = await api.dashCreateView({ target, name: name || `${department || 'Department'} view`, layout: layoutRef.current, scope: 'department', department });
     setViews(vs => [...vs, created]);
     return created;
   };
@@ -235,7 +249,7 @@ export function useDashboards(widgetTier) {
   const removeView = async (id) => {
     await api.dashDeleteView(id);
     setViews(vs => vs.filter(v => v.id !== id));
-    if (activeId === id) { setActiveId(null); setLayoutState(defaultLayoutFor(widgetTier)); setDirty(false); }
+    if (activeId === id) { setActiveId(null); setLayoutState(defaultLayoutFor(widgetTier, target)); setDirty(false); }
   };
 
   const renameView = async (id, name) => {

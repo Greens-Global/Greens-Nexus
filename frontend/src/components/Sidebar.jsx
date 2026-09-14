@@ -14,7 +14,7 @@ import {
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
   HardDrive, FolderOpen, ClipboardList,
-  MonitorDot,
+  MonitorDot, Gauge,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 
@@ -146,6 +146,9 @@ export const NAV = [
     // (Ad Performance / Reputation / Insights / SEO / Business Profile / Leads).
     view: "marketing", code: "MKT", label: "Marketing", icon: Megaphone, minRole: 'supervisor',
   },
+  // BI board (Neil, Sep 14): cross-module KPIs, sortable/filterable, reusing
+  // the same widget-grid engine as Dashboard - see dashboard/useDashboards.js.
+  { view: "bi", code: "BI", label: "Business Intelligence", icon: Gauge, minRole: 'supervisor' },
   { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
   { divider: true },
   { view: "support", code: "SUP",        label: "Support",        icon: HelpCircle },

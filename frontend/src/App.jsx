@@ -48,6 +48,7 @@ const Operations          = lazy(() => import("./views/Operations"));
 const FacilityOperations  = lazy(() => import("./views/FacilityOperations"));
 const Development         = lazy(() => import("./views/Development"));
 const PropertyAsset       = lazy(() => import("./views/PropertyAsset"));
+const BusinessIntelligence = lazy(() => import("./views/BusinessIntelligence"));
 const HR                  = lazy(() => import("./views/HR"));
 const Documents           = lazy(() => import("./views/Documents"));
 const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
@@ -113,6 +114,9 @@ const VIEW_MIN_ROLES = {
   'operations':         'supervisor',
   'development':        'supervisor',
   'property-asset':     'supervisor',
+  // BI board (Sep 14) surfaces company-wide/team KPIs the same way the
+  // Dashboard's own Team widgets do, so it's gated the same as those.
+  'bi':                 'supervisor',
   'accounting':         'supervisor',
   'investor-relations': 'supervisor',
   'hr':                 'supervisor',
@@ -329,6 +333,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "operations":         return <FacilityOperations activeSub={activeSub} onSubChange={onSubChange} />;
     case "development":        return <Development activeSub={activeSub} onSubChange={onSubChange} />;
     case "property-asset":     return <PropertyAsset activeSub={activeSub} onSubChange={onSubChange} />;
+    case "bi":                 return <BusinessIntelligence />;
     case "accounting":         return <Accounting activeSub={activeSub} onSubChange={onSubChange} />;
     case "investor-relations": return <InvestorRelations activeSub={activeSub} onSubChange={onSubChange} />;
     case "hr":                 return <HR activeSub={activeSub} onSubChange={onSubChange} />;

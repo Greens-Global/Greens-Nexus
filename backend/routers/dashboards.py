@@ -25,7 +25,10 @@ router = APIRouter(prefix="/dashboards", tags=["Dashboards"], dependencies=[Depe
 # per-widget by minRole instead of a whole second board. 'manager-dashboard'
 # stays out of _TARGETS so no new view can be created against it; the startup
 # migration (main.py) already relabeled every existing row to 'dashboard'.
-_TARGETS = ("dashboard",)
+# 'bi-dashboard' (Sep 14, Neil: cross-module BI board) is a second board of the
+# SAME widget system - same views CRUD, same /kpis feed - so every widget the
+# personal Dashboard has stays reusable there instead of forking a parallel one.
+_TARGETS = ("dashboard", "bi-dashboard")
 
 
 def _now() -> str:
@@ -233,6 +236,10 @@ def kpis(scope: str = "self", user: dict = Depends(get_current_user), db: Sessio
             if email in task_assignees(t)))
         safe("unread_notifications", lambda: db.query(M.NexusNotification).filter(
             M.NexusNotification.recipient == email).count())
+        # Company-wide, same as pending_requisitions/open_purchases above (not
+        # a "my" metric) - feeds the BI board's cross-module view of Support.
+        safe("open_tickets", lambda: db.query(M.TaskTicket).filter(
+            M.TaskTicket.status.notin_(["resolved", "closed"])).count())
 
         def warranties():
             cutoff = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
