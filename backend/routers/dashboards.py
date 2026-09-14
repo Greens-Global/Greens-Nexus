@@ -659,6 +659,95 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
     return {**out, "at": _now()}
 
 
+# ── BI drill-down (Pranshu, Sep 14) ─────────────────────────────────────────
+# "If I click Open, it should show me which employee has how many open
+# tasks." A metric on the board is a COUNT; this answers "count of what,
+# grouped by whom" for the metrics where that grouping is a real, correct
+# question - not every metric has one (there's no "who" for "SSL Expiring").
+# Listed here deliberately rather than guessed generically: each entry knows
+# exactly which rows match that metric and which field groups them, mirroring
+# the same predicate the metric itself was computed with in `insights()`
+# above (kept as comments there pointing here would drift; duplicating the
+# five-line predicate per metric is cheaper to keep honest than a shared
+# helper both endpoints would have to agree on forever).
+_DRILL_TITLES = {
+    ("tasks", "overdue"): "Overdue Tasks by Employee",
+    ("tasks", "upcoming"): "Tasks Due This Week by Employee",
+    ("tasks", "completed_7d"): "Tasks Completed (7d) by Employee",
+    ("tasks", "open_total"): "Open Tasks by Employee",
+    ("tickets", "open"): "Open Tickets by Assignee",
+    ("tickets", "sla_breached"): "SLA-Breached Tickets by Assignee",
+    ("tickets", "resolved"): "Resolved Tickets by Assignee",
+    ("tickets", "closed"): "Closed Tickets by Assignee",
+    ("tickets", "unassigned"): "Unassigned Tickets by Requester",
+}
+
+
+@router.get("/insights/drilldown")
+def insights_drilldown(module: str, metric: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user["level"] < 2:
+        raise HTTPException(403, "Manager access required")
+    key = (module, metric)
+    if key not in _DRILL_TITLES:
+        raise HTTPException(404, "No employee-level breakdown for this metric")
+
+    M = models
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+    week_ahead = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
+    _cscope = auth.company_scope(user, db)
+
+    counts: dict[str, int] = {}
+
+    def bump(key_email: str):
+        k = (key_email or "").strip().lower() or "(unassigned)"
+        counts[k] = counts.get(k, 0) + 1
+
+    if module == "tasks":
+        from routers.task_util import wall_tasks, task_assignees
+        rows = wall_tasks(db, user, db.query(M.Task).filter(
+            M.Task.deleted_at == "", M.Task.type != "section", M.Task.parent_task_id == "").all())
+        pred = {
+            "overdue": lambda t: not t.completed and t.due_on and t.due_on < today,
+            "upcoming": lambda t: not t.completed and t.due_on and today <= t.due_on <= week_ahead,
+            "completed_7d": lambda t: t.completed and t.completed_at >= week_ago,
+            "open_total": lambda t: not t.completed,
+        }[metric]
+        for t in rows:
+            if not pred(t):
+                continue
+            people = task_assignees(t)
+            if not people:
+                bump("")
+            for p in people:
+                bump(p)
+
+    elif module == "tickets":
+        q = db.query(M.TaskTicket)
+        if _cscope is not None:
+            q = q.filter(M.TaskTicket.company_id.in_(_cscope))
+        closed_states = ("resolved", "closed")
+        pred = {
+            "open": lambda t: t.status not in closed_states,
+            "sla_breached": lambda t: t.status not in closed_states and t.sla_due_on and t.sla_due_on < today,
+            "resolved": lambda t: t.status == "resolved",
+            "closed": lambda t: t.status == "closed",
+            "unassigned": lambda t: t.status not in closed_states and not t.assignee_email,
+        }[metric]
+        group_field = "requester_email" if metric == "unassigned" else "assignee_email"
+        for t in q.all():
+            if not pred(t):
+                continue
+            bump(getattr(t, group_field, ""))
+
+    names = {(e.work_email or "").lower(): (e.display_name or e.work_email)
+             for e in db.query(M.NexusEmployee.work_email, M.NexusEmployee.display_name).all()}
+    rows = [{"label": names.get(k, k) if k != "(unassigned)" else "Unassigned", "value": v}
+            for k, v in counts.items()]
+    rows.sort(key=lambda r: -r["value"])
+    return {"title": _DRILL_TITLES[key], "rows": rows[:25], "total": sum(r["value"] for r in rows)}
+
+
 # ── My Agenda (Outlook calendar via Graph) ────────────────────────────────────
 
 # Per (email, window) for a couple of minutes so a dashboard remount doesn't
