@@ -35,8 +35,18 @@
 # modern browsers is the PDF viewer, so this stays tight. Verified on dev
 # against an Egnyte invoice PDF. Do NOT put object-src back to 'none' without
 # retesting a blob PDF preview.
+# connect-src += http://127.0.0.1:47615 (Sep 14): the Time Clock probes the LOCAL
+# desktop agent on this machine before clock-in (GET /nexus/ping, /nexus/pair -
+# see TimeclockWidget.jsx / TimeClock.jsx, Aug 26). The probe shipped without
+# this entry, so on Pages Chrome blocked it before it left the page: every
+# agent PC still got the browser share prompt (double capture) and shared-PC
+# pairing always fell back to "unbound" (owner mis-attribution). Localhost
+# only ever broke on deploy because Vite never serves this file. Loopback is
+# exempt from mixed-content, and the agent answers the private-network
+# preflight itself (desktop-agent/src/pairserver.js). Port-pinned on purpose.
+#
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.azurewebsites.net https://*.supabase.co wss://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://graph.microsoft.com https://cloudflareinsights.com https://nominatim.openstreetmap.org; img-src 'self' data: blob: https://*.supabase.co https://*.tile.openstreetmap.org https://*.arcgisonline.com https://picsum.photos https://fastly.picsum.photos https://icon.horse https://t1.gstatic.com; media-src 'self' blob: https://*.supabase.co; frame-src 'self' blob: https://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://login.live.com https://www.youtube.com https://www.youtube-nocookie.com https://www.loom.com https://player.vimeo.com https://www.google.com https://maps.google.com; worker-src 'self' blob:; object-src 'self' blob:; frame-ancestors 'self'; base-uri 'self'; form-action 'self';
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.azurewebsites.net https://*.supabase.co wss://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://graph.microsoft.com https://cloudflareinsights.com https://nominatim.openstreetmap.org http://127.0.0.1:47615; img-src 'self' data: blob: https://*.supabase.co https://*.tile.openstreetmap.org https://*.arcgisonline.com https://picsum.photos https://fastly.picsum.photos https://icon.horse https://t1.gstatic.com; media-src 'self' blob: https://*.supabase.co; frame-src 'self' blob: https://*.supabase.co https://login.microsoftonline.com https://*.microsoftonline.com https://login.microsoft.com https://login.windows.net https://login.live.com https://www.youtube.com https://www.youtube-nocookie.com https://www.loom.com https://player.vimeo.com https://www.google.com https://maps.google.com; worker-src 'self' blob:; object-src 'self' blob:; frame-ancestors 'self'; base-uri 'self'; form-action 'self';
   X-Content-Type-Options: nosniff
   X-Frame-Options: SAMEORIGIN
   Referrer-Policy: strict-origin-when-cross-origin
