@@ -17,6 +17,7 @@ import cache
 import models
 from database import get_db
 from routers.task_util import task_assignees
+import auth
 from auth import get_current_user
 
 router = APIRouter(prefix="/dashboards", tags=["Dashboards"], dependencies=[Depends(get_current_user)])
@@ -294,6 +295,14 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         month_ahead = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
         ninety_ahead = (datetime.now(timezone.utc) + timedelta(days=90)).strftime("%Y-%m-%d")
         month_start = datetime.now(timezone.utc).strftime("%Y-%m-01")
+        # Multi-company tenant wall (see auth.company_scope): None = unrestricted
+        # (walls off, or a Global Admin), else the exact set of HrEntity ids this
+        # caller may see. Every block below that reads a company_id-bearing table
+        # must apply this the same way its own module's real list endpoint does,
+        # or the BI number and that module's own screen disagree (see the Tasks
+        # fix, Sep 14 - it queried Task rows with no wall and no subtask/section
+        # exclusion, which both inflated its counts past the real ones).
+        _cscope = auth.company_scope(user, db)
         modules: list = []
 
         def tasks_block():
@@ -387,6 +396,8 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
 
         def tickets_block():
             live = db.query(M.TaskTicket)
+            if _cscope is not None:
+                live = live.filter(M.TaskTicket.company_id.in_(_cscope))
             closed_states = ["resolved", "closed"]
             open_q = live.filter(M.TaskTicket.status.notin_(closed_states))
             open_count = open_q.count()
@@ -439,9 +450,12 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         _safe_insight(modules, "knowledge_base", "Knowledge Base", "sop", kb_block)
 
         def ops_block():
+            req_q = db.query(M.Requisition).filter(M.Requisition.status == "pending_manager")
+            if _cscope is not None:
+                req_q = req_q.filter(M.Requisition.company_id.in_(_cscope))
             return {
                 "stats": [
-                    {"key": "pending_requisitions", "label": "Requisitions to Approve", "value": db.query(M.Requisition).filter(M.Requisition.status == "pending_manager").count(), "tone": "warning"},
+                    {"key": "pending_requisitions", "label": "Requisitions to Approve", "value": req_q.count(), "tone": "warning"},
                     {"key": "open_purchases", "label": "Open Purchases", "value": db.query(M.PurchaseRequest).filter(M.PurchaseRequest.status == "pending").count(), "tone": "warning"},
                     {"key": "pending_inventory", "label": "Inventory Requests", "value": db.query(M.ItemCheckout).filter(M.ItemCheckout.status == "pending").count(), "tone": "warning"},
                 ],
@@ -549,6 +563,8 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         def people_block():
             headcount = db.query(M.NexusEmployee).filter(M.NexusEmployee.status == "active").count()
             pipeline = db.query(M.HrCandidate).filter(M.HrCandidate.stage.notin_(["hired", "rejected"]))
+            if _cscope is not None:
+                pipeline = pipeline.filter(M.HrCandidate.company.in_(_cscope))
             open_candidates = pipeline.count()
             interviews_7d = pipeline.filter(
                 M.HrCandidate.interview_at != "", M.HrCandidate.interview_at >= today,
@@ -563,7 +579,10 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
             stage_order = [("applied", "Applied"), ("screening", "Screening"),
                            ("interview", "Interview"), ("offer", "Offer"), ("hired", "Hired")]
             stage_counts = {s: 0 for s, _ in stage_order}
-            for (stage,) in db.query(M.HrCandidate.stage).filter(M.HrCandidate.stage != "rejected").all():
+            stage_q = db.query(M.HrCandidate.stage).filter(M.HrCandidate.stage != "rejected")
+            if _cscope is not None:
+                stage_q = stage_q.filter(M.HrCandidate.company.in_(_cscope))
+            for (stage,) in stage_q.all():
                 if stage in stage_counts:
                     stage_counts[stage] += 1
             funnel = [{"label": label, "value": stage_counts[s]} for s, label in stage_order]
