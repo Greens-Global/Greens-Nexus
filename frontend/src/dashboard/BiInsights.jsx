@@ -7,13 +7,15 @@ import {
   Treemap,
 } from 'recharts';
 import {
-  RefreshCw, Download, Search, X, SlidersHorizontal, Check,
+  RefreshCw, Download, Search, X, SlidersHorizontal,
   BarChartHorizontal, ChartColumn, ChartBarStacked, ChartLine, ChartArea,
   ChartPie, PieChart as PieChartIcon, Grid2x2, Funnel as FunnelIcon, Table2, Hash,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { navigate } from './widgets.jsx';
+import DashboardGrid from './DashboardGrid';
+import { compactLayout } from './useDashboards.js';
 
 // Real per-module management metrics on a Power BI-style report canvas
 // (Neil, Sep 14: "implement all those [visual types] here, so the user can
@@ -62,25 +64,32 @@ function savePicks(picks) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(picks)); } catch { /* ignore */ }
 }
 
-// Customize (Pranshu, Sep 14): which cards show, and how big each one is -
-// saved per browser so the board looks the same on the next visit, same
-// persistence pattern as the visual-type picks above.
-const LS_VISIBLE = 'nexus:bi-visible-modules';
-const LS_SIZES = 'nexus:bi-card-sizes';
-function loadVisible() {
-  try { const v = JSON.parse(localStorage.getItem(LS_VISIBLE)); return Array.isArray(v) ? v : null; } catch { return null; }
+// Customize (Pranshu, Sep 14): "same customization as we have in dashboard
+// module" - reuses the personal Dashboard's own drag/resize grid engine
+// (DashboardGrid.jsx - the exact component CustomDashboard.jsx uses) instead
+// of a bespoke picker, so dragging a card's corner really does grow the chart
+// inside it, and dragging its header really does move it. Layout persists
+// per browser the same way the visual-type picks above do.
+const LS_LAYOUT = 'nexus:bi-layout';
+function loadLayout() {
+  try { const v = JSON.parse(localStorage.getItem(LS_LAYOUT)); return Array.isArray(v) ? v : null; } catch { return null; }
 }
-function saveVisible(ids) {
-  try { localStorage.setItem(LS_VISIBLE, JSON.stringify(ids)); } catch { /* ignore */ }
+function saveLayout(layout) {
+  try { localStorage.setItem(LS_LAYOUT, JSON.stringify(layout)); } catch { /* ignore */ }
 }
-function loadSizes() {
-  try { return JSON.parse(localStorage.getItem(LS_SIZES) || '{}'); } catch { return {}; }
+// Starting w/h (12-col grid, 72px rows) per module - a card with a real
+// chart starts taller than a plain KPI-card module; Customize can resize
+// either away from these.
+const DEFAULT_SIZE = {
+  tasks: { w: 4, h: 5 }, attendance: { w: 4, h: 5 }, tickets: { w: 4, h: 5 },
+  knowledge_base: { w: 4, h: 5 }, operations: { w: 4, h: 3 }, documents: { w: 4, h: 5 },
+  it: { w: 4, h: 3 }, construction: { w: 4, h: 5 }, asset_management: { w: 4, h: 3 },
+  people: { w: 4, h: 5 }, credential_vault: { w: 4, h: 5 }, accounting: { w: 4, h: 3 },
+};
+const sizeOf = (modId) => DEFAULT_SIZE[modId] || { w: 4, h: 4 };
+function defaultLayoutFor(modules) {
+  return compactLayout(modules.map(m => ({ i: m.id, x: 0, y: 0, ...sizeOf(m.id) })));
 }
-function saveSizes(sizes) {
-  try { localStorage.setItem(LS_SIZES, JSON.stringify(sizes)); } catch { /* ignore */ }
-}
-const SIZE_MULT = { sm: 0.62, md: 1, lg: 1.6 };
-const SIZE_LABEL = { sm: 'S', md: 'M', lg: 'L' };
 
 const csvCell = (v) => {
   const s = v == null ? '' : String(v);
@@ -157,35 +166,35 @@ function VisualPicker({ value, onPick }) {
 }
 
 // ── Plain "Card" / "Multi-row card" visual ──
-function KpiCard({ stat, onClick, sizeMult = 1 }) {
+function KpiCard({ stat, onClick }) {
   const color = TONE_COLOR[stat.tone] || 'blue';
   return (
     <div onClick={onClick ? () => onClick(stat) : undefined}
       style={{ ...CARD, background: `hsla(var(--color-${color}), 0.10)`, border: `1px solid hsla(var(--color-${color}), 0.25)`, padding: '12px 14px', minWidth: 0, cursor: onClick ? 'pointer' : 'default' }}>
-      <div style={{ fontSize: Math.round(24 * sizeMult), fontWeight: 800, color: C(color), fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{stat.value}</div>
+      <div style={{ fontSize: 24, fontWeight: 800, color: C(color), fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{stat.value}</div>
       <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 4 }}>{stat.label}</div>
     </div>
   );
 }
-function KpiCardRow({ rows, onClick, sizeMult = 1 }) {
+function KpiCardRow({ rows, onClick }) {
   if (!rows.length) return null;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
-      {rows.map(s => <KpiCard key={s.label} stat={s} onClick={onClick} sizeMult={sizeMult} />)}
+      {rows.map(s => <KpiCard key={s.label} stat={s} onClick={onClick} />)}
     </div>
   );
 }
 
 // ── Generic table visual ──
-function StatsTable({ rows, columns, maxHeight = 168 }) {
+function StatsTable({ rows, columns, fill = false }) {
   if (!rows.length) return <div style={{ fontSize: 12, color: 'var(--muted)' }}>No data.</div>;
   const cols = columns || ['label', 'value'];
   return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'var(--mist)', fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+    <div style={{ border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', ...(fill ? { height: '100%', display: 'flex', flexDirection: 'column' } : {}) }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'var(--mist)', fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3, flexShrink: 0 }}>
         {cols.map(c => <span key={c}>{c === 'label' ? 'Metric' : c === 'value' ? 'Value' : c === 'detail' ? 'Detail' : c}</span>)}
       </div>
-      <div style={{ maxHeight, overflow: 'auto' }}>
+      <div style={fill ? { flex: 1, minHeight: 0, overflow: 'auto' } : { maxHeight: 168, overflow: 'auto' }}>
         {rows.map((r, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '7px 10px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 12 }}>
             <span title={String(r[cols[0]] ?? '')} style={{ fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r[cols[0]]}</span>
@@ -219,19 +228,19 @@ function makeTruncatingTick(pixelWidth) {
   };
 }
 
-function BarGeom({ data, vertical, onBarClick, labelWidth = 150, sizeMult = 1 }) {
-  const height = Math.round((vertical ? Math.max(90, data.length * 30) : 180) * sizeMult);
+function BarGeom({ data, vertical, onBarClick, labelWidth = 150, height }) {
+  const h = height ?? (vertical ? Math.max(90, data.length * 30) : 180);
   return (
-    <ResponsiveContainer width="100%" height={height}>
+    <ResponsiveContainer width="100%" height={h}>
       <BarChart data={data} layout={vertical ? 'vertical' : 'horizontal'}
-        margin={vertical ? { top: 2, right: 30, left: 0, bottom: 2 } : { top: 6, right: 8, left: -18, bottom: 24 }}
+        margin={vertical ? { top: 2, right: 30, left: 0, bottom: 2 } : { top: 6, right: 8, left: 0, bottom: 24 }}
         barCategoryGap={9}>
         {vertical ? (
           <YAxis type="category" dataKey="label" width={labelWidth} tick={makeTruncatingTick(labelWidth - 14)} axisLine={false} tickLine={false} />
         ) : (
           <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval={0} angle={-25} textAnchor="end" height={50} />
         )}
-        {vertical ? <XAxis type="number" hide /> : <YAxis tick={{ fontSize: 10.5, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />}
+        {vertical ? <XAxis type="number" hide /> : <YAxis tick={{ fontSize: 10.5, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />}
         <Tooltip cursor={{ fill: 'var(--mist)' }} contentStyle={{ fontSize: 12, borderRadius: 6 }} />
         <Bar dataKey="value" radius={vertical ? [0, 4, 4, 0] : [4, 4, 0, 0]} barSize={vertical ? 13 : 28} isAnimationActive={false}
           onClick={onBarClick ? (d) => onBarClick(d?.payload) : undefined} cursor={onBarClick ? 'pointer' : 'default'}>
@@ -266,11 +275,11 @@ function StackedBarGeom({ data }) {
 }
 
 // ── Line / Area ──
-function LineAreaGeom({ data, area, sizeMult = 1 }) {
+function LineAreaGeom({ data, area, height = 160 }) {
   return (
-    <ResponsiveContainer width="100%" height={Math.round(160 * sizeMult)}>
+    <ResponsiveContainer width="100%" height={height}>
       {area ? (
-        <AreaChart data={data} margin={{ top: 6, right: 8, left: -18, bottom: 2 }}>
+        <AreaChart data={data} margin={{ top: 6, right: 8, left: 0, bottom: 2 }}>
           <defs>
             <linearGradient id="bi-area-fill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={C('blue')} stopOpacity={0.35} />
@@ -279,15 +288,15 @@ function LineAreaGeom({ data, area, sizeMult = 1 }) {
           </defs>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
           <XAxis dataKey="label" tick={{ fontSize: 10.5, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 10.5, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
+          <YAxis tick={{ fontSize: 10.5, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
           <Tooltip contentStyle={{ fontSize: 12, borderRadius: 6 }} />
           <Area type="monotone" dataKey="value" stroke={C('blue')} strokeWidth={2} fill="url(#bi-area-fill)" isAnimationActive={false} />
         </AreaChart>
       ) : (
-        <LineChart data={data} margin={{ top: 6, right: 8, left: -18, bottom: 2 }}>
+        <LineChart data={data} margin={{ top: 6, right: 8, left: 0, bottom: 2 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--line)" />
           <XAxis dataKey="label" tick={{ fontSize: 10.5, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 10.5, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
+          <YAxis tick={{ fontSize: 10.5, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
           <Tooltip contentStyle={{ fontSize: 12, borderRadius: 6 }} />
           <Line type="monotone" dataKey="value" stroke={C('blue')} strokeWidth={2.5} dot={{ r: 3 }} isAnimationActive={false} />
         </LineChart>
@@ -297,12 +306,12 @@ function LineAreaGeom({ data, area, sizeMult = 1 }) {
 }
 
 // ── Pie / Donut ──
-function PieGeom({ data, donut, sizeMult = 1 }) {
+function PieGeom({ data, donut, fill = false }) {
   const total = data.reduce((a, d) => a + d.value, 0);
   if (!total) return null;
-  const size = Math.round(96 * sizeMult);
+  const size = 96;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, height: fill ? '100%' : 'auto' }}>
       <div style={{ width: size, height: size, flexShrink: 0 }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
@@ -313,9 +322,9 @@ function PieGeom({ data, donut, sizeMult = 1 }) {
           </PieChart>
         </ResponsiveContainer>
       </div>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6, ...(fill ? { height: '100%', overflow: 'auto' } : {}) }}>
         {data.map(d => (
-          <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12 }}>
+          <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, flexShrink: 0 }}>
             <span style={{ width: 8, height: 8, borderRadius: 99, flexShrink: 0, background: d.fill }} />
             <span style={{ color: 'var(--muted)', fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.label}</span>
             <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{d.value}</span>
@@ -327,11 +336,11 @@ function PieGeom({ data, donut, sizeMult = 1 }) {
 }
 
 // ── Treemap ──
-function TreemapGeom({ data, sizeMult = 1 }) {
+function TreemapGeom({ data, height = 140 }) {
   const rows = data.filter(d => d.value > 0);
   if (!rows.length) return null;
   return (
-    <ResponsiveContainer width="100%" height={Math.round(140 * sizeMult)}>
+    <ResponsiveContainer width="100%" height={height}>
       <Treemap data={rows} dataKey="value" nameKey="label" stroke="var(--card)" isAnimationActive={false}
         content={({ x, y, width, height, name, value, fill }) => (
           <g>
@@ -351,10 +360,10 @@ function TreemapGeom({ data, sizeMult = 1 }) {
 }
 
 // ── Funnel ──
-function FunnelGeom({ data, sizeMult = 1 }) {
+function FunnelGeom({ data, height = 180 }) {
   if (!data.length || !data.some(d => d.value > 0)) return null;
   return (
-    <ResponsiveContainer width="100%" height={Math.round(180 * sizeMult)}>
+    <ResponsiveContainer width="100%" height={height}>
       <FunnelChart>
         <Tooltip contentStyle={{ fontSize: 12, borderRadius: 6 }} />
         <Funnel dataKey="value" data={data} nameKey="label" isAnimationActive={false}>
@@ -372,37 +381,36 @@ const FUNNEL_PALETTE = ['blue', 'purple', 'gold', 'orange', 'green'];
 // The dispatcher: one geometry key, the right data source for it (preferring
 // the module's real shaped data - breakdown/trend/funnel/table - over the
 // generic stats list when the chosen visual can use it), one render path.
-function CategoryChart({ geometry, mod, stats, onDrill, sizeMult = 1 }) {
+function CategoryChart({ geometry, mod, stats, onDrill }) {
   const tinted = (rows) => rows.map(d => ({ ...d, fill: C(TONE_COLOR[d.tone] || 'blue') }));
   const drill = onDrill ? (datum) => datum?.key && onDrill(mod.id, datum.key, datum.label) : undefined;
   switch (geometry) {
     case 'card':
-      return <KpiCardRow rows={stats} onClick={drill ? (s) => drill(s) : undefined} sizeMult={sizeMult} />;
+      return <KpiCardRow rows={stats} onClick={drill ? (s) => drill(s) : undefined} />;
     case 'table': {
-      const h = Math.round(168 * sizeMult);
-      if (mod.table?.length) return <StatsTable rows={mod.table.map(r => ({ label: r.employee, value: r.device }))} columns={['label', 'value']} maxHeight={h} />;
-      return <StatsTable rows={stats.map(s => ({ label: s.label, value: s.value, tone: s.tone }))} maxHeight={h} />;
+      if (mod.table?.length) return <StatsTable rows={mod.table.map(r => ({ label: r.employee, value: r.device }))} columns={['label', 'value']} fill />;
+      return <StatsTable rows={stats.map(s => ({ label: s.label, value: s.value, tone: s.tone }))} fill />;
     }
     case 'bar':
-      return <BarGeom data={tinted(stats)} vertical onBarClick={drill} sizeMult={sizeMult} />;
+      return <BarGeom data={tinted(stats)} vertical onBarClick={drill} height="100%" />;
     case 'column':
-      return <BarGeom data={tinted(stats)} vertical={false} onBarClick={drill} sizeMult={sizeMult} />;
+      return <BarGeom data={tinted(stats)} vertical={false} onBarClick={drill} height="100%" />;
     case 'stack':
       return <StackedBarGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} />;
     case 'line':
-      return <LineAreaGeom data={mod.trend?.length ? mod.trend : stats} area={false} sizeMult={sizeMult} />;
+      return <LineAreaGeom data={mod.trend?.length ? mod.trend : stats} area={false} height="100%" />;
     case 'area':
-      return <LineAreaGeom data={mod.trend?.length ? mod.trend : stats} area sizeMult={sizeMult} />;
+      return <LineAreaGeom data={mod.trend?.length ? mod.trend : stats} area height="100%" />;
     case 'pie':
-      return <PieGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} donut={false} sizeMult={sizeMult} />;
+      return <PieGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} donut={false} fill />;
     case 'donut':
-      return <PieGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} donut sizeMult={sizeMult} />;
+      return <PieGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} donut fill />;
     case 'treemap':
-      return <TreemapGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} sizeMult={sizeMult} />;
+      return <TreemapGeom data={tinted(mod.breakdown?.length ? mod.breakdown : stats)} height="100%" />;
     case 'funnel': {
       const src = mod.funnel?.length ? mod.funnel : stats;
       const withFill = src.map((d, i) => ({ ...d, fill: d.tone ? C(TONE_COLOR[d.tone]) : C(FUNNEL_PALETTE[i % FUNNEL_PALETTE.length]) }));
-      return <FunnelGeom data={withFill} sizeMult={sizeMult} />;
+      return <FunnelGeom data={withFill} height="100%" />;
     }
     default:
       return null;
@@ -451,7 +459,11 @@ function Ribbon({ modules }) {
   );
 }
 
-function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill, size = 'md' }) {
+// Fills its DashboardGrid cell (height:100%, real drag/resize from Customize
+// - see DEFAULT_SIZE/defaultLayoutFor above) as a flex column: fixed header,
+// then a chart area that actually grows/shrinks with the card, same as every
+// widget on the personal Dashboard fills its own grid cell.
+function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill }) {
   const stats = (mod.stats || []).filter(s => matchesFilters(s, tone, query));
   const hasAny = stats.length || mod.breakdown?.length || mod.trend?.length || mod.funnel?.length || mod.table?.length;
   if (!hasAny) return null;
@@ -463,8 +475,8 @@ function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill, size = 'm
   };
 
   return (
-    <div style={{ ...CARD, padding: 16, borderLeft: `3px solid ${C(TONE_COLOR[worstTone(mod)])}`, breakInside: 'avoid', marginBottom: 14, display: 'inline-block', width: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+    <div style={{ ...CARD, padding: 16, borderLeft: `3px solid ${C(TONE_COLOR[worstTone(mod)])}`, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexShrink: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: 0.4, cursor: mod.nav ? 'pointer' : 'default', flexShrink: 0 }}
           onClick={() => mod.nav && navigate(mod.nav)}>
           {mod.label}
@@ -480,10 +492,12 @@ function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill, size = 'm
         </div>
       </div>
 
-      <CategoryChart geometry={geometry} mod={mod} stats={stats} onDrill={onDrill} sizeMult={SIZE_MULT[size] ?? 1} />
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <CategoryChart geometry={geometry} mod={mod} stats={stats} onDrill={onDrill} />
+      </div>
 
       {geometry !== 'card' && stats.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', flexShrink: 0 }}>
           {stats.map(s => (
             <div key={s.key} onClick={onDrill ? () => onDrill(mod.id, s.key, s.label) : undefined}
               style={{ cursor: onDrill ? 'pointer' : 'default' }}>
@@ -543,58 +557,6 @@ function DrilldownModal({ request, onClose }) {
   );
 }
 
-// ── Customize: which cards show, and how big (Pranshu, Sep 14 - "add or
-// remove card as per our choice and also make the card big or small"). Both
-// choices persist per browser (see loadVisible/loadSizes above), so the
-// board still looks like this on the next visit - not just a session filter. ──
-function CustomizeModal({ modules, selected, onToggle, sizes, onSize, onClose }) {
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ ...CARD, width: 'min(60vw, 640px)', minWidth: 320, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>Customize Your Board</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Show or hide cards, and set how big each one is</div>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
-        </div>
-        <div style={{ padding: 10, overflow: 'auto' }}>
-          {modules.map(mod => {
-            const on = selected.has(mod.id);
-            const size = sizes[mod.id] || 'md';
-            return (
-              <div key={mod.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 8px', borderRadius: 8 }}>
-                <button onClick={() => onToggle(mod.id)}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 5, flexShrink: 0, border: `1px solid ${on ? 'var(--wk-brand)' : 'var(--line)'}`, background: on ? 'var(--wk-brand)' : 'var(--card)', cursor: 'pointer' }}
-                  title={on ? 'Hide this card' : 'Show this card'}>
-                  {on && <Check size={13} color="#fff" />}
-                </button>
-                <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: on ? 'var(--ink)' : 'var(--muted)' }}>{mod.label}</div>
-                <div style={{ display: 'flex', gap: 3 }}>
-                  {['sm', 'md', 'lg'].map(s => (
-                    <button key={s} onClick={() => onSize(mod.id, s)} disabled={!on} title={s === 'sm' ? 'Small' : s === 'md' ? 'Medium' : 'Large'}
-                      style={{
-                        width: 26, height: 24, fontSize: 11, fontWeight: 700, borderRadius: 5, cursor: on ? 'pointer' : 'default',
-                        border: `1px solid ${size === s ? 'var(--wk-brand)' : 'var(--line)'}`,
-                        background: size === s ? 'var(--wk-brand-tint)' : 'var(--card)',
-                        color: size === s ? 'var(--wk-brand)' : 'var(--muted)', opacity: on ? 1 : 0.4,
-                      }}>
-                      {SIZE_LABEL[s]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ padding: '12px 18px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end' }}>
-          <button className="primary-btn" onClick={onClose} style={{ fontSize: 12.5, fontWeight: 700 }}>Done</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Right rail: live feed of every critical/warning metric across every
 // module (unaffected by the module picker) - drill-in list. ──
 function AttentionFeed({ modules, onPick }) {
@@ -628,21 +590,16 @@ function AttentionFeed({ modules, onPick }) {
 
 export default function BiInsights() {
   const [state, setState] = useState({ loading: true, modules: [], at: '' });
-  const [selected, setSelected] = useState(null);
+  const [layout, setLayoutState] = useState(null);   // [{i,x,y,w,h}] - null until modules are known
+  const [editing, setEditing] = useState(false);
   const [tone, setTone] = useState('all');
   const [query, setQuery] = useState('');
   const [picks, setPicks] = useState(loadPicks);
-  const [sizes, setSizes] = useState(loadSizes);
-  const [customizeOpen, setCustomizeOpen] = useState(false);
   const [drillRequest, setDrillRequest] = useState(null);
   const alive = useRef(true);
   const onDrill = (moduleId, metric, label) => setDrillRequest({ moduleId, metric, label });
 
-  // Which cards show is a saved preference (Customize), not just a session
-  // filter - persisted the first time real module ids are known so a fresh
-  // save always includes every module unless the viewer has already hidden
-  // some.
-  const updateSelected = (next) => { setSelected(next); saveVisible([...next]); };
+  const setLayout = (next) => { setLayoutState(next); saveLayout(next); };
 
   const load = useCallback(async () => {
     try {
@@ -650,10 +607,11 @@ export default function BiInsights() {
       if (!alive.current) return;
       const modules = r.modules || [];
       setState({ loading: false, modules, at: r.at || '' });
-      setSelected(prev => {
+      setLayoutState(prev => {
         if (prev) return prev;
-        const saved = loadVisible();
-        return saved ? new Set(saved.filter(id => modules.some(m => m.id === id))) : new Set(modules.map(m => m.id));
+        const saved = loadLayout();
+        const known = saved ? saved.filter(it => modules.some(m => m.id === it.i)) : null;
+        return known && known.length ? known : defaultLayoutFor(modules);
       });
     } catch {
       if (alive.current) setState(s => ({ ...s, loading: false }));
@@ -673,19 +631,31 @@ export default function BiInsights() {
     return next;
   });
   const geometryFor = (modId) => picks[modId] || DEFAULT_GEOMETRY[modId] || 'bar';
-  const setModSize = (modId, size) => setSizes(prev => {
-    const next = { ...prev, [modId]: size };
-    saveSizes(next);
-    return next;
-  });
-  const sizeFor = (modId) => sizes[modId] || 'md';
 
-  const selectedSet = selected || new Set(state.modules.map(m => m.id));
+  const safeLayout = layout || [];
+  const visibleIds = new Set(safeLayout.map(it => it.i));
   const q = query.trim().toLowerCase();
-  const moduleFiltered = useMemo(() => state.modules.filter(m => selectedSet.has(m.id)), [state.modules, selectedSet]);
-  const activeFilterCount = (selectedSet.size !== state.modules.length ? 1 : 0) + (tone !== 'all' ? 1 : 0) + (q ? 1 : 0);
-  const clearFilters = () => { updateSelected(new Set(state.modules.map(m => m.id))); setTone('all'); setQuery(''); };
-  const pickOnly = (id) => updateSelected(new Set([id]));
+  const moduleFiltered = useMemo(
+    () => safeLayout.map(it => state.modules.find(m => m.id === it.i)).filter(Boolean),
+    [safeLayout, state.modules]
+  );
+  const hiddenModules = state.modules.filter(m => !visibleIds.has(m.id));
+  const activeFilterCount = (tone !== 'all' ? 1 : 0) + (q ? 1 : 0);
+  const clearFilters = () => { setTone('all'); setQuery(''); };
+
+  // Toggle a card on/off - same job DashboardGrid's own remove(X) does in
+  // edit mode, but also reachable from the sidebar list and from "Needs
+  // Attention" without entering Customize first.
+  const toggleModule = (id) => {
+    if (visibleIds.has(id)) { setLayout(safeLayout.filter(it => it.i !== id)); return; }
+    const maxY = safeLayout.reduce((m, it) => Math.max(m, it.y + it.h), 0);
+    setLayout([...safeLayout, { i: id, x: 0, y: maxY, ...sizeOf(id) }]);
+  };
+  const pickOnly = (id) => {
+    const existing = safeLayout.find(it => it.i === id);
+    setLayout([existing || { i: id, x: 0, y: 0, ...sizeOf(id) }]);
+  };
+  const resetLayout = () => setLayout(defaultLayoutFor(state.modules));
 
   const exportAll = () => {
     const rows = [['Module', 'Metric', 'Value', 'Alert Level']];
@@ -722,8 +692,22 @@ export default function BiInsights() {
             Real-time KPIs across every module{state.at ? ` · updated ${new Date(state.at).toLocaleTimeString()}` : ''} · click a card's icons to change its visual
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="secondary-btn" onClick={() => setCustomizeOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}><SlidersHorizontal size={13} /> Customize</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {editing && hiddenModules.length > 0 && (
+            <div style={{ position: 'relative' }}>
+              <select value="" onChange={e => e.target.value && toggleModule(e.target.value)}
+                className="form-input" style={{ fontSize: 12.5, fontWeight: 600, padding: '6px 28px 6px 10px', width: 'auto' }}>
+                <option value="" disabled>+ Add card…</option>
+                {hiddenModules.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </div>
+          )}
+          {editing && (
+            <button className="secondary-btn" onClick={resetLayout} style={{ fontSize: 12.5, fontWeight: 600 }}>Reset layout</button>
+          )}
+          <button className="secondary-btn" onClick={() => setEditing(e => !e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}>
+            {editing ? <><X size={13} /> Done</> : <><SlidersHorizontal size={13} /> Customize</>}
+          </button>
           <button className="secondary-btn" onClick={exportAll} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}><Download size={13} /> Export</button>
           <button className="secondary-btn" onClick={load} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}><RefreshCw size={13} /> Refresh</button>
         </div>
@@ -733,6 +717,32 @@ export default function BiInsights() {
         <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={190} /></div>
       ) : (
         <div className="bi-layout" style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ marginBottom: 14 }}><Ribbon modules={moduleFiltered} /></div>
+            {/* Same drag/resize grid engine the personal Dashboard's own
+                Customize mode uses (DashboardGrid.jsx) - drag a card's header
+                to move it, drag its SE corner to resize it, both snap to a
+                12-column grid. Auto-saves on every change (no separate Save
+                step - this board has no backend view, just localStorage). */}
+            <DashboardGrid
+              layout={safeLayout}
+              editing={editing}
+              onLayoutChange={setLayout}
+              onRemove={toggleModule}
+              limitsFor={() => ({ minW: 3, minH: 2, maxW: 12, maxH: 10 })}
+              renderWidget={(it) => {
+                const mod = state.modules.find(m => m.id === it.i);
+                if (!mod) return null;
+                return <ModuleCard mod={mod} tone={tone} query={q} geometry={geometryFor(mod.id)} onGeometry={setGeometry} onDrill={onDrill} />;
+              }}
+            />
+            {safeLayout.length === 0 && (
+              <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No cards on this board. Click Customize to add some.</div>
+            )}
+          </div>
+
+          <AttentionFeed modules={state.modules} onPick={pickOnly} />
 
           <aside style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ position: 'relative' }}>
@@ -750,8 +760,8 @@ export default function BiInsights() {
             <div>
               <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Modules</div>
               <SlicerGrid cols={1} options={state.modules.map(m => ({ value: m.id, label: m.label, dot: C(TONE_COLOR[worstTone(m)]) }))}
-                isActive={v => selectedSet.has(v)}
-                onPick={id => { const next = new Set(selectedSet); next.has(id) ? next.delete(id) : next.add(id); updateSelected(next); }}
+                isActive={v => visibleIds.has(v)}
+                onPick={toggleModule}
               />
             </div>
 
@@ -764,35 +774,10 @@ export default function BiInsights() {
               <HealthGauge value={healthScore} />
             </div>
           </aside>
-
-          <AttentionFeed modules={state.modules} onPick={pickOnly} />
-
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ marginBottom: 14 }}><Ribbon modules={moduleFiltered} /></div>
-            {/* CSS multi-column masonry, not CSS Grid - a Grid row's height is
-                still set by its tallest item even with align-items:start, so
-                a short card leaves dead space instead of letting the next
-                card ride up into it. `columns` genuinely packs each column
-                top-to-bottom, which is the "auto-assign to fill the blank
-                space" behavior that was asked for. */}
-            <div style={{ columns: '320px', columnGap: 14 }}>
-              {moduleFiltered.map(mod => (
-                <ModuleCard key={mod.id} mod={mod} tone={tone} query={q} geometry={geometryFor(mod.id)} onGeometry={setGeometry} onDrill={onDrill} size={sizeFor(mod.id)} />
-              ))}
-            </div>
-            {moduleFiltered.length === 0 && (
-              <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No modules selected. Pick at least one on the left.</div>
-            )}
-          </div>
         </div>
       )}
 
       {drillRequest && <DrilldownModal request={drillRequest} onClose={() => setDrillRequest(null)} />}
-      {customizeOpen && (
-        <CustomizeModal modules={state.modules} selected={selectedSet} onToggle={id => {
-          const next = new Set(selectedSet); next.has(id) ? next.delete(id) : next.add(id); updateSelected(next);
-        }} sizes={sizes} onSize={setModSize} onClose={() => setCustomizeOpen(false)} />
-      )}
     </div>
   );
 }
