@@ -7,7 +7,7 @@ import {
   Treemap,
 } from 'recharts';
 import {
-  RefreshCw, Download, Search, X, SlidersHorizontal,
+  RefreshCw, Download, Search, X, SlidersHorizontal, ChevronDown, ChevronRight,
   BarChartHorizontal, ChartColumn, ChartBarStacked, ChartLine, ChartArea,
   ChartPie, PieChart as PieChartIcon, Grid2x2, Funnel as FunnelIcon, Table2, Hash,
 } from 'lucide-react';
@@ -417,26 +417,6 @@ function CategoryChart({ geometry, mod, stats, onDrill }) {
   }
 }
 
-// ── Gauge (SVG) - page-level Signal Health Score ──
-function HealthGauge({ value, size = 168 }) {
-  const w = size, h = size / 2 + 30;
-  const cx = w / 2, cy = size / 2 + 2, r = size / 2 - 14;
-  const zones = [{ from: 0, to: 40, color: 'red' }, { from: 40, to: 70, color: 'orange' }, { from: 70, to: 90, color: 'blue' }, { from: 90, to: 100, color: 'green' }];
-  const angleFor = (v) => 180 + (Math.max(0, Math.min(100, v)) / 100) * 180;
-  const pt = (deg, radius) => { const rad = (deg * Math.PI) / 180; return [cx + radius * Math.cos(rad), cy + radius * Math.sin(rad)]; };
-  const arc = (a0, a1, radius) => { const [x0, y0] = pt(a0, radius), [x1, y1] = pt(a1, radius); return `M ${x0} ${y0} A ${radius} ${radius} 0 0 1 ${x1} ${y1}`; };
-  const [nx, ny] = pt(angleFor(value), r - 6);
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow: 'visible' }}>
-      {zones.map(z => <path key={z.color} d={arc(angleFor(z.from), angleFor(z.to), r)} stroke={C(z.color)} strokeWidth={12} fill="none" opacity={0.9} />)}
-      <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="var(--ink)" strokeWidth={2.5} strokeLinecap="round" />
-      <circle cx={cx} cy={cy} r={4.5} fill="var(--ink)" />
-      <text x={cx} y={cy + 24} textAnchor="middle" fontSize={22} fontWeight={800} fill="var(--ink)" style={{ fontVariantNumeric: 'tabular-nums' }}>{Math.round(value)}</text>
-      <text x={cx} y={cy + 40} textAnchor="middle" fontSize={10} fontWeight={700} fill="var(--muted)" style={{ letterSpacing: 0.4 }}>SIGNAL HEALTH</text>
-    </svg>
-  );
-}
-
 // ── KPI ribbon: flat colored blocks, one per alert level, page-wide total ──
 function Ribbon({ modules }) {
   const totals = { critical: 0, warning: 0, neutral: 0, good: 0 };
@@ -463,7 +443,7 @@ function Ribbon({ modules }) {
 // - see DEFAULT_SIZE/defaultLayoutFor above) as a flex column: fixed header,
 // then a chart area that actually grows/shrinks with the card, same as every
 // widget on the personal Dashboard fills its own grid cell.
-function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill }) {
+function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill, collapsed, onToggleCollapse }) {
   const stats = (mod.stats || []).filter(s => matchesFilters(s, tone, query));
   const hasAny = stats.length || mod.breakdown?.length || mod.trend?.length || mod.funnel?.length || mod.table?.length;
   if (!hasAny) return null;
@@ -476,36 +456,48 @@ function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill }) {
 
   return (
     <div style={{ ...CARD, padding: 16, borderLeft: `3px solid ${C(TONE_COLOR[worstTone(mod)])}`, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexShrink: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: 0.4, cursor: mod.nav ? 'pointer' : 'default', flexShrink: 0 }}
-          onClick={() => mod.nav && navigate(mod.nav)}>
-          {mod.label}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: collapsed ? 0 : 10, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <button onClick={onToggleCollapse} title={collapsed ? 'Expand' : 'Collapse'}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 0, flexShrink: 0 }}>
+            {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+          </button>
+          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: 0.4, cursor: mod.nav ? 'pointer' : 'default', flexShrink: 0 }}
+            onClick={() => mod.nav && navigate(mod.nav)}>
+            {mod.label}
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <VisualPicker value={geometry} onPick={g => onGeometry(mod.id, g)} />
-          {stats.length > 0 && (
-            <button onClick={exportCard} title="Download this card as CSV"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2, flexShrink: 0 }}>
-              <Download size={13} />
-            </button>
-          )}
-        </div>
+        {!collapsed && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <VisualPicker value={geometry} onPick={g => onGeometry(mod.id, g)} />
+            {stats.length > 0 && (
+              <button onClick={exportCard} title="Download this card as CSV"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2, flexShrink: 0 }}>
+                <Download size={13} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <CategoryChart geometry={geometry} mod={mod} stats={stats} onDrill={onDrill} />
-      </div>
+      {!collapsed && (
+        <>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <CategoryChart geometry={geometry} mod={mod} stats={stats} onDrill={onDrill} />
+          </div>
 
-      {geometry !== 'card' && stats.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', flexShrink: 0 }}>
-          {stats.map(s => (
-            <div key={s.key} onClick={onDrill ? () => onDrill(mod.id, s.key, s.label) : undefined}
-              style={{ cursor: onDrill ? 'pointer' : 'default' }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: C(TONE_COLOR[s.tone] || 'blue'), fontVariantNumeric: 'tabular-nums' }}>{s.value}</div>
-              <div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600 }}>{s.label}</div>
+          {geometry !== 'card' && stats.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', flexShrink: 0 }}>
+              {stats.map(s => (
+                <div key={s.key} onClick={onDrill ? () => onDrill(mod.id, s.key, s.label) : undefined}
+                  style={{ cursor: onDrill ? 'pointer' : 'default' }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: C(TONE_COLOR[s.tone] || 'blue'), fontVariantNumeric: 'tabular-nums' }}>{s.value}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600 }}>{s.label}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -657,23 +649,24 @@ export default function BiInsights() {
   };
   const resetLayout = () => setLayout(defaultLayoutFor(state.modules));
 
+  // Collapse: shrink a card to just its header (h:1), remembering the height
+  // to restore on expand. Stored on the layout item itself so it persists
+  // the same way position/size do.
+  const toggleCollapse = (id) => {
+    setLayout(safeLayout.map(it => {
+      if (it.i !== id) return it;
+      return it.collapsed
+        ? { ...it, collapsed: false, h: it.prevH || sizeOf(id).h }
+        : { ...it, collapsed: true, prevH: it.h, h: 1 };
+    }));
+  };
+
   const exportAll = () => {
     const rows = [['Module', 'Metric', 'Value', 'Alert Level']];
     moduleFiltered.forEach(mod => (mod.stats || []).filter(s => matchesFilters(s, tone, q))
       .forEach(s => rows.push([mod.label, s.label, s.value, TONE_LABEL[s.tone] || s.tone])));
     downloadCsv('business-intelligence.csv', rows);
   };
-
-  const healthScore = useMemo(() => {
-    let n = 0, penalty = 0;
-    for (const mod of state.modules) for (const s of mod.stats || []) {
-      if (typeof s.value !== 'number') continue;
-      n++;
-      if (s.tone === 'critical' && s.value > 0) penalty += 1;
-      else if (s.tone === 'warning' && s.value > 0) penalty += 0.5;
-    }
-    return n ? Math.max(0, 100 - (penalty / n) * 100) : 100;
-  }, [state.modules]);
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -689,7 +682,9 @@ export default function BiInsights() {
         <div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: 'var(--ink)' }}>Business Intelligence</h2>
           <p style={{ margin: '3px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>
-            Real-time KPIs across every module{state.at ? ` · updated ${new Date(state.at).toLocaleTimeString()}` : ''} · click a card's icons to change its visual
+            {editing
+              ? "Drag a card's header to move it, or its bottom-right corner to resize its width and height together."
+              : <>Real-time KPIs across every module{state.at ? ` · updated ${new Date(state.at).toLocaleTimeString()}` : ''} · click a card's icons to change its visual</>}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -734,7 +729,8 @@ export default function BiInsights() {
               renderWidget={(it) => {
                 const mod = state.modules.find(m => m.id === it.i);
                 if (!mod) return null;
-                return <ModuleCard mod={mod} tone={tone} query={q} geometry={geometryFor(mod.id)} onGeometry={setGeometry} onDrill={onDrill} />;
+                return <ModuleCard mod={mod} tone={tone} query={q} geometry={geometryFor(mod.id)} onGeometry={setGeometry} onDrill={onDrill}
+                  collapsed={!!it.collapsed} onToggleCollapse={() => toggleCollapse(it.i)} />;
               }}
             />
             {safeLayout.length === 0 && (
@@ -769,10 +765,6 @@ export default function BiInsights() {
               style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--line)', cursor: activeFilterCount ? 'pointer' : 'default', background: 'var(--card)', color: activeFilterCount ? 'hsl(var(--color-red))' : 'var(--muted)', opacity: activeFilterCount ? 1 : 0.5 }}>
               <X size={12} /> Clear all filters
             </button>
-
-            <div style={{ ...CARD, padding: 14, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <HealthGauge value={healthScore} />
-            </div>
           </aside>
         </div>
       )}
