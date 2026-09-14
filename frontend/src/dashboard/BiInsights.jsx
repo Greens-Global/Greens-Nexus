@@ -168,8 +168,8 @@ function StatsTable({ rows, columns }) {
       <div style={{ maxHeight: 168, overflow: 'auto' }}>
         {rows.map((r, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '7px 10px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 12 }}>
-            <span style={{ fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r[cols[0]]}</span>
-            <span style={{ fontWeight: 700, color: r.tone ? C(TONE_COLOR[r.tone] || 'blue') : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r[cols[1]]}</span>
+            <span title={String(r[cols[0]] ?? '')} style={{ fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r[cols[0]]}</span>
+            <span title={String(r[cols[1]] ?? '')} style={{ fontWeight: 700, color: r.tone ? C(TONE_COLOR[r.tone] || 'blue') : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r[cols[1]]}</span>
           </div>
         ))}
       </div>
@@ -178,7 +178,28 @@ function StatsTable({ rows, columns }) {
 }
 
 // ── Bar / Column (same geometry, transposed) ──
-function BarGeom({ data, vertical, onBarClick }) {
+// Recharts clips category-axis text at the axis's own pixel width with no
+// ellipsis and no wrap - a name/email longer than that width was rendering
+// cut off mid-character (the "!@greensstorage.com" report: that's the tail
+// end of a longer address, sliced by the SVG viewport, not bad data).
+// Truncate deliberately instead, with the full value in a native <title> so
+// hovering still shows it, and render in --ink (not --muted) at a readable
+// weight/size so it isn't just low-contrast gray.
+function makeTruncatingTick(pixelWidth) {
+  const maxChars = Math.max(6, Math.floor(pixelWidth / 6.4));
+  return function Tick({ x, y, payload }) {
+    const full = String(payload.value);
+    const text = full.length > maxChars ? full.slice(0, maxChars - 1) + '…' : full;
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <title>{full}</title>
+        <text x={-6} y={0} dy={4} textAnchor="end" fontSize={11.5} fontWeight={600} fill="var(--ink)">{text}</text>
+      </g>
+    );
+  };
+}
+
+function BarGeom({ data, vertical, onBarClick, labelWidth = 150 }) {
   const height = vertical ? Math.max(90, data.length * 30) : 180;
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -186,7 +207,7 @@ function BarGeom({ data, vertical, onBarClick }) {
         margin={vertical ? { top: 2, right: 30, left: 0, bottom: 2 } : { top: 6, right: 8, left: -18, bottom: 24 }}
         barCategoryGap={9}>
         {vertical ? (
-          <YAxis type="category" dataKey="label" width={122} tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+          <YAxis type="category" dataKey="label" width={labelWidth} tick={makeTruncatingTick(labelWidth - 14)} axisLine={false} tickLine={false} />
         ) : (
           <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval={0} angle={-25} textAnchor="end" height={50} />
         )}
@@ -492,7 +513,7 @@ function DrilldownModal({ request, onClose }) {
           ) : state.kind === 'list' ? (
             <StatsTable rows={state.rows} columns={['label', 'detail']} />
           ) : (
-            <BarGeom data={barData} vertical />
+            <BarGeom data={barData} vertical labelWidth={220} />
           )}
         </div>
       </div>
