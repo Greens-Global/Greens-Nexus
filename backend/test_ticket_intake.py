@@ -51,13 +51,13 @@ class IntakeCompanyTests(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         self.addCleanup(self.db.close)
-        for m in (models.NexusEmployee, models.HrDepartment, models.TaskTicket):
+        for m in (models.NexusEmployee, models.TicketDepartment, models.TaskTicket):
             self.db.query(m).delete()
         self.db.commit()
         self.db.add(models.NexusEmployee(id=str(uuid.uuid4()), first_name="Sagar",
                                          work_email=ME, company=GREENS, status="active"))
         for name, co in (("Estimating", GREENS), ("Operations", GREENS), ("Payroll", OTHER)):
-            self.db.add(models.HrDepartment(id=str(uuid.uuid4()), company_id=co, name=name))
+            self.db.add(models.TicketDepartment(id=str(uuid.uuid4()), company_id=co, name=name))
         self.db.commit()
 
     # ── company_for ──────────────────────────────────────────────────────

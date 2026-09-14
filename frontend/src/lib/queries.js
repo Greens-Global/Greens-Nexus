@@ -16,7 +16,12 @@ import { qk } from './queryClient';
 // staleTime per query reflects how fast each source actually changes; the
 // server caches these too (cache.py), so a refetch is cheap even on a miss.
 export function usePeopleDirectory(options = {}) {
-  return useQuery({ queryKey: qk.peopleDirectory, queryFn: api.getPeopleDirectory,
+  // Must be wrapped, not passed directly: react-query invokes queryFn with its
+  // own context object ({queryKey, signal, ...}) as the first argument, and
+  // that truthy object was landing in getPeopleDirectory's `includeExternal`
+  // param - silently pulling guest/external users into the "clean" directory
+  // and duplicating them wherever a caller also merges in getExternalUsers().
+  return useQuery({ queryKey: qk.peopleDirectory, queryFn: () => api.getPeopleDirectory(),
                     staleTime: 60_000, ...options });
 }
 export function useRolesDirectory(options = {}) {

@@ -16,7 +16,7 @@ Jul 28); craft bar monday.com's login.
 */
 import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
-import { CheckSquare, Clock, Users } from "lucide-react";
+import { CheckSquare, Clock, Users, Boxes, Gauge, Receipt, FolderOpen } from "lucide-react";
 import { loginRequest } from "../authConfig";
 import { useBranding } from "../lib/queries";
 import { BFF_MODE, clearSignedOutMarker } from "../bffAuth";
@@ -120,10 +120,18 @@ export default function LoginPage() {
   };
 
   const P = ACCENT_PALETTES[accent];
+  // What Nexus IS, at a glance. Insights & BI carries its own card next to
+  // Operations rather than living inside the Operations line (Sagar, Sep 15).
+  // Subtitles are Pranshu's wording from a2b2738 (#211), kept when that change
+  // and this one collided on the same brief.
   const PANELS = [
     { Icon: CheckSquare, tint: "#dff3fc", fg: "#0998c3", title: "Tasks", sub: "Projects, boards and deadlines" },
-    { Icon: Clock,       tint: P.tint,     fg: P.base,    title: "Time Clock", sub: "Punch in, timesheets, payroll" },
+    { Icon: Clock,       tint: P.tint,     fg: P.base,    title: "Time & Attendance", sub: "Punch in, timesheets, payroll" },
     { Icon: Users,       tint: "#e6f7ef", fg: "#00a25b", title: "People", sub: "Profiles, leave and documents" },
+    { Icon: Boxes,       tint: "#fff3e3", fg: "#c26f00", title: "Operations", sub: "Sites, staffing and vendors" },
+    { Icon: Gauge,       tint: "#ecebfe", fg: "#5145cd", title: "Insights & BI", sub: "KPIs and analytics, every module" },
+    { Icon: Receipt,     tint: "#f1ecfe", fg: "#6c3ef4", title: "Accounting", sub: "P&L, reports and reconciliation" },
+    { Icon: FolderOpen,  tint: "#e8f5f7", fg: "#0d7f94", title: "Files", sub: "Documents, uploads and storage" },
   ];
 
   return (
@@ -135,20 +143,27 @@ export default function LoginPage() {
           <span className="nxl-mark nxl-mark--inverse">N</span>
           <span className="nxl-hero-name">Nexus</span>
         </div>
-        <h2 className="nxl-hero-title" style={{ "--i": 1 }}>Everything your company runs on.</h2>
-        <p className="nxl-hero-sub" style={{ "--i": 2 }}>
-          Tasks, time, people, items and documents - one workspace for the whole company.
-        </p>
-        <div className="nxl-cards" style={{ "--i": 3 }}>
-          {PANELS.map((p, i) => (
-            <div key={p.title} className="nxl-card" style={{ "--i": 3 + i }}>
-              <span className="nxl-card-chip" style={{ background: p.tint, color: p.fg }}><p.Icon size={16} /></span>
-              <span className="nxl-card-text">
-                <span className="nxl-card-title">{p.title}</span>
-                <span className="nxl-card-sub">{p.sub}</span>
-              </span>
+        {/* One column, centered in the panel (Sagar, Sep 15). The panel only
+            left-padded its content before, so on a wide screen the block sat
+            hard against the left edge with an empty green half beside it. */}
+        <div className="nxl-hero-inner">
+          <h2 className="nxl-hero-title" style={{ "--i": 1 }}>Everything your company runs on.</h2>
+          <p className="nxl-hero-sub" style={{ "--i": 2 }}>
+            Tasks, time, people, items and documents - one workspace for the whole company.
+          </p>
+          <div className="nxl-cards" style={{ "--i": 3 }}>
+            <div className="nxl-cards-grid">
+              {PANELS.map((p) => (
+                <div key={p.title} className="nxl-card">
+                  <span className="nxl-card-chip" style={{ background: p.tint, color: p.fg }}><p.Icon size={16} /></span>
+                  <span className="nxl-card-text">
+                    <span className="nxl-card-title">{p.title}</span>
+                    <span className="nxl-card-sub">{p.sub}</span>
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
       </aside>
 
@@ -169,23 +184,24 @@ export default function LoginPage() {
             </p>
           )}
 
-          <button className="nxl-cta" style={{ "--i": 3 }} onClick={signIn}>
-            <svg width="18" height="18" viewBox="0 0 21 21" fill="none" aria-hidden="true">
-              <rect width="10" height="10" fill="#F35325" />
-              <rect x="11" width="10" height="10" fill="#81BC06" />
-              <rect y="11" width="10" height="10" fill="#05A6F0" />
-              <rect x="11" y="11" width="10" height="10" fill="#FFBA08" />
-            </svg>
-            Continue with Microsoft
-          </button>
-
-          <p className="nxl-note" style={{ "--i": 4 }}>
-            Single sign-on with your work account · Microsoft Entra ID
-          </p>
-          <button onClick={() => { setPartner('email'); setPError(''); }}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '2px 4px', marginBottom: 8 }}>
-            Partner Sign-In
-          </button>
+          {/* Both sign-in routes are boxes of the same width (Sagar, Sep 15):
+              the partner route used to be a small underlined link under the
+              note, which read as fine print rather than the alternative it is. */}
+          <div className="nxl-actions" style={{ "--i": 3 }}>
+            <button className="nxl-cta" onClick={signIn}>
+              <svg width="18" height="18" viewBox="0 0 21 21" fill="none" aria-hidden="true">
+                <rect width="10" height="10" fill="#F35325" />
+                <rect x="11" width="10" height="10" fill="#81BC06" />
+                <rect y="11" width="10" height="10" fill="#05A6F0" />
+                <rect x="11" y="11" width="10" height="10" fill="#FFBA08" />
+              </svg>
+              Continue with Microsoft
+            </button>
+            <p className="nxl-note">Single sign-on with your work account</p>
+            <button className="nxl-cta" onClick={() => { setPartner('email'); setPError(''); }}>
+              Partner Sign-In
+            </button>
+          </div>
           </>)}
 
           {partner === 'email' && (<>
@@ -252,14 +268,17 @@ export default function LoginPage() {
           </div>
           </>)}
 
-          <p className="nxl-foot" style={{ "--i": 5 }}>Secure company workspace</p>
-          <p className="nxl-legal" style={{ "--i": 6 }}>
-            <a href="/privacy">Privacy Policy</a>
-            <span aria-hidden="true"> · </span>
-            <a href="/terms">Terms & Conditions</a>
-          </p>
         </div>
       </main>
+
+      {/* Page corners, not the centered column (Sagar, Sep 15). These sit on
+          the root so they stay put across every partner step. */}
+      <p className="nxl-foot" style={{ "--i": 5 }}>Secure company workspace</p>
+      <p className="nxl-legal" style={{ "--i": 6 }}>
+        <a href="/privacy">Privacy Policy</a>
+        <span aria-hidden="true"> · </span>
+        <a href="/terms">Terms & Conditions</a>
+      </p>
 
       <style>{`
         .nxl {
@@ -286,6 +305,7 @@ export default function LoginPage() {
             radial-gradient(56% 48% at -4% 104%, rgba(15,23,90,.35)   0%, rgba(15,23,90,0)   70%);
         }
         .nxl-hero > * { position: relative; }
+        .nxl-hero-inner { width: 100%; max-width: 552px; margin-inline: auto; }
         .nxl-hero-brand {
           position: absolute; top: 26px; left: clamp(36px, 6vw, 84px);
           display: flex; align-items: center; gap: 10px;
@@ -311,16 +331,30 @@ export default function LoginPage() {
           max-width: 42ch;
         }
 
-        .nxl-cards { display: flex; flex-direction: column; gap: 14px; margin-top: 40px; max-width: 340px; }
+        .nxl-cards { margin-top: 30px; }
+        .nxl-cards-grid {
+          display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+          transform: rotate(-1deg);
+        }
         .nxl-card {
-          display: flex; align-items: center; gap: 12px;
+          display: flex; align-items: center; gap: 11px;
           background: #ffffff; color: #323338;
-          border-radius: 13px; padding: 13px 16px;
+          border-radius: 13px; padding: 11px 14px;
           box-shadow: 0 14px 34px rgba(15, 23, 90, .28);
         }
-        .nxl-card:nth-child(1) { transform: rotate(-1.2deg) translateX(-6px); }
-        .nxl-card:nth-child(2) { transform: rotate(.8deg) translateX(14px); }
-        .nxl-card:nth-child(3) { transform: rotate(-.6deg); }
+        /* Four rows instead of seven leaves room to spare, so this only has to
+           catch genuinely short windows now. */
+        @media (max-height: 660px) {
+          .nxl-cards { margin-top: 20px; }
+          .nxl-cards-grid { gap: 9px; }
+          .nxl-card { padding: 9px 12px; }
+          .nxl-card-chip { width: 30px; height: 30px; }
+        }
+        /* One column again once the panel is too narrow to split. */
+        @media (max-width: 1080px) {
+          .nxl-hero-inner { max-width: 340px; }
+          .nxl-cards-grid { grid-template-columns: minmax(0, 1fr); }
+        }
         .nxl-card-chip {
           width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
           display: inline-flex; align-items: center; justify-content: center;
@@ -337,12 +371,15 @@ export default function LoginPage() {
         }
         .nxl-stage-inner { display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 380px; }
 
-        .nxl-hero > *:not(.nxl-hero-wash), .nxl-stage-inner > * {
+        .nxl-hero > *:not(.nxl-hero-wash):not(.nxl-hero-inner), .nxl-hero-inner > *,
+        .nxl-stage-inner > *, .nxl > .nxl-foot, .nxl > .nxl-legal {
           opacity: 0; transform: translateY(8px);
           transition: opacity .5s cubic-bezier(.16,1,.3,1), transform .5s cubic-bezier(.16,1,.3,1);
           transition-delay: calc(var(--i, 0) * 80ms + 60ms);
         }
-        .nxl-on .nxl-hero > *:not(.nxl-hero-wash), .nxl-on .nxl-stage-inner > * { opacity: 1; transform: none; }
+        .nxl-on .nxl-hero > *:not(.nxl-hero-wash):not(.nxl-hero-inner), .nxl-on .nxl-hero-inner > *,
+        .nxl-on .nxl-stage-inner > *,
+        .nxl-on > .nxl-foot, .nxl-on > .nxl-legal { opacity: 1; transform: none; }
         .nxl-on .nxl-card:nth-child(1) { transform: rotate(-1.2deg) translateX(-6px); }
         .nxl-on .nxl-card:nth-child(2) { transform: rotate(.8deg) translateX(14px); }
         .nxl-on .nxl-card:nth-child(3) { transform: rotate(-.6deg); }
@@ -379,22 +416,41 @@ export default function LoginPage() {
         .nxl-cta:focus-visible { outline: 2px solid ${P.base}; outline-offset: 3px; }
         .nxl-cta svg { flex-shrink: 0; }
 
+        .nxl-actions {
+          display: flex; flex-direction: column; align-items: stretch;
+          width: 100%; max-width: 300px; margin-top: 30px;
+        }
+        .nxl-actions .nxl-cta { width: 100%; justify-content: center; margin-top: 0; }
+        .nxl-actions .nxl-note { margin: 14px 0; }
         .nxl-note { margin: 16px 0 0; font-size: 12.5px; color: #9699a6; }
-        .nxl-foot { margin: 34px 0 0; font-size: 12px; color: #9699a6; }
-        .nxl-legal { margin: 6px 0 0; font-size: 12px; }
+
+        /* Pinned to the page corners. The left one sits over the green panel,
+           so it is light; below 880px the panel is hidden and the area behind
+           it turns white, hence the color flip in the responsive block. */
+        .nxl-foot {
+          position: absolute; left: clamp(36px, 6vw, 84px); bottom: 24px; margin: 0;
+          font-size: 12px; color: rgba(255,255,255,.75); z-index: 2;
+        }
+        .nxl-legal {
+          position: absolute; right: clamp(24px, 3vw, 48px); bottom: 24px; margin: 0;
+          font-size: 12px; z-index: 2;
+        }
         .nxl-legal a { color: #9699a6; text-decoration: underline; text-underline-offset: 2px; }
         .nxl-legal a:hover { color: #676879; }
         .nxl-legal span { color: #c3c6d4; }
 
         @media (max-width: 880px) {
           .nxl-hero { display: none; }
-          .nxl-stage { padding: 24px; }
+          .nxl-stage { padding: 24px 24px 64px; }
           .nxl-cta { width: 100%; justify-content: center; }
+          /* No green panel left to sit on. */
+          .nxl-foot { left: 24px; color: #9699a6; }
+          .nxl-legal { right: 24px; }
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .nxl-hero > *, .nxl-stage-inner > * { transition: none !important; opacity: 1 !important; }
-          .nxl-on .nxl-hero > *, .nxl-on .nxl-stage-inner > * { transform: none; }
+          .nxl-hero > *, .nxl-hero-inner > *, .nxl-stage-inner > *, .nxl > .nxl-foot, .nxl > .nxl-legal { transition: none !important; opacity: 1 !important; }
+          .nxl-on .nxl-hero > *, .nxl-on .nxl-hero-inner > *, .nxl-on .nxl-stage-inner > *, .nxl-on > .nxl-foot, .nxl-on > .nxl-legal { transform: none; }
         }
       `}</style>
     </div>

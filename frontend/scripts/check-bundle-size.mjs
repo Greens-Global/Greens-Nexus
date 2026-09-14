@@ -38,7 +38,11 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // accident); do not land it separately.
 // Aug 25: 8800 -> 8850. Per-person geofence UI on the People profile (address
 // search reuses the existing geocode helper; net add ~4 KB). Deliberate.
-const TOTAL_KB     = 8850;
+// Sep 14: 8850 -> 8950. The Business Intelligence module's report charts
+// (Treemap, FunnelChart) pulled recharts sub-modules that weren't in the
+// bundle before - CI measured 8876 KB (this repo's clean-install size; local
+// dev-cache builds read lower). A real, reviewed feature cost, not creep.
+const TOTAL_KB     = 8950;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

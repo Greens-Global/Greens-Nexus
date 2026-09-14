@@ -1291,6 +1291,29 @@ class HrDepartment(Base):
     created_at = Column(String, default="")
 
 
+class TicketDepartment(Base):
+    """A department for TICKET routing/escalation, scoped to one company
+    (HrEntity). Deliberately its own table, NOT HrDepartment: those two used to
+    be the same rows, so adding/renaming/deleting a department from Tickets ->
+    Manage -> Service Desk silently changed the People -> Companies -> Global
+    Company Setup list too, and vice versa (Pranshu, Sept 13 2026).
+    Seeded once from HrDepartment (same ids, so every ticket's existing
+    hr_department_id keeps resolving) - after that the two lists are
+    independent. New table - create_all builds it, no migration line needed."""
+    __tablename__ = "ticket_departments"
+    id         = Column(String, primary_key=True)   # uuid
+    company_id = Column(String, nullable=False)     # HrEntity.id this department belongs to
+    name       = Column(String, nullable=False)     # display value, e.g. "Estimating"
+    sort_order = Column(Integer, default=0)
+    # Ticket triage: a ticket raised against this department is left unassigned and
+    # the lead is notified to assign it to an employee. backup_email is notified
+    # alongside the lead so leave/departures don't strand a department's intake.
+    lead_email   = Column(String, default="")
+    backup_email = Column(String, default="")
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
 class HrWorkSite(Base):
     """A physical work site (HR Section A) - used later for geofenced time-clock
     validation. lat/long + radius define the geofence."""

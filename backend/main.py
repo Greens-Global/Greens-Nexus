@@ -685,6 +685,21 @@ def _run_migrations():
             # wall-clock-local to this zone, so a team's own clock drives its
             # briefing/late trigger instead of the employee's last punch tz.
             "ALTER TABLE shifts ADD COLUMN timezone VARCHAR DEFAULT 'America/Los_Angeles'",
+            # Ticket departments split off HrDepartment into their own table
+            # (Sept 13, Pranshu - adding/renaming/deleting a department from
+            # Tickets -> Manage -> Service Desk was silently changing the
+            # People -> Companies -> Global Company Setup list too, since both
+            # screens read/wrote the same hr_departments rows). One-time copy,
+            # same ids so every ticket's existing hr_department_id still
+            # resolves; from here the two lists are independent. Idempotent -
+            # only copies a row whose id isn't already present. The two ADDs
+            # guard a table left over from an earlier, reverted attempt at
+            # this same split (create_all never widens an existing table).
+            "ALTER TABLE ticket_departments ADD COLUMN created_by VARCHAR DEFAULT ''",
+            "ALTER TABLE ticket_departments ADD COLUMN created_at VARCHAR DEFAULT ''",
+            "INSERT INTO ticket_departments (id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at) "
+            "SELECT id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at FROM hr_departments "
+            "WHERE NOT EXISTS (SELECT 1 FROM ticket_departments WHERE ticket_departments.id = hr_departments.id)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1443,6 +1458,13 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS last_comment_at VARCHAR DEFAULT ''",
         # Same addition as the SQLite list above - see the note there.
         "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS timezone VARCHAR DEFAULT 'America/Los_Angeles'",
+        # Ticket departments split off HrDepartment - see the matching SQLite
+        # migration above for the full rationale. Same idempotent copy.
+        "ALTER TABLE ticket_departments ADD COLUMN IF NOT EXISTS created_by VARCHAR DEFAULT ''",
+        "ALTER TABLE ticket_departments ADD COLUMN IF NOT EXISTS created_at VARCHAR DEFAULT ''",
+        "INSERT INTO ticket_departments (id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at) "
+        "SELECT id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at FROM hr_departments d "
+        "WHERE NOT EXISTS (SELECT 1 FROM ticket_departments td WHERE td.id = d.id)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
