@@ -34,7 +34,7 @@ const CARD = { background: 'var(--card)', border: '1px solid var(--line)', borde
 
 // Sensible starting geometry per module - the picker can always override it.
 const DEFAULT_GEOMETRY = {
-  tasks: 'bar', attendance: 'area', agents: 'table', tickets: 'donut',
+  tasks: 'bar', attendance: 'area', tickets: 'donut',
   knowledge_base: 'treemap', operations: 'card', documents: 'stack',
   it: 'card', construction: 'bar', asset_management: 'card',
   people: 'funnel', credential_vault: 'bar', accounting: 'card',
@@ -653,7 +653,7 @@ export default function BiInsights() {
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ marginBottom: 14 }}><Ribbon modules={moduleFiltered} /></div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, alignItems: 'start' }}>
               {moduleFiltered.map(mod => (
                 <ModuleCard key={mod.id} mod={mod} tone={tone} query={q} geometry={geometryFor(mod.id)} onGeometry={setGeometry} onDrill={onDrill} />
               ))}

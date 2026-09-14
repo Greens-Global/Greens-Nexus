@@ -376,24 +376,6 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
             }
         _safe_insight(modules, "attendance", "Time & Attendance", "employee-tracking", attendance_block)
 
-        def agents_block():
-            enrolled = db.query(M.AgentDevice).filter(M.AgentDevice.revoked == 0)
-            enrolled_count = enrolled.count()
-            active_rows = enrolled.filter(M.AgentDevice.active_email != "").order_by(M.AgentDevice.last_seen_at.desc()).limit(25).all()
-            return {
-                "stats": [
-                    {"key": "active_agents", "label": "Agents In Use", "value": len(active_rows), "tone": "good"},
-                    {"key": "enrolled_devices", "label": "Enrolled Devices", "value": enrolled_count, "tone": "neutral"},
-                    {"key": "idle_devices", "label": "Idle Devices", "value": max(0, enrolled_count - len(active_rows)), "tone": "neutral"},
-                ],
-                "breakdown": [],
-                # Directly answers "agents working for whom" - who's on which
-                # enrolled machine right now, not just a count.
-                "table": [{"employee": d.active_email, "device": d.device_name or d.label or d.id[:8],
-                           "lastSeen": d.last_seen_at or ""} for d in active_rows],
-            }
-        _safe_insight(modules, "agents", "Desktop Agents", "employee-tracking", agents_block)
-
         def tickets_block():
             live = db.query(M.TaskTicket)
             if _cscope is not None:
@@ -461,7 +443,7 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
                 ],
                 "breakdown": [],
             }
-        _safe_insight(modules, "operations", "Company Operations", "dashboard", ops_block)
+        _safe_insight(modules, "operations", "Item Management", "inventory", ops_block)
 
         def documents_block():
             docs = db.query(M.Document)
