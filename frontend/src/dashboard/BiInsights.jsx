@@ -80,13 +80,53 @@ function saveLayout(layout) {
 // Starting w/h (12-col grid, 72px rows) per module - a card with a real
 // chart starts taller than a plain KPI-card module; Customize can resize
 // either away from these.
+// h:3 (216px) was a few pixels under what a plain-KPI module actually needs
+// once its tiles wrap to a second row - header + padding eats ~62px and two
+// rows of tiles want ~150px - so Item Management / IT / Asset Management got
+// their bottom row sliced off by the card's own overflow:hidden (Sagar,
+// Sep 14: "looks like it's cropped in between"). h:4 clears it; ModuleCard
+// also scrolls rather than crops if a card is dragged smaller than its tiles.
 const DEFAULT_SIZE = {
   tasks: { w: 4, h: 5 }, attendance: { w: 4, h: 5 }, tickets: { w: 4, h: 5 },
-  knowledge_base: { w: 4, h: 5 }, operations: { w: 4, h: 3 }, documents: { w: 4, h: 5 },
-  it: { w: 4, h: 3 }, construction: { w: 4, h: 5 }, asset_management: { w: 4, h: 3 },
-  people: { w: 4, h: 5 }, credential_vault: { w: 4, h: 5 }, accounting: { w: 4, h: 3 },
+  knowledge_base: { w: 4, h: 5 }, operations: { w: 4, h: 4 }, documents: { w: 4, h: 5 },
+  it: { w: 4, h: 4 }, construction: { w: 4, h: 5 }, asset_management: { w: 4, h: 4 },
+  people: { w: 4, h: 5 }, credential_vault: { w: 4, h: 5 }, accounting: { w: 4, h: 4 },
 };
 const sizeOf = (modId) => DEFAULT_SIZE[modId] || { w: 4, h: 4 };
+
+// Resizing has to PUSH the neighbors, not land on top of them: the grid is
+// absolutely positioned, so on its own an enlarged card just overlaps whatever
+// was beside it (Sagar, Sep 14 - "if I expand the size of a tile then it
+// should shift other tiles dynamically without collapsing"). The card under
+// the pointer is pinned exactly where the pointer put it; every other card
+// keeps its column AND its width - only y moves - so neighbors slide down to
+// make room and slide back up when the card shrinks again. Nothing is resized
+// or dropped to make space.
+const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+// Same vertical gravity, no pinned card: used after a collapse/expand so the
+// freed rows actually close up instead of leaving a hole under the folded
+// card (Sagar, Sep 14). Columns and widths are untouched - only y moves.
+function packUp(items) {
+  const placed = [];
+  for (const it of [...items].sort((a, b) => (a.y - b.y) || (a.x - b.x))) {
+    let y = 0;
+    while (placed.some(p => overlaps({ ...it, y }, p))) y++;
+    placed.push({ ...it, y });
+  }
+  return items.map(it => placed.find(p => p.i === it.i) || it);
+}
+function resolveAround(items, anchorId) {
+  const anchor = items.find(it => it.i === anchorId);
+  if (!anchor) return compactLayout(items);
+  const placed = [anchor];
+  const rest = items.filter(it => it.i !== anchorId).sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  for (const it of rest) {
+    let y = 0;
+    while (placed.some(p => overlaps({ ...it, y }, p))) y++;
+    placed.push({ ...it, y });
+  }
+  return items.map(it => placed.find(p => p.i === it.i) || it);
+}
 function defaultLayoutFor(modules) {
   return compactLayout(modules.map(m => ({ i: m.id, x: 0, y: 0, ...sizeOf(m.id) })));
 }
@@ -142,25 +182,101 @@ function SlicerGrid({ options, isActive, onPick, cols = 2 }) {
   );
 }
 
-// ── The Power BI "Visualizations pane" picker, compressed onto one card ──
+// ── The Power BI "Visualizations pane" picker, collapsed to one button ──
+// Eleven always-visible icons filled the whole card header and ran straight
+// over the module title (Sagar, Sep 14). The trigger now shows the CURRENT
+// visual's own icon and opens the full list on click, so the title gets the
+// header back. The menu is position:fixed off the button's rect because the
+// card itself is overflow:hidden inside its grid cell and would clip it.
 function VisualPicker({ value, onPick }) {
+  const [open, setOpen] = useState(false);
+  const [rect, setRect] = useState(null);
+  const btnRef = useRef(null);
+  const current = CHART_TYPES.find(t => t.key === value) || CHART_TYPES[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [open]);
+
+  const toggle = (e) => {
+    e.stopPropagation();
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setRect(r);
+    setOpen(o => !o);
+  };
+
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-      {CHART_TYPES.map(t => {
-        const active = t.key === value;
-        return (
-          <button key={t.key} title={t.label} onClick={() => onPick(t.key)}
-            style={{
-              width: 24, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              borderRadius: 5, cursor: 'pointer', flexShrink: 0,
-              border: `1px solid ${active ? 'var(--wk-brand)' : 'var(--line)'}`,
-              background: active ? 'var(--wk-brand-tint)' : 'var(--card)',
-              color: active ? 'var(--wk-brand)' : 'var(--muted)',
-            }}>
-            <t.Icon size={13} />
-          </button>
-        );
-      })}
+    <>
+      <button ref={btnRef} onPointerDown={e => e.stopPropagation()} onClick={toggle}
+        title={`Visual: ${current.label}`}
+        style={{
+          height: 24, padding: '0 5px', display: 'inline-flex', alignItems: 'center', gap: 3,
+          borderRadius: 5, cursor: 'pointer', flexShrink: 0,
+          border: `1px solid ${open ? 'var(--wk-brand)' : 'var(--line)'}`,
+          background: open ? 'var(--wk-brand-tint)' : 'var(--card)',
+          color: open ? 'var(--wk-brand)' : 'var(--muted)',
+        }}>
+        <current.Icon size={13} />
+        <ChevronDown size={11} />
+      </button>
+      {open && rect && (
+        <div onPointerDown={e => e.stopPropagation()}
+          style={{
+            ...CARD, position: 'fixed', zIndex: 1500, width: 170, padding: 4,
+            top: Math.min(rect.bottom + 6, window.innerHeight - 340),
+            left: Math.max(8, Math.min(rect.right - 170, window.innerWidth - 178)),
+            maxHeight: 330, overflowY: 'auto', boxShadow: 'var(--shadow-md)',
+          }}>
+          {CHART_TYPES.map(t => {
+            const active = t.key === value;
+            return (
+              <button key={t.key} onClick={() => { onPick(t.key); setOpen(false); }}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px',
+                  borderRadius: 6, border: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 12,
+                  fontWeight: active ? 700 : 600,
+                  background: active ? 'var(--wk-brand-tint)' : 'none',
+                  color: active ? 'var(--wk-brand)' : 'var(--ink)',
+                }}>
+                <t.Icon size={13} style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Right-rail section that folds away (Sagar, Sep 14) - the rail carries
+// three stacked blocks and on a short screen you scroll past the filters to
+// reach Needs Attention. Open/closed is remembered per browser, alongside the
+// visual picks and the layout. ──
+const LS_RAIL = 'nexus:bi-rail-open';
+function loadRail() {
+  try { return JSON.parse(localStorage.getItem(LS_RAIL) || '{}'); } catch { return {}; }
+}
+function RailSection({ id, title, open, onToggle, children }) {
+  return (
+    <div>
+      <button onClick={() => onToggle(id)} aria-expanded={open}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 5, padding: 0, marginBottom: open ? 6 : 0,
+          background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+          fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        {title}
+      </button>
+      {open && children}
     </div>
   );
 }
@@ -179,7 +295,7 @@ function KpiCard({ stat, onClick }) {
 function KpiCardRow({ rows, onClick }) {
   if (!rows.length) return null;
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(104px, 1fr))', gap: 8, alignContent: 'start' }}>
       {rows.map(s => <KpiCard key={s.label} stat={s} onClick={onClick} />)}
     </div>
   );
@@ -457,18 +573,23 @@ function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill, collapsed
   return (
     <div style={{ ...CARD, padding: 16, borderLeft: `3px solid ${C(TONE_COLOR[worstTone(mod)])}`, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: collapsed ? 0 : 10, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
           <button onClick={onToggleCollapse} title={collapsed ? 'Expand' : 'Collapse'}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 0, flexShrink: 0, pointerEvents: 'auto' }}>
             {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
           </button>
-          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: 0.4, cursor: mod.nav ? 'pointer' : 'default', flexShrink: 0 }}
+          {/* Title Case at a readable size and free to use the width the
+              picker gave back; it ellipsizes (with the full name on hover)
+              instead of colliding with the controls the way the old
+              uppercase, never-shrinking label did. */}
+          <div title={mod.label}
+            style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--ink)', letterSpacing: 0.1, cursor: mod.nav ? 'pointer' : 'default', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             onClick={() => mod.nav && navigate(mod.nav)}>
             {mod.label}
           </div>
         </div>
         {!collapsed && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             <VisualPicker value={geometry} onPick={g => onGeometry(mod.id, g)} />
             {stats.length > 0 && (
               <button onClick={exportCard} title="Download this card as CSV"
@@ -482,7 +603,8 @@ function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill, collapsed
 
       {!collapsed && (
         <>
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column',
+            overflowY: geometry === 'card' || geometry === 'table' ? 'auto' : 'hidden' }}>
             <CategoryChart geometry={geometry} mod={mod} stats={stats} onDrill={onDrill} />
           </div>
 
@@ -526,12 +648,12 @@ function DrilldownModal({ request, onClose }) {
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ ...CARD, width: 'min(60vw, 1100px)', minWidth: 320, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div onClick={e => e.stopPropagation()} className="bi-modal" style={{ ...CARD, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>{state.title || request.label}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
         </div>
-        <div style={{ padding: 18, overflow: 'auto' }}>
+        <div style={{ padding: 18, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
           {state.loading ? (
             <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading…</div>
           ) : state.error ? (
@@ -539,7 +661,7 @@ function DrilldownModal({ request, onClose }) {
           ) : !state.rows.length ? (
             <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nothing currently matches this metric.</div>
           ) : state.kind === 'list' ? (
-            <StatsTable rows={state.rows} columns={['label', 'detail']} />
+            <StatsTable rows={state.rows} columns={['label', 'detail']} fill />
           ) : (
             <BarGeom data={barData} vertical labelWidth={220} />
           )}
@@ -550,10 +672,13 @@ function DrilldownModal({ request, onClose }) {
 }
 
 // ── Live feed of every critical/warning metric across every module
-// (unaffected by the module picker) - drill-in list. Sits BELOW the module
-// cards, full width, as a wrapping row grid rather than a tall narrow list
-// (Pranshu, Sep 14: "bring Needs Attention below modules"). ──
-function AttentionFeed({ modules, onPick }) {
+// (unaffected by the module picker) - drill-in list. Lives in the RIGHT rail
+// under the filters (Sagar, Sep 14: "why it's in bottom, it should be in
+// right side"), so it stays on screen beside the cards instead of sitting
+// below a full board you have to scroll past. This reverses Pranshu's
+// Sep 14 "bring Needs Attention below modules" - it is a one-line move of
+// <AttentionFeed/> between the two columns if that needs to go back. ──
+function AttentionFeed({ modules, onPick, open, onToggle }) {
   const rows = [];
   for (const mod of modules) for (const s of mod.stats || []) {
     if ((s.tone === 'critical' || s.tone === 'warning') && typeof s.value === 'number' && s.value > 0) {
@@ -563,11 +688,20 @@ function AttentionFeed({ modules, onPick }) {
   rows.sort((a, b) => (SEVERITY_RANK[b.tone] - SEVERITY_RANK[a.tone]) || (b.value - a.value));
   return (
     <div style={{ ...CARD, padding: 14 }}>
-      <div style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 10 }}>Needs Attention</div>
-      {rows.length === 0 ? (
+      <button onClick={() => onToggle('attention')} aria-expanded={open}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 5, padding: 0, marginBottom: open ? 10 : 0,
+          background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+          fontSize: 11.5, fontWeight: 800, color: 'var(--ink)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        Needs Attention
+        {!open && rows.length > 0 && (
+          <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, color: C('red'), fontVariantNumeric: 'tabular-nums' }}>{rows.length}</span>
+        )}
+      </button>
+      {!open ? null : rows.length === 0 ? (
         <div style={{ fontSize: 12, color: 'var(--muted)' }}>Nothing needs attention right now.</div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6, maxHeight: 360, overflowY: 'auto' }}>
           {rows.map((r, i) => (
             <button key={i} onClick={() => onPick(r.moduleId)} className="bi-feed-row"
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 7, background: 'none', cursor: 'pointer', textAlign: 'left' }}>
@@ -592,11 +726,17 @@ export default function BiInsights() {
   const [tone, setTone] = useState('all');
   const [query, setQuery] = useState('');
   const [picks, setPicks] = useState(loadPicks);
+  const [railOpen, setRailOpen] = useState(() => ({ tone: true, modules: true, attention: true, ...loadRail() }));
   const [drillRequest, setDrillRequest] = useState(null);
   const alive = useRef(true);
   const onDrill = (moduleId, metric, label) => setDrillRequest({ moduleId, metric, label });
 
   const setLayout = (next) => { setLayoutState(next); saveLayout(next); };
+  const toggleRail = (id) => setRailOpen(prev => {
+    const next = { ...prev, [id]: !prev[id] };
+    try { localStorage.setItem(LS_RAIL, JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
 
   const load = useCallback(async () => {
     try {
@@ -637,16 +777,18 @@ export default function BiInsights() {
     [safeLayout, state.modules]
   );
   const hiddenModules = state.modules.filter(m => !visibleIds.has(m.id));
-  const activeFilterCount = (tone !== 'all' ? 1 : 0) + (q ? 1 : 0);
-  const clearFilters = () => { setTone('all'); setQuery(''); };
 
   // Toggle a card on/off - same job DashboardGrid's own remove(X) does in
   // edit mode, but also reachable from the sidebar list and from "Needs
   // Attention" without entering Customize first.
   const toggleModule = (id) => {
     if (visibleIds.has(id)) { setLayout(compactLayout(safeLayout.filter(it => it.i !== id))); return; }
+    // Append, then bin-pack. Dropping the card at {x:0, y:maxY} and leaving it
+    // there is why re-checking modules gave every one of them a row to itself
+    // (Sagar, Sep 14 - uncheck all, tick a few back, one tile per row);
+    // compactLayout pulls each new card up into the first free slot instead.
     const maxY = safeLayout.reduce((m, it) => Math.max(m, it.y + it.h), 0);
-    setLayout([...safeLayout, { i: id, x: 0, y: maxY, ...sizeOf(id) }]);
+    setLayout(compactLayout([...safeLayout, { i: id, x: 0, y: maxY, ...sizeOf(id) }]));
   };
   const pickOnly = (id) => {
     const existing = safeLayout.find(it => it.i === id);
@@ -658,12 +800,12 @@ export default function BiInsights() {
   // to restore on expand. Stored on the layout item itself so it persists
   // the same way position/size do.
   const toggleCollapse = (id) => {
-    setLayout(safeLayout.map(it => {
+    setLayout(packUp(safeLayout.map(it => {
       if (it.i !== id) return it;
       return it.collapsed
         ? { ...it, collapsed: false, h: it.prevH || sizeOf(id).h }
         : { ...it, collapsed: true, prevH: it.h, h: 1 };
-    }));
+    })));
   };
 
   const exportAll = () => {
@@ -677,6 +819,13 @@ export default function BiInsights() {
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <style>{`
         .bi-feed-row:hover { background: var(--mist); }
+        /* Drill-down dialog: 60% of the viewport in both directions on
+           desktop (Sagar, Sep 14). Below that a 60% box is too small to read,
+           so narrow screens get most of the width and a taller sheet. */
+        .bi-modal { width: 60vw; height: 60vh; }
+        @media (max-width: 900px) {
+          .bi-modal { width: 92vw; height: 80vh; }
+        }
         @media (max-width: 1080px) {
           .bi-layout { flex-direction: column !important; }
           .bi-layout > aside { width: 100% !important; max-height: none !important; }
@@ -689,7 +838,7 @@ export default function BiInsights() {
           <p style={{ margin: '3px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>
             {editing
               ? "Drag a card's header to move it, or its bottom-right corner to resize its width and height together."
-              : <>Real-time KPIs across every module{state.at ? ` · updated ${new Date(state.at).toLocaleTimeString()}` : ''} · click a card's icons to change its visual</>}
+              : <>Real-time KPIs across every module{state.at ? ` · updated ${new Date(state.at).toLocaleTimeString()}` : ''} · drag any card's bottom-right corner to resize it</>}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -731,6 +880,8 @@ export default function BiInsights() {
               onLayoutChange={setLayout}
               onRemove={toggleModule}
               limitsFor={() => ({ minW: 3, minH: 2, maxW: 12, maxH: 10 })}
+              resolveLayout={resolveAround}
+              alwaysResizable
               renderWidget={(it) => {
                 const mod = state.modules.find(m => m.id === it.i);
                 if (!mod) return null;
@@ -741,36 +892,28 @@ export default function BiInsights() {
             {safeLayout.length === 0 && (
               <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No cards on this board. Click Customize to add some.</div>
             )}
-            <div style={{ marginTop: 16 }}>
-              <AttentionFeed modules={state.modules} onPick={pickOnly} />
-            </div>
           </div>
 
-          <aside style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <aside style={{ width: 248, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ position: 'relative' }}>
               <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
               <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search metrics…"
                 className="form-input" style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '7px 10px 7px 28px', borderRadius: 6 }} />
             </div>
 
-            <div>
-              <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Alert Level</div>
+            <RailSection id="tone" title="Alert Level" open={railOpen.tone} onToggle={toggleRail}>
               <SlicerGrid cols={2} options={['all', ...TONE_ORDER].map(t => ({ value: t, label: t === 'all' ? 'All' : TONE_LABEL[t], dot: t === 'all' ? null : C(TONE_COLOR[t]) }))}
                 isActive={v => v === tone} onPick={setTone} />
-            </div>
+            </RailSection>
 
-            <div>
-              <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Modules</div>
+            <RailSection id="modules" title="Modules" open={railOpen.modules} onToggle={toggleRail}>
               <SlicerGrid cols={1} options={state.modules.map(m => ({ value: m.id, label: m.label, dot: C(TONE_COLOR[worstTone(m)]) }))}
                 isActive={v => visibleIds.has(v)}
                 onPick={toggleModule}
               />
-            </div>
+            </RailSection>
 
-            <button onClick={clearFilters} disabled={!activeFilterCount}
-              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--line)', cursor: activeFilterCount ? 'pointer' : 'default', background: 'var(--card)', color: activeFilterCount ? 'hsl(var(--color-red))' : 'var(--muted)', opacity: activeFilterCount ? 1 : 0.5 }}>
-              <X size={12} /> Clear all filters
-            </button>
+            <AttentionFeed modules={state.modules} onPick={pickOnly} open={railOpen.attention} onToggle={toggleRail} />
           </aside>
         </div>
       )}
