@@ -661,47 +661,51 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
 
 # ── BI drill-down (Pranshu, Sep 14) ─────────────────────────────────────────
 # "If I click Open, it should show me which employee has how many open
-# tasks." A metric on the board is a COUNT; this answers "count of what,
-# grouped by whom" for the metrics where that grouping is a real, correct
-# question - not every metric has one (there's no "who" for "SSL Expiring").
-# Listed here deliberately rather than guessed generically: each entry knows
-# exactly which rows match that metric and which field groups them, mirroring
-# the same predicate the metric itself was computed with in `insights()`
-# above (kept as comments there pointing here would drift; duplicating the
-# five-line predicate per metric is cheaper to keep honest than a shared
-# helper both endpoints would have to agree on forever).
-_DRILL_TITLES = {
-    ("tasks", "overdue"): "Overdue Tasks by Employee",
-    ("tasks", "upcoming"): "Tasks Due This Week by Employee",
-    ("tasks", "completed_7d"): "Tasks Completed (7d) by Employee",
-    ("tasks", "open_total"): "Open Tasks by Employee",
-    ("tickets", "open"): "Open Tickets by Assignee",
-    ("tickets", "sla_breached"): "SLA-Breached Tickets by Assignee",
-    ("tickets", "resolved"): "Resolved Tickets by Assignee",
-    ("tickets", "closed"): "Closed Tickets by Assignee",
-    ("tickets", "unassigned"): "Unassigned Tickets by Requester",
-}
+# tasks... implement in each [module] but with different logic - think which
+# logic suits which module." A metric on the board is a COUNT; this answers
+# "of what" - and "of what" is genuinely different per metric:
+#   - "by_person": a workload question (who's carrying this?) - grouped
+#     counts, e.g. open tasks/tickets per assignee, KB docs stuck per owner.
+#   - "list": a status question (which records, specifically?) - there is no
+#     meaningful "who" for a down website or an expiring warranty, so this
+#     returns the affected records themselves (name + one relevant detail),
+#     not a person tally.
+# Listed here deliberately rather than derived generically: each entry knows
+# exactly which rows match that metric (mirroring the SAME predicate
+# `insights()` above used to compute the count) and which field it groups or
+# lists by. Duplicating that predicate per metric is cheaper to keep honest
+# than a shared helper both endpoints would have to agree on forever.
+def _by_person(db, emails: list, title: str) -> dict:
+    names = {(e.work_email or "").lower(): (e.display_name or e.work_email)
+             for e in db.query(models.NexusEmployee.work_email, models.NexusEmployee.display_name).all()}
+    counts: dict[str, int] = {}
+    for e in emails:
+        k = (e or "").strip().lower() or "(none)"
+        counts[k] = counts.get(k, 0) + 1
+    rows = [{"label": names.get(k, k) if k != "(none)" else "Unassigned", "value": v} for k, v in counts.items()]
+    rows.sort(key=lambda r: -r["value"])
+    return {"kind": "by_person", "title": title, "rows": rows[:25], "total": sum(r["value"] for r in rows)}
+
+
+def _list(items: list, title: str) -> dict:
+    """items: [(label, detail)] - already sorted by the caller (e.g. soonest
+    due date first); truncated here so nobody ships an unbounded payload."""
+    rows = [{"label": label, "detail": detail} for label, detail in items[:25]]
+    return {"kind": "list", "title": title, "rows": rows, "total": len(items)}
 
 
 @router.get("/insights/drilldown")
 def insights_drilldown(module: str, metric: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if user["level"] < 2:
         raise HTTPException(403, "Manager access required")
-    key = (module, metric)
-    if key not in _DRILL_TITLES:
-        raise HTTPException(404, "No employee-level breakdown for this metric")
 
     M = models
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
     week_ahead = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
+    month_ahead = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
+    ninety_ahead = (datetime.now(timezone.utc) + timedelta(days=90)).strftime("%Y-%m-%d")
     _cscope = auth.company_scope(user, db)
-
-    counts: dict[str, int] = {}
-
-    def bump(key_email: str):
-        k = (key_email or "").strip().lower() or "(unassigned)"
-        counts[k] = counts.get(k, 0) + 1
 
     if module == "tasks":
         from routers.task_util import wall_tasks, task_assignees
@@ -712,17 +716,15 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
             "upcoming": lambda t: not t.completed and t.due_on and today <= t.due_on <= week_ahead,
             "completed_7d": lambda t: t.completed and t.completed_at >= week_ago,
             "open_total": lambda t: not t.completed,
-        }[metric]
-        for t in rows:
-            if not pred(t):
-                continue
-            people = task_assignees(t)
-            if not people:
-                bump("")
-            for p in people:
-                bump(p)
+        }.get(metric)
+        titles = {"overdue": "Overdue Tasks by Employee", "upcoming": "Tasks Due This Week by Employee",
+                  "completed_7d": "Tasks Completed (7d) by Employee", "open_total": "Open Tasks by Employee"}
+        if not pred:
+            raise HTTPException(404, "No breakdown for this metric")
+        emails = [e for t in rows if pred(t) for e in (task_assignees(t) or [""])]
+        return _by_person(db, emails, titles[metric])
 
-    elif module == "tickets":
+    if module == "tickets":
         q = db.query(M.TaskTicket)
         if _cscope is not None:
             q = q.filter(M.TaskTicket.company_id.in_(_cscope))
@@ -733,19 +735,191 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
             "resolved": lambda t: t.status == "resolved",
             "closed": lambda t: t.status == "closed",
             "unassigned": lambda t: t.status not in closed_states and not t.assignee_email,
-        }[metric]
-        group_field = "requester_email" if metric == "unassigned" else "assignee_email"
-        for t in q.all():
-            if not pred(t):
-                continue
-            bump(getattr(t, group_field, ""))
+        }.get(metric)
+        if not pred:
+            raise HTTPException(404, "No breakdown for this metric")
+        field = "requester_email" if metric == "unassigned" else "assignee_email"
+        emails = [getattr(t, field, "") for t in q.all() if pred(t)]
+        ticket_titles = {"open": "Open Tickets by Assignee", "sla_breached": "SLA-Breached Tickets by Assignee",
+                         "resolved": "Resolved Tickets by Assignee", "closed": "Closed Tickets by Assignee",
+                         "unassigned": "Unassigned Tickets by Requester"}
+        title = ticket_titles[metric]
+        return _by_person(db, emails, title)
 
-    names = {(e.work_email or "").lower(): (e.display_name or e.work_email)
-             for e in db.query(M.NexusEmployee.work_email, M.NexusEmployee.display_name).all()}
-    rows = [{"label": names.get(k, k) if k != "(unassigned)" else "Unassigned", "value": v}
-            for k, v in counts.items()]
-    rows.sort(key=lambda r: -r["value"])
-    return {"title": _DRILL_TITLES[key], "rows": rows[:25], "total": sum(r["value"] for r in rows)}
+    if module == "attendance":
+        punches = db.query(M.TimePunch).filter(M.TimePunch.local_date == today).order_by(M.TimePunch.at).all()
+        latest: dict[str, str] = {}
+        for p in punches:
+            latest[p.employee_email] = p.kind
+        active = {(e.work_email or "").lower() for e in db.query(M.NexusEmployee.work_email).filter(M.NexusEmployee.status == "active").all()}
+        if metric == "clocked_in":
+            emails = [e for e, k in latest.items() if k in ("in", "break_start")]
+        elif metric == "on_break":
+            emails = [e for e, k in latest.items() if k == "break_start"]
+        elif metric == "not_clocked_in":
+            clocked = {e for e, k in latest.items() if k != "out"}
+            emails = [e for e in active if e.lower() not in clocked]
+        else:
+            raise HTTPException(404, "No breakdown for this metric")
+        names = {(e.work_email or "").lower(): (e.display_name or e.work_email)
+                 for e in db.query(M.NexusEmployee.work_email, M.NexusEmployee.display_name).all()}
+        items = sorted(((names.get(e.lower(), e), "") for e in emails), key=lambda r: r[0])
+        return _list(items, f"Who's {metric.replace('_', ' ').title()}")
+
+    if module == "knowledge_base":
+        status_map = {"pending_review": "in_review", "changes_requested": "changes_requested", "draft": "draft"}
+        if metric not in status_map:
+            raise HTTPException(404, "No breakdown for this metric")
+        rows = db.query(M.KbDocument).filter(M.KbDocument.status == status_map[metric]).all()
+        emails = [r.owner_email for r in rows]
+        return _by_person(db, emails, f"{metric.replace('_', ' ').title()} by Owner")
+
+    if module == "operations":
+        if metric == "pending_requisitions":
+            q = db.query(M.Requisition).filter(M.Requisition.status == "pending_manager")
+            if _cscope is not None:
+                q = q.filter(M.Requisition.company_id.in_(_cscope))
+            return _by_person(db, [r.employee_email for r in q.all()], "Requisitions to Approve by Employee")
+        if metric == "open_purchases":
+            rows = db.query(M.PurchaseRequest).filter(M.PurchaseRequest.status == "pending").all()
+            counts: dict[str, int] = {}
+            for r in rows:
+                d = r.dept or "(no department)"
+                counts[d] = counts.get(d, 0) + 1
+            items = sorted(counts.items(), key=lambda kv: -kv[1])
+            return {"kind": "by_person", "title": "Open Purchases by Department",
+                    "rows": [{"label": k, "value": v} for k, v in items][:25], "total": sum(counts.values())}
+        if metric == "pending_inventory":
+            rows = db.query(M.ItemCheckout).filter(M.ItemCheckout.status == "pending").all()
+            return _by_person(db, [r.requested_by_email for r in rows], "Inventory Requests by Employee")
+        raise HTTPException(404, "No breakdown for this metric")
+
+    if module == "documents":
+        if metric in ("pending_signatures", "needs_attention", "signed_7d"):
+            status_sets = {"pending_signatures": ("pending",), "needs_attention": ("declined", "voided", "expired"), "signed_7d": ("completed",)}
+            rows = db.query(M.HrSignRequest).filter(M.HrSignRequest.status.in_(status_sets[metric])).all()
+            if metric == "signed_7d":
+                rows = [r for r in rows if r.completed_at >= week_ago]
+            doc_titles = {"pending_signatures": "Pending Signatures by Sender", "needs_attention": "Declined / Expired by Sender", "signed_7d": "Signed (7d) by Sender"}
+            return _by_person(db, [r.created_by for r in rows], doc_titles[metric])
+        raise HTTPException(404, "No breakdown for this metric")
+
+    if module == "it":
+        if metric == "sites_down":
+            rows = db.query(M.Website).filter(M.Website.status != "Online").all()
+            items = sorted(((r.name or r.domain, r.status) for r in rows), key=lambda r: r[0])
+            return _list(items, "Sites Down / Degraded")
+        if metric == "ssl_expiring":
+            rows = db.query(M.Website).filter(M.Website.ssl_days <= 30).order_by(M.Website.ssl_days).all()
+            items = [(r.name or r.domain, f"{r.ssl_days}d left") for r in rows]
+            return _list(items, "SSL Expiring Soon")
+        if metric == "warranties_expiring":
+            rows = db.query(M.HardwareAsset).filter(
+                M.HardwareAsset.warranty_end != "", M.HardwareAsset.warranty_end >= today,
+                M.HardwareAsset.warranty_end <= month_ahead).order_by(M.HardwareAsset.warranty_end).all()
+            items = [(r.name, f"{r.assigned_to or 'Unassigned'} · {r.warranty_end}") for r in rows]
+            return _list(items, "Hardware Warranties Expiring")
+        if metric == "hw_unassigned":
+            rows = db.query(M.HardwareAsset).filter(M.HardwareAsset.assigned_to == "Unassigned").all()
+            items = sorted(((r.name, r.category) for r in rows), key=lambda r: r[0])
+            return _list(items, "Unassigned Hardware")
+        raise HTTPException(404, "No breakdown for this metric")
+
+    if module == "construction":
+        if metric == "logs_pending":
+            rows = db.query(M.ConstructionDailyLog).filter(M.ConstructionDailyLog.status == "submitted", M.ConstructionDailyLog.deleted_at == "").all()
+            return _by_person(db, [r.author_email for r in rows], "Logs Pending Review by Author")
+        projects = {p.id: p.name for p in db.query(M.ConstructionProject.id, M.ConstructionProject.name).all()}
+        if metric == "overdue_rfis":
+            rows = db.query(M.ConstructionRfi).filter(M.ConstructionRfi.status == "open", M.ConstructionRfi.due_on != "", M.ConstructionRfi.due_on < today).order_by(M.ConstructionRfi.due_on).all()
+            items = [(r.subject or r.number, f"{projects.get(r.project_id, '')} · due {r.due_on}") for r in rows]
+            return _list(items, "Overdue RFIs")
+        if metric == "pending_submittals":
+            rows = db.query(M.ConstructionSubmittal).filter(M.ConstructionSubmittal.status.in_(["pending", "submitted"]), M.ConstructionSubmittal.deleted_at == "").all()
+            items = [(r.title or r.number, projects.get(r.project_id, '')) for r in rows]
+            return _list(items, "Pending Submittals")
+        if metric == "at_risk_milestones":
+            rows = db.query(M.ConstructionMilestone).filter(M.ConstructionMilestone.status.in_(["at_risk", "missed"]), M.ConstructionMilestone.deleted_at == "").order_by(M.ConstructionMilestone.target_date).all()
+            items = [(r.name, f"{projects.get(r.project_id, '')} · {r.status}") for r in rows]
+            return _list(items, "At-Risk Milestones")
+        raise HTTPException(404, "No breakdown for this metric")
+
+    if module == "asset_management":
+        props = {p.id: p.name for p in db.query(M.PropertyAsset.id, M.PropertyAsset.name).all()}
+        if metric == "warranties_expiring":
+            rows = db.query(M.PropertyRecord).filter(M.PropertyRecord.collection == "warranties").all()
+            items = []
+            for r in rows:
+                exp = (r.payload or {}).get("expiration", "")[:10]
+                if exp and exp <= ninety_ahead:
+                    items.append(((r.payload or {}).get("scope") or "Warranty", f"{props.get(r.property_id, '')} · {exp}"))
+            items.sort(key=lambda r: r[1])
+            return _list(items, "Warranties Expiring")
+        if metric == "inspections_due":
+            rows = db.query(M.PropertyRecord).filter(M.PropertyRecord.collection == "inspections").all()
+            items = []
+            for r in rows:
+                due = (r.payload or {}).get("nextDue", "")[:10]
+                if due and due <= month_ahead:
+                    items.append(((r.payload or {}).get("type") or "Inspection", f"{props.get(r.property_id, '')} · {due}"))
+            items.sort(key=lambda r: r[1])
+            return _list(items, "Inspections Due")
+        raise HTTPException(404, "No breakdown for this metric")
+
+    if module == "people":
+        if metric in ("open_candidates", "interviews_7d"):
+            q = db.query(M.HrCandidate).filter(M.HrCandidate.stage.notin_(["hired", "rejected"]))
+            if _cscope is not None:
+                q = q.filter(M.HrCandidate.company.in_(_cscope))
+            rows = q.all()
+            if metric == "interviews_7d":
+                rows = [r for r in rows if r.interview_at and today <= r.interview_at <= week_ahead + "T23:59:59"]
+                items = sorted((((r.first_name + " " + r.last_name).strip() or r.email, r.interview_at) for r in rows), key=lambda r: r[1])
+            else:
+                items = sorted((((r.first_name + " " + r.last_name).strip() or r.email, f"{r.role_title or ''} · {r.stage}") for r in rows), key=lambda r: r[0])
+            return _list(items, "Interviews This Week" if metric == "interviews_7d" else "Hiring Pipeline")
+        if metric in ("leave_pending", "docs_expiring"):
+            emp_names = {e.id: (e.display_name or f"{e.first_name} {e.last_name}".strip())
+                         for e in db.query(M.NexusEmployee.id, M.NexusEmployee.display_name, M.NexusEmployee.first_name, M.NexusEmployee.last_name).all()}
+            if metric == "leave_pending":
+                rows = db.query(M.HrLeaveRequest).filter(M.HrLeaveRequest.status == "pending").all()
+                items = [(emp_names.get(r.employee_id, r.employee_id), f"{r.leave_type} · {r.start_date} to {r.end_date}") for r in rows]
+            else:
+                rows = db.query(M.HrDocument).filter(M.HrDocument.expires_on != "", M.HrDocument.expires_on >= today, M.HrDocument.expires_on <= month_ahead).order_by(M.HrDocument.expires_on).all()
+                items = [(emp_names.get(r.employee_id, r.employee_id), f"{r.kind} · expires {r.expires_on}") for r in rows]
+            return _list(items, "Leave to Approve" if metric == "leave_pending" else "Employee Docs Expiring")
+        raise HTTPException(404, "No breakdown for this metric")
+
+    if module == "credential_vault":
+        creds = db.query(M.VaultCredential).filter(M.VaultCredential.deleted_at == "")
+        if metric == "breached":
+            rows = creds.filter(M.VaultCredential.breached == True).all()  # noqa: E712
+            items = [(r.name, r.owner_email) for r in rows]
+            return _list(items, "Breached Credentials")
+        if metric == "weak":
+            rows = creds.filter(M.VaultCredential.strength == "weak").all()
+            items = [(r.name, r.owner_email) for r in rows]
+            return _list(items, "Weak Credentials")
+        if metric == "rotation_overdue":
+            items = []
+            for c in creds.filter(M.VaultCredential.rotated_at != "").all():
+                try:
+                    rotated = datetime.fromisoformat(c.rotated_at.replace("Z", "+00:00"))
+                    if rotated.tzinfo is None:
+                        rotated = rotated.replace(tzinfo=timezone.utc)
+                    days = (datetime.now(timezone.utc) - rotated).days
+                    if days > (c.rotation_max or 90):
+                        items.append((c.name, f"{c.owner_email} · {days}d since rotation"))
+                except Exception:
+                    continue
+            items.sort(key=lambda r: r[0])
+            return _list(items, "Rotation Overdue")
+        if metric == "pending_shares":
+            rows = db.query(M.VaultShareRequest).filter(M.VaultShareRequest.status == "pending").all()
+            return _by_person(db, [r.requested_by_email for r in rows], "Pending Share Requests by Requester")
+        raise HTTPException(404, "No breakdown for this metric")
+
+    raise HTTPException(404, "No breakdown for this metric")
 
 
 # ── My Agenda (Outlook calendar via Graph) ────────────────────────────────────

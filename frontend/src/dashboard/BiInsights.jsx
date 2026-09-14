@@ -163,7 +163,7 @@ function StatsTable({ rows, columns }) {
   return (
     <div style={{ border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'var(--mist)', fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
-        {cols.map(c => <span key={c}>{c === 'label' ? 'Metric' : c === 'value' ? 'Value' : c}</span>)}
+        {cols.map(c => <span key={c}>{c === 'label' ? 'Metric' : c === 'value' ? 'Value' : c === 'detail' ? 'Detail' : c}</span>)}
       </div>
       <div style={{ maxHeight: 168, overflow: 'auto' }}>
         {rows.map((r, i) => (
@@ -460,17 +460,20 @@ function ModuleCard({ mod, tone, query, geometry, onGeometry, onDrill }) {
 // "who" for SSL Expiring) - a 404 shows a plain explanation instead of an
 // empty chart pretending to be real data. ──
 function DrilldownModal({ request, onClose }) {
-  const [state, setState] = useState({ loading: true, rows: [], title: '', error: '' });
+  const [state, setState] = useState({ loading: true, kind: 'by_person', rows: [], title: '', error: '' });
   useEffect(() => {
     let alive = true;
-    setState({ loading: true, rows: [], title: '', error: '' });
+    setState({ loading: true, kind: 'by_person', rows: [], title: '', error: '' });
     api.dashInsightsDrilldown(request.moduleId, request.metric)
-      .then(r => { if (alive) setState({ loading: false, rows: r.rows || [], title: r.title || request.label, error: '' }); })
-      .catch(e => { if (alive) setState({ loading: false, rows: [], title: request.label, error: e?.message || 'No breakdown available for this metric yet.' }); });
+      .then(r => { if (alive) setState({ loading: false, kind: r.kind || 'by_person', rows: r.rows || [], title: r.title || request.label, error: '' }); })
+      .catch(e => { if (alive) setState({ loading: false, kind: 'by_person', rows: [], title: request.label, error: e?.message || 'No breakdown available for this metric yet.' }); });
     return () => { alive = false; };
   }, [request.moduleId, request.metric]);
 
-  const data = state.rows.map(r => ({ ...r, fill: C('blue') }));
+  // "by_person" rows are {label, value} - a real count per person, charted.
+  // "list" rows are {label, detail} - the affected records themselves (no
+  // "who" for e.g. a down website), shown as a plain list, not faked into bars.
+  const barData = state.kind === 'by_person' ? state.rows.map(r => ({ ...r, fill: C('blue') })) : [];
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -484,10 +487,12 @@ function DrilldownModal({ request, onClose }) {
             <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading…</div>
           ) : state.error ? (
             <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{state.error}</div>
-          ) : !data.length ? (
-            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nobody currently matches this metric.</div>
+          ) : !state.rows.length ? (
+            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nothing currently matches this metric.</div>
+          ) : state.kind === 'list' ? (
+            <StatsTable rows={state.rows} columns={['label', 'detail']} />
           ) : (
-            <BarGeom data={data} vertical />
+            <BarGeom data={barData} vertical />
           )}
         </div>
       </div>
