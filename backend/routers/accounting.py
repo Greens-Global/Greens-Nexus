@@ -37,10 +37,10 @@ def _acct_get_sync(path: str, params: dict) -> dict:
         timeout=30,
     )
     if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Accounting service returned {r.status_code}")
+        raise HTTPException(status_code=424, detail=f"Accounting service returned {r.status_code}")
     data = r.json()
     if not data.get("ok"):
-        raise HTTPException(status_code=502, detail=data.get("error") or "Accounting service error")
+        raise HTTPException(status_code=424, detail=data.get("error") or "Accounting service error")
     return data
 
 
@@ -104,6 +104,11 @@ from database import get_db
 import models
 
 
+# Upstream failures are 424 (Failed Dependency), NEVER 502: Cloudflare replaces
+# an origin 502 with its own HTML error page, so the UI showed a bare "API
+# error 502" and hid the real reason (Sep 14 - Priyanka/Pranshu could not open
+# the accounting app and nobody could see why; same lesson as egnyte.py, Aug 10).
+# 424 is not retried by api.js and its detail reaches the screen verbatim.
 def _acct_post_sync(path: str, payload: dict) -> dict:
     r = httpx.post(
         f"{_ACCT_BASE}{path}",
@@ -112,10 +117,10 @@ def _acct_post_sync(path: str, payload: dict) -> dict:
         timeout=30,
     )
     if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Accounting service returned {r.status_code}")
+        raise HTTPException(status_code=424, detail=f"Accounting service returned {r.status_code}")
     data = r.json()
     if not data.get("ok"):
-        raise HTTPException(status_code=502, detail=data.get("error") or "Accounting service error")
+        raise HTTPException(status_code=424, detail=data.get("error") or "Accounting service error")
     return data
 
 
