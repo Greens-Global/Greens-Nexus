@@ -16,7 +16,14 @@ const GAP = 14;
 const MOBILE_BP = 700;
 const MIN_W = 2, MIN_H = 2, MAX_H = 8;
 
-export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure, limitsFor }) {
+// `resolveLayout(nextLayout, draggedId)` is optional: pass it to have the
+// board settle collisions live (the other cards move out of the dragged one's
+// way while you drag, and the resolved board is what gets saved on drop).
+// Callers that don't pass it keep the original behavior exactly.
+// `alwaysResizable` puts the SE resize handle on every card in VIEW mode too,
+// so a card's height/width can be dragged without first entering Customize
+// (moving and removing still need it). Off by default.
+export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure, limitsFor, resolveLayout, alwaysResizable }) {
   const ref = useRef(null);
   const [width, setWidth] = useState(1000);
   const [drag, setDrag] = useState(null);   // live drag/resize session
@@ -31,12 +38,14 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
   const mobile = width < MOBILE_BP;
   const unitW = width / COLS;
 
-  const eff = layout.map(it => (drag && drag.i === it.i)
+  const dragged = drag && layout.map(it => (drag.i === it.i)
     ? { ...it, x: drag.curX, y: drag.curY, w: drag.curW, h: drag.curH } : it);
+  const eff = !dragged ? layout : (resolveLayout ? resolveLayout(dragged, drag.i) : dragged);
   const maxRow = eff.reduce((m, it) => Math.max(m, it.y + it.h), 1);
 
   function startDrag(e, it, mode) {
-    if (!editing || mobile) return;
+    if (mobile) return;
+    if (!editing && !(alwaysResizable && mode === 'resize')) return;
     e.preventDefault(); e.stopPropagation();
     const sx = e.clientX, sy = e.clientY;
     const base = { ox: it.x, oy: it.y, ow: it.w, oh: it.h };
@@ -66,8 +75,11 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       setDrag(prev => {
-        if (prev) onLayoutChange(layout.map(l => l.i === prev.i
-          ? { ...l, x: prev.curX, y: prev.curY, w: prev.curW, h: prev.curH } : l));
+        if (prev) {
+          const next = layout.map(l => l.i === prev.i
+            ? { ...l, x: prev.curX, y: prev.curY, w: prev.curW, h: prev.curH } : l);
+          onLayoutChange(resolveLayout ? resolveLayout(next, prev.i) : next);
+        }
         return null;
       });
     };
@@ -118,7 +130,7 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
           boxSizing: 'border-box', transition: drag?.i === it.i ? 'none' : 'left 0.15s, top 0.15s, width 0.15s, height 0.15s',
           zIndex: drag?.i === it.i ? 10 : 1 }}>
           <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure}
-            renderWidget={renderWidget} startDrag={startDrag} draggable />
+            renderWidget={renderWidget} startDrag={startDrag} draggable alwaysResizable={alwaysResizable} />
         </div>
       ))}
     </div>
@@ -130,7 +142,7 @@ const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', color: 
 // The cell is a transparent frame: the widget renders its OWN native card
 // (.kpi-card / .dash-card) so it looks identical to the rest of the app. In edit
 // mode we overlay a small control cluster + resize handle on top.
-function Card({ it, editing, onRemove, onConfigure, renderWidget, startDrag, draggable }) {
+function Card({ it, editing, onRemove, onConfigure, renderWidget, startDrag, draggable, alwaysResizable }) {
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div style={{ width: '100%', height: '100%', pointerEvents: editing ? 'none' : 'auto' }}>
@@ -151,7 +163,7 @@ function Card({ it, editing, onRemove, onConfigure, renderWidget, startDrag, dra
           <button onClick={() => onRemove(it.i)} title="Remove" style={iconBtn}><X size={14} /></button>
         </div>
       )}
-      {editing && draggable && (
+      {(editing || alwaysResizable) && draggable && (
         <span onPointerDown={(e) => startDrag(e, it, 'resize')} title="Drag to resize"
           style={{ position: 'absolute', right: 3, bottom: 3, width: 16, height: 16, cursor: 'nwse-resize',
             background: 'linear-gradient(135deg, transparent 50%, var(--muted) 50%, var(--muted) 62%, transparent 62%, transparent 74%, var(--muted) 74%, var(--muted) 86%, transparent 86%)',
