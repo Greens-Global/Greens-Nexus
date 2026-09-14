@@ -297,11 +297,24 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
         modules: list = []
 
         def tasks_block():
-            live = db.query(M.Task).filter(M.Task.deleted_at == "")
-            overdue = live.filter(M.Task.completed == False, M.Task.due_on != "", M.Task.due_on < today).count()  # noqa: E712
-            upcoming = live.filter(M.Task.completed == False, M.Task.due_on >= today, M.Task.due_on <= week_ahead).count()  # noqa: E712
-            completed_7d = live.filter(M.Task.completed == True, M.Task.completed_at >= week_ago).count()  # noqa: E712
-            open_total = live.filter(M.Task.completed == False).count()  # noqa: E712
+            # Must match the Tasks module's own Reporting tab exactly (see
+            # frontend/src/tasks/lib.js topLevel()/taskStats()) or the two
+            # screens disagree: a subtask/section is not a task for counting
+            # purposes (topLevel excludes parent_task_id set and type
+            # 'section'), and the company wall applies here too - the
+            # Reporting tab gets it for free because /tasks/delta already
+            # walls the rows before they reach the client. Counting raw
+            # Task rows without either massively over-counted "Open" (every
+            # subtask row added to the total) and over-counted "Overdue"
+            # by the same mechanism, plus whatever cross-company rows the
+            # wall would have excluded.
+            from routers.task_util import wall_tasks
+            rows = wall_tasks(db, user, db.query(M.Task).filter(
+                M.Task.deleted_at == "", M.Task.type != "section", M.Task.parent_task_id == "").all())
+            overdue = sum(1 for t in rows if not t.completed and t.due_on and t.due_on < today)
+            upcoming = sum(1 for t in rows if not t.completed and t.due_on and today <= t.due_on <= week_ahead)
+            completed_7d = sum(1 for t in rows if t.completed and t.completed_at >= week_ago)
+            open_total = sum(1 for t in rows if not t.completed)
             on_track = max(0, open_total - overdue)
             return {
                 "stats": [
