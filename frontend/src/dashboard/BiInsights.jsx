@@ -734,6 +734,26 @@ export default function BiInsights() {
       ) : (
         <div className="bi-layout" style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
 
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ marginBottom: 14 }}><Ribbon modules={moduleFiltered} /></div>
+            {/* CSS multi-column masonry, not CSS Grid - a Grid row's height is
+                still set by its tallest item even with align-items:start, so
+                a short card leaves dead space instead of letting the next
+                card ride up into it. `columns` genuinely packs each column
+                top-to-bottom, which is the "auto-assign to fill the blank
+                space" behavior that was asked for. */}
+            <div style={{ columns: '320px', columnGap: 14 }}>
+              {moduleFiltered.map(mod => (
+                <ModuleCard key={mod.id} mod={mod} tone={tone} query={q} geometry={geometryFor(mod.id)} onGeometry={setGeometry} onDrill={onDrill} size={sizeFor(mod.id)} />
+              ))}
+            </div>
+            {moduleFiltered.length === 0 && (
+              <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No modules selected. Pick at least one on the right.</div>
+            )}
+          </div>
+
+          <AttentionFeed modules={state.modules} onPick={pickOnly} />
+
           <aside style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ position: 'relative' }}>
               <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
@@ -764,26 +784,6 @@ export default function BiInsights() {
               <HealthGauge value={healthScore} />
             </div>
           </aside>
-
-          <AttentionFeed modules={state.modules} onPick={pickOnly} />
-
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ marginBottom: 14 }}><Ribbon modules={moduleFiltered} /></div>
-            {/* CSS multi-column masonry, not CSS Grid - a Grid row's height is
-                still set by its tallest item even with align-items:start, so
-                a short card leaves dead space instead of letting the next
-                card ride up into it. `columns` genuinely packs each column
-                top-to-bottom, which is the "auto-assign to fill the blank
-                space" behavior that was asked for. */}
-            <div style={{ columns: '320px', columnGap: 14 }}>
-              {moduleFiltered.map(mod => (
-                <ModuleCard key={mod.id} mod={mod} tone={tone} query={q} geometry={geometryFor(mod.id)} onGeometry={setGeometry} onDrill={onDrill} size={sizeFor(mod.id)} />
-              ))}
-            </div>
-            {moduleFiltered.length === 0 && (
-              <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No modules selected. Pick at least one on the left.</div>
-            )}
-          </div>
         </div>
       )}
 
