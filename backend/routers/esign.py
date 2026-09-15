@@ -40,8 +40,7 @@ from auth import get_current_user
 from models import (HrSignTemplate, HrSignRequest, HrSignParty, HrSignEvent,
                     HrDocument, HrEntity, HrCandidate, NexusEmployee,
                     HrDocumentClass, HrSignConsent, HrSignRetentionHold,
-                    HrSignDocument, HrSignSeal, HrSignOtpChallenge,
-                    HrSignUpload)
+                    HrSignDocument, HrSignSeal, HrSignUpload)
 # Reuse the HR module's storage/Graph/notification plumbing - same bucket, same
 # service key, same bell. hr.py owns those constants; do not duplicate them.
 from services.seal import (seal_pdf, policy_sentence as seal_policy_sentence,
@@ -3361,8 +3360,8 @@ def _document_digests(req: HrSignRequest, parts: list) -> list:
 
 # Imported rather than re-declared - two copies of this map is how the
 # certificate and the sealed PDF end up naming different jurisdictions.
-from services.certificate import (_LAW_NAMES, _LAW_AUTHORITY,   # noqa: E402
-                                  _US_AUTHORITY, _authority_clause, _declaration_law)
+from services.certificate import (_authority_clause,   # noqa: E402
+                                  _declaration_law)
 
 _FORMAT_LABELS = {
     "pdf_rendered_in_session": "PDF rendered in the signing session",

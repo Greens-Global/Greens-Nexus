@@ -23,7 +23,6 @@ import io
 import json
 import os
 import unittest
-import uuid
 
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 

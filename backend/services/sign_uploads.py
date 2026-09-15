@@ -33,8 +33,6 @@ bucket, the service key and the local-disk fallback, and there must not be a
 second copy of that decision here.
 """
 import hashlib
-import io
-import os
 import re
 import uuid
 from datetime import datetime, timezone
