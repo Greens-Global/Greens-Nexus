@@ -146,6 +146,8 @@ def _run_migrations():
             "ALTER TABLE hr_sign_parties ADD COLUMN ial VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_parties ADD COLUMN aal VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_parties ADD COLUMN signed_geo VARCHAR DEFAULT ''",
+            # Nexus Sign: optional SMS destination for the signing one-time code
+            "ALTER TABLE hr_sign_parties ADD COLUMN phone VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_templates ADD COLUMN body_locked BOOLEAN DEFAULT 0",
             # Audit chain: how each entry's hash was computed (1 = pipe, 2 = JCS).
             # Existing rows default to 1 - they were written that way.
@@ -930,6 +932,8 @@ def _run_migrations():
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS ial TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS aal TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS signed_geo TEXT DEFAULT ''",
+        # Nexus Sign: optional SMS destination for the signing one-time code
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_documents ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_sign_seals ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS body_locked BOOLEAN DEFAULT FALSE",
@@ -1244,6 +1248,17 @@ def _run_migrations():
         "ALTER TABLE vault_otp_sessions ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE vault_personal_auth ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE vault_personal_unlock_sessions ENABLE ROW LEVEL SECURITY",
+        # Nexus Sign OTP (Sep 2026): create_all builds hr_sign_otp_challenges
+        # with RLS OFF. It holds hashed signing codes keyed to a party, and the
+        # /esign/public/* surface is unauthenticated by design - the anon key
+        # must not be able to read or forge a row in it.
+        "ALTER TABLE hr_sign_otp_challenges ENABLE ROW LEVEL SECURITY",
+        # Nexus Sign upload fields (Sep 2026): create_all builds hr_sign_uploads
+        # with RLS OFF. Its rows point at signer-submitted evidence (insurance
+        # certificates, scanned IDs) reached through the unauthenticated
+        # /esign/public/* surface - the anon key must not be able to enumerate
+        # or forge them.
+        "ALTER TABLE hr_sign_uploads ENABLE ROW LEVEL SECURITY",
         # time_off_requests: manager+ can file on behalf of an employee (Neil, Aug 11);
         # who filed it is recorded so the request never looks self-submitted.
         "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS requested_by VARCHAR DEFAULT ''",

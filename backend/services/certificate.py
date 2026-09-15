@@ -42,19 +42,84 @@ _NO_SEAL_POLICY = (
     "later change. The file carries no embedded PKI signature, so integrity is verified "
     "against this record, not from the file alone.")
 
+# What the Timestamps row says for an envelope sealed before the policy was
+# recorded on the snapshot. It states the weaker of the two possibilities,
+# because that is what those envelopes actually had.
+_NO_TSA_POLICY = (
+    "Recorded by the Nexus application clock in UTC at the moment of each act. "
+    "Not a third-party RFC 3161 timestamp.")
+
 _ROLE_LABELS = {
     "signer": "Signer", "countersigner": "Countersigner", "witness": "Witness",
     "approver": "Approver", "certified_delivery": "Certified delivery", "cc": "Copy",
 }
 
 _LAW_NAMES = {"CA": "California", "TX": "Texas", "NV": "Nevada", "AZ": "Arizona",
-              "WA": "Washington", "OR": "Oregon", "NY": "New York", "FL": "Florida"}
+              "WA": "Washington", "OR": "Oregon", "NY": "New York", "FL": "Florida",
+              # Not a US state, and deliberately in the same list: Greens Global
+              # signs with Indian counterparties, and the review asked that the
+              # product not be built around one US state. "IN" selects the
+              # Information Technology Act framework instead of UETA.
+              "IN": "India"}
+
+# The statute each jurisdiction choice cites. An envelope with NO jurisdiction
+# chosen is the DEFAULT and is not a gap: ESIGN applies to interstate and
+# foreign commerce on its own, and every US state but one has enacted UETA, so
+# the general citation is accurate without anyone picking a state. A specific
+# choice narrows it; it was never required to make the certificate correct.
+_LAW_AUTHORITY = {
+    "IN": ("the Information Technology Act, 2000 (India), under which an electronic record "
+           "authenticated by a subscriber is attributed to that person where the security "
+           "procedure relied on is shown to be reasonable"),
+}
+_US_AUTHORITY = ("the Electronic Signatures in Global and National Commerce Act, "
+                 "15 U.S.C. 7001-7031, and the Uniform Electronic Transactions Act as enacted "
+                 "in the applicable jurisdiction")
+
+
+def _authority_clause(env: dict) -> str:
+    """What the certificate cites as the legal basis for the signature.
+
+    Written so that choosing NOTHING is a correct, complete statement rather
+    than a hole with "the governing state" in it. ESIGN reaches transactions in
+    interstate and foreign commerce by its own terms, and UETA is enacted
+    almost everywhere, so the general clause stands on its own; naming a
+    jurisdiction narrows it when the sender had a reason to.
+
+    India is not a state and does not get bolted onto the US sentence - it
+    cites its own statute, because an envelope signed under Indian law is not
+    signed under UETA.
+    """
+    code = (env.get("governing_law") or "").upper()
+    label = env.get("governing_law_label") or ""
+    specific = _LAW_AUTHORITY.get(code)
+    if specific:
+        return specific
+    if label:
+        return ("the Electronic Signatures in Global and National Commerce Act, "
+                "15 U.S.C. 7001-7031, and the Uniform Electronic Transactions Act as enacted in "
+                + label)
+    return _US_AUTHORITY
+
+
+def _declaration_law(env: dict) -> str:
+    """The law the custodian declares under. Same rule: a named jurisdiction is
+    added only when one was actually chosen, so the declaration never asserts a
+    connection to a state the transaction may have nothing to do with."""
+    code = (env.get("governing_law") or "").upper()
+    label = env.get("governing_law_label") or ""
+    if code == "IN":
+        return "India"
+    if label:
+        return f"the United States of America, and of the State of {label}"
+    return "the United States of America"
 
 
 # ── Snapshot ─────────────────────────────────────────────────────────────────
 
 def build_snapshot(*, req, parties, events, consents, doc_digests, content_sha,
-                   entity_name, generated_at, system, chain) -> dict:
+                   entity_name, generated_at, system, chain, otps=None,
+                   uploads=None) -> dict:
     """Everything the certificate states, frozen as plain data.
 
     `generated_at` is passed in, never read from a clock here - the caller owns
@@ -92,6 +157,12 @@ def build_snapshot(*, req, parties, events, consents, doc_digests, content_sha,
             "title": getattr(p, "title", "") or "",
             "auth_method": _auth_method(p),
             "failed_auth_count": int(getattr(p, "failed_auth_count", 0) or 0),
+            # The one-time code that authorized this signature, read from the
+            # challenge row that was actually consumed. An empty dict means no
+            # code ran - which is the truth for envelopes completed before the
+            # requirement, and the certificate says so rather than implying a
+            # factor that never happened.
+            "otp": dict((otps or {}).get(p.id) or {}),
             "consent": {
                 "version": (rec.disclosure_version if rec else "") or p.consent_text_version or "",
                 "digest": (rec.disclosure_digest if rec else "") or "",
@@ -119,6 +190,7 @@ def build_snapshot(*, req, parties, events, consents, doc_digests, content_sha,
         }
 
     law = (getattr(req, "governing_law", "") or "").upper()
+    _party_names = {p.id: (p.name or "") for p in parties}
     return {
         "generated_at": generated_at,
         "system": dict(system),
@@ -130,7 +202,13 @@ def build_snapshot(*, req, parties, events, consents, doc_digests, content_sha,
             "initiated_by": req.created_by or "",
             "source": "Authored template" if req.source == "template" else "Uploaded PDF",
             "routing": (req.routing or "sequential").title(),
-            "status": (req.status or "").title(),
+            # "Completed" is what the engine calls it; what a reader needs on a
+            # legal record is whether every required signer has signed. The
+            # review was explicit that a finished envelope must never print
+            # "Pending", so the label is derived from the envelope state rather
+            # than being a title-cased column value.
+            "status": _status_label(req, parties),
+            "status_code": (req.status or ""),
             "sent_at": req.created_at or "",
             "completed_at": req.completed_at or "",
             "expires_on": req.expires_on or "",
@@ -144,6 +222,12 @@ def build_snapshot(*, req, parties, events, consents, doc_digests, content_sha,
         "ccs": [{"name": p.name or "", "email": p.email or ""} for p in ccs],
         "documents": [{"name": n, "pages": pg, "digest_at_send": ds, "digest_at_completion": dc}
                       for n, pg, ds, dc in (doc_digests or [])],
+        # Files the SIGNERS attached at upload fields. Part of the record, not
+        # a side channel: the certificate names each one and states the digest
+        # of the bytes as received, so what was submitted can be proved against
+        # the copy filed beside the sealed document.
+        "attachments": [{**a, "party": _party_names.get(a.get("party_id"), "")}
+                        for a in (uploads or [])],
         "integrity": {
             "content_digest": content_sha or "",
             "chain_head": chain_head,
@@ -157,7 +241,62 @@ def build_snapshot(*, req, parties, events, consents, doc_digests, content_sha,
         # report the outcome of its own sealing. It states the policy in force;
         # the applied seal is on the envelope's seal row and in the PDF itself.
         "seal_policy": system.get("seal_policy") or _NO_SEAL_POLICY,
+        # Derived from the same configuration the sealer reads, never a fixed
+        # string: this row is a factual claim about a control, and an old
+        # envelope re-rendered after a TSA was switched on must still describe
+        # the deployment that actually signed it - which is why it is FROZEN
+        # onto the snapshot here rather than recomputed at render time.
+        "timestamp_policy": system.get("timestamp_policy") or _NO_TSA_POLICY,
     }
+
+
+def otp_note(signer: dict, fmt_dt) -> str:
+    """The authentication footnote: which channel carried the one-time code,
+    when it was verified, and how many attempts failed.
+
+    Terse on purpose. It sits in the narrowest column of a sheet that must fit
+    four signers on one letter page (criterion 6, enforced by
+    frontend/src/lib/certificateLayout.test.js), and a wrapped sentence per
+    signer is what pushes the last one off the bottom. Nothing evidential is
+    dropped to get there: `auth_method` on the line above already names the
+    code as a factor, the signer's own address is in the first column, and the
+    exact masked destination stays on the challenge row for anyone who asks.
+
+    Lives here and is imported by the sealed-PDF renderer so the two copies of
+    a certificate cannot describe one signing differently. `fmt_dt` is injected
+    because the HTML escapes and the PDF does not, and neither renderer may
+    reach into the other's formatting.
+    """
+    otp = signer.get("otp") or {}
+    if otp.get("verified_at"):
+        ch = _OTP_CHANNEL_LABELS.get(otp.get("channel", ""), otp.get("channel", ""))
+        head = f'Code by {ch}, verified {fmt_dt(otp["verified_at"])}'
+    else:
+        head = "No one-time code"
+    n = int(signer.get("failed_auth_count") or 0)
+    tail = f'{n} failed attempt{"s" if n != 1 else ""}' if n else "no failed attempts"
+    return f"{head} - {tail}"
+
+
+def _status_label(req, parties) -> str:
+    """Executed vs fully executed, in the words the review asked for.
+
+    "Executed" = at least one required signer has signed. "Fully Executed" =
+    all of them have. Declined, voided and expired keep their own plain names -
+    an envelope nobody may sign is not "pending" anything.
+    """
+    code = (req.status or "").lower()
+    if code in ("declined", "voided", "expired"):
+        return code.title()
+    acting = [p for p in parties if (p.party_role or "signer") != "cc"]
+    required = [p for p in acting
+                if (p.party_role or "signer") in ("signer", "countersigner", "witness")]
+    done = [p for p in required if (p.status or "") == "signed"]
+    if code == "completed":
+        return "Fully Executed"
+    if done and len(done) < len(required):
+        return "Executed - awaiting remaining signers"
+    return "Pending"
 
 
 def _signature_field(req, p) -> str:
@@ -221,7 +360,25 @@ _AUTH_LABELS = {
     "emailed_token": "Single-use emailed link, 43-character random token",
     "emailed_token+access_code": ("Single-use emailed link, 43-character random token, "
                                   "plus an out-of-band access code"),
+    # Every signature now requires a one-time code, so these are what a
+    # certificate issued from here on will normally say. The pre-OTP labels
+    # above are kept because they are the truth about envelopes completed
+    # before the requirement existed, and a certificate must describe the
+    # authentication that actually ran, not the one in force today.
+    #
+    # These name the code only in passing: the line directly beneath (otp_note)
+    # states the channel it went to and the moment it was verified, and saying
+    # it twice costs a wrapped line per signer on a sheet that has to fit four
+    # of them (criterion 6).
+    "entra_sso+otp": ("Microsoft Entra ID single sign-on, authenticated Nexus "
+                      "session + one-time code"),
+    "emailed_token+otp": ("Single-use emailed link, 43-character random token "
+                          "+ one-time code"),
+    "emailed_token+access_code+otp": ("Single-use emailed link, 43-character random token, "
+                                      "out-of-band access code + one-time code"),
 }
+
+_OTP_CHANNEL_LABELS = {"email": "email", "sms": "text"}
 
 
 def _auth_method(p) -> str:
@@ -287,19 +444,45 @@ def qr_svg(payload: str, *, module_px: int = 3, border: int = 3) -> str:
 
 # ── Renderer ─────────────────────────────────────────────────────────────────
 
+def _us_date(iso_date: str) -> str:
+    """'2026-08-24' -> '08-24-2026'. String slicing only: parsing to a datetime
+    and reformatting would invite a timezone or a locale into a module that has
+    to render byte-identically forever. A value that is not an ISO date comes
+    back untouched rather than mangled."""
+    v = (iso_date or "").strip()[:10]
+    if len(v) != 10 or v[4] != "-" or v[7] != "-":
+        return v
+    return v[5:7] + "-" + v[8:10] + "-" + v[0:4]
+
+
 def _dt(value: str) -> str:
-    """'2026-08-24T09:21:03+00:00' -> '2026-08-24 09:21:03 UTC'. String work
-    only - parsing to a datetime and reformatting would invite a timezone or a
-    locale into a function that must stay deterministic."""
+    """'2026-08-24T09:21:03+00:00' -> '08-24-2026 09:21:03 UTC'.
+
+    US ordering per the Nexus Sign review (section 17.4). Stored values stay
+    ISO-8601 in the database and in the snapshot; only what is PRINTED moves,
+    so a re-render from an archived snapshot still reproduces byte for byte."""
     v = (value or "").strip()
     if not v:
         return "-"
-    return escape(v[:19].replace("T", " ")) + " UTC"
+    return escape(_us_date(v[:10]) + v[10:19].replace("T", " ")) + " UTC"
 
 
 def _d(value: str) -> str:
     v = (value or "").strip()
-    return escape(v[:10]) if v else "-"
+    return escape(_us_date(v)) if v else "-"
+
+
+def _kb(size) -> str:
+    """A file size a reader can judge at a glance. Bytes are the wrong unit on
+    a page someone reads to decide whether the right document was attached."""
+    n = int(size or 0)
+    if n <= 0:
+        return "-"
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.0f} KB"
+    return f"{n / (1024 * 1024):.1f} MB"
 
 
 def _hex(value: str, group: int = 32) -> str:
@@ -339,6 +522,9 @@ def render_html(snapshot: dict) -> str:
     def facts(rows):
         return '<table class="grid facts">' + "".join(
             f'<tr><th>{escape(k)}</th><td>{v}</td></tr>' for k, v in rows) + "</table>"
+
+    def _otp_note(signer):
+        return escape(otp_note(signer, lambda v: _us_date(v) + " " + (v or "")[11:16] + " UTC"))
 
     def signer_table():
         head = ("<tr><th>Signer</th><th>Authentication</th><th>Consent to transact</th>"
@@ -390,15 +576,14 @@ def render_html(snapshot: dict) -> str:
                     sig += f'<br><span class="m">{escape(s["signature_field"])}</span>'
                 if s["signature_digest"]:
                     sig += f'<br><span class="hex">{_hex(s["signature_digest"][:32])}</span>'
+            # One muted line, not two. The certificate has to fit four signers
+            # on a letter page (criterion 6, enforced by
+            # frontend/src/lib/certificateLayout.test.js), and adding a row per
+            # signer for the code pushed the sheet into clipping. Disclosed
+            # failures still ride here: hiding them makes the log look curated
+            # (build note section 7).
             auth = escape(s["auth_method"])
-            # Disclosed failures make a log credible; hiding them makes it look
-            # curated (build note section 7).
-            if s.get("failed_auth_count"):
-                n = s["failed_auth_count"]
-                auth += (f'<br><span class="m">{n} failed access-code '
-                         f'attempt{"s" if n != 1 else ""}</span>')
-            else:
-                auth += '<br><span class="m">No failed attempts</span>'
+            auth += f'<br><span class="m">{_otp_note(s)}</span>'
             rows.append(f'<tr><td>{who}</td><td>{auth}</td>'
                         f'<td>{consent_cell}</td><td>{exec_cell}</td><td>{sig}</td></tr>')
         return f'<table class="grid signers">{head}{"".join(rows)}</table>'
@@ -415,6 +600,31 @@ def render_html(snapshot: dict) -> str:
             for d in snapshot["documents"])
         return f'<table class="grid docs">{head}{rows}</table>'
 
+    def attachments_table():
+        """Files the signers attached at upload fields.
+
+        Its own table under the packet rather than a row inside it: a packet
+        document is something the SENDER put in front of the signer, and an
+        attachment is something the signer put back. Conflating the two would
+        make the certificate claim the sender circulated a file they never saw
+        until it arrived.
+        """
+        if not snapshot.get("attachments"):
+            return ""
+        head = ("<tr><th>Provided by</th><th>Requested as</th><th>File</th>"
+                "<th>Size</th><th>Digest as received</th></tr>")
+        rows = "".join(
+            f'<tr><td>{escape(a.get("party") or "-")}</td>'
+            f'<td>{escape(a.get("label") or "-")}</td>'
+            f'<td>{escape(a.get("name") or "-")}</td>'
+            f'<td>{_kb(a.get("size"))}</td>'
+            f'<td class="hex">{_hex(a.get("sha256"))}</td></tr>'
+            for a in snapshot["attachments"])
+        return ('<div class="sub" style="margin:10px 0 4px">Attached by signers at upload '
+                'fields. Each file is retained with this envelope; the digest is over the '
+                'bytes as received.</div>'
+                f'<table class="grid docs">{head}{rows}</table>')
+
     chain_note = {
         True: "Each entry commits to every entry before it; inserting, editing, deleting or "
               "reordering an entry is detectable. Replayed at generation: verified.",
@@ -429,8 +639,7 @@ def render_html(snapshot: dict) -> str:
         ("Audit chain head", f'<span class="hex">{_hex(integ["chain_head"])}</span>'),
         ("Audit log", f'{integ["event_count"]} entries, append-only - update and delete '
                       f'privileges withheld at the database level. {escape(chain_note)}'),
-        ("Timestamps", "Recorded by the Nexus application clock in UTC at the moment of each act. "
-                       "Not a third-party RFC 3161 timestamp."),
+        ("Timestamps", escape(snapshot.get("timestamp_policy") or _NO_TSA_POLICY)),
         ("Sealing", escape(snapshot.get("seal_policy") or _NO_SEAL_POLICY)),
         ("Retention", escape(snapshot["retention"] or "-")
                       + " Every party may retrieve the completed record from the verification "
@@ -526,6 +735,7 @@ def render_html(snapshot: dict) -> str:
 
   <h2><span class="n">3</span>Documents and digests</h2>
   {documents_table()}
+  {attachments_table()}
 
   <h2><span class="n">4</span>Integrity, audit chain and retention</h2>
   {facts(integrity_rows)}
@@ -537,9 +747,8 @@ def render_html(snapshot: dict) -> str:
     {escape(sysd["operator"])}, or another qualified person able to make this certification,
     and that the following is true:</p>
     <p style="margin:0 0 5px">{escape(custodian)}</p>
-    <p style="margin:0">I declare under penalty of perjury under the laws of the United States of
-    America{(", and of the State of " + escape(env["governing_law_label"]))
-            if env["governing_law_label"] else ""}, that the foregoing is true and correct.</p>
+    <p style="margin:0">I declare under penalty of perjury under the laws of
+    {escape(_declaration_law(env))}, that the foregoing is true and correct.</p>
   </div>
   <table class="sig"><tr><td></td><td style="border:0;width:14px"></td><td></td>
     <td style="border:0;width:14px"></td><td></td></tr></table>
@@ -550,10 +759,8 @@ def render_html(snapshot: dict) -> str:
     <b>Verification.</b> Scan the code above, or open {escape(snapshot["verify_url"])}, to compare
     the digests and counts printed here against the stored record. Verification requires no account
     and discloses no signer identity or document content.
-    <b>Authority.</b> Issued under the Electronic Signatures in Global and National Commerce Act,
-    15 U.S.C. 7001-7031, and the Uniform Electronic Transactions Act as enacted in
-    {escape(env["governing_law_label"] or "the governing state")}. An electronic signature may be
-    attributed to a person if it was the act of that person, which may be shown in any manner,
+    <b>Authority.</b> Issued under {escape(_authority_clause(env))}. An electronic signature may
+    be attributed to a person if it was the act of that person, which may be shown in any manner,
     including by the efficacy of the security procedure described here. This certificate is not
     legal advice and is not itself the agreement between the parties.
     Generated {escape(snapshot["generated_at"][:19].replace("T", " "))} UTC.
@@ -587,10 +794,13 @@ def demo_snapshot(signer_count: int, verify_url: str = "https://nexus.greensglob
             "kind": "internal" if i % 2 == 0 else "external",
             "ordinal": i + 1,
             "status": "signed",
-            "auth_method": ("Microsoft Entra ID single sign-on, authenticated Nexus session"
-                            if i % 2 == 0 else
-                            "Single-use emailed link, 43-character random token, plus an "
-                            "out-of-band access code"),
+            # The OTP-era labels, because that is what every envelope issued
+            # from here on will carry (see _AUTH_LABELS).
+            "auth_method": (_AUTH_LABELS["entra_sso+otp"] if i % 2 == 0
+                            else _AUTH_LABELS["emailed_token+access_code+otp"]),
+            "otp": {"channel": "email" if i % 2 == 0 else "sms",
+                    "target": "j••••@example.com" if i % 2 == 0 else "•••• 4417",
+                    "verified_at": "2026-08-24T09:23:10+00:00", "attempts": 0},
             "consent": {"version": "2.0-2026-09", "digest": "ab" * 32,
                         "accepted_at": "2026-08-24T09:22:41+00:00",
                         "format": "PDF rendered in session",
@@ -606,13 +816,18 @@ def demo_snapshot(signer_count: int, verify_url: str = "https://nexus.greensglob
         })
     return {
         "generated_at": "2026-08-27T16:41:57+00:00",
-        "system": {"name": "Nexus Docs & Sign", "operator": "Greens Global",
+        "system": {"name": "Nexus Sign", "operator": "Greens Global",
                    "support": "it@greensglobal.com"},
         "envelope": {
             "id": "7F3A91C4-2B8E-4D06-9A15-C83BE7D40F21",
             "short_code": _short_code("7F3A91C4-2B8E-4D06-9A15-C83BE7D40F21"),
             "name": "Subcontract Agreement - Concrete and Sitework",
-            "entity": "MCD Service Inc., DBA Aarav Construction",
+            # Deliberately obvious as sample data. A previous placeholder here
+            # named a real-sounding construction company, and a demo render of
+            # this file was mistaken for a live certificate during review.
+            # Kept SHORT so it occupies one line, like a real entity name -
+            # this snapshot is what certificateLayout.test.js measures.
+            "entity": "DEMO DATA - Sample Entity LLC",
             "initiated_by": "maria.ortiz@greensglobal.com",
             "source": "Uploaded PDF", "routing": "Sequential", "status": "Completed",
             "sent_at": "2026-08-24T09:21:03+00:00", "completed_at": "2026-08-27T16:41:52+00:00",

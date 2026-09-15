@@ -113,6 +113,20 @@ KNOWN_SLOTS = [
         "overrides": None,
     },
     {
+        "slot": "esign.work-subfolder",
+        "group": "E-Sign",
+        "label": "Nexus Sign filing subfolder",
+        "description": "Subfolder of the REQUESTER's own work folder where a fully executed "
+                       "document is filed automatically, so nobody downloads it from email and "
+                       "re-uploads it by hand. Created on first use. Blank files straight into "
+                       "the work folder itself.",
+        "kind": "path",
+        "placeholders": [],
+        "env": [],
+        "default": "Nexus Sign Documents",
+        "overrides": None,
+    },
+    {
         "slot": "esign.default-folder",
         "group": "E-Sign",
         "label": "Default sealed-document folder",

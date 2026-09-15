@@ -47,8 +47,22 @@ class RoleEngineTests(unittest.TestCase):
         finally:
             db.close()
         cache.module_grants.invalidate()
+        # Every signature and every approval now needs a verified one-time
+        # code, so these tests have to clear the same gates a real signer does.
+        # The sender is stubbed (rather than leaning on the dev fallback that
+        # returns the code in the response) so the tests behave identically on
+        # a machine that happens to have Graph credentials configured.
+        self._codes = {}
+        self._real_send_email = esign.sign_otp._send_email
+
+        def _capture(to_email, code, title, sender_name):
+            self._codes[to_email] = code
+            return ""
+
+        esign.sign_otp._send_email = _capture
 
     def tearDown(self):
+        esign.sign_otp._send_email = self._real_send_email
         self._cleanup()
         auth.SKIP_AUTH = self._skip
         if self._email is None:
@@ -103,6 +117,57 @@ class RoleEngineTests(unittest.TestCase):
         finally:
             db.close()
 
+    def _clear_gates(self, token, pid):
+        """Consent, then the one-time code - the two steps that now stand
+        between opening a link and acting on the envelope."""
+        email = self._party(pid).email
+        r = self.client.post(f"/esign/public/{token}/consent", json={"agreed": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self.client.post(f"/esign/public/{token}/otp/request", json={"channel": "email"})
+        self.assertEqual(r.status_code, 200, r.text)
+        code = self._codes.get(email)
+        self.assertTrue(code, f"no code was sent to {email}")
+        r = self.client.post(f"/esign/public/{token}/otp/verify", json={"code": code})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["gate"], "")
+
+    # ── the gates themselves ────────────────────────────────────────────────
+    def test_a_signature_without_a_verified_code_is_refused(self):
+        """The requirement is "no signature without OTP", so the check lives in
+        the engine, not the screen: a caller that posts straight to /sign gets
+        nothing, even having consented."""
+        _, parties = self._envelope(["signer"])
+        pid, token, _ = parties[0]
+        self.client.post(f"/esign/public/{token}/consent", json={"agreed": True})
+        r = self.client.post(f"/esign/public/{token}/sign", json={
+            "consent": True, "signature_kind": "typed", "signature_data": "Signer 1"})
+        self.assertEqual(r.status_code, 403, r.text)
+        self.assertIn("one-time code", r.json()["detail"])
+        self.assertNotEqual(self._party(pid).status, "signed")
+
+    def test_a_code_cannot_be_requested_before_consent(self):
+        _, parties = self._envelope(["signer"])
+        _, token, _ = parties[0]
+        r = self.client.post(f"/esign/public/{token}/otp/request", json={"channel": "email"})
+        self.assertEqual(r.status_code, 409, r.text)
+
+    def test_a_wrong_code_is_refused_and_recorded(self):
+        _, parties = self._envelope(["signer"])
+        pid, token, _ = parties[0]
+        self.client.post(f"/esign/public/{token}/consent", json={"agreed": True})
+        self.client.post(f"/esign/public/{token}/otp/request", json={"channel": "email"})
+        r = self.client.post(f"/esign/public/{token}/otp/verify", json={"code": "000000"})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertEqual(self._party(pid).failed_auth_count, 1)
+
+    def test_a_verified_code_is_named_in_the_auth_record(self):
+        _, parties = self._envelope(["signer"])
+        pid, token, _ = parties[0]
+        self._clear_gates(token, pid)
+        p = self._party(pid)
+        self.assertTrue(p.auth_method.endswith("+otp"), p.auth_method)
+        self.assertIn("otp:email", p.auth_factors or [])
+
     # ── an approver is not a signer ─────────────────────────────────────────
     def test_an_approver_cannot_use_the_signing_endpoint(self):
         _, parties = self._envelope(["approver", "signer"])
@@ -122,6 +187,7 @@ class RoleEngineTests(unittest.TestCase):
     def test_approving_records_approved_not_signed(self):
         _, parties = self._envelope(["approver", "signer"])
         pid, token, _ = parties[0]
+        self._clear_gates(token, pid)
         r = self.client.post(f"/esign/public/{token}/act",
                              json={"consent": True, "note": "Budget confirmed"})
         self.assertEqual(r.status_code, 200, r.text)
@@ -134,7 +200,8 @@ class RoleEngineTests(unittest.TestCase):
     def test_an_outstanding_approver_holds_the_envelope(self):
         """The whole point of the role: signatures alone must not complete it."""
         rid, parties = self._envelope(["signer", "approver"])
-        _, signer_token, _ = parties[0]
+        signer_pid, signer_token, _ = parties[0]
+        self._clear_gates(signer_token, signer_pid)
         r = self.client.post(f"/esign/public/{signer_token}/sign", json={
             "consent": True, "signature_kind": "typed", "signature_data": "Signer 1"})
         self.assertEqual(r.status_code, 200, r.text)
@@ -151,6 +218,7 @@ class RoleEngineTests(unittest.TestCase):
     def test_certified_delivery_acknowledges_and_never_signs(self):
         _, parties = self._envelope(["certified_delivery", "signer"])
         pid, token, _ = parties[0]
+        self._clear_gates(token, pid)
         r = self.client.post(f"/esign/public/{token}/act", json={"consent": True})
         self.assertEqual(r.status_code, 200, r.text)
         p = self._party(pid)
@@ -160,7 +228,8 @@ class RoleEngineTests(unittest.TestCase):
 
     def test_an_outstanding_delivery_acknowledgment_holds_the_envelope(self):
         rid, parties = self._envelope(["signer", "certified_delivery"])
-        _, token, _ = parties[0]
+        pid, token, _ = parties[0]
+        self._clear_gates(token, pid)
         self.client.post(f"/esign/public/{token}/sign", json={
             "consent": True, "signature_kind": "typed", "signature_data": "Signer 1"})
         db = database.SessionLocal()
@@ -175,6 +244,7 @@ class RoleEngineTests(unittest.TestCase):
         for role in ("countersigner", "witness"):
             _, parties = self._envelope([role, "signer"])
             pid, token, _ = parties[0]
+            self._clear_gates(token, pid)
             r = self.client.post(f"/esign/public/{token}/sign", json={
                 "consent": True, "signature_kind": "typed", "signature_data": "Name"})
             self.assertEqual(r.status_code, 200, f"{role}: {r.text}")
@@ -204,7 +274,8 @@ class RoleEngineTests(unittest.TestCase):
     # ── cc is unchanged ─────────────────────────────────────────────────────
     def test_a_cc_never_holds_the_envelope(self):
         rid, parties = self._envelope(["signer", "cc"])
-        _, token, _ = parties[0]
+        pid, token, _ = parties[0]
+        self._clear_gates(token, pid)
         r = self.client.post(f"/esign/public/{token}/sign", json={
             "consent": True, "signature_kind": "typed", "signature_data": "Signer 1"})
         self.assertEqual(r.status_code, 200, r.text)

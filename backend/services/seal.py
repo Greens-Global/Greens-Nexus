@@ -105,7 +105,7 @@ class DevSelfSignedSigner(Signer):
         self._key = rsa.generate_private_key(public_exponent=65537, key_size=3072)
         name = x509.Name([
             x509.NameAttribute(x509.NameOID.COMMON_NAME,
-                               "Nexus Docs & Sign DEVELOPMENT seal - not publicly trusted"),
+                               "Nexus Sign DEVELOPMENT seal - not publicly trusted"),
             x509.NameAttribute(x509.NameOID.ORGANIZATION_NAME,
                                os.getenv("NEXUS_ESIGN_OPERATOR", "Greens Global")),
         ])
@@ -187,15 +187,68 @@ def get_timestamper():
     """An RFC 3161 timestamper, when one is configured.
 
     A third-party timestamp proves the document existed in that byte-state at
-    that moment without anyone having to trust us - the single highest-value
-    neutrality control available. Nothing is invented when it is unset: the
-    seal record says there is no timestamp.
+    that moment without anyone having to trust our own clock - the single
+    highest-value neutrality control available, and the one the Nexus Sign
+    review asked us to find a FREE option for rather than adding another
+    monthly service. Nothing is invented when it is unset: the seal record and
+    the certificate both say there is no timestamp.
+
+    Set NEXUS_ESIGN_TSA_URL to the TSA's RFC 3161 endpoint. Free, no-account,
+    no-fee public authorities that answer plain RFC 3161 over HTTP:
+
+      http://timestamp.digicert.com   - publicly trusted root, no rate limit
+                                        published, the usual default
+      http://timestamp.sectigo.com    - publicly trusted root
+      https://freetsa.org/tsr         - openly operated, but its root is NOT in
+                                        the standard trust stores, so a reader
+                                        must be told to trust it; good for
+                                        proving order of events, weaker as
+                                        evidence to a third party
+
+    Two things to settle with counsel BEFORE turning one on, because neither is
+    a technical question:
+
+      1. Each of these is a service run by someone else with no contract with
+         us. Their terms permit timestamping; none of them promises to keep
+         records or to testify. An RFC 3161 token is self-contained evidence -
+         it is verifiable from the token and the TSA's certificate alone,
+         without the TSA's cooperation - but the long-term validity of that
+         token depends on the TSA's certificate remaining verifiable.
+      2. A timestamp is only applied when sealing is on (NEXUS_ESIGN_SEAL).
+         Without a seal there is no signature for the token to attach to.
+
+    Nothing here asserts that a public TSA satisfies any particular
+    jurisdiction's evidentiary rules; that is the legal review the requirements
+    call for, and this docstring is the shortlist it should rule on.
     """
     url = (os.getenv("NEXUS_ESIGN_TSA_URL", "") or "").strip()
     if not url:
         return None, ""
     from pyhanko.sign.timestamps import HTTPTimeStamper
     return HTTPTimeStamper(url=url), url
+
+
+def timestamp_sentence() -> str:
+    """What the certificate says in its Timestamps row.
+
+    It used to say "Not a third-party RFC 3161 timestamp" unconditionally,
+    which is a statement of fact on a legal record that stops being true the
+    moment NEXUS_ESIGN_TSA_URL is set. The row is derived from the same
+    configuration the sealer reads, so the certificate cannot describe a
+    control the deployment does not have - or deny one it does."""
+    tsa = (os.getenv("NEXUS_ESIGN_TSA_URL", "") or "").strip()
+    sealing = (os.getenv("NEXUS_ESIGN_SEAL", "off") or "off").strip().lower()         not in ("", "off", "none", "false")
+    # Kept to roughly one printed line. The certificate must still fit a letter
+    # page at four signers (frontend/src/lib/certificateLayout.test.js), and
+    # this row competes for that space with the signer table.
+    base = "Recorded by the Nexus application clock in UTC at the moment of each act."
+    if not tsa:
+        return base + " Not a third-party RFC 3161 timestamp."
+    if not sealing:
+        return base + (f" An RFC 3161 authority is configured ({tsa}) but sealing is off here, "
+                       "so no token was applied.")
+    return base + (f" The sealed packet also carries an RFC 3161 timestamp token from {tsa}, "
+                   "independent of Greens Global and verifiable from the file itself.")
 
 
 # ── Sealing ──────────────────────────────────────────────────────────────────
@@ -230,7 +283,11 @@ def seal_pdf(pdf_bytes: bytes, *, field_name: str = "NexusSeal", reason: str = "
         append_signature_field(writer, SigFieldSpec(sig_field_name=field_name))
         meta = ph_signers.PdfSignatureMetadata(
             field_name=field_name,
-            reason=reason or "Certified complete by Nexus Docs & Sign",
+            # Embedded in the PDF's signature properties, so this is the name a
+            # counterparty reads in Acrobat's signature panel - the most public
+            # place the product is named, and the last one still carrying the
+            # old one.
+            reason=reason or "Certified complete by Nexus Sign",
             subfilter=SigSeedSubFilter.PADES,
         )
         out = ph_signers.sign_pdf(writer, meta, signer=signer._pyhanko_signer(),

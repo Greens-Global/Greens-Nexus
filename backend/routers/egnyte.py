@@ -405,6 +405,37 @@ def wiring_reset(slot: str, scope_id: str = "", user: dict = Depends(require_man
     return {"ok": True}
 
 
+@router.get("/my-folder")
+def my_folder(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The SIGNED-IN person's own work folder - where Files opens by default.
+
+    Deliberately separate from /person/{email}, which is HR-gated because it
+    resolves somebody ELSE's folder (and that folder has a Confidential
+    subfolder in it). Here the email is taken from the session and never from
+    the request, so the only folder this can ever return is the caller's own,
+    and no grant beyond being signed in is needed to learn where you work.
+
+    Answers 200 with folder:null rather than 404 when the person has no wired
+    folder - the browser then opens at the root, which is the old behavior, and
+    a missing folder is not an error worth showing anyone."""
+    from sqlalchemy import func as _f
+    from models import NexusEmployee
+    email = (user.get("email") or "").lower()
+    if not svc.configured() or not email:
+        return {"folder": None}
+    emp = (db.query(NexusEmployee)
+           .filter(_f.lower(NexusEmployee.work_email) == email).first())
+    if not emp:
+        return {"folder": None}
+    try:
+        res = wiring.resolve_person_folder("people.person-folder", emp, db)
+    except Exception as e:      # a wiring/Egnyte hiccup must not break Files
+        print(f"[egnyte] could not resolve own folder for {email}: {type(e).__name__}: {e}")
+        return {"folder": None}
+    folder = res.get("folder")
+    return {"folder": folder, "webUrl": svc.web_url(folder) if folder else None}
+
+
 @router.get("/person/{email}")
 def person_folder(email: str, user: dict = Depends(_require_hr_read),
                   db: Session = Depends(get_db)):

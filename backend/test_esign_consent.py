@@ -161,8 +161,21 @@ class StandaloneConsentTests(unittest.TestCase):
     def test_california_requires_a_standalone_consent_screen(self):
         self.assertTrue(self._payload("CA")["standaloneConsent"])
 
-    def test_other_states_keep_the_inline_consent(self):
-        self.assertFalse(self._payload("TX")["standaloneConsent"])
+    def test_every_jurisdiction_now_gets_the_standalone_screen(self):
+        """Cal. Civ. Code 1633.5(b) is where the rule came from, but the Nexus
+        Sign review asked for the same ordering everywhere - consent is the
+        first meaningful step of the external experience, not a checkbox beside
+        the contract. Texas is the stand-in here for "not California"."""
+        for law in ("TX", "NY", "", "IN"):
+            self.assertTrue(self._payload(law)["standaloneConsent"], law)
+
+    def test_the_document_is_withheld_until_consent(self):
+        """The gate is the withheld payload, not the client honoring a flag:
+        a signer who has not consented is sent nothing to render."""
+        payload = self._payload("TX")
+        self.assertEqual(payload["gate"], esign._GATE_CONSENT)
+        for key in ("body", "pdfUrl", "fields", "documents", "myFields"):
+            self.assertNotIn(key, payload, key)
 
     def test_the_payload_carries_the_disclosure_and_its_digest(self):
         p = self._payload("CA")

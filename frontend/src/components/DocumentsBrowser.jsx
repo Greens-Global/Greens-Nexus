@@ -441,7 +441,7 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
             </div>
             <span style={{ padding: '2px 9px', borderRadius: 12, fontSize: 10.5, fontWeight: 800, color: st.fg, background: st.bg, whiteSpace: 'nowrap' }}>{st.label}</span>
             {signSt && (
-              <button title="View in E-Sign"
+              <button title="View in Nexus Sign"
                 onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-requests' } }))}
                 style={{ padding: '2px 9px', borderRadius: 12, fontSize: 10.5, fontWeight: 800, color: signSt.fg, background: signSt.bg, whiteSpace: 'nowrap', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <PenTool size={10} /> {signSt.label}
