@@ -46,6 +46,10 @@ export function NotificationProvider({ children }) {
   // the bell panel to open itself straight into that item's approval workflow
   // (allocator picker / reject reason) instead of just opening the list.
   const [pendingApprovalId, setPendingApprovalId] = useState(null);
+  // Bumped to tell the bell panel to open itself (e.g. the dashboard's
+  // "Unread Notifications" tile) - a counter, not a bool, so clicking again
+  // while already open still re-fires the effect.
+  const [openPanelSignal, setOpenPanelSignal] = useState(0);
   const pollRef     = useRef(null);
   const channelRef  = useRef(null);
   const fetchingRef = useRef(false);
@@ -192,6 +196,7 @@ export function NotificationProvider({ children }) {
 
   const openApproval = useCallback((id) => setPendingApprovalId(id), []);
   const clearPendingApproval = useCallback(() => setPendingApprovalId(null), []);
+  const openPanel = useCallback(() => setOpenPanelSignal(s => s + 1), []);
 
   const unreadCount         = notifications.filter(n => !n.read && !n.actioned).length;
   const activeOverdueAlerts = overdueAlerts.filter(a => !a.dismissed);
@@ -202,6 +207,7 @@ export function NotificationProvider({ children }) {
       addNotification, markRead, markAllRead, dismiss, clearRead, markActioned,
       sendOverdueAlert, dismissOverdueAlert,
       pendingApprovalId, openApproval, clearPendingApproval,
+      openPanelSignal, openPanel,
       refreshNotifications: fetchNotifications,
     }}>
       {children}
