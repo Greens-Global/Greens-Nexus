@@ -99,7 +99,7 @@ function Stat({ i, label, value, sub, chip, Icon, onGo, hero }) {
 // (saving a default view used to swallow the greeting with the rest of Home;
 // Visesh, Aug 12). `summary` is an optional node after the date line - Home
 // passes its attention-count sentence, grid views just get the date.
-export function DeskGreeting({ summary = null, right = null }) {
+export function DeskGreeting({ summary = null, right = null, menu = null }) {
   const { accounts } = useMsal();
   const { actingAs } = useRole();
   const now = useNow();
@@ -136,14 +136,19 @@ export function DeskGreeting({ summary = null, right = null }) {
             it (Neil, Sep 15 follow-up). */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {right}
-          <button
-            className={`dk-session-chip${clockedIn ? ' dk-session-chip--on' : ''}`}
-            onClick={() => navTo('timeclock')}
-            title="Open time clock"
-          >
-            <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
-            {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : 'Clocked out · Open time clock'}
-          </button>
+          {/* "…" view menu grouped tight against the session chip, separate
+              from the view picker/Customize's own gap (Pranshu, Sep 15). */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {menu}
+            <button
+              className={`dk-session-chip${clockedIn ? ' dk-session-chip--on' : ''}`}
+              onClick={() => navTo('timeclock')}
+              title="Open time clock"
+            >
+              <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
+              {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : 'Clocked out · Open time clock'}
+            </button>
+          </div>
         </div>
         <div className="dk-zones">
           {zones.map((z, i) => (
@@ -158,7 +163,7 @@ export function DeskGreeting({ summary = null, right = null }) {
   );
 }
 
-export default function DeskHome({ kpis = {}, notifications = [], markRead, headerRight = null }) {
+export default function DeskHome({ kpis = {}, notifications = [], markRead, headerRight = null, headerMenu = null }) {
   const { can } = useRole();
   const now = useNow();
 
@@ -231,7 +236,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
   return (
     <div className="dk-home">
       {/* ── Greeting + session ── */}
-      <DeskGreeting summary={summary} right={headerRight} />
+      <DeskGreeting summary={summary} right={headerRight} menu={headerMenu} />
 
       {/* ── Stat cards ── */}
       <div className="dk-board">
