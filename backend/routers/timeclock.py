@@ -5928,3 +5928,30 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
                ref_id=row.id, action={"view": "timeclock", "sub": ""})
     db.commit()
     return _ser_timeoff(row)
+
+
+@router.post("/timeoff/{req_id}/cancel")
+def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The requester withdraws their own request (Pranshu, Sep 16) - there was
+    no way to take one back once filed. Self-service only: the requester, not
+    a manager (that's still the approve/reject decision above). Pending or
+    already-approved can both be cancelled; rejected/cancelled cannot."""
+    row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).first()
+    if not row:
+        raise HTTPException(404, "Request not found")
+    if row.employee_email != user["email"]:
+        raise HTTPException(403, "You can only cancel your own requests.")
+    if row.status not in ("pending", "approved"):
+        raise HTTPException(409, f"Already {row.status}")
+    was_approved = row.status == "approved"
+    row.status = "cancelled"
+    row.decided_at = _now_iso()
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == user["email"]).first()
+    if was_approved and emp and emp.manager_email:
+        _hr_notify(db, emp.manager_email, "Time off cancelled",
+                   f"{_display_name(db, user['email'])} cancelled their {row.type} request "
+                   f"{row.start_date} → {row.end_date}"
+                   f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}.",
+                   ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    db.commit()
+    return _ser_timeoff(row)

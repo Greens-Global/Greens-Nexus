@@ -1164,6 +1164,7 @@ export const api = {
   timeOffList:       (status)    => req(`/timeclock/timeoff?status=${status || ''}`),
   timeOffOnBehalf:   (data)      => req('/timeclock/timeoff/on-behalf', { method: 'POST', body: JSON.stringify(data) }),
   timeOffDecide:     (id, data)  => req(`/timeclock/timeoff/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeOffCancel:     (id)        => req(`/timeclock/timeoff/${id}/cancel`, { method: 'POST' }),
   timeApprove:       (data)      => req('/timeclock/approvals', { method: 'POST', body: JSON.stringify(data) }),
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
