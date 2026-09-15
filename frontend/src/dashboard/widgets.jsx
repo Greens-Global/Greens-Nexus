@@ -11,6 +11,7 @@ import {
 import { formatTime } from '../lib/datetime';
 import { api } from '../api';
 import { LinkIcon } from '../components/LinkIcon.jsx';
+import { useNotifications } from '../contexts/NotificationContext.jsx';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
 // lazily so TimeAdmin & the approval flows stay out of the main bundle.
@@ -101,15 +102,16 @@ function DashCard({ title, sub, action, children, onClick, style }) {
 // Stat tile - the DeskHome dk-stat anatomy (tinted icon chip top-left, hover
 // arrow top-right, big tabular numeral) so Home and the custom grid read as
 // ONE design world. The old corner watercolor blob is gone on purpose.
-function StatCard({ label, value, color, Icon, nav, hint, hero }) {
-  const go = () => nav && navigate(nav.view, nav.sub);
+function StatCard({ label, value, color, Icon, nav, hint, hero, onClick }) {
+  const go = onClick || (() => nav && navigate(nav.view, nav.sub));
+  const clickable = !!(onClick || nav);
   const I = Icon || BarChart3;
   return (
-    <div className={`dk-stat${hero ? ' dk-stat--hero' : ''}`} onClick={nav ? go : undefined} role={nav ? 'button' : undefined}
-      style={{ height: '100%', boxSizing: 'border-box', cursor: nav ? 'pointer' : 'default', justifyContent: 'center' }}>
+    <div className={`dk-stat${hero ? ' dk-stat--hero' : ''}`} onClick={clickable ? go : undefined} role={clickable ? 'button' : undefined}
+      style={{ height: '100%', boxSizing: 'border-box', cursor: clickable ? 'pointer' : 'default', justifyContent: 'center' }}>
       <span className="dk-stat-top">
         <span className={`dk-chip dk-chip--${color}`}><I /></span>
-        {nav && <ArrowUpRight size={15} className="dk-stat-arrow" />}
+        {clickable && <ArrowUpRight size={15} className="dk-stat-arrow" />}
       </span>
       <span className="dk-stat-num">{value}</span>
       <span className="dk-stat-label">{label}</span>
@@ -120,20 +122,26 @@ function StatCard({ label, value, color, Icon, nav, hint, hero }) {
 
 // ── Widgets ───────────────────────────────────────────────────────────────────
 function KpiWidget({ config, kpis }) {
+  const { openPanel } = useNotifications();
   const meta = KPI_CATALOG[config?.metric] || { label: 'Metric', color: 'blue', Icon: BarChart3 };
-  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} hero={!!config?.hero} />;
+  const onClick = config?.metric === 'unread_notifications' ? openPanel : undefined;
+  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} hero={!!config?.hero} onClick={onClick} />;
 }
 
 function TeamStatWidget({ config, kpis }) {
+  const { openPanel } = useNotifications();
   const meta = KPI_CATALOG[config?.metric] || { label: config?.metric, color: 'green', Icon: Users };
-  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} />;
+  const onClick = config?.metric === 'unread_notifications' ? openPanel : undefined;
+  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} onClick={onClick} />;
 }
 
 function KpiBarWidget({ config, kpis }) {
+  const { openPanel } = useNotifications();
   const metrics = config?.metrics?.length ? config.metrics
     : ['open_tasks', 'pending_requisitions', 'my_checkouts', 'warranties_expiring'];
   const rows = metrics.map(m => ({ m, v: kpis?.[m] ?? 0, meta: KPI_CATALOG[m] || { label: m, color: 'blue' } }));
   const max = Math.max(1, ...rows.map(r => r.v));
+  const clickFor = (r) => r.m === 'unread_notifications' ? openPanel : (r.meta.nav && (() => navigate(r.meta.nav.view, r.meta.nav.sub)));
   return (
     <DashCard title="At a Glance">
       {/* Top-aligned, natural height - height:100% + justify center inside the
@@ -141,8 +149,10 @@ function KpiBarWidget({ config, kpis }) {
           taller than the card (flexbox centers overflow off the top, where
           scrolling can't reach). Same fix in Quick Actions. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {rows.map(r => (
-          <div key={r.m} onClick={() => r.meta.nav && navigate(r.meta.nav.view, r.meta.nav.sub)} style={{ cursor: r.meta.nav ? 'pointer' : 'default' }}>
+        {rows.map(r => {
+          const onClick = clickFor(r);
+          return (
+          <div key={r.m} onClick={onClick || undefined} style={{ cursor: onClick ? 'pointer' : 'default' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 4 }}>
               <span style={{ color: 'var(--muted)', fontWeight: 600 }}>{r.meta.label}</span>
               <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{r.v}</strong>
@@ -151,7 +161,8 @@ function KpiBarWidget({ config, kpis }) {
               <div style={{ width: `${(r.v / max) * 100}%`, height: '100%', background: C(r.meta.color), borderRadius: 99 }} />
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </DashCard>
   );

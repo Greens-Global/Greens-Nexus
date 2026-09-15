@@ -99,7 +99,7 @@ function Stat({ i, label, value, sub, chip, Icon, onGo, hero }) {
 // (saving a default view used to swallow the greeting with the rest of Home;
 // Visesh, Aug 12). `summary` is an optional node after the date line - Home
 // passes its attention-count sentence, grid views just get the date.
-export function DeskGreeting({ summary = null }) {
+export function DeskGreeting({ summary = null, right = null }) {
   const { accounts } = useMsal();
   const { actingAs } = useRole();
   const now = useNow();
@@ -128,14 +128,23 @@ export function DeskGreeting({ summary = null }) {
         <div className="dk-head-sub">{dateLine}{summary && <> · {summary}</>}</div>
       </div>
       <div className="dk-head-right">
-        <button
-          className={`dk-session-chip${clockedIn ? ' dk-session-chip--on' : ''}`}
-          onClick={() => navTo('timeclock')}
-          title="Open time clock"
-        >
-          <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
-          {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : 'Clocked out · Open time clock'}
-        </button>
+        {/* View picker + Customize, moved up here from their own title band
+            (Neil, Sep 15) - repeating "Dashboard" under the tab strip plus a
+            whole separate control row was pure clutter, stealing real estate
+            the greeting/stats should get instead. Session chip sits on the
+            same row as those controls, with the local-time zones line below
+            it (Neil, Sep 15 follow-up). */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {right}
+          <button
+            className={`dk-session-chip${clockedIn ? ' dk-session-chip--on' : ''}`}
+            onClick={() => navTo('timeclock')}
+            title="Open time clock"
+          >
+            <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
+            {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : 'Clocked out · Open time clock'}
+          </button>
+        </div>
         <div className="dk-zones">
           {zones.map((z, i) => (
             <Fragment key={z.tz}>
@@ -149,7 +158,7 @@ export function DeskGreeting({ summary = null }) {
   );
 }
 
-export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
+export default function DeskHome({ kpis = {}, notifications = [], markRead, headerRight = null }) {
   const { can } = useRole();
   const now = useNow();
 
@@ -222,7 +231,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead }) {
   return (
     <div className="dk-home">
       {/* ── Greeting + session ── */}
-      <DeskGreeting summary={summary} />
+      <DeskGreeting summary={summary} right={headerRight} />
 
       {/* ── Stat cards ── */}
       <div className="dk-board">
