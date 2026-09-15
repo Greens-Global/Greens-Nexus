@@ -1982,7 +1982,7 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
             )}
             {c.email && onSendForSignature && c.stage !== 'rejected' && (
               <button className="secondary-btn" onClick={() => { onSendForSignature(c); onClose(); }}
-                title="Send an offer letter or other document to this candidate via a secure e-sign link (no login needed)"
+                title="Send an offer letter or other document to this candidate via a secure Nexus Sign link (no login needed)"
                 style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <FileText size={13} /> Send for Signature
               </button>

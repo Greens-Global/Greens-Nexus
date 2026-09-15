@@ -9,7 +9,7 @@ import { api } from '../api';
 const TYPE_META = {
   document: { label: 'Document', Icon: FileText, color: 'hsl(var(--color-blue))' },
   template: { label: 'Template', Icon: LayoutTemplate, color: 'hsl(var(--color-orange))' },
-  esign:    { label: 'E-Sign',   Icon: PenTool,        color: 'hsl(var(--color-green))' },
+  esign:    { label: 'Nexus Sign', Icon: PenTool,      color: 'hsl(var(--color-green))' },
 };
 
 export default function DocumentsSearchBar({ onOpenDocument, onOpenTemplate, onGoToEsignRequests }) {
@@ -51,7 +51,7 @@ export default function DocumentsSearchBar({ onOpenDocument, onOpenTemplate, onG
     <div ref={boxRef} style={{ position: 'relative', minWidth: 220 }}>
       <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
       <input className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }}
-        placeholder="Search documents, templates, e-sign…" value={q}
+        placeholder="Search documents, templates, signatures…" value={q}
         onChange={e => setQ(e.target.value)}
         onFocus={() => results && setOpen(true)} />
       {loading && (

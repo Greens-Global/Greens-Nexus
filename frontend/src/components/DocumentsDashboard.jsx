@@ -49,7 +49,7 @@ export default function DocumentsDashboard({ onGoToBrowse, onGoToTemplates, onGo
           <div style={iconBubble('hsla(var(--color-green),0.14)', 'hsl(var(--color-green))')}><Send size={18} /></div>
           <div>
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>Send for Signature</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Open E-Sign</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Open Nexus Sign</div>
           </div>
         </div>
       </div>

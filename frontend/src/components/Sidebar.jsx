@@ -67,7 +67,7 @@ export const NAV = [
   {
     view: "documents", code: "DOC", label: "Documents", icon: FileText, minRole: 'supervisor',
     sub: [
-      { subview: "documents-esign", label: "E-Sign", icon: PenTool },
+      { subview: "documents-esign", label: "Nexus Sign", icon: PenTool },
     ],
   },
   { divider: true },

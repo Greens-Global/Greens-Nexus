@@ -42,6 +42,33 @@ function useMyPhoto(email) {
   return photo;
 }
 
+// Where the browser opens. The review asked for the user's normal working
+// location rather than the top of the tree, and for a way to pin a different
+// one. Strongest first:
+//   1. a folder they explicitly set as their default (per browser);
+//   2. their own wired work folder, resolved server-side from their session;
+//   3. the root - the old behavior, and the answer for anyone with neither.
+// Resolution is asynchronous, so the browser is not mounted until it settles:
+// EgnyteFolderBrowser takes initialPath once, and remounting it to correct the
+// path would throw away a listing the person may already be reading.
+const DEFAULT_PATH_KEY = 'egx-default-path';
+
+function useStartPath(configured, mustConnect) {
+  const [state, setState] = useState({ ready: false, path: '' });
+  useEffect(() => {
+    if (!configured || mustConnect) return undefined;
+    let live = true;
+    let saved = '';
+    try { saved = localStorage.getItem(DEFAULT_PATH_KEY) || ''; } catch { /* private mode */ }
+    if (saved) { setState({ ready: true, path: saved }); return undefined; }
+    api.getMyEgnyteFolder()
+      .then(r => { if (live) setState({ ready: true, path: r?.folder || '' }); })
+      .catch(() => { if (live) setState({ ready: true, path: '' }); });
+    return () => { live = false; };
+  }, [configured, mustConnect]);
+  return state;
+}
+
 function initialsOf(name = '') {
   const parts = name.trim().split(/[\s.@_-]+/).filter(Boolean);
   return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '?';
@@ -155,6 +182,7 @@ export default function EgnyteApp({ activeSub, onSubChange }) {
   const canWrite = can('supervisor');
   const { loading, configured, error, oauth, recheck } = useEgnyteStatus();
 
+  const start = useStartPath(configured, !!oauth?.mustConnect);
   const tabs = TABS.filter(t => !t.minRole || can(t.minRole));
   const sub = tabs.some(t => t.key === activeSub) ? activeSub : 'browse';
 
@@ -175,7 +203,10 @@ export default function EgnyteApp({ activeSub, onSubChange }) {
           <ConnectStrip oauth={oauth} onChanged={recheck} />
           {oauth?.mustConnect
             ? null
-            : <EgnyteFolderBrowser canWrite={canWrite} showTree rootLabel="All files" />}
+            : !start.ready
+              ? <Loading label="Opening your files…" />
+              : <EgnyteFolderBrowser canWrite={canWrite} showTree rootLabel="All files"
+                  initialPath={start.path} />}
         </div>
       )}
     </div>

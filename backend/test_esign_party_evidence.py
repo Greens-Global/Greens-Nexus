@@ -197,12 +197,34 @@ class DisclosedFailureTests(unittest.TestCase):
         self.assertTrue(any(s["failed_auth_count"] for s in snap["signers"]),
                         "the demo should exercise a failed attempt")
         html = C.render_html(snap)
-        self.assertIn("failed access-code attempt", html)
+        # Wording widened when the one-time code arrived: the count covers a
+        # wrong access code AND a wrong OTP, so naming only one would be a lie
+        # about what the number means. It was also shortened - the note shares
+        # the narrowest column on a sheet that must fit four signers on one
+        # page - so this asserts the fact is disclosed, not the phrasing.
+        self.assertIn("failed attempt", html)
 
     def test_a_clean_signer_says_so_explicitly(self):
         from services import certificate as C
         html = C.render_html(C.demo_snapshot(1))
-        self.assertIn("No failed attempts", html)
+        self.assertIn("no failed attempts", html)
+
+    def test_the_one_time_code_is_named_on_the_certificate(self):
+        """Mandatory OTP is only worth anything as evidence if the certificate
+        says it happened - which channel carried the code and when it was
+        verified."""
+        from services import certificate as C
+        html = C.render_html(C.demo_snapshot(2))
+        self.assertIn("Code by email, verified", html)
+        self.assertIn("one-time code", html.lower())
+
+    def test_an_envelope_with_no_code_says_so_rather_than_implying_one(self):
+        """Envelopes completed before the requirement existed must not be
+        described as having been verified by a code."""
+        from services import certificate as C
+        snap = C.demo_snapshot(1)
+        snap["signers"][0]["otp"] = {}
+        self.assertIn("No one-time code", C.render_html(snap))
 
 
 class UnpopulatedByDesignTests(unittest.TestCase):

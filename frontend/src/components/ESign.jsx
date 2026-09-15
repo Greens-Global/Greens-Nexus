@@ -5,12 +5,13 @@ import {
   ChevronUp, ChevronDown, Eraser, Type, PenTool, Users, AlertTriangle,
   RefreshCw, Ban, Sparkles, UploadCloud, ZoomIn, ZoomOut, ArrowRight,
   CalendarDays, CheckSquare, ALargeSmall, GripVertical, Copy, Search, CopyPlus,
-  User, CircleDot,
+  User, CircleDot, Check, Paperclip,
 } from 'lucide-react';
 import { api } from '../api';
 import { PdfEditor } from './PdfEditor';
 import { docxToPdf, isDocx } from '../lib/docx2pdf';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import { formatDate } from '../lib/datetime';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
@@ -24,19 +25,36 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 const FIELD_RE = /\[\[(sign|initials|date|text|check):([a-z0-9_]+)(?::([^\]]*))?\]\]/g;
 const MERGE_RE = /\{\{([a-z0-9_]+)\}\}/g;
 
+// "Fully Executed" rather than "Completed": on a legal record the distinction
+// that matters is whether EVERY required signer has signed, and that is the
+// word the business uses for it (review section 14). An envelope with some but
+// not all signatures in is "Partially Executed" - never "Pending", which reads
+// as though nobody has done anything.
 const REQ_STATUS = {
-  pending:   { label: 'Awaiting signatures', fg: 'hsl(var(--color-orange))', bg: 'hsla(var(--color-orange),0.12)' },
-  completed: { label: 'Completed',           fg: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)' },
+  pending:   { label: 'Awaiting Signatures', fg: 'hsl(var(--color-orange))', bg: 'hsla(var(--color-orange),0.12)' },
+  partial:   { label: 'Partially Executed',  fg: 'hsl(var(--color-blue))',   bg: 'hsla(var(--color-blue),0.12)' },
+  completed: { label: 'Fully Executed',      fg: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)' },
   declined:  { label: 'Declined',            fg: 'hsl(var(--color-red))',    bg: 'hsla(var(--color-red),0.12)' },
   voided:    { label: 'Voided',              fg: 'var(--muted)',             bg: 'var(--mist)' },
   expired:   { label: 'Expired',             fg: 'var(--muted)',             bg: 'var(--mist)' },
 };
+
+// An envelope's badge key. `pending` splits in two depending on whether any
+// signature is actually in, so a half-signed document never looks untouched.
+const reqStatusKey = (r) => {
+  if ((r?.status || '') !== 'pending') return r?.status || 'pending';
+  const signers = (r?.parties || []).filter(p => ['signer', 'countersigner', 'witness']
+    .includes(p.partyRole || 'signer'));
+  return signers.some(p => p.status === 'signed') ? 'partial' : 'pending';
+};
 const PARTY_STATUS = {
-  waiting:  { label: 'Waiting',  fg: 'var(--muted)' },
-  notified: { label: 'Notified', fg: 'hsl(var(--color-blue))' },
-  viewed:   { label: 'Viewed',   fg: 'hsl(var(--color-orange))' },
-  signed:   { label: 'Signed',   fg: 'hsl(var(--color-green))' },
-  declined: { label: 'Declined', fg: 'hsl(var(--color-red))' },
+  waiting:      { label: 'Waiting',      fg: 'var(--muted)' },
+  notified:     { label: 'Notified',     fg: 'hsl(var(--color-blue))' },
+  viewed:       { label: 'Viewed',       fg: 'hsl(var(--color-orange))' },
+  signed:       { label: 'Signed',       fg: 'hsl(var(--color-green))' },
+  approved:     { label: 'Approved',     fg: 'hsl(var(--color-green))' },
+  acknowledged: { label: 'Acknowledged', fg: 'hsl(var(--color-green))' },
+  declined:     { label: 'Declined',     fg: 'hsl(var(--color-red))' },
 };
 const KIND_LABEL = {
   offer: 'Offer Letter', nda: 'NDA', direct_deposit: 'Direct Deposit',
@@ -68,13 +86,28 @@ const FIELD_META = {
   check:    { label: 'Checkbox',    Icon: CheckSquare,  w: 0.03, h: 0.022 },
   dropdown: { label: 'Dropdown',    Icon: ChevronDown,  w: 0.16, h: 0.032, opts: true },
   radio:    { label: 'Radio',       Icon: CircleDot,    w: 0.16, h: 0.09,  opts: true },
+  // The signer attaches a file here - a certificate of insurance, a voided
+  // check, a scanned license. The file is stored against the envelope and
+  // hashed onto the certificate; the page itself records the filename.
+  upload:   { label: 'File upload',  Icon: Paperclip,    w: 0.22, h: 0.04, labeled: true },
 };
+
+// Mirrors services/sign_uploads.ALLOWED - the server is the authority and
+// rejects anything else, but the file picker should not offer what will bounce.
+const UPLOAD_ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,.tif,.tiff';
+
+// The signature canvas's LOGICAL size - what gets exported as the PNG and
+// stamped into the document, independent of how wide the modal renders. Both
+// axes scale together: growing only the width would stretch every new
+// signature against the field box it lands in.
+const SIG_W = 660;
+const SIG_H = 216;
 
 const SIG_FONTS = ['"Segoe Script"', '"Brush Script MT"', '"Lucida Handwriting"'];
 
 const FL = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.05em', textTransform: 'uppercase' };
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
-const cardStyle = (maxWidth) => ({ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth, maxHeight: 'min(94dvh, 880px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' });
+const cardStyle = (maxWidth, maxHeight = 'min(94dvh, 880px)') => ({ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth, maxHeight, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' });
 
 // Name box that auto-fills the email: type a teammate's name, matching people
 // drop down beneath, picking one populates name + email. Free text stays as a
@@ -172,7 +205,7 @@ function FieldOptionsModal({ field, onSave, onClose }) {
   const guard = useUnsavedGuard(dirty, onClose, clean.length >= 2 ? () => { onSave(clean); onClose(); } : undefined);
   return (
     <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={cardStyle(400)}>
+      <div style={cardStyle(520)}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>{FIELD_META[field.type]?.label} options</h3>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
@@ -202,6 +235,51 @@ function FieldOptionsModal({ field, onSave, onClose }) {
           onDiscard={onClose}
           onSave={clean.length >= 2 ? guard.saveAndClose : undefined}
         />
+      )}
+    </div>
+  );
+}
+// Label editor for upload fields (shared by both field placers). An upload box
+// is the one field whose label the signer MUST read - "Field 3" tells nobody
+// which certificate to attach - so it is editable at placement rather than
+// defaulting to the type name forever.
+function FieldLabelModal({ field, onSave, onClose }) {
+  const initial = field.label || '';
+  const [label, setLabel] = useState(initial);
+  const [required, setRequired] = useState(field.required !== false);
+  const dirty = label !== initial || required !== (field.required !== false);
+  const save = () => { onSave({ label: label.trim(), required }); onClose(); };
+  const guard = useUnsavedGuard(dirty, onClose, save);
+  return (
+    <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
+      <div style={cardStyle(480)}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Attachment Field</h3>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: '16px 20px' }}>
+          <label style={FL}>What should the signer attach?</label>
+          <input className="form-input" autoFocus value={label} style={{ width: '100%' }}
+            placeholder="Certificate of insurance" onChange={e => setLabel(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') save(); }} />
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 14px' }}>
+            Shown on the box the signer clicks, and named on the signing certificate.
+          </p>
+          <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: 'pointer' }}>
+            <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)}
+              style={{ width: 15, height: 15, marginTop: 1, accentColor: 'var(--pine)' }} />
+            <span style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+              Required - the signer cannot finish without attaching a file.
+            </span>
+          </label>
+        </div>
+        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" onClick={save}>Save</button>
+        </div>
+      </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} />
       )}
     </div>
   );
@@ -245,7 +323,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
     const c = canvasRef.current;
     if (!c) return;
     const scale = window.devicePixelRatio || 1;
-    c.width = 520 * scale; c.height = 170 * scale;
+    c.width = SIG_W * scale; c.height = SIG_H * scale;
     c.getContext('2d').scale(scale, scale);
     redraw();
   }, [tab]);
@@ -253,7 +331,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
   function redraw() {
     const c = canvasRef.current; if (!c) return;
     const ctx = c.getContext('2d');
-    ctx.clearRect(0, 0, 520, 170);
+    ctx.clearRect(0, 0, SIG_W, SIG_H);
     ctx.strokeStyle = '#111827'; ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (const s of strokes.current) {
       ctx.beginPath();
@@ -264,7 +342,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
   }
   const pos = (e) => {
     const r = canvasRef.current.getBoundingClientRect();
-    return { x: (e.clientX - r.left) * (520 / r.width), y: (e.clientY - r.top) * (170 / r.height) };
+    return { x: (e.clientX - r.left) * (SIG_W / r.width), y: (e.clientY - r.top) * (SIG_H / r.height) };
   };
   const down = (e) => { drawing.current = true; strokes.current.push([pos(e)]); e.target.setPointerCapture?.(e.pointerId); };
   const move = (e) => { if (!drawing.current) return; strokes.current[strokes.current.length - 1].push(pos(e)); redraw(); };
@@ -280,7 +358,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
       // shows exactly what the signer adopted (not a generic oblique).
       const c = document.createElement('canvas');
       const scale = 2;
-      c.width = 520 * scale; c.height = 140 * scale;
+      c.width = SIG_W * scale; c.height = Math.round(SIG_H * 0.82) * scale;
       const ctx = c.getContext('2d');
       ctx.scale(scale, scale);
       ctx.fillStyle = '#111827';
@@ -306,7 +384,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
 
   return (
     <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={cardStyle(600)}>
+      <div style={cardStyle(760)}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <PenTool size={17} style={{ color: 'var(--pine)' }} />
           <div style={{ flex: 1 }}>
@@ -321,7 +399,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
             <>
               <div style={{ position: 'relative' }}>
                 <canvas ref={canvasRef} onPointerDown={down} onPointerMove={move} onPointerUp={up}
-                  style={{ width: '100%', height: 170, border: '1.5px dashed var(--line)', borderRadius: 12, touchAction: 'none', cursor: 'crosshair', background: '#fff' }} />
+                  style={{ width: '100%', height: SIG_H, border: '1.5px dashed var(--line)', borderRadius: 12, touchAction: 'none', cursor: 'crosshair', background: '#fff' }} />
                 {!hasInk && <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 13, pointerEvents: 'none' }}>Draw your signature with your mouse or finger</span>}
                 <span style={{ position: 'absolute', left: 20, bottom: 26, right: 20, borderBottom: '1px solid #d1d5db', pointerEvents: 'none' }} />
               </div>
@@ -471,19 +549,21 @@ function ConsentDisclosures({ payload }) {
   );
 }
 
-// ── Standalone consent gate (Cal. Civ. Code 1633.5(b)) ───────────────────────
-// California will not treat an agreement to conduct business electronically as
-// given if it is bundled into the transaction itself - a checkbox sitting next
-// to the contract is exactly the bundling the statute is about. So for CA
-// envelopes the disclosure is its OWN screen, shown BEFORE the document
-// renders, and declining is offered as plainly as accepting: the deal must not
-// be conditioned on consenting.
+// ── Step 1 of signing: consent, on its own screen, before the document ──────
+// Cal. Civ. Code 1633.5(b) is where this started - California will not treat an
+// agreement to conduct business electronically as given if it is bundled into
+// the transaction itself, and a checkbox beside the contract is exactly that
+// bundling. The Nexus Sign review asked for the same ordering everywhere, so
+// this is now the first screen of EVERY envelope, not just Californian ones.
+// Declining is offered as plainly as accepting: the deal must not be
+// conditioned on consenting.
 //
-// It also carries the 7001(c)(1)(C)(ii) demonstration. The signer opens the
-// document in this session before consenting, and what actually rendered is
-// what gets recorded - `format_demonstrated` is reported by the viewer, never
-// assumed.
-function ConsentGate({ payload, onAccept, onDecline }) {
+// The server withholds the document until this posts, so the gate is not a
+// convention the client could skip - there is simply nothing to render yet.
+// That is also why the 7001(c)(1)(C)(ii) demonstration cannot be captured here:
+// the format the signer can open is reported later, by the viewer that
+// actually rendered it (see format_demonstrated in the sign call).
+function ConsentGate({ payload, busy, onAccept, onDecline }) {
   const [read, setRead] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const items = payload.disclosures || [];
@@ -504,11 +584,13 @@ function ConsentGate({ payload, onAccept, onDecline }) {
     <div style={{ maxWidth: 680, margin: '0 auto', padding: '18px 4px' }}>
       <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
-          <h2 style={{ fontSize: 16, fontWeight: 800, margin: '0 0 4px' }}>Before You Sign</h2>
+          <StepRail current={1} />
+          <h2 style={{ fontSize: 17, fontWeight: 800, margin: '10px 0 4px' }}>Before You Sign</h2>
           <p style={{ fontSize: 12.5, color: 'var(--muted, #6b7280)', margin: 0, lineHeight: 1.55 }}>
-            California law asks you to agree separately to doing this electronically. Please read
-            the disclosure below. Agreeing is your choice - if you would rather sign on paper, say
-            so and we will arrange it. The agreement itself is not affected either way.
+            Signing electronically is something you agree to separately from the agreement
+            itself.{' '}
+            Please read the disclosure below. Agreeing is your choice - if you would rather sign on
+            paper, say so and we will arrange it. The agreement itself is not affected either way.
           </p>
         </div>
 
@@ -544,13 +626,16 @@ function ConsentGate({ payload, onAccept, onDecline }) {
               Scroll to the end of the disclosure to continue.
             </div>
           )}
-          <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-            <button className="primary-btn" disabled={!agreed} onClick={onAccept}
-              style={{ opacity: agreed ? 1 : 0.5, fontSize: 13 }}>
-              Agree and Continue
+          {/* Electronic signing is the primary path; paper stays available but
+              must not compete with it visually (review section 12). */}
+          <div style={{ display: 'flex', gap: 14, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button className="primary-btn" disabled={!agreed || busy} onClick={onAccept}
+              style={{ opacity: agreed && !busy ? 1 : 0.5, fontSize: 13.5, padding: '11px 26px', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+              Sign Electronically
             </button>
             <button onClick={onDecline}
-              style={{ background: 'none', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              style={{ background: 'none', border: 'none', padding: 0, color: 'var(--muted, #6b7280)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif', textDecoration: 'underline' }}>
               I would rather sign on paper
             </button>
           </div>
@@ -563,15 +648,242 @@ function ConsentGate({ payload, onAccept, onDecline }) {
   );
 }
 
-export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
+// ── Where the signer is, in three steps ─────────────────────────────────────
+// Shown on the gates, not on the document: once someone is filling fields the
+// progress that matters is how many fields are left, and two competing
+// progress indicators is one too many.
+const STEPS = ['Consent', 'Verify', 'Review & Sign'];
+
+function StepRail({ current }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      {STEPS.map((label, i) => {
+        const n = i + 1;
+        const done = n < current, active = n === current;
+        return (
+          <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: active ? 800 : 600,
+              color: active ? 'var(--ink, #111827)' : 'var(--muted, #6b7280)' }}>
+              <span style={{ width: 18, height: 18, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 800, background: done ? 'hsl(142,60%,35%)' : active ? '#14532d' : 'var(--line, #e5e7eb)',
+                color: done || active ? '#fff' : 'var(--muted, #6b7280)' }}>
+                {done ? <Check size={11} /> : n}
+              </span>
+              {label}
+            </span>
+            {n < STEPS.length && <span style={{ width: 18, height: 1, background: 'var(--line, #e5e7eb)' }} />}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Step 2 of signing: the one-time code ────────────────────────────────────
+// Mandatory for every signature (review section 5). The link arrives by email,
+// so an emailed code is a weaker second factor than a texted one - which is
+// exactly why the sender can put a phone number on a recipient and why the
+// channel actually used is named on the certificate rather than glossed.
+function OtpGate({ payload, busy, onRequest, onVerify, error }) {
+  const channels = payload.otpChannels || [];
+  const [channel, setChannel] = useState(channels[0]?.channel || 'email');
+  const [sent, setSent] = useState(null);      // { channel, masked } once a code is out
+  const [code, setCode] = useState('');
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  const send = async (ch) => {
+    const got = await onRequest(ch);
+    if (got) { setSent(got); setCooldown(30); setCode(''); }
+  };
+
+  const chLabel = (c) => (c === 'sms' ? 'Text message' : 'Email');
+
+  return (
+    <div style={{ maxWidth: 520, margin: '0 auto', padding: '18px 4px' }}>
+      <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 14, overflow: 'hidden' }}>
+        <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line, #e5e7eb)' }}>
+          <StepRail current={2} />
+          <h2 style={{ fontSize: 17, fontWeight: 800, margin: '10px 0 4px' }}>Verify It's You</h2>
+          <p style={{ fontSize: 12.5, color: 'var(--muted, #6b7280)', margin: 0, lineHeight: 1.55 }}>
+            We send a single-use code before showing you the document. This is recorded on the
+            signing certificate as part of how your signature was verified.
+          </p>
+        </div>
+        <div style={{ padding: '18px 22px' }}>
+          {!sent ? (
+            <>
+              {channels.length > 1 && (
+                <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+                  {channels.map(c => (
+                    <label key={c.channel} style={{ display: 'flex', alignItems: 'center', gap: 9, flex: '1 1 190px', cursor: 'pointer',
+                      border: `1.5px solid ${channel === c.channel ? 'var(--pine, #166534)' : 'var(--line, #e5e7eb)'}`,
+                      background: channel === c.channel ? 'rgba(22,101,52,0.06)' : 'transparent',
+                      borderRadius: 10, padding: '11px 13px' }}>
+                      <input type="radio" name="otp-channel" checked={channel === c.channel}
+                        onChange={() => setChannel(c.channel)}
+                        style={{ width: 15, height: 15, accentColor: 'var(--pine, #166534)' }} />
+                      <span>
+                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700 }}>{chLabel(c.channel)}</span>
+                        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted, #6b7280)' }}>{c.masked}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {channels.length === 1 && (
+                <p style={{ fontSize: 13, margin: '0 0 16px' }}>
+                  We'll send your code to <b>{channels[0].masked}</b>.
+                </p>
+              )}
+              <button className="primary-btn" disabled={busy} onClick={() => send(channel)}
+                style={{ fontSize: 13.5, padding: '11px 26px', display: 'inline-flex', alignItems: 'center', gap: 7, opacity: busy ? 0.6 : 1 }}>
+                {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />}
+                Send Code
+              </button>
+            </>
+          ) : (
+            <form onSubmit={e => { e.preventDefault(); if (code.trim().length === 6) onVerify(code.trim()); }}>
+              <p style={{ fontSize: 13, margin: '0 0 14px', lineHeight: 1.6 }}>
+                We sent a 6-digit code to <b>{sent.masked}</b>. It expires in 10 minutes.
+              </p>
+              <input autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6}
+                value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="000000"
+                style={{ width: 200, textAlign: 'center', fontSize: 26, fontWeight: 700, letterSpacing: 10,
+                  padding: '12px 10px', borderRadius: 10, border: '1.5px solid var(--line, #d1d5db)',
+                  fontFamily: 'Inter,sans-serif', background: 'var(--card, #fff)', color: 'var(--ink, #111827)' }} />
+              {error && (
+                <p style={{ fontSize: 12.5, color: 'hsl(350,65%,48%)', margin: '10px 0 0', fontWeight: 600 }}>{error}</p>
+              )}
+              <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginTop: 16, flexWrap: 'wrap' }}>
+                <button type="submit" className="primary-btn" disabled={code.length !== 6 || busy}
+                  style={{ fontSize: 13.5, padding: '11px 26px', opacity: code.length === 6 && !busy ? 1 : 0.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                  {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <ShieldCheck size={14} />}
+                  Verify &amp; Continue
+                </button>
+                <button type="button" disabled={cooldown > 0 || busy} onClick={() => send(sent.channel)}
+                  style={{ background: 'none', border: 'none', padding: 0, fontSize: 12.5, fontWeight: 600,
+                    color: 'var(--muted, #6b7280)', cursor: cooldown > 0 ? 'default' : 'pointer',
+                    fontFamily: 'Inter,sans-serif', textDecoration: cooldown > 0 ? 'none' : 'underline' }}>
+                  {cooldown > 0 ? `Resend in ${cooldown}s` : 'Send a new code'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── The two gates, driven by what the server says is outstanding ────────────
+// `payload.gate` is authoritative: the document URLs are simply absent until it
+// is empty, so this component cannot be bypassed by a client that ignores it.
+export function SigningGate({ payload, gateApi, onCleared, onDecline }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const run = async (fn) => {
+    setBusy(true); setError('');
+    try { return await fn(); }
+    catch (e) { setError(e.message || 'Something went wrong'); return null; }
+    finally { setBusy(false); }
+  };
+
+  if (payload.gate === 'otp') {
+    return (
+      <OtpGate payload={payload} busy={busy} error={error}
+        onRequest={(channel) => run(() => gateApi.otpRequest(channel))}
+        onVerify={(code) => run(async () => { await gateApi.otpVerify(code); onCleared(); })} />
+    );
+  }
+  return (
+    <>
+      {error && (
+        <div style={{ maxWidth: 680, margin: '0 auto 12px', padding: '10px 14px', borderRadius: 10,
+          background: 'hsla(350,65%,48%,0.08)', color: 'hsl(350,65%,48%)', fontSize: 12.5, fontWeight: 600 }}>
+          {error}
+        </div>
+      )}
+      <ConsentGate payload={payload} busy={busy} onDecline={onDecline}
+        onAccept={() => run(async () => { await gateApi.consent(); onCleared(); })} />
+    </>
+  );
+}
+
+
+// ── Upload field ────────────────────────────────────────────────────────────
+// A signer attaching evidence - an insurance certificate, a voided check - at
+// a field the sender placed. Three ways in, because this is the one field an
+// external signer is most likely to be filling on a phone: the picker, a drop,
+// and Ctrl+V (the house rule for every image-upload widget in Nexus - see
+// imageFromPaste in InventoryManagement.jsx). Paste is bound while the field
+// has focus, so two upload fields on one page cannot both claim the clipboard.
+function UploadField({ field, style, innerRef, record, busy, disabled, error,
+                      accept, hint, onFile }) {
+  const inputRef = useRef(null);
+  const [over, setOver] = useState(false);
+  const boxRef = useRef(null);
+
+  const onPaste = (e) => {
+    const file = [...(e.clipboardData?.files || [])][0]
+      || [...(e.clipboardData?.items || [])]
+        .filter(i => i.kind === 'file').map(i => i.getAsFile())[0];
+    if (file) { e.preventDefault(); onFile(file); }
+  };
+
+  const done = !!record;
+  const border = error ? 'hsl(var(--color-red))' : done ? '#10b981' : '#fbbf24';
+  const bg = error ? 'rgba(220,38,38,0.08)'
+    : done ? 'rgba(16,185,129,0.08)' : over ? 'rgba(251,191,36,0.4)' : 'rgba(251,191,36,0.22)';
+
+  return (
+    <div ref={el => { boxRef.current = el; innerRef?.(el); }}
+      tabIndex={disabled ? -1 : 0}
+      onPaste={onPaste}
+      onDragOver={e => { e.preventDefault(); if (!disabled) setOver(true); }}
+      onDragLeave={() => setOver(false)}
+      onDrop={e => {
+        e.preventDefault(); setOver(false);
+        const file = e.dataTransfer?.files?.[0];
+        if (file && !disabled) onFile(file);
+      }}
+      onClick={() => !disabled && !busy && inputRef.current?.click()}
+      title={done ? `${record.name} - click to replace`
+        : `Attach a file${hint ? ` (${hint})` : ''}. You can also drop one here or press Ctrl+V.`}
+      style={{
+        ...style, border: `1.5px dashed ${border}`, background: bg, borderRadius: 6,
+        display: 'flex', alignItems: 'center', gap: 5, padding: '0 6px', overflow: 'hidden',
+        cursor: disabled ? 'default' : 'pointer', fontFamily: 'Inter,sans-serif',
+        fontSize: 10.5, fontWeight: 700, color: done ? '#065f46' : '#78350f',
+      }}>
+      <input ref={inputRef} type="file" accept={accept} style={{ display: 'none' }}
+        onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
+      {busy ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+        : done ? <Check size={11} style={{ flexShrink: 0 }} />
+          : <Paperclip size={11} style={{ flexShrink: 0 }} />}
+      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {busy ? 'Uploading…' : done ? record.name : (field.label || 'Attach a file')}
+      </span>
+    </div>
+  );
+}
+
+export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onCleared, uploadApi }) {
   const [sig, setSig] = useState(null);
   const [padOpen, setPadOpen] = useState(false);
-  const [consent, setConsent] = useState(false);
-  // California envelopes gate the document behind a standalone consent screen
-  // (Cal. Civ. Code 1633.5(b)); everywhere else consent rides in the action bar
-  // as before. `gatePassed` is only ever set by the gate's own button.
-  const [gatePassed, setGatePassed] = useState(false);
-  const needsGate = !!payload.standaloneConsent && payload.myTurn && !gatePassed;
+  // Consent is no longer a checkbox beside the contract - it is step 1, taken
+  // on its own screen and recorded server-side before the document is sent to
+  // this browser. By the time anything below renders, it is an accomplished
+  // fact, which is why this reads the timestamp instead of holding state.
+  const consent = !!payload.consentAt;
+  const needsGate = !!payload.gate;
   // What the signer's browser actually rendered, reported to the server as the
   // 7001(c)(1)(C)(ii) demonstration - never assumed, so a template-bodied
   // envelope reports HTML and a PDF one reports PDF.
@@ -586,6 +898,41 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
     setPagesTotal(t => (total > t ? total : t));
   }, []);
   const [values, setValues] = useState({});
+  // Upload fields, keyed by field id. Seeded from the server so a signer who
+  // comes back to the link sees what they already attached rather than an
+  // empty box they would dutifully fill again; the server row is the truth,
+  // this is just what is on screen.
+  const [uploads, setUploads] = useState(
+    () => Object.fromEntries((payload.uploads || []).map(u => [u.fieldId, u])));
+  const [uploading, setUploading] = useState('');    // field id currently in flight
+  const [uploadErr, setUploadErr] = useState(null);  // { fieldId, message }
+  useEffect(() => {
+    setUploads(Object.fromEntries((payload.uploads || []).map(u => [u.fieldId, u])));
+  }, [payload.uploads]);
+
+  const limit = payload.uploadLimit || {};
+  // One place that takes a File and puts it on a field. Everything that can
+  // produce a file - the picker, a drop, Ctrl+V - funnels through here so the
+  // size check, the busy state and the error message cannot drift apart.
+  const takeFile = async (fieldId, file) => {
+    if (!file || !uploadApi) return;
+    setUploadErr(null);
+    if (limit.maxBytes && file.size > limit.maxBytes) {
+      setUploadErr({ fieldId, message: `That file is ${(file.size / 1048576).toFixed(1)} MB. `
+        + `Please upload something under ${Math.round(limit.maxBytes / 1048576)} MB.` });
+      return;
+    }
+    setUploading(fieldId);
+    try {
+      const rec = await uploadApi(fieldId, file);
+      setUploads(u => ({ ...u, [fieldId]: rec }));
+    } catch (e) {
+      setUploadErr({ fieldId, message: e.message || 'That file could not be uploaded.' });
+    }
+    setUploading('');
+  };
+
+  const [listOpen, setListOpen] = useState(false);   // outstanding-fields popover
   const [declineOpen, setDeclineOpen] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
   // Declining is itself a consequential, one-way action - Save Changes isn't
@@ -598,47 +945,71 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
   const setVal = (k, v) => setValues(p => ({ ...p, [k]: v }));
 
   // Every actionable field of mine, in document order, with a completion check.
+  const ACTIONABLE = ['sign', 'check', 'text', 'dropdown', 'radio', 'upload'];
+  // What a field is CALLED when it is listed as outstanding. A signer chasing
+  // the last empty box on page 5 needs a name for it, not "field 7".
+  const taskName = (t) => t.label?.trim()
+    || ({ sign: 'Signature', check: 'Checkbox', text: 'Text field',
+          dropdown: 'Selection', radio: 'Selection', upload: 'File upload' }[t.type] || 'Field');
+
   const tasks = useMemo(() => {
     const out = [];
+    // The placer marks each field required or optional; that flag is carried
+    // on the envelope and is what decides whether Finish may proceed. It used
+    // to be ignored entirely - every text field was treated as optional, so a
+    // mandatory one could be left blank and the document signed anyway. Older
+    // envelopes have no flag, and default to required, which is how the placer
+    // creates them.
+    const push = (f, page) => {
+      if (!ACTIONABLE.includes(f.type)) return;
+      out.push({ id: f.id, type: f.type, label: f.label || '',
+                 required: f.required !== false, page });
+    };
     if (isTemplate) {
       (payload.body || []).forEach((para, pi) => {
         for (const m of String(para).matchAll(FIELD_RE)) {
           const [, type, , label = ''] = m;
           const role = m[2];
           if (role !== myRole) continue;
-          if (type === 'sign') out.push({ id: `sig-${pi}-${m.index}`, type: 'sign' });
-          else if (type === 'check') out.push({ id: `check:${label}`, type: 'check', label });
-          else if (type === 'text') out.push({ id: `text:${label}`, type: 'text', label });
+          // The [[token]] syntax has no way to mark a field optional, so an
+          // authored signature or checkbox is required and authored text is
+          // not - unchanged behavior, now stated rather than implied.
+          if (type === 'sign') out.push({ id: `sig-${pi}-${m.index}`, type: 'sign', required: true });
+          else if (type === 'check') out.push({ id: `check:${label}`, type: 'check', label, required: true });
+          else if (type === 'text') out.push({ id: `text:${label}`, type: 'text', label, required: false });
         }
       });
     } else {
-      (payload.fields || []).filter(f => f.role === myRole).forEach(f => {
-        if (['sign', 'check', 'text', 'dropdown', 'radio'].includes(f.type)) out.push({ id: f.id, type: f.type, label: f.label || '' });
-      });
+      (payload.fields || []).filter(f => f.role === myRole).forEach(f => push(f, f.page));
     }
     // Packet documents (template attachments) carry their own fields
-    for (const d of payload.documents || []) {
-      (d.fields || []).filter(f => f.role === myRole).forEach(f => {
-        if (['sign', 'check', 'text', 'dropdown', 'radio'].includes(f.type)) out.push({ id: f.id, type: f.type, label: f.label || '' });
-      });
-    }
+    (payload.documents || []).forEach((d, di) => {
+      (d.fields || []).filter(f => f.role === myRole)
+        .forEach(f => push(f, f.page, di));
+    });
     return out;
   }, [payload, myRole, isTemplate]);
 
-  const isDone = (t) => t.type === 'sign' ? !!sig : t.type === 'check' ? !!values[t.id] : String(values[t.id] || '').trim() !== '';
-  const required = tasks.filter(t => t.type !== 'text');
-  const doneCount = required.filter(isDone).length;
-  const allDone = doneCount === required.length;
+  const isDone = (t) => t.type === 'sign' ? !!sig
+    : t.type === 'check' ? !!values[t.id]
+      : t.type === 'upload' ? !!uploads[t.id]
+        : String(values[t.id] || '').trim() !== '';
+  const required = tasks.filter(t => t.required);
+  const outstanding = required.filter(t => !isDone(t));
+  const doneCount = required.length - outstanding.length;
+  const allDone = outstanding.length === 0;
   const canFinish = payload.myTurn && consent && allDone;
-  const nextTask = tasks.find(t => t.type !== 'text' && !isDone(t));
+  const nextTask = outstanding[0];
 
-  const jumpNext = () => {
-    const el = nextTask && fieldRefs.current[nextTask.id];
+  const jumpTo = (task) => {
+    const el = task && fieldRefs.current[task.id];
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       el.animate?.([{ transform: 'scale(1)' }, { transform: 'scale(1.07)' }, { transform: 'scale(1)' }], { duration: 380 });
+      el.focus?.({ preventScroll: true });
     }
   };
+  const jumpNext = () => jumpTo(nextTask);
 
   const sigPreview = (h = 40) => sig?.kind === 'drawn'
     ? <img src={sig.data} alt="signature" style={{ maxHeight: h, maxWidth: '100%', display: 'block' }} />
@@ -757,12 +1128,20 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
               ))}
             </div>);
         }
+        if (f.type === 'upload' && mine) {
+          return <UploadField key={f.id} field={f} style={st}
+            innerRef={el => { fieldRefs.current[f.id] = el; }}
+            record={uploads[f.id]} busy={uploading === f.id} disabled={!payload.myTurn}
+            error={uploadErr?.fieldId === f.id ? uploadErr.message : ''}
+            accept={UPLOAD_ACCEPT} hint={limit.hint}
+            onFile={file => takeFile(f.id, file)} />;
+        }
         if (f.type === 'name') {
           const nm = mine ? payload.myName : ((payload.parties || []).find(p => p.roleKey === f.role)?.name || '');
           return <span key={f.id} style={{ ...st, display: 'flex', alignItems: 'center', fontSize: 10, color: 'var(--muted)', border: '1px dotted #d1d5db', borderRadius: 4, paddingLeft: 4, background: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden' }}>{nm}</span>;
         }
         if (f.type === 'date' && mine) {
-          return <span key={f.id} style={{ ...st, display: 'flex', alignItems: 'center', fontSize: 10, color: 'var(--muted)', border: '1px dotted #d1d5db', borderRadius: 4, paddingLeft: 4, background: 'rgba(255,255,255,0.6)' }}>{sig ? new Date().toISOString().slice(0, 10) : 'date signed'}</span>;
+          return <span key={f.id} style={{ ...st, display: 'flex', alignItems: 'center', fontSize: 10, color: 'var(--muted)', border: '1px dotted #d1d5db', borderRadius: 4, paddingLeft: 4, background: 'rgba(255,255,255,0.6)' }}>{sig ? formatDate(new Date()) : 'date signed'}</span>;
         }
         if (f.type === 'initials' && mine) {
           return <span key={f.id} style={{ ...st, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '"Segoe Script",cursive', fontSize: 12, border: '1px dotted #d1d5db', borderRadius: 4, background: 'rgba(255,255,255,0.6)' }}>{initialsOf(payload.myName)}</span>;
@@ -772,10 +1151,48 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
     </>
   );
 
+  // Hoisted out of the return so the consent/OTP gates can render it too: a
+  // signer who would rather use paper says so on the FIRST screen, long before
+  // the document exists to decline from.
+  const declineModal = (
+    <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && declineGuard.requestClose()}>
+      <div style={cardStyle(560)}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)' }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Sign on Paper Instead</h3>
+        </div>
+        <div style={{ padding: '18px 24px' }}>
+          <p style={{ fontSize: 13, lineHeight: 1.6, margin: '0 0 14px', color: 'var(--muted)' }}>
+            Tell the sender you would rather sign on paper and they will arrange it - download a
+            copy above, print and sign it, then return the scan to them directly. Nothing is
+            signed electronically.
+          </p>
+          <label style={FL}>Reason (shared with the sender)</label>
+          <textarea className="form-input" rows={3} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
+            value={declineReason} onChange={e => setDeclineReason(e.target.value)} autoFocus />
+        </div>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={() => setDeclineOpen(false)}>Back</button>
+          <button className="primary-btn" disabled={busy} onClick={() => onDecline(declineReason)}
+            style={{ background: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <XCircle size={14} /> Decline to Sign Electronically
+          </button>
+        </div>
+      </div>
+      {declineGuard.confirming && (
+        <UnsavedChangesPrompt
+          onKeepEditing={declineGuard.keepEditing}
+          onDiscard={() => { setDeclineReason(''); setDeclineOpen(false); }}
+        />
+      )}
+    </div>
+  );
+
   if (needsGate) return (
-    <ConsentGate payload={payload}
-      onAccept={() => { setGatePassed(true); setConsent(true); }}
-      onDecline={() => setDeclineOpen(true)} />
+    <>
+      <SigningGate payload={payload} gateApi={gateApi} onCleared={onCleared}
+        onDecline={() => setDeclineOpen(true)} />
+      {declineOpen && declineModal}
+    </>
   );
 
   return (
@@ -783,22 +1200,57 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
       {/* Sticky action bar - consent + progress + Finish, DocuSign style */}
       {payload.myTurn && (
         <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', flex: 1, minWidth: 240 }}>
-            <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} style={{ width: 16, height: 16, flexShrink: 0, accentColor: 'var(--pine)' }} />
-            <span>I agree to use electronic records &amp; signatures, and I have read the disclosures.</span>
-          </label>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, flex: 1, minWidth: 240, color: 'var(--muted)' }}>
+            <ShieldCheck size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
+            <span>Consent recorded and identity verified. Complete the highlighted fields, then Finish.</span>
+          </span>
           <ConsentDisclosures payload={payload} />
-          {gatePassed && (
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-              Consent recorded on the previous screen.
-            </span>
-          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 90, height: 5, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
-                <span style={{ display: 'block', height: '100%', width: `${required.length ? (doneCount / required.length) * 100 : 100}%`, background: allDone ? 'hsl(var(--color-green))' : '#fbbf24', transition: 'width .3s' }} />
-              </span>
-              {doneCount}/{required.length}
+            {/* The counter is the way IN to the list of what is left. A bare
+                "3/8" tells a signer they are not finished but not what is
+                missing - on a six-page packet that is the difference between
+                finishing and giving up (review section 7). */}
+            <div style={{ position: 'relative' }}>
+              <button type="button" onClick={() => setListOpen(o => !o)}
+                aria-expanded={listOpen}
+                title={allDone ? 'All required fields complete' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
+                style={{ background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                  fontSize: 11.5, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)',
+                  display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 90, height: 5, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
+                  <span style={{ display: 'block', height: '100%', width: `${required.length ? (doneCount / required.length) * 100 : 100}%`, background: allDone ? 'hsl(var(--color-green))' : '#fbbf24', transition: 'width .3s' }} />
+                </span>
+                {doneCount}/{required.length}
+                {allDone ? <CheckCircle size={12} /> : <ChevronDown size={12} style={{ transform: listOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
+              </button>
+              {listOpen && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 30, minWidth: 250, maxWidth: 320,
+                  maxHeight: 280, overflowY: 'auto', background: 'var(--card)', border: '1px solid var(--line)',
+                  borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 8px 28px rgba(0,0,0,0.18))', padding: '8px 0' }}>
+                  <div style={{ padding: '4px 14px 8px', fontSize: 11, fontWeight: 700, letterSpacing: '.05em',
+                    textTransform: 'uppercase', color: 'var(--muted)', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
+                    {allDone ? 'Nothing left to fill' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
+                  </div>
+                  {allDone ? (
+                    <div style={{ padding: '10px 14px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                      Every required field is complete. Select Finish to submit your signature.
+                    </div>
+                  ) : outstanding.map(t => (
+                    <button key={t.id} type="button"
+                      onClick={() => { setListOpen(false); jumpTo(t); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
+                        background: 'none', border: 'none', padding: '8px 14px', cursor: 'pointer',
+                        fontFamily: 'Inter,sans-serif', fontSize: 12.5, color: 'var(--ink)' }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fbbf24', flexShrink: 0 }} />
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taskName(t)}</span>
+                      {Number.isInteger(t.page) && (
+                        <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>p. {t.page + 1}</span>
+                      )}
+                      <ArrowRight size={12} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             {/* UETA section 8: the signer must be able to keep a copy of what
                 they are being asked to sign, while they are deciding - not
@@ -828,13 +1280,33 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
       {payload.message && (
         <div style={{ fontSize: 13, color: 'var(--muted)', fontStyle: 'italic', marginBottom: 14 }}>“{payload.message}”</div>
       )}
+      {/* An upload field is a small box on a page; a rejected file needs to say
+          why somewhere the signer will actually read it. */}
+      {uploadErr && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '11px 15px', borderRadius: 10,
+          background: 'hsla(var(--color-red),0.08)', color: 'hsl(var(--color-red))', fontSize: 13, marginBottom: 14 }}>
+          <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>{uploadErr.message}</span>
+        </div>
+      )}
+      {tasks.some(t => t.type === 'upload') && payload.myTurn && (
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Paperclip size={12} />
+          Click an attachment box to choose a file - or drop one on it, or press Ctrl+V to paste
+          {payload.uploadLimit?.hint ? ` (${payload.uploadLimit.hint})` : ''}.
+        </div>
+      )}
 
       <div style={{ position: 'relative' }}>
         {/* Floating START / NEXT guide tab */}
         {payload.myTurn && nextTask && (
           <button onClick={jumpNext}
             style={{ position: 'sticky', top: 76, zIndex: 15, float: 'left', marginLeft: -14, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 12, padding: '8px 14px 8px 10px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', borderRadius: '0 8px 8px 0', boxShadow: '0 2px 8px rgba(245,158,11,0.5)' }}>
-            {doneCount === 0 ? 'START' : 'NEXT'} <ArrowRight size={13} />
+            {doneCount === 0 ? 'START' : 'NEXT'}
+            <span style={{ fontWeight: 600, opacity: .85, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {taskName(nextTask)}
+            </span>
+            <ArrowRight size={13} />
           </button>
         )}
         <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: isTemplate ? '30px 38px' : '24px 12px', background: isTemplate ? '#fff' : 'var(--mist)', color: '#111827' }}>
@@ -871,33 +1343,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
       {padOpen && <SignaturePad name={payload.myName} onClose={() => setPadOpen(false)}
         onAdopt={(s) => { setSig(s); setPadOpen(false); }} />}
 
-      {declineOpen && (
-        <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && declineGuard.requestClose()}>
-          <div style={cardStyle(440)}>
-            <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)' }}>
-              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Decline to Sign</h3>
-            </div>
-            <div style={{ padding: '16px 22px' }}>
-              <label style={FL}>Reason (shared with the sender)</label>
-              <textarea className="form-input" rows={3} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
-                value={declineReason} onChange={e => setDeclineReason(e.target.value)} autoFocus />
-            </div>
-            <div style={{ padding: '14px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="secondary-btn" onClick={() => setDeclineOpen(false)}>Back</button>
-              <button className="primary-btn" disabled={busy} onClick={() => onDecline(declineReason)}
-                style={{ background: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <XCircle size={14} /> Decline
-              </button>
-            </div>
-          </div>
-          {declineGuard.confirming && (
-            <UnsavedChangesPrompt
-              onKeepEditing={declineGuard.keepEditing}
-              onDiscard={() => { setDeclineReason(''); setDeclineOpen(false); }}
-            />
-          )}
-        </div>
-      )}
+      {declineOpen && declineModal}
     </div>
   );
 }
@@ -907,10 +1353,21 @@ function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
   const [payload, setPayload] = useState(null);
   const [busy, setBusy] = useState(false);
   const [boxRef, boxH] = useFillHeight();
+  const load = useCallback(
+    () => api.mySignRender(partyId).then(setPayload),
+    [partyId]);
   useEffect(() => {
-    api.mySignRender(partyId).then(setPayload)
-      .catch(e => { toastErr(e?.message || 'Could not load the document.'); onClose(); });
+    load().catch(e => { toastErr(e?.message || 'Could not load the document.'); onClose(); });
   }, [partyId]);
+
+  // An internal signer clears the same two gates an external one does. An
+  // Entra session says who someone is; it does not say they consented to
+  // electronic records, and the review asked for a code on EVERY signature.
+  const gateApi = {
+    consent:    ()        => api.mySignConsent(partyId, { agreed: true }),
+    otpRequest: (channel) => api.mySignOtpRequest(partyId, { channel }),
+    otpVerify:  (code)    => api.mySignOtpVerify(partyId, { code }),
+  };
 
   async function submit(data) {
     setBusy(true);
@@ -925,6 +1382,12 @@ function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
     try { await api.mySignDecline(partyId, { reason }); toastOk('Declined.'); onDone(); }
     catch (e) { toastErr(e?.message || 'Could not decline.'); setBusy(false); }
   }
+  const uploadApi = (fieldId, file) => {
+    const fd = new FormData();
+    fd.append('field_id', fieldId);
+    fd.append('file', file);
+    return api.mySignUpload(partyId, fd);
+  };
 
   return (
     <div ref={boxRef} style={fillPanelStyle(boxH)}>
@@ -937,10 +1400,11 @@ function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
         </div>
       </div>
       <div style={{ overflowY: 'auto', flex: 1, padding: '20px clamp(12px, 6vw, 60px)' }}>
-        <div style={{ maxWidth: 900, margin: '0 auto' }}>
+        <div style={{ maxWidth: 1180, margin: '0 auto' }}>
           {!payload
             ? <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} /></div>
-            : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onDecline={decline} />}
+            : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onDecline={decline}
+                gateApi={gateApi} onCleared={() => load().catch(() => {})} uploadApi={uploadApi} />}
         </div>
       </div>
     </div>
@@ -1031,6 +1495,7 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
   const [activeRole, setActiveRole] = useState(0);
   const [activeType, setActiveType] = useState('sign');
   const [optsFor, setOptsFor] = useState(null);   // field id whose options are being edited
+  const [labelFor, setLabelFor] = useState(null); // upload field whose label is being edited
   const dragState = useRef(null);
 
   useEffect(() => {
@@ -1079,11 +1544,12 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
               border: `2px solid ${c.solid}`, background: c.soft, borderRadius: 5, cursor: 'grab', touchAction: 'none',
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-              <M.Icon size={10} /> {M.label}
+              <M.Icon size={10} /> {(M.labeled && f.label) || M.label}
             </span>
-            {M.opts && (
-              <button onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setOptsFor(f.id); }}
-                title={`Edit choices (${(f.options || []).length})`}
+            {(M.opts || M.labeled) && (
+              <button onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); (M.labeled ? setLabelFor : setOptsFor)(f.id); }}
+                title={M.labeled ? (f.label ? `"${f.label}" - click to edit` : 'Name this attachment')
+                  : `Edit choices (${(f.options || []).length})`}
                 style={{ position: 'absolute', top: -9, right: 12, width: 18, height: 18, borderRadius: '50%', background: '#fff', color: c.solid, border: `2px solid ${c.solid}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
                 <Pencil size={9} />
               </button>
@@ -1132,6 +1598,10 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
           activeType={activeType} setActiveType={setActiveType} placed={fields.length} />
       </div>
       </div>
+      {labelFor && fields.find(f => f.id === labelFor) && (
+        <FieldLabelModal field={fields.find(f => f.id === labelFor)} onClose={() => setLabelFor(null)}
+          onSave={(patch) => setFields(fs => fs.map(f => f.id === labelFor ? { ...f, ...patch } : f))} />
+      )}
       {optsFor && fields.find(f => f.id === optsFor) && (
         <FieldOptionsModal field={fields.find(f => f.id === optsFor)} onClose={() => setOptsFor(null)}
           onSave={(options) => setFields(fs => fs.map(f => f.id === optsFor ? { ...f, options } : f))} />
@@ -1247,7 +1717,7 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
 
   return (
     <div style={overlayStyle} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={cardStyle(820)}>
+      <div style={cardStyle(1100, 'min(94dvh, 1020px)')}>
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <FileText size={17} style={{ color: 'var(--pine)' }} />
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{template?.id ? 'Edit Template' : 'New Template'}</h3>
@@ -1461,7 +1931,10 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
   // does not allow); governing law routes the signer's consent flow.
   const [docClasses, setDocClasses] = useState([]);
   const [documentClass, setDocumentClass] = useState('');
-  const [governingLaw, setGoverningLaw] = useState('CA');
+  // Empty = not tied to one jurisdiction, and that is the default. The
+  // certificate then cites ESIGN and UETA generally, which is accurate without
+  // anyone choosing; a sender with an actual governing-law clause names it.
+  const [governingLaw, setGoverningLaw] = useState('');
   useEffect(() => { api.getEsignExcludedCategories().then(setExcludedCats).catch(() => setExcludedCats([])); }, []);
   useEffect(() => { api.getEsignDocumentClasses().then(setDocClasses).catch(() => setDocClasses([])); }, []);
   const pickedClass = docClasses.find(c => c.code === documentClass);
@@ -1487,6 +1960,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
   const [zoom, setZoom] = useState(1);
   const [pdfEditOpen, setPdfEditOpen] = useState(false);
   const [optsFor, setOptsFor] = useState(null);   // field id whose options are being edited
+  const [labelFor, setLabelFor] = useState(null); // upload field whose label is being edited
   const dragState = useRef(null);   // {fieldId, mode:'move'|'resize', rect, startX, startY, orig}
   const rkCounter = useRef(0);      // stable per-party field keys - survive removal/reorder
 
@@ -1542,7 +2016,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
       // recipient names/emails/CCs/access codes entered at the next step.
       const kept = prefill?.parties?.find(p => p.role_key === r.key);
       const existing = prev.find(p => p.role_key === r.key);
-      return { party_role: 'signer', access_code: '', name: '', email: '', kind: 'internal',
+      return { party_role: 'signer', access_code: '', phone: '', name: '', email: '', kind: 'internal',
                ...(kept || {}), ...(existing || {}), role_key: r.key, roleLabel: r.label || r.key };
     }));
   }
@@ -1559,8 +2033,8 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
     // over from a template pick or candidate prefill have no _rk - without one,
     // placeField no-ops and role_key sends as undefined. Backfill it here.
     setParties(ps => ps.length
-      ? ps.map(p => p._rk ? p : { party_role: 'signer', access_code: '', ...p, _rk: newRk() })
-      : [{ _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '' }]);
+      ? ps.map(p => p._rk ? p : { party_role: 'signer', access_code: '', phone: '', ...p, _rk: newRk() })
+      : [{ _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '', phone: '' }]);
   }
 
   // Documents module handoff (Phase 5): a Document Builder export lands here
@@ -1650,11 +2124,12 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
               border: `2px solid ${c.solid}`, background: c.soft, borderRadius: 5, cursor: 'grab', touchAction: 'none',
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-              <M.Icon size={10} /> {M.label}
+              <M.Icon size={10} /> {(M.labeled && f.label) || M.label}
             </span>
-            {M.opts && (
-              <button onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setOptsFor(f.id); }}
-                title={`Edit choices (${(f.options || []).length})`}
+            {(M.opts || M.labeled) && (
+              <button onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); (M.labeled ? setLabelFor : setOptsFor)(f.id); }}
+                title={M.labeled ? (f.label ? `"${f.label}" - click to edit` : 'Name this attachment')
+                  : `Edit choices (${(f.options || []).length})`}
                 style={{ position: 'absolute', top: -9, right: 12, width: 18, height: 18, borderRadius: '50%', background: '#fff', color: c.solid, border: `2px solid ${c.solid}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
                 <Pencil size={9} />
               </button>
@@ -1702,7 +2177,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
           message, expires_on: expiresOn, routing,
           merge: Object.fromEntries(Object.entries(merge).filter(([, v]) => String(v).trim())),
           excluded_ack: excludedAck, document_class: documentClass, governing_law: governingLaw,
-          parties: withRoles.map(p => ({ role_key: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, party_role: p.party_role || 'signer', access_code: p.access_code || '', org: p.org || '', title: p.title || '' })),
+          parties: withRoles.map(p => ({ role_key: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, party_role: p.party_role || 'signer', access_code: p.access_code || '', org: p.org || '', title: p.title || '', phone: p.phone || '' })),
         });
       } else {
         const form = new FormData();
@@ -1713,7 +2188,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
           ...(subject.candidate_id ? { candidateId: subject.candidate_id } : {}),
           entityId, message, expiresOn, fields, routing, excludedAck,
           documentClass, governingLaw,
-          parties: withRoles.map(p => ({ roleKey: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, partyRole: p.party_role || 'signer', accessCode: p.access_code || '', org: p.org || '', title: p.title || '' })),
+          parties: withRoles.map(p => ({ roleKey: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, partyRole: p.party_role || 'signer', accessCode: p.access_code || '', org: p.org || '', title: p.title || '', phone: p.phone || '' })),
         }));
         sent = await api.sendSignPdf(form);
       }
@@ -1947,6 +2422,18 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                           value={p.org || ''} onChange={e => setParty(i, 'org', e.target.value)} />
                       </div>
                     )}
+                    {!cc && (
+                      /* Every signature needs a one-time code. It goes to their
+                         email by default; a number here lets them choose a text
+                         instead, which is a genuinely separate channel from the
+                         one the signing link arrived on. Nexus never looks a
+                         number up - a guessed one would text a signing
+                         credential to a stranger. */
+                      <input className="form-input" style={{ marginTop: 8, width: '100%', fontSize: 12 }}
+                        placeholder="Mobile number (optional) - lets them get their verification code by text"
+                        value={p.phone || ''} maxLength={40}
+                        onChange={e => setParty(i, 'phone', e.target.value)} />
+                    )}
                     {p.kind === 'external' && !cc && (
                       <input className="form-input" style={{ marginTop: 8, width: '100%', fontSize: 12 }}
                         placeholder="Access code (optional) - share it with them separately; the link will ask for it"
@@ -1959,10 +2446,10 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
             })}
             <div style={{ display: 'flex', gap: 8, marginLeft: 38, flexWrap: 'wrap' }}>
               {!tpl && (
-                <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '' }])}
+                <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '', phone: '' }])}
                   style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add Signer</button>
               )}
-              <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'cc', access_code: '' }])}
+              <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'cc', access_code: '', phone: '' }])}
                 style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add CC (copy only)</button>
             </div>
             <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 14, marginLeft: 38 }}>
@@ -2034,6 +2521,11 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                             placeholder="Full name - type to search" />
                           <input className="form-input" placeholder="email@…" value={p.email}
                             onChange={e => setParty(i, 'email', e.target.value)} style={{ width: '100%', marginTop: 6, fontSize: 12 }} />
+                          {!cc && (
+                            <input className="form-input" style={{ marginTop: 6, width: '100%', fontSize: 11.5 }}
+                              placeholder="Mobile (optional) - for the code by text" value={p.phone || ''} maxLength={40}
+                              onChange={e => setParty(i, 'phone', e.target.value)} />
+                          )}
                           {p.kind === 'external' && !cc && (
                             <input className="form-input" style={{ marginTop: 6, width: '100%', fontSize: 11.5 }}
                               placeholder="Access code (optional)" value={p.access_code || ''} maxLength={40}
@@ -2044,9 +2536,9 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                     })}
                   </div>
                   <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                    <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '' }])}
+                    <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '', phone: '' }])}
                       style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={11} /> Signer</button>
-                    <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'cc', access_code: '' }])}
+                    <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'cc', access_code: '', phone: '' }])}
                       style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={11} /> CC (copy only)</button>
                   </div>
                   <div style={{ height: 1, background: 'var(--line)', margin: '14px 0 10px' }} />
@@ -2146,10 +2638,13 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                   </select>
                 </div>
                 <div>
-                  <label style={FL}>Governing law</label>
+                  <label style={FL}>Governing law (optional)</label>
                   <select className="form-input" style={{ width: '100%' }} value={governingLaw}
                     onChange={e => setGoverningLaw(e.target.value)}>
-                    {['CA', 'TX', 'NV', 'AZ', 'WA', 'OR', 'NY', 'FL'].map(x => <option key={x} value={x}>{x}</option>)}
+                    <option value="">Not specified</option>
+                    {[['CA', 'California'], ['TX', 'Texas'], ['NV', 'Nevada'], ['AZ', 'Arizona'],
+                      ['WA', 'Washington'], ['OR', 'Oregon'], ['NY', 'New York'], ['FL', 'Florida'],
+                      ['IN', 'India']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </select>
                 </div>
               </div>
@@ -2163,10 +2658,23 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                   </div>
                 </div>
               )}
+              {!governingLaw && !classBlocked && (
+                <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  Leave this unset unless the agreement names a governing law. The certificate then
+                  cites the federal ESIGN Act and UETA as enacted in the applicable jurisdiction,
+                  which holds wherever the parties are.
+                </div>
+              )}
               {governingLaw === 'CA' && !classBlocked && (
                 <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                  California: each signer gets a standalone consent screen before the document
-                  opens, and may choose paper instead (Cal. Civ. Code 1633.5(b)).
+                  California: the certificate cites Cal. Civ. Code 1633 et seq. Every signer gets a
+                  standalone consent screen before the document opens, whichever law you pick.
+                </div>
+              )}
+              {governingLaw === 'IN' && !classBlocked && (
+                <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  India: the certificate cites the Information Technology Act, 2000 instead of
+                  UETA. Check that the record is not one the Act's Schedule I excludes.
                 </div>
               )}
 
@@ -2212,6 +2720,10 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
         <PdfEditor file={file} fileName={file.name} toastErr={toastErr}
           onClose={() => setPdfEditOpen(false)}
           onSave={(edited) => { pickFile(edited); toastOk('PDF updated - place the signature fields again.'); }} />
+      )}
+      {labelFor && fields.find(f => f.id === labelFor) && (
+        <FieldLabelModal field={fields.find(f => f.id === labelFor)} onClose={() => setLabelFor(null)}
+          onSave={(patch) => setFields(fs => fs.map(f => f.id === labelFor ? { ...f, ...patch } : f))} />
       )}
       {optsFor && fields.find(f => f.id === optsFor) && (
         <FieldOptionsModal field={fields.find(f => f.id === optsFor)} onClose={() => setOptsFor(null)}
@@ -2271,10 +2783,10 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
     const { url } = await api.downloadSign(requestId); window.open(url, '_blank', 'noopener'); return {};
   }, 'Download started.');
 
-  const sm = req ? (REQ_STATUS[req.status] || REQ_STATUS.pending) : null;
+  const sm = req ? (REQ_STATUS[reqStatusKey(req)] || REQ_STATUS.pending) : null;
   return (
     <div style={overlayStyle} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={cardStyle(660)}>
+      <div style={cardStyle(900, 'min(94dvh, 1020px)')}>
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <FileSignature size={16} style={{ color: 'var(--pine)' }} />
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{req?.title || '…'}</h3>
@@ -2385,6 +2897,18 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   const loadRequests = () => api.getSignRequests().then(setRequests).catch(() => setRequests([]));
   const loadTemplates = () => api.getSignTemplates().then(setTemplates).catch(() => setTemplates([]));
   useEffect(() => { loadInbox(); loadRequests(); loadTemplates(); }, []);
+  // "Open in Nexus" in a Nexus Sign email carries ?request=<id> and must land
+  // ON that envelope, not on a list the recipient then has to search (review
+  // section 16). The param is consumed once and stripped, so a refresh or a
+  // Back doesn't keep reopening the same modal.
+  useEffect(() => {
+    const rid = new URLSearchParams(window.location.search).get('request');
+    if (!rid) return;
+    setDetailId(rid);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('request');
+    window.history.replaceState(window.history.state, '', url.pathname + url.search);
+  }, []);
   useEffect(() => { if (prefill) setSendOpen(true); }, [prefill]);
   // Switching sub-tabs refetches that list - a doc sent (or signed) after mount
   // must show up without leaving the module.
@@ -2522,7 +3046,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
               </div>
             )}
             {visibleRequests.map(r => {
-              const m = REQ_STATUS[r.status] || REQ_STATUS.pending;
+              const m = REQ_STATUS[reqStatusKey(r)] || REQ_STATUS.pending;
               const signers = (r.parties || []).filter(p => p.partyRole !== 'cc');
               const signed = signers.filter(p => p.status === 'signed').length;
               const total = signers.length;

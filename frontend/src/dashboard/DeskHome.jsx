@@ -203,7 +203,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
       key: `sig-${s.id ?? s.packet_id ?? Math.random()}`,
       pill: 'Sign', tone: 'green',
       title: s.title || s.name || s.document_title || 'Document awaiting your signature',
-      sub: 'E-sign · waiting on you',
+      sub: 'Nexus Sign · waiting on you',
       time: timeAgo(s.created_at || s.requested_at),
       go: () => navTo('myhr'),
     }));
