@@ -211,6 +211,9 @@ export default function CustomDashboard() {
           Sep 15). They now live in the greeting's header-right instead, so
           the page starts at "Good morning" and gets straight to the KPIs. */}
       {(() => {
+        // Split so the "…" menu can sit tight against the session chip
+        // (Pranshu, Sep 15) while the view picker/Customize keep their own
+        // group with normal spacing.
         const controls = (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <select value={d.activeId || ''}
@@ -244,31 +247,35 @@ export default function CustomDashboard() {
             ) : (
               <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
             )}
-            {/* The single home for view-level actions (rename, default, publish,
-                delete). Lives outside edit mode too - renaming a view shouldn't
-                require entering Customize - and stays available while editing so
-                you can fork the on-screen layout with "Save as new view". */}
-            <div style={{ position: 'relative' }}>
-              <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
-              {menu && (
-                <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 220 }}>
-                  <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
-                    <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
-                  </div>
-                  {menuSections.map((section, si) => (
-                    <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
-                      {section.map((m, i) => (
-                        <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                          <m.icon size={14} /> {m.label}
-                        </button>
-                      ))}
-                    </div>
-                  ))}
+          </div>
+        );
+        // The single home for view-level actions (rename, default, publish,
+        // delete). Lives outside edit mode too - renaming a view shouldn't
+        // require entering Customize - and stays available while editing so
+        // you can fork the on-screen layout with "Save as new view". Kept
+        // separate from `controls` so it can sit right next to the session
+        // chip instead of the view picker (Pranshu, Sep 15).
+        const viewMenu = (
+          <div style={{ position: 'relative' }}>
+            <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
+            {menu && (
+              <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 220 }}>
+                <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
                 </div>
-              )}
-            </div>
+                {menuSections.map((section, si) => (
+                  <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
+                    {section.map((m, i) => (
+                      <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <m.icon size={14} /> {m.label}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
         return d.loading ? (
@@ -278,13 +285,13 @@ export default function CustomDashboard() {
              Customize keep the widget grid untouched below. The view
              picker/Customize/... controls live in the greeting's
              header-right now, not a separate title band above it. */
-          <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} headerRight={controls} />
+          <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} headerRight={controls} headerMenu={viewMenu} />
         ) : (
           /* Saved views + Customize keep the page greeting - it belongs to the
              Dashboard, not to a layout, so picking a custom view (or saving one
              as default) can never make "Good morning" disappear. */
           <>
-            <div style={{ margin: '2px 0 18px' }}><DeskGreeting right={controls} /></div>
+            <div style={{ margin: '2px 0 18px' }}><DeskGreeting right={controls} menu={viewMenu} /></div>
             <DashboardGrid
               layout={d.layout}
               editing={d.editing}
