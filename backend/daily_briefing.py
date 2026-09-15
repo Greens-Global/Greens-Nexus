@@ -405,65 +405,96 @@ def build_sections(db: Session, email: str, since_iso: str) -> dict:
 
 
 # ── Render (email-safe: inline styles, Segoe UI stack, table layout) ──────
-
+#
+# Sep 15 redesign (Pranshu: "use full screen, make it more attractive and
+# responsive"). Two changes, kept email-client-safe:
+#   - The outer table is now fluid (width:100% up to a wider 680px cap, not a
+#     fixed 600px box) so it fills a phone screen edge-to-edge instead of
+#     leaving the old fixed-width box floating with side gutters.
+#   - A <style> block adds @media breakpoint tweaks (tighter padding, stacked
+#     stat chips, full-width buttons) for clients that honor it (Gmail app/
+#     web, Apple Mail, Outlook mobile/web). It is a pure enhancement layer -
+#     Outlook desktop's Word engine ignores @media and <style> silently, and
+#     the fluid table + inline styles underneath already look correct there
+#     without it, so nothing depends on the media query firing.
 _BADGE = {
-    "action_required": ("Action required",                    "#b8433a", "#faece9"),
-    "needs_to_know":   ("Needs to know",                       "#a8721f", "#faf1de"),
-    "completed":       ("Completed since your last briefing",  "#3c7a52", "#e9f5ec"),
+    "action_required": ("Action required",                    "#b8433a", "#faece9", "\U0001F534"),
+    "needs_to_know":   ("Needs to know",                       "#a8721f", "#faf1de", "\U0001F440"),
+    "completed":       ("Completed since your last briefing",  "#3c7a52", "#e9f5ec", "✅"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
 _SUMMARY_NOUN = {"action_required": "need your approval", "needs_to_know": "updates to check", "completed": "completed"}
 
 
 def _card_html(color: str, row: dict) -> str:
-    _, accent, tint = _BADGE[color]
-    link = (f"<div style='margin-top:6px'><a href='{escape(row['url'])}' "
-            f"style='color:{accent};font-size:12.5px;font-weight:700;text-decoration:none'>Open in Nexus &rarr;</a></div>"
+    _, accent, tint, _icon = _BADGE[color]
+    link = (f"<div style='margin-top:10px'>"
+            f"<a href='{escape(row['url'])}' class='nx-btn' "
+            f"style='display:inline-block;padding:7px 14px;border-radius:20px;background:{accent};"
+            f"color:#ffffff;font-size:12px;font-weight:700;text-decoration:none'>Open in Nexus &rarr;</a>"
+            f"</div>"
             if row.get("url") else "")
     return f"""
-        <div style="background:{tint};border:1px solid {accent}55;border-radius:8px;padding:13px 16px;margin-bottom:10px">
-          <div style="font-size:14px;font-weight:700;color:#26312a">{escape(row['title'])}</div>
-          <div style="font-size:12.5px;color:#5c6a60;margin-top:2px">{escape(row['detail'])}</div>
+        <div style="background:{tint};border-left:3px solid {accent};border-radius:10px;padding:14px 16px;margin-bottom:10px">
+          <div style="font-size:14.5px;font-weight:700;color:#26312a;line-height:1.35">{escape(row['title'])}</div>
+          <div style="font-size:12.5px;color:#5c6a60;margin-top:3px;line-height:1.45">{escape(row['detail'])}</div>
           {link}
         </div>"""
 
 
 def _section_html(color: str, rows: list) -> str:
-    label, accent, _ = _BADGE[color]
-    badge = (f"<span style='display:inline-block;padding:5px 11px;border-radius:5px;background:{accent};"
-             f"color:#ffffff;font-family:\"Courier New\",monospace;font-size:11px;letter-spacing:.09em;"
-             f"text-transform:uppercase;font-weight:700'>{escape(label)}</span>")
+    label, accent, _tint, icon = _BADGE[color]
+    badge = (f"<span style='display:inline-block;padding:6px 12px;border-radius:20px;background:{accent};"
+             f"color:#ffffff;font-family:\"Segoe UI\",Arial,sans-serif;font-size:11.5px;letter-spacing:.02em;"
+             f"font-weight:700'>{icon} {escape(label)}</span>")
     cards = "".join(_card_html(color, r) for r in rows)
     return f"""
-      <tr><td style="padding:18px 28px 4px">
-        <div style="margin-bottom:10px">{badge}</div>
+      <tr><td class="nx-pad" style="padding:20px 32px 4px">
+        <div style="margin-bottom:12px">{badge}</div>
         {cards}
       </td></tr>"""
+
+
+def _stat_chip_html(count: int, noun: str) -> str:
+    return (f"<td class='nx-chip' style='padding:0 6px 8px 0'>"
+            f"<div style='background:#f4f6f3;border-radius:20px;padding:6px 13px;font-size:12.5px;color:#3a463e;"
+            f"white-space:nowrap'><b style='color:#173328'>{count}</b> {escape(noun)}</div></td>")
 
 
 def render_email(employee_name: str, briefing_date: str, sections: dict) -> tuple:
     _d = datetime.strptime(briefing_date, "%Y-%m-%d")
     weekday_date = f"{_d.strftime('%A, %B')} {_d.day}"  # avoid %-d/%#d (platform-specific strftime flags)
-    counts = " &middot; ".join(f"{len(sections[c])} {_SUMMARY_NOUN[c]}"
-                                for c in _ORDER if sections.get(c))
+    chips = "".join(_stat_chip_html(len(sections[c]), _SUMMARY_NOUN[c]) for c in _ORDER if sections.get(c))
+    counts_row = (f"<table cellpadding='0' cellspacing='0'><tr>{chips}</tr></table>"
+                  if chips else "<div style='font-size:13px;color:#5c6a60'>Nothing new since your last briefing</div>")
     body_sections = "".join(_section_html(c, sections[c]) for c in _ORDER if sections.get(c))
     subject = f"Your Nexus Briefing - {weekday_date}"
-    html = f"""<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
-  <table align="center" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
+    html = f"""<div style="background:#eef1ee;padding:32px 14px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+  <style>
+    @media (max-width:520px) {{
+      .nx-wrap {{ border-radius:0 !important; border-left:0 !important; border-right:0 !important; }}
+      .nx-pad {{ padding-left:20px !important; padding-right:20px !important; }}
+      .nx-hero {{ padding-left:20px !important; padding-right:20px !important; }}
+      .nx-btn {{ display:block !important; text-align:center !important; }}
+      .nx-chip {{ display:block !important; padding-right:0 !important; }}
+      .nx-chip > div {{ display:inline-block; }}
+    }}
+  </style>
+  <table class="nx-wrap" align="center" width="680" cellpadding="0" cellspacing="0" style="max-width:680px;width:100%;background:#ffffff;border-radius:18px;border:1px solid #e2e5df;border-collapse:separate;overflow:hidden">
     <tr>
-      <td style="background:#173328;padding:22px 28px">
-        <div style="font-family:'Courier New',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#8fd3ac;font-weight:700">Nexus</div>
-        <div style="color:#ffffff;font-size:21px;font-weight:700;margin-top:8px">Your Daily Briefing</div>
-        <div style="color:#b7d8c6;font-size:13px;margin-top:3px">{escape(weekday_date)}</div>
+      <td class="nx-hero" style="background:#173328;background-image:linear-gradient(135deg,#173328,#1e4d38);padding:26px 32px">
+        <div style="font-family:'Segoe UI',Arial,sans-serif;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#8fd3ac;font-weight:700">&#9670; NEXUS</div>
+        <div style="color:#ffffff;font-size:23px;font-weight:700;margin-top:9px">Your Daily Briefing</div>
+        <div style="color:#b7d8c6;font-size:13.5px;margin-top:4px">{escape(weekday_date)}</div>
       </td>
     </tr>
-    <tr><td style="padding:16px 28px;border-bottom:1px solid #eef0ec;font-size:13px;color:#5c6a60">{escape(counts) or "Nothing new since your last briefing"}</td></tr>
-    <tr><td style="padding:18px 28px 0;font-size:14.5px;color:#5c6a60">Good morning{', ' + escape(employee_name) if employee_name else ''}. Here's everything since your last briefing - sign in only if you need the full detail.</td></tr>
+    <tr><td class="nx-pad" style="padding:18px 32px;border-bottom:1px solid #eef0ec">{counts_row}</td></tr>
+    <tr><td class="nx-pad" style="padding:20px 32px 0;font-size:14.5px;color:#5c6a60">Good morning{', ' + escape(employee_name) if employee_name else ''}. Here's everything since your last briefing - sign in only if you need the full detail.</td></tr>
     {body_sections}
     <tr>
-      <td style="padding:22px 28px 26px;margin-top:6px;border-top:1px solid #eef0ec">
-        <p style="font-size:11.5px;color:#95a096;margin:0 0 6px;line-height:1.5">This briefing replaces individual task/HR notification emails. Anything genuinely blocking still reaches you instantly on Teams.</p>
-        <p style="margin:0"><a href="{escape(app_url())}" style="color:#2f6b50;text-decoration:none;font-weight:700;font-size:12px">Open Nexus</a></p>
+      <td class="nx-pad" style="padding:26px 32px 30px;margin-top:6px;border-top:1px solid #eef0ec">
+        <p style="font-size:11.5px;color:#95a096;margin:0 0 14px;line-height:1.5">This briefing replaces individual task/HR notification emails. Anything genuinely blocking still reaches you instantly on Teams.</p>
+        <a href="{escape(app_url())}" class="nx-btn" style="display:inline-block;padding:11px 22px;border-radius:22px;background:#173328;color:#ffffff;text-decoration:none;font-weight:700;font-size:13px">Open Nexus &rarr;</a>
       </td>
     </tr>
   </table>
