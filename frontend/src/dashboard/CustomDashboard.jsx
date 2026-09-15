@@ -253,14 +253,12 @@ export default function CustomDashboard() {
         // delete). Lives outside edit mode too - renaming a view shouldn't
         // require entering Customize - and stays available while editing so
         // you can fork the on-screen layout with "Save as new view". Kept
-        // separate from `controls` so it can sit right next to the session
-        // chip instead of the view picker (Pranshu, Sep 15).
+        // separate from `controls` so it renders after the session chip, as
+        // its own distinct button at the row's right corner - not merged
+        // with the chip (Pranshu, Sep 15 2nd follow-up).
         const viewMenu = (
           <div style={{ position: 'relative' }}>
-            {/* Flush icon button, not its own pill - it lives inside
-                .dk-session-group now, sharing that pill's border with the
-                session chip (Pranshu, Sep 15). */}
-            <button className="dk-session-group-menu-btn" onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
+            <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
             {menu && (
               <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 220 }}>
                 <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>

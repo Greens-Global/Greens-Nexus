@@ -3364,7 +3364,11 @@ button, [role="button"], select { touch-action: manipulation; }
 [data-theme="dark"] .dk-card { background: var(--card); border-color: var(--line); box-shadow: none; }
 
 /* header row: greeting + session */
-.dk-head { display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; padding: 4px 2px 0; }
+/* z-index so the header's "…" dropdown paints over the stat cards below.
+   .dk-rise animates with fill-mode "both", so the transform persists and
+   .dk-head keeps a stacking context - which trapped the menu's own z-index
+   inside it, letting the later .dk-board siblings cover the open menu. */
+.dk-head { display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; padding: 4px 2px 0; position: relative; z-index: 5; }
 .dk-head-left { flex: 1; min-width: 240px; }
 .dk-head h1 {
   font-family: var(--wk-font);
@@ -3401,33 +3405,6 @@ button, [role="button"], select { touch-action: manipulation; }
 [data-theme="dark"] .dk-session-chip { background: var(--card); border-color: var(--line); color: var(--muted); box-shadow: none; }
 [data-theme="dark"] .dk-session-chip--on { color: #4ade80; }
 .dk-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-
-/* The "…" view menu + session chip as ONE pill (Pranshu, Sep 15) - a smaller
-   gap between two still-separate controls read as basically unchanged, so
-   this merges them into a single bordered/shadowed group with a divider
-   instead. The chip loses its own border/shadow/radius inside the group -
-   the group supplies those - so there's no double border. */
-.dk-session-group {
-  display: inline-flex; align-items: stretch;
-  border: 1px solid var(--wk-line2); border-radius: 999px;
-  background: var(--wk-card); box-shadow: var(--wk-shadow);
-  overflow: hidden;
-}
-.dk-session-group:hover { border-color: var(--wk-line); box-shadow: var(--wk-shadow-hov); }
-[data-theme="dark"] .dk-session-group { background: var(--card); border-color: var(--line); box-shadow: none; }
-.dk-session-group-menu-btn {
-  display: inline-flex; align-items: center;
-  border: none; background: transparent;
-  padding: 0 10px; color: var(--wk-dim);
-  cursor: pointer; transition: background var(--transition-fast);
-}
-.dk-session-group-menu-btn:hover { background: rgba(0,0,0,0.04); }
-[data-theme="dark"] .dk-session-group-menu-btn { color: var(--muted); }
-[data-theme="dark"] .dk-session-group-menu-btn:hover { background: rgba(255,255,255,0.06); }
-.dk-session-group-divider { width: 1px; margin: 7px 0; background: var(--wk-line2); }
-[data-theme="dark"] .dk-session-group-divider { background: var(--line); }
-.dk-session-chip--grouped { border: none; box-shadow: none; border-radius: 0; }
-.dk-session-chip--grouped:hover { transform: none; }
 .dk-dot--up { background: #00c875; }
 .dk-dot--off { background: var(--wk-faint); }
 
