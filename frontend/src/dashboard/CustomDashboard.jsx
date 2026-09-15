@@ -204,11 +204,15 @@ export default function CustomDashboard() {
           color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{toast.t}</div>
       )}
 
-      {/* Controls: view picker + Customize + the "…" view menu, in the standard
-          module header (title band + hairline, like every other module). */}
+      {/* Controls: view picker + Customize + the "…" view menu. Used to sit in
+          their own title band ("Dashboard" / "Viewing X") above the greeting -
+          repeating the tab-strip label as a big h2 plus a whole separate
+          control row wasted vertical space for no new information (Neil,
+          Sep 15). They now live in the greeting's header-right instead, so
+          the page starts at "Good morning" and gets straight to the KPIs. */}
       {(() => {
         const controls = (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <select value={d.activeId || ''}
               onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
               className="form-input" title="Switch dashboard view"
@@ -267,51 +271,32 @@ export default function CustomDashboard() {
             </div>
           </div>
         );
-        return (
-          <div className="view-header">
-            {/* Hidden on phones (dashboard-header-title, style.css): the
-                "Dashboard" tab sits directly above this in the in-page
-                .scroll-tabs strip there, so repeating the same word as a big
-                bold h2 right underneath it was pure clutter, not information -
-                it just crowded the view picker/Customize/... row into a
-                cramped wrap (Neil screenshot, Sep 5). */}
-            <div className="dashboard-header-title" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-              <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <LayoutGrid size={19} />
-              </span>
-              <div className="view-title-group">
-                <h2 style={{ margin: 0 }}>Dashboard</h2>
-                <p style={{ margin: '2px 0 0' }}>{d.activeView?.name ? `Viewing “${d.activeView.name}”` : 'Your day at a glance'}</p>
-              </div>
-            </div>
-            {controls}
-          </div>
+        return d.loading ? (
+          <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={90} /></div>
+        ) : (!d.editing && !d.activeId) ? (
+          /* The Operations Desk home - the designed default. Saved views and
+             Customize keep the widget grid untouched below. The view
+             picker/Customize/... controls live in the greeting's
+             header-right now, not a separate title band above it. */
+          <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} headerRight={controls} />
+        ) : (
+          /* Saved views + Customize keep the page greeting - it belongs to the
+             Dashboard, not to a layout, so picking a custom view (or saving one
+             as default) can never make "Good morning" disappear. */
+          <>
+            <div style={{ margin: '2px 0 18px' }}><DeskGreeting right={controls} /></div>
+            <DashboardGrid
+              layout={d.layout}
+              editing={d.editing}
+              onLayoutChange={d.setLayout}
+              renderWidget={renderWidget}
+              onRemove={d.removeWidget}
+              onConfigure={(it) => WIDGETS[it.type]?.configurable ? setConfigItem(it) : null}
+              limitsFor={(it) => WIDGETS[it.type]?.limits}
+            />
+          </>
         );
       })()}
-
-      {d.loading ? (
-        <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={90} /></div>
-      ) : (!d.editing && !d.activeId) ? (
-        /* The Operations Desk home - the designed default. Saved views and
-           Customize keep the widget grid untouched below. */
-        <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} />
-      ) : (
-        /* Saved views + Customize keep the page greeting - it belongs to the
-           Dashboard, not to a layout, so picking a custom view (or saving one
-           as default) can never make "Good morning" disappear. */
-        <>
-          <div style={{ margin: '2px 0 18px' }}><DeskGreeting /></div>
-          <DashboardGrid
-            layout={d.layout}
-            editing={d.editing}
-            onLayoutChange={d.setLayout}
-            renderWidget={renderWidget}
-            onRemove={d.removeWidget}
-            onConfigure={(it) => WIDGETS[it.type]?.configurable ? setConfigItem(it) : null}
-            limitsFor={(it) => WIDGETS[it.type]?.limits}
-          />
-        </>
-      )}
 
       {gallery && <WidgetGallery canSee={canSeeWidget} layout={d.layout} onAdd={d.addWidget} onClose={() => setGallery(false)} />}
       {configItem && <ConfigModal item={configItem} onSave={(cfg) => d.updateWidgetConfig(configItem.i, cfg)} onClose={() => setConfigItem(null)} />}

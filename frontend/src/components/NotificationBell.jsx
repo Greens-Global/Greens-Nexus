@@ -150,7 +150,7 @@ export function destinationFor(n) {
 }
 
 export default function NotificationBell({ onNavigate }) {
-  const { notifications, unreadCount, markRead, markAllRead, dismiss, addNotification, markActioned, pendingApprovalId, clearPendingApproval } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead, dismiss, addNotification, markActioned, pendingApprovalId, clearPendingApproval, openPanelSignal } = useNotifications();
   const { approveRequest, allocateItem, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
@@ -560,6 +560,13 @@ export default function NotificationBell({ onNavigate }) {
     clearPendingApproval();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingApprovalId]);
+
+  // Fired by openPanel() from outside (e.g. the dashboard's "Unread
+  // Notifications" tile) - just pop the list open, no specific item involved.
+  useEffect(() => {
+    if (openPanelSignal) setOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPanelSignal]);
 
   // Updates: everything that isn't an actionable type, scoped to me or broadcast.
   // item_returned with no recipient is manager-only - skip for employees to avoid
