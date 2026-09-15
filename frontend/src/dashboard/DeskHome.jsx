@@ -136,12 +136,15 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             it (Neil, Sep 15 follow-up). */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {right}
-          {/* "…" view menu grouped tight against the session chip, separate
-              from the view picker/Customize's own gap (Pranshu, Sep 15). */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {/* "…" view menu merged into the session chip's own pill - a plain
+              smaller gap here read as basically unchanged (Pranshu, Sep 15
+              follow-up), so this is one bordered/shadowed group with a
+              divider, not two controls sitting close together. */}
+          <div className="dk-session-group">
             {menu}
+            <span className="dk-session-group-divider" />
             <button
-              className={`dk-session-chip${clockedIn ? ' dk-session-chip--on' : ''}`}
+              className={`dk-session-chip dk-session-chip--grouped${clockedIn ? ' dk-session-chip--on' : ''}`}
               onClick={() => navTo('timeclock')}
               title="Open time clock"
             >

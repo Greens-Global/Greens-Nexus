@@ -257,7 +257,10 @@ export default function CustomDashboard() {
         // chip instead of the view picker (Pranshu, Sep 15).
         const viewMenu = (
           <div style={{ position: 'relative' }}>
-            <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
+            {/* Flush icon button, not its own pill - it lives inside
+                .dk-session-group now, sharing that pill's border with the
+                session chip (Pranshu, Sep 15). */}
+            <button className="dk-session-group-menu-btn" onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
             {menu && (
               <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 220 }}>
                 <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
