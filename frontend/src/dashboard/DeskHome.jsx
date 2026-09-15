@@ -136,22 +136,20 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             it (Neil, Sep 15 follow-up). */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {right}
-          {/* "…" view menu merged into the session chip's own pill - a plain
-              smaller gap here read as basically unchanged (Pranshu, Sep 15
-              follow-up), so this is one bordered/shadowed group with a
-              divider, not two controls sitting close together. */}
-          <div className="dk-session-group">
-            {menu}
-            <span className="dk-session-group-divider" />
-            <button
-              className={`dk-session-chip dk-session-chip--grouped${clockedIn ? ' dk-session-chip--on' : ''}`}
-              onClick={() => navTo('timeclock')}
-              title="Open time clock"
-            >
-              <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
-              {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : 'Clocked out · Open time clock'}
-            </button>
-          </div>
+          <button
+            className={`dk-session-chip${clockedIn ? ' dk-session-chip--on' : ''}`}
+            onClick={() => navTo('timeclock')}
+            title="Open time clock"
+          >
+            <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
+            {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : 'Clocked out · Open time clock'}
+          </button>
+          {/* "…" view menu: its own distinct button, at the far right corner
+              after the session chip - not merged with it (Pranshu, Sep 15
+              2nd follow-up: the pill merge read as one control when he
+              wanted two separate ones, positioned like the old title-band
+              layout where "…" was the rightmost element). */}
+          {menu}
         </div>
         <div className="dk-zones">
           {zones.map((z, i) => (
