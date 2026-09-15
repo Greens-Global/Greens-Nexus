@@ -62,6 +62,14 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def _fmt_date(iso_str: str) -> str:
+    """ISO (YYYY-MM-DD) -> MM/DD/YYYY, per the US date-format convention."""
+    try:
+        return datetime.strptime(iso_str, "%Y-%m-%d").strftime("%m/%d/%Y")
+    except (TypeError, ValueError):
+        return iso_str or ""
+
+
 # ── Settings ───────────────────────────────────────────────────────────────
 
 def get_settings(db: Session) -> dict:
@@ -199,16 +207,40 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
             "url": f"{app_url()}/tasks/mine?task={t.id}",
         })
     if my_reports:
+        # One card per employee, not one per request - a person with several
+        # pending requests (e.g. two separate vacation windows) used to get a
+        # separate card each, which made the same "Approve X's time off" line
+        # repeat and drowned out the rest of the section (Pranshu, Sep 15).
+        by_employee = {}
         for r in (db.query(models.TimeOffRequest)
                   .filter(models.TimeOffRequest.status == "pending",
                           models.TimeOffRequest.employee_email.in_(list(my_reports))).all()):
-            emp = my_reports.get((r.employee_email or "").lower())
-            name = f"{emp.first_name} {emp.last_name}".strip() if emp else r.employee_email
-            rows.append({
-                "title": f"Approve: {name}'s time off ({r.type})",
-                "detail": f"{r.start_date} - {r.end_date}",
-                "url": f"{app_url()}/timeclock",
-            })
+            by_employee.setdefault((r.employee_email or "").lower(), []).append(r)
+        for emp_email, reqs in by_employee.items():
+            emp = my_reports.get(emp_email)
+            name = f"{emp.first_name} {emp.last_name}".strip() if emp else emp_email
+            reqs.sort(key=lambda r: r.start_date)
+            if len(reqs) == 1:
+                r = reqs[0]
+                rows.append({
+                    "title": f"Approve: {name}'s time off ({r.type})",
+                    "detail": f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}",
+                    "url": f"{app_url()}/timeclock",
+                })
+            else:
+                types = {r.type for r in reqs}
+                same_type = next(iter(types)) if len(types) == 1 else None
+                detail = "; ".join(
+                    f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}" +
+                    ("" if same_type else f" ({r.type})")
+                    for r in reqs
+                )
+                label = f"({same_type})" if same_type else f"({len(reqs)} requests)"
+                rows.append({
+                    "title": f"Approve: {name}'s time off {label}",
+                    "detail": detail,
+                    "url": f"{app_url()}/timeclock",
+                })
     rows.extend(_timecard_rows(db, email))
     rows.extend(_item_action_rows(db, email, bool(my_reports)))
     return rows
