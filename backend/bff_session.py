@@ -316,7 +316,12 @@ def get_session(db, sid: str):
 # what lets the BACKEND post the BOD/EOD Teams message as the user - the
 # confidential-client refresh chain lives for ~90 days rolling, vs the ~24h cap
 # on browser-side SPA tokens that made client-side posting unreliable.
+# Chat.Create is what lets the ticket-update DM (teams_post.get_or_create_one_on_one_chat)
+# open a 1:1 chat the agent has never had with the requester; without it in the
+# scope string the minted token never carries it even once the tenant admin has
+# consented, and every queued DM records "Graph 403: Missing scope permissions".
 GRAPH_CHAT_SCOPES = ("https://graph.microsoft.com/Chat.ReadBasic "
+                     "https://graph.microsoft.com/Chat.Create "
                      "https://graph.microsoft.com/ChatMessage.Send offline_access")
 
 
