@@ -45,3 +45,12 @@ def test_explicit_flag_overrides_both_ways(monkeypatch):
     monkeypatch.setenv("WEBSITE_SITE_NAME", "greens-nexus-api-ejfxdjcbevfxb2ht")
     monkeypatch.setenv("NEXUS_ENTRA_WRITEBACK", "false")
     assert _entra_writes_enabled() is False         # prod, forced off (rollback lever)
+
+
+def test_nightly_pushback_skips_when_writes_off(monkeypatch):
+    # reminders.run_m365_pushback must bail before touching Graph or the DB.
+    import reminders
+    monkeypatch.setenv("WEBSITE_SITE_NAME", "greens-nexus-api-dev-a6fad4brawevg8de")
+    monkeypatch.setattr("routers.hr._graph_token",
+                        lambda: (_ for _ in ()).throw(AssertionError("Graph must not be called")))
+    assert reminders.run_m365_pushback() == {"pushed": 0, "failed": 0, "skipped": True}
