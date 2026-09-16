@@ -815,6 +815,7 @@ class NexusEmployee(Base):
     # display_name/first+last and phone respectively.
     signature_display_name = Column(String, default="")        # preferred name shown on signature, e.g. "Sahil" -> "Sam"
     signature_phone         = Column(String, default="")       # override for signature only (e.g. desk line instead of cell)
+    signature_template      = Column(String, default="classic") # which visual layout this employee picked (myhr.SIGNATURE_TEMPLATES)
 
 
 class HrRemovedIdentity(Base):

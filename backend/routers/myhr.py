@@ -142,44 +142,132 @@ def remove_my_photo(user: dict = Depends(get_current_user), db: Session = Depend
 # blocked by clients that don't trust images from a new sender) signature
 # built from the company's branding + this person's directory record. Name,
 # role and company e-mail always come straight from the directory - the only
-# self-service fields are a preferred display name and a phone override, so
-# the signature can't be used to impersonate a different role/title/e-mail
-# ("keeps everybody honest" - Neil). Delivery into Outlook itself is a
-# separate, not-yet-decided piece (Exchange transport rule vs. Graph roaming
-# signature) - for now this gives the employee HTML they can copy in.
+# self-service fields are a preferred display name, phone override and a
+# choice of visual template, so the signature can't be used to impersonate a
+# different role/title/e-mail ("keeps everybody honest" - Neil). Delivery
+# into Outlook itself is a separate, not-yet-decided piece (Exchange
+# transport rule vs. Outlook add-in) - for now this gives the employee HTML
+# they can copy in.
 
-def _signature_dict(e: NexusEmployee, db: Session) -> dict:
+_BRAND_GREEN = "#1f8a4d"
+
+def _signature_fields(e: NexusEmployee, db: Session) -> dict:
     company = db.query(HrEntity).filter(HrEntity.id == e.company).first() if e.company else None
-    name = (e.signature_display_name or e.display_name or f"{e.first_name} {e.last_name}").strip()
+    full_name = (e.display_name or f"{e.first_name} {e.last_name}").strip()
+    preferred = (e.signature_display_name or "").strip()
+    # Preferred name is shown ALONGSIDE the real name, never in place of it -
+    # "Pranshu Pandey (PP)", not just "PP" - so the signature still reads as
+    # who someone actually is (Pranshu, Sep 16: was fully replacing the name).
+    name = f"{full_name} ({preferred})" if preferred and preferred.lower() != full_name.lower() else full_name
     role = (e.designation or e.job_title or "").strip()
     phone = (e.signature_phone or e.phone or "").strip()
-    fields = {
+    return {
         "name": name, "role": role, "phone": phone, "email": e.work_email or "",
         "logoUrl": (company.logo_url if company else "") or "",
         "website": (company.website if company else "") or "",
         "address": (company.registered_address if company else "") or "",
         "companyPhone": (company.main_phone if company else "") or "",
+        "companyName": (company.name if company else "") or "",
     }
-    esc = {k: html_lib.escape(v) if isinstance(v, str) else v for k, v in fields.items()}
+
+
+def _render_classic(f: dict) -> str:
     rows = "".join(
         f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
-        for v in (esc["role"],
-                  f"Phone: {esc['phone']}" if esc["phone"] else "",
-                  f"Email: {esc['email']}" if esc["email"] else "",
-                  esc["website"], esc["address"])
+        for v in (f["role"], f"Phone: {f['phone']}" if f["phone"] else "",
+                  f"Email: {f['email']}" if f["email"] else "", f["website"], f["address"])
         if v
     )
     logo_cell = (f'<td style="padding-right:14px;vertical-align:top;">'
-                 f'<img src="{esc["logoUrl"]}" alt="" style="max-height:60px;max-width:160px;" /></td>'
-                 if esc["logoUrl"] else "")
-    sig_html = (
+                 f'<img src="{f["logoUrl"]}" alt="" style="max-height:60px;max-width:160px;" /></td>'
+                 if f["logoUrl"] else "")
+    return (
         '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
         f'<tr>{logo_cell}<td style="vertical-align:top;">'
-        f'<table style="border-collapse:collapse;"><tr><td style="font-weight:bold;color:#111111;padding-bottom:2px;">{esc["name"]}</td></tr>'
+        f'<table style="border-collapse:collapse;"><tr><td style="font-weight:bold;color:#111111;padding-bottom:2px;">{f["name"]}</td></tr>'
         f'{rows}</table></td></tr></table>'
     )
+
+
+def _render_modern(f: dict) -> str:
+    contact = " &nbsp;|&nbsp; ".join(v for v in (
+        f"Phone: {f['phone']}" if f["phone"] else "",
+        f"Email: {f['email']}" if f["email"] else "", f["website"],
+    ) if v)
+    logo_row = (f'<tr><td colspan="2" style="padding-top:8px;"><img src="{f["logoUrl"]}" alt="" '
+                f'style="max-height:44px;max-width:150px;" /></td></tr>' if f["logoUrl"] else "")
+    return (
+        f'<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
+        f'<tr><td style="border-left:3px solid {_BRAND_GREEN};padding-left:12px;">'
+        f'<div style="font-size:15px;font-weight:bold;color:#111111;">{f["name"]}</div>'
+        f'<div style="color:{_BRAND_GREEN};font-weight:600;margin:2px 0 6px;">{f["role"]}</div>'
+        f'<div style="color:#555555;">{contact}</div>'
+        f'</td></tr>{logo_row}</table>'
+    )
+
+
+def _render_minimal(f: dict) -> str:
+    line = " &middot; ".join(v for v in (
+        f["role"], f"Phone: {f['phone']}" if f["phone"] else "",
+        f"Email: {f['email']}" if f["email"] else "",
+    ) if v)
+    tail = f" &nbsp;&mdash;&nbsp; {line}" if line else ""
+    return (
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#333333;">'
+        f'<span style="font-weight:bold;color:#111111;">{f["name"]}</span>'
+        f'{tail}'
+        '</div>'
+    )
+
+
+def _render_bold(f: dict) -> str:
+    logo_cell = (f'<td style="padding-right:16px;"><img src="{f["logoUrl"]}" alt="" '
+                 f'style="max-height:52px;max-width:150px;" /></td>' if f["logoUrl"] else "")
+    rows = "".join(
+        f'<tr><td style="padding:1px 0;color:#444444;font-size:12.5px;">{v}</td></tr>'
+        for v in (f"Phone: {f['phone']}" if f["phone"] else "",
+                  f"Email: {f['email']}" if f["email"] else "", f["website"], f["address"])
+        if v
+    )
+    role_span = (f'<span style="color:#eafff2;font-size:12.5px;"> &nbsp;&middot;&nbsp; {f["role"]}</span>'
+                 if f["role"] else "")
+    return (
+        '<table style="font-family:Arial,Helvetica,sans-serif;border-collapse:collapse;">'
+        f'<tr><td style="background:{_BRAND_GREEN};padding:10px 14px;border-radius:4px 4px 0 0;" colspan="2">'
+        f'<span style="color:#ffffff;font-size:15px;font-weight:bold;">{f["name"]}</span>'
+        f'{role_span}'
+        '</td></tr>'
+        f'<tr><td style="border:1px solid #e2e2e2;border-top:none;padding:10px 14px;" colspan="2">'
+        f'<table style="border-collapse:collapse;"><tr>{logo_cell}<td style="vertical-align:top;">'
+        f'<table style="border-collapse:collapse;">{rows}</table></td></tr></table>'
+        '</td></tr></table>'
+    )
+
+
+# id -> (label, render fn). Order here is the gallery order shown to employees.
+SIGNATURE_TEMPLATES = {
+    "classic": ("Classic", _render_classic),
+    "modern":  ("Modern", _render_modern),
+    "minimal": ("Minimal", _render_minimal),
+    "bold":    ("Bold", _render_bold),
+}
+_DEFAULT_TEMPLATE = "classic"
+
+
+def _render_signature(e: NexusEmployee, db: Session, template: str = None) -> dict:
+    fields = _signature_fields(e, db)
+    esc = {k: html_lib.escape(v) if isinstance(v, str) else v for k, v in fields.items()}
+    tid = template or e.signature_template or _DEFAULT_TEMPLATE
+    if tid not in SIGNATURE_TEMPLATES:
+        tid = _DEFAULT_TEMPLATE
+    return {"fields": fields, "html": SIGNATURE_TEMPLATES[tid][1](esc), "template": tid}
+
+
+def _signature_dict(e: NexusEmployee, db: Session) -> dict:
+    rendered = _render_signature(e, db)
     return {
-        "fields": fields, "html": sig_html,
+        **rendered,
+        "templates": [{"id": tid, "label": label} for tid, (label, _) in SIGNATURE_TEMPLATES.items()],
         "canEditDisplayName": True, "canEditPhone": True,
         "displayNameOverride": e.signature_display_name or "",
         "phoneOverride": e.signature_phone or "",
@@ -191,9 +279,21 @@ def my_signature(user: dict = Depends(get_current_user), db: Session = Depends(g
     return _signature_dict(_me(db, user["email"]), db)
 
 
+@router.get("/signature/templates")
+def my_signature_templates(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A rendered preview of every template using the caller's own real data,
+    for the template-picker gallery (My Profile)."""
+    e = _me(db, user["email"])
+    return [
+        {"id": tid, "label": label, "html": _render_signature(e, db, template=tid)["html"]}
+        for tid, (label, _) in SIGNATURE_TEMPLATES.items()
+    ]
+
+
 class SignatureIn(BaseModel):
     display_name: Optional[str] = None   # e.g. "Sahil" -> "Sam" - name/role/e-mail otherwise always come from the directory
     phone:        Optional[str] = None   # e.g. desk line instead of cell
+    template:     Optional[str] = None   # one of SIGNATURE_TEMPLATES
 
 
 @router.put("/signature")
@@ -203,6 +303,10 @@ def save_my_signature(body: SignatureIn, user: dict = Depends(get_current_user),
         e.signature_display_name = body.display_name.strip()[:120]
     if body.phone is not None:
         e.signature_phone = body.phone.strip()[:50]
+    if body.template is not None:
+        if body.template not in SIGNATURE_TEMPLATES:
+            raise HTTPException(400, "Unknown template")
+        e.signature_template = body.template
     e.updated_at = _now()
     db.commit()
     return _signature_dict(e, db)
