@@ -4743,6 +4743,9 @@ export default function HR({ activeSub, onSubChange }) {
     // - tell the user whether M365 actually took the change.
     if (saved.entra) {
       if (saved.entra.synced) toastOk('Saved - profile synced to Microsoft 365.');
+      // Dev/localhost never write to Entra (shared tenant - only prod is the
+      // source of truth for M365), so that is a plain save, not a failure.
+      else if (saved.entra.skipped) toastOk('Saved. Microsoft 365 is only updated from production.');
       else toastErr(`Saved in Nexus, but the M365 sync failed: ${saved.entra.error || 'Graph error'}. Use "Push to M365" to retry.`);
     } else if (!isNew) {
       toastOk('Saved.');

@@ -260,6 +260,9 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     # linked Entra account automatically (best-effort: a Graph hiccup must never
     # fail the save; the response says whether Entra took the change).
     if row.m365_id and (set(fields) & ENTRA_MAPPED_FIELDS):
+        if not _entra_writes_enabled():
+            out["entra"] = {"synced": False, "skipped": True, "error": _ENTRA_WRITES_OFF_MSG}
+            return out
         try:
             token = _graph_token()
             written = _graph_writeback(token, row, db)
@@ -1004,6 +1007,32 @@ _AZ_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
 _GRAPH = "https://graph.microsoft.com/v1.0"
 
 
+def _entra_writes_enabled() -> bool:
+    """Whether this environment may WRITE to Entra (profile writeback, Push to
+    Entra, the two-way sync's push phase). Dev and prod share one tenant and one
+    Graph app, so dev's test profiles ("Tester", "Global Admin", unleveled
+    titles) were being pushed over the real directory - two two-way syncs run
+    from dev.nexus on 09/09/2026 rewrote 55 people's titles, and every profile
+    edit on dev did the same one row at a time. Only prod is the source of
+    truth for Entra: on Azure, a site name without "dev" (same substring rule
+    as app_url.py, slot-swap safe); localhost and dev never write. Pulling from
+    M365 stays allowed everywhere - it only reads and backfills.
+    NEXUS_ENTRA_WRITEBACK=true/false overrides either way (a deliberate lever,
+    never a default)."""
+    flag = os.getenv("NEXUS_ENTRA_WRITEBACK", "").strip().lower()
+    if flag in ("true", "1", "yes"):
+        return True
+    if flag in ("false", "0", "no"):
+        return False
+    site = os.getenv("WEBSITE_SITE_NAME", "").strip().lower()
+    return bool(site) and "dev" not in site
+
+
+_ENTRA_WRITES_OFF_MSG = ("Entra writes are off on this environment - only production "
+                         "pushes profiles to Microsoft 365, so test data never overwrites "
+                         "the real directory.")
+
+
 def _graph_token() -> str:
     if not all([_AZ_TENANT, _AZ_CLIENT, _AZ_SECRET]):
         raise HTTPException(503, "Provisioning not configured - set AZURE_TENANT_ID/CLIENT_ID/CLIENT_SECRET")
@@ -1317,6 +1346,8 @@ def push_to_entra(eid: str, user: dict = Depends(require_hr_write), db: Session 
     _assert_scope(emp, hr_scope(user, db))
     if not emp.m365_id:
         raise HTTPException(400, "This person has no linked M365 account to push to.")
+    if not _entra_writes_enabled():
+        raise HTTPException(403, _ENTRA_WRITES_OFF_MSG)
     # A Graph/token failure must surface as a clean error, not an unhandled 500 -
     # a raw 500 bypasses CORSMiddleware and the browser only sees "Failed to fetch".
     try:
@@ -1653,6 +1684,14 @@ def _two_way_sync_task(run_id: str, actor_email: str):
             db.commit()
             return
         run.pull_summary = json.dumps(pull)
+        if not _entra_writes_enabled():
+            # Pull done, push refused: the run still reports so the UI shows
+            # exactly why nothing reached Entra from this environment.
+            run.phase, run.total, run.done = "done", 0, 0
+            run.errors = json.dumps([{"email": "(push phase)", "error": _ENTRA_WRITES_OFF_MSG}])
+            run.finished_at = now()
+            db.commit()
+            return
         emps = [e for e in db.query(NexusEmployee).filter(NexusEmployee.m365_id != "").all()
                 if not _emp_is_non_person(e)]
         run.phase, run.total = "push", len(emps)
