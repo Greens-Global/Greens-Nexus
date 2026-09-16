@@ -11,6 +11,7 @@ import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
+import { replayPendingBods } from '../lib/bodQueue';
 import { formatTime } from '../lib/datetime';
 import { MyHROverview } from './MyHR';
 
@@ -423,15 +424,21 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // nexus:timeclock-changed locally.
   useEffect(() => {
     const stopPoll = pollWhileVisible(load, 20000);
-    const onVis = () => { if (document.visibilityState === 'visible') { load(); loadMyRequests(); } };
+    // A day message parked by bodQueue.js (the server could not be reached when
+    // it was sent) goes out the moment anything can reach the server again.
+    const replayBods = () => { replayPendingBods().catch(() => {}); };
+    const onVis = () => { if (document.visibilityState === 'visible') { load(); loadMyRequests(); replayBods(); } };
     const onChange = () => { load(); loadMyRequests(); };   // a self add/remove request just fired
+    replayBods();
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('focus', onVis);
+    window.addEventListener('online', replayBods);
     window.addEventListener('nexus:timeclock-changed', onChange);
     return () => {
       stopPoll();
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('focus', onVis);
+      window.removeEventListener('online', replayBods);
       window.removeEventListener('nexus:timeclock-changed', onChange);
     };
   }, [load]);
