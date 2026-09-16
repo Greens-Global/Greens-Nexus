@@ -183,12 +183,21 @@ def _signature_fields(e: NexusEmployee, db: Session) -> dict:
 
 
 _SCRIPT_FONT = "'Brush Script MT','Segoe Script',cursive"
-# The "sig-closing" class on the cursive line has no CSS shipped with this
-# HTML on purpose - MyProfileModal.jsx supplies a typewriter @keyframes for
-# it so the in-app preview "writes" the line live (Pranshu, Sep 16, matching
-# the WiseStamp editor). Email clients don't run CSS animations, so the
-# class is inert once copied into Outlook - the line just renders as plain
-# static text there, which is the correct/safe fallback.
+# The typewriter @keyframes travel WITH the copied HTML (Pranshu, Sep 16:
+# "still it is not live" after pasting) - a signature copied via the
+# Clipboard API carries its own <style> block into whatever it's pasted
+# into, and modern compose surfaces (Outlook Web, New Outlook/WebView2,
+# Gmail) are just Chromium pages, so the reveal genuinely plays there, not
+# only in our own preview. Classic Win32 Outlook's Word rendering engine
+# doesn't run CSS animations - there the line still renders, just as
+# static text with no animation, because the base/fallback state below is
+# NOT clipped (width kept at 100% for that reason; only the parent
+# scoping class is inert if unsupported).
+_TYPEWRITER_CSS = (
+    '<style>@keyframes sigTypewriter{from{width:0}to{width:100%}}'
+    '.sig-closing{display:inline-block;overflow:hidden;white-space:nowrap;'
+    'width:100%;animation:sigTypewriter 1.1s steps(24,end) 1}</style>'
+)
 
 
 def _social_icons(f: dict) -> str:
@@ -298,6 +307,7 @@ def _render_sincerely(f: dict) -> str:
     social_row = f'<tr><td colspan="2" style="padding-top:10px;">{social}</td></tr>' if social else ""
     role_line = _role_company_line(f)
     return (
+        _TYPEWRITER_CSS +
         '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
         f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;"><span class="sig-closing">{closing},</span></td></tr>'
         f'<tr>{photo_cell}<td style="vertical-align:top;">'
@@ -328,6 +338,7 @@ def _render_kind_regards(f: dict) -> str:
     fallback_social = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if not f["photoUrl"] and social else ""
     role_line = _role_company_line(f)
     return (
+        _TYPEWRITER_CSS +
         '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
         f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;"><span class="sig-closing">{closing},</span></td></tr>'
         f'<tr>{photo_cell}<td style="border-left:2px solid {_BRAND_GREEN};padding-left:12px;vertical-align:top;">'
