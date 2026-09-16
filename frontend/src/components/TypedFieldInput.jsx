@@ -39,6 +39,20 @@ export default function TypedFieldInput({ def, value, onChange, error }) {
     case 'time':
       return <input type="time" className="form-input" style={inputStyle} value={value ?? ''}
         onChange={(e) => onChange(e.target.value)} />;
+    // Requirement 5's email/address/person types. The right keyboard and
+    // autocomplete on a phone, and the browser's own email check as a first
+    // pass - validateFieldValue and the server both check again.
+    case 'email':
+      return <input type="email" inputMode="email" autoComplete="email" className="form-input" style={inputStyle}
+        value={value ?? ''} placeholder="name@company.com" onChange={(e) => onChange(e.target.value)} />;
+    case 'address':
+      return <textarea className="form-input" style={inputStyle} rows={2} value={value ?? ''}
+        autoComplete="street-address" maxLength={def.validation?.maxLength || undefined}
+        placeholder="Street, city, state, postal code" onChange={(e) => onChange(e.target.value)} />;
+    case 'person':
+      return <input type="text" autoComplete="name" className="form-input" style={inputStyle} value={value ?? ''}
+        maxLength={def.validation?.maxLength || undefined} placeholder="Full name"
+        onChange={(e) => onChange(e.target.value)} />;
     case 'dropdown':
       return (
         <select className="form-input" style={inputStyle} value={value ?? ''} onChange={(e) => onChange(e.target.value)}>

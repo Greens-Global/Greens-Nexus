@@ -11,7 +11,7 @@ import { uploadToSupabase } from '../lib/docBuilderUpload';
 import AsyncSection, { SkeletonBlocks } from './AsyncState';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import TypedFieldInput from './TypedFieldInput';
-import { validateFieldValue, formatFieldValue, RESERVED_TYPES } from '../lib/mergeFieldTypes';
+import { validateFieldValue, formatFieldValue, RESERVED_TYPES, isAutoToken } from '../lib/mergeFieldTypes';
 
 // ── My Documents (Phase 1 browse/organize, Phase 2 adds the editor) ─────────
 // Folder browse + search/status filter + draft/library list. "Edit" opens
@@ -58,7 +58,14 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
   useEffect(() => {
     setFillValues({}); setFillErrors({});
     if (!templateId) { setFieldDefs([]); return; }
-    api.getDocTemplate(templateId).then(t => setFieldDefs(t.fieldDefs || [])).catch(() => setFieldDefs([]));
+    // A `template.*` variable is filled by the system from the template row
+    // (its name, version, last-updated date, owning department), so the wizard
+    // must not ask a person for it - typing your own template's version number
+    // is exactly the manual work this module exists to remove, and a
+    // hand-typed one can be wrong.
+    api.getDocTemplate(templateId)
+      .then(t => setFieldDefs((t.fieldDefs || []).filter(fd => !isAutoToken(fd.token))))
+      .catch(() => setFieldDefs([]));
   }, [templateId]);
 
   const setFillValue = (token, v) => setFillValues(prev => ({ ...prev, [token]: v }));

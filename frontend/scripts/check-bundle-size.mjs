@@ -42,7 +42,22 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // (Treemap, FunnelChart) pulled recharts sub-modules that weren't in the
 // bundle before - CI measured 8876 KB (this repo's clean-install size; local
 // dev-cache builds read lower). A real, reviewed feature cost, not creep.
-const TOTAL_KB     = 8950;
+//
+// Sep 17: 8950 -> 9050. The Documents/Nexus Sign work (unit-aware Word import,
+// the variable library, {{token}} extraction) measured +35 KB on CI's clean
+// install - 8928 on dev, 8963 here. dev was already sitting 22 KB under the
+// cap, so a modest feature tipped it: the same shape as the Aug 18 and Aug 25
+// bumps. Note this change REMOVED the client-side docx2pdf converter; the 35
+// KB is what the feature costs after that saving, not before it.
+//
+// Nothing cheap is left to shrink inside this module - mammoth (vendor-docx,
+// 497 KB) looks like the obvious target now that Word -> PDF is server-side,
+// but SOP.jsx and docBuilderImport.js both still import it, and both already
+// do so dynamically. The standing advice holds and is now the ONLY lever
+// left: the Tasks chunk (295 KB) carries every sub-view statically (see the
+// INEFFECTIVE_DYNAMIC_IMPORT warnings at build time). The next bump should be
+// refused until someone splits it.
+const TOTAL_KB     = 9050;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

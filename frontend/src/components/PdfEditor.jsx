@@ -6,7 +6,8 @@ import {
   Undo2, Redo2, ZoomIn, ZoomOut, Maximize, RotateCcw, RotateCw, Trash2,
   CopyPlus, FilePlus, Layers, TextCursorInput, Bold, Italic,
 } from 'lucide-react';
-import { docxToPdf, isDocx } from '../lib/docx2pdf';
+import { isDocx } from '../lib/docxFile';
+import { api } from '../api';
 
 // ── In-browser PDF editor ──────────────────────────────────────────────────────
 // Renders pages with pdfjs (same worker pattern as PdfDoc in ESign.jsx - bytes
@@ -658,9 +659,26 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   }
   async function mergePdf(fl) {
     if (!fl) return;
+    // A Word file merged in here ends up in the document someone SIGNS, so it
+    // goes through the same server-side Word engine as every other way a .docx
+    // reaches an envelope (SendWizard.pickFile, uploadAttachment). It used to
+    // call the client-side docxToPdf, which reflowed the document onto
+    // US-Letter pages in Helvetica - the one thing the "0 alterations" rule
+    // exists to prevent, smuggled in through the merge button.
+    if (isDocx(fl)) {
+      try {
+        fl = await api.convertDocxToPdf(fl);
+      } catch (e) {
+        toastErr(e?.status === 501
+          ? 'Word conversion is not available on this deployment yet. Please save the '
+            + 'document as PDF in Word (File - Save As - PDF) and merge that instead.'
+          : (e?.message || 'Could not convert that Word file - is it a valid .docx?'));
+        return;
+      }
+    } else if (fl.type !== 'application/pdf') {
+      toastErr('Choose a PDF or Word (.docx) file.'); return;
+    }
     try {
-      if (isDocx(fl)) fl = await docxToPdf(fl);
-      else if (fl.type !== 'application/pdf') { toastErr('Choose a PDF or Word (.docx) file.'); return; }
       const bytes = new Uint8Array(await fl.arrayBuffer());
       const doc = await pdfjsRef.current.getDocument({ data: bytes.slice() }).promise;
       const srcIdx = sourcesRef.current.length;
