@@ -166,6 +166,40 @@ def _email_from_bearer(authorization: str) -> str:
     return email
 
 
+# ── Outlook Add-in (Sep 16, Pranshu) - the compose-time signature auto-insert
+# companion to the in-app builder. Office.auth.getAccessToken() issues an
+# ACCESS token for the resource declared in the add-in manifest's
+# WebApplicationInfo (the Nexus app's own "Expose an API" Application ID
+# URI), not an ID token like the SPA's Bearer path above - the audience is
+# the URI form, not the bare client id, and Entra may omit name/UPN claims on
+# access tokens unless optional claims are configured for them. Deliberately
+# NOT folded into _email_from_bearer/get_current_user: a misconfiguration on
+# the Entra "Expose an API" side (wrong scope, missing optional claims) must
+# only ever break this one add-in route, never the SPA's own sign-in.
+def get_addin_user(authorization: str = Header(None)) -> dict:
+    if SKIP_AUTH:
+        return {"email": os.getenv("NEXUS_DEV_EMAIL", "dev@greensglobal.com")}
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = authorization.removeprefix("Bearer ").strip()
+    try:
+        public_key = _get_public_key(token)
+        claims = pyjwt.decode(
+            token, public_key, algorithms=["RS256"],
+            audience=[CLIENT_ID, f"api://{CLIENT_ID}"], issuer=ISSUER,
+        )
+    except pyjwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
+    email = email_from_claims(claims)
+    if not email:
+        raise HTTPException(
+            status_code=401,
+            detail="Token has no identifiable email claim - add 'email' and 'upn' as optional "
+                   "claims on the access token in the Nexus app registration's Token configuration",
+        )
+    return {"email": email}
+
+
 def _email_from_session(request: Request) -> str:
     """BFF path: resolve identity from the HttpOnly session cookie (server-side
     session, server-refreshed tokens). Returns '' when there's no usable session so

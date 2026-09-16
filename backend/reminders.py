@@ -627,7 +627,15 @@ _PUSHBACK_HOUR_UTC = 2   # ~7pm PT / 7:30am IST next day - end of the US workday
 def run_m365_pushback() -> dict:
     from database import SessionLocal
     from models import NexusEmployee
-    from routers.hr import _graph_token, _graph_writeback, _graph_set_manager
+    from routers.hr import (_graph_token, _graph_writeback, _graph_set_manager,
+                            _entra_writes_enabled)
+    # Prod-only, like every other Entra write (hr.py, 09/16/2026). Dev is a
+    # deployed worker too, so this ran there every night at 02:10 UTC - the
+    # same minute as prod's run - and pushed dev's test profiles over the
+    # real directory, undoing whatever prod had just written.
+    if not _entra_writes_enabled():
+        print("[m365-pushback] skipped - Entra writes are off on this environment")
+        return {"pushed": 0, "failed": 0, "skipped": True}
     db = SessionLocal()
     pushed = failed = 0
     try:

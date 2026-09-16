@@ -260,6 +260,9 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     # linked Entra account automatically (best-effort: a Graph hiccup must never
     # fail the save; the response says whether Entra took the change).
     if row.m365_id and (set(fields) & ENTRA_MAPPED_FIELDS):
+        if not _entra_writes_enabled():
+            out["entra"] = {"synced": False, "skipped": True, "error": _ENTRA_WRITES_OFF_MSG}
+            return out
         try:
             token = _graph_token()
             written = _graph_writeback(token, row, db)
@@ -1004,6 +1007,32 @@ _AZ_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
 _GRAPH = "https://graph.microsoft.com/v1.0"
 
 
+def _entra_writes_enabled() -> bool:
+    """Whether this environment may WRITE to Entra (profile writeback, Push to
+    Entra, the two-way sync's push phase). Dev and prod share one tenant and one
+    Graph app, so dev's test profiles ("Tester", "Global Admin", unleveled
+    titles) were being pushed over the real directory - two two-way syncs run
+    from dev.nexus on 09/09/2026 rewrote 55 people's titles, and every profile
+    edit on dev did the same one row at a time. Only prod is the source of
+    truth for Entra: on Azure, a site name without "dev" (same substring rule
+    as app_url.py, slot-swap safe); localhost and dev never write. Pulling from
+    M365 stays allowed everywhere - it only reads and backfills.
+    NEXUS_ENTRA_WRITEBACK=true/false overrides either way (a deliberate lever,
+    never a default)."""
+    flag = os.getenv("NEXUS_ENTRA_WRITEBACK", "").strip().lower()
+    if flag in ("true", "1", "yes"):
+        return True
+    if flag in ("false", "0", "no"):
+        return False
+    site = os.getenv("WEBSITE_SITE_NAME", "").strip().lower()
+    return bool(site) and "dev" not in site
+
+
+_ENTRA_WRITES_OFF_MSG = ("Entra writes are off on this environment - only production "
+                         "pushes profiles to Microsoft 365, so test data never overwrites "
+                         "the real directory.")
+
+
 def _graph_token() -> str:
     if not all([_AZ_TENANT, _AZ_CLIENT, _AZ_SECRET]):
         raise HTTPException(503, "Provisioning not configured - set AZURE_TENANT_ID/CLIENT_ID/CLIENT_SECRET")
@@ -1317,6 +1346,8 @@ def push_to_entra(eid: str, user: dict = Depends(require_hr_write), db: Session 
     _assert_scope(emp, hr_scope(user, db))
     if not emp.m365_id:
         raise HTTPException(400, "This person has no linked M365 account to push to.")
+    if not _entra_writes_enabled():
+        raise HTTPException(403, _ENTRA_WRITES_OFF_MSG)
     # A Graph/token failure must surface as a clean error, not an unhandled 500 -
     # a raw 500 bypasses CORSMiddleware and the browser only sees "Failed to fetch".
     try:
@@ -1653,6 +1684,14 @@ def _two_way_sync_task(run_id: str, actor_email: str):
             db.commit()
             return
         run.pull_summary = json.dumps(pull)
+        if not _entra_writes_enabled():
+            # Pull done, push refused: the run still reports so the UI shows
+            # exactly why nothing reached Entra from this environment.
+            run.phase, run.total, run.done = "done", 0, 0
+            run.errors = json.dumps([{"email": "(push phase)", "error": _ENTRA_WRITES_OFF_MSG}])
+            run.finished_at = now()
+            db.commit()
+            return
         emps = [e for e in db.query(NexusEmployee).filter(NexusEmployee.m365_id != "").all()
                 if not _emp_is_non_person(e)]
         run.phase, run.total = "push", len(emps)
@@ -1869,6 +1908,12 @@ class EntityIn(BaseModel):
     registered_address: Optional[str] = ""
     signatory:          Optional[str] = ""
     logo_url:           Optional[str] = ""
+    website:            Optional[str] = ""
+    main_phone:         Optional[str] = ""
+    facebook_url:       Optional[str] = ""
+    linkedin_url:       Optional[str] = ""
+    twitter_url:        Optional[str] = ""
+    instagram_url:      Optional[str] = ""
     notes:              Optional[str] = ""
     domains:            Optional[str] = ""   # comma-separated email domains
     manager_email:      Optional[str] = ""   # company manager (a Nexus person)
@@ -1882,6 +1927,14 @@ class EntityUpdate(BaseModel):
     registered_address: Optional[str] = None
     signatory:          Optional[str] = None
     logo_url:           Optional[str] = None
+    website:            Optional[str] = None
+    main_phone:         Optional[str] = None
+    facebook_url:       Optional[str] = None
+    linkedin_url:       Optional[str] = None
+    twitter_url:        Optional[str] = None
+    instagram_url:      Optional[str] = None
+    signature_template: Optional[str] = None
+    signature_closing:  Optional[str] = None
     notes:              Optional[str] = None
     domains:            Optional[str] = None
     manager_email:      Optional[str] = None
@@ -1891,7 +1944,11 @@ def _serialize_entity(e: HrEntity) -> dict:
     return {
         "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
-        "logoUrl": e.logo_url, "notes": e.notes, "domains": e.domains or "",
+        "logoUrl": e.logo_url, "website": e.website or "", "mainPhone": e.main_phone or "",
+        "facebookUrl": e.facebook_url or "", "linkedinUrl": e.linkedin_url or "",
+        "twitterUrl": e.twitter_url or "", "instagramUrl": e.instagram_url or "",
+        "signatureTemplate": e.signature_template or "classic", "signatureClosing": e.signature_closing or "",
+        "notes": e.notes, "domains": e.domains or "",
         "managerEmail": e.manager_email or "",
         "createdAt": e.created_at, "updatedAt": e.updated_at,
     }
@@ -1917,7 +1974,11 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         id=str(uuid.uuid4()), name=body.name.strip(), legal_name=(body.legal_name or "").strip(),
         country=(body.country or "").strip(), tax_id=(body.tax_id or "").strip(),
         registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
-        logo_url=(body.logo_url or "").strip(), notes=body.notes or "",
+        logo_url=(body.logo_url or "").strip(), website=(body.website or "").strip(),
+        main_phone=(body.main_phone or "").strip(),
+        facebook_url=(body.facebook_url or "").strip(), linkedin_url=(body.linkedin_url or "").strip(),
+        twitter_url=(body.twitter_url or "").strip(), instagram_url=(body.instagram_url or "").strip(),
+        notes=body.notes or "",
         domains=_norm_domains(body.domains or ""),
         manager_email=(body.manager_email or "").strip().lower(),
         created_by=user["email"], created_at=now, updated_at=now,
@@ -1945,6 +2006,12 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
         raise HTTPException(403, "Only a company-wide admin can change a company's email domains")
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
+    if body.signature_template is not None or body.signature_closing is not None:
+        from routers.myhr import SIGNATURE_TEMPLATES, SIGNATURE_CLOSINGS
+        if body.signature_template is not None and body.signature_template not in SIGNATURE_TEMPLATES:
+            raise HTTPException(400, "Unknown signature template")
+        if body.signature_closing is not None and body.signature_closing not in SIGNATURE_CLOSINGS:
+            raise HTTPException(400, "Unknown signature closing")
     for key, value in body.model_dump(exclude_unset=True).items():
         if value is None:
             continue
@@ -1968,6 +2035,63 @@ def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: S
     if row:
         db.delete(row); db.commit()
     return {"ok": True}
+
+
+@router.post("/entities/{entity_id}/logo")
+async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
+                             user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Company logo for branding/signature use - same avatar bucket and size
+    limit as employee photos (Sep 16, Neil: consistent company branding)."""
+    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Entity not found")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Entity not found")
+    ext = _IMAGE_TYPES.get(file.content_type or "")
+    if not ext:
+        raise HTTPException(400, "Logo must be JPEG, PNG, WebP or GIF")
+    data = await file.read()
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise HTTPException(400, "Logo must be under 5 MB")
+    path = f"entities/{entity_id}/{uuid.uuid4()}.{ext}"
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": file.content_type,
+                 "cache-control": "max-age=31536000"},
+        content=data, timeout=60,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    row.logo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_entity(row)
+
+
+@router.get("/entities/{entity_id}/signature-templates")
+def entity_signature_templates(entity_id: str, closing: str = None,
+                               user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Every signature template pre-rendered with this company's real
+    branding + placeholder person data, for the Settings picker (Pranshu,
+    Sep 16: template/sign-off is a company-wide admin choice, not personal).
+    `closing` optionally previews a not-yet-saved sign-off choice across all
+    templates without a round trip through PATCH first."""
+    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Entity not found")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Entity not found")
+    from routers.myhr import admin_preview_templates, SIGNATURE_CLOSINGS
+    if closing is not None and closing not in SIGNATURE_CLOSINGS:
+        raise HTTPException(400, "Unknown signature closing")
+    return {
+        "templates": admin_preview_templates(row, closing=closing),
+        "closings": SIGNATURE_CLOSINGS,
+        "template": row.signature_template or "classic",
+        "closing": row.signature_closing or "",
+    }
 
 
 # ── Group manager - one person overseeing ALL companies (the escalation step

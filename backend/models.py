@@ -808,6 +808,15 @@ class NexusEmployee(Base):
     geofence_source   = Column(String, default="")            # last_punch | address | manual
     geofence_set_by   = Column(String, default="")
     geofence_set_at   = Column(String, default="")
+    # Email signature overrides (Sep 16, Neil): name/role/company email are NOT
+    # editable here - they stay pulled live from the directory fields above so
+    # the signature can't drift from who someone actually is ("keeps everybody
+    # honest"). Only these two are self-service; empty = fall back to
+    # display_name/first+last and phone respectively.
+    signature_display_name = Column(String, default="")        # preferred name shown on signature, e.g. "Sahil" -> "Sam"
+    signature_phone         = Column(String, default="")       # override for signature only (e.g. desk line instead of cell)
+    signature_template      = Column(String, default="classic") # which visual layout this employee picked (myhr.SIGNATURE_TEMPLATES)
+    signature_closing       = Column(String, default="")        # preset sign-off line, e.g. "Sincerely" (myhr.SIGNATURE_CLOSINGS) - '' = template default
 
 
 class HrRemovedIdentity(Base):
@@ -1253,6 +1262,23 @@ class HrEntity(Base):
     # Who runs this company operationally (a Nexus person's work email) - the
     # escalation target when a worker has no reports-to. Distinct from signatory.
     manager_email      = Column(String, default="")
+    # Branding (Sep 16, Neil): company-wide fields the email signature builder
+    # and other branded surfaces pull from - set once here, consistent everywhere.
+    website            = Column(String, default="")
+    main_phone         = Column(String, default="")
+    # Social links for the signature's icon row (Sep 16, Pranshu) - company-wide
+    # like the rest of branding, not per-employee, so every signature carries the
+    # same official company pages.
+    facebook_url       = Column(String, default="")
+    linkedin_url       = Column(String, default="")
+    twitter_url        = Column(String, default="")
+    instagram_url      = Column(String, default="")
+    # Signature template/sign-off (Sep 16, Pranshu): an admin-picked, company-
+    # wide default in Settings - not a per-employee choice. Every employee's
+    # signature uses their employer's pick (myhr.SIGNATURE_TEMPLATES /
+    # SIGNATURE_CLOSINGS); only display name and phone stay self-service.
+    signature_template = Column(String, default="classic")
+    signature_closing  = Column(String, default="")
 
 
 class NexusSetting(Base):
@@ -1498,6 +1524,11 @@ class HrSignParty(Base):
     ial                  = Column(String, default="")         # IAL1 | IAL2 - requires an identity-proofing vendor
     aal                  = Column(String, default="")         # AAL1 | AAL2 | AAL3 - requires an assessed authenticator
     signed_geo           = Column(String, default="")         # requires a geo-IP resolver
+    # Optional SMS destination for the signing one-time code. Collected on the
+    # recipient step, never derived from a directory: an external signer's
+    # number is whatever the sender actually has for them, and guessing one
+    # would send a signing credential to a stranger. Empty = email OTP only.
+    phone                = Column(String, default="")
 
 
 class HrSignEvent(Base):
@@ -1595,6 +1626,67 @@ class HrSignConsent(Base):
     standing_basis      = Column(String, default="")         # internal signers: the clause relied on
     withdrawn_at        = Column(String, default="")
     withdrawal_method   = Column(String, default="")
+
+
+class HrSignOtpChallenge(Base):
+    """A pending one-time code for ONE party of ONE envelope.
+
+    Separate from CredVault's vault_otp_challenges on purpose: that table is
+    keyed by a Nexus user's email and gates a vault action, while this one is
+    keyed by party_id and gates a signature. An external signer has no Nexus
+    account to key on, and a code minted for one envelope must never open
+    another - so the party row IS the scope.
+
+    The code itself is never stored. `code_hash` is sha256 over
+    "challenge_id:code", salted with an id the requester never sees, so a
+    leaked table alone is not brute-forceable against a six-digit space.
+    """
+    __tablename__ = "hr_sign_otp_challenges"
+    id          = Column(String, primary_key=True)   # uuid - also the hash salt
+    request_id  = Column(String, nullable=False, index=True)
+    party_id    = Column(String, nullable=False, index=True)
+    channel     = Column(String, default="email")    # email | sms
+    target      = Column(String, default="")         # the address/number it actually went to (audit)
+    code_hash   = Column(String, default="")
+    attempts    = Column(Integer, default=0)
+    # Set the moment a correct code is accepted. A consumed challenge is spent:
+    # the same code can never authorize a second signature, so a forwarded
+    # email cannot be replayed after the signer has used it.
+    consumed_at = Column(String, default="")
+    expires_at  = Column(String, default="", index=True)
+    created_at  = Column(String, default="")
+
+
+
+class HrSignUpload(Base):
+    """A file a SIGNER attached at an upload field - a certificate of insurance,
+    a voided check, a scanned ID.
+
+    Its own table rather than a blob inside `HrSignParty.field_values`, because
+    an uploaded file is evidence with the same standing as the signature: it
+    needs a digest frozen at the moment it arrived, its own retention, and a
+    row the certificate can cite. `field_values` is a JSON column rewritten
+    wholesale on every save, which is exactly the wrong home for that.
+
+    One CURRENT row per (party, field): re-uploading supersedes rather than
+    appends, so `superseded_at` keeps the replaced file's evidence instead of
+    deleting it. Queries for "what did they actually submit" filter on
+    superseded_at == "".
+    """
+    __tablename__ = "hr_sign_uploads"
+    id            = Column(String, primary_key=True)   # uuid
+    request_id    = Column(String, nullable=False, index=True)
+    party_id      = Column(String, nullable=False, index=True)
+    field_id      = Column(String, default="", index=True)
+    field_label   = Column(String, default="")
+    name          = Column(String, default="")         # the signer's own filename
+    storage_path  = Column(String, default="")
+    content_type  = Column(String, default="")
+    size_bytes    = Column(Integer, default=0)
+    sha256        = Column(String, default="")         # frozen over the bytes received
+    uploaded_at   = Column(String, default="")
+    uploaded_ip   = Column(String, default="")
+    superseded_at = Column(String, default="")         # non-empty = replaced by a later upload
 
 
 # ── Documents (DMS) - Phase 1 ──────────────────────────────────────────────────

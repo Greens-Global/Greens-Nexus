@@ -1991,13 +1991,6 @@ html { overflow-x: hidden; }
   .view-title-group h2 { font-size: 18px; }
   .view-header { margin-bottom: 6px; row-gap: 6px; }
   [data-vis="visible"] { margin: 4px 0 10px; }
-  /* The Dashboard's own "Dashboard" title band duplicates the tab of the same
-     name directly above it (in-page .scroll-tabs) on phones - drop it there
-     and let the view-picker/Customize controls have the whole row.
-     !important: the element also carries an inline style="display:flex" -
-     a plain class rule here loses to that inline style, so the div stayed
-     visible in production despite this rule matching (confirmed live, Sep 5). */
-  .dashboard-header-title { display: none !important; }
 }
 
 /* Cart: ONE fixed position on every phone screen - pinned to the title row,
@@ -3371,7 +3364,11 @@ button, [role="button"], select { touch-action: manipulation; }
 [data-theme="dark"] .dk-card { background: var(--card); border-color: var(--line); box-shadow: none; }
 
 /* header row: greeting + session */
-.dk-head { display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; padding: 4px 2px 0; }
+/* z-index so the header's "…" dropdown paints over the stat cards below.
+   .dk-rise animates with fill-mode "both", so the transform persists and
+   .dk-head keeps a stacking context - which trapped the menu's own z-index
+   inside it, letting the later .dk-board siblings cover the open menu. */
+.dk-head { display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; padding: 4px 2px 0; position: relative; z-index: 5; }
 .dk-head-left { flex: 1; min-width: 240px; }
 .dk-head h1 {
   font-family: var(--wk-font);

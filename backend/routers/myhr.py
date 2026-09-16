@@ -7,6 +7,7 @@ the HR team; this router is the scoped-to-self counterpart:
   - my signed documents (sealed e-sign PDFs where I was a party)
 Leave (time off) reuses the existing /timeclock/timeoff endpoints.
 """
+import html as html_lib
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -135,6 +136,332 @@ def remove_my_photo(user: dict = Depends(get_current_user), db: Session = Depend
     e.updated_at = _now()
     db.commit()
     return _profile_dict(e, db)
+
+
+# ── Email signature (Sep 16, Neil): text-based (not an image, so it isn't
+# blocked by clients that don't trust images from a new sender) signature
+# built from the company's branding + this person's directory record. Name,
+# role and company e-mail always come straight from the directory - the only
+# self-service fields are a preferred display name, phone override and a
+# choice of visual template, so the signature can't be used to impersonate a
+# different role/title/e-mail ("keeps everybody honest" - Neil). Delivery
+# into Outlook itself is a separate, not-yet-decided piece (Exchange
+# transport rule vs. Outlook add-in) - for now this gives the employee HTML
+# they can copy in.
+
+_BRAND_GREEN = "#1f8a4d"
+
+# Preset sign-off lines for the script-style templates (Sincerely/Kind Regards) -
+# a short pick-list, not free text, so it stays professional and consistent
+# (Pranshu, Sep 16). '' = no closing line / template's own default.
+SIGNATURE_CLOSINGS = ["", "Sincerely", "Best regards", "Kind regards", "Warm regards"]
+
+def _signature_fields(e: NexusEmployee, db: Session) -> dict:
+    company = db.query(HrEntity).filter(HrEntity.id == e.company).first() if e.company else None
+    full_name = (e.display_name or f"{e.first_name} {e.last_name}").strip()
+    preferred = (e.signature_display_name or "").strip()
+    # Preferred name is shown ALONGSIDE the real name, never in place of it -
+    # "Pranshu Pandey (PP)", not just "PP" - so the signature still reads as
+    # who someone actually is (Pranshu, Sep 16: was fully replacing the name).
+    name = f"{full_name} ({preferred})" if preferred and preferred.lower() != full_name.lower() else full_name
+    role = (e.designation or e.job_title or "").strip()
+    phone = (e.signature_phone or e.phone or "").strip()
+    return {
+        "name": name, "role": role, "phone": phone, "email": e.work_email or "",
+        "photoUrl": e.photo_url or "",
+        # Sign-off is a company-wide admin choice now, not personal (Pranshu,
+        # Sep 16: template/sign-off moved to Settings; only name/phone stay
+        # self-service in My Profile).
+        "closing": ((company.signature_closing if company else "") or "").strip(),
+        "logoUrl": (company.logo_url if company else "") or "",
+        "website": (company.website if company else "") or "",
+        "address": (company.registered_address if company else "") or "",
+        "companyPhone": (company.main_phone if company else "") or "",
+        "companyName": (company.name if company else "") or "",
+        "facebookUrl": (company.facebook_url if company else "") or "",
+        "linkedinUrl": (company.linkedin_url if company else "") or "",
+        "twitterUrl": (company.twitter_url if company else "") or "",
+        "instagramUrl": (company.instagram_url if company else "") or "",
+    }
+
+
+_SCRIPT_FONT = "'Brush Script MT','Segoe Script',cursive"
+# The typewriter @keyframes travel WITH the copied HTML (Pranshu, Sep 16:
+# "still it is not live" after pasting) - a signature copied via the
+# Clipboard API carries its own <style> block into whatever it's pasted
+# into, and modern compose surfaces (Outlook Web, New Outlook/WebView2,
+# Gmail) are just Chromium pages, so the reveal genuinely plays there, not
+# only in our own preview. Classic Win32 Outlook's Word rendering engine
+# doesn't run CSS animations - there the line still renders, just as
+# static text with no animation, because the base/fallback state below is
+# NOT clipped (width kept at 100% for that reason; only the parent
+# scoping class is inert if unsupported).
+_TYPEWRITER_CSS = (
+    '<style>@keyframes sigTypewriter{from{width:0}to{width:100%}}'
+    '.sig-closing{display:inline-block;overflow:hidden;white-space:nowrap;'
+    'width:100%;animation:sigTypewriter 1.1s steps(24,end) 1}</style>'
+)
+
+
+def _social_icons(f: dict) -> str:
+    """Small monochrome-brand circular badges (text glyphs, not hosted images -
+    stays a real text-based signature, no image blocking). Shown on every
+    template, not just the script-style ones (Pranshu, Sep 16).
+
+    The background lives on the <td>, never the <a> - mail/webmail paste
+    sanitizers (Outlook Web's included) routinely strip background-color off
+    anchor tags to stop spoofed-looking links, which was exactly why the
+    badges disappeared once copied into a real compose window even though
+    they looked fine in our own preview. Table cells keep their background
+    everywhere, so this is the standard "bulletproof" email-HTML pattern."""
+    links = [(f["facebookUrl"], "f"), (f["linkedinUrl"], "in"), (f["twitterUrl"], "X"), (f["instagramUrl"], "ig")]
+    active = [(url, label) for url, label in links if url]
+    if not active:
+        return ""
+    cells = "".join(
+        f'<td style="background:{_BRAND_GREEN};border-radius:50%;text-align:center;" width="22" height="22">'
+        f'<a href="{url}" style="color:#ffffff;font-size:10px;font-weight:bold;text-decoration:none;'
+        f'display:block;line-height:22px;">{label}</a></td>'
+        f'<td style="width:6px;font-size:1px;line-height:1px;">&nbsp;</td>'
+        for url, label in active
+    )
+    return f'<table role="presentation" style="border-collapse:collapse;"><tr>{cells}</tr></table>'
+
+
+def _role_company_line(f: dict) -> str:
+    if f["role"] and f["companyName"]:
+        return f'{f["role"]}, {f["companyName"]}'
+    return f["role"] or f["companyName"]
+
+
+def _render_classic(f: dict) -> str:
+    rows = "".join(
+        f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
+        for v in (f["role"], f"Phone: {f['phone']}" if f["phone"] else "",
+                  f"Email: {f['email']}" if f["email"] else "", f["website"], f["address"])
+        if v
+    )
+    logo_cell = (f'<td style="padding-right:14px;vertical-align:top;">'
+                 f'<img src="{f["logoUrl"]}" alt="" style="max-height:60px;max-width:160px;" /></td>'
+                 if f["logoUrl"] else "")
+    social = _social_icons(f)
+    social_row = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if social else ""
+    return (
+        '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
+        f'<tr>{logo_cell}<td style="vertical-align:top;">'
+        f'<table style="border-collapse:collapse;"><tr><td style="font-weight:bold;color:#111111;padding-bottom:2px;">{f["name"]}</td></tr>'
+        f'{rows}</table></td></tr>'
+        f'{social_row}'
+        '</table>'
+    )
+
+
+def _render_modern(f: dict) -> str:
+    contact = " &nbsp;|&nbsp; ".join(v for v in (
+        f"Phone: {f['phone']}" if f["phone"] else "",
+        f"Email: {f['email']}" if f["email"] else "", f["website"],
+    ) if v)
+    logo_row = (f'<tr><td colspan="2" style="padding-top:8px;"><img src="{f["logoUrl"]}" alt="" '
+                f'style="max-height:44px;max-width:150px;" /></td></tr>' if f["logoUrl"] else "")
+    social = _social_icons(f)
+    social_row = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if social else ""
+    return (
+        f'<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
+        f'<tr><td style="border-left:3px solid {_BRAND_GREEN};padding-left:12px;">'
+        f'<div style="font-size:15px;font-weight:bold;color:#111111;">{f["name"]}</div>'
+        f'<div style="color:{_BRAND_GREEN};font-weight:600;margin:2px 0 6px;">{f["role"]}</div>'
+        f'<div style="color:#555555;">{contact}</div>'
+        f'</td></tr>{logo_row}{social_row}</table>'
+    )
+
+
+def _render_minimal(f: dict) -> str:
+    line = " &middot; ".join(v for v in (
+        f["role"], f"Phone: {f['phone']}" if f["phone"] else "",
+        f"Email: {f['email']}" if f["email"] else "",
+    ) if v)
+    tail = f" &nbsp;&mdash;&nbsp; {line}" if line else ""
+    social = _social_icons(f)
+    social_block = f'<div style="margin-top:4px;">{social}</div>' if social else ""
+    return (
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#333333;">'
+        f'<span style="font-weight:bold;color:#111111;">{f["name"]}</span>'
+        f'{tail}'
+        '</div>'
+        f'{social_block}'
+    )
+
+
+def _render_bold(f: dict) -> str:
+    logo_cell = (f'<td style="padding-right:16px;"><img src="{f["logoUrl"]}" alt="" '
+                 f'style="max-height:52px;max-width:150px;" /></td>' if f["logoUrl"] else "")
+    rows = "".join(
+        f'<tr><td style="padding:1px 0;color:#444444;font-size:12.5px;">{v}</td></tr>'
+        for v in (f"Phone: {f['phone']}" if f["phone"] else "",
+                  f"Email: {f['email']}" if f["email"] else "", f["website"], f["address"])
+        if v
+    )
+    role_span = (f'<span style="color:#eafff2;font-size:12.5px;"> &nbsp;&middot;&nbsp; {f["role"]}</span>'
+                 if f["role"] else "")
+    social = _social_icons(f)
+    social_block = f'<div style="padding-top:8px;">{social}</div>' if social else ""
+    return (
+        '<table style="font-family:Arial,Helvetica,sans-serif;border-collapse:collapse;">'
+        f'<tr><td style="background:{_BRAND_GREEN};padding:10px 14px;border-radius:4px 4px 0 0;" colspan="2">'
+        f'<span style="color:#ffffff;font-size:15px;font-weight:bold;">{f["name"]}</span>'
+        f'{role_span}'
+        '</td></tr>'
+        f'<tr><td style="border:1px solid #e2e2e2;border-top:none;padding:10px 14px;" colspan="2">'
+        f'<table style="border-collapse:collapse;"><tr>{logo_cell}<td style="vertical-align:top;">'
+        f'<table style="border-collapse:collapse;">{rows}</table></td></tr></table>'
+        f'{social_block}'
+        '</td></tr></table>'
+    )
+
+
+def _render_sincerely(f: dict) -> str:
+    closing = f["closing"] or "Sincerely"
+    logo_cell = (f'<td style="padding-right:14px;vertical-align:top;">'
+                 f'<img src="{f["logoUrl"]}" alt="" style="max-height:56px;max-width:120px;" /></td>'
+                 if f["logoUrl"] else "")
+    rows = "".join(
+        f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
+        for v in (f"Phone: {f['phone']}" if f["phone"] else "",
+                  f"Email: {f['email']}" if f["email"] else "", f["website"])
+        if v
+    )
+    social = _social_icons(f)
+    social_row = f'<tr><td colspan="2" style="padding-top:10px;">{social}</td></tr>' if social else ""
+    role_line = _role_company_line(f)
+    return (
+        _TYPEWRITER_CSS +
+        '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
+        f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;"><span class="sig-closing">{closing},</span></td></tr>'
+        f'<tr>{logo_cell}<td style="vertical-align:top;">'
+        f'<div style="font-weight:bold;color:#111111;font-size:14px;">{f["name"]}</div>'
+        f'<div style="color:{_BRAND_GREEN};font-weight:600;margin-bottom:4px;">{role_line}</div>'
+        f'<table style="border-collapse:collapse;">{rows}</table>'
+        '</td></tr>'
+        f'{social_row}'
+        '</table>'
+    )
+
+
+def _render_kind_regards(f: dict) -> str:
+    closing = f["closing"] or "Kind regards"
+    logo_cell = (f'<td style="padding-right:12px;vertical-align:top;">'
+                 f'<img src="{f["logoUrl"]}" alt="" style="max-height:52px;max-width:110px;" />'
+                 + (f'<div style="padding-top:8px;">{_social_icons(f)}</div>' if _social_icons(f) else "")
+                 + '</td>' if f["logoUrl"] else "")
+    rows = "".join(
+        f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
+        for v in (f"Phone: {f['phone']}" if f["phone"] else "",
+                  f"Email: {f['email']}" if f["email"] else "", f["website"])
+        if v
+    )
+    # No logo -> the social row still needs somewhere to live.
+    social = _social_icons(f)
+    fallback_social = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if not f["logoUrl"] and social else ""
+    role_line = _role_company_line(f)
+    return (
+        _TYPEWRITER_CSS +
+        '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
+        f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;"><span class="sig-closing">{closing},</span></td></tr>'
+        f'<tr>{logo_cell}<td style="border-left:2px solid {_BRAND_GREEN};padding-left:12px;vertical-align:top;">'
+        f'<div style="font-weight:bold;color:{_BRAND_GREEN};font-size:14px;">{f["name"]}</div>'
+        f'<div style="color:#333333;margin-bottom:4px;">{role_line}</div>'
+        f'<table style="border-collapse:collapse;">{rows}</table>'
+        '</td></tr>'
+        f'{fallback_social}'
+        '</table>'
+    )
+
+
+# id -> (label, render fn). Order here is the gallery order shown to employees.
+SIGNATURE_TEMPLATES = {
+    "classic":   ("Classic", _render_classic),
+    "modern":    ("Modern", _render_modern),
+    "minimal":   ("Minimal", _render_minimal),
+    "bold":      ("Bold", _render_bold),
+    "sincerely": ("Sincerely", _render_sincerely),
+    "regards":   ("Kind Regards", _render_kind_regards),
+}
+_DEFAULT_TEMPLATE = "classic"
+
+
+def admin_preview_fields(company, closing: str = None) -> dict:
+    """Sample fields for the company-wide template picker in Settings - real
+    branding, placeholder person data (there's no 'current employee' in an
+    admin's company-wide preview, since the choice applies to everyone)."""
+    domain = ((company.domains or "").split(",")[0].strip() if company and company.domains else "") or "example.com"
+    return {
+        "name": "Jane Doe", "role": "Job Title", "phone": "(000) 000-0000",
+        "email": f"jane.doe@{domain}", "photoUrl": "",
+        "closing": (closing if closing is not None else (company.signature_closing if company else "")) or "",
+        "logoUrl": (company.logo_url if company else "") or "",
+        "website": (company.website if company else "") or "",
+        "address": (company.registered_address if company else "") or "",
+        "companyPhone": (company.main_phone if company else "") or "",
+        "companyName": (company.name if company else "") or "",
+        "facebookUrl": (company.facebook_url if company else "") or "",
+        "linkedinUrl": (company.linkedin_url if company else "") or "",
+        "twitterUrl": (company.twitter_url if company else "") or "",
+        "instagramUrl": (company.instagram_url if company else "") or "",
+    }
+
+
+def admin_preview_templates(company, closing: str = None) -> list:
+    """Every template pre-rendered with the company's real branding, for the
+    Settings picker (backend/routers/hr.py's /entities/{id}/signature-templates)."""
+    fields = admin_preview_fields(company, closing)
+    esc = {k: html_lib.escape(v) if isinstance(v, str) else v for k, v in fields.items()}
+    return [{"id": tid, "label": label, "html": render_fn(esc)}
+            for tid, (label, render_fn) in SIGNATURE_TEMPLATES.items()]
+
+
+def _render_signature(e: NexusEmployee, db: Session, template: str = None) -> dict:
+    company = db.query(HrEntity).filter(HrEntity.id == e.company).first() if e.company else None
+    fields = _signature_fields(e, db)
+    esc = {k: html_lib.escape(v) if isinstance(v, str) else v for k, v in fields.items()}
+    # Template is a company-wide admin choice (Settings), not personal - an
+    # employee's own signature always uses their employer's default, never a
+    # per-person pick (Pranshu, Sep 16).
+    tid = template or (company.signature_template if company else "") or _DEFAULT_TEMPLATE
+    if tid not in SIGNATURE_TEMPLATES:
+        tid = _DEFAULT_TEMPLATE
+    return {"fields": fields, "html": SIGNATURE_TEMPLATES[tid][1](esc), "template": tid}
+
+
+def _signature_dict(e: NexusEmployee, db: Session) -> dict:
+    rendered = _render_signature(e, db)
+    return {
+        **rendered,
+        "canEditDisplayName": True, "canEditPhone": True,
+        "displayNameOverride": e.signature_display_name or "",
+        "phoneOverride": e.signature_phone or "",
+    }
+
+
+@router.get("/signature")
+def my_signature(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _signature_dict(_me(db, user["email"]), db)
+
+
+class SignatureIn(BaseModel):
+    display_name: Optional[str] = None   # e.g. "Sahil" -> "Sam" - name/role/e-mail otherwise always come from the directory
+    phone:        Optional[str] = None   # e.g. desk line instead of cell
+
+
+@router.put("/signature")
+def save_my_signature(body: SignatureIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    e = _me(db, user["email"])
+    if body.display_name is not None:
+        e.signature_display_name = body.display_name.strip()[:120]
+    if body.phone is not None:
+        e.signature_phone = body.phone.strip()[:50]
+    e.updated_at = _now()
+    db.commit()
+    return _signature_dict(e, db)
 
 
 # ── My documents - sealed e-sign PDFs where I was a party ─────────────────────

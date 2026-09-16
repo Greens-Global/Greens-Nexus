@@ -1003,6 +1003,8 @@ export const api = {
   getEntities:    ()         => cachedGet('/hr/entities', 120_000),
   createEntity:   (data)     => req('/hr/entities', { method: 'POST', body: JSON.stringify(data) }),
   updateEntity:   (id, data) => req(`/hr/entities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  uploadEntityLogo: (id, form) => req(`/hr/entities/${id}/logo`, { method: 'POST', body: form }),
+  getEntitySignatureTemplates: (id, closing) => req(`/hr/entities/${id}/signature-templates${closing != null ? `?closing=${encodeURIComponent(closing)}` : ''}`),
   getGroupManager: ()        => req('/hr/group-manager'),
   setGroupManager: (email)   => req('/hr/group-manager', { method: 'PUT', body: JSON.stringify({ email }) }),
   deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),
@@ -1101,8 +1103,21 @@ export const api = {
   verifySign:         (id)        => req(`/esign/requests/${id}/verify`),
   mySignatures:       ()          => req('/esign/mine'),
   mySignRender:       (pid)       => req(`/esign/mine/${pid}`),
+  // Consent, then the one-time code - the two gates an internal signer clears
+  // before the document is sent to the browser (the external equivalents live
+  // on /esign/public/* and are called with plain fetch from PublicSign).
+  mySignConsent:      (pid, data) => req(`/esign/mine/${pid}/consent`, { method: 'POST', body: JSON.stringify(data) }),
+  mySignOtpRequest:   (pid, data) => req(`/esign/mine/${pid}/otp/request`, { method: 'POST', body: JSON.stringify(data) }),
+  mySignOtpVerify:    (pid, data) => req(`/esign/mine/${pid}/otp/verify`, { method: 'POST', body: JSON.stringify(data) }),
   mySignSubmit:       (pid, data) => req(`/esign/mine/${pid}/sign`, { method: 'POST', body: JSON.stringify(data) }),
   mySignDecline:      (pid, data) => req(`/esign/mine/${pid}/decline`, { method: 'POST', body: JSON.stringify(data) }),
+  // Upload fields. FormData, so no JSON Content-Type - req() leaves the
+  // boundary to the browser when the body is a FormData.
+  mySignUpload:       (pid, form) => req(`/esign/mine/${pid}/upload`, { method: 'POST', body: form }),
+  mySignUploadUrl:    (pid, uid)  => req(`/esign/mine/${pid}/upload/${uid}`),
+  // The SENDER's view of what the signers attached.
+  getSignUploads:     (rid)       => req(`/esign/requests/${rid}/uploads`),
+  getSignUploadUrl:   (rid, uid)  => req(`/esign/requests/${rid}/uploads/${uid}`),
   correctSignParty:   (rid, pid, data) => req(`/esign/requests/${rid}/parties/${pid}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getSignPartyLink:   (rid, pid)  => req(`/esign/requests/${rid}/parties/${pid}/link`),
 
@@ -1151,6 +1166,7 @@ export const api = {
   timeOffList:       (status)    => req(`/timeclock/timeoff?status=${status || ''}`),
   timeOffOnBehalf:   (data)      => req('/timeclock/timeoff/on-behalf', { method: 'POST', body: JSON.stringify(data) }),
   timeOffDecide:     (id, data)  => req(`/timeclock/timeoff/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeOffCancel:     (id)        => req(`/timeclock/timeoff/${id}/cancel`, { method: 'POST' }),
   timeApprove:       (data)      => req('/timeclock/approvals', { method: 'POST', body: JSON.stringify(data) }),
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
@@ -1183,6 +1199,8 @@ export const api = {
   myHrProfileSave: (body)  => req('/myhr/profile', { method: 'PUT', body: JSON.stringify(body) }),
   myHrPhotoUpload: (form)  => req('/myhr/profile/photo', { method: 'POST', body: form }),
   myHrPhotoRemove: ()      => req('/myhr/profile/photo', { method: 'DELETE' }),
+  mySignature:     ()      => req('/myhr/signature'),
+  mySignatureSave: (body)  => req('/myhr/signature', { method: 'PUT', body: JSON.stringify(body) }),
   myHrDocs:        ()      => req('/myhr/documents'),
   myHrDocDownload: (rid)   => req(`/myhr/documents/${rid}/download`),
   myPaystubs:      ()      => req('/myhr/paystubs'),
@@ -1371,6 +1389,9 @@ export const api = {
   egnyteWiring:      ()                       => req('/egnyte/wiring'),
   egnyteWiringSet:   (slot, path, scopeId='') => req(`/egnyte/wiring/${encodeURIComponent(slot)}`, { method: 'PUT', body: JSON.stringify({ path, scope_id: scopeId }) }),
   egnyteWiringReset: (slot, scopeId='')       => req(`/egnyte/wiring/${encodeURIComponent(slot)}?scope_id=${encodeURIComponent(scopeId)}`, { method: 'DELETE' }),
+  // The signed-in person's OWN work folder - no HR grant, the session
+  // decides whose folder it is. Answers {folder: null} when unwired.
+  getMyEgnyteFolder: ()                       => req('/egnyte/my-folder'),
   egnytePersonDocs:  (email)                  => req(`/egnyte/person/${encodeURIComponent(email)}`),
   egnytePersonPoint: (email, path)            => req(`/egnyte/person/${encodeURIComponent(email)}/folder`, { method: 'PUT', body: JSON.stringify({ path }) }),
   egnyteFolderGroups:      ()       => req('/egnyte/folder-groups'),

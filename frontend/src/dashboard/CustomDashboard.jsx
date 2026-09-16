@@ -204,11 +204,18 @@ export default function CustomDashboard() {
           color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{toast.t}</div>
       )}
 
-      {/* Controls: view picker + Customize + the "…" view menu, in the standard
-          module header (title band + hairline, like every other module). */}
+      {/* Controls: view picker + Customize + the "…" view menu. Used to sit in
+          their own title band ("Dashboard" / "Viewing X") above the greeting -
+          repeating the tab-strip label as a big h2 plus a whole separate
+          control row wasted vertical space for no new information (Neil,
+          Sep 15). They now live in the greeting's header-right instead, so
+          the page starts at "Good morning" and gets straight to the KPIs. */}
       {(() => {
+        // Split so the "…" menu can sit tight against the session chip
+        // (Pranshu, Sep 15) while the view picker/Customize keep their own
+        // group with normal spacing.
         const controls = (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <select value={d.activeId || ''}
               onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
               className="form-input" title="Switch dashboard view"
@@ -240,78 +247,64 @@ export default function CustomDashboard() {
             ) : (
               <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
             )}
-            {/* The single home for view-level actions (rename, default, publish,
-                delete). Lives outside edit mode too - renaming a view shouldn't
-                require entering Customize - and stays available while editing so
-                you can fork the on-screen layout with "Save as new view". */}
-            <div style={{ position: 'relative' }}>
-              <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
-              {menu && (
-                <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 220 }}>
-                  <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
-                    <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
-                  </div>
-                  {menuSections.map((section, si) => (
-                    <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
-                      {section.map((m, i) => (
-                        <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                          <m.icon size={14} /> {m.label}
-                        </button>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         );
-        return (
-          <div className="view-header">
-            {/* Hidden on phones (dashboard-header-title, style.css): the
-                "Dashboard" tab sits directly above this in the in-page
-                .scroll-tabs strip there, so repeating the same word as a big
-                bold h2 right underneath it was pure clutter, not information -
-                it just crowded the view picker/Customize/... row into a
-                cramped wrap (Neil screenshot, Sep 5). */}
-            <div className="dashboard-header-title" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-              <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <LayoutGrid size={19} />
-              </span>
-              <div className="view-title-group">
-                <h2 style={{ margin: 0 }}>Dashboard</h2>
-                <p style={{ margin: '2px 0 0' }}>{d.activeView?.name ? `Viewing “${d.activeView.name}”` : 'Your day at a glance'}</p>
+        // The single home for view-level actions (rename, default, publish,
+        // delete). Lives outside edit mode too - renaming a view shouldn't
+        // require entering Customize - and stays available while editing so
+        // you can fork the on-screen layout with "Save as new view". Kept
+        // separate from `controls` so it renders after the session chip, as
+        // its own distinct button at the row's right corner - not merged
+        // with the chip (Pranshu, Sep 15 2nd follow-up).
+        const viewMenu = (
+          <div style={{ position: 'relative' }}>
+            <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
+            {menu && (
+              <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 220 }}>
+                <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
+                </div>
+                {menuSections.map((section, si) => (
+                  <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
+                    {section.map((m, i) => (
+                      <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                        <m.icon size={14} /> {m.label}
+                      </button>
+                    ))}
+                  </div>
+                ))}
               </div>
-            </div>
-            {controls}
+            )}
           </div>
+        );
+        return d.loading ? (
+          <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={90} /></div>
+        ) : (!d.editing && !d.activeId) ? (
+          /* The Operations Desk home - the designed default. Saved views and
+             Customize keep the widget grid untouched below. The view
+             picker/Customize/... controls live in the greeting's
+             header-right now, not a separate title band above it. */
+          <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} headerRight={controls} headerMenu={viewMenu} />
+        ) : (
+          /* Saved views + Customize keep the page greeting - it belongs to the
+             Dashboard, not to a layout, so picking a custom view (or saving one
+             as default) can never make "Good morning" disappear. */
+          <>
+            <div style={{ margin: '2px 0 18px' }}><DeskGreeting right={controls} menu={viewMenu} /></div>
+            <DashboardGrid
+              layout={d.layout}
+              editing={d.editing}
+              onLayoutChange={d.setLayout}
+              renderWidget={renderWidget}
+              onRemove={d.removeWidget}
+              onConfigure={(it) => WIDGETS[it.type]?.configurable ? setConfigItem(it) : null}
+              limitsFor={(it) => WIDGETS[it.type]?.limits}
+            />
+          </>
         );
       })()}
-
-      {d.loading ? (
-        <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={90} /></div>
-      ) : (!d.editing && !d.activeId) ? (
-        /* The Operations Desk home - the designed default. Saved views and
-           Customize keep the widget grid untouched below. */
-        <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} />
-      ) : (
-        /* Saved views + Customize keep the page greeting - it belongs to the
-           Dashboard, not to a layout, so picking a custom view (or saving one
-           as default) can never make "Good morning" disappear. */
-        <>
-          <div style={{ margin: '2px 0 18px' }}><DeskGreeting /></div>
-          <DashboardGrid
-            layout={d.layout}
-            editing={d.editing}
-            onLayoutChange={d.setLayout}
-            renderWidget={renderWidget}
-            onRemove={d.removeWidget}
-            onConfigure={(it) => WIDGETS[it.type]?.configurable ? setConfigItem(it) : null}
-            limitsFor={(it) => WIDGETS[it.type]?.limits}
-          />
-        </>
-      )}
 
       {gallery && <WidgetGallery canSee={canSeeWidget} layout={d.layout} onAdd={d.addWidget} onClose={() => setGallery(false)} />}
       {configItem && <ConfigModal item={configItem} onSave={(cfg) => d.updateWidgetConfig(configItem.i, cfg)} onClose={() => setConfigItem(null)} />}

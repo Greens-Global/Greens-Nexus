@@ -39,7 +39,7 @@ import { useState, useCallback, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronDown, Tag, Shield, SlidersHorizontal,
   Headset, Bell, Building2, MapPin, RefreshCw, Loader2, Timer,
-  UserCog, Activity, DoorOpen, ShieldCheck,
+  UserCog, Activity, DoorOpen, ShieldCheck, Signature, Check,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -200,6 +200,128 @@ function WorkforceAnalyticsPolicySection() {
       <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>}>
         <MonitoringPolicy />
       </Suspense>
+    </Section>
+  );
+}
+
+// ── Email Signature (Pranshu, Sep 16) ──────────────────────────────────────────
+// Template + sign-off are a company-wide admin choice here, not a personal one
+// (reverses the Sep 9 "Branding... stays in the header's account menu" note
+// above for this specific piece - the underlying signature builder was
+// designed around Neil's "consistent across the entire organisation" brief,
+// and Pranshu decided the visual pick belongs with the rest of company
+// branding). Name/role/e-mail still come from each person's own directory
+// record automatically; preferred display name and phone override stay
+// self-service in My Profile (header → account menu) since those genuinely
+// are personal, just not the template.
+function EmailSignatureSection({ toastOk, toastErr }) {
+  const [entities, setEntities] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [companyId, setCompanyId] = useState('');
+  const [data, setData] = useState(null);       // { templates, closings, template, closing }
+  const [selectedTemplate, setSelectedTemplate] = useState('classic');
+  const [selectedClosing, setSelectedClosing] = useState('');
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+
+  const loadPreview = useCallback((id, closing) => {
+    if (!id) return;
+    setPreviewBusy(true);
+    api.getEntitySignatureTemplates(id, closing)
+      .then(d => {
+        setData(d);
+        setSelectedTemplate(d.template);
+        setSelectedClosing(closing != null ? closing : d.closing);
+      })
+      .catch(() => {})
+      .finally(() => setPreviewBusy(false));
+  }, []);
+
+  const load = useCallback(() => {
+    if (loaded) return;
+    setLoaded(true);
+    api.getEntities().then(rows => {
+      setEntities(rows || []);
+      if (rows?.length) { setCompanyId(rows[0].id); loadPreview(rows[0].id); }
+    }).catch(() => {});
+  }, [loaded, loadPreview]);
+
+  function pickCompany(id) {
+    setCompanyId(id);
+    setData(null);
+    loadPreview(id);
+  }
+
+  function pickClosing(c) {
+    setSelectedClosing(c);
+    loadPreview(companyId, c);
+  }
+
+  async function save() {
+    if (!companyId || saveBusy) return;
+    setSaveBusy(true);
+    try {
+      await api.updateEntity(companyId, { signature_template: selectedTemplate, signature_closing: selectedClosing });
+      toastOk('Company signature updated - every employee at this company picks it up automatically.');
+    } catch (e) { toastErr(e?.message || 'Could not save.'); }
+    setSaveBusy(false);
+  }
+
+  return (
+    <Section icon={Signature} title="Email Signature" onToggle={load}
+      sub="One template + sign-off per company, applied to every employee's signature automatically - name/role/e-mail still come from their own directory record.">
+      {entities.length === 0 ? (
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{loaded ? 'No companies set up yet - add one under Company Setup first.' : 'Loading…'}</div>
+      ) : (
+        <>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Company</label>
+            <select className="form-input" style={{ width: '100%', maxWidth: 320 }} value={companyId} onChange={e => pickCompany(e.target.value)}>
+              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+            </select>
+          </div>
+          {previewBusy && !data ? (
+            <Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} />
+          ) : data && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10, marginBottom: 14 }}>
+                {data.templates.map(t => {
+                  const selected = t.id === selectedTemplate;
+                  return (
+                    <button key={t.id} onClick={() => setSelectedTemplate(t.id)}
+                      style={{
+                        textAlign: 'left', cursor: 'pointer', padding: 10, borderRadius: 8,
+                        border: selected ? '2px solid hsl(var(--color-green))' : '1px solid var(--line)',
+                        background: '#fff', position: 'relative',
+                      }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#111', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {t.label}
+                        {selected && <Check size={12} style={{ color: 'hsl(var(--color-green))' }} />}
+                      </div>
+                      <div style={{ overflow: 'hidden', height: 60, pointerEvents: 'none' }}>
+                        <div style={{ transform: 'scale(0.7)', transformOrigin: 'top left', width: '143%' }}
+                          dangerouslySetInnerHTML={{ __html: t.html }} />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ marginBottom: 14, maxWidth: 320 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
+                  Sign-off (Sincerely / Kind Regards templates only)
+                </label>
+                <select className="form-input" style={{ width: '100%' }} value={selectedClosing} onChange={e => pickClosing(e.target.value)}>
+                  {data.closings.map(c => <option key={c} value={c}>{c || 'Template default'}</option>)}
+                </select>
+              </div>
+              <button className="primary-btn" onClick={save} disabled={saveBusy}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: saveBusy ? 0.6 : 1 }}>
+                {saveBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} Save
+              </button>
+            </>
+          )}
+        </>
+      )}
     </Section>
   );
 }
@@ -407,6 +529,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           <ItemSettingsSection toast={showToast} />
           <TicketSettingsSections />
           <WorkforceAnalyticsPolicySection />
+          <EmailSignatureSection toastOk={toastOk} toastErr={toastErr} />
           <CompanySection toastOk={toastOk} toastErr={toastErr} />
         </>
       )}

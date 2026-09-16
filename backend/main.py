@@ -17,7 +17,7 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
@@ -146,6 +146,8 @@ def _run_migrations():
             "ALTER TABLE hr_sign_parties ADD COLUMN ial VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_parties ADD COLUMN aal VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_parties ADD COLUMN signed_geo VARCHAR DEFAULT ''",
+            # Nexus Sign: optional SMS destination for the signing one-time code
+            "ALTER TABLE hr_sign_parties ADD COLUMN phone VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_templates ADD COLUMN body_locked BOOLEAN DEFAULT 0",
             # Audit chain: how each entry's hash was computed (1 = pipe, 2 = JCS).
             # Existing rows default to 1 - they were written that way.
@@ -651,6 +653,19 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN geofence_source TEXT DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN geofence_set_by TEXT DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN geofence_set_at TEXT DEFAULT ''",
+            # Email signature builder (Sep 16, Neil)
+            "ALTER TABLE hr_entities ADD COLUMN website VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN main_phone VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN signature_display_name VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN signature_phone VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN signature_template VARCHAR DEFAULT 'classic'",
+            "ALTER TABLE hr_entities ADD COLUMN facebook_url VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN linkedin_url VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN twitter_url VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN instagram_url VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN signature_closing VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN signature_template VARCHAR DEFAULT 'classic'",
+            "ALTER TABLE hr_entities ADD COLUMN signature_closing VARCHAR DEFAULT ''",
             # Task trash (Aug 27): soft delete, same shape as nexus_employees /
             # items - see models.Task and the do_orm_execute hook in database.py.
             "ALTER TABLE tasks ADD COLUMN deleted_at VARCHAR DEFAULT ''",
@@ -930,6 +945,8 @@ def _run_migrations():
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS ial TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS aal TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS signed_geo TEXT DEFAULT ''",
+        # Nexus Sign: optional SMS destination for the signing one-time code
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_documents ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_sign_seals ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS body_locked BOOLEAN DEFAULT FALSE",
@@ -1244,6 +1261,17 @@ def _run_migrations():
         "ALTER TABLE vault_otp_sessions ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE vault_personal_auth ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE vault_personal_unlock_sessions ENABLE ROW LEVEL SECURITY",
+        # Nexus Sign OTP (Sep 2026): create_all builds hr_sign_otp_challenges
+        # with RLS OFF. It holds hashed signing codes keyed to a party, and the
+        # /esign/public/* surface is unauthenticated by design - the anon key
+        # must not be able to read or forge a row in it.
+        "ALTER TABLE hr_sign_otp_challenges ENABLE ROW LEVEL SECURITY",
+        # Nexus Sign upload fields (Sep 2026): create_all builds hr_sign_uploads
+        # with RLS OFF. Its rows point at signer-submitted evidence (insurance
+        # certificates, scanned IDs) reached through the unauthenticated
+        # /esign/public/* surface - the anon key must not be able to enumerate
+        # or forge them.
+        "ALTER TABLE hr_sign_uploads ENABLE ROW LEVEL SECURITY",
         # time_off_requests: manager+ can file on behalf of an employee (Neil, Aug 11);
         # who filed it is recorded so the request never looks self-submitted.
         "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS requested_by VARCHAR DEFAULT ''",
@@ -1439,6 +1467,19 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_source TEXT DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_by TEXT DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_at TEXT DEFAULT ''",
+        # Email signature builder (Sep 16, Neil)
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS website VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS main_phone VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_display_name VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_phone VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_template VARCHAR DEFAULT 'classic'",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS facebook_url VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS twitter_url VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS instagram_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_closing VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_template VARCHAR DEFAULT 'classic'",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_closing VARCHAR DEFAULT ''",
         # Task trash (Aug 27): soft delete, same shape as nexus_employees /
         # items - see models.Task and the do_orm_execute hook in database.py.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TEXT DEFAULT ''",
@@ -2273,6 +2314,7 @@ app.include_router(esign.router)
 app.include_router(documents_router.router)
 app.include_router(timeclock.router)
 app.include_router(myhr.router)
+app.include_router(outlook_addin.router)
 app.include_router(hr_interviews.router)
 app.include_router(task_projects.router)  # Task Module: projects/portfolios/departments
 app.include_router(task_config.router)    # Task Module: views/rules/templates/notifications/changelog

@@ -25,7 +25,7 @@ const TABS = [
   { key: 'documents-dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { key: 'documents-browse', label: 'My Documents', Icon: Folder },
   { key: 'documents-templates', label: 'Templates', Icon: LayoutTemplate },
-  { key: 'documents-esign', label: 'E-Sign', Icon: FileSignature },
+  { key: 'documents-esign', label: 'Nexus Sign', Icon: FileSignature },
   { key: 'documents-pdf', label: 'PDF Tools', Icon: FileText },
 ];
 

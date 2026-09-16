@@ -48,7 +48,7 @@ describe('Documents module', () => {
   it('renders the dashboard tab by default, with the full tab strip', async () => {
     render(<Documents activeSub="" onSubChange={() => {}} />);
     expect(screen.getByText('Documents')).toBeTruthy();
-    for (const label of ['Dashboard', 'My Documents', 'Templates', 'E-Sign', 'PDF Tools']) {
+    for (const label of ['Dashboard', 'My Documents', 'Templates', 'Nexus Sign', 'PDF Tools']) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
     await waitFor(() => expect(mySignatures).toHaveBeenCalled());
@@ -69,7 +69,7 @@ describe('Documents module', () => {
     await waitFor(() => expect(getDocTemplates).toHaveBeenCalled());
   });
 
-  it('renders E-Sign, including its deep-linked requests sub-tab', () => {
+  it('renders Nexus Sign, including its deep-linked requests sub-tab', () => {
     const { unmount } = render(<Documents activeSub="documents-esign" onSubChange={() => {}} />);
     expect(screen.getByText('esign tab')).toBeTruthy();
     unmount();

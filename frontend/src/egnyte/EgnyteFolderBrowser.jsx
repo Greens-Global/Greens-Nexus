@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlignLeft, Bookmark, Check, ChevronRight, Copy, Download, ExternalLink, Eye,
-  FolderInput, FolderPlus, HardDrive, Info, Link2, MoreVertical, PenLine,
+  FolderInput, FolderPlus, HardDrive, Home, Info, Link2, MoreVertical, PenLine,
   RefreshCw, Search, Trash2, Upload, X,
 } from 'lucide-react';
 import { api } from '../api';
@@ -34,12 +34,20 @@ import {
 } from './ui';
 
 const BOOKMARKS_KEY = 'egx-bookmarks';
+// Where Files opens. Per-browser rather than server-side on purpose: it is a
+// convenience, not a permission, and it must degrade to "open at the root"
+// wherever storage is unavailable (private window, blocked site data).
+const DEFAULT_PATH_KEY = 'egx-default-path';
 
 function loadBookmarks() {
   try {
     const v = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || '[]');
     return Array.isArray(v) ? v.filter(b => b && b.path) : [];
   } catch { return []; }
+}
+
+function loadDefaultPath() {
+  try { return localStorage.getItem(DEFAULT_PATH_KEY) || ''; } catch { return ''; }
 }
 
 export default function EgnyteFolderBrowser({
@@ -191,6 +199,17 @@ export default function EgnyteFolderBrowser({
   const [destPick, setDestPick] = useState(null);      // {mode: 'move'|'copy', paths}
   const [bulkBusy, setBulkBusy] = useState('');
   const [bookmarks, setBookmarks] = useState(loadBookmarks);
+  const [defaultPath, setDefaultPath] = useState(loadDefaultPath);
+
+  const isDefault = (p) => !!defaultPath && normPath(p) === normPath(defaultPath);
+  const setAsDefault = (p) => {
+    const next = isDefault(p) ? '' : normPath(p);
+    setDefaultPath(next);
+    try {
+      if (next) localStorage.setItem(DEFAULT_PATH_KEY, next);
+      else localStorage.removeItem(DEFAULT_PATH_KEY);
+    } catch { /* private mode - the choice just does not stick */ }
+  };
 
   const saveBookmarks = (next) => {
     setBookmarks(next);
@@ -446,6 +465,11 @@ export default function EgnyteFolderBrowser({
         icon: <Bookmark size={14} />,
         onClick: () => toggleBookmark(item.path, item.name),
       },
+      isFolder && {
+        label: isDefault(item.path) ? 'Stop opening here' : 'Open here by default',
+        icon: <Home size={14} />,
+        onClick: () => setAsDefault(item.path),
+      },
       { label: 'Details', icon: <Info size={14} />, onClick: () => setDetails({ item, isFolder }) },
       'divider',
       write && { label: 'Rename', icon: <PenLine size={14} />, onClick: () => { setRenameTarget(item); setRenameName(item.name); } },
@@ -657,6 +681,15 @@ export default function EgnyteFolderBrowser({
               disabled={!path}
               onClick={() => toggleBookmark(path, crumbs[crumbs.length - 1]?.name)}>
               <Bookmark size={15} fill={path && isBookmarked(path) ? 'currentColor' : 'none'} />
+            </button>
+            <button type="button" className={`egx-toolbtn${isDefault(path) ? ' is-on' : ''}`}
+              title={!path ? 'Open a folder to make it your default'
+                : (isDefault(path) ? 'Files opens here - click to stop'
+                  : 'Open Files here by default')}
+              aria-label="Open here by default"
+              disabled={!path}
+              onClick={() => setAsDefault(path)}>
+              <Home size={15} fill={isDefault(path) ? 'currentColor' : 'none'} />
             </button>
             <button type="button" className="egx-toolbtn" title="Folder actions" aria-label="Folder actions"
               disabled={!path}

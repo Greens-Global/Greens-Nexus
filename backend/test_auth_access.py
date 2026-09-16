@@ -62,6 +62,23 @@ KNOWN_PUBLIC = {
     # Approve / acknowledge receipt - same token credential, same access-code
     # check and per-IP throttle as signing.
     "/esign/public/{token}/act",
+    # The two gates that stand BEFORE the document renders. Same token
+    # credential, same access-code check and same per-IP guessing throttle as
+    # signing - and they are necessarily pre-auth, because the whole point is
+    # that an external signer has no Nexus account to authenticate with. The
+    # one-time code they mint is itself rate-limited and scoped to one party.
+    "/esign/public/{token}/consent",
+    "/esign/public/{token}/otp/request",
+    "/esign/public/{token}/otp/verify",
+    # Upload fields. Same token credential and access-code check, and - unlike
+    # every other public route here - these run BEHIND both gates: _apply_upload
+    # refuses until the party has consented AND spent a one-time code, so the
+    # write path is not reachable by a token alone. Type, size and PDF-magic
+    # are checked server-side, the file lands in the private bucket the
+    # envelope already uses, and the GET only ever serves a row whose party_id
+    # matches the token's own party.
+    "/esign/public/{token}/upload",
+    "/esign/public/{token}/upload/{upload_id}",
     "/esign/public/verify/{verify_token}",
     "/timeclock/agent/checkin",            # agent device token (get_agent_device)
     "/timeclock/agent/screenshot",
@@ -90,7 +107,7 @@ KNOWN_PUBLIC = {
     "/external-auth/activate/send-phone-code",
 }
 
-_AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device")
+_AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device", "get_addin_user")
 
 
 def _route_dep_names(route):
