@@ -3607,8 +3607,6 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
                 Go to Templates
               </button>
             </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-            </div>
             {templates.length === 0 ? empty(FileText, 'No templates yet - start from the standard Offer / NDA / Handbook set.')
             : templates.map(t => (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', border: '1px solid var(--line)', borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
