@@ -653,6 +653,11 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN geofence_source TEXT DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN geofence_set_by TEXT DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN geofence_set_at TEXT DEFAULT ''",
+            # Email signature builder (Sep 16, Neil)
+            "ALTER TABLE hr_entities ADD COLUMN website VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN main_phone VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN signature_display_name VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN signature_phone VARCHAR DEFAULT ''",
             # Task trash (Aug 27): soft delete, same shape as nexus_employees /
             # items - see models.Task and the do_orm_execute hook in database.py.
             "ALTER TABLE tasks ADD COLUMN deleted_at VARCHAR DEFAULT ''",
@@ -1454,6 +1459,11 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_source TEXT DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_by TEXT DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_at TEXT DEFAULT ''",
+        # Email signature builder (Sep 16, Neil)
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS website VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS main_phone VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_display_name VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_phone VARCHAR DEFAULT ''",
         # Task trash (Aug 27): soft delete, same shape as nexus_employees /
         # items - see models.Task and the do_orm_execute hook in database.py.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TEXT DEFAULT ''",

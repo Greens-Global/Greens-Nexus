@@ -808,6 +808,13 @@ class NexusEmployee(Base):
     geofence_source   = Column(String, default="")            # last_punch | address | manual
     geofence_set_by   = Column(String, default="")
     geofence_set_at   = Column(String, default="")
+    # Email signature overrides (Sep 16, Neil): name/role/company email are NOT
+    # editable here - they stay pulled live from the directory fields above so
+    # the signature can't drift from who someone actually is ("keeps everybody
+    # honest"). Only these two are self-service; empty = fall back to
+    # display_name/first+last and phone respectively.
+    signature_display_name = Column(String, default="")        # preferred name shown on signature, e.g. "Sahil" -> "Sam"
+    signature_phone         = Column(String, default="")       # override for signature only (e.g. desk line instead of cell)
 
 
 class HrRemovedIdentity(Base):
@@ -1253,6 +1260,10 @@ class HrEntity(Base):
     # Who runs this company operationally (a Nexus person's work email) - the
     # escalation target when a worker has no reports-to. Distinct from signatory.
     manager_email      = Column(String, default="")
+    # Branding (Sep 16, Neil): company-wide fields the email signature builder
+    # and other branded surfaces pull from - set once here, consistent everywhere.
+    website            = Column(String, default="")
+    main_phone         = Column(String, default="")
 
 
 class NexusSetting(Base):

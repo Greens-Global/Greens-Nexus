@@ -7,6 +7,7 @@ the HR team; this router is the scoped-to-self counterpart:
   - my signed documents (sealed e-sign PDFs where I was a party)
 Leave (time off) reuses the existing /timeclock/timeoff endpoints.
 """
+import html as html_lib
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -135,6 +136,76 @@ def remove_my_photo(user: dict = Depends(get_current_user), db: Session = Depend
     e.updated_at = _now()
     db.commit()
     return _profile_dict(e, db)
+
+
+# ── Email signature (Sep 16, Neil): text-based (not an image, so it isn't
+# blocked by clients that don't trust images from a new sender) signature
+# built from the company's branding + this person's directory record. Name,
+# role and company e-mail always come straight from the directory - the only
+# self-service fields are a preferred display name and a phone override, so
+# the signature can't be used to impersonate a different role/title/e-mail
+# ("keeps everybody honest" - Neil). Delivery into Outlook itself is a
+# separate, not-yet-decided piece (Exchange transport rule vs. Graph roaming
+# signature) - for now this gives the employee HTML they can copy in.
+
+def _signature_dict(e: NexusEmployee, db: Session) -> dict:
+    company = db.query(HrEntity).filter(HrEntity.id == e.company).first() if e.company else None
+    name = (e.signature_display_name or e.display_name or f"{e.first_name} {e.last_name}").strip()
+    role = (e.designation or e.job_title or "").strip()
+    phone = (e.signature_phone or e.phone or "").strip()
+    fields = {
+        "name": name, "role": role, "phone": phone, "email": e.work_email or "",
+        "logoUrl": (company.logo_url if company else "") or "",
+        "website": (company.website if company else "") or "",
+        "address": (company.registered_address if company else "") or "",
+        "companyPhone": (company.main_phone if company else "") or "",
+    }
+    esc = {k: html_lib.escape(v) if isinstance(v, str) else v for k, v in fields.items()}
+    rows = "".join(
+        f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
+        for v in (esc["role"],
+                  f"Phone: {esc['phone']}" if esc["phone"] else "",
+                  f"Email: {esc['email']}" if esc["email"] else "",
+                  esc["website"], esc["address"])
+        if v
+    )
+    logo_cell = (f'<td style="padding-right:14px;vertical-align:top;">'
+                 f'<img src="{esc["logoUrl"]}" alt="" style="max-height:60px;max-width:160px;" /></td>'
+                 if esc["logoUrl"] else "")
+    sig_html = (
+        '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
+        f'<tr>{logo_cell}<td style="vertical-align:top;">'
+        f'<table style="border-collapse:collapse;"><tr><td style="font-weight:bold;color:#111111;padding-bottom:2px;">{esc["name"]}</td></tr>'
+        f'{rows}</table></td></tr></table>'
+    )
+    return {
+        "fields": fields, "html": sig_html,
+        "canEditDisplayName": True, "canEditPhone": True,
+        "displayNameOverride": e.signature_display_name or "",
+        "phoneOverride": e.signature_phone or "",
+    }
+
+
+@router.get("/signature")
+def my_signature(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _signature_dict(_me(db, user["email"]), db)
+
+
+class SignatureIn(BaseModel):
+    display_name: Optional[str] = None   # e.g. "Sahil" -> "Sam" - name/role/e-mail otherwise always come from the directory
+    phone:        Optional[str] = None   # e.g. desk line instead of cell
+
+
+@router.put("/signature")
+def save_my_signature(body: SignatureIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    e = _me(db, user["email"])
+    if body.display_name is not None:
+        e.signature_display_name = body.display_name.strip()[:120]
+    if body.phone is not None:
+        e.signature_phone = body.phone.strip()[:50]
+    e.updated_at = _now()
+    db.commit()
+    return _signature_dict(e, db)
 
 
 # ── My documents - sealed e-sign PDFs where I was a party ─────────────────────

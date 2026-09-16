@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Camera, Loader2, Sun, Moon, Palette, Check, PanelLeft, Globe2 } from 'lucide-react';
+import { X, Camera, Loader2, Sun, Moon, Palette, Check, PanelLeft, Globe2, Signature, Copy } from 'lucide-react';
 import { api } from '../api';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
@@ -24,6 +24,12 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const [error,   setError]   = useState('');
   const [status,  setStatus]  = useState('');
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [signature, setSignature] = useState(null);
+  const [sigName, setSigName] = useState('');
+  const [sigPhone, setSigPhone] = useState('');
+  const [sigBusy, setSigBusy] = useState(false);
+  const [sigStatus, setSigStatus] = useState('');
+  const [copied, setCopied] = useState(false);
   // Fixed MAX_ZONES slots, '' = unset - a dropdown per slot rather than a
   // checklist of ~400 zones (Pranshu, Sep 1: "make it a drop down"). Local
   // (the detected system zone) is always shown first on the greeting and
@@ -42,11 +48,34 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
 
   useEffect(() => {
     api.myHrProfile().then(setProfile).catch(err => setError(err?.message || 'Could not load your profile.'));
+    api.mySignature().then(s => { setSignature(s); setSigName(s.displayNameOverride || ''); setSigPhone(s.phoneOverride || ''); }).catch(() => {});
   }, []);
 
   function handlePhotoSaved(updated) {
     setProfile(updated);
     refreshPhotoMap();
+  }
+
+  async function saveSignature() {
+    setSigBusy(true); setSigStatus('');
+    try {
+      const s = await api.mySignatureSave({ display_name: sigName, phone: sigPhone });
+      setSignature(s); setSigStatus('Saved.');
+    } catch (e) { setSigStatus(e?.message || 'Could not save.'); }
+    setSigBusy(false);
+  }
+
+  async function copySignature() {
+    if (!signature?.html) return;
+    try {
+      if (navigator.clipboard?.write && window.ClipboardItem) {
+        const blob = new Blob([signature.html], { type: 'text/html' });
+        await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })]);
+      } else {
+        await navigator.clipboard.writeText(signature.html);
+      }
+      setCopied(true); setTimeout(() => setCopied(false), 2000);
+    } catch { setSigStatus('Could not copy - select the preview and copy manually.'); }
   }
 
   if (photoOpen && profile) {
@@ -104,6 +133,41 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             {error && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', marginTop: 4 }}>{error}</div>}
           </>)}
         </div>
+
+        {signature && (
+          <div style={{ borderTop: '1px solid var(--line)', padding: '14px 18px 18px', fontFamily: 'Inter, sans-serif' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+              <Signature size={11} /> Email Signature
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+              Name, role and company e-mail come from your directory record. You can only override your phone and preferred display name below.
+            </div>
+            <div
+              style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 10, marginBottom: 10, background: '#fff', overflow: 'auto' }}
+              dangerouslySetInnerHTML={{ __html: signature.html }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+              <input className="form-input" placeholder="Preferred display name (e.g. Sam instead of Sahil)" value={sigName}
+                onChange={e => setSigName(e.target.value)} style={{ fontSize: 13 }} />
+              <input className="form-input" placeholder="Phone for signature (defaults to your profile phone)" value={sigPhone}
+                onChange={e => setSigPhone(e.target.value)} style={{ fontSize: 13 }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="secondary-btn" onClick={saveSignature} disabled={sigBusy}
+                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {sigBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={12} />} Save
+              </button>
+              <button className="secondary-btn" onClick={copySignature}
+                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Copy size={12} /> {copied ? 'Copied!' : 'Copy Signature'}
+              </button>
+            </div>
+            {sigStatus && <div style={{ fontSize: 11.5, color: sigStatus === 'Saved.' ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))', marginTop: 6 }}>{sigStatus}</div>}
+            <p style={{ fontSize: 11, color: 'var(--muted)', margin: '8px 0 0' }}>
+              Paste this into Outlook: Settings → Mail → Compose and reply → Signatures.
+            </p>
+          </div>
+        )}
 
         {onThemeToggle && (
           <div style={{ borderTop: '1px solid var(--line)', padding: '14px 18px 18px', fontFamily: 'Inter, sans-serif' }}>
