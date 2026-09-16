@@ -1200,6 +1200,7 @@ export const api = {
   myHrPhotoRemove: ()      => req('/myhr/profile/photo', { method: 'DELETE' }),
   mySignature:     ()      => req('/myhr/signature'),
   mySignatureSave: (body)  => req('/myhr/signature', { method: 'PUT', body: JSON.stringify(body) }),
+  mySignatureTemplates: () => req('/myhr/signature/templates'),
   myHrDocs:        ()      => req('/myhr/documents'),
   myHrDocDownload: (rid)   => req(`/myhr/documents/${rid}/download`),
   myPaystubs:      ()      => req('/myhr/paystubs'),
