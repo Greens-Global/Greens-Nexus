@@ -1869,6 +1869,8 @@ class EntityIn(BaseModel):
     registered_address: Optional[str] = ""
     signatory:          Optional[str] = ""
     logo_url:           Optional[str] = ""
+    website:            Optional[str] = ""
+    main_phone:         Optional[str] = ""
     notes:              Optional[str] = ""
     domains:            Optional[str] = ""   # comma-separated email domains
     manager_email:      Optional[str] = ""   # company manager (a Nexus person)
@@ -1882,6 +1884,8 @@ class EntityUpdate(BaseModel):
     registered_address: Optional[str] = None
     signatory:          Optional[str] = None
     logo_url:           Optional[str] = None
+    website:            Optional[str] = None
+    main_phone:         Optional[str] = None
     notes:              Optional[str] = None
     domains:            Optional[str] = None
     manager_email:      Optional[str] = None
@@ -1891,7 +1895,8 @@ def _serialize_entity(e: HrEntity) -> dict:
     return {
         "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
-        "logoUrl": e.logo_url, "notes": e.notes, "domains": e.domains or "",
+        "logoUrl": e.logo_url, "website": e.website or "", "mainPhone": e.main_phone or "",
+        "notes": e.notes, "domains": e.domains or "",
         "managerEmail": e.manager_email or "",
         "createdAt": e.created_at, "updatedAt": e.updated_at,
     }
@@ -1917,7 +1922,8 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         id=str(uuid.uuid4()), name=body.name.strip(), legal_name=(body.legal_name or "").strip(),
         country=(body.country or "").strip(), tax_id=(body.tax_id or "").strip(),
         registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
-        logo_url=(body.logo_url or "").strip(), notes=body.notes or "",
+        logo_url=(body.logo_url or "").strip(), website=(body.website or "").strip(),
+        main_phone=(body.main_phone or "").strip(), notes=body.notes or "",
         domains=_norm_domains(body.domains or ""),
         manager_email=(body.manager_email or "").strip().lower(),
         created_by=user["email"], created_at=now, updated_at=now,
@@ -1968,6 +1974,38 @@ def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: S
     if row:
         db.delete(row); db.commit()
     return {"ok": True}
+
+
+@router.post("/entities/{entity_id}/logo")
+async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
+                             user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Company logo for branding/signature use - same avatar bucket and size
+    limit as employee photos (Sep 16, Neil: consistent company branding)."""
+    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Entity not found")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Entity not found")
+    ext = _IMAGE_TYPES.get(file.content_type or "")
+    if not ext:
+        raise HTTPException(400, "Logo must be JPEG, PNG, WebP or GIF")
+    data = await file.read()
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise HTTPException(400, "Logo must be under 5 MB")
+    path = f"entities/{entity_id}/{uuid.uuid4()}.{ext}"
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": file.content_type,
+                 "cache-control": "max-age=31536000"},
+        content=data, timeout=60,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    row.logo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_entity(row)
 
 
 # ── Group manager - one person overseeing ALL companies (the escalation step
