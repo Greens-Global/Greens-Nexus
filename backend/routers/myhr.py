@@ -202,15 +202,27 @@ _TYPEWRITER_CSS = (
 
 def _social_icons(f: dict) -> str:
     """Small monochrome-brand circular badges (text glyphs, not hosted images -
-    stays a real text-based signature, no image blocking)."""
+    stays a real text-based signature, no image blocking). Shown on every
+    template, not just the script-style ones (Pranshu, Sep 16).
+
+    The background lives on the <td>, never the <a> - mail/webmail paste
+    sanitizers (Outlook Web's included) routinely strip background-color off
+    anchor tags to stop spoofed-looking links, which was exactly why the
+    badges disappeared once copied into a real compose window even though
+    they looked fine in our own preview. Table cells keep their background
+    everywhere, so this is the standard "bulletproof" email-HTML pattern."""
     links = [(f["facebookUrl"], "f"), (f["linkedinUrl"], "in"), (f["twitterUrl"], "X"), (f["instagramUrl"], "ig")]
-    badges = "".join(
-        f'<a href="{url}" style="text-decoration:none;display:inline-block;width:22px;height:22px;'
-        f'border-radius:50%;background:{_BRAND_GREEN};color:#ffffff;font-size:10px;font-weight:bold;'
-        f'text-align:center;line-height:22px;margin-right:6px;">{label}</a>'
-        for url, label in links if url
+    active = [(url, label) for url, label in links if url]
+    if not active:
+        return ""
+    cells = "".join(
+        f'<td style="background:{_BRAND_GREEN};border-radius:50%;text-align:center;" width="22" height="22">'
+        f'<a href="{url}" style="color:#ffffff;font-size:10px;font-weight:bold;text-decoration:none;'
+        f'display:block;line-height:22px;">{label}</a></td>'
+        f'<td style="width:6px;font-size:1px;line-height:1px;">&nbsp;</td>'
+        for url, label in active
     )
-    return badges
+    return f'<table role="presentation" style="border-collapse:collapse;"><tr>{cells}</tr></table>'
 
 
 def _role_company_line(f: dict) -> str:
@@ -229,11 +241,15 @@ def _render_classic(f: dict) -> str:
     logo_cell = (f'<td style="padding-right:14px;vertical-align:top;">'
                  f'<img src="{f["logoUrl"]}" alt="" style="max-height:60px;max-width:160px;" /></td>'
                  if f["logoUrl"] else "")
+    social = _social_icons(f)
+    social_row = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if social else ""
     return (
         '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
         f'<tr>{logo_cell}<td style="vertical-align:top;">'
         f'<table style="border-collapse:collapse;"><tr><td style="font-weight:bold;color:#111111;padding-bottom:2px;">{f["name"]}</td></tr>'
-        f'{rows}</table></td></tr></table>'
+        f'{rows}</table></td></tr>'
+        f'{social_row}'
+        '</table>'
     )
 
 
@@ -244,13 +260,15 @@ def _render_modern(f: dict) -> str:
     ) if v)
     logo_row = (f'<tr><td colspan="2" style="padding-top:8px;"><img src="{f["logoUrl"]}" alt="" '
                 f'style="max-height:44px;max-width:150px;" /></td></tr>' if f["logoUrl"] else "")
+    social = _social_icons(f)
+    social_row = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if social else ""
     return (
         f'<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
         f'<tr><td style="border-left:3px solid {_BRAND_GREEN};padding-left:12px;">'
         f'<div style="font-size:15px;font-weight:bold;color:#111111;">{f["name"]}</div>'
         f'<div style="color:{_BRAND_GREEN};font-weight:600;margin:2px 0 6px;">{f["role"]}</div>'
         f'<div style="color:#555555;">{contact}</div>'
-        f'</td></tr>{logo_row}</table>'
+        f'</td></tr>{logo_row}{social_row}</table>'
     )
 
 
@@ -260,11 +278,14 @@ def _render_minimal(f: dict) -> str:
         f"Email: {f['email']}" if f["email"] else "",
     ) if v)
     tail = f" &nbsp;&mdash;&nbsp; {line}" if line else ""
+    social = _social_icons(f)
+    social_block = f'<div style="margin-top:4px;">{social}</div>' if social else ""
     return (
         '<div style="font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#333333;">'
         f'<span style="font-weight:bold;color:#111111;">{f["name"]}</span>'
         f'{tail}'
         '</div>'
+        f'{social_block}'
     )
 
 
@@ -279,6 +300,8 @@ def _render_bold(f: dict) -> str:
     )
     role_span = (f'<span style="color:#eafff2;font-size:12.5px;"> &nbsp;&middot;&nbsp; {f["role"]}</span>'
                  if f["role"] else "")
+    social = _social_icons(f)
+    social_block = f'<div style="padding-top:8px;">{social}</div>' if social else ""
     return (
         '<table style="font-family:Arial,Helvetica,sans-serif;border-collapse:collapse;">'
         f'<tr><td style="background:{_BRAND_GREEN};padding:10px 14px;border-radius:4px 4px 0 0;" colspan="2">'
@@ -288,6 +311,7 @@ def _render_bold(f: dict) -> str:
         f'<tr><td style="border:1px solid #e2e2e2;border-top:none;padding:10px 14px;" colspan="2">'
         f'<table style="border-collapse:collapse;"><tr>{logo_cell}<td style="vertical-align:top;">'
         f'<table style="border-collapse:collapse;">{rows}</table></td></tr></table>'
+        f'{social_block}'
         '</td></tr></table>'
     )
 
