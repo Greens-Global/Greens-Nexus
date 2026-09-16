@@ -86,3 +86,21 @@
 # cache headers.
 /pdf-editor-app/*
   Cache-Control: no-cache
+
+# Outlook Add-in (Sep 16): commands.html has to load inside an iframe hosted
+# BY Outlook (outlook.office.com / outlook.office365.com / New Outlook's
+# WebView2), which the site-wide `frame-ancestors 'self'` above refuses -
+# that directive exists to stop clickjacking from a random third-party site,
+# not to block the one legitimate cross-origin embedder we actually want.
+# A CSP header is replaced wholesale (not merged directive-by-directive) by
+# the more specific, later-declared block Cloudflare Pages picks for this
+# path, so this is a complete, narrow policy for just this one page rather
+# than the app-wide one plus a tweak: script-src needs Microsoft's Office.js
+# CDN (the app-wide policy doesn't have it - nothing else in Nexus loads
+# Office.js), and connect-src needs our own API host + the Microsoft identity
+# endpoints Office.auth.getAccessToken talks to. Modern Chromium (all of
+# OWA/New Outlook) prefers CSP frame-ancestors over the legacy
+# X-Frame-Options when both are present, so the inherited
+# `X-Frame-Options: SAMEORIGIN` from the /* block above is harmless here.
+/outlook-addin/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://appsforoffice.microsoft.com; connect-src 'self' https://*.azurewebsites.net https://login.microsoftonline.com https://*.microsoftonline.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self' https://outlook.office.com https://outlook.office365.com https://outlook.live.com; base-uri 'self';

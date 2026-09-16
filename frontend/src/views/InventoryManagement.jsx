@@ -21,6 +21,8 @@ import { useNameResolver }  from '../lib/useNameResolver';
 import { formatDate, formatDateLong, formatTime } from '../lib/datetime';
 import { useAssignments, MyPermanentPanel, AssignmentsQueue, AssignItemModal } from '../components/Assignments';
 import { renderNotifBody } from '../components/NotificationBell';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 // Controlled item types - mirror _ITEM_TYPES in backend/routers/items.py. Add/edit
@@ -635,7 +637,6 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
   const [saving,        setSaving]        = useState(false);
   const [aiFilling,     setAiFilling]     = useState(false);
   const [error,         setError]         = useState('');
-  useEscapeKey(() => { if (!saving) onClose(); }); // don't close mid-save (P4)
 
   async function aiFindPhoto() {
     setAiFilling(true); setError('');
@@ -666,10 +667,20 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
       .finally(() => setSaving(false));
   }
 
+  const dirty = name !== item.name || itemType !== (item.itemType || 'Other') || make !== (item.make || '')
+    || model !== (item.model || '') || year !== (item.year || '') || department !== (item.department || '')
+    || defaultOwner !== (item.defaultOwner || '') || ownershipType !== (item.ownershipType || 'transient')
+    || status !== (item.status || 'available') || opStatus !== (item.opStatus || '')
+    || opPersonEmail !== (item.opStatusPersonEmail || '') || opPersonName !== (item.opStatusPersonName || '')
+    || location !== (item.location || '') || photoUrl !== (item.photoUrl || '')
+    || pictureRequired !== (item.pictureRequired !== false)
+    || assetValue !== (item.assetValue ? String(item.assetValue) : '');
+  const guard = useUnsavedGuard(dirty, onClose, name.trim() ? submit : undefined);
+
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}
-      onClick={e => e.target === e.currentTarget && !saving && onClose()}>
+      onClick={e => e.target === e.currentTarget && !saving && guard.requestClose()}>
       {/* Wide enough that no label or select option ever truncates (e.g.
           "Temporary (check-out/return)" was getting cut off at 500px) */}
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:620, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
@@ -784,6 +795,10 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={name.trim() ? guard.saveAndClose : undefined} saving={guard.saving || saving} />
+      )}
     </div>
   );
 }
@@ -1018,8 +1033,6 @@ function ImportItemsModal({ onClose, onImport, customFields = [], knownDepts = [
   const [importErr, setImportErr] = useState('');
   const [done,      setDone]      = useState(null);
   const fileRef = useRef(null);
-  // Don't let ESC/backdrop dismiss the modal mid-import (P4 modal polish).
-  useEscapeKey(() => { if (!importing) onClose(); });
 
   const [parsing, setParsing] = useState(false);
   async function handleFile(file) {
@@ -1064,10 +1077,15 @@ function ImportItemsModal({ onClose, onImport, customFields = [], knownDepts = [
   const unknownTypes = [...new Set(warned.map(r => (r.item_type || '').trim()).filter(Boolean))];
   const PREVIEW_CAP = 1000;
 
+  // Nothing worth confirming once the import finished - the work is saved,
+  // and before a file is parsed there's nothing to lose either.
+  const dirty = !!rows && !done;
+  const guard = useUnsavedGuard(dirty, onClose, undefined);
+
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && !importing && onClose()}>
+      onClick={e => e.target === e.currentTarget && !importing && guard.requestClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:920, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'92vh', overflowY:'auto' }}>
         {done ? (
           <>
@@ -1183,6 +1201,9 @@ function ImportItemsModal({ onClose, onImport, customFields = [], knownDepts = [
           </>
         )}
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} />
+      )}
     </div>
   );
 }
@@ -1284,8 +1305,6 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
   const [condition,     setCondition]     = useState('ok');
   const [submitting,    setSubmitting]    = useState(false);
   const fileRef = useRef(null);
-  // Don't let ESC dismiss mid-submit (P4 modal polish).
-  useEscapeKey(() => { if (!submitting) onClose(); });
 
   function handleFile(f) {
     if (!f) return;
@@ -1304,10 +1323,14 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
       .finally(() => setSubmitting(false));
   }
 
+  const dirty = !!file || conditionNote.trim() !== '' || condition !== 'ok';
+  const canSave = !!file || photoOptional;
+  const guard = useUnsavedGuard(dirty, onClose, canSave ? submit : undefined);
+
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && !submitting && onClose()}>
+      onClick={e => e.target === e.currentTarget && !submitting && guard.requestClose()}>
       <div tabIndex={0} style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', outline:'none' }}
         onPaste={e => { const f = imageFromPaste(e); if (f) { e.preventDefault(); handleFile(f); } }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Return Item</h3>
@@ -1368,6 +1391,10 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={canSave ? guard.saveAndClose : undefined} saving={guard.saving || submitting} />
+      )}
     </div>
   );
 }
@@ -1378,7 +1405,6 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
   const [reason, setReason] = useState('');
   const [busy,   setBusy]   = useState(false);
   const [error,  setError]  = useState('');
-  useEscapeKey(onClose);
 
   function submit() {
     if (busy || !reason.trim()) return;
@@ -1388,10 +1414,13 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
       .catch(err => { setError(err?.message || 'Could not submit extension request.'); setBusy(false); });
   }
 
+  const dirty = days !== 1 || reason.trim() !== '';
+  const guard = useUnsavedGuard(dirty, onClose, reason.trim() ? submit : undefined);
+
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request an Extension</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
@@ -1430,6 +1459,10 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={reason.trim() ? guard.saveAndClose : undefined} saving={guard.saving || busy} />
+      )}
     </div>
   );
 }
@@ -2462,7 +2495,6 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
     // Backend rejects >90 days - clamp here too (cart/extension already cap at 90).
     setDays(d => ({ ...d, [id]: Number.isNaN(n) ? '' : Math.max(1, Math.min(90, n)) }));
   };
-  useEscapeKey(onClose);
 
   // Same defaulting as the cart: last-used manager, else the usual manager
   // for these items' departments
@@ -2492,10 +2524,16 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
       .catch(err => { setError(err?.message || 'Could not submit the request.'); setBusy(false); });
   }
 
+  // approverEmail is excluded - it's auto-filled from the last-used manager, not
+  // something the user typed, so its presence alone shouldn't count as dirty.
+  const initialDays = Object.fromEntries(checkouts.map(c => [c.id, c.days || 1]));
+  const dirty = reason.trim() !== '' || JSON.stringify(days) !== JSON.stringify(initialDays);
+  const guard = useUnsavedGuard(dirty, onClose, canSubmit ? submit : undefined);
+
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:440, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'85vh', overflowY:'auto' }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request Again</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
@@ -2542,6 +2580,10 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={canSubmit ? guard.saveAndClose : undefined} saving={guard.saving || busy} />
+      )}
     </div>
   );
 }
@@ -4215,7 +4257,6 @@ function BatchTabs({ tab, onTab }) {
 }
 
 function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, onSave, saving, locations = [], types = ITEM_TYPES }) {
-  useEscapeKey(onClose);
   const [enabled, setEnabled] = useState(new Set());
   const [vals,    setVals]    = useState({});
   // Assignment lives in Batch Edit now (Neil: not a separate button). Optional -
@@ -4246,12 +4287,15 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
     onSave(fields, assignment);
   }
 
+  const dirty = enabled.size > 0 || assignOn;
+  const guard = useUnsavedGuard(dirty, onClose, canSave ? submit : undefined);
+
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background:'var(--card)', borderRadius:16, padding:'22px 28px 20px', width:'100%', maxWidth:480, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh, 680px)', display:'flex', flexDirection:'column' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
           <BatchTabs tab="fields" onTab={onSwitchTab} />
-          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
         <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>
           Edit {selectedItems.length} {usingSelection ? 'selected' : 'shown'} item{selectedItems.length !== 1 ? 's' : ''}
@@ -4355,6 +4399,10 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={canSave ? guard.saveAndClose : undefined} saving={guard.saving || saving} />
+      )}
     </div>
   );
 }
@@ -4666,7 +4714,6 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
 // operational status, location assignment, and admin-defined custom fields - so
 // the table stays lean. Editable in place.
 function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast }) {
-  useEscapeKey(onClose);
   const nameOf = useNameResolver(); // resolve holder name, never a raw email (P4 names)
   const applicable = (customFields || []).filter(f => !f.appliesToType || f.appliesToType === item.itemType);
   const [op,      setOp]      = useState(item.opStatus || '');
@@ -4706,8 +4753,13 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
     </div>
   );
 
+  const dirty = canEdit && (op !== (item.opStatus || '') || opPersonEmail !== (item.opStatusPersonEmail || '')
+    || opPersonName !== (item.opStatusPersonName || '') || JSON.stringify(values) !== JSON.stringify(item.customFields || {})
+    || loc !== (item.assignedToLocation || ''));
+  const guard = useUnsavedGuard(dirty, onClose, canEdit ? save : undefined);
+
   return (
-    <div role="dialog" aria-modal="true" style={{ position:'fixed', inset:0, zIndex:1200 }} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div role="dialog" aria-modal="true" style={{ position:'fixed', inset:0, zIndex:1200 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.4)' }} />
       <div style={{ position:'absolute', top:0, right:0, height:'100vh', width:'min(520px,96vw)', background:'var(--card)', boxShadow:'-12px 0 48px rgba(0,0,0,0.22)', display:'flex', flexDirection:'column' }}>
         <div style={{ padding:'18px 22px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
@@ -4719,7 +4771,7 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
             <div style={{ fontWeight:700, fontSize:15, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
             <div style={{ fontSize:11.5, color:'var(--muted)', fontFamily:'ui-monospace,Menlo,monospace' }}>{item.serialNumber || '-'}</div>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
 
         <div style={{ overflowY:'auto', flex:1, padding:'14px 22px' }}>
@@ -4802,6 +4854,10 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
           </div>
         )}
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={canEdit ? guard.saveAndClose : undefined} saving={guard.saving || saving} />
+      )}
     </div>
   );
 }
@@ -4820,7 +4876,6 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
   const [newType, setNewType] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null); // type pending an in-use delete confirm
-  useEscapeKey(onClose);
 
   async function add() {
     const name = newType.trim();
@@ -4841,12 +4896,15 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
   // a stray click). Types still in use keep their text but stop being pickable.
   const askRemove = name => setConfirmDel(name);
 
+  const dirty = newType.trim() !== '';
+  const guard = useUnsavedGuard(dirty, onClose, dirty ? async () => { await add(); onClose(); } : undefined);
+
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background:'var(--card)', borderRadius:16, padding:'22px 26px 20px', width:'100%', maxWidth:440, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh,640px)', display:'flex', flexDirection:'column' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
           <h3 style={{ margin:0, fontSize:16, fontWeight:700, display:'inline-flex', alignItems:'center', gap:7 }}><Tag size={16} /> Manage Item Types</h3>
-          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
         <p style={{ margin:'0 0 14px', fontSize:12.5, color:'var(--muted)' }}>
           These are the types everyone picks from. A CSV import may match a new/unknown type to one of these or create it - the created ones are reported after the import. Add or curate them here.
@@ -4886,12 +4944,15 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
           ))}
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={dirty ? guard.saveAndClose : undefined} saving={guard.saving || busy} />
+      )}
     </div>
   );
 }
 
 export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
-  useEscapeKey(onClose);
   const [label,      setLabel]      = useState('');
   const [fieldType,  setFieldType]  = useState('text');
   const [options,    setOptions]    = useState('');
@@ -4924,12 +4985,15 @@ export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
     finally { setBusyId(null); }
   }
 
+  const dirty = label.trim() !== '' || fieldType !== 'text' || options !== '' || appliesTo !== '';
+  const guard = useUnsavedGuard(dirty, onClose, label.trim() ? async () => { await add(); onClose(); } : undefined);
+
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
         <div style={{ padding:'20px 24px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Custom Fields</h3>
-          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY:'auto', flex:1, padding:'14px 24px' }}>
           {/* Existing */}
@@ -5004,6 +5068,10 @@ export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={label.trim() ? guard.saveAndClose : undefined} saving={guard.saving || saving} />
+      )}
     </div>
   );
 }
@@ -5114,7 +5182,6 @@ function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
 
 // ── Send Alert Modal ──────────────────────────────────────────────────────────
 export function SendAlertModal({ onClose, toast }) {
-  useEscapeKey(onClose);
   const { accounts } = useMsal();
   const senderName  = cleanName(accounts[0]?.name ?? 'Manager');
 
@@ -5166,8 +5233,12 @@ export function SendAlertModal({ onClose, toast }) {
     }
   }
 
+  const dirty = selected.size > 0 || subject.trim() !== '' || message.trim() !== '';
+  const canSave = selected.size > 0 && !!subject.trim() && !!message.trim();
+  const guard = useUnsavedGuard(dirty, onClose, canSave ? handleSend : undefined);
+
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
         {/* Header */}
         <div style={{ padding:'20px 24px 16px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
@@ -5180,7 +5251,7 @@ export function SendAlertModal({ onClose, toast }) {
               <p style={{ margin:0, fontSize:12, color:'var(--muted)' }}>Bell notification + email to selected users</p>
             </div>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY:'auto', flex:1, padding:'16px 24px', display:'flex', flexDirection:'column', gap:16 }}>
           {/* Recipients */}
@@ -5231,6 +5302,10 @@ export function SendAlertModal({ onClose, toast }) {
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={canSave ? guard.saveAndClose : undefined} saving={guard.saving || sending} />
+      )}
     </div>
   );
 }
@@ -5241,7 +5316,6 @@ export function SendAlertModal({ onClose, toast }) {
 // select-all checkboxes. One send-alert call per selected person = one bell
 // notification + one email each, covering all their items in a single message.
 function OverdueAlertModal({ checkouts, onClose, toast }) {
-  useEscapeKey(onClose);
   const [selected, setSelected] = useState(null); // null until groups computed → select all by default
   const [note,     setNote]     = useState('');
   const [sending,  setSending]  = useState(false);
@@ -5302,8 +5376,10 @@ function OverdueAlertModal({ checkouts, onClose, toast }) {
   }
 
   const allWithEmail = groups.filter(g => g.email);
+  const dirty = note.trim() !== '';
+  const guard = useUnsavedGuard(dirty, onClose, sendable.length ? handleSend : undefined);
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'min(90dvh, 720px)', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
         <div style={{ padding:'20px 24px 16px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -5315,7 +5391,7 @@ function OverdueAlertModal({ checkouts, onClose, toast }) {
               <p style={{ margin:0, fontSize:12, color:'var(--muted)' }}>Bell notification + email, one per person, listing their overdue items</p>
             </div>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY:'auto', flex:1, padding:'16px 24px', display:'flex', flexDirection:'column', gap:14 }}>
           {groups.length === 0 ? (
@@ -5384,6 +5460,10 @@ function OverdueAlertModal({ checkouts, onClose, toast }) {
           </div>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={sendable.length ? guard.saveAndClose : undefined} saving={guard.saving || sending} />
+      )}
     </div>
   );
 }
@@ -5991,7 +6071,6 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm, photoOptional = fal
   const [uploading,  setUploading]  = useState(false);
   const [error,      setError]      = useState('');
   const fileRef = useRef(null);
-  useEscapeKey(onClose);
 
   function handleFile(f) {
     if (!f) return;
@@ -6016,10 +6095,14 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm, photoOptional = fal
       .catch(err => { setError(err?.message || 'Could not confirm receipt.'); setUploading(false); });
   }
 
+  const dirty = !!file;
+  const canSave = !!file || photoOptional;
+  const guard = useUnsavedGuard(dirty, onClose, canSave ? submit : undefined);
+
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div tabIndex={0} style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', outline:'none' }}
         onPaste={e => { const f = imageFromPaste(e); if (f) { e.preventDefault(); handleFile(f); } }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Confirm you have it</h3>
@@ -6053,6 +6136,10 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm, photoOptional = fal
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={canSave ? guard.saveAndClose : undefined} saving={guard.saving || uploading} />
+      )}
     </div>
   );
 }
@@ -6106,7 +6193,6 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
   const [photos,    setPhotos]    = useState({});       // { [coId|'batch']: { file, preview, name } }
   const [uploading, setUploading] = useState(false);
   const [error,     setError]     = useState('');
-  useEscapeKey(() => { if (!uploading) onClose(); });
 
   // P0-4: the "Photos by You" path had NO photo guard (button only disabled while
   // uploading), letting a handover complete with no evidence. Mirror
@@ -6160,10 +6246,13 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
 
   const CARD = { background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:460, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'90vh', overflowY:'auto' };
 
+  const dirty = step !== 'who' || Object.values(photos).some(p => p?.file);
+  const guard = useUnsavedGuard(dirty, onClose, undefined);
+
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && !uploading && onClose()}>
+      onClick={e => e.target === e.currentTarget && !uploading && guard.requestClose()}>
       <div style={CARD}>
 
         {/* Step: who takes photos */}
@@ -6287,6 +6376,9 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
           </>
         )}
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} />
+      )}
     </div>
   );
 }
@@ -6303,7 +6395,6 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
   const [photos,    setPhotos]    = useState({});
   const [uploading, setUploading] = useState(false);
   const [error,     setError]     = useState('');
-  useEscapeKey(() => { if (!uploading) onClose(); });
 
   const hasPhotos = photoOptional || (photoMode === 'batch'
     ? !!photos['batch']?.file
@@ -6343,10 +6434,13 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
 
   const CARD = { background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:460, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'90vh', overflowY:'auto' };
 
+  const dirty = (isMulti && step !== 'mode') || Object.values(photos).some(p => p?.file);
+  const guard = useUnsavedGuard(dirty, onClose, undefined);
+
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && !uploading && onClose()}>
+      onClick={e => e.target === e.currentTarget && !uploading && guard.requestClose()}>
       <div style={CARD}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>Confirm Receipt</h3>
         <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16 }}>
@@ -6402,6 +6496,9 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
           </>
         )}
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} />
+      )}
     </div>
   );
 }
@@ -6448,7 +6545,6 @@ function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onC
   const [busy,        setBusy]        = useState(false);
   const [error,       setError]       = useState('');
   const [allocErr,    setAllocErr]    = useState(false);
-  useEscapeKey(onClose);
 
   const loadAllocators = useCallback(() => {
     setAllocErr(false);
@@ -6472,10 +6568,15 @@ function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onC
       .catch(err => { setError(err?.message || 'Could not approve.'); setBusy(false); });
   }
 
+  // Auto-suggested allocator doesn't count as dirty on its own - only a
+  // deliberate change away from it (manual pick or "Assign to Me").
+  const dirty = !!pickedEmail && pickedEmail !== (suggested?.email || '');
+  const guard = useUnsavedGuard(dirty, onClose, dirty ? submit : undefined);
+
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Approve checkout{isMulti ? 's' : ''}</h3>
         {isMulti ? (
@@ -6533,6 +6634,10 @@ function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onC
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={dirty ? guard.saveAndClose : undefined} saving={guard.saving || busy} />
+      )}
     </div>
   );
 }
@@ -6545,7 +6650,6 @@ function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onCo
 
   const [reason, setReason] = useState('');
   const [busy,   setBusy]   = useState(false);
-  useEscapeKey(onClose);
 
   function submit() {
     if (!reason.trim() || busy) return;
@@ -6555,10 +6659,13 @@ function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onCo
       .catch(() => setBusy(false));
   }
 
+  const dirty = reason.trim() !== '';
+  const guard = useUnsavedGuard(dirty, onClose, dirty ? submit : undefined);
+
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:380, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Reject checkout{isMulti ? 's' : ''}</h3>
         {isMulti ? (
@@ -6579,6 +6686,10 @@ function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onCo
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={dirty ? guard.saveAndClose : undefined} saving={guard.saving || busy} />
+      )}
     </div>
   );
 }
@@ -6594,7 +6705,6 @@ function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
   const [reason, setReason] = useState('');
   const [busy,   setBusy]   = useState(false);
   const [error,  setError]  = useState('');
-  useEscapeKey(onClose);
 
   function submit() {
     if (!reason.trim() || busy) return;
@@ -6604,10 +6714,13 @@ function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
       .catch(err => { setError(err?.message || 'Could not check the item back in.'); setBusy(false); });
   }
 
+  const dirty = reason.trim() !== '';
+  const guard = useUnsavedGuard(dirty, onClose, dirty ? submit : undefined);
+
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'min(85dvh, 640px)', display:'flex', flexDirection:'column' }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Force return{multi ? ` ${list.length} Items` : ''}</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16, lineHeight:1.5 }}>
@@ -6638,6 +6751,10 @@ function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={dirty ? guard.saveAndClose : undefined} saving={guard.saving || busy} />
+      )}
     </div>
   );
 }

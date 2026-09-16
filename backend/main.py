@@ -17,7 +17,7 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
@@ -659,6 +659,19 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN geofence_source TEXT DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN geofence_set_by TEXT DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN geofence_set_at TEXT DEFAULT ''",
+            # Email signature builder (Sep 16, Neil)
+            "ALTER TABLE hr_entities ADD COLUMN website VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN main_phone VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN signature_display_name VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN signature_phone VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN signature_template VARCHAR DEFAULT 'classic'",
+            "ALTER TABLE hr_entities ADD COLUMN facebook_url VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN linkedin_url VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN twitter_url VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN instagram_url VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN signature_closing VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN signature_template VARCHAR DEFAULT 'classic'",
+            "ALTER TABLE hr_entities ADD COLUMN signature_closing VARCHAR DEFAULT ''",
             # Task trash (Aug 27): soft delete, same shape as nexus_employees /
             # items - see models.Task and the do_orm_execute hook in database.py.
             "ALTER TABLE tasks ADD COLUMN deleted_at VARCHAR DEFAULT ''",
@@ -1466,6 +1479,19 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_source TEXT DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_by TEXT DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS geofence_set_at TEXT DEFAULT ''",
+        # Email signature builder (Sep 16, Neil)
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS website VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS main_phone VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_display_name VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_phone VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_template VARCHAR DEFAULT 'classic'",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS facebook_url VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS twitter_url VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS instagram_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_closing VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_template VARCHAR DEFAULT 'classic'",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_closing VARCHAR DEFAULT ''",
         # Task trash (Aug 27): soft delete, same shape as nexus_employees /
         # items - see models.Task and the do_orm_execute hook in database.py.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TEXT DEFAULT ''",
@@ -2300,6 +2326,7 @@ app.include_router(esign.router)
 app.include_router(documents_router.router)
 app.include_router(timeclock.router)
 app.include_router(myhr.router)
+app.include_router(outlook_addin.router)
 app.include_router(hr_interviews.router)
 app.include_router(task_projects.router)  # Task Module: projects/portfolios/departments
 app.include_router(task_config.router)    # Task Module: views/rules/templates/notifications/changelog

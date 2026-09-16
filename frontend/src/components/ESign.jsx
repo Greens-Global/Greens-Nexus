@@ -1916,6 +1916,13 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
   const [focusPara, setFocusPara] = useState(null); // paragraph whose Insert dropdown is showing
   const [egnyteFolder, setEgnyteFolder] = useState(t0.egnyteFolder || '');
   const paraRefs = useRef({});
+  const rolesInitial = t0.roles?.length ? t0.roles : [{ key: 'employee', label: 'Employee', order: 1 }];
+  const blocksInitial = (() => { const b = parseBlocks(t0.body); return b.length ? b : [{ type: 'para', text: '' }]; })();
+  const dirty = name !== (t0.name || '') || kind !== (t0.kind || 'custom') || entityId !== (t0.entityId || '')
+    || JSON.stringify(roles) !== JSON.stringify(rolesInitial)
+    || JSON.stringify(blocks) !== JSON.stringify(blocksInitial)
+    || JSON.stringify(attachments) !== JSON.stringify(t0.attachments || [])
+    || egnyteFolder !== (t0.egnyteFolder || '');
 
   const setBlock = (i, patch) => setBlocks(bs => bs.map((b, j) => j === i ? { ...b, ...patch } : b));
   // focusPara is an INDEX - remap it on reorder/removal, or the Insert dropdown
@@ -2001,17 +2008,18 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
       toastOk('Template saved.'); onSaved(saved); onClose();
     } catch (e) { toastErr(e?.message || 'Could not save template.'); setBusy(false); }
   }
+  const guard = useUnsavedGuard(dirty, onClose, name.trim() ? save : undefined);
 
   const fieldBlockMeta = { sign: ['Signature', PenTool], date: ['Date signed', CalendarDays],
     initials: ['Initials', Type], check: ['Checkbox', CheckSquare], text: ['Text field', ALargeSmall] };
 
   return (
-    <div style={overlayStyle} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div style={overlayStyle} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={cardStyle(1100, 'min(94dvh, 1020px)')}>
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <FileText size={17} style={{ color: 'var(--pine)' }} />
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{template?.id ? 'Edit Template' : 'New Template'}</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
@@ -2202,6 +2210,10 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
       {editPdf !== null && attachments[editPdf.idx] && (
         <PdfEditor url={editPdf.url} fileName={attachments[editPdf.idx].name} toastErr={toastErr}
           onClose={() => setEditPdf(null)} onSave={savePdfEdit} />
+      )}
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={name.trim() ? guard.saveAndClose : undefined} saving={guard.saving} />
       )}
     </div>
   );
@@ -3273,15 +3285,18 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
     const { url } = await api.downloadSign(requestId); window.open(url, '_blank', 'noopener'); return {};
   }, 'Download started.');
 
+  const editingParty = editPid ? (req?.parties || []).find(p => p.id === editPid) : null;
+  const dirty = !!editingParty && (pf.name !== editingParty.name || pf.email !== editingParty.email || pf.access_code.trim() !== '');
+  const guard = useUnsavedGuard(dirty, onClose, editingParty ? async () => { await saveParty(editingParty); onClose(); } : undefined);
   const sm = req ? (REQ_STATUS[reqStatusKey(req)] || REQ_STATUS.pending) : null;
   return (
-    <div style={overlayStyle} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div style={overlayStyle} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={cardStyle(900, 'min(94dvh, 1020px)')}>
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <FileSignature size={16} style={{ color: 'var(--pine)' }} />
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{req?.title || '…'}</h3>
           {sm && <span style={chip(sm)}>{sm.label}</span>}
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         {!req ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>
@@ -3361,6 +3376,10 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
           </div>
         )}
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={editingParty ? guard.saveAndClose : undefined} saving={guard.saving || busy === 'fix'} />
+      )}
     </div>
   );
 }

@@ -11,6 +11,7 @@ import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
+import { replayPendingBods } from '../lib/bodQueue';
 import { formatTime } from '../lib/datetime';
 import { MyHROverview } from './MyHR';
 
@@ -194,6 +195,33 @@ const hm12 = (v) => {
 const toWindow = (r) => r?.startTime && r?.endTime ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : '';
 const TO_STATUS = { pending: '#b45309', approved: 'hsl(var(--color-green))', rejected: '#b91c1c', cancelled: 'var(--muted)' };
 const TO_TINT = { pending: 'rgba(180,83,9,0.1)', approved: 'hsla(var(--color-green),0.1)', rejected: 'rgba(185,28,28,0.08)', cancelled: 'var(--mist)' };
+
+// Shared by the live "Total" preview on the request form and the year-at-a-
+// glance sidebar's approved-days tally: a partial day counts as its fraction
+// of an 8-hour day, everything else counts whole calendar days inclusive.
+const toDayCount = (start, end, startTime, endTime) => {
+  if (startTime && endTime) {
+    const [sh, sm] = startTime.split(':').map(Number);
+    const [eh, em] = endTime.split(':').map(Number);
+    return Math.max(0, ((eh * 60 + em) - (sh * 60 + sm)) / 480);
+  }
+  const a = new Date(start), b = new Date(end);
+  return isNaN(a) || isNaN(b) ? 0 : Math.round((b - a) / 86400000) + 1;
+};
+
+// Teams-style "All day" switch (see TaskNotifySettings.jsx for the same
+// anatomy) - kept local since this is the only place in Time Off that needs it.
+function AllDayToggle({ on, onChange }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} onClick={onChange}
+      title={on ? 'All day' : 'Specific hours'} style={{
+        position: 'relative', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer',
+        background: on ? 'var(--wk-brand)' : 'var(--wk-line2)', transition: 'background 0.15s', flexShrink: 0,
+      }}>
+      <span style={{ position: 'absolute', top: 2, left: on ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
+    </button>
+  );
+}
 
 // One-shot position with a hard timeout: never keep the user waiting on GPS.
 // `maxMs` caps how long the punch waits on geolocation before firing without it.
@@ -396,43 +424,77 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // nexus:timeclock-changed locally.
   useEffect(() => {
     const stopPoll = pollWhileVisible(load, 20000);
-    const onVis = () => { if (document.visibilityState === 'visible') { load(); loadMyRequests(); } };
+    // A day message parked by bodQueue.js (the server could not be reached when
+    // it was sent) goes out the moment anything can reach the server again.
+    const replayBods = () => { replayPendingBods().catch(() => {}); };
+    const onVis = () => { if (document.visibilityState === 'visible') { load(); loadMyRequests(); replayBods(); } };
     const onChange = () => { load(); loadMyRequests(); };   // a self add/remove request just fired
+    replayBods();
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('focus', onVis);
+    window.addEventListener('online', replayBods);
     window.addEventListener('nexus:timeclock-changed', onChange);
     return () => {
       stopPoll();
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('focus', onVis);
+      window.removeEventListener('online', replayBods);
       window.removeEventListener('nexus:timeclock-changed', onChange);
     };
   }, [load]);
 
   const [timeoff, setTimeoff] = useState(null);
-  const [toForm, setToForm] = useState({ type: 'vacation', start: '', end: '', startTime: '', endTime: '', note: '' });
+  // allDay mirrors Teams' New Request toggle (Pranshu, Sep 16): on = whole
+  // calendar day(s), no time fields; off = a specific window, which the
+  // backend only accepts on a single day, so start/end date stay locked
+  // together while it's off.
+  const [toForm, setToForm] = useState({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '' });
   const [toBusy, setToBusy] = useState(false);
+  const [toCancelling, setToCancelling] = useState(null);
   useEffect(() => { api.timeOffMine().then(setTimeoff).catch(() => setTimeoff([])); }, []);
-  // Partial-day requests (a couple of hours for an appointment) only make sense
-  // on a single day - the time inputs appear once start and end match.
-  const toPartialOk = toForm.start && toForm.end && toForm.start === toForm.end;
+  const toPartialOk = !toForm.allDay && toForm.start && toForm.end && toForm.start === toForm.end;
+  // Live preview of what "Total" will show - same math as the year-at-a-
+  // glance sidebar's approved-days tally, so the two numbers always agree.
+  const toTotalDays = toForm.start && toForm.end
+    ? toDayCount(toForm.start, toForm.end, toPartialOk ? toForm.startTime : '', toPartialOk ? toForm.endTime : '')
+    : 0;
+
+  function toggleAllDay() {
+    setToForm(f => {
+      const allDay = !f.allDay;
+      // Turning the switch off only makes sense for one day - lock end to
+      // start so the time fields that appear are always valid to submit.
+      return { ...f, allDay, end: allDay ? f.end : f.start, startTime: allDay ? '' : f.startTime, endTime: allDay ? '' : f.endTime };
+    });
+  }
 
   async function submitTimeoff() {
     if (toBusy) return;
     if (!toForm.start || !toForm.end) { toast(false, 'Pick the start and end dates.'); return; }
     const st = toPartialOk ? toForm.startTime : '';
     const et = toPartialOk ? toForm.endTime : '';
-    if ((st && !et) || (!st && et)) { toast(false, 'Set both times for a partial day, or clear both for a full day.'); return; }
+    if (!toForm.allDay && (!st || !et)) { toast(false, 'Set the start and end times, or switch All day back on.'); return; }
     if (st && et && et <= st) { toast(false, 'The end time has to be after the start time.'); return; }
     setToBusy(true);
     try {
       await api.timeOffCreate({ type: toForm.type, start_date: toForm.start, end_date: toForm.end,
         start_time: st, end_time: et, note: toForm.note });
       toast(true, 'Time-off request sent - your manager gets a notification.');
-      setToForm({ type: 'vacation', start: '', end: '', startTime: '', endTime: '', note: '' });
+      setToForm({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '' });
       api.timeOffMine().then(setTimeoff).catch(() => {});
     } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
     setToBusy(false);
+  }
+
+  async function cancelTimeoff(id) {
+    if (toCancelling) return;
+    setToCancelling(id);
+    try {
+      await api.timeOffCancel(id);
+      toast(true, 'Request cancelled.');
+      api.timeOffMine().then(setTimeoff).catch(() => {});
+    } catch (e) { toast(false, e?.message || 'Could not cancel the request.'); }
+    setToCancelling(null);
   }
 
   // The moment the punch button was PRESSED. The day-message gate opens before
@@ -1036,39 +1098,74 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           <span className="wkc-chip"><CalendarDays size={14} /></span>
           <span style={HD}>Request Time Off</span>
         </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select className="form-input" value={toForm.type} onChange={e => setToForm(f => ({ ...f, type: e.target.value }))}
-            style={{ width: 140, fontSize: 12.5 }}>
-            {Object.entries(TIMEOFF_TYPES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-          </select>
-          <input className="form-input" type="date" value={toForm.start} onChange={e => setToForm(f => ({ ...f, start: e.target.value }))} style={{ fontSize: 12.5, width: 150 }} />
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
-          <input className="form-input" type="date" value={toForm.end} onChange={e => setToForm(f => ({ ...f, end: e.target.value }))} style={{ fontSize: 12.5, width: 150 }} />
-          <input className="form-input" placeholder="Note (optional)" value={toForm.note}
-            onChange={e => setToForm(f => ({ ...f, note: e.target.value }))} style={{ flex: 1, minWidth: 160, fontSize: 12.5 }} />
-          <button className="primary-btn" onClick={submitTimeoff} disabled={toBusy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {toBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={13} />} Request
-          </button>
-        </div>
-        {/* Partial day: an hour or two off inside one day (doctor's appointment) -
-            leave the times empty for a full day. Only offered on a one-day range. */}
-        {toPartialOk && (
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
-            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Only part of the day?</span>
-            <input className="form-input" type="time" value={toForm.startTime}
-              onChange={e => setToForm(f => ({ ...f, startTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
-            <input className="form-input" type="time" value={toForm.endTime}
-              onChange={e => setToForm(f => ({ ...f, endTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
-            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>leave empty for the full day</span>
-            {(toForm.startTime || toForm.endTime) && (
-              <button onClick={() => setToForm(f => ({ ...f, startTime: '', endTime: '' }))}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)', padding: 0 }}>
-                Clear
+        {/* A grid, not stacked flex rows, so "Total" lands directly under
+            "All day" - the same column - instead of crowding the Note field
+            (Pranshu, Sep 16 follow-up): that also happens to be exactly the
+            blank space row 1 leaves under the toggle once Request is pinned
+            to the far right, so Total fills space that was going unused
+            rather than competing with Note for room. Explicit gridRow on
+            every cell (not auto-flow) keeps this correct whether or not the
+            specific-hours row is present. */}
+        {(() => {
+          const noteRow = toForm.allDay ? 2 : 3;
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: '140px 150px auto 150px auto 1fr auto', gap: 10, alignItems: 'center' }}>
+              <select className="form-input" value={toForm.type} onChange={e => setToForm(f => ({ ...f, type: e.target.value }))}
+                style={{ gridColumn: 1, gridRow: 1, fontSize: 12.5 }}>
+                {Object.entries(TIMEOFF_TYPES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+              <input className="form-input" type="date" value={toForm.start}
+                onChange={e => setToForm(f => ({ ...f, start: e.target.value, end: f.allDay ? f.end : e.target.value }))}
+                style={{ gridColumn: 2, gridRow: 1, fontSize: 12.5 }} />
+              <span style={{ gridColumn: 3, gridRow: 1, fontSize: 12, color: 'var(--muted)' }}>to</span>
+              <input className="form-input" type="date" value={toForm.end} disabled={!toForm.allDay}
+                title={toForm.allDay ? undefined : 'A specific-hours request is single-day only'}
+                onChange={e => setToForm(f => ({ ...f, end: e.target.value }))}
+                style={{ gridColumn: 4, gridRow: 1, fontSize: 12.5, opacity: toForm.allDay ? 1 : 0.55 }} />
+              {/* Teams' New Request "All day" switch (Pranshu, Sep 16): on = whole
+                  day(s), off = a specific start/end time on that one day. */}
+              <label style={{ gridColumn: 5, gridRow: 1, display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <AllDayToggle on={toForm.allDay} onChange={toggleAllDay} />
+                All day
+              </label>
+              <button className="primary-btn" onClick={submitTimeoff} disabled={toBusy}
+                style={{ gridColumn: 7, gridRow: 1, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, justifySelf: 'end' }}>
+                {toBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={13} />} Request
               </button>
-            )}
-          </div>
-        )}
+
+              {/* Specific hours: only offered on a one-day range, since that's
+                  all the backend accepts a start/end time on. */}
+              {!toForm.allDay && (
+                <div style={{ gridColumn: '1 / 5', gridRow: 2, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Start time</span>
+                  <input className="form-input" type="time" value={toForm.startTime}
+                    onChange={e => setToForm(f => ({ ...f, startTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
+                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>End time</span>
+                  <input className="form-input" type="time" value={toForm.endTime}
+                    onChange={e => setToForm(f => ({ ...f, endTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
+                </div>
+              )}
+
+              {/* Note: bigger now that it isn't squeezed against Total
+                  (Pranshu, Sep 16 follow-up) - spans the same width as the
+                  type/date fields above it. */}
+              <textarea className="form-input" placeholder="Note (optional)" value={toForm.note} rows={2}
+                onChange={e => setToForm(f => ({ ...f, note: e.target.value }))}
+                style={{ gridColumn: '1 / 5', gridRow: noteRow, fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit' }} />
+              {/* Total: a live read of what this request will count as, using
+                  the same day-fraction math as the year-at-a-glance tally
+                  below, so the two numbers never disagree (Pranshu, Sep 16) -
+                  directly under "All day", not beside Note. */}
+              {toTotalDays > 0 && (
+                <span style={{ gridColumn: 5, gridRow: noteRow, fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', display: 'flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
+                  Total
+                  <span style={{ fontSize: 13.5 }}>{Math.round(toTotalDays * 100) / 100}</span>
+                  <span style={{ fontWeight: 600, color: 'var(--muted)' }}>day{toTotalDays === 1 ? '' : 's'}</span>
+                </span>
+              )}
+            </div>
+          );
+        })()}
       </div>
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       <div style={{ flex: '1.7 1 440px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', marginBottom: 24, boxShadow: 'var(--wk-shadow)' }}>
@@ -1084,6 +1181,19 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
             {r.note && <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>“{r.note}”</span>}
             <div style={{ flex: 1 }} />
             {r.decideNote && <span style={{ fontSize: 11, color: 'var(--muted)' }} title={r.decideNote}>💬</span>}
+            {/* The requester can withdraw their own request while it's still
+                pending or before it's actually decided against, i.e. anything
+                not already rejected/cancelled (Pranshu, Sep 16 - there was no
+                way to take a request back once filed). */}
+            {(r.status === 'pending' || r.status === 'approved') && (
+              <button onClick={() => cancelTimeoff(r.id)} disabled={toCancelling === r.id}
+                title="Cancel this request"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none',
+                  cursor: toCancelling === r.id ? 'default' : 'pointer', fontSize: 11, fontWeight: 700, color: '#b91c1c',
+                  padding: '2px 6px', opacity: toCancelling === r.id ? 0.5 : 1 }}>
+                {toCancelling === r.id ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <X size={11} />} Cancel
+              </button>
+            )}
             <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'capitalize', padding: '2px 10px', borderRadius: 999,
               background: TO_TINT[r.status] || 'var(--mist)', color: TO_STATUS[r.status] || 'var(--muted)' }}>
               {r.status}
@@ -1099,16 +1209,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         </div>
         {(() => {
           const yr = String(new Date().getFullYear());
-          const dayCount = (r) => {
-            // A partial day counts as its fraction of an 8-hour day.
-            if (r.startTime && r.endTime) {
-              const [sh, sm] = r.startTime.split(':').map(Number);
-              const [eh, em] = r.endTime.split(':').map(Number);
-              return Math.max(0, ((eh * 60 + em) - (sh * 60 + sm)) / 480);
-            }
-            const a = new Date(r.startDate), b = new Date(r.endDate);
-            return isNaN(a) || isNaN(b) ? 0 : Math.round((b - a) / 86400000) + 1;
-          };
+          const dayCount = (r) => toDayCount(r.startDate, r.endDate, r.startTime, r.endTime);
           const approved = (timeoff || []).filter(r => r.status === 'approved' && (r.startDate || '').startsWith(yr));
           const byType = {};
           approved.forEach(r => { byType[r.type] = (byType[r.type] || 0) + dayCount(r); });

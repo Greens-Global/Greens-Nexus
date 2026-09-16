@@ -5,6 +5,7 @@ import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
+import { replayPendingBods } from '../lib/bodQueue';
 
 // Whether a desktop agent covers THIS machine is detected per-machine by asking
 // the local agent directly over localhost. The agent serves a no-side-effect
@@ -86,6 +87,8 @@ export default function TimeclockWidget() {
   // by a dead connection gets its app-wide second chance - the person does not
   // have to find their way back to the Time Clock page for it to land.
   useEffect(() => {
+    // Same app-wide second chance for a day message parked by bodQueue.js.
+    replayPendingBods().catch(() => {});
     if (!readPending()) return;
     replayPending().then(r => { if (r?.restored || r?.dropped) load(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps

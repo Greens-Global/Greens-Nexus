@@ -808,6 +808,15 @@ class NexusEmployee(Base):
     geofence_source   = Column(String, default="")            # last_punch | address | manual
     geofence_set_by   = Column(String, default="")
     geofence_set_at   = Column(String, default="")
+    # Email signature overrides (Sep 16, Neil): name/role/company email are NOT
+    # editable here - they stay pulled live from the directory fields above so
+    # the signature can't drift from who someone actually is ("keeps everybody
+    # honest"). Only these two are self-service; empty = fall back to
+    # display_name/first+last and phone respectively.
+    signature_display_name = Column(String, default="")        # preferred name shown on signature, e.g. "Sahil" -> "Sam"
+    signature_phone         = Column(String, default="")       # override for signature only (e.g. desk line instead of cell)
+    signature_template      = Column(String, default="classic") # which visual layout this employee picked (myhr.SIGNATURE_TEMPLATES)
+    signature_closing       = Column(String, default="")        # preset sign-off line, e.g. "Sincerely" (myhr.SIGNATURE_CLOSINGS) - '' = template default
 
 
 class HrRemovedIdentity(Base):
@@ -1253,6 +1262,23 @@ class HrEntity(Base):
     # Who runs this company operationally (a Nexus person's work email) - the
     # escalation target when a worker has no reports-to. Distinct from signatory.
     manager_email      = Column(String, default="")
+    # Branding (Sep 16, Neil): company-wide fields the email signature builder
+    # and other branded surfaces pull from - set once here, consistent everywhere.
+    website            = Column(String, default="")
+    main_phone         = Column(String, default="")
+    # Social links for the signature's icon row (Sep 16, Pranshu) - company-wide
+    # like the rest of branding, not per-employee, so every signature carries the
+    # same official company pages.
+    facebook_url       = Column(String, default="")
+    linkedin_url       = Column(String, default="")
+    twitter_url        = Column(String, default="")
+    instagram_url      = Column(String, default="")
+    # Signature template/sign-off (Sep 16, Pranshu): an admin-picked, company-
+    # wide default in Settings - not a per-employee choice. Every employee's
+    # signature uses their employer's pick (myhr.SIGNATURE_TEMPLATES /
+    # SIGNATURE_CLOSINGS); only display name and phone stay self-service.
+    signature_template = Column(String, default="classic")
+    signature_closing  = Column(String, default="")
 
 
 class NexusSetting(Base):

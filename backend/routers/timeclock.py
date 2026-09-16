@@ -24,6 +24,7 @@ import json
 import math
 import os
 import secrets
+import re
 import uuid
 from datetime import datetime, timedelta, timezone, date
 from typing import List, Optional
@@ -5540,12 +5541,33 @@ class BodIn(BaseModel):
     send_error: Optional[str] = ""
     tz_offset_min: Optional[int] = 0
     html: Optional[str] = ""         # composed Teams message -> server delivers it
+    # Client-generated row id (uuid). Makes a re-send of the same message land
+    # at most once, so the browser can retry a POST whose outcome it never saw
+    # (network drop, 5xx) instead of dropping the message - see bodQueue.js.
+    id: Optional[str] = ""
+
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 @router.post("/bod")
 def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = _now_iso()
     kind = body.kind if body.kind in ("bod", "eod", "break", "break_end") else "bod"
+    # Idempotent on the client's id: the same message re-sent after an unknown
+    # outcome answers with the row that already exists rather than a second
+    # row and a second Teams post (09/16/2026: Amy's and Vicki's BOD POSTs never
+    # reached the server, the punch right after did, and the message was gone).
+    row_id = (body.id or "").strip().lower()
+    if row_id and _UUID_RE.match(row_id):
+        dup = db.query(TimeBod).filter(TimeBod.id == row_id).first()
+        if dup:
+            if dup.employee_email != user["email"]:
+                raise HTTPException(409, "That message id belongs to someone else")
+            return {"ok": True, "id": dup.id, "sent": bool(dup.sent),
+                    "queued": (not dup.sent) and bool(dup.channel_id and dup.html), "duplicate": True}
+    else:
+        row_id = str(uuid.uuid4())
     chan_id = (body.channel_id or "")[:120]
     chan_name = (body.channel_name or "")[:120]
     # Server-side chat resolution fallback: if the client didn't hand us a chat
@@ -5556,7 +5578,7 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
         rid, rname, _gn = _resolve_group_chat(db, user["email"])
         if rid:
             chan_id, chan_name = rid[:120], (rname or "")[:120]
-    row = TimeBod(id=str(uuid.uuid4()), employee_email=user["email"],
+    row = TimeBod(id=row_id, employee_email=user["email"],
                   kind=kind,
                   local_date=_local_date(now, body.tz_offset_min or 0),
                   message=(body.message or "").strip()[:1000],
@@ -5926,5 +5948,32 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
                f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')} was {body.status}."
                + (f" Note: {row.decide_note}" if row.decide_note else ""),
                ref_id=row.id, action={"view": "timeclock", "sub": ""})
+    db.commit()
+    return _ser_timeoff(row)
+
+
+@router.post("/timeoff/{req_id}/cancel")
+def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The requester withdraws their own request (Pranshu, Sep 16) - there was
+    no way to take one back once filed. Self-service only: the requester, not
+    a manager (that's still the approve/reject decision above). Pending or
+    already-approved can both be cancelled; rejected/cancelled cannot."""
+    row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).first()
+    if not row:
+        raise HTTPException(404, "Request not found")
+    if row.employee_email != user["email"]:
+        raise HTTPException(403, "You can only cancel your own requests.")
+    if row.status not in ("pending", "approved"):
+        raise HTTPException(409, f"Already {row.status}")
+    was_approved = row.status == "approved"
+    row.status = "cancelled"
+    row.decided_at = _now_iso()
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == user["email"]).first()
+    if was_approved and emp and emp.manager_email:
+        _hr_notify(db, emp.manager_email, "Time off cancelled",
+                   f"{_display_name(db, user['email'])} cancelled their {row.type} request "
+                   f"{row.start_date} → {row.end_date}"
+                   f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}.",
+                   ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
     return _ser_timeoff(row)
