@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { Sunrise, Sunset, Coffee, Play, X, Send, Loader2, MessageSquare } from 'lucide-react';
 import { api } from '../api';
+import { bodDurable, newBodId } from '../lib/bodQueue';
 import { msalInstance } from '../msalInstance';
 import { formatTime } from '../lib/datetime';
 import { useRole } from '../contexts/RoleContext';
@@ -173,6 +174,10 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
+  // One id per composed message, kept with the draft: every send attempt of
+  // this message (retries, a replay after the tab reloads) carries the same
+  // id, and the server records it at most once (bodQueue.js).
+  const [msgId] = useState(() => _draft0.id || newBodId());
   const [isMobile, setIsMobile] = useState(isMobileViewport);
 
   useEffect(() => {
@@ -184,7 +189,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
 
   // Persist the draft on every keystroke so a recovery reload can't lose it.
   useEffect(() => {
-    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ message, tasks, pending })); }
+    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ id: msgId, message, tasks, pending })); }
     catch { /* storage blocked */ }
   }, [message, tasks, pending, DRAFT_KEY]);
 
@@ -279,28 +284,33 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     // session's own 90-day credential and retries until it lands. No client
     // Graph call, so a stale browser token can never lose a post and nothing
     // here can ever raise a Microsoft sign-in mid-punch.
-    let resp = null;
-    try {
-      resp = await api.timeBodRecord({
-        kind: mode, message, tasks, channel_id: targetId, channel_name: targetName,
-        // ALWAYS send the composed message. If our chat lookup blipped (targetId
-        // empty), the SERVER resolves the person's bound chat and posts it - a
-        // transient client failure can no longer silently drop the Teams post.
-        html: buildHtml(),
-        sent: false, send_error: '',
-        tz_offset_min: new Date().getTimezoneOffset(),
-      });
-    } catch { /* recording failed after api.js retries - surfaced below */ }
-    if (!targetId) toastOk('Recorded in Nexus.');
-    else if (resp?.sent) toastOk(`Posted to ${targetName || 'your chat'} and recorded.`);
+    // Durable: retried while the outcome is unknown, parked and replayed if the
+    // server can't be reached at all (bodQueue.js). One dropped request used to
+    // lose the message outright - no row, nothing for the server to retry -
+    // while the punch seconds later went through (Amy and Vicki, 09/16/2026).
+    const r = await bodDurable({
+      id: msgId,
+      kind: mode, message, tasks, channel_id: targetId, channel_name: targetName,
+      // ALWAYS send the composed message. If our chat lookup blipped (targetId
+      // empty), the SERVER resolves the person's bound chat and posts it - a
+      // transient client failure can no longer silently drop the Teams post.
+      html: buildHtml(),
+      sent: false, send_error: '',
+      tz_offset_min: new Date().getTimezoneOffset(),
+    });
+    const resp = r.ok ? r.resp : null;
+    if (resp?.sent) toastOk(`Posted to ${targetName || 'your chat'} and recorded.`);
     else if (resp?.queued) toastOk(`Recorded - your ${MODES[mode]?.tag || 'Teams'} post to ${targetName || 'your chat'} is on its way.`);
-    // ok without sent/queued = an older backend answered (mid-deploy version
-    // skew). The row recorded; don't scare the user with a failure toast.
+    // ok without sent/queued = no bound chat, or an older backend answered
+    // (mid-deploy version skew). The row recorded either way.
     else if (resp?.ok) toastOk('Recorded in Nexus.');
-    else toastErr('Could not record your message - check your connection and try again.');
-    // Clear the saved draft only once it's safely recorded - if recording failed,
-    // keep it so reopening restores what they typed.
-    if (resp?.ok || resp?.sent || resp?.queued) clearDraft();
+    else if (r.queued) toastErr('Nexus could not be reached - your message is saved on this device and will be sent automatically.');
+    else if (r.unreachable) toastErr('Nexus could not be reached and this browser cannot save the message - please post it in Teams yourself.');
+    else toastErr(r.error?.message || 'Could not record your message - check your connection and try again.');
+    // Clear the saved draft once it's recorded OR parked for replay (the parked
+    // copy is the draft now); if it was refused, keep it so reopening restores
+    // what they typed.
+    if (resp?.ok || resp?.sent || resp?.queued || r.queued) clearDraft();
     setBusy(false);
     if (onSent) onSent(); else onClose();
   }

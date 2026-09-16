@@ -24,6 +24,7 @@ import json
 import math
 import os
 import secrets
+import re
 import uuid
 from datetime import datetime, timedelta, timezone, date
 from typing import List, Optional
@@ -5540,12 +5541,33 @@ class BodIn(BaseModel):
     send_error: Optional[str] = ""
     tz_offset_min: Optional[int] = 0
     html: Optional[str] = ""         # composed Teams message -> server delivers it
+    # Client-generated row id (uuid). Makes a re-send of the same message land
+    # at most once, so the browser can retry a POST whose outcome it never saw
+    # (network drop, 5xx) instead of dropping the message - see bodQueue.js.
+    id: Optional[str] = ""
+
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 @router.post("/bod")
 def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = _now_iso()
     kind = body.kind if body.kind in ("bod", "eod", "break", "break_end") else "bod"
+    # Idempotent on the client's id: the same message re-sent after an unknown
+    # outcome answers with the row that already exists rather than a second
+    # row and a second Teams post (09/16/2026: Amy's and Vicki's BOD POSTs never
+    # reached the server, the punch right after did, and the message was gone).
+    row_id = (body.id or "").strip().lower()
+    if row_id and _UUID_RE.match(row_id):
+        dup = db.query(TimeBod).filter(TimeBod.id == row_id).first()
+        if dup:
+            if dup.employee_email != user["email"]:
+                raise HTTPException(409, "That message id belongs to someone else")
+            return {"ok": True, "id": dup.id, "sent": bool(dup.sent),
+                    "queued": (not dup.sent) and bool(dup.channel_id and dup.html), "duplicate": True}
+    else:
+        row_id = str(uuid.uuid4())
     chan_id = (body.channel_id or "")[:120]
     chan_name = (body.channel_name or "")[:120]
     # Server-side chat resolution fallback: if the client didn't hand us a chat
@@ -5556,7 +5578,7 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
         rid, rname, _gn = _resolve_group_chat(db, user["email"])
         if rid:
             chan_id, chan_name = rid[:120], (rname or "")[:120]
-    row = TimeBod(id=str(uuid.uuid4()), employee_email=user["email"],
+    row = TimeBod(id=row_id, employee_email=user["email"],
                   kind=kind,
                   local_date=_local_date(now, body.tz_offset_min or 0),
                   message=(body.message or "").strip()[:1000],
