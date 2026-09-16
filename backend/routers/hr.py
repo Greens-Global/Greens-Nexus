@@ -1871,6 +1871,10 @@ class EntityIn(BaseModel):
     logo_url:           Optional[str] = ""
     website:            Optional[str] = ""
     main_phone:         Optional[str] = ""
+    facebook_url:       Optional[str] = ""
+    linkedin_url:       Optional[str] = ""
+    twitter_url:        Optional[str] = ""
+    instagram_url:      Optional[str] = ""
     notes:              Optional[str] = ""
     domains:            Optional[str] = ""   # comma-separated email domains
     manager_email:      Optional[str] = ""   # company manager (a Nexus person)
@@ -1886,6 +1890,10 @@ class EntityUpdate(BaseModel):
     logo_url:           Optional[str] = None
     website:            Optional[str] = None
     main_phone:         Optional[str] = None
+    facebook_url:       Optional[str] = None
+    linkedin_url:       Optional[str] = None
+    twitter_url:        Optional[str] = None
+    instagram_url:      Optional[str] = None
     notes:              Optional[str] = None
     domains:            Optional[str] = None
     manager_email:      Optional[str] = None
@@ -1896,6 +1904,8 @@ def _serialize_entity(e: HrEntity) -> dict:
         "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
         "logoUrl": e.logo_url, "website": e.website or "", "mainPhone": e.main_phone or "",
+        "facebookUrl": e.facebook_url or "", "linkedinUrl": e.linkedin_url or "",
+        "twitterUrl": e.twitter_url or "", "instagramUrl": e.instagram_url or "",
         "notes": e.notes, "domains": e.domains or "",
         "managerEmail": e.manager_email or "",
         "createdAt": e.created_at, "updatedAt": e.updated_at,
@@ -1923,7 +1933,10 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         country=(body.country or "").strip(), tax_id=(body.tax_id or "").strip(),
         registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
         logo_url=(body.logo_url or "").strip(), website=(body.website or "").strip(),
-        main_phone=(body.main_phone or "").strip(), notes=body.notes or "",
+        main_phone=(body.main_phone or "").strip(),
+        facebook_url=(body.facebook_url or "").strip(), linkedin_url=(body.linkedin_url or "").strip(),
+        twitter_url=(body.twitter_url or "").strip(), instagram_url=(body.instagram_url or "").strip(),
+        notes=body.notes or "",
         domains=_norm_domains(body.domains or ""),
         manager_email=(body.manager_email or "").strip().lower(),
         created_by=user["email"], created_at=now, updated_at=now,
