@@ -3299,7 +3299,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
 }
 
 export function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, toastErr, scoped = false }) {
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '', domains: '', manager_email: '', logo_url: '', website: '', main_phone: '' };
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '', domains: '', manager_email: '', logo_url: '', website: '', main_phone: '', facebook_url: '', linkedin_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
@@ -3323,7 +3323,7 @@ export function EntitiesModal({ entities, employees = [], onClose, onChanged, to
   const formSnapshotRef = useRef(blank);
   const startNew = () => { setF(blank); formSnapshotRef.current = blank; setMode('new'); };
   const startEdit = en => {
-    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '', manager_email: en.managerEmail || '', logo_url: en.logoUrl || '', website: en.website || '', main_phone: en.mainPhone || '' };
+    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '', manager_email: en.managerEmail || '', logo_url: en.logoUrl || '', website: en.website || '', main_phone: en.mainPhone || '', facebook_url: en.facebookUrl || '', linkedin_url: en.linkedinUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
     setF(seeded); formSnapshotRef.current = seeded; setMode(en.id);
   };
   async function uploadLogo(file) {
@@ -3431,6 +3431,18 @@ export function EntitiesModal({ entities, employees = [], onClose, onChanged, to
                   </label>
                 </div>
                 {mode === 'new' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>Save the company first, then come back to add a logo.</p>}
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={FL}>SOCIAL LINKS</label>
+                <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+                  Shown as icons on every employee's email signature (Sincerely / Kind Regards templates).
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {field('FACEBOOK', 'facebook_url', { placeholder: 'https://facebook.com/...' })}
+                  {field('LINKEDIN', 'linkedin_url', { placeholder: 'https://linkedin.com/company/...' })}
+                  {field('X (TWITTER)', 'twitter_url', { placeholder: 'https://x.com/...' })}
+                  {field('INSTAGRAM', 'instagram_url', { placeholder: 'https://instagram.com/...' })}
+                </div>
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
                 {field('EMAIL DOMAINS', 'domains', { placeholder: 'e.g. aaravconstruction.com - comma-separated' })}
