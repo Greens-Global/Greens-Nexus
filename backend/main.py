@@ -664,6 +664,8 @@ def _run_migrations():
             "ALTER TABLE hr_entities ADD COLUMN twitter_url VARCHAR DEFAULT ''",
             "ALTER TABLE hr_entities ADD COLUMN instagram_url VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN signature_closing VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN signature_template VARCHAR DEFAULT 'classic'",
+            "ALTER TABLE hr_entities ADD COLUMN signature_closing VARCHAR DEFAULT ''",
             # Task trash (Aug 27): soft delete, same shape as nexus_employees /
             # items - see models.Task and the do_orm_execute hook in database.py.
             "ALTER TABLE tasks ADD COLUMN deleted_at VARCHAR DEFAULT ''",
@@ -1476,6 +1478,8 @@ def _run_migrations():
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS twitter_url VARCHAR DEFAULT ''",
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS instagram_url VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_closing VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_template VARCHAR DEFAULT 'classic'",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_closing VARCHAR DEFAULT ''",
         # Task trash (Aug 27): soft delete, same shape as nexus_employees /
         # items - see models.Task and the do_orm_execute hook in database.py.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TEXT DEFAULT ''",

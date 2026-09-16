@@ -1273,6 +1273,12 @@ class HrEntity(Base):
     linkedin_url       = Column(String, default="")
     twitter_url        = Column(String, default="")
     instagram_url      = Column(String, default="")
+    # Signature template/sign-off (Sep 16, Pranshu): an admin-picked, company-
+    # wide default in Settings - not a per-employee choice. Every employee's
+    # signature uses their employer's pick (myhr.SIGNATURE_TEMPLATES /
+    # SIGNATURE_CLOSINGS); only display name and phone stay self-service.
+    signature_template = Column(String, default="classic")
+    signature_closing  = Column(String, default="")
 
 
 class NexusSetting(Base):

@@ -169,7 +169,10 @@ def _signature_fields(e: NexusEmployee, db: Session) -> dict:
     return {
         "name": name, "role": role, "phone": phone, "email": e.work_email or "",
         "photoUrl": e.photo_url or "",
-        "closing": (e.signature_closing or "").strip(),
+        # Sign-off is a company-wide admin choice now, not personal (Pranshu,
+        # Sep 16: template/sign-off moved to Settings; only name/phone stay
+        # self-service in My Profile).
+        "closing": ((company.signature_closing if company else "") or "").strip(),
         "logoUrl": (company.logo_url if company else "") or "",
         "website": (company.website if company else "") or "",
         "address": (company.registered_address if company else "") or "",
@@ -386,10 +389,44 @@ SIGNATURE_TEMPLATES = {
 _DEFAULT_TEMPLATE = "classic"
 
 
+def admin_preview_fields(company, closing: str = None) -> dict:
+    """Sample fields for the company-wide template picker in Settings - real
+    branding, placeholder person data (there's no 'current employee' in an
+    admin's company-wide preview, since the choice applies to everyone)."""
+    domain = ((company.domains or "").split(",")[0].strip() if company and company.domains else "") or "example.com"
+    return {
+        "name": "Jane Doe", "role": "Job Title", "phone": "(000) 000-0000",
+        "email": f"jane.doe@{domain}", "photoUrl": "",
+        "closing": (closing if closing is not None else (company.signature_closing if company else "")) or "",
+        "logoUrl": (company.logo_url if company else "") or "",
+        "website": (company.website if company else "") or "",
+        "address": (company.registered_address if company else "") or "",
+        "companyPhone": (company.main_phone if company else "") or "",
+        "companyName": (company.name if company else "") or "",
+        "facebookUrl": (company.facebook_url if company else "") or "",
+        "linkedinUrl": (company.linkedin_url if company else "") or "",
+        "twitterUrl": (company.twitter_url if company else "") or "",
+        "instagramUrl": (company.instagram_url if company else "") or "",
+    }
+
+
+def admin_preview_templates(company, closing: str = None) -> list:
+    """Every template pre-rendered with the company's real branding, for the
+    Settings picker (backend/routers/hr.py's /entities/{id}/signature-templates)."""
+    fields = admin_preview_fields(company, closing)
+    esc = {k: html_lib.escape(v) if isinstance(v, str) else v for k, v in fields.items()}
+    return [{"id": tid, "label": label, "html": render_fn(esc)}
+            for tid, (label, render_fn) in SIGNATURE_TEMPLATES.items()]
+
+
 def _render_signature(e: NexusEmployee, db: Session, template: str = None) -> dict:
+    company = db.query(HrEntity).filter(HrEntity.id == e.company).first() if e.company else None
     fields = _signature_fields(e, db)
     esc = {k: html_lib.escape(v) if isinstance(v, str) else v for k, v in fields.items()}
-    tid = template or e.signature_template or _DEFAULT_TEMPLATE
+    # Template is a company-wide admin choice (Settings), not personal - an
+    # employee's own signature always uses their employer's default, never a
+    # per-person pick (Pranshu, Sep 16).
+    tid = template or (company.signature_template if company else "") or _DEFAULT_TEMPLATE
     if tid not in SIGNATURE_TEMPLATES:
         tid = _DEFAULT_TEMPLATE
     return {"fields": fields, "html": SIGNATURE_TEMPLATES[tid][1](esc), "template": tid}
@@ -399,12 +436,9 @@ def _signature_dict(e: NexusEmployee, db: Session) -> dict:
     rendered = _render_signature(e, db)
     return {
         **rendered,
-        "templates": [{"id": tid, "label": label} for tid, (label, _) in SIGNATURE_TEMPLATES.items()],
-        "closings": SIGNATURE_CLOSINGS,
         "canEditDisplayName": True, "canEditPhone": True,
         "displayNameOverride": e.signature_display_name or "",
         "phoneOverride": e.signature_phone or "",
-        "closingOverride": e.signature_closing or "",
     }
 
 
@@ -413,22 +447,9 @@ def my_signature(user: dict = Depends(get_current_user), db: Session = Depends(g
     return _signature_dict(_me(db, user["email"]), db)
 
 
-@router.get("/signature/templates")
-def my_signature_templates(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """A rendered preview of every template using the caller's own real data,
-    for the template-picker gallery (My Profile)."""
-    e = _me(db, user["email"])
-    return [
-        {"id": tid, "label": label, "html": _render_signature(e, db, template=tid)["html"]}
-        for tid, (label, _) in SIGNATURE_TEMPLATES.items()
-    ]
-
-
 class SignatureIn(BaseModel):
     display_name: Optional[str] = None   # e.g. "Sahil" -> "Sam" - name/role/e-mail otherwise always come from the directory
     phone:        Optional[str] = None   # e.g. desk line instead of cell
-    template:     Optional[str] = None   # one of SIGNATURE_TEMPLATES
-    closing:      Optional[str] = None   # one of SIGNATURE_CLOSINGS - only meaningful on the script-style templates
 
 
 @router.put("/signature")
@@ -438,14 +459,6 @@ def save_my_signature(body: SignatureIn, user: dict = Depends(get_current_user),
         e.signature_display_name = body.display_name.strip()[:120]
     if body.phone is not None:
         e.signature_phone = body.phone.strip()[:50]
-    if body.closing is not None:
-        if body.closing not in SIGNATURE_CLOSINGS:
-            raise HTTPException(400, "Unknown closing")
-        e.signature_closing = body.closing
-    if body.template is not None:
-        if body.template not in SIGNATURE_TEMPLATES:
-            raise HTTPException(400, "Unknown template")
-        e.signature_template = body.template
     e.updated_at = _now()
     db.commit()
     return _signature_dict(e, db)

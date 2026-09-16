@@ -27,12 +27,9 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const [signature, setSignature] = useState(null);
   const [sigName, setSigName] = useState('');
   const [sigPhone, setSigPhone] = useState('');
-  const [sigClosing, setSigClosing] = useState('');
   const [sigBusy, setSigBusy] = useState(false);
   const [sigStatus, setSigStatus] = useState('');
   const [copied, setCopied] = useState(false);
-  const [templates, setTemplates] = useState(null);
-  const [templateBusy, setTemplateBusy] = useState('');
   // Fixed MAX_ZONES slots, '' = unset - a dropdown per slot rather than a
   // checklist of ~400 zones (Pranshu, Sep 1: "make it a drop down"). Local
   // (the detected system zone) is always shown first on the greeting and
@@ -51,8 +48,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
 
   useEffect(() => {
     api.myHrProfile().then(setProfile).catch(err => setError(err?.message || 'Could not load your profile.'));
-    api.mySignature().then(s => { setSignature(s); setSigName(s.displayNameOverride || ''); setSigPhone(s.phoneOverride || ''); setSigClosing(s.closingOverride || ''); }).catch(() => {});
-    api.mySignatureTemplates().then(setTemplates).catch(() => {});
+    api.mySignature().then(s => { setSignature(s); setSigName(s.displayNameOverride || ''); setSigPhone(s.phoneOverride || ''); }).catch(() => {});
   }, []);
 
   function handlePhotoSaved(updated) {
@@ -63,21 +59,10 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   async function saveSignature() {
     setSigBusy(true); setSigStatus('');
     try {
-      const s = await api.mySignatureSave({ display_name: sigName, phone: sigPhone, closing: sigClosing });
+      const s = await api.mySignatureSave({ display_name: sigName, phone: sigPhone });
       setSignature(s); setSigStatus('Saved.');
-      api.mySignatureTemplates().then(setTemplates).catch(() => {});   // previews use the same overrides
     } catch (e) { setSigStatus(e?.message || 'Could not save.'); }
     setSigBusy(false);
-  }
-
-  async function selectTemplate(tid) {
-    if (tid === signature?.template || templateBusy) return;
-    setTemplateBusy(tid);
-    try {
-      const s = await api.mySignatureSave({ template: tid });
-      setSignature(s);
-    } catch (e) { setSigStatus(e?.message || 'Could not switch template.'); }
-    setTemplateBusy('');
   }
 
   async function copySignature() {
@@ -155,7 +140,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
               <Signature size={11} /> Email Signature
             </div>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
-              Name, role and company e-mail come from your directory record. Add a preferred name below and it shows alongside your full name - you can also override your phone.
+              Name, role and company e-mail come from your directory record, and the template is set company-wide by your admin. Add a preferred name below and it shows alongside your full name - you can also override your phone.
             </div>
             {/* The typewriter animation ships inside signature.html itself (backend
                 _TYPEWRITER_CSS) so it travels with a copy/paste into Outlook, not just
@@ -165,46 +150,11 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
               style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 10, marginBottom: 10, background: '#fff', overflow: 'auto' }}
               dangerouslySetInnerHTML={{ __html: signature.html }}
             />
-            {templates && templates.length > 0 && (
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 6 }}>
-                  Template
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
-                  {templates.map(t => {
-                    const selected = t.id === signature.template;
-                    return (
-                      <button key={t.id} onClick={() => selectTemplate(t.id)} disabled={!!templateBusy}
-                        style={{
-                          textAlign: 'left', cursor: templateBusy ? 'wait' : 'pointer', padding: 10, borderRadius: 8,
-                          border: selected ? '2px solid hsl(var(--color-green))' : '1px solid var(--line)',
-                          background: '#fff', position: 'relative',
-                        }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          {t.label}
-                          {selected && <Check size={12} style={{ color: 'hsl(var(--color-green))' }} />}
-                          {templateBusy === t.id && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />}
-                        </div>
-                        <div style={{ overflow: 'hidden', height: 60, pointerEvents: 'none' }}>
-                          <div style={{ transform: 'scale(0.7)', transformOrigin: 'top left', width: '143%' }}
-                            dangerouslySetInnerHTML={{ __html: t.html }} />
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
               <input className="form-input" placeholder="Preferred display name" value={sigName}
                 onChange={e => setSigName(e.target.value)} style={{ fontSize: 13 }} />
               <input className="form-input" placeholder="Phone for signature (defaults to your profile phone)" value={sigPhone}
                 onChange={e => setSigPhone(e.target.value)} style={{ fontSize: 13 }} />
-              {(signature.template === 'sincerely' || signature.template === 'regards') && signature.closings && (
-                <select className="form-input" value={sigClosing} onChange={e => setSigClosing(e.target.value)} style={{ fontSize: 13 }}>
-                  {signature.closings.map(c => <option key={c} value={c}>{c || 'Sign-off (template default)'}</option>)}
-                </select>
-              )}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="secondary-btn" onClick={saveSignature} disabled={sigBusy}
