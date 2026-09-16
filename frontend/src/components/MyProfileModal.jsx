@@ -27,6 +27,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const [signature, setSignature] = useState(null);
   const [sigName, setSigName] = useState('');
   const [sigPhone, setSigPhone] = useState('');
+  const [sigClosing, setSigClosing] = useState('');
   const [sigBusy, setSigBusy] = useState(false);
   const [sigStatus, setSigStatus] = useState('');
   const [copied, setCopied] = useState(false);
@@ -50,7 +51,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
 
   useEffect(() => {
     api.myHrProfile().then(setProfile).catch(err => setError(err?.message || 'Could not load your profile.'));
-    api.mySignature().then(s => { setSignature(s); setSigName(s.displayNameOverride || ''); setSigPhone(s.phoneOverride || ''); }).catch(() => {});
+    api.mySignature().then(s => { setSignature(s); setSigName(s.displayNameOverride || ''); setSigPhone(s.phoneOverride || ''); setSigClosing(s.closingOverride || ''); }).catch(() => {});
     api.mySignatureTemplates().then(setTemplates).catch(() => {});
   }, []);
 
@@ -62,7 +63,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   async function saveSignature() {
     setSigBusy(true); setSigStatus('');
     try {
-      const s = await api.mySignatureSave({ display_name: sigName, phone: sigPhone });
+      const s = await api.mySignatureSave({ display_name: sigName, phone: sigPhone, closing: sigClosing });
       setSignature(s); setSigStatus('Saved.');
       api.mySignatureTemplates().then(setTemplates).catch(() => {});   // previews use the same overrides
     } catch (e) { setSigStatus(e?.message || 'Could not save.'); }
@@ -195,6 +196,11 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
                 onChange={e => setSigName(e.target.value)} style={{ fontSize: 13 }} />
               <input className="form-input" placeholder="Phone for signature (defaults to your profile phone)" value={sigPhone}
                 onChange={e => setSigPhone(e.target.value)} style={{ fontSize: 13 }} />
+              {(signature.template === 'sincerely' || signature.template === 'regards') && signature.closings && (
+                <select className="form-input" value={sigClosing} onChange={e => setSigClosing(e.target.value)} style={{ fontSize: 13 }}>
+                  {signature.closings.map(c => <option key={c} value={c}>{c || 'Sign-off (template default)'}</option>)}
+                </select>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="secondary-btn" onClick={saveSignature} disabled={sigBusy}

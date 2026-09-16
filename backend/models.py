@@ -816,6 +816,7 @@ class NexusEmployee(Base):
     signature_display_name = Column(String, default="")        # preferred name shown on signature, e.g. "Sahil" -> "Sam"
     signature_phone         = Column(String, default="")       # override for signature only (e.g. desk line instead of cell)
     signature_template      = Column(String, default="classic") # which visual layout this employee picked (myhr.SIGNATURE_TEMPLATES)
+    signature_closing       = Column(String, default="")        # preset sign-off line, e.g. "Sincerely" (myhr.SIGNATURE_CLOSINGS) - '' = template default
 
 
 class HrRemovedIdentity(Base):
@@ -1265,6 +1266,13 @@ class HrEntity(Base):
     # and other branded surfaces pull from - set once here, consistent everywhere.
     website            = Column(String, default="")
     main_phone         = Column(String, default="")
+    # Social links for the signature's icon row (Sep 16, Pranshu) - company-wide
+    # like the rest of branding, not per-employee, so every signature carries the
+    # same official company pages.
+    facebook_url       = Column(String, default="")
+    linkedin_url       = Column(String, default="")
+    twitter_url        = Column(String, default="")
+    instagram_url      = Column(String, default="")
 
 
 class NexusSetting(Base):

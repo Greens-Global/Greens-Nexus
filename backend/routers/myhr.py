@@ -151,6 +151,11 @@ def remove_my_photo(user: dict = Depends(get_current_user), db: Session = Depend
 
 _BRAND_GREEN = "#1f8a4d"
 
+# Preset sign-off lines for the script-style templates (Sincerely/Kind Regards) -
+# a short pick-list, not free text, so it stays professional and consistent
+# (Pranshu, Sep 16). '' = no closing line / template's own default.
+SIGNATURE_CLOSINGS = ["", "Sincerely", "Best regards", "Kind regards", "Warm regards"]
+
 def _signature_fields(e: NexusEmployee, db: Session) -> dict:
     company = db.query(HrEntity).filter(HrEntity.id == e.company).first() if e.company else None
     full_name = (e.display_name or f"{e.first_name} {e.last_name}").strip()
@@ -163,12 +168,40 @@ def _signature_fields(e: NexusEmployee, db: Session) -> dict:
     phone = (e.signature_phone or e.phone or "").strip()
     return {
         "name": name, "role": role, "phone": phone, "email": e.work_email or "",
+        "photoUrl": e.photo_url or "",
+        "closing": (e.signature_closing or "").strip(),
         "logoUrl": (company.logo_url if company else "") or "",
         "website": (company.website if company else "") or "",
         "address": (company.registered_address if company else "") or "",
         "companyPhone": (company.main_phone if company else "") or "",
         "companyName": (company.name if company else "") or "",
+        "facebookUrl": (company.facebook_url if company else "") or "",
+        "linkedinUrl": (company.linkedin_url if company else "") or "",
+        "twitterUrl": (company.twitter_url if company else "") or "",
+        "instagramUrl": (company.instagram_url if company else "") or "",
     }
+
+
+_SCRIPT_FONT = "'Brush Script MT','Segoe Script',cursive"
+
+
+def _social_icons(f: dict) -> str:
+    """Small monochrome-brand circular badges (text glyphs, not hosted images -
+    stays a real text-based signature, no image blocking)."""
+    links = [(f["facebookUrl"], "f"), (f["linkedinUrl"], "in"), (f["twitterUrl"], "X"), (f["instagramUrl"], "ig")]
+    badges = "".join(
+        f'<a href="{url}" style="text-decoration:none;display:inline-block;width:22px;height:22px;'
+        f'border-radius:50%;background:{_BRAND_GREEN};color:#ffffff;font-size:10px;font-weight:bold;'
+        f'text-align:center;line-height:22px;margin-right:6px;">{label}</a>'
+        for url, label in links if url
+    )
+    return badges
+
+
+def _role_company_line(f: dict) -> str:
+    if f["role"] and f["companyName"]:
+        return f'{f["role"]}, {f["companyName"]}'
+    return f["role"] or f["companyName"]
 
 
 def _render_classic(f: dict) -> str:
@@ -244,12 +277,71 @@ def _render_bold(f: dict) -> str:
     )
 
 
+def _render_sincerely(f: dict) -> str:
+    closing = f["closing"] or "Sincerely"
+    photo_cell = (f'<td style="padding-right:14px;vertical-align:top;">'
+                  f'<img src="{f["photoUrl"]}" alt="" width="64" height="64" '
+                  f'style="border-radius:50%;object-fit:cover;" /></td>' if f["photoUrl"] else "")
+    rows = "".join(
+        f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
+        for v in (f"Phone: {f['phone']}" if f["phone"] else "",
+                  f"Email: {f['email']}" if f["email"] else "", f["website"])
+        if v
+    )
+    social = _social_icons(f)
+    social_row = f'<tr><td colspan="2" style="padding-top:10px;">{social}</td></tr>' if social else ""
+    role_line = _role_company_line(f)
+    return (
+        '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
+        f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;">{closing},</td></tr>'
+        f'<tr>{photo_cell}<td style="vertical-align:top;">'
+        f'<div style="font-weight:bold;color:#111111;font-size:14px;">{f["name"]}</div>'
+        f'<div style="color:{_BRAND_GREEN};font-weight:600;margin-bottom:4px;">{role_line}</div>'
+        f'<table style="border-collapse:collapse;">{rows}</table>'
+        '</td></tr>'
+        f'{social_row}'
+        '</table>'
+    )
+
+
+def _render_kind_regards(f: dict) -> str:
+    closing = f["closing"] or "Kind regards"
+    photo_cell = (f'<td style="padding-right:12px;vertical-align:top;">'
+                  f'<img src="{f["photoUrl"]}" alt="" width="56" height="56" '
+                  f'style="border-radius:8px;object-fit:cover;" />'
+                  + (f'<div style="padding-top:8px;">{_social_icons(f)}</div>' if _social_icons(f) else "")
+                  + '</td>' if f["photoUrl"] else "")
+    rows = "".join(
+        f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
+        for v in (f"Phone: {f['phone']}" if f["phone"] else "",
+                  f"Email: {f['email']}" if f["email"] else "", f["website"])
+        if v
+    )
+    # No photo -> the social row still needs somewhere to live.
+    social = _social_icons(f)
+    fallback_social = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if not f["photoUrl"] and social else ""
+    role_line = _role_company_line(f)
+    return (
+        '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
+        f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;">{closing},</td></tr>'
+        f'<tr>{photo_cell}<td style="border-left:2px solid {_BRAND_GREEN};padding-left:12px;vertical-align:top;">'
+        f'<div style="font-weight:bold;color:{_BRAND_GREEN};font-size:14px;">{f["name"]}</div>'
+        f'<div style="color:#333333;margin-bottom:4px;">{role_line}</div>'
+        f'<table style="border-collapse:collapse;">{rows}</table>'
+        '</td></tr>'
+        f'{fallback_social}'
+        '</table>'
+    )
+
+
 # id -> (label, render fn). Order here is the gallery order shown to employees.
 SIGNATURE_TEMPLATES = {
-    "classic": ("Classic", _render_classic),
-    "modern":  ("Modern", _render_modern),
-    "minimal": ("Minimal", _render_minimal),
-    "bold":    ("Bold", _render_bold),
+    "classic":   ("Classic", _render_classic),
+    "modern":    ("Modern", _render_modern),
+    "minimal":   ("Minimal", _render_minimal),
+    "bold":      ("Bold", _render_bold),
+    "sincerely": ("Sincerely", _render_sincerely),
+    "regards":   ("Kind Regards", _render_kind_regards),
 }
 _DEFAULT_TEMPLATE = "classic"
 
@@ -268,9 +360,11 @@ def _signature_dict(e: NexusEmployee, db: Session) -> dict:
     return {
         **rendered,
         "templates": [{"id": tid, "label": label} for tid, (label, _) in SIGNATURE_TEMPLATES.items()],
+        "closings": SIGNATURE_CLOSINGS,
         "canEditDisplayName": True, "canEditPhone": True,
         "displayNameOverride": e.signature_display_name or "",
         "phoneOverride": e.signature_phone or "",
+        "closingOverride": e.signature_closing or "",
     }
 
 
@@ -294,6 +388,7 @@ class SignatureIn(BaseModel):
     display_name: Optional[str] = None   # e.g. "Sahil" -> "Sam" - name/role/e-mail otherwise always come from the directory
     phone:        Optional[str] = None   # e.g. desk line instead of cell
     template:     Optional[str] = None   # one of SIGNATURE_TEMPLATES
+    closing:      Optional[str] = None   # one of SIGNATURE_CLOSINGS - only meaningful on the script-style templates
 
 
 @router.put("/signature")
@@ -303,6 +398,10 @@ def save_my_signature(body: SignatureIn, user: dict = Depends(get_current_user),
         e.signature_display_name = body.display_name.strip()[:120]
     if body.phone is not None:
         e.signature_phone = body.phone.strip()[:50]
+    if body.closing is not None:
+        if body.closing not in SIGNATURE_CLOSINGS:
+            raise HTTPException(400, "Unknown closing")
+        e.signature_closing = body.closing
     if body.template is not None:
         if body.template not in SIGNATURE_TEMPLATES:
             raise HTTPException(400, "Unknown template")
