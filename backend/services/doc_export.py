@@ -19,7 +19,10 @@ Known, deliberate approximations (see the plan, not silent gaps):
 - DOCX hyperlinks render styled (colored+underlined) but are not clickable -
   python-docx's public API has no support for the OOXML hyperlink relationship.
 """
+import base64
+import re
 import io
+from urllib.parse import unquote_to_bytes
 from xml.sax.saxutils import escape as _esc
 import httpx
 
@@ -86,6 +89,19 @@ def _text_runs(nodes, merge: dict) -> list:
             runs.append({"text": value, "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE})
         elif t == "hardBreak":
             runs.append({"text": "\n", "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE})
+        elif t == "image":
+            # An INLINE picture - the editor's image node is inline, because
+            # Word puts a picture inside the run where it sits (a meeting
+            # transcript's speaker avatar belongs beside the name, not on a
+            # line of its own). It rides along as a run so it keeps its exact
+            # position in the text; both renderers draw it in place.
+            attrs = n.get("attrs") or {}
+            src = attrs.get("src") or ""
+            if src:
+                runs.append({"text": "", "bold": False, "italic": False, "underline": False,
+                             **_EMPTY_RUN_STYLE,
+                             "image": {"src": src, "width": attrs.get("width"),
+                                       "height": attrs.get("height")}})
         else:
             runs.extend(_text_runs(n.get("content"), merge))
     return runs
@@ -179,6 +195,21 @@ def _blocks_to_plaintext(blocks: list) -> str:
 def _fetch_image_bytes(url: str):
     if not url:
         return None
+    # A picture carried INLINE as a data: URI rather than hosted. The .docx
+    # importer falls back to this whenever the storage upload does not happen -
+    # no bucket configured, an offline laptop, a permission - and httpx cannot
+    # fetch a data: URI, so every one of them was silently dropped and the
+    # exported document came out with no pictures at all.
+    if url.startswith("data:"):
+        try:
+            header, _, payload = url.partition(",")
+            if not payload:
+                return None
+            if ";base64" in header:
+                return base64.b64decode(payload)
+            return unquote_to_bytes(payload)
+        except Exception:
+            return None
     # Letterhead logos may be stored as a path relative to the frontend's own
     # static assets (e.g. "/assets/branding/logo.png") - the browser resolves
     # that against the current origin for free, but this export runs on the
@@ -194,13 +225,36 @@ def _fetch_image_bytes(url: str):
         return None
 
 
+_FONT_SIZE_RE = re.compile(r"-?\d*\.?\d+")
+# Word's own ceiling on font size. Anything above this is not a size someone
+# chose, it is a parse gone wrong, and rendering it produces a document
+# hundreds of pages long instead of an obvious error.
+_MAX_FONT_PT = 1638
+
+
 def _font_size_num(font_size):
-    """'18px' -> 18. Treated as points directly (an approximation already
-    baked into this export pipeline - see module docstring)."""
+    """'18px' -> 18.0, '12.2pt' -> 12.2. Treated as points directly (an
+    approximation already baked into this export pipeline - see module
+    docstring).
+
+    Parses the NUMBER, not the digits. This used to keep every digit character
+    and int() the result, so a fractional size - which is both valid CSS and
+    what a Word document stating its sizes in millimetres imports as - came out
+    an order of magnitude too big: '12.2pt' became 122pt, and a transcript
+    exported as a 498-page PDF.
+    """
     if not font_size:
         return None
-    digits = "".join(c for c in str(font_size) if c.isdigit())
-    return int(digits) if digits else None
+    m = _FONT_SIZE_RE.search(str(font_size))
+    if not m:
+        return None
+    try:
+        size = float(m.group())
+    except ValueError:
+        return None
+    if size <= 0:
+        return None
+    return min(size, _MAX_FONT_PT)
 
 
 def _letterhead_text(letterhead: dict, key: str) -> str:
@@ -246,9 +300,66 @@ def _pdf_image_flowable(url: str, max_width_pt: float):
         return None
 
 
+_INLINE_IMAGE_MAX_PT = 400   # a picture wider than the text column is the sender's mistake, not ours
+
+# Read from the bytes, never from the src's own claim about itself - an
+# imported picture's declared type and its actual encoding do not always agree.
+_IMAGE_MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+    (b"BM", "image/bmp"),
+)
+
+
+def _image_mime(data: bytes) -> str:
+    for magic, mime in _IMAGE_MAGIC:
+        if data.startswith(magic):
+            return mime
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "application/octet-stream"
+
+
+def _pdf_inline_image_markup(image: dict) -> str:
+    """One inline picture as reportlab Paragraph markup.
+
+    The bytes are resolved here and handed to reportlab as a data: URI rather
+    than the original src, so every source (hosted URL, app-relative path,
+    already-inline data URI) goes through the same one reader, and reportlab
+    never has to reach the network mid-render.
+    """
+    data = _fetch_image_bytes(image.get("src") or "")
+    if not data:
+        return ""
+    try:
+        from reportlab.lib.utils import ImageReader
+        reader = ImageReader(io.BytesIO(data))
+        iw, ih = reader.getSize()
+        if not iw or not ih:
+            return ""
+        # The width the editor shows it at, honored as points (the same
+        # px-as-pt approximation the rest of this pipeline makes); its own
+        # pixel size when the document does not say.
+        w = _font_size_num(image.get("width")) or iw
+        h = _font_size_num(image.get("height")) or (ih * (w / iw))
+        if w > _INLINE_IMAGE_MAX_PT:
+            h, w = h * (_INLINE_IMAGE_MAX_PT / w), _INLINE_IMAGE_MAX_PT
+        uri = f"data:{_image_mime(data)};base64," + base64.b64encode(data).decode("ascii")
+        return f'<img src="{uri}" width="{w:.1f}" height="{h:.1f}" valign="middle"/>'
+    except Exception:
+        return ""
+
+
 def _runs_to_markup(runs: list) -> str:
     parts = []
     for r in runs or []:
+        if r.get("image"):
+            markup = _pdf_inline_image_markup(r["image"])
+            if markup:
+                parts.append(markup)
+            continue
         t = _esc(r.get("text") or "").replace("\n", "<br/>")
         if r.get("bold"):
             t = f"<b>{t}</b>"
@@ -592,9 +703,35 @@ def _docx_highlight(hex_color: str):
     return getattr(WD_COLOR_INDEX, name) if name else None
 
 
+def _docx_add_inline_image(paragraph, image: dict) -> None:
+    """One inline picture, in its own run, at its position in the text - which
+    is what makes the avatar sit beside the speaker's name rather than on a
+    line below it. python-docx draws a picture added to a run inline by
+    default, so this needs no drawing-anchor XML of its own."""
+    from docx.shared import Pt
+    data = _fetch_image_bytes(image.get("src") or "")
+    if not data:
+        return
+    width = _font_size_num(image.get("width"))
+    try:
+        # Width in POINTS, the same px-as-pt approximation the PDF path makes,
+        # so the two exports agree. No width: python-docx uses the picture's
+        # own size.
+        paragraph.add_run().add_picture(
+            io.BytesIO(data),
+            width=Pt(min(width, _INLINE_IMAGE_MAX_PT)) if width else None)
+    except Exception:
+        # A picture python-docx cannot decode must not take the document with
+        # it - the text around it is the part that matters.
+        pass
+
+
 def _add_runs(paragraph, runs: list) -> None:
     from docx.shared import Pt, RGBColor
     for r in runs or []:
+        if r.get("image"):
+            _docx_add_inline_image(paragraph, r["image"])
+            continue
         text = r.get("text") or ""
         if not text:
             continue

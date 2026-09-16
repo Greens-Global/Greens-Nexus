@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { FileSignature, Loader2, CheckCircle, XCircle, AlertTriangle, Lock, Download, Clock, Mail, Phone } from 'lucide-react';
 import { API_BASE } from '../api';
 import { SigningDoc } from '../components/ESign';
@@ -11,6 +11,8 @@ import { SigningDoc } from '../components/ESign';
 // sender's real identity before anything else, then consent, then a one-time
 // code, and only then the document. That ordering is enforced by the server -
 // the payload simply has no document URLs until both gates are cleared.
+
+const legalLink = { color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 2 };
 
 async function pfetch(path, opts = {}) {
   const { code, ...rest } = opts;   // access code travels as a header, never a query param (logs/history leak)
@@ -46,6 +48,29 @@ export default function PublicSign({ token }) {
 
   // Upload fields travel as multipart, so this cannot go through `post` - the
   // browser must set its own boundary, and pfetch's JSON header would break it.
+  // Returning a signed paper copy. Multipart, like the upload fields, and on
+  // success the payload reloads so the page shows the completed state rather
+  // than the signing screen the person just stepped out of.
+  const historyApi = useCallback(
+    () => pfetch(`/esign/public/${token}/history`, { code }),
+    [token, code]);
+
+  const paperApi = async (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (code) fd.append('access_code', code);
+    const r = await fetch(`${API_BASE}/esign/public/${token}/paper`, {
+      method: 'POST', body: fd, headers: code ? { 'X-Access-Code': code } : {},
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.detail || `Error ${r.status}`);
+    }
+    const out = await r.json();
+    setDone(out.status === 'completed' ? 'signed-final' : 'signed');
+    return out;
+  };
+
   const uploadApi = async (fieldId, file) => {
     const fd = new FormData();
     fd.append('field_id', fieldId);
@@ -108,8 +133,21 @@ export default function PublicSign({ token }) {
         <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 16, padding: '24px 26px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
           {children}
         </div>
-        <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted, #9ca3af)', marginTop: 16 }}>
-          Nexus Sign, operated by Greens Global. Your signature is captured with a tamper-evident audit trail.
+        {/* The legal strip DocuSign carries bottom-left and the review asked
+            for by name: powered-by, terms, privacy, copyright. An external
+            signer has no other route to these - there is no Nexus shell here. */}
+        <footer style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line, #e5e7eb)',
+          display: 'flex', flexWrap: 'wrap', gap: '6px 16px', alignItems: 'center',
+          justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted, #9ca3af)' }}>
+          <span style={{ fontWeight: 600 }}>Powered by Nexus Sign</span>
+          <span style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px' }}>
+            <a href="/terms" target="_blank" rel="noreferrer" style={legalLink}>Terms of Use</a>
+            <a href="/privacy" target="_blank" rel="noreferrer" style={legalLink}>Privacy Policy</a>
+            <span>&copy; {new Date().getFullYear()} Greens Global</span>
+          </span>
+        </footer>
+        <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted, #9ca3af)', marginTop: 10 }}>
+          Your signature is captured with a tamper-evident audit trail.
         </p>
       </div>
     </div>
@@ -232,6 +270,27 @@ export default function PublicSign({ token }) {
         )}
       </div>
       {senderCard(payload.sender)}
+      <details style={{ margin: '0 0 12px' }}>
+        <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--muted, #6b7280)', fontWeight: 600 }}>
+          Details
+        </summary>
+        {/* The identifiers a signer (or their lawyer) quotes when asking about
+            this exact request. Shown, not hidden, because the envelope ID is
+            also stamped on every page of the finished PDF. */}
+        <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 16px', margin: '10px 0 0',
+          fontSize: 12, color: 'var(--muted, #6b7280)' }}>
+          <dt style={{ fontWeight: 600 }}>Envelope ID</dt>
+          <dd style={{ margin: 0, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', overflowWrap: 'anywhere' }}>{payload.requestId}</dd>
+          <dt style={{ fontWeight: 600 }}>Recipient ID</dt>
+          <dd style={{ margin: 0, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', overflowWrap: 'anywhere' }}>{payload.partyId}</dd>
+          <dt style={{ fontWeight: 600 }}>Signing as</dt>
+          <dd style={{ margin: 0 }}>{payload.myName}</dd>
+          {payload.expiresOn && (<>
+            <dt style={{ fontWeight: 600 }}>Expires</dt>
+            <dd style={{ margin: 0 }}>{payload.expiresOn}</dd>
+          </>)}
+        </dl>
+      </details>
       {/* UETA section 8: the right to keep a copy while deciding is never
           gated on consent or on the code, so it is offered on the gates too. */}
       {gated && payload.copyUrl && (
@@ -243,7 +302,7 @@ export default function PublicSign({ token }) {
         </p>
       )}
       <SigningDoc payload={payload} busy={busy} onSubmit={submit} onDecline={decline}
-        gateApi={gateApi} onCleared={() => load()} uploadApi={uploadApi} />
+        gateApi={gateApi} onCleared={() => load()} uploadApi={uploadApi} paperApi={paperApi} historyApi={historyApi} />
     </>,
     gated ? 760 : 1140);
 }

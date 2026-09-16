@@ -79,6 +79,15 @@ KNOWN_PUBLIC = {
     # matches the token's own party.
     "/esign/public/{token}/upload",
     "/esign/public/{token}/upload/{upload_id}",
+    # Returning a signed PAPER copy. Same token credential and access-code
+    # check, and behind the consent gate; no one-time code, deliberately -
+    # the wet signature on the page is the authentication, and demanding a
+    # code from someone who chose not to sign online defeats the option.
+    "/esign/public/{token}/paper",
+    # The envelope's own history, for the party holding the link. Shows no
+    # other party's IP or device - those stay on the certificate, which is
+    # not a public page.
+    "/esign/public/{token}/history",
     "/esign/public/verify/{verify_token}",
     "/timeclock/agent/checkin",            # agent device token (get_agent_device)
     "/timeclock/agent/screenshot",

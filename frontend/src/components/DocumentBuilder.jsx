@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { generateJSON, generateHTML } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -14,15 +14,19 @@ import {
   Paintbrush, Search, Smile, Bookmark,
   Scissors, ClipboardCopy, ClipboardPaste, Strikethrough, Subscript as SubscriptIcon, Superscript as SuperscriptIcon,
   Highlighter, ArrowDownAZ, ArrowUpZA, RectangleHorizontal, MousePointerSquareDashed, ListTree,
+  Variable, Lock, LockOpen, Wand2,
 } from 'lucide-react';
 import { api } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
-import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
+import { BODY_EXTENSIONS, repairDocJson } from '../lib/docBuilderSchema';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
+import { slugifyToken, variableFromDrop } from '../lib/mergeFieldTypes';
+import { extractVariables, mergeFieldDefs } from '../lib/extractVariables';
 import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, pageCanvasStyle } from '../lib/pageSetup';
 import EgnyteBrowser from './EgnyteBrowser';
 import DefineMergeFieldModal from './DefineMergeFieldModal';
+import VariableLibrary from './VariableLibrary';
 
 const FONT_GROUPS = {
   'Sans-serif': ['Inter', 'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Roboto', 'Open Sans', 'Lato', 'Montserrat'],
@@ -30,6 +34,28 @@ const FONT_GROUPS = {
   'Monospace': ['Courier New', 'Consolas', 'Monaco', 'Lucida Console'],
   'Display': ['Comic Sans MS', 'Impact', 'Brush Script MT'],
 };
+// A complete {{token}} somewhere in the page's text - the cheap check that
+// decides whether the (more expensive) conversion pass is worth running.
+// Does this content say anything at all? Text, a picture, a variable chip, a
+// shape or a table all count; a lone empty paragraph does not. Used to refuse
+// a save that would blank a document that had content a moment ago.
+const SUBSTANTIVE = new Set(['image', 'mergeField', 'docShape', 'docTextbox', 'table', 'pageBreak', 'bookmark']);
+
+export function isEmptyContent(content) {
+  let found = false;
+  const walk = (n) => {
+    if (found || !n || typeof n !== 'object') return;
+    if (n.type === 'text' && (n.text || '').trim()) { found = true; return; }
+    if (SUBSTANTIVE.has(n.type)) { found = true; return; }
+    (n.content || []).forEach(walk);
+  };
+  for (const page of (content?.pages || [])) walk(page?.json);
+  if (!found) { walk(content?.header); walk(content?.footer); }
+  return !found;
+}
+
+const TOKEN_IN_PAGE_RE = /\{\{\s*[A-Za-z0-9_.]+\s*\}\}/;
+
 const FONT_SIZES = ['10', '11', '12', '14', '16', '18', '20', '24', '28', '32', '36', '48'];
 const SYMBOL_CHARS = ['©', '®', '™', '°', '±', '×', '÷', '•', '…', '–', '—', '§', '¶', '†', '‡', '∞', '√', '≈', '≠', '≤', '≥', '€', '£', '¥', '¢', '½', '¼', '¾', 'α', 'β', 'π', 'Ω', '→', '←', '↑', '↓'];
 const EMOJI_CHARS = ['😀', '😂', '😊', '😍', '🙌', '👍', '👎', '🙏', '🎉', '🔥', '✅', '❌', '⚠️', '💡', '📌', '📎', '📅', '⏰', '💬', '📧', '🚀', '⭐', '❤️', '👀', '🤔', '😅', '🙂', '🎯', '📈', '📉'];
@@ -116,12 +142,12 @@ function stripToFormat(nodes) {
 // build one from scratch). A hook can't be called conditionally/dynamically
 // inside the parent's render, so each page is its own component instance -
 // that's the actual reason this is split out, not just organization.
-function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, showMarks, onReady, onUpdate, onActivity, onPaste, onTocClick }) {
+function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, showMarks, onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
   const editor = useEditor({
     extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' })],
     content: initialJson || null,
     editable,
-    onUpdate: () => onUpdate(),
+    onUpdate: () => onUpdate(pageId),
     onSelectionUpdate: () => onActivity(pageId),
   });
   useEffect(() => {
@@ -146,7 +172,11 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
         onActivity(pageId);
       }}>
       <div style={{ flex: 1, columnCount: pageSetup.columns > 1 ? pageSetup.columns : undefined, columnGap: pageSetup.columns > 1 ? 32 : undefined }}>
-        <EditorContent editor={editor} className={`doc-editor${showMarks ? ' show-marks' : ''}`} onPaste={(e) => onPaste(pageId, e)} />
+        <EditorContent editor={editor} className={`doc-editor${showMarks ? ' show-marks' : ''}`}
+          onPaste={(e) => onPaste(pageId, e)}
+          // dragOver must be cancelled or the browser refuses the drop.
+          onDragOver={(e) => { if (editable) e.preventDefault(); }}
+          onDrop={(e) => { if (editable) onVariableDrop(pageId, e); }} />
       </div>
       {/* A running footer on every page, on by default - title left, page
           number right, the standard document-footer layout. Purely a
@@ -179,6 +209,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
   const [preview, setPreview] = useState(false);
+  // Requirement 7: a generated document is FINAL - it carries the approved
+  // template language with the supplied values, so it is not freely editable
+  // afterwards. The server enforces this (documents.py refuses a content
+  // PATCH on a final document); this is the same rule made visible, so nobody
+  // types into a page whose save is going to be rejected.
+  const [unlocking, setUnlocking] = useState(false);
+  const isLocked = kind === 'document' && doc?.status === 'final';
   const [showMarks, setShowMarks] = useState(false); // Word's "Show/Hide ¶" - CSS-only, view preference not saved with the doc
   // Word-style ribbon tabs (Home/Insert/Layout - Phase 18). References/Review/
   // View/Help aren't built - Comments, Equation Editor, and Table of Contents
@@ -197,6 +234,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [symbolPopoverOpen, setSymbolPopoverOpen] = useState(false);
   const [symbolTab, setSymbolTab] = useState('symbols'); // 'symbols' | 'emoji'
   const [saveStatus, setSaveStatus] = useState('idle');
+  // Whether this document has ever held real content in this session - the
+  // empty-save guard only bites once we know there is something to lose.
+  const lastGoodRef = useRef(false);
+  // Emptying a document ON PURPOSE stays possible: Ctrl+S saves exactly what
+  // is on screen. It is only the unattended autosave that refuses to blank a
+  // document, because an autosave firing on a half-built editor is what caused
+  // the loss - nobody asked for that write.
   const [headerVisible, setHeaderVisible] = useState(false);
   const [footerVisible, setFooterVisible] = useState(false);
   const [letterheads, setLetterheads] = useState([]);
@@ -242,6 +286,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // values, not the field metadata itself).
   const [fieldDefs, setFieldDefs] = useState([]);
   const [mergeFieldModal, setMergeFieldModal] = useState(null); // null | { range?: {from,to}, existingDef?: object, initialLabel?: string }
+  const [variableLibraryOpen, setVariableLibraryOpen] = useState(false);
   // Page Setup (Phase 14) - content.pageSetup, a sibling of body/header/footer
   // in the same JSON blob (no schema change needed).
   const [pageSetup, setPageSetup] = useState(DEFAULT_PAGE_SETUP);
@@ -323,7 +368,32 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // binding before its declaration), so the ref is refreshed on every render
   // just below scheduleSave itself.
   const scheduleSaveRef = useRef(null);
-  const onPageUpdate = useCallback(() => { scheduleSaveRef.current?.(); setSelectionTick((t) => t + 1); }, []);
+  // {{tokens}} become real merge fields whenever they appear on the page -
+  // driven by the editor's own update, not by the paste event.
+  //
+  // Hooking the paste was wrong twice over: the handler runs before ProseMirror
+  // has committed a rich paste (it captures Word HTML through a hidden element
+  // and applies it a tick or two later), and it covers only one of the ways
+  // text arrives. Watching the document instead catches a paste, a drag, an
+  // undo that brings a token back, and simply typing one - and needs no
+  // knowledge of how the editor schedules its work.
+  const detectRef = useRef(null);         // refreshed every render, like scheduleSaveRef
+  const detectTimerRef = useRef(null);
+  const onPageUpdate = useCallback((pageId) => {
+    scheduleSaveRef.current?.();
+    setSelectionTick((t) => t + 1);
+    if (!pageId) return;
+    // Debounced: the scan reads the page's text, which is not free on a long
+    // document, and nobody wants a chip appearing mid-word.
+    if (detectTimerRef.current) clearTimeout(detectTimerRef.current);
+    detectTimerRef.current = setTimeout(() => {
+      detectTimerRef.current = null;
+      const ed = editorsRef.current.get(pageId);
+      if (!ed || !TOKEN_IN_PAGE_RE.test(ed.state.doc.textContent)) return;
+      detectRef.current?.(pageId, { quiet: true });
+    }, 600);
+  }, []);
+  useEffect(() => () => { if (detectTimerRef.current) clearTimeout(detectTimerRef.current); }, []);
   const onPageActivity = useCallback((pageId) => {
     setActivePageId(pageId);
     setSelectionTick((t) => t + 1);
@@ -368,9 +438,19 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const applyContent = useCallback((content) => {
     const c = content && typeof content === 'object' ? content : {};
     const pageList = Array.isArray(c.pages) && c.pages.length
-      ? c.pages.map(p => ({ id: p.id || genPageId(), json: p.json || null }))
+      // repairDocJson: a document saved by the old .docx importer holds block
+      // images inside paragraphs, which ProseMirror loads and then throws on as
+      // soon as anyone types in that paragraph. Repair on the way in, so an
+      // already-broken document becomes editable without a re-import.
+      ? c.pages.map(p => ({ id: p.id || genPageId(), json: p.json ? repairDocJson(p.json) : null }))
       : splitBodyIntoPages(c.body); // backward compat with pre-rewrite documents
     editorsRef.current = new Map();
+    // Arm the empty-save guard from what we LOADED, not from what has been
+    // typed since - otherwise the very first autosave after opening a full
+    // document is the one that can blank it.
+    if (!isEmptyContent({ pages: pageList, header: c.header, footer: c.footer })) {
+      lastGoodRef.current = true;
+    }
     setPages(pageList);
     setActivePageId(pageList[0]?.id || '');
     if (c.header) { setHeaderVisible(true); headerEditor?.commands.setContent(c.header, { emitUpdate: false }); }
@@ -448,7 +528,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     else setFooterVisible(true);
   };
 
-  const doSave = useCallback(() => {
+  const doSave = useCallback(({ allowEmpty = false } = {}) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     // Defensive, belt-and-suspenders: even if something calls doSave directly
     // (Ctrl+S, the close-flush) before load finishes, never persist an
@@ -465,6 +545,20 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       console.warn('[DocumentBuilder] refusing to save a document with no pages');
       return Promise.resolve();
     }
+    // ...and the same judgement one level down. A page can exist and still be
+    // EMPTY, which the check above waves through - that is how a template with
+    // 138 blocks in it autosaved `chars=0` every couple of seconds, racing the
+    // real save at the same version number. Whichever landed last won, so the
+    // content survived or vanished by luck while the header said "Saved".
+    //
+    // An empty save is only ever refused when we KNOW the document had content
+    // (lastGoodRef): emptying a document deliberately has to keep working, and
+    // a genuinely blank new template must still save.
+    if (isEmptyContent(content) && lastGoodRef.current && !allowEmpty) {
+      console.warn('[DocumentBuilder] refusing to overwrite saved content with an empty document');
+      return Promise.resolve();
+    }
+    if (!isEmptyContent(content)) lastGoodRef.current = true;
     setSaveStatus('saving');
     const payload = kind === 'document' ? { content, note: 'Autosave' } : { content };
     return apiUpdate(docId, payload)
@@ -488,7 +582,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
 
   useEffect(() => {
     const onKey = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); doSave(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); doSave({ allowEmpty: true }); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -512,8 +606,11 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       closePdfPreview();
       return;
     }
-    if (saveTimer.current) doSave();
-    onClose?.();
+    // Wait for the pending write before unmounting. This used to fire doSave()
+    // and call onClose() in the same breath: the component went away while the
+    // request was still in flight, which is what "it says Saved and then
+    // discards everything" looked like from the outside.
+    Promise.resolve(flushPendingSave()).finally(() => onClose?.());
   };
 
   const changeLetterhead = (id) => {
@@ -582,9 +679,28 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (value.trim()) next[token] = value; else delete next[token];
     saveMergeOverrides(next);
   };
-  const customVarKeys = Object.keys(mergeOverrides).filter(k => !MERGE_TOKENS.includes(k));
+  // Every variable this template knows about, from either place it can be
+  // declared: a default value typed into Merge data, or a field definition
+  // (which is what import/Detect variables writes). Listing only the first set
+  // meant a detected variable appeared as a chip in the document but was
+  // missing from Merge data and the insert picker - you could see it and not
+  // set a default for it.
+  const customVarKeys = useMemo(() => {
+    const keys = Object.keys(mergeOverrides).filter(k => !MERGE_TOKENS.includes(k));
+    for (const fd of fieldDefs) {
+      if (fd?.token && !MERGE_TOKENS.includes(fd.token) && !keys.includes(fd.token)) keys.push(fd.token);
+    }
+    return keys;
+  }, [mergeOverrides, fieldDefs]);
+  // The label a field definition gave it, so the picker reads "Offer - Letter
+  // Date" rather than a bare token.
+  const varLabel = useMemo(() => {
+    const out = {};
+    for (const fd of fieldDefs) if (fd?.token && fd.label) out[fd.token] = fd.label;
+    return out;
+  }, [fieldDefs]);
   const addCustomVariable = () => {
-    const key = newVarName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+|_+$/g, '');
+    const key = slugifyToken(newVarName);   // keeps the dotted taxonomy (principal.amount)
     if (!key || !newVarValue.trim()) return;
     saveMergeOverrides({ ...mergeOverrides, [key]: newVarValue.trim() });
     setNewVarName(''); setNewVarValue('');
@@ -687,7 +803,10 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // font size through FONT_SIZES, defaulting from 12 if none is set yet.
   const stepFontSize = (delta) => {
     if (!activeEditor) return;
-    const current = parseInt(activeEditor.getAttributes('textStyle').fontSize || '12', 10);
+    // parseFloat, not parseInt: an imported Word document can carry a
+    // fractional size (12.2pt from a source stating 4.3mm), and truncating
+    // it to 12 makes Grow step to the size it is already closest to.
+    const current = parseFloat(activeEditor.getAttributes('textStyle').fontSize || '12') || 12;
     const idx = FONT_SIZES.findIndex(s => Number(s) >= current);
     const nextIdx = Math.max(0, Math.min(FONT_SIZES.length - 1, (idx === -1 ? FONT_SIZES.length - 1 : idx) + delta));
     activeEditor.chain().focus().setFontSize(`${FONT_SIZES[nextIdx]}px`).run();
@@ -1017,8 +1136,75 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const insertMergeField = (e) => {
     const token = e.target.value;
     if (!token) return;
-    activeEditor?.chain().focus().insertContent({ type: 'mergeField', attrs: { token } }).run();
+    insertVariable(token);
     e.target.value = '';
+  };
+
+  // One way in for every variable insertion - the toolbar picker, the library
+  // panel and a drag-and-drop all land here, so a variable is always a
+  // mergeField NODE and never typed "{{token}}" text that silently never
+  // populates because of a typo.
+  const insertVariable = (token) => {
+    if (!token) return;
+    activeEditor?.chain().focus().insertContent({ type: 'mergeField', attrs: { token } }).run();
+  };
+
+  // Converts every {{token}} already sitting on the page into a real merge
+  // field. Import does this automatically; this is for content that arrived
+  // some other way - pasted in, or written before the importer knew how - and
+  // for the documents that are already saved with their braces showing.
+  const [detecting, setDetecting] = useState(false);
+  const detectVariablesOn = async (onlyPageId, { quiet = false } = {}) => {
+    if (detecting) return;
+    setDetecting(true);
+    try {
+      let total = 0;
+      const found = [];
+      for (const p of pages) {
+        if (onlyPageId && p.id !== onlyPageId) continue;
+        const ed = editorsRef.current.get(p.id);
+        if (!ed) continue;
+        const { json, tokens } = extractVariables(ed.getJSON());
+        if (!tokens.length) continue;
+        total += tokens.length;
+        tokens.forEach(t => { if (!found.includes(t)) found.push(t); });
+        // emitUpdate keeps the autosave honest - the page really did change.
+        ed.commands.setContent(json, { emitUpdate: true });
+      }
+      if (!total) { if (!quiet) toastOk?.('No {{variables}} found on this page.'); return; }
+      let added = [];
+      if (kind === 'template') {
+        const merged = mergeFieldDefs(fieldDefs, found);
+        added = merged.added;
+        if (added.length) {
+          setFieldDefs(merged.fieldDefs);
+          await apiUpdate(docId, { fieldDefs: merged.fieldDefs });
+        }
+      }
+      scheduleSave();
+      toastOk?.(`${found.length} variable${found.length === 1 ? '' : 's'} converted`
+        + (added.length ? `, ${added.length} added to this template.` : '.'));
+    } catch (e) {
+      toastErr?.(e.message || 'Could not convert the variables on this page');
+    } finally { setDetecting(false); }
+  };
+
+  const detectVariables = () => detectVariablesOn(null);
+  detectRef.current = detectVariablesOn;   // so the update handler calls today's closure
+
+  // Dropping a variable from the library onto the page inserts it exactly
+  // where it was dropped, not wherever the cursor happened to be.
+  const onVariableDrop = (pageId, e) => {
+    const token = variableFromDrop(e);
+    if (!token) return;                       // some other drag (a file, text) - leave it alone
+    e.preventDefault();
+    const ed = editorsRef.current.get(pageId);
+    if (!ed) return;
+    const at = ed.view.posAtCoords({ left: e.clientX, top: e.clientY });
+    const chain = ed.chain().focus();
+    (at ? chain.insertContentAt(at.pos, { type: 'mergeField', attrs: { token } })
+        : chain.insertContent({ type: 'mergeField', attrs: { token } })).run();
+    onPageActivity(pageId);
   };
 
   // Template Builder (Phase 13) - "select text → Convert to Merge Field".
@@ -1129,7 +1315,10 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
 
   const onBodyPaste = (pageId, e) => {
     const f = imageFromPaste(e);
-    if (f) { e.preventDefault(); doUploadImage(pageId, f); }
+    if (f) { e.preventDefault(); doUploadImage(pageId, f); return; }
+    // Nothing else to do here: {{tokens}} in pasted text are picked up by the
+    // page's own update watcher above, whenever ProseMirror gets round to
+    // committing them.
   };
 
   // Phase 10: import a Word/PDF/text file, replacing the body content.
@@ -1159,7 +1348,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       // preserves Word's own page breaks) - split it into real pages the same
       // way a pre-rewrite document upgrades on load, rather than dumping the
       // whole import onto a single page.
-      const newPages = splitBodyIntoPages(json);
+      // Any {{token}} the Word document was written with becomes a real merge
+      // field here, and the template gains a definition for each new one. Two
+      // reasons: nobody should have to delete placeholders and re-insert them
+      // one at a time, and a token left as plain TEXT never populates at all -
+      // the generator only substitutes merge-field nodes.
+      const { json: withFields, tokens } = extractVariables(repairDocJson(json));
+      const newPages = splitBodyIntoPages(withFields);
       editorsRef.current = new Map();
       setPages(newPages);
       setActivePageId(newPages[0]?.id || '');
@@ -1167,8 +1362,23 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       // margins (docxToTiptap.js) - apply them so the imported page setup
       // matches the original, not whatever this document had before.
       if (importedPageSetup) updatePageSetup(importedPageSetup);
-      if (warnings?.length) toastErr?.(`Imported with notes: ${warnings.slice(0, 2).join(' ')}`);
-      else toastOk?.('Imported - review formatting before sending');
+      // Save the discovered variables onto the template, leaving any the author
+      // already configured by hand exactly as they are.
+      let added = [];
+      if (tokens.length && kind === 'template') {
+        const merged = mergeFieldDefs(fieldDefs, tokens);
+        added = merged.added;
+        if (added.length) {
+          setFieldDefs(merged.fieldDefs);
+          await apiUpdate(docId, { fieldDefs: merged.fieldDefs })
+            .catch(e => toastErr?.(e.message || 'Imported, but the variables could not be saved'));
+        }
+      }
+      const found = tokens.length
+        ? ` ${tokens.length} variable${tokens.length === 1 ? '' : 's'} detected${added.length ? `, ${added.length} added to this template` : ''}.`
+        : '';
+      if (warnings?.length) toastErr?.(`Imported with notes: ${warnings.slice(0, 2).join(' ')}${found}`);
+      else toastOk?.(`Imported - review formatting before sending.${found}`);
       setImportPopoverOpen(false);
       scheduleSave();
     } catch (e) {
@@ -1319,15 +1529,21 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 }}>
                       {customVarKeys.map(key => (
                         <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 11, color: 'var(--muted)', width: 100, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={key}>{humanizeKey(key)}</span>
+                          <span style={{ fontSize: 11, color: 'var(--muted)', width: 100, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={key}>{varLabel[key] || humanizeKey(key)}</span>
                           <input key={`${key}-${mergeOverrides[key]}`} className="form-input" defaultValue={mergeOverrides[key] || ''}
+                            placeholder={varLabel[key] ? 'asked for on create' : ''}
                             style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }}
                             onBlur={e => setOverrideValue(key, e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && e.target.blur()} />
-                          <button onClick={() => removeOverride(key)} title="Remove variable"
-                            style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'flex', padding: 2 }}>
-                            <X size={13} />
-                          </button>
+                          {/* A variable the template DEFINES is removed by deleting its
+                              field, not by clearing a default here - so the X only
+                              appears for a plain typed-in default. */}
+                          {mergeOverrides[key] !== undefined && (
+                            <button onClick={() => removeOverride(key)} title="Clear this default value"
+                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'flex', padding: 2 }}>
+                              <X size={13} />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1450,6 +1666,36 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               </button>
             ))}
           </div>
+        {isLocked && (
+          /* Requirement 7 made visible. The server refuses the write either
+             way; this says WHY the page will not take a keystroke, and offers
+             the one deliberate way out. */
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            padding: '9px 14px', marginBottom: 10, borderRadius: 9,
+            background: 'rgba(251,191,36,0.14)', border: '1px solid rgba(217,119,6,0.35)',
+          }}>
+            <Lock size={14} style={{ color: '#b45309', flexShrink: 0 }} />
+            <span style={{ fontSize: 12.5, color: '#92400e', flex: 1, minWidth: 180 }}>
+              This document is final. It carries the approved template language with the values it was
+              generated from, so it is read-only.
+            </span>
+            <button className="secondary-btn" disabled={unlocking}
+              onClick={async () => {
+                if (!window.confirm('Unlock this document for editing? The change is recorded in its history.')) return;
+                setUnlocking(true);
+                try {
+                  const updated = await api.unlockDocument(docId);
+                  setDoc(updated);
+                  toastOk?.('Unlocked - this document is now a draft.');
+                } catch (e) { toastErr?.(e.message || 'Could not unlock this document'); }
+                finally { setUnlocking(false); }
+              }}
+              style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {unlocking ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <LockOpen size={13} />} Unlock to Edit
+            </button>
+          </div>
+        )}
         <div className="doc-toolbar">
           {ribbonTab === 'home' && (
           <>
@@ -1477,7 +1723,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </select>
           <ToolbarBtn title="Shrink font" onClick={() => stepFontSize(-1)}><span style={{ fontSize: 11, fontWeight: 700 }}>A↓</span></ToolbarBtn>
           <select onChange={e => { const v = e.target.value; if (v) activeEditor.chain().focus().setFontSize(`${v}px`).run(); else activeEditor.chain().focus().unsetFontSize().run(); }}
-            value={(activeEditor.getAttributes('textStyle').fontSize || '').replace('px', '')} title="Font size"
+            // Strips whatever unit the size carries - this control writes px,
+            // but an imported document states its sizes in pt.
+            value={(activeEditor.getAttributes('textStyle').fontSize || '').replace(/(px|pt)$/, '')} title="Font size"
             style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', width: 58 }}>
             <option value="">Size</option>
             {FONT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -1611,13 +1859,21 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               <Sparkles size={15} />
             </ToolbarBtn>
           )}
+          <ToolbarBtn title="Find {{variables}} written on the page and turn them into real merge fields"
+            disabled={detecting} onClick={detectVariables}>
+            {detecting ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Wand2 size={15} />}
+          </ToolbarBtn>
+          <ToolbarBtn title="Variable Library - browse every variable and drag one in"
+            active={variableLibraryOpen} onClick={() => setVariableLibraryOpen(o => !o)}>
+            <Variable size={15} />
+          </ToolbarBtn>
           <select onChange={insertMergeField} defaultValue=""
             style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
             <option value="">✨ Insert auto-filled detail…</option>
             {MERGE_TOKENS.map(t => <option key={t} value={t}>{FRIENDLY_MERGE[t]}</option>)}
             {customVarKeys.length > 0 && (
               <optgroup label="Custom variables">
-                {customVarKeys.map(k => <option key={k} value={k}>{humanizeKey(k)}</option>)}
+                {customVarKeys.map(k => <option key={k} value={k}>{varLabel[k] || humanizeKey(k)}</option>)}
               </optgroup>
             )}
           </select>
@@ -1767,8 +2023,16 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           )}
 
           <span className="doc-toolbar-sep" />
-          <ToolbarBtn title="Undo" onClick={() => activeEditor.chain().focus().undo().run()}><Undo size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Redo" onClick={() => activeEditor.chain().focus().redo().run()}><Redo size={15} /></ToolbarBtn>
+          {/* Greyed out when there is nothing to undo, the way Word's are.
+              These used to call .chain() on activeEditor unguarded: before any
+              page had registered its editor that threw inside the click
+              handler, so the button did nothing AND said nothing. Disabled
+              state is recomputed on every edit and selection change
+              (selectionTick), so it never goes stale. */}
+          <ToolbarBtn title="Undo" disabled={!activeEditor?.can().undo()}
+            onClick={() => activeEditor?.chain().focus().undo().run()}><Undo size={15} /></ToolbarBtn>
+          <ToolbarBtn title="Redo" disabled={!activeEditor?.can().redo()}
+            onClick={() => activeEditor?.chain().focus().redo().run()}><Redo size={15} /></ToolbarBtn>
           <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={onPickImage} style={{ display: 'none' }} />
         </div>
 
@@ -1991,9 +2255,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           stacked paper" AND the actual boundary between two independent
           editors) - not one continuous scroll with a dashed-line marker. */}
       {pages.map((p, i) => (
-        <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview} pageSetup={pageSetup} showMarks={showMarks}
+        <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked} pageSetup={pageSetup} showMarks={showMarks}
           onReady={registerPageEditor} onUpdate={onPageUpdate}
-          onActivity={onPageActivity} onPaste={onBodyPaste} onTocClick={goToTocLink} />
+          onActivity={onPageActivity} onPaste={onBodyPaste} onVariableDrop={onVariableDrop} onTocClick={goToTocLink} />
       ))}
 
       {/* Same alignment fix at the bottom: the letterhead's own footer
@@ -2057,6 +2321,10 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </div>
         </div>
       )}
+
+      <VariableLibrary open={variableLibraryOpen} onClose={() => setVariableLibraryOpen(false)}
+        onInsert={insertVariable} localVariables={customVarKeys}
+        anchorLabel={kind === 'template' ? 'the template' : 'the document'} />
 
       {mergeFieldModal && (
         <DefineMergeFieldModal

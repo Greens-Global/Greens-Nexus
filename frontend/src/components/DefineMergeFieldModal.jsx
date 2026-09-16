@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { X, Plus, Trash2 } from 'lucide-react';
 import TypedFieldInput from './TypedFieldInput';
-import { FIELD_TYPES, VALIDATION_KEYS, OPTION_TYPES, slugifyToken } from '../lib/mergeFieldTypes';
+import { FIELD_TYPES, VALIDATION_KEYS, OPTION_TYPES, slugifyToken, isValidToken } from '../lib/mergeFieldTypes';
 
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const cardStyle = { background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 440, maxHeight: '86vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)' };
@@ -31,7 +31,7 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
     if (!tokenTouched && !isEdit) setToken(slugifyToken(v));
   };
 
-  const tokenValid = /^[a-z0-9_]+$/.test(token);
+  const tokenValid = isValidToken(token);
   const tokenTaken = existingTokens.includes(token) && token !== existingDef?.token;
   const canSave = labelText.trim() && tokenValid && !tokenTaken;
 
@@ -72,7 +72,7 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
               <input className="form-input" style={{ width: '100%', opacity: 0.65 }} value={token} disabled />
             ) : (
               <input className="form-input" style={{ width: '100%', ...(!tokenValid || tokenTaken ? { borderColor: 'hsl(var(--color-red))' } : {}) }}
-                value={token} onChange={(e) => { setTokenTouched(true); setToken(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_')); }} />
+                value={token} onChange={(e) => { setTokenTouched(true); setToken(e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, '_')); }} />
             )}
             {!isEdit && !tokenValid && <p style={{ fontSize: 11, color: 'hsl(var(--color-red))', margin: '4px 0 0' }}>Lowercase letters, numbers, underscores only.</p>}
             {!isEdit && tokenTaken && <p style={{ fontSize: 11, color: 'hsl(var(--color-red))', margin: '4px 0 0' }}>Another field already uses this token.</p>}

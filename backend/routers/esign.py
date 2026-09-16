@@ -47,6 +47,7 @@ from services.seal import (seal_pdf, policy_sentence as seal_policy_sentence,
                           timestamp_sentence as seal_timestamp_sentence)
 import services.sign_otp as sign_otp
 import services.sign_uploads as sign_uploads
+import services.docx_convert as docx_convert
 from services.certificate import (build_snapshot as build_certificate_snapshot,
                                   render_html as render_certificate_html,
                                   otp_note as certificate_otp_note,
@@ -740,6 +741,78 @@ def _sender_identity(db: Session, req: HrSignRequest) -> dict:
             "entity": entity or _SOR_OPERATOR}
 
 
+def _from_display(sender_name: str) -> str:
+    """The name in the recipient's inbox: "Archana Kadakia via Nexus Sign".
+
+    Neil, Sep 16: DocuSign sends from dse@docusign.net but SHOWS the sender's
+    own name, and that is the whole reason a stranger opens it - "If I know who
+    the person is, my chance of clicking on it is a lot higher." The address
+    stays our sending mailbox (it has to; we are the ones authorized to send),
+    so the display name is the only place the human's name can appear.
+    """
+    who = (sender_name or "").strip() or "A colleague"
+    return f"{who} via {_SOR_NAME}"
+
+
+def _contact_sender_mailto(party: HrSignParty, req: HrSignRequest, sender: dict) -> str:
+    """The Contact Us link - opens a mail TO THE SENDER, pre-filled.
+
+    Two deliberate decisions from the same review:
+
+    1. It contacts the SENDER, not us. A recipient who does not recognize the
+       request wants the human who asked, not a helpdesk: "It should not be
+       contact the Nexus. It should be, hey, I don't know what this is, I don't
+       want to click it until I contact."
+    2. It carries the request WITH it. A bare mailto produces "what is this?"
+       in the sender's inbox with no way to answer it - "Otherwise Archana does
+       not know what the e-mail is about." So the body quotes the document, the
+       envelope and the date back to them.
+    """
+    from urllib.parse import quote
+    to = (sender.get("email") or _SUPPORT_CONTACT).strip()
+    subject = f"Question about your signature request: {req.title}"
+    body = (
+        f"Hello {sender.get('name') or ''},\n\n"
+        f"I received a request to sign a document through {_SOR_NAME} and wanted to "
+        f"check it is genuine before opening it.\n\n"
+        f"Document: {req.title}\n"
+        f"Sent to: {party.email or ''}\n"
+        f"Requested by: {sender.get('name') or ''} <{sender.get('email') or ''}>\n"
+        f"Envelope ID: {req.id}\n"
+        f"Date sent: {_us_date(req.created_at or '')}\n\n"
+        f"Could you confirm you sent this?\n\n"
+        "Thank you."
+    )
+    return f"mailto:{quote(to)}?subject={quote(subject)}&body={quote(body)}"
+
+
+def _email_legal_footer(party: HrSignParty, req: HrSignRequest, sender: dict) -> str:
+    """The strip every Nexus Sign email ends with.
+
+    Carries the three things the review asked for in one place so the request
+    and the completion notice cannot drift: who really sent it (the line that
+    lets a stranger believe the email), a Contact Us that reaches that person,
+    and the standard legal links."""
+    from html import escape
+    who = escape(sender.get("name") or "a colleague")
+    app = _app_url_fn()
+    link = ("color:#15803d;text-decoration:none;font-weight:600")
+    return f"""<tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 36px">
+      <p style="margin:0 0 10px;font-size:11.5px;color:#4b5563;line-height:1.6">
+        This message was sent to you by <strong>{who}</strong>, who is using the
+        {escape(_SOR_NAME)} electronic signature service.</p>
+      <p style="margin:0 0 10px;font-size:11.5px;color:#6b7280;line-height:1.6">
+        <a href="{_contact_sender_mailto(party, req, sender)}" style="{link}">Contact Us</a>
+        &nbsp;&middot;&nbsp;
+        <a href="{app}/terms" style="{link}">Terms of Use</a>
+        &nbsp;&middot;&nbsp;
+        <a href="{app}/privacy" style="{link}">Privacy Policy</a></p>
+      <p style="margin:0;font-size:11px;color:#9ca3af;line-height:1.55">
+        This is an automated message. Please do not reply.<br/>
+        &copy; {datetime.now(timezone.utc).year} {escape(_SOR_OPERATOR)}. All rights reserved.</p>
+    </td></tr>"""
+
+
 def _sign_email_html(party: HrSignParty, req: HrSignRequest, sender: dict, link: str) -> str:
     """The signature request.
 
@@ -794,13 +867,12 @@ def _sign_email_html(party: HrSignParty, req: HrSignRequest, sender: dict, link:
         style="background:#15803d;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:13px 32px;border-radius:9px;display:inline-block">
         Review &amp; Sign</a></p>
       <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.6">
+        <strong style="color:#374151">Do not share this email.</strong>
+        The link above is unique to you and lets whoever holds it sign in your name.
         {('This request expires on ' + escape(req.expires_on) + '. ') if req.expires_on else ''}
-        You will be asked to confirm a one-time code before signing.
-        The link is unique to you - please don't forward it.</p>
+        You will be asked to confirm a one-time code before signing.</p>
     </td></tr>
-    <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 36px;font-size:11.5px;color:#6b7280;line-height:1.5">
-      This is an automated message. Please do not reply.
-    </td></tr>
+    {_email_legal_footer(party, req, sender)}
   </table>
 </div>"""
 
@@ -816,9 +888,18 @@ def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender: dict) -> tu
             else f"{_app_url_fn()}/documents/documents-esign")
     try:
         message = {
-            "subject": f"Signature requested: {req.title}",
+            # "Action needed" first, the document named after it - the subject
+            # line the review pointed at, which says what is wanted before it
+            # says what it is about.
+            "subject": f"Action needed: Please sign {req.title}",
             "body": {"contentType": "HTML", "content": _sign_email_html(party, req, sender, link)},
             "toRecipients": [{"emailAddress": {"address": party.email}}],
+            # The address stays our authorized sending mailbox; only the
+            # DISPLAY name carries the human. Graph accepts this on sendMail as
+            # the mailbox owner - it is not a From spoof, it is the same
+            # "<person> via <service>" convention DocuSign uses.
+            "from": {"emailAddress": {"address": from_addr,
+                                      "name": _from_display(sender.get("name") or "")}},
         }
         # The mailbox really is unmonitored, so a reply must land somewhere a
         # person reads: the sender. This is also the cheapest legitimacy check
@@ -837,7 +918,9 @@ _ATTACH_MAX = 3_000_000  # Graph simple sendMail caps the whole message at ~4 MB
 
 
 def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: bytes,
-                       open_link: str, view_link: str = "", note: str = "") -> tuple:
+                       open_link: str, view_link: str = "", note: str = "",
+                       sender: Optional[dict] = None,
+                       party: Optional[HrSignParty] = None) -> tuple:
     """Fully-executed notice - sender, signers and CC alike get the sealed PDF
     ATTACHED (their retained copy, ESIGN retention), plus the three actions the
     review asked for: View, Download and Open in Nexus. Oversized documents
@@ -870,7 +953,7 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
   <table style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border-collapse:collapse;width:100%">
     <tr><td style="background:#14532d;padding:26px 36px">
       <div style="color:#ffffff;font-size:20px;font-weight:800">Nexus Sign</div>
-      <div style="color:#bbf7d0;font-size:12.5px;margin-top:4px">Fully Executed</div>
+      <div style="color:#bbf7d0;font-size:12.5px;margin-top:4px">Your document has been completed</div>
     </td></tr>
     <tr><td style="padding:28px 36px">
       <p style="margin:0 0 14px;font-size:14.5px;color:#111827">Hi {escape(to_name or 'there')},</p>
@@ -881,16 +964,21 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
       <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.6">
         SHA-256 fingerprint of the sealed file: {escape((req.final_sha256 or '')[:32])}&hellip;</p>
     </td></tr>
-    <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 36px;font-size:11.5px;color:#6b7280;line-height:1.5">
-      This is an automated message. Please do not reply.
-    </td></tr>
+    {_email_legal_footer(party, req, sender) if (party is not None and sender is not None) else
+     '<tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 36px;'
+     'font-size:11.5px;color:#6b7280;line-height:1.5">This is an automated message. '
+     'Please do not reply.</td></tr>'}
   </table>
 </div>"""
     message = {
-        "subject": f"Fully executed: {req.title}",
+        # Same shape as the request: what happened, then which document.
+        "subject": f"Completed: All parties have signed {req.title}",
         "body": {"contentType": "HTML", "content": html},
         "toRecipients": [{"emailAddress": {"address": to_email}}],
     }
+    if sender and sender.get("name"):
+        message["from"] = {"emailAddress": {"address": from_addr,
+                                            "name": _from_display(sender["name"])}}
     if attach:
         safe = re.sub(r'[\\/:*?"<>|]+', " ", req.title or "Document").strip()[:80] or "Document"
         message["attachments"] = [{
@@ -1107,6 +1195,47 @@ def seed_starter_templates(user: dict = Depends(require_hr_write), db: Session =
         added.append(t["name"])
     db.commit()
     return {"added": added}
+
+
+@router.get("/convert/docx/status")
+def docx_convert_status(user: dict = Depends(get_current_user)):
+    """Whether this deployment can convert Word without altering it. The send
+    wizard asks before offering .docx, so the answer arrives before someone has
+    picked a file rather than at the point of send."""
+    return docx_convert.available()
+
+
+@router.post("/convert/docx")
+def convert_docx(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    """Word -> PDF through a real layout engine, or a 501 that says why not.
+
+    Deliberately NOT a re-flow. The previous client-side conversion rebuilt the
+    document on US-Letter pages with the two standard PDF fonts, so the thing
+    that got signed was a redrawn approximation of what the sender uploaded.
+    Refusing is the honest failure: the user can save as PDF from Word in five
+    seconds and get a perfect file, which beats us silently producing an
+    imperfect one they then put their name on.
+    """
+    name = (file.filename or "document.docx")
+    if not name.lower().endswith((".docx", ".doc")):
+        raise HTTPException(400, "Choose a Word (.docx) file.")
+    blob = file.file.read()
+    if len(blob) > 40 * 1024 * 1024:
+        raise HTTPException(413, "That document is too large to convert - please upload a PDF.")
+    if not docx_convert.available()["ok"]:
+        raise HTTPException(501,
+                            "Word conversion is not available on this deployment yet. Please save "
+                            "the document as PDF in Word (File - Save As - PDF) and upload that, "
+                            "so the signed copy matches your original exactly.")
+    try:
+        pdf = docx_convert.convert(blob, name)
+    except Exception as e:
+        print(f"[nexus-sign] docx conversion failed: {type(e).__name__}: {e}")
+        raise HTTPException(502, "That Word document could not be converted. Please save it as "
+                                 "PDF in Word and upload the PDF.")
+    out = re.sub(r"\.docx?$", "", name, flags=re.I) + ".pdf"
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_safe_filename(out)}"'})
 
 
 @router.post("/templates/attachments")
@@ -2744,6 +2873,169 @@ def _upload_row(db: Session, upload_id: str, request_id: str) -> HrSignUpload:
     return row
 
 
+# ── Paper return ─────────────────────────────────────────────────────────────
+# Neil, Sep 16: the paper path must be handled end to end - "how would you like
+# to return it? ... first download this and then scan it in", never "go back to
+# your email and figure it out". Upload only; fax was explicitly ruled out.
+#
+# A returned paper copy is a WET signature, not an electronic one, and the
+# record has to say so: signature_kind is "paper", the scan is kept as the
+# evidence, and the certificate reports it as a wet signature received by
+# upload rather than implying the signer clicked anything.
+
+PAPER_FIELD_ID = "__paper_return__"
+
+
+def _apply_paper_return(db: Session, req: HrSignRequest, party: HrSignParty,
+                        upload: UploadFile, ip: str, ua: str) -> dict:
+    _check_expiry(db, req)
+    if req.status != "pending":
+        raise HTTPException(409, f"This document is {req.status}")
+    if not _signs(party):
+        raise HTTPException(400, "This recipient is not asked to sign this document.")
+    if party.status == "signed":
+        raise HTTPException(409, "You have already signed this document.")
+    if not _its_their_turn(req, party):
+        raise HTTPException(409, "It is not your turn to sign yet.")
+    # Consent still comes first - agreeing to transact electronically covers
+    # receiving the document and returning it through this service, and the
+    # disclosure is where the right to a paper copy is stated in the first
+    # place. The one-time code is NOT required here: the wet signature on the
+    # page is the authentication, and demanding a code from someone who has
+    # just told us they would rather not do this online defeats the option.
+    _require_consented(db, req, party)
+
+    blob = upload.file.read()
+    clean, ctype = sign_uploads.check(upload.filename or "signed.pdf", blob)
+    path = f"esign/{req.id}/paper/{party.id}-{uuid.uuid4()}-{clean}"
+    if not _storage_put(_DOC_BUCKET, path, blob, ctype).is_success:
+        raise HTTPException(502, "We couldn't store that file. Please try again in a moment.")
+
+    now = _now_iso()
+    (db.query(HrSignUpload)
+     .filter(HrSignUpload.party_id == party.id, HrSignUpload.field_id == PAPER_FIELD_ID,
+             HrSignUpload.superseded_at == "")
+     .update({HrSignUpload.superseded_at: now}, synchronize_session=False))
+    db.add(HrSignUpload(
+        id=str(uuid.uuid4()), request_id=req.id, party_id=party.id,
+        field_id=PAPER_FIELD_ID, field_label="Signed paper copy", name=clean,
+        storage_path=path, content_type=ctype, size_bytes=len(blob),
+        sha256=hashlib.sha256(blob).hexdigest(), uploaded_at=now,
+        uploaded_ip=(ip or "")[:64], superseded_at=""))
+    db.flush()
+
+    party.signature_kind = "paper"
+    party.signature_data = ""
+    party.signature_digest = hashlib.sha256(blob).hexdigest()
+    party.signed_at = now
+    party.status = "signed"
+    party.ip, party.user_agent = ip, ua
+    _log(db, req.id, "signed",
+         f'{party.name} returned a signed paper copy ("{clean}", sha256 '
+         f'{party.signature_digest[:16]}...) - wet signature, verified by the '
+         f'document itself rather than a one-time code',
+         party_id=party.id, ip=ip, user_agent=ua)
+    remaining = _advance_or_finalize(db, req)
+    db.commit()
+    return {"ok": True, "status": req.status,
+            "next": remaining[0].name if remaining else None}
+
+
+# -- Envelope history -------------------------------------------------------
+# Neil, Sep 16, on DocuSign's history panel: "This is actually excellent ...
+# you need to get this exactly right." What makes it good is that it is a
+# NARRATIVE - who created it, when invitations went out, who received them,
+# which checks passed, every time it was opened - rather than a status word.
+# Nexus already writes all of it to HrSignEvent; this exposes the signer-facing
+# view of it.
+#
+# What it deliberately withholds: IP addresses and user agents of OTHER parties,
+# and the operational events (sealing, archiving, retention) that describe our
+# plumbing rather than the transaction. The full record, IPs included, stays on
+# the Certificate of Completion, which only actual parties receive.
+
+_HISTORY_LABELS = {
+    "created":      "Envelope created",
+    "sent":         "Invitation sent",
+    "viewed":       "Document viewed",
+    "consented":    "Electronic records disclosure accepted",
+    "otp_sent":     "Verification code sent",
+    "otp_verified": "Identity verified",
+    "otp_failed":   "Incorrect verification code",
+    "code_failed":  "Incorrect access code",
+    "uploaded":     "File attached",
+    "signed":       "Signed",
+    "approved":     "Approved",
+    "acknowledged": "Delivery acknowledged",
+    "declined":     "Declined to sign",
+    "reminded":     "Reminder sent",
+    "downloaded":   "Copy downloaded",
+    "copy_retained": "Printable copy retained",
+    "completed":    "Completed by all parties",
+    "voided":       "Envelope voided",
+    "expired":      "Envelope expired",
+    "verified":     "Certificate verified",
+}
+# Our plumbing, not the transaction - these describe what the system did to
+# store the record, and mean nothing to the person who signed it.
+_HISTORY_HIDDEN = {"archived", "archive_failed", "sealed", "seal_failed", "purged"}
+
+
+def _history_rows(db: Session, req: HrSignRequest, viewer: HrSignParty) -> list:
+    """The envelope's story, in order, as one party may see it."""
+    names = {p.id: (p.name or "") for p in _parties(db, req.id)}
+    events = (db.query(HrSignEvent)
+              .filter(HrSignEvent.request_id == req.id)
+              .order_by(HrSignEvent.seq, HrSignEvent.at).all())
+    out = []
+    for e in events:
+        etype = (e.type or "")
+        if etype in _HISTORY_HIDDEN:
+            continue
+        mine = e.party_id and viewer is not None and e.party_id == viewer.id
+        out.append({
+            "at": e.at or "",
+            "type": etype,
+            "label": _HISTORY_LABELS.get(etype, etype.replace("_", " ").title()),
+            "detail": e.detail or "",
+            "actor": names.get(e.party_id or "", "") or (req.created_by or ""),
+            "you": bool(mine),
+            # Only ever the viewer's OWN network detail. Everyone else's stays
+            # on the certificate, which is not a public page.
+            "ip": (e.ip or "") if mine else "",
+            "device": _ua_summary(e.user_agent or "") if mine else "",
+        })
+    return out
+
+
+@router.get("/public/{token}/history")
+def public_history(token: str, request: Request, code: str = "",
+                   x_access_code: str = Header(""), db: Session = Depends(get_db)):
+    req, party = _party_by_token(db, token, request)
+    if not _check_access_code(db, req, party, code or x_access_code, request):
+        raise HTTPException(403, "Wrong access code")
+    return {"envelopeId": req.id, "title": req.title, "status": req.status,
+            "events": _history_rows(db, req, party)}
+
+
+@router.get("/mine/{party_id}/history")
+def my_history(party_id: str, user: dict = Depends(get_current_user),
+               db: Session = Depends(get_db)):
+    req, party = _my_party(db, party_id, user)
+    return {"envelopeId": req.id, "title": req.title, "status": req.status,
+            "events": _history_rows(db, req, party)}
+
+
+@router.post("/public/{token}/paper")
+def public_paper_return(token: str, request: Request, file: UploadFile = File(...),
+                        access_code: str = Form(""), db: Session = Depends(get_db)):
+    req, party = _party_by_token(db, token, request)
+    if not _check_access_code(db, req, party, access_code or "", request):
+        raise HTTPException(403, "Wrong access code")
+    ip, ua = _client_meta(request)
+    return _apply_paper_return(db, req, party, file, ip, ua)
+
+
 @router.post("/public/{token}/upload")
 def public_upload(token: str, request: Request, field_id: str = Form(...),
                   file: UploadFile = File(...), access_code: str = Form(""),
@@ -3243,6 +3535,51 @@ _BROWSER_PATTERNS = [   # order matters - Edge/Chrome both say "Chrome"
     ("Edg/", "Edge"), ("OPR/", "Opera"), ("Chrome/", "Chrome"),
     ("Firefox/", "Firefox"), ("Safari/", "Safari"),
 ]
+
+
+def _stamp_envelope_id(pdf_bytes: bytes, envelope_id: str) -> bytes:
+    """Print the envelope ID in the bottom margin of EVERY content page.
+
+    Neil, Sep 16, pointing at a completed DocuSign packet: "Every page has this
+    ID automatically added on it." It is what ties a loose page - photocopied,
+    faxed onward, pulled out of a binder years later - back to the record that
+    can prove it. A certificate bound to page one cannot do that for page six.
+
+    Placed in the margin at the very bottom, small and grey, right-aligned, so
+    it reads as a control number rather than competing with the document. The
+    certificate pages are stamped separately by their own page furniture, so
+    this runs over the CONTENT only and nothing gets it twice.
+
+    Best-effort by design: a page this cannot draw on is left alone rather than
+    taking down a finalize that has already collected every signature.
+    """
+    from reportlab.pdfgen import canvas as rl_canvas
+    from pypdf import PdfReader, PdfWriter
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+    except Exception as e:
+        print(f"[nexus-sign] envelope stamp skipped - unreadable PDF: {type(e).__name__}: {e}")
+        return pdf_bytes
+    writer = PdfWriter()
+    total = len(reader.pages)
+    for idx, page in enumerate(reader.pages):
+        try:
+            pw, ph = float(page.mediabox.width), float(page.mediabox.height)
+            buf = io.BytesIO()
+            c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
+            c.setFont("Helvetica", 6.5)
+            c.setFillColorRGB(0.45, 0.45, 0.45)
+            c.drawRightString(pw - 24, 14,
+                              f"Envelope ID: {envelope_id}   |   Page {idx + 1} of {total}")
+            c.save()
+            buf.seek(0)
+            page.merge_page(PdfReader(buf).pages[0])
+        except Exception as e:
+            print(f"[nexus-sign] envelope stamp skipped on page {idx}: {type(e).__name__}: {e}")
+        writer.add_page(page)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
 
 
 def _ua_summary(ua: str) -> str:
@@ -3965,9 +4302,11 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     req.certificate_sha256 = hashlib.sha256(req.certificate_html.encode("utf-8")).hexdigest()
     cert = _certificate_pdf(snapshot)
 
-    # Merge content + certificate into the sealed final document
+    # Merge content + certificate into the sealed final document. The content
+    # carries the envelope ID in every page margin; the certificate stamps its
+    # own pages through its page furniture, so it is merged in untouched.
     writer = PdfWriter()
-    for page in PdfReader(io.BytesIO(content)).pages:
+    for page in PdfReader(io.BytesIO(_stamp_envelope_id(content, req.id))).pages:
         writer.add_page(page)
     for page in PdfReader(io.BytesIO(cert)).pages:
         writer.add_page(page)
@@ -4045,6 +4384,9 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
                action={"view": "documents", "sub": "documents-esign-requests"})
     emailed = set()
 
+    sender = _sender_identity(db, req)
+    by_id = {p.id: p for p in parties}
+
     def _mail_copy(name, email, open_link, view_link="", party_id=""):
         key = (email or "").strip().lower()
         if not key or key in emailed:
@@ -4052,11 +4394,11 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
         emailed.add(key)
         ok, detail = _send_sealed_email(name, email, req, final, open_link, view_link,
                                         note=(egnyte_note if egnyte_ok and egnyte_note
-                                              and email == req.created_by else ""))
+                                              and email == req.created_by else ""),
+                                        sender=sender, party=by_id.get(party_id))
         _log(db, req.id, "sent", f"sealed copy emailed to {name or email}"
              + ("" if ok else f" - email failed: {detail}"), party_id=party_id)
 
-    sender = _sender_identity(db, req)
     _mail_copy(sender["name"], req.created_by, deep_link)
     for p in parties:
         if p.kind == "internal":
