@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Nexus Signature - Outlook Add-in (Sep 16, Pranshu).
+
+  Auto-inserts the employee's company-wide signature (Settings -> Email
+  Signature, backend/routers/outlook_addin.py) the moment they start a new
+  message or reply - no copy/paste into Outlook's own signature settings.
+
+  This file is NOT wired up by deploying Nexus itself. One-time setup an
+  Entra/M365 admin does OUTSIDE this repo before upload:
+
+    1. Nexus's existing Entra app registration (client id below) ->
+       Expose an API -> set an Application ID URI (the default
+       api://<client-id> is fine) -> Add a scope named "access_as_user" ->
+       grant admin consent.
+    2. Same app registration -> Token configuration -> Add optional claim ->
+       Access token -> add "email" and "upn" (the add-in's SSO token is an
+       access token, which omits these by default; the backend needs one of
+       them to look up the signed-in employee).
+    3. Microsoft 365 admin center -> Settings -> Integrated apps ->
+       Upload custom app -> this manifest.xml. This deploys to every
+       employee's Outlook automatically (desktop, web, New Outlook) - a
+       one-time, org-wide action outside Nexus's own deploy pipeline.
+
+  Resource/WebApplicationInfo below already points at Nexus's production
+  Entra app (backend/auth.py's AZURE_CLIENT_ID) - no new app registration
+  needed, so the SSO token is validated by the SAME tenant/issuer the rest
+  of Nexus already trusts (auth.get_addin_user, isolated from the SPA's own
+  ID-token path in auth.py).
+-->
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xsi:type="MailApp">
+  <Id>a8f2c9e4-6b3d-4e1a-9c7f-2d5e8b1a4f6c</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Greens Global</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Nexus Signature" />
+  <Description DefaultValue="Automatically inserts your company email signature (set in Nexus) when you compose a new message or reply." />
+  <IconUrl DefaultValue="https://nexus.greensglobal.com/outlook-addin/icon-64.png" />
+  <HighResolutionIconUrl DefaultValue="https://nexus.greensglobal.com/outlook-addin/icon-128.png" />
+  <SupportUrl DefaultValue="https://nexus.greensglobal.com" />
+  <AppDomains>
+    <AppDomain>https://nexus.greensglobal.com</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Mailbox" />
+  </Hosts>
+  <Requirements>
+    <Sets>
+      <Set Name="Mailbox" MinVersion="1.10" />
+    </Sets>
+  </Requirements>
+  <FormSettings>
+    <Form xsi:type="ItemEdit">
+      <DesktopSettings>
+        <SourceLocation DefaultValue="https://nexus.greensglobal.com/outlook-addin/commands.html" />
+        <RequestedHeight>0</RequestedHeight>
+      </DesktopSettings>
+    </Form>
+  </FormSettings>
+  <Permissions>ReadWriteItem</Permissions>
+  <Rule xsi:type="RuleCollection" Mode="Or">
+    <Rule xsi:type="ItemIs" ItemType="Message" FormType="Edit" />
+  </Rule>
+  <DisableEntityHighlighting>false</DisableEntityHighlighting>
+
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Requirements>
+      <bt:Sets DefaultMinVersion="1.3">
+        <bt:Set Name="Mailbox" />
+      </bt:Sets>
+    </Requirements>
+    <Hosts>
+      <Host xsi:type="MailHost">
+        <Runtimes>
+          <Runtime resid="Runtime.Url" lifetime="short">
+            <Override type="javascript" resid="Commands.Url" />
+          </Runtime>
+        </Runtimes>
+        <DesktopFormFactor>
+          <FunctionFile resid="Commands.Url" />
+          <ExtensionPoint xsi:type="LaunchEvent">
+            <LaunchEvents>
+              <LaunchEvent Type="OnNewMessageCompose" FunctionName="onNewMessageComposeHandler" SendMode="SoftBlock" />
+              <LaunchEvent Type="OnMessageReplyCompose" FunctionName="onNewMessageComposeHandler" SendMode="SoftBlock" />
+            </LaunchEvents>
+            <SourceLocation resid="Runtime.Url" />
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Icon.16x16" DefaultValue="https://nexus.greensglobal.com/outlook-addin/icon-16.png" />
+        <bt:Image id="Icon.32x32" DefaultValue="https://nexus.greensglobal.com/outlook-addin/icon-32.png" />
+        <bt:Image id="Icon.80x80" DefaultValue="https://nexus.greensglobal.com/outlook-addin/icon-80.png" />
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="Runtime.Url" DefaultValue="https://nexus.greensglobal.com/outlook-addin/commands.html" />
+        <bt:Url id="Commands.Url" DefaultValue="https://nexus.greensglobal.com/outlook-addin/commands.js" />
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="GetStarted.Title" DefaultValue="Nexus Signature is ready" />
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="GetStarted.Description" DefaultValue="Your Nexus company signature is inserted automatically when you start a new message or reply." />
+      </bt:LongStrings>
+    </Resources>
+    <WebApplicationInfo>
+      <Id>be6f1e37-83a8-4a29-8b46-96d20beb32f9</Id>
+      <Resource>api://be6f1e37-83a8-4a29-8b46-96d20beb32f9</Resource>
+      <Scopes>
+        <Scope>access_as_user</Scope>
+      </Scopes>
+    </WebApplicationInfo>
+  </VersionOverrides>
+</OfficeApp>

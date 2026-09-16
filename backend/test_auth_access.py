@@ -107,7 +107,7 @@ KNOWN_PUBLIC = {
     "/external-auth/activate/send-phone-code",
 }
 
-_AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device")
+_AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device", "get_addin_user")
 
 
 def _route_dep_names(route):
