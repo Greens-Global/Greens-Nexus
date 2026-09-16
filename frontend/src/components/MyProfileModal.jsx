@@ -30,6 +30,8 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const [sigBusy, setSigBusy] = useState(false);
   const [sigStatus, setSigStatus] = useState('');
   const [copied, setCopied] = useState(false);
+  const [templates, setTemplates] = useState(null);
+  const [templateBusy, setTemplateBusy] = useState('');
   // Fixed MAX_ZONES slots, '' = unset - a dropdown per slot rather than a
   // checklist of ~400 zones (Pranshu, Sep 1: "make it a drop down"). Local
   // (the detected system zone) is always shown first on the greeting and
@@ -49,6 +51,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   useEffect(() => {
     api.myHrProfile().then(setProfile).catch(err => setError(err?.message || 'Could not load your profile.'));
     api.mySignature().then(s => { setSignature(s); setSigName(s.displayNameOverride || ''); setSigPhone(s.phoneOverride || ''); }).catch(() => {});
+    api.mySignatureTemplates().then(setTemplates).catch(() => {});
   }, []);
 
   function handlePhotoSaved(updated) {
@@ -61,8 +64,19 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
     try {
       const s = await api.mySignatureSave({ display_name: sigName, phone: sigPhone });
       setSignature(s); setSigStatus('Saved.');
+      api.mySignatureTemplates().then(setTemplates).catch(() => {});   // previews use the same overrides
     } catch (e) { setSigStatus(e?.message || 'Could not save.'); }
     setSigBusy(false);
+  }
+
+  async function selectTemplate(tid) {
+    if (tid === signature?.template || templateBusy) return;
+    setTemplateBusy(tid);
+    try {
+      const s = await api.mySignatureSave({ template: tid });
+      setSignature(s);
+    } catch (e) { setSigStatus(e?.message || 'Could not switch template.'); }
+    setTemplateBusy('');
   }
 
   async function copySignature() {
@@ -146,6 +160,36 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
               style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 10, marginBottom: 10, background: '#fff', overflow: 'auto' }}
               dangerouslySetInnerHTML={{ __html: signature.html }}
             />
+            {templates && templates.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Template
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {templates.map(t => {
+                    const selected = t.id === signature.template;
+                    return (
+                      <button key={t.id} onClick={() => selectTemplate(t.id)} disabled={!!templateBusy}
+                        style={{
+                          textAlign: 'left', cursor: templateBusy ? 'wait' : 'pointer', padding: 8, borderRadius: 8,
+                          border: selected ? '2px solid hsl(var(--color-green))' : '1px solid var(--line)',
+                          background: '#fff', position: 'relative',
+                        }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          {t.label}
+                          {selected && <Check size={11} style={{ color: 'hsl(var(--color-green))' }} />}
+                          {templateBusy === t.id && <Loader2 size={11} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />}
+                        </div>
+                        <div style={{ overflow: 'hidden', height: 44, pointerEvents: 'none' }}>
+                          <div style={{ transform: 'scale(0.55)', transformOrigin: 'top left', width: '182%' }}
+                            dangerouslySetInnerHTML={{ __html: t.html }} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
               <input className="form-input" placeholder="Preferred display name (e.g. Sam instead of Sahil)" value={sigName}
                 onChange={e => setSigName(e.target.value)} style={{ fontSize: 13 }} />
