@@ -294,9 +294,9 @@ def _render_bold(f: dict) -> str:
 
 def _render_sincerely(f: dict) -> str:
     closing = f["closing"] or "Sincerely"
-    photo_cell = (f'<td style="padding-right:14px;vertical-align:top;">'
-                  f'<img src="{f["photoUrl"]}" alt="" width="64" height="64" '
-                  f'style="border-radius:50%;object-fit:cover;" /></td>' if f["photoUrl"] else "")
+    logo_cell = (f'<td style="padding-right:14px;vertical-align:top;">'
+                 f'<img src="{f["logoUrl"]}" alt="" style="max-height:56px;max-width:120px;" /></td>'
+                 if f["logoUrl"] else "")
     rows = "".join(
         f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
         for v in (f"Phone: {f['phone']}" if f["phone"] else "",
@@ -310,7 +310,7 @@ def _render_sincerely(f: dict) -> str:
         _TYPEWRITER_CSS +
         '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
         f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;"><span class="sig-closing">{closing},</span></td></tr>'
-        f'<tr>{photo_cell}<td style="vertical-align:top;">'
+        f'<tr>{logo_cell}<td style="vertical-align:top;">'
         f'<div style="font-weight:bold;color:#111111;font-size:14px;">{f["name"]}</div>'
         f'<div style="color:{_BRAND_GREEN};font-weight:600;margin-bottom:4px;">{role_line}</div>'
         f'<table style="border-collapse:collapse;">{rows}</table>'
@@ -322,26 +322,25 @@ def _render_sincerely(f: dict) -> str:
 
 def _render_kind_regards(f: dict) -> str:
     closing = f["closing"] or "Kind regards"
-    photo_cell = (f'<td style="padding-right:12px;vertical-align:top;">'
-                  f'<img src="{f["photoUrl"]}" alt="" width="56" height="56" '
-                  f'style="border-radius:8px;object-fit:cover;" />'
-                  + (f'<div style="padding-top:8px;">{_social_icons(f)}</div>' if _social_icons(f) else "")
-                  + '</td>' if f["photoUrl"] else "")
+    logo_cell = (f'<td style="padding-right:12px;vertical-align:top;">'
+                 f'<img src="{f["logoUrl"]}" alt="" style="max-height:52px;max-width:110px;" />'
+                 + (f'<div style="padding-top:8px;">{_social_icons(f)}</div>' if _social_icons(f) else "")
+                 + '</td>' if f["logoUrl"] else "")
     rows = "".join(
         f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
         for v in (f"Phone: {f['phone']}" if f["phone"] else "",
                   f"Email: {f['email']}" if f["email"] else "", f["website"])
         if v
     )
-    # No photo -> the social row still needs somewhere to live.
+    # No logo -> the social row still needs somewhere to live.
     social = _social_icons(f)
-    fallback_social = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if not f["photoUrl"] and social else ""
+    fallback_social = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if not f["logoUrl"] and social else ""
     role_line = _role_company_line(f)
     return (
         _TYPEWRITER_CSS +
         '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
         f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;"><span class="sig-closing">{closing},</span></td></tr>'
-        f'<tr>{photo_cell}<td style="border-left:2px solid {_BRAND_GREEN};padding-left:12px;vertical-align:top;">'
+        f'<tr>{logo_cell}<td style="border-left:2px solid {_BRAND_GREEN};padding-left:12px;vertical-align:top;">'
         f'<div style="font-weight:bold;color:{_BRAND_GREEN};font-size:14px;">{f["name"]}</div>'
         f'<div style="color:#333333;margin-bottom:4px;">{role_line}</div>'
         f'<table style="border-collapse:collapse;">{rows}</table>'
