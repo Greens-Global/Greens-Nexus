@@ -1,0 +1,36 @@
+"""Outlook Add-in (Sep 16, Pranshu) - the compose-time auto-insert companion
+to the in-app signature builder (routers/myhr.py). A separate router on
+purpose: myhr's router carries a router-level dependency that validates the
+SPA's Bearer ID token, but the add-in's Office.auth.getAccessToken() issues a
+different token shape (an access token for this API's own "Expose an API"
+Application ID URI, not an ID token) that needs auth.get_addin_user's own
+validation path - kept isolated here so a misconfiguration on the Entra side
+can only ever break this one route, never the SPA's own sign-in.
+
+Deployment (outside this repo, done once by an M365/Entra admin - see the
+add-in files under frontend/public/outlook-addin/):
+  1. Nexus's existing Entra app registration -> Expose an API -> set an
+     Application ID URI (default api://<client-id> is fine) -> Add a scope
+     named access_as_user -> Admin consent.
+  2. Same app registration -> Token configuration -> Add optional claim ->
+     Access token -> add "email" and "upn".
+  3. Microsoft 365 admin center -> Integrated apps -> Upload custom app ->
+     the manifest.xml this router's endpoint backs. Pushes to every
+     employee's Outlook (desktop, web, New Outlook) automatically.
+"""
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from database import get_db
+from auth import get_addin_user
+from routers.myhr import _me, _render_signature
+
+router = APIRouter(prefix="/outlook-addin", tags=["Outlook Add-in"])
+
+
+@router.get("/signature")
+def addin_signature(user: dict = Depends(get_addin_user), db: Session = Depends(get_db)):
+    """HTML only - the add-in just inserts it into the compose body via
+    Office.js's setSignatureAsync, no other fields needed."""
+    e = _me(db, user["email"])
+    return {"html": _render_signature(e, db)["html"]}
