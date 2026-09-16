@@ -157,7 +157,13 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
               Name, role and company e-mail come from your directory record. Add a preferred name below and it shows alongside your full name - you can also override your phone.
             </div>
+            <style>{`
+              @keyframes sigTypewriter { from { width: 0; } to { width: 100%; } }
+              .sig-closing { display: inline-block; overflow: hidden; white-space: nowrap; width: 0;
+                animation: sigTypewriter 1.1s steps(24, end) forwards; }
+            `}</style>
             <div
+              key={signature.html}
               style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 10, marginBottom: 10, background: '#fff', overflow: 'auto' }}
               dangerouslySetInnerHTML={{ __html: signature.html }}
             />

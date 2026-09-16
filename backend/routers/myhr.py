@@ -183,6 +183,12 @@ def _signature_fields(e: NexusEmployee, db: Session) -> dict:
 
 
 _SCRIPT_FONT = "'Brush Script MT','Segoe Script',cursive"
+# The "sig-closing" class on the cursive line has no CSS shipped with this
+# HTML on purpose - MyProfileModal.jsx supplies a typewriter @keyframes for
+# it so the in-app preview "writes" the line live (Pranshu, Sep 16, matching
+# the WiseStamp editor). Email clients don't run CSS animations, so the
+# class is inert once copied into Outlook - the line just renders as plain
+# static text there, which is the correct/safe fallback.
 
 
 def _social_icons(f: dict) -> str:
@@ -293,7 +299,7 @@ def _render_sincerely(f: dict) -> str:
     role_line = _role_company_line(f)
     return (
         '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
-        f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;">{closing},</td></tr>'
+        f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;"><span class="sig-closing">{closing},</span></td></tr>'
         f'<tr>{photo_cell}<td style="vertical-align:top;">'
         f'<div style="font-weight:bold;color:#111111;font-size:14px;">{f["name"]}</div>'
         f'<div style="color:{_BRAND_GREEN};font-weight:600;margin-bottom:4px;">{role_line}</div>'
@@ -323,7 +329,7 @@ def _render_kind_regards(f: dict) -> str:
     role_line = _role_company_line(f)
     return (
         '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
-        f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;">{closing},</td></tr>'
+        f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;"><span class="sig-closing">{closing},</span></td></tr>'
         f'<tr>{photo_cell}<td style="border-left:2px solid {_BRAND_GREEN};padding-left:12px;vertical-align:top;">'
         f'<div style="font-weight:bold;color:{_BRAND_GREEN};font-size:14px;">{f["name"]}</div>'
         f'<div style="color:#333333;margin-bottom:4px;">{role_line}</div>'
