@@ -11,10 +11,13 @@
 // (success, auth failure, network failure, slow response) is time-boxed and
 // falls through to event.completed() no matter what happens.
 
-// Same-origin as this page (nexus.greensglobal.com in production) - set
-// VITE_API_BASE below only if the backend API ever moves to a different
-// origin than the frontend that serves this add-in.
-const NEXUS_API_BASE = "https://greens-nexus-api.azurewebsites.net";
+// Production backend host (Sep 17 fix: the plain "greens-nexus-api.
+// azurewebsites.net" guessed at commit time doesn't exist - Azure appended a
+// random uniqueness suffix to the actual hostname. Confirmed against the
+// live SPA's own bundled VITE_API_BASE, not guessed - if this ever needs
+// re-checking, grep the deployed index-*.js bundle on nexus.greensglobal.com
+// for "azurewebsites.net" rather than assuming the plain app-service name.
+const NEXUS_API_BASE = "https://greens-nexus-api-ejfxdjcbevfxb2ht.westus2-01.azurewebsites.net";
 const FETCH_TIMEOUT_MS = 12000;
 
 Office.onReady();
