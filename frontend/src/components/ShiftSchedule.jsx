@@ -378,14 +378,18 @@ function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd, busy, 
     onApply(payload);
   }
 
+  const dirty = groupId !== (groups[0]?.id || '') || shiftId !== (shifts[0]?.id || '') || from !== defaultStart
+    || to !== defaultEnd || JSON.stringify(dows) !== JSON.stringify([0, 1, 2, 3, 4]) || skipOff !== true || overwrite !== false;
+  const guard = useUnsavedGuard(dirty, onClose, canApply ? submit : undefined);
+
   const lbl = { fontSize: 11, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 };
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 460, padding: 20, maxHeight: '92dvh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Fill schedule</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
           Apply a shift to a whole group across a date range in one go - no more adding it per person per day.
@@ -443,6 +447,10 @@ function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd, busy, 
             style={{ opacity: canApply ? 1 : 0.55 }}>{busy ? '…' : 'Fill schedule'}</button>}
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
+          onSave={canApply ? guard.saveAndClose : undefined} saving={guard.saving || busy} />
+      )}
     </div>
   );
 }
@@ -467,13 +475,19 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
       label, open_slots: Math.max(1, Number(slots) || 1) });
   }
 
+  // ex is fixed for this modal instance's lifetime (a fresh OpenShiftModal
+  // mounts per cell click), so the initial useState values ARE the baseline.
+  const dirty = shiftId !== (ex?.shiftId || (shifts[0]?.id || '')) || start !== (ex?.start || '')
+    || end !== (ex?.end || '') || String(slots) !== String(ex?.openSlots || 1) || label !== (ex?.label || '');
+  const guard = useUnsavedGuard(dirty, onClose, submit);
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 430, padding: 20, maxHeight: '92dvh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
           <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{ex ? 'Open shift' : 'Add open shift'}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
           {new Date(cell.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })} · an unassigned slot anyone on the team can be given
@@ -518,6 +532,9 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
           {shifts.length > 0 && <button className="primary-btn" onClick={submit} disabled={busy}>{busy ? '…' : 'Save'}</button>}
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={guard.saving || busy} />
+      )}
     </div>
   );
 }
