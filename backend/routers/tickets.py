@@ -707,6 +707,11 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     prev_application, prev_service_area = t.application, t.service_area
     prev_resolution = t.resolution
     prev_type_fields = dict(t.type_fields or {})
+    # sla_due_on is never applied from the payload directly - it is derived
+    # from priority a few lines down, same as create_ticket never trusting
+    # body.sla_due_on. Still accepted on the model for backward-compat
+    # payloads that include it; just ignored.
+    data.pop("sla_due_on", None)
     for k, v in data.items():
         if k in ("assignee_email",) and v is not None:
             # strip() too - a padded address never matches the same person again,
@@ -719,10 +724,13 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     if "application" in data and "service_area" not in data:
         t.application = (t.application or "").strip()
         t.service_area = service_area_for(db, t.application)
-    # SLA due date follows priority automatically - unless this same request
-    # ALSO set sla_due_on explicitly (the drawer's manual DateField editor),
-    # which is respected as-is and never silently overridden.
-    if "priority" in data and t.priority != prev_priority and "sla_due_on" not in data:
+    # SLA due date follows priority automatically, full stop - the drawer's
+    # manual DateField editor that let a caller override it in the same
+    # request is gone (Pranshu, Sep 17 2026: "if priority changes the SLA due
+    # date changes"). Mirrors create_ticket, which never trusts body.sla_due_on
+    # either - any sla_due_on a caller sends is ignored; it is ALWAYS
+    # recomputed from priority.
+    if "priority" in data and t.priority != prev_priority:
         t.sla_due_on = _sla_due_from_priority(db, t.created_at, t.priority)
     if data.get("status") in ("resolved", "closed") and not t.resolved_at:
         t.resolved_at = now_iso()
@@ -805,7 +813,12 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         _log("application_changed", f"changed application to {t.application or '-'}")
     if t.service_area != prev_service_area:
         _log("service_area_changed", f"changed service area to {t.service_area or '-'}")
-    if "sla_due_on" in data and t.sla_due_on != prev_due:
+    if t.sla_due_on != prev_due:
+        # Not gated on "in data" like the fields above - sla_due_on is never
+        # in the payload now (see the pop() above), it only ever moves as a
+        # side effect of a priority change, and that's still worth a line in
+        # the audit trail (see this function's "gets logged if it actually
+        # happened" comment above the mutation loop).
         _log("sla_changed", f"changed the SLA due date to {t.sla_due_on or '-'}")
     if t.resolution != prev_resolution:
         _log("resolution_changed", f"set resolution to {_type_label(t.resolution) if t.resolution else '-'}")
@@ -849,10 +862,12 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
                                    prev_status=prev_status, update_kind=f"Status changed to {t.status}")
     elif "priority" in data and t.priority != prev_priority:
+        # Covers the SLA due date moving too - it's never in `data` itself
+        # (see the pop() above), it only ever moves as a side effect of this
+        # same priority change, so there's no separate "due date changed"
+        # case left to reach on its own.
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
                                    update_kind=f"Priority changed to {t.priority}")
-    elif "sla_due_on" in data and t.sla_due_on != prev_due:
-        background_tasks.add_task(notify_ticket_event, t.id, "updated", actor, update_kind="Due date changed")
     elif "resolution" in data or "description" in data or "type" in data or "hr_department_id" in data:
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor, update_kind="Ticket details updated")
 
@@ -861,7 +876,6 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # definition, not two).
     if ((assignee_changed and t.assignee_email) or status_changed
             or ("priority" in data and t.priority != prev_priority)
-            or ("sla_due_on" in data and t.sla_due_on != prev_due)
             or ("resolution" in data or "description" in data or "type" in data or "hr_department_id" in data)):
         dm_row = _queue_requester_teams_dm(db, t, actor)
         db.commit()
