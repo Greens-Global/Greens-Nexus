@@ -2377,27 +2377,30 @@ export function TicketDrawer({ ticketId, onClose }) {
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(t.serviceArea) || '-'}</div>
           )}
         </div>
-        {canSeeAssignSla && (
-          <div style={field}>
-            <label style={label}>SLA Due Date</label>
-            {/* Read-only always (Pranshu, Sep 17 2026) - it follows Priority
-                automatically (_sla_due_from_priority in update_ticket), and a
-                manual DateField editor here let it drift out of step with the
-                priority it's supposed to track. Change Priority to move it. */}
-            <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-              {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
-            </div>
-            {/* "Needs a comment" - a signal separate from the due date above:
-                nobody has said anything in longer than this priority's
-                check-in cadence, whether or not the due date has passed. */}
-            {commentStale(t) && (
-              <div title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h`}
-                style={{ ...chip(COMMENT_STALE_META.color, COMMENT_STALE_META.tint), display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '2px 8px', marginTop: 6 }}>
-                <COMMENT_STALE_META.Icon size={12} />{COMMENT_STALE_META.label}
-              </div>
-            )}
+        {/* NOT gated on canSeeAssignSla (Pranshu, Sep 17 2026: "I want SLA due
+            date for all type of tickets") - that gate exists to keep Assign
+            To a desk decision, not the requester's to make or see while a
+            ticket is still Open, but the due date itself is informational
+            for everyone regardless of who's viewing or what state it's in. */}
+        <div style={field}>
+          <label style={label}>SLA Due Date</label>
+          {/* Read-only always (Pranshu, Sep 17 2026) - it follows Priority
+              automatically (_sla_due_from_priority in update_ticket), and a
+              manual DateField editor here let it drift out of step with the
+              priority it's supposed to track. Change Priority to move it. */}
+          <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
+            {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
           </div>
-        )}
+          {/* "Needs a comment" - a signal separate from the due date above:
+              nobody has said anything in longer than this priority's
+              check-in cadence, whether or not the due date has passed. */}
+          {commentStale(t) && (
+            <div title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h`}
+              style={{ ...chip(COMMENT_STALE_META.color, COMMENT_STALE_META.tint), display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '2px 8px', marginTop: 6 }}>
+              <COMMENT_STALE_META.Icon size={12} />{COMMENT_STALE_META.label}
+            </div>
+          )}
+        </div>
         {CLOSED_STATES.includes(t.status) && (
           <div style={field}>
             <label style={label}>Resolution</label>
@@ -2828,16 +2831,24 @@ function TicketConversation({ ticketId, nameOf }) {
   const [internal, setInternal] = useState(false);
   const [busy, setBusy] = useState(false);
   const people = usePeople();
+  // A comment updates the ticket row itself (last_comment_at, which drives
+  // the "Needs a comment" staleness badge - ticketMeta.js's commentStale) -
+  // reload() above only re-fetches the comment thread, so without this the
+  // ticket sitting in TasksContext's own state still held the OLD
+  // lastCommentAt, and the badge never cleared after actually commenting
+  // (Pranshu, Sep 17 2026). refresh() re-pulls the ticket list so the drawer
+  // (and every list/board cell showing this ticket) picks up the new value.
+  const { refresh } = useTasks();
   const reload = () => api.getTicketComments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
   const send = async () => {
     if (isEmptyDoc(body) || busy) return;
     setBusy(true);
-    try { await api.addTicketComment(ticketId, { body, internal }); setBody(''); await reload(); }
+    try { await api.addTicketComment(ticketId, { body, internal }); setBody(''); await Promise.all([reload(), refresh()]); }
     catch { /* ignore */ } finally { setBusy(false); }
   };
-  const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); reload(); };
+  const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); await Promise.all([reload(), refresh()]); };
 
   return (
     <div>

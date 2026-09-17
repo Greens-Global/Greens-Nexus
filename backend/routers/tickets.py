@@ -59,11 +59,12 @@ require_ticket_desk = require_any_module_grant("tasks", "tickets")
 # Target hours are admin-configurable (ticket_taxonomy.py, Sep 2026 - was a
 # hardcoded dict here, mirrored by a second hardcoded copy in
 # frontend/src/tickets/ticketMeta.js that the two had to be kept in step by
-# hand). The server is authoritative: create_ticket always computes its own
-# value (never trusts body.sla_due_on), and update_ticket recomputes it
-# whenever priority changes to a new value in a request that doesn't ALSO set
-# sla_due_on explicitly in the same request (that's a manual override via the
-# drawer's own DateField editor, and stays respected as-is). ──
+# hand). The server is authoritative and there is no override path at all
+# (Sep 17 2026 - there used to be one, via the drawer's own DateField editor):
+# create_ticket always computes its own value, never trusting body.sla_due_on,
+# and update_ticket recomputes it whenever priority changes to a new value,
+# full stop. See main.py's startup backfill for tickets that predate this
+# column ever being populated. ──
 
 def _sla_due_from_priority(db: Session, created_at_iso: str, priority: str) -> str:
     """created_at + the priority's target hours, as a YYYY-MM-DD date string -

@@ -103,9 +103,11 @@ class SlaFromPriorityTests(unittest.TestCase):
         self.assertEqual(out["slaDueOn"], expected)
         self.assertLess(out["slaDueOn"], datetime.now(timezone.utc).date().isoformat())
 
-    def test_an_explicit_sla_due_on_in_the_same_patch_is_respected(self):
-        """A manual override (the drawer's DateField) wins over the automatic
-        recompute when both are sent together."""
+    def test_an_explicit_sla_due_on_in_the_same_patch_is_ignored(self):
+        """No manual override exists any more (Sep 17 2026 - the drawer's
+        DateField editor is gone): a client-sent sla_due_on is always
+        discarded, same as at creation, and the value stays whatever priority
+        alone derives."""
         created = datetime.now(timezone.utc) - timedelta(days=1)
         t = models.TaskTicket(id="t2", code="TIC-2", subject="s", status="open",
                               priority="low", requester_email=REQUESTER["email"],
@@ -117,7 +119,8 @@ class SlaFromPriorityTests(unittest.TestCase):
         out = T.update_ticket("t2", T.TicketUpdate(priority="urgent", sla_due_on="2099-01-01"),
                               BackgroundTasks(), user=REQUESTER, db=self.db)
 
-        self.assertEqual(out["slaDueOn"], "2099-01-01")
+        expected = (created + timedelta(hours=24)).date().isoformat()
+        self.assertEqual(out["slaDueOn"], expected)
 
     def test_updating_something_other_than_priority_leaves_sla_alone(self):
         created = datetime.now(timezone.utc) - timedelta(days=2)
