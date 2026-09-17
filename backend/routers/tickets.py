@@ -1000,6 +1000,20 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
                                    # Full comment text - the email renders it in its own
                                    # quote block, so no truncation (was capped at 280).
                                    update_kind="New comment added", latest_comment=body.body or "")
+        # Teams DM too - a reply is exactly as "worth telling the requester
+        # about" as a status/field change, but update_ticket's DM block never
+        # runs for comments (they're their own endpoint). Without this, a
+        # requester who only watches Teams never heard about a reply at all
+        # (Pranshu, Sep 17 2026). Same inline-attempt-then-sweep-fallback
+        # shape as update_ticket's block just below it.
+        dm_row = _queue_requester_teams_dm(db, t, user["email"])
+        db.commit()
+        if dm_row is not None:
+            try:
+                import teams_post
+                teams_post.deliver_ticket_row(db, dm_row)
+            except Exception:
+                pass   # queued; the sweep owns it now
     return _tcomment(c)
 
 
