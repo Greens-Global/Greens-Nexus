@@ -111,7 +111,7 @@ function LetterheadForm({ letterhead, onSaved, toastErr }) {
   const [busy, setBusy] = useState(false);
 
   const doUpload = async (file) => {
-    const path = `document-images/letterheads/${Date.now()}-${(file.name || 'logo').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const path = `letterheads/${Date.now()}-${(file.name || 'logo').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const { url, error } = await uploadToSupabase(file, 'document-images', path);
     if (error) { toastErr?.(error); return; }
     setLogoPath(url);
@@ -338,7 +338,12 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
                       </span>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  {/* 8 icon buttons at ~30px need ~276px, but the grid track
+                      bottoms out at 240px (212px inside the padding) - so this
+                      row overflowed its own card at the narrow end even on a
+                      desktop, and always on a phone. Wrapping costs one extra
+                      line at narrow widths and nothing at wide ones. */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <button title="Preview" onClick={() => setPreviewId(t.id)}
                       style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Eye size={14} /></button>
                     <button title="Edit" onClick={() => setEditingId(t.id)}
