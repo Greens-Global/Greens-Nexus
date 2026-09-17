@@ -177,7 +177,7 @@ export default function LoginPage() {
           {partner === null && (<>
           <h1 className="nxl-title" style={{ "--i": 1 }}>Welcome to Nexus</h1>
           <p className="nxl-sub" style={{ "--i": 2 }}>
-            Sign in with your work account to continue.
+            Sign in with your account to continue.
           </p>
 
           {denied && (
@@ -324,11 +324,12 @@ export default function LoginPage() {
         }
         .nxl-mark--inverse { background: rgba(255,255,255,.16); color: #fff; }
         .nxl-hero-name { font-size: 18px; font-weight: 800; letter-spacing: -.01em; }
-        /* The brand lockup at 125% (Sagar, Sep 17). Scaled as a unit from its
-           top-left so the mark and the wordmark keep their proportions and the
-           block stays anchored to the panel's corner - sizing each part
-           separately would drift them apart. */
-        .nxl-hero-brand { transform: scale(1.25); transform-origin: left top; }
+        /* The brand lockup at 145% (Sagar, Sep 17 - 125% first, then raised
+           again the same day). Scaled as a unit from its top-left so the mark
+           and the wordmark keep their proportions and the block stays anchored
+           to the panel's corner - sizing each part separately would drift
+           them apart. */
+        .nxl-hero-brand { transform: scale(1.45); transform-origin: left top; }
 
         .nxl-hero-title {
           margin: 0;
