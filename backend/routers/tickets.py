@@ -453,7 +453,7 @@ def _notify_participants(db: Session, t: models.TaskTicket, actor_email: str, ki
         task_notify(db, kind=kind, for_email=email, title=title, body=body, ticket_id=t.id, nexus_action=action)
 
 
-def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: str) -> None:
+def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: str) -> "models.TicketTeamsMessage | None":
     """Queue a Teams DM to the ticket's requester about this update - same
     guaranteed-delivery queue TimeBod posts use (teams_post.py), posted AS the
     agent who made the change into a 1:1 chat Graph creates on first contact.
@@ -462,15 +462,24 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
     block) - one definition of "worth telling the requester about," not two.
     Skipped when the actor IS the requester (their own edit needs no DM) or
     there's no requester on file (never happens in practice, but a queued row
-    with an empty requester_email would just fail Graph forever)."""
+    with an empty requester_email would just fail Graph forever).
+
+    Returns the queued row (or None if skipped) so the caller can make the
+    same inline delivery attempt the BOD/EOD queue makes in timeclock.py's
+    /bod endpoint - without it, a DM only goes out on ticket_teams_post_loop's
+    sweep, which skips rows younger than SWEEP_MIN_AGE_SEC and only runs every
+    RETRY_EVERY_SEC (3 min) - a 2-5 minute delay on every ticket update
+    instead of landing with the update (Pranshu, Sep 17 2026)."""
     requester = (t.requester_email or "").strip().lower()
     actor = (actor_email or "").strip().lower()
     if not requester or requester == actor:
-        return
+        return None
     link = tmpl._ticket_url(app_url(), t.id, for_requester=True)
     html = f'{ticket_no(t.code)} has been updated. To view the ticket, please visit: <a href="{link}">{link}</a>'
-    db.add(models.TicketTeamsMessage(id=gen_id(), ticket_id=t.id, agent_email=actor,
-                                     requester_email=requester, html=html, created_at=now_iso()))
+    row = models.TicketTeamsMessage(id=gen_id(), ticket_id=t.id, agent_email=actor,
+                                     requester_email=requester, html=html, created_at=now_iso())
+    db.add(row)
+    return row
 
 
 @router.get("/task-tickets")
@@ -854,8 +863,19 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             or ("priority" in data and t.priority != prev_priority)
             or ("sla_due_on" in data and t.sla_due_on != prev_due)
             or ("resolution" in data or "description" in data or "type" in data or "hr_department_id" in data)):
-        _queue_requester_teams_dm(db, t, actor)
+        dm_row = _queue_requester_teams_dm(db, t, actor)
         db.commit()
+        # One inline delivery attempt so the common case lands in Teams right
+        # away, same as timeclock.py's /bod endpoint - without this, the DM
+        # only goes out on ticket_teams_post_loop's next sweep (up to ~5 min
+        # later). Sync endpoint = FastAPI threadpool, so blocking HTTP is fine
+        # here; anything that fails stays queued for the sweep to retry.
+        if dm_row is not None:
+            try:
+                import teams_post
+                teams_post.deliver_ticket_row(db, dm_row)
+            except Exception:
+                pass   # queued; the sweep owns it now
 
     return ticket_to_dict(t)
 
