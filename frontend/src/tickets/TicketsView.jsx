@@ -67,13 +67,7 @@ const TICKET_VIEW_TABS = [
 const TICKET_COLUMNS = [
   { key: 'checkbox', label: '', width: 34, fixed: true },
   { key: 'type', label: '', width: 34, fixed: true },
-  // template (not just width) so Title absorbs whatever width the other,
-  // all-fixed-px columns don't use - every other column here is a fixed
-  // size, so without an elastic one the leftover space on a wide screen
-  // painted as a bare empty grid track after the last column (Pranshu, Sep
-  // 17 2026 - "extra empty column"). Same fix MyTasksView.jsx's own `title`
-  // column already uses.
-  { key: 'title', label: 'Title', width: 260, template: 'minmax(220px,1fr)', sort: (t) => (t.subject || '').toLowerCase() },
+  { key: 'title', label: 'Title', width: 260, sort: (t) => (t.subject || '').toLowerCase() },
   { key: 'company', label: 'Company', width: 130, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
   // State and Priority each carry a second chip when a ticket needs it
   // (Awaiting approval / SLA breached), so they're sized for the pair - at 150
@@ -962,7 +956,17 @@ export default function TicketsView() {
           // header/row inside reads the SAME template, so a resize or a
           // drag-reorder repaints the whole grid with zero React re-renders.
           <div className="nx-list-scroll" style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface }}>
-            <div ref={wrapRef} style={{ minWidth: 'fit-content', '--nx-grid': template }}>
+            {/* width (not just minWidth): every column here is a fixed px
+                size, none elastic, so a plain block div - which stretches to
+                fill its parent by default - kept painting the row/header
+                background past the last real column on any screen wider than
+                the columns' sum, reading as a stray blank column (Pranshu,
+                Sep 17 2026: "however much column I'm adding, the table
+                should show that much column only"). fit-content pins this
+                div's actual width to its grid content, so there's nothing
+                left over to paint; still never shrinks below it either, so
+                a narrow screen scrolls horizontally exactly as before. */}
+            <div ref={wrapRef} style={{ width: 'fit-content', minWidth: 'fit-content', '--nx-grid': template }}>
               <TicketListHeader cols={cols} widths={widths} startResize={startResize} resetWidth={resetWidth} autofitWidth={autofitWidth}
                 dragProps={dragProps} sort={sort} onSort={onSort} allSelected={allSelected} someSelected={someSelected} onToggleSelectAll={toggleSelectAll} />
               {groups.map((g) => (
