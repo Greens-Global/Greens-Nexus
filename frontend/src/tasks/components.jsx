@@ -13,6 +13,7 @@ import { useTasks } from './TasksContext';
 import PersonHover from '../components/PersonHoverCard';
 // Photos live in lib/peoplePhotos so the header avatar shares this one cache.
 import { usePhotoMap } from '../lib/peoplePhotos';
+import { useIsMobile } from '../lib/useIsMobile';
 
 // `card={false}` opts a call site out of the hover card - for avatars that are
 // already inside an interactive row (menu items, pickers), where a second click
@@ -190,17 +191,10 @@ export function useClickOutside(refs, onOutside, active) {
 
 // True on phone-width viewports. Matches the 640px breakpoint the task module's
 // CSS uses, so JS-side layout decisions stay in step with the media queries.
-export function useIsMobile(query = '(max-width: 640px)') {
-  const [match, setMatch] = useState(() => (typeof window === 'undefined' ? false : window.matchMedia(query).matches));
-  useEffect(() => {
-    const mq = window.matchMedia(query);
-    const onChange = (e) => setMatch(e.matches);
-    setMatch(mq.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, [query]);
-  return match;
-}
+// Moved to lib/useIsMobile.js so the Documents module can use it without
+// pulling this whole chunk in. Imported (this file calls it itself) and
+// re-exported, because every existing caller imports it from here.
+export { useIsMobile };
 
 // A date field that always READS as mm/dd/yyyy.
 //

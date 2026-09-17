@@ -24,6 +24,7 @@ import { importDocumentFile } from '../lib/docBuilderImport';
 import { slugifyToken, variableFromDrop } from '../lib/mergeFieldTypes';
 import { extractVariables, mergeFieldDefs } from '../lib/extractVariables';
 import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, pageCanvasStyle } from '../lib/pageSetup';
+import { useIsMobile } from '../lib/useIsMobile';
 import EgnyteBrowser from './EgnyteBrowser';
 import DefineMergeFieldModal from './DefineMergeFieldModal';
 import VariableLibrary from './VariableLibrary';
@@ -142,7 +143,7 @@ function stripToFormat(nodes) {
 // build one from scratch). A hook can't be called conditionally/dynamically
 // inside the parent's render, so each page is its own component instance -
 // that's the actual reason this is split out, not just organization.
-function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, showMarks, onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
+function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, compact, showMarks, onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
   const editor = useEditor({
     extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' })],
     content: initialJson || null,
@@ -161,7 +162,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
   return (
     <div className={`doc-page${pageSetup.lineNumbers ? ' doc-line-numbers' : ''}`}
       style={{
-        display: 'flex', flexDirection: 'column', margin: '0 auto 28px', ...pageCanvasStyle(pageSetup),
+        display: 'flex', flexDirection: 'column', margin: '0 auto 28px', ...pageCanvasStyle(pageSetup, { compact }),
         background: pageSetup.pageColor || '#fff',
         border: border?.style ? `${border.width || 1}px ${border.style} ${border.color || '#111827'}` : undefined,
       }}
@@ -205,6 +206,10 @@ function ToolbarBtn({ onClick, active, disabled, title, children }) {
 
 export default function DocumentBuilder({ docId, kind = 'document', employees = [], entities = [], onClose, toastOk, toastErr, quickSections = [], onContentSaved }) {
   const { get: apiGet, update: apiUpdate, nameKey, getVersions, getVersion } = KIND_API[kind];
+  // Phone layout. The editor is a Word-shaped surface - a fixed-width page, a
+  // 36-button ribbon and a thumbnail rail - none of which fit a 375px screen
+  // as authored, so each is given a phone form rather than being hidden.
+  const isMobile = useIsMobile();
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
@@ -1301,7 +1306,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   };
 
   const doUploadImage = async (pageId, file) => {
-    const path = `document-images/${docId}/${Date.now()}-${safeName(file.name)}`;
+    const path = `${docId}/${Date.now()}-${safeName(file.name)}`;
     const { url, error } = await uploadToSupabase(file, 'document-images', path);
     if (error) { toastErr?.(error); return; }
     editorsRef.current.get(pageId)?.chain().focus().setImage({ src: url }).run();
@@ -1330,7 +1335,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // doesn't crash the import" convention doc_export.py already follows.
   const uploadImportedImage = async (bytes, mime, n) => {
     const extGuess = (mime || '').split('/')[1]?.split('+')[0] || 'png';
-    const path = `document-images/${docId}/imported-${Date.now()}-${n}.${extGuess}`;
+    const path = `${docId}/imported-${Date.now()}-${n}.${extGuess}`;
     const file = new File([bytes], `imported-${n}.${extGuess}`, { type: mime || 'image/png' });
     const { url, error } = await uploadToSupabase(file, 'document-images', path);
     return error ? '' : url;
@@ -2158,7 +2163,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       )}
 
       <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
-      {kind === 'document' && !preview && (() => {
+      {kind === 'document' && !preview && !isMobile && (() => {
         const canvas = pageCanvasStyle(pageSetup);
         const thumbW = 92, thumbH = Math.round(thumbW * (canvas.minHeight / canvas.maxWidth));
         const scale = thumbW / canvas.maxWidth;
@@ -2228,7 +2233,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           made the misalignment worse, not better - consistent beats
           "technically repeats" here. */}
       {(activeLetterhead || headerVisible) && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup).maxWidth, margin: '0 auto 16px', paddingBottom: 12, borderBottom: '2px solid #111827' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup, { compact: isMobile }).maxWidth, margin: '0 auto 16px', paddingBottom: 12, borderBottom: '2px solid #111827' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             {activeLetterhead?.logoPath && <img src={activeLetterhead.logoPath} alt={activeLetterhead.name} style={{ height: 34, maxWidth: 140, objectFit: 'contain', flex: '0 0 auto' }} />}
             {activeLetterhead && (
@@ -2255,7 +2260,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           stacked paper" AND the actual boundary between two independent
           editors) - not one continuous scroll with a dashed-line marker. */}
       {pages.map((p, i) => (
-        <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked} pageSetup={pageSetup} showMarks={showMarks}
+        <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked} pageSetup={pageSetup} compact={isMobile} showMarks={showMarks}
           onReady={registerPageEditor} onUpdate={onPageUpdate}
           onActivity={onPageActivity} onPaste={onBodyPaste} onVariableDrop={onVariableDrop} onTocClick={goToTocLink} />
       ))}
@@ -2264,7 +2269,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           tagline (if it has one) and the document's footer editor share one
           row instead of stacking. */}
       {(activeLetterhead?.footerJson?.text || footerVisible) && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup).maxWidth, margin: '16px auto 0', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup, { compact: isMobile }).maxWidth, margin: '16px auto 0', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
           {activeLetterhead?.footerJson?.text && <div className="doc-letterhead-tagline" style={{ margin: 0 }}>{activeLetterhead.footerJson.text}</div>}
           {footerVisible && (
             <div style={{ flex: '1 1 auto', maxWidth: 340, marginLeft: 'auto', textAlign: 'right' }}>

@@ -2525,6 +2525,33 @@ button, [role="button"], select { touch-action: manipulation; }
 .doc-toolbar button.is-active { background: hsla(var(--color-blue),0.14); color: hsl(var(--color-blue)); }
 .doc-toolbar-sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
 
+/* ── Document Builder on a phone (Sagar, Sep 17) ─────────────────────────────
+   The builder is a Word-shaped surface and none of its three chrome pieces fit
+   a 375px screen as authored. Each gets a phone form here rather than being
+   dropped, so the same document is still fully editable on a phone. */
+@media (max-width: 640px) {
+  /* The ribbon holds 36 controls. Wrapping them at 30px each built a four-row
+     ~150px wall above every document, so the page itself started below the
+     fold. One scrolling row keeps every command reachable and costs 40px.
+     Same idiom as .scroll-tabs: touch momentum, no visible scrollbar. */
+  .doc-toolbar {
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; -ms-overflow-style: none;
+    padding: 6px 8px; border-radius: 10px; margin-bottom: 10px;
+  }
+  .doc-toolbar::-webkit-scrollbar { display: none; height: 0; }
+  /* Without this the flex items are allowed to shrink below their own width
+     and the icons squash into slivers instead of scrolling. */
+  .doc-toolbar > * { flex: 0 0 auto; }
+  /* 34px clears the 24px minimum for a touch target on the icon buttons,
+     which are 30px on desktop where there is a cursor to aim with. */
+  .doc-toolbar button { width: 34px; height: 34px; }
+
+  /* The page keeps its shadow but loses the desktop side margin, so the sheet
+     uses the full screen width rather than floating in a gutter. */
+  .doc-page { box-shadow: 0 2px 10px rgba(0,0,0,0.08); border-radius: 6px; }
+}
+
 .doc-page {
   position: relative;
   background: #fff; max-width: 850px; margin: 0 auto; border-radius: 4px;

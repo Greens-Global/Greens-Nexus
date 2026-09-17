@@ -35,13 +35,42 @@ export const DEFAULT_PAGE_SETUP = { size: 'letter', orientation: 'portrait', mar
 const WIDTH_PX_PER_IN = 850 / PAGE_SIZE_DIMS.letter.wIn; // calibrated so Letter/Portrait keeps today's 850px width exactly
 const PADDING_PX_PER_IN = { v: 56, h: 64 }; // calibrated so Normal (1in) keeps today's 56px/64px padding exactly
 
-export function pageCanvasStyle(pageSetup) {
+// Phone padding, in the same "px per inch of margin" shape so the margin
+// PRESET still visibly matters (Narrow is still tighter than Wide) - it is the
+// scale that changes, not the meaning. A 1in Normal margin at the desktop
+// figure costs 128px of horizontal padding; on a 375px screen that is a third
+// of the display spent on white space, leaving a ~215px text column that
+// wrapped legal prose to four or five words a line. At 20px/in it leaves ~335px.
+const COMPACT_PADDING_PX_PER_IN = { v: 28, h: 20 };
+
+/**
+ * The inline style for one page of the live editor canvas.
+ *
+ * `compact` is the phone rendering (see useIsMobile in DocumentBuilder): the
+ * same page, same proportions, with padding that doesn't eat the screen. Call
+ * it with no options and you get the desktop numbers exactly as before.
+ */
+export function pageCanvasStyle(pageSetup, { compact = false } = {}) {
   const ps = { ...DEFAULT_PAGE_SETUP, ...(pageSetup || {}) };
   const dims = PAGE_SIZE_DIMS[ps.size] || PAGE_SIZE_DIMS.letter;
   let { wIn, hIn } = dims;
   if (ps.orientation === 'landscape') { [wIn, hIn] = [hIn, wIn]; }
   const marginIn = MARGIN_IN[ps.margins] ?? MARGIN_IN.normal;
   const widthPx = Math.round(wIn * WIDTH_PX_PER_IN);
+  if (compact) {
+    const pad = COMPACT_PADDING_PX_PER_IN;
+    return {
+      maxWidth: widthPx,
+      // aspectRatio, NOT minHeight. minHeight is derived from the 850px
+      // baseline, so on a phone - where the page actually renders at whatever
+      // the container allows, ~340px - a Letter page kept an 1100px floor and
+      // read as a tall, almost entirely empty sheet. aspect-ratio is relative
+      // to the REAL width at every size, and because min-height stays auto it
+      // still grows past the ratio once the content is longer than a page.
+      aspectRatio: `${wIn} / ${hIn}`,
+      padding: `${Math.round(marginIn * pad.v)}px ${Math.round(marginIn * pad.h)}px`,
+    };
+  }
   return {
     maxWidth: widthPx,
     // minHeight (not height) - the canvas is a continuous, unpaginated
