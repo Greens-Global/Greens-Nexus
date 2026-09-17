@@ -1003,7 +1003,10 @@ export const api = {
   getEntities:    ()         => cachedGet('/hr/entities', 120_000),
   createEntity:   (data)     => req('/hr/entities', { method: 'POST', body: JSON.stringify(data) }),
   updateEntity:   (id, data) => req(`/hr/entities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  uploadEntityLogo: (id, form) => req(`/hr/entities/${id}/logo`, { method: 'POST', body: form }),
+  // MP4 uploads convert to a GIF server-side (up to a 60s hard cap there,
+  // see services/logo_video.py) - the default 18s fetch timeout would abort
+  // a slow conversion well before the server even times out.
+  uploadEntityLogo: (id, form) => req(`/hr/entities/${id}/logo`, { method: 'POST', body: form, timeoutMs: 90_000 }),
   getEntitySignatureTemplates: (id, closing) => req(`/hr/entities/${id}/signature-templates${closing != null ? `?closing=${encodeURIComponent(closing)}` : ''}`),
   getGroupManager: ()        => req('/hr/group-manager'),
   setGroupManager: (email)   => req('/hr/group-manager', { method: 'PUT', body: JSON.stringify({ email }) }),
