@@ -2045,7 +2045,7 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
     """Company logo for branding/signature use - same avatar bucket and size
     limit as employee photos (Sep 16, Neil: consistent company branding).
 
-    Also accepts MP4 (Sep 17, Pranshu: "convenient to upload any live
+    Also accepts MP4 and MOV (Sep 17, Pranshu: "convenient to upload any live
     signature") - converted server-side to an animated GIF before storage,
     since no email client plays a raw video in a signature. The conversion
     is real CPU work (a worst-case noisy clip took 45s in testing), so it
@@ -2060,12 +2060,20 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
         raise HTTPException(404, "Entity not found")
 
     content_type = file.content_type or ""
-    if content_type == "video/mp4":
+    # Browsers send video/quicktime for .mov; some send video/mp4 for both
+    # containers after a client-side re-mux, so fall back to the filename
+    # suffix when the content-type alone can't tell them apart.
+    _VIDEO_EXTENSIONS = {"video/mp4": ".mp4", "video/quicktime": ".mov"}
+    video_ext = _VIDEO_EXTENSIONS.get(content_type)
+    if not video_ext and (file.filename or "").lower().endswith((".mp4", ".mov")):
+        video_ext = "." + file.filename.rsplit(".", 1)[-1].lower()
+    if video_ext:
         data = await file.read()
         if len(data) > logo_video.MAX_SOURCE_VIDEO_BYTES:
             raise HTTPException(400, f"Video must be under {logo_video.MAX_SOURCE_VIDEO_BYTES // (1024 * 1024)} MB")
         try:
-            data = await asyncio.wait_for(asyncio.to_thread(logo_video.mp4_to_gif, data), timeout=60)
+            data = await asyncio.wait_for(
+                asyncio.to_thread(logo_video.video_to_gif, data, video_ext), timeout=60)
         except asyncio.TimeoutError:
             raise HTTPException(400, "Video took too long to convert - try a shorter or simpler clip")
         except logo_video.VideoConversionError as exc:
@@ -2074,7 +2082,7 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
     else:
         ext = _IMAGE_TYPES.get(content_type)
         if not ext:
-            raise HTTPException(400, "Logo must be JPEG, PNG, WebP, GIF, or MP4")
+            raise HTTPException(400, "Logo must be JPEG, PNG, WebP, GIF, MP4, or MOV")
         data = await file.read()
         if len(data) > _MAX_AVATAR_BYTES:
             raise HTTPException(400, "Logo must be under 5 MB")

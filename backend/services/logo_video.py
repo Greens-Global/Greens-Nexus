@@ -1,8 +1,8 @@
-"""Company logo upload accepts MP4 (Sep 17, Pranshu). Converts it server-side
-to an animated GIF - the only animated-image format email clients actually
-auto-play. A raw MP4 can never play inside a sent email signature; no mail
-client executes <video>, so this conversion is the entire point, not an
-optimization.
+"""Company logo upload accepts MP4 and MOV (Sep 17, Pranshu). Converts it
+server-side to an animated GIF - the only animated-image format email clients
+actually auto-play. A raw video can never play inside a sent email signature;
+no mail client executes <video>, so this conversion is the entire point, not
+an optimization.
 
 Deliberately capped (6s / 300px tall / ~2MB) so a signature logo can't turn
 into a multi-megabyte attachment on every outgoing email - oversized inline
@@ -27,16 +27,24 @@ class VideoConversionError(Exception):
     pass
 
 
-def mp4_to_gif(data: bytes) -> bytes:
-    """Decode an MP4's frames and re-encode as an animated GIF, downsampling
+# imageio's ffmpeg plugin only uses the extension as a hint to pick a
+# demuxer - ffmpeg itself reads both containers natively, so decoding is
+# identical past this point regardless of which one came in.
+_SUPPORTED_EXTENSIONS = {".mp4", ".mov"}
+
+
+def video_to_gif(data: bytes, extension: str = ".mp4") -> bytes:
+    """Decode a video's frames and re-encode as an animated GIF, downsampling
     fps/resolution/frame count until it fits MAX_GIF_BYTES or giving up."""
+    if extension not in _SUPPORTED_EXTENSIONS:
+        raise VideoConversionError("Video must be MP4 or MOV")
     try:
-        meta = iio.immeta(io.BytesIO(data), extension=".mp4", plugin="FFMPEG")
+        meta = iio.immeta(io.BytesIO(data), extension=extension, plugin="FFMPEG")
     except Exception as exc:  # noqa: BLE001 - ffmpeg failures are all "can't read this file"
         # imageio's ffmpeg plugin bakes the full subprocess stderr (build
         # config, library versions, everything) into str(exc) - fine for a
         # server log, not something to hand back as an API error message.
-        raise VideoConversionError("Could not read video - is it a valid MP4 file?") from exc
+        raise VideoConversionError("Could not read video - is it a valid MP4/MOV file?") from exc
 
     src_fps = meta.get("fps") or 24
     step = max(1, round(src_fps / TARGET_FPS))
@@ -44,7 +52,7 @@ def mp4_to_gif(data: bytes) -> bytes:
 
     frames = []
     try:
-        for i, frame in enumerate(iio.imiter(io.BytesIO(data), extension=".mp4", plugin="FFMPEG")):
+        for i, frame in enumerate(iio.imiter(io.BytesIO(data), extension=extension, plugin="FFMPEG")):
             if i % step != 0:
                 continue
             img = Image.fromarray(frame).convert("RGB")

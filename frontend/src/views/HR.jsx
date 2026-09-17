@@ -3427,11 +3427,11 @@ export function EntitiesModal({ entities, employees = [], onClose, onChanged, to
                     : <div style={{ height: 44, width: 88, borderRadius: 6, border: '1px dashed var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, color: 'var(--muted)' }}>No logo</div>}
                   <label className="secondary-btn" style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: mode === 'new' ? 'not-allowed' : 'pointer', padding: '5px 12px', opacity: mode === 'new' ? 0.5 : 1 }}>
                     {logoBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={12} />} {logoBusy ? 'Uploading…' : 'Upload logo or video'}
-                    <input type="file" accept="image/*,video/mp4" hidden disabled={mode === 'new' || logoBusy} onChange={e => { uploadLogo(e.target.files?.[0]); e.target.value = ''; }} />
+                    <input type="file" accept="image/*,video/mp4,video/quicktime,.mov" hidden disabled={mode === 'new' || logoBusy} onChange={e => { uploadLogo(e.target.files?.[0]); e.target.value = ''; }} />
                   </label>
                 </div>
                 {mode === 'new' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>Save the company first, then come back to add a logo.</p>}
-                <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>MP4 works too - it's converted to an animated GIF (email clients never play video directly), up to 6s. Converting a video can take a few seconds.</p>
+                <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>MP4 or MOV works too - it's converted to an animated GIF (email clients never play video directly), up to 6s. Converting a video can take a few seconds.</p>
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={FL}>SOCIAL LINKS</label>
