@@ -16,7 +16,8 @@ Jul 28); craft bar monday.com's login.
 */
 import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
-import { CheckSquare, Clock, Users, Boxes, Gauge, Receipt, FolderOpen } from "lucide-react";
+import { CheckSquare, Clock, Users, Boxes, Gauge, Receipt, FolderOpen, FileSignature,
+         Lock, CircleUserRound } from "lucide-react";
 import { loginRequest } from "../authConfig";
 import { useBranding } from "../lib/queries";
 import { BFF_MODE, clearSignedOutMarker } from "../bffAuth";
@@ -132,6 +133,7 @@ export default function LoginPage() {
     { Icon: Gauge,       tint: "#ecebfe", fg: "#5145cd", title: "Insights & BI", sub: "KPIs and analytics, every module" },
     { Icon: Receipt,     tint: "#f1ecfe", fg: "#6c3ef4", title: "Accounting", sub: "P&L, reports and reconciliation" },
     { Icon: FolderOpen,  tint: "#e8f5f7", fg: "#0d7f94", title: "Files", sub: "Documents, uploads and storage" },
+    { Icon: FileSignature, tint: "#eef2ff", fg: "#4338ca", title: "Documents", sub: "Templates, PDF editor and e-sign" },
   ];
 
   return (
@@ -147,7 +149,7 @@ export default function LoginPage() {
             left-padded its content before, so on a wide screen the block sat
             hard against the left edge with an empty green half beside it. */}
         <div className="nxl-hero-inner">
-          <h2 className="nxl-hero-title" style={{ "--i": 1 }}>Everything your company runs on.</h2>
+          <h2 className="nxl-hero-title" style={{ "--i": 1 }}>Everything our company runs on.</h2>
           <p className="nxl-hero-sub" style={{ "--i": 2 }}>
             Tasks, time, people, items and documents - one workspace for the whole company.
           </p>
@@ -175,7 +177,7 @@ export default function LoginPage() {
           {partner === null && (<>
           <h1 className="nxl-title" style={{ "--i": 1 }}>Welcome to Nexus</h1>
           <p className="nxl-sub" style={{ "--i": 2 }}>
-            Sign in with your work account to continue.
+            Sign in with your account to continue.
           </p>
 
           {denied && (
@@ -195,10 +197,12 @@ export default function LoginPage() {
                 <rect y="11" width="10" height="10" fill="#05A6F0" />
                 <rect x="11" y="11" width="10" height="10" fill="#FFBA08" />
               </svg>
-              Continue with Microsoft
+              Team Member Sign-In
             </button>
-            <p className="nxl-note">Single sign-on with your work account</p>
+            {/* 4. An external profile face, so the two routes are told apart at
+                a glance rather than by reading both labels. */}
             <button className="nxl-cta" onClick={() => { setPartner('email'); setPError(''); }}>
+              <CircleUserRound size={18} strokeWidth={1.75} aria-hidden="true" />
               Partner Sign-In
             </button>
           </div>
@@ -273,7 +277,10 @@ export default function LoginPage() {
 
       {/* Page corners, not the centered column (Sagar, Sep 15). These sit on
           the root so they stay put across every partner step. */}
-      <p className="nxl-foot" style={{ "--i": 5 }}>Secure company workspace</p>
+      <p className="nxl-foot" style={{ "--i": 5 }}>
+        <Lock size={13} strokeWidth={2} aria-hidden="true" />
+        Secure Company Workspace
+      </p>
       <p className="nxl-legal" style={{ "--i": 6 }}>
         <a href="/privacy">Privacy Policy</a>
         <span aria-hidden="true"> · </span>
@@ -317,6 +324,12 @@ export default function LoginPage() {
         }
         .nxl-mark--inverse { background: rgba(255,255,255,.16); color: #fff; }
         .nxl-hero-name { font-size: 18px; font-weight: 800; letter-spacing: -.01em; }
+        /* The brand lockup at 145% (Sagar, Sep 17 - 125% first, then raised
+           again the same day). Scaled as a unit from its top-left so the mark
+           and the wordmark keep their proportions and the block stays anchored
+           to the panel's corner - sizing each part separately would drift
+           them apart. */
+        .nxl-hero-brand { transform: scale(1.45); transform-origin: left top; }
 
         .nxl-hero-title {
           margin: 0;
@@ -419,6 +432,9 @@ export default function LoginPage() {
         .nxl-actions {
           display: flex; flex-direction: column; align-items: stretch;
           width: 100%; max-width: 300px; margin-top: 30px;
+          /* The two routes used to be separated by the sign-on note between
+             them; with that gone they need a gap of their own or they touch. */
+          gap: 12px;
         }
         .nxl-actions .nxl-cta { width: 100%; justify-content: center; margin-top: 0; }
         .nxl-actions .nxl-note { margin: 14px 0; }
@@ -430,6 +446,7 @@ export default function LoginPage() {
         .nxl-foot {
           position: absolute; left: clamp(36px, 6vw, 84px); bottom: 24px; margin: 0;
           font-size: 12px; color: rgba(255,255,255,.75); z-index: 2;
+          display: inline-flex; align-items: center; gap: 6px;
         }
         .nxl-legal {
           position: absolute; right: clamp(24px, 3vw, 48px); bottom: 24px; margin: 0;

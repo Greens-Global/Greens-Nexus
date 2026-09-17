@@ -1736,7 +1736,30 @@ class DocTemplate(Base):
     # FieldDef shape: {token, label, type, required, default, options,
     # validation: {maxLength, regex, min, max, minDate, maxDate}}.
     field_defs          = Column(JSON, default=list)
-    status              = Column(String, default="active")    # active|archived
+    # Which department's approved language this is. Department heads maintain
+    # their own department's templates; administrators maintain all of them.
+    # Empty means company-wide, which only an administrator may create or edit.
+    department          = Column(String, default="")
+    # Requirement 3 metadata: what KIND of thing this template produces. Email
+    # templates are Phase 3 work, but the type belongs on the record now so the
+    # library can say what a template is rather than it being retrofitted later.
+    doc_type            = Column(String, default="document")  # document|email
+    # Who normally signs a document made from this template, and in what order:
+    # [{key, label, order}]. This is the one thing the separate Nexus Sign
+    # template system held that the Documents library did not, and it is why
+    # two template systems existed. It lives here as a DEFAULT for the send
+    # step, not as signing configuration - the envelope still decides who
+    # actually signs, because that varies per deal.
+    #
+    # Field POSITIONS are deliberately NOT stored: a generated document is
+    # re-rendered per document with different variable values, so text reflows
+    # and a remembered x/y would point at the wrong line. Fields are placed on
+    # the real PDF at send time, which is what the wizard already does.
+    signer_roles        = Column(JSON, default=list)
+    # Draft -> Active -> Archived (requirement 3). Draft is what makes
+    # "company-approved" mean anything: a template still being written is not
+    # language anyone should be generating from yet.
+    status              = Column(String, default="active")    # draft|active|archived
     version             = Column(Integer, default=1)
     created_by          = Column(String, default="")
     created_at          = Column(String, default="")
@@ -1750,6 +1773,10 @@ class Document(Base):
     title            = Column(String, nullable=False)
     folder_id        = Column(String, default="")
     template_id      = Column(String, default="")
+    # Requirement 17: a generated document stays associated with the template
+    # VERSION it came from, so editing a template never retroactively changes
+    # what an already-generated document was produced from.
+    template_version = Column(Integer, default=0)
     content          = Column(JSON, default=dict)          # rich-doc content (Document Builder, Phase 2+)
     letterhead_id    = Column(String, default="")
     status           = Column(String, default="draft")     # draft|final|archived

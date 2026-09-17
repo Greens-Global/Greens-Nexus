@@ -1003,7 +1003,10 @@ export const api = {
   getEntities:    ()         => cachedGet('/hr/entities', 120_000),
   createEntity:   (data)     => req('/hr/entities', { method: 'POST', body: JSON.stringify(data) }),
   updateEntity:   (id, data) => req(`/hr/entities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  uploadEntityLogo: (id, form) => req(`/hr/entities/${id}/logo`, { method: 'POST', body: form }),
+  // MP4 uploads convert to a GIF server-side (up to a 60s hard cap there,
+  // see services/logo_video.py) - the default 18s fetch timeout would abort
+  // a slow conversion well before the server even times out.
+  uploadEntityLogo: (id, form) => req(`/hr/entities/${id}/logo`, { method: 'POST', body: form, timeoutMs: 90_000 }),
   getEntitySignatureTemplates: (id, closing) => req(`/hr/entities/${id}/signature-templates${closing != null ? `?closing=${encodeURIComponent(closing)}` : ''}`),
   getGroupManager: ()        => req('/hr/group-manager'),
   setGroupManager: (email)   => req('/hr/group-manager', { method: 'PUT', body: JSON.stringify({ email }) }),
@@ -1093,6 +1096,17 @@ export const api = {
   getSignAttachmentUrl: (path)    => req(`/esign/templates/attachment-url?path=${encodeURIComponent(path)}`),
   sendSignRequest:    (data)      => req('/esign/requests', { method: 'POST', body: JSON.stringify(data) }),
   sendSignPdf:        (form)      => req('/esign/requests/pdf', { method: 'POST', body: form }),
+  // Word -> PDF on the SERVER, by a real layout engine. Returns a File so the
+  // caller can feed it straight into the same path a PDF pick takes. Never
+  // re-flows client-side: a signed document must be the document that was sent.
+  convertDocxToPdf:   async (fl) => {
+    const fd = new FormData();
+    fd.append('file', fl);
+    const { blob } = await reqBlob('/esign/convert/docx', { method: 'POST', body: fd, timeoutMs: 180_000 });
+    return new File([blob], (fl.name || 'document').replace(/\.docx?$/i, '') + '.pdf',
+                    { type: 'application/pdf' });
+  },
+  docxConvertStatus:  ()          => req('/esign/convert/docx/status'),
   getEsignExcludedCategories: ()  => req('/esign/excluded-categories'),
   getEsignDocumentClasses:    ()  => req('/esign/document-classes'),
   getSignRequests:    ()          => req('/esign/requests'),
@@ -1115,6 +1129,7 @@ export const api = {
   // boundary to the browser when the body is a FormData.
   mySignUpload:       (pid, form) => req(`/esign/mine/${pid}/upload`, { method: 'POST', body: form }),
   mySignUploadUrl:    (pid, uid)  => req(`/esign/mine/${pid}/upload/${uid}`),
+  mySignHistory:      (pid)       => req(`/esign/mine/${pid}/history`),
   // The SENDER's view of what the signers attached.
   getSignUploads:     (rid)       => req(`/esign/requests/${rid}/uploads`),
   getSignUploadUrl:   (rid, uid)  => req(`/esign/requests/${rid}/uploads/${uid}`),
@@ -1325,6 +1340,12 @@ export const api = {
   createDocument:     (data)         => req('/documents', { method: 'POST', body: JSON.stringify(data) }),
   getDocument:        (id)           => req(`/documents/${id}`),
   updateDocument:     (id, data)     => req(`/documents/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // A generated document is final; unlocking is a deliberate, recorded act
+  // rather than a status PATCH (see documents.py's unlock_document).
+  unlockDocument:     (id)           => req(`/documents/${id}/unlock`, { method: 'POST' }),
+  // The variable library (requirement 5.2) - built-ins plus every variable
+  // the company's own templates already define, grouped by taxonomy.
+  getDocVariables:    ()             => req('/documents/variables'),
   archiveDocument:    (id)           => req(`/documents/${id}/archive`, { method: 'POST' }),
   restoreDocument:    (id)           => req(`/documents/${id}/restore`, { method: 'POST' }),
   duplicateDocument:  (id)           => req(`/documents/${id}/duplicate`, { method: 'POST' }),

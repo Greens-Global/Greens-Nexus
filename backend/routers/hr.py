@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 import time
@@ -13,6 +14,7 @@ from database import get_db
 from auth import require_module_grant, hr_scope
 from routers.stepup import require_stepup
 from models import NexusEmployee, PayrollRate, HrRemovedIdentity
+from services import logo_video
 
 # HR data is the most sensitive in the app. Access is grant-driven (Jun 17): a
 # supervisor/manager role no longer auto-opens HR - they need an explicit "hr"
@@ -2041,23 +2043,46 @@ def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: S
 async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
                              user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """Company logo for branding/signature use - same avatar bucket and size
-    limit as employee photos (Sep 16, Neil: consistent company branding)."""
+    limit as employee photos (Sep 16, Neil: consistent company branding).
+
+    Also accepts MP4 (Sep 17, Pranshu: "convenient to upload any live
+    signature") - converted server-side to an animated GIF before storage,
+    since no email client plays a raw video in a signature. The conversion
+    is real CPU work (a worst-case noisy clip took 45s in testing), so it
+    runs in a thread with a hard timeout rather than blocking this async
+    endpoint - see main.py's reminders_loop for the same to_thread pattern
+    and why it matters (Aug 2 instance-wide freeze incident)."""
     row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
     if not row:
         raise HTTPException(404, "Entity not found")
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Entity not found")
-    ext = _IMAGE_TYPES.get(file.content_type or "")
-    if not ext:
-        raise HTTPException(400, "Logo must be JPEG, PNG, WebP or GIF")
-    data = await file.read()
-    if len(data) > _MAX_AVATAR_BYTES:
-        raise HTTPException(400, "Logo must be under 5 MB")
+
+    content_type = file.content_type or ""
+    if content_type == "video/mp4":
+        data = await file.read()
+        if len(data) > logo_video.MAX_SOURCE_VIDEO_BYTES:
+            raise HTTPException(400, f"Video must be under {logo_video.MAX_SOURCE_VIDEO_BYTES // (1024 * 1024)} MB")
+        try:
+            data = await asyncio.wait_for(asyncio.to_thread(logo_video.mp4_to_gif, data), timeout=60)
+        except asyncio.TimeoutError:
+            raise HTTPException(400, "Video took too long to convert - try a shorter or simpler clip")
+        except logo_video.VideoConversionError as exc:
+            raise HTTPException(400, str(exc))
+        ext, content_type = "gif", "image/gif"
+    else:
+        ext = _IMAGE_TYPES.get(content_type)
+        if not ext:
+            raise HTTPException(400, "Logo must be JPEG, PNG, WebP, GIF, or MP4")
+        data = await file.read()
+        if len(data) > _MAX_AVATAR_BYTES:
+            raise HTTPException(400, "Logo must be under 5 MB")
+
     path = f"entities/{entity_id}/{uuid.uuid4()}.{ext}"
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
-        headers={**_storage_headers(), "Content-Type": file.content_type,
+        headers={**_storage_headers(), "Content-Type": content_type,
                  "cache-control": "max-age=31536000"},
         content=data, timeout=60,
     )

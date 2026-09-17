@@ -2542,6 +2542,15 @@ button, [role="button"], select { touch-action: manipulation; }
 .doc-band { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px dashed var(--line); color: #6b7280; }
 .doc-band.doc-footer { padding-bottom: 0; padding-top: 14px; margin-bottom: 0; margin-top: 14px; border-bottom: none; border-top: 1px dashed var(--line); }
 .doc-editor .ProseMirror { outline: none; min-height: 240px; }
+/* prosemirror.css sets position:relative on .ProseMirror. In the Document
+   Builder, floating images/shapes (wrapMode behind/front) store x/y measured
+   from .doc-page and are positioned absolutely against it - see
+   applyWrapStyle in docBuilderExtensions.js and insertPageCoords in
+   DocumentBuilder.jsx. Letting .ProseMirror become the containing block would
+   shift every float by the page padding, so the anchor stays on .doc-page.
+   The gap cursor is unaffected: it is absolutely positioned with auto offsets,
+   so it renders at its static position either way. */
+.doc-editor .ProseMirror { position: static; }
 .doc-band .doc-editor .ProseMirror { min-height: 40px; }
 /* Header/footer editors sitting inline in the combined letterhead row (not
    wrapped in .doc-band anymore, now that they share a row with the

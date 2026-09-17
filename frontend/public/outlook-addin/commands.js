@@ -1,6 +1,7 @@
 // Nexus Signature - Outlook Add-in compose-time handler (Sep 16, Pranshu).
 //
-// Fires on OnNewMessageCompose / OnMessageReplyCompose (see manifest.xml).
+// Fires on OnNewMessageCompose, which covers new messages, replies,
+// reply-alls, and forwards (see manifest.xml).
 // Fetches the signed-in employee's signature from Nexus
 // (backend/routers/outlook_addin.py) using an Office SSO access token, then
 // inserts it as the message's signature via Office.js.

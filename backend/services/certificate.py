@@ -571,7 +571,13 @@ def render_html(snapshot: dict) -> str:
                        if s.get("role") == "approver"
                        else '<span class="m">Receipt acknowledged - no signature</span>')
             else:
-                sig = escape((s["signature_kind"] or "-").title())
+                # A returned paper copy is a WET signature and the record has
+                # to say so rather than printing "Paper" and leaving a reader
+                # to assume someone clicked something.
+                sig = ('Wet signature<br><span class="m">signed on paper, scan returned '
+                       'through Nexus Sign</span>'
+                       if s["signature_kind"] == "paper"
+                       else escape((s["signature_kind"] or "-").title()))
                 if s.get("signature_field"):
                     sig += f'<br><span class="m">{escape(s["signature_field"])}</span>'
                 if s["signature_digest"]:

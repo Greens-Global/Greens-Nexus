@@ -5,6 +5,22 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { msalInstance } from './msalInstance'
 import { queryClient } from './lib/queryClient'
 import { setCacheBridge } from './api'
+// ProseMirror's own stylesheets. Every rich-text surface in Nexus is built on
+// ProseMirror (TipTap), and these are not optional decoration - they carry
+// behavior the editor assumes:
+//   * .ProseMirror { white-space: pre-wrap } - without it the browser collapses
+//     runs of spaces, so pressing the space bar appeared to move the caret
+//     without inserting anything;
+//   * .ProseMirror-gapcursor - the caret shown beside a block image or table.
+//     Unstyled it is invisible, so clicking next to a picture looked like the
+//     document had simply refused the click;
+//   * img.ProseMirror-separator, .ProseMirror-hideselection, .ProseMirror-
+//     selectednode - internal elements that render as visible junk untouched;
+//   * .column-resize-handle / .selectedCell - table resize and cell selection.
+// Imported BEFORE style.css so the app's own rules still win on conflict.
+import 'prosemirror-view/style/prosemirror.css'
+import 'prosemirror-gapcursor/style/gapcursor.css'
+import 'prosemirror-tables/style/tables.css'
 import './style.css'
 import App from './App.jsx'
 import LoginPage from './views/LoginPage'

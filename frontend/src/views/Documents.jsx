@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { FileSignature, LayoutDashboard, Folder, LayoutTemplate, FileText } from 'lucide-react';
 import { api } from '../api';
 import { useEntities } from '../lib/queries';
@@ -63,6 +63,12 @@ export default function Documents({ activeSub, onSubChange }) {
     window.__esignPrefill = null;
     return p || null;
   });
+  // Which Document Builder document this envelope came from. Kept separately
+  // because esignPrefill is released the moment the wizard has applied it (a
+  // prefill left lying around gets re-applied on the next remount and wipes
+  // the sender's work) - but the link back to the document is only needed
+  // later, once the envelope is actually sent.
+  const esignSourceDocRef = useRef(esignPrefill?.sourceDocumentId || null);
 
   const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
@@ -79,6 +85,7 @@ export default function Documents({ activeSub, onSubChange }) {
   useEffect(() => {
     const onNav = (e) => {
       if (e.detail?.view === 'documents' && window.__esignPrefill) {
+        esignSourceDocRef.current = window.__esignPrefill.sourceDocumentId || null;
         setEsignPrefill(window.__esignPrefill);
         window.__esignPrefill = null;
       }
@@ -131,7 +138,7 @@ export default function Documents({ activeSub, onSubChange }) {
             // Phase 5 bridge: a send that originated from a Document Builder
             // export carries sourceDocumentId on the prefill - link the new
             // envelope back onto the document once it's actually sent.
-            const docId = esignPrefill?.sourceDocumentId;
+            const docId = esignSourceDocRef.current;
             if (docId) api.updateDocument(docId, { signRequestId: sent.id, status: 'final' }).catch(toastErr);
           }} />
       )}

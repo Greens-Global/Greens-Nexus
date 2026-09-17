@@ -10,6 +10,14 @@ httpx==0.27.0
 python-dotenv==1.2.2
 openpyxl==3.1.2
 pillow==12.3.0
+# Company logo upload accepts MP4 (Sep 17, Pranshu: "convenient to upload any
+# live signature") - imageio-ffmpeg bundles its own static ffmpeg binary per
+# platform (no system package needed on the Azure App Service host), used to
+# decode frames which Pillow then re-encodes as an animated GIF - the one
+# animated-image format every email client actually auto-plays. Raw MP4
+# itself can never play in a sent email (no client executes <video>).
+imageio==2.37.4
+imageio-ffmpeg==0.6.0
 pytesseract==0.3.13
 reportlab==4.2.5
 pypdf==6.14.2

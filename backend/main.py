@@ -358,6 +358,12 @@ def _run_migrations():
             "ALTER TABLE doc_templates ADD COLUMN merge_overrides JSON DEFAULT '{}'",
             # Documents (DMS) Phase 13 (Template Builder): merge-field type/required/default/validation metadata
             "ALTER TABLE doc_templates ADD COLUMN field_defs JSON DEFAULT '[]'",
+            # Template ownership: the department whose approved language this is.
+            "ALTER TABLE doc_templates ADD COLUMN department TEXT DEFAULT ''",
+            # Requirement 3 (template type) and 17 (the version a document came from).
+            "ALTER TABLE doc_templates ADD COLUMN doc_type TEXT DEFAULT 'document'",
+            "ALTER TABLE doc_templates ADD COLUMN signer_roles JSON DEFAULT '[]'",
+            "ALTER TABLE documents ADD COLUMN template_version INTEGER DEFAULT 0",
             # ── HR Section A/B (nexus_employees): SQLite was missing columns the
             # Postgres list already carried - a pre-existing local DB 500s on
             # every nexus_employees SELECT without them (same class of bug as
@@ -1131,6 +1137,12 @@ def _run_migrations():
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS merge_overrides JSONB DEFAULT '{}'::jsonb",
         # Documents (DMS) Phase 13 (Template Builder): merge-field type/required/default/validation metadata
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS field_defs JSONB DEFAULT '[]'::jsonb",
+        # Template ownership: the department whose approved language this is.
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS department TEXT DEFAULT ''",
+        # Requirement 3 (template type) and 17 (the version a document came from).
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS doc_type TEXT DEFAULT 'document'",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS signer_roles JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS template_version INTEGER DEFAULT 0",
         # Share panel (Jul 2026): per-person/per-team project access role.
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS member_roles JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE task_teams ADD COLUMN IF NOT EXISTS access_role VARCHAR DEFAULT 'editor'",

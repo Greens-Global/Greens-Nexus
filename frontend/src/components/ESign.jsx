@@ -3,15 +3,18 @@ import {
   FileSignature, Plus, X, Loader2, CheckCircle, XCircle, Clock, Send, Trash2,
   Pencil, FileText, Download, ShieldCheck, Bell, ChevronRight, ChevronLeft,
   ChevronUp, ChevronDown, Eraser, Type, PenTool, Users, AlertTriangle,
-  RefreshCw, Ban, Sparkles, UploadCloud, ZoomIn, ZoomOut, ArrowRight,
+  RefreshCw, Ban, UploadCloud, ZoomIn, ZoomOut, ArrowRight,
   CalendarDays, CheckSquare, ALargeSmall, GripVertical, Copy, Search, CopyPlus,
-  User, CircleDot, Check, Paperclip,
+  User, CircleDot, Check, Paperclip, Printer, Cloud, Info,
 } from 'lucide-react';
 import { api } from '../api';
 import { PdfEditor } from './PdfEditor';
-import { docxToPdf, isDocx } from '../lib/docx2pdf';
+import { isDocx } from '../lib/docxFile';
+import { RESERVED_TYPES as RESERVED_FIELD_TYPES, validateFieldValue, formatFieldValue } from '../lib/mergeFieldTypes';
+import TypedFieldInput from './TypedFieldInput';
+import EgnyteBrowser from './EgnyteBrowser';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
-import { formatDate } from '../lib/datetime';
+import { formatDate, formatDateTime } from '../lib/datetime';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
@@ -448,7 +451,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
 // ── PDF renderer (pdfjs) - takes a File OR a URL; overlay via render-prop ─────
 // Passing the File's bytes directly (not fetch(blobUrl)) sidesteps CSP blocks
 // on blob: fetches - the "Failed to fetch" bug in v1.
-function PdfDoc({ url, file, zoom = 1, renderOverlay, onPageSeen }) {
+function PdfDoc({ url, file, zoom = 1, renderOverlay, onPageSeen, onPageCount }) {
   const [pages, setPages] = useState(null);
   const [error, setError] = useState('');
   // Which pages were actually SCROLLED INTO VIEW. The certificate may only say
@@ -472,14 +475,25 @@ function PdfDoc({ url, file, zoom = 1, renderOverlay, onPageSeen }) {
           await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
           out.push({ dataUrl: canvas.toDataURL() });
         }
-        if (live) setPages(out);
+        if (live) { setPages(out); onPageCount?.(out.length); }
       } catch (e) { if (live) setError(e?.message || 'Could not render the PDF.'); }
     })();
     return () => { live = false; };
   }, [url, file]);
 
   if (error) return <div style={{ fontSize: 13, color: 'hsl(var(--color-red))', padding: 16, display: 'flex', gap: 8, alignItems: 'center' }}><AlertTriangle size={15} /> {error}</div>;
-  if (!pages) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /><div style={{ fontSize: 12, marginTop: 8 }}>Rendering document…</div></div>;
+  if (!pages) return (
+    <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
+      <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
+      <div style={{ fontSize: 12, marginTop: 10 }}>Rendering document…</div>
+      {/* An indeterminate bar, not a bare spinner: "everything has a loading
+          bar on it, so you're not just looking at an empty screen." */}
+      <div style={{ margin: '12px auto 0', width: 220, height: 3, borderRadius: 2, background: 'var(--line)', overflow: 'hidden' }}>
+        <div style={{ width: '38%', height: '100%', borderRadius: 2, background: 'var(--pine, #166534)', animation: 'nexus-sign-slide 1.15s ease-in-out infinite' }} />
+      </div>
+      <style>{'@keyframes nexus-sign-slide{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}'}</style>
+    </div>
+  );
   return (
     <div style={{ display: 'grid', gap: 26, justifyItems: 'center' }}>
       {pages.map((p, i) => (
@@ -825,6 +839,92 @@ export function SigningGate({ payload, gateApi, onCleared, onDecline }) {
 // and Ctrl+V (the house rule for every image-upload widget in Nexus - see
 // imageFromPaste in InventoryManagement.jsx). Paste is bound while the field
 // has focus, so two upload fields on one page cannot both claim the clipboard.
+// -- Envelope history --------------------------------------------------------
+// Neil, Sep 16, on DocuSign's equivalent: "This is actually excellent ... you
+// need to get this exactly right." What makes it right is that it reads as a
+// story - created, sent, received, verified, opened, opened again, signed -
+// rather than a status word. The server already keeps every one of those as an
+// append-only event; this just tells it back in order.
+function HistoryPanel({ loadHistory, onClose }) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let live = true;
+    loadHistory()
+      .then(d => { if (live) setRows(d.events || []); })
+      .catch(e => { if (live) setError(e.message || 'Could not load the history.'); });
+    return () => { live = false; };
+  }, [loadHistory]);
+
+  return (
+    <div style={{ ...overlayStyle, zIndex: 1450 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={cardStyle(620)}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Clock size={17} style={{ color: 'var(--pine)' }} />
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, flex: 1 }}>History</h3>
+          <button onClick={onClose} aria-label="Close"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
+            <X size={16} />
+          </button>
+        </div>
+        <div style={{ padding: '6px 24px 18px', overflowY: 'auto' }}>
+          {error ? (
+            <p style={{ fontSize: 13, color: 'hsl(var(--color-red))', margin: '14px 0' }}>{error}</p>
+          ) : !rows ? (
+            <div style={{ padding: '26px 0', textAlign: 'center', color: 'var(--muted)' }}>
+              <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+              <div style={{ fontSize: 12, marginTop: 8 }}>Loading history…</div>
+            </div>
+          ) : !rows.length ? (
+            <p style={{ fontSize: 13, color: 'var(--muted)', margin: '14px 0' }}>Nothing recorded yet.</p>
+          ) : (
+            <ol style={{ listStyle: 'none', margin: '12px 0 0', padding: 0 }}>
+              {rows.map((r, i) => (
+                <li key={i} style={{ display: 'grid', gridTemplateColumns: '14px 1fr', gap: 12, paddingBottom: 14 }}>
+                  <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', marginTop: 5, flexShrink: 0,
+                      background: r.you ? 'var(--pine, #166534)' : 'var(--line)' }} />
+                    {i < rows.length - 1 && <span style={{ flex: 1, width: 1, background: 'var(--line)', marginTop: 3 }} />}
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 8px', alignItems: 'baseline' }}>
+                      <b style={{ fontSize: 13.5, fontWeight: 700 }}>{r.label}</b>
+                      {r.you && (
+                        <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase',
+                          color: 'var(--pine, #166534)' }}>You</span>
+                      )}
+                      <span style={{ fontSize: 11.5, color: 'var(--muted)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+                        {formatDateTime(r.at)}
+                      </span>
+                    </span>
+                    {r.actor && (
+                      <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{r.actor}</span>
+                    )}
+                    {r.detail && (
+                      <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.5 }}>
+                        {r.detail}
+                      </span>
+                    )}
+                    {(r.ip || r.device) && (
+                      <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                        {[r.ip, r.device].filter(Boolean).join(' \u00b7 ')}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+        <div style={{ padding: '12px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UploadField({ field, style, innerRef, record, busy, disabled, error,
                       accept, hint, onFile }) {
   const inputRef = useRef(null);
@@ -875,7 +975,7 @@ function UploadField({ field, style, innerRef, record, busy, disabled, error,
   );
 }
 
-export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onCleared, uploadApi }) {
+export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi }) {
   const [sig, setSig] = useState(null);
   const [padOpen, setPadOpen] = useState(false);
   // Consent is no longer a checkbox beside the contract - it is step 1, taken
@@ -930,6 +1030,18 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
       setUploadErr({ fieldId, message: e.message || 'That file could not be uploaded.' });
     }
     setUploading('');
+  };
+
+  // Document viewer controls. Neil, Sep 16: zoom in, zoom out, download, print
+  // and seeing every page are "super important" on the signer's side - an
+  // external signer is reading a contract, often on a laptop screen at 100%.
+  const [zoom, setZoom] = useState(1);
+  const [docPages, setDocPages] = useState(0);
+  const printDoc = () => {
+    // Print the SOURCE pdf, not the screen: the browser's print of a canvas
+    // stack is unreliable and drops the overlay anyway.
+    const target = payload.copyUrl || payload.pdfUrl;
+    if (target) window.open(target, '_blank', 'noopener');
   };
 
   const [listOpen, setListOpen] = useState(false);   // outstanding-fields popover
@@ -1151,6 +1263,125 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
     </>
   );
 
+  // -- Paper flow -----------------------------------------------------------
+  // Neil, Sep 16: the paper option must carry the signer the whole way -
+  // "how would you like to return it? ... first download this and then scan
+  // it in" - instead of dropping them back in their inbox. Three steps:
+  // choose how to return it, download and print, upload the scan. Fax was
+  // explicitly ruled out, so upload is the only return method offered.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [paperStep, setPaperStep] = useState(0);   // 0 = closed, 1..3
+  const [paperFile, setPaperFile] = useState(null);
+  const [paperBusy, setPaperBusy] = useState(false);
+  const [paperErr, setPaperErr] = useState('');
+
+  const submitPaper = async () => {
+    if (!paperFile || !paperApi) return;
+    setPaperBusy(true); setPaperErr('');
+    try {
+      await paperApi(paperFile);
+      setPaperStep(0);
+    } catch (e) { setPaperErr(e.message || 'That file could not be uploaded.'); }
+    setPaperBusy(false);
+  };
+
+  const paperModal = (
+    <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && setPaperStep(0)}>
+      <div style={cardStyle(560)}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Printer size={17} style={{ color: 'var(--pine)' }} />
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, flex: 1 }}>Sign on Paper</h3>
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>Step {paperStep} of 3</span>
+        </div>
+
+        {paperStep === 1 && (
+          <>
+            <div style={{ padding: '18px 24px' }}>
+              <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 0 16px' }}>
+                How would you like to return the signed document?
+              </p>
+              <label style={{ display: 'flex', gap: 11, alignItems: 'flex-start', border: '1.5px solid var(--pine)',
+                background: 'rgba(22,101,52,0.06)', borderRadius: 10, padding: '13px 15px', cursor: 'pointer' }}>
+                <input type="radio" name="paper-return" defaultChecked
+                  style={{ width: 15, height: 15, marginTop: 2, accentColor: 'var(--pine)' }} />
+                <span>
+                  <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700 }}>Upload a scan</span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.5 }}>
+                    Print it, sign it, then scan or photograph it and upload it here. Your signed
+                    copy goes straight onto this request.
+                  </span>
+                </span>
+              </label>
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="secondary-btn" onClick={() => setPaperStep(0)}>Cancel</button>
+              <button className="primary-btn" onClick={() => setPaperStep(2)}>Continue</button>
+            </div>
+          </>
+        )}
+
+        {paperStep === 2 && (
+          <>
+            <div style={{ padding: '18px 24px' }}>
+              <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 0 14px' }}>
+                Download the document, print it, and sign it by hand. Come back to this page when
+                you have a scan ready - this link stays valid.
+              </p>
+              {payload.copyUrl && (
+                <a className="primary-btn" href={payload.copyUrl} target="_blank" rel="noreferrer" download
+                  style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
+                  <Download size={14} /> Download the Document
+                </a>
+              )}
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="secondary-btn" onClick={() => setPaperStep(1)}>Back</button>
+              <button className="primary-btn" onClick={() => setPaperStep(3)}>I Have Signed It</button>
+            </div>
+          </>
+        )}
+
+        {paperStep === 3 && (
+          <>
+            <div style={{ padding: '18px 24px' }}>
+              <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: '0 0 14px' }}>
+                Upload your signed copy. Make sure every signed page is included and readable.
+              </p>
+              <label style={{ display: 'block', border: `1.5px dashed ${paperFile ? '#10b981' : 'var(--line)'}`,
+                borderRadius: 10, padding: '20px 16px', textAlign: 'center', cursor: 'pointer',
+                background: paperFile ? 'rgba(16,185,129,0.06)' : 'var(--mist)' }}>
+                <input type="file" accept={UPLOAD_ACCEPT} style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { setPaperFile(f); setPaperErr(''); } }} />
+                {paperFile
+                  ? <span style={{ fontSize: 13, fontWeight: 700, color: '#065f46', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                      <Check size={14} /> {paperFile.name}
+                    </span>
+                  : <span style={{ fontSize: 13, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                      <UploadCloud size={15} /> Choose your scanned copy
+                    </span>}
+              </label>
+              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '10px 0 0', lineHeight: 1.55 }}>
+                {payload.uploadLimit?.hint || 'PDF or an image'}. Once uploaded, your signature is
+                recorded on this request as a wet signature and the sender is notified.
+              </p>
+              {paperErr && (
+                <p style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', margin: '10px 0 0', fontWeight: 600 }}>{paperErr}</p>
+              )}
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="secondary-btn" onClick={() => setPaperStep(2)}>Back</button>
+              <button className="primary-btn" disabled={!paperFile || paperBusy} onClick={submitPaper}
+                style={{ opacity: paperFile && !paperBusy ? 1 : 0.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                {paperBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />}
+                Submit Signed Copy
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
   // Hoisted out of the return so the consent/OTP gates can render it too: a
   // signer who would rather use paper says so on the FIRST screen, long before
   // the document exists to decline from.
@@ -1190,8 +1421,12 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
   if (needsGate) return (
     <>
       <SigningGate payload={payload} gateApi={gateApi} onCleared={onCleared}
-        onDecline={() => setDeclineOpen(true)} />
+        onDecline={() => (paperApi ? setPaperStep(1) : setDeclineOpen(true))} />
       {declineOpen && declineModal}
+      {paperStep > 0 && paperModal}
+      {historyOpen && historyApi && (
+        <HistoryPanel loadHistory={historyApi} onClose={() => setHistoryOpen(false)} />
+      )}
     </>
   );
 
@@ -1261,6 +1496,20 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
                 <Download size={12} /> Download a copy
               </a>
             )}
+            {historyApi && (
+              <button onClick={() => setHistoryOpen(true)} disabled={busy}
+                title="Everything that has happened to this envelope"
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                History
+              </button>
+            )}
+            {paperApi && (
+              <button onClick={() => setPaperStep(1)} disabled={busy}
+                title="Print it, sign it by hand, and upload the scan"
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                Sign on Paper
+              </button>
+            )}
             <button onClick={() => setDeclineOpen(true)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Decline</button>
             <button className="primary-btn" disabled={!canFinish || busy}
               onClick={() => onSubmit({ consent, signature_kind: sig?.kind === 'drawn' ? 'drawn' : 'typed', signature_data: sig?.data || payload.myName, field_values: values, format_demonstrated: formatDemonstrated, pages_viewed: seenPages.current.size, pages_total: pagesTotal })}
@@ -1309,10 +1558,43 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
             <ArrowRight size={13} />
           </button>
         )}
+        {!isTemplate && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 12px', marginBottom: 8,
+            border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', position: 'sticky',
+            top: 'calc(env(safe-area-inset-top, 0px) + 8px)', zIndex: 16 }}>
+            <button className="secondary-btn" title="Zoom out" aria-label="Zoom out"
+              onClick={() => setZoom(z => Math.max(0.6, +(z - 0.15).toFixed(2)))}
+              style={{ padding: '5px 9px' }}><ZoomOut size={13} /></button>
+            <span style={{ fontSize: 12, fontWeight: 700, minWidth: 44, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+              {Math.round(zoom * 100)}%
+            </span>
+            <button className="secondary-btn" title="Zoom in" aria-label="Zoom in"
+              onClick={() => setZoom(z => Math.min(2, +(z + 0.15).toFixed(2)))}
+              style={{ padding: '5px 9px' }}><ZoomIn size={13} /></button>
+            {docPages > 0 && (
+              <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginLeft: 4 }}>
+                {docPages} page{docPages === 1 ? '' : 's'}
+              </span>
+            )}
+            <span style={{ flex: 1 }} />
+            {payload.copyUrl && (
+              <a className="secondary-btn" href={payload.copyUrl} target="_blank" rel="noreferrer" download
+                title="Download a copy of this document"
+                style={{ padding: '5px 11px', fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <Download size={13} /> Download
+              </a>
+            )}
+            <button className="secondary-btn" onClick={printDoc} title="Open a printable copy"
+              style={{ padding: '5px 11px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <Printer size={13} /> Print
+            </button>
+          </div>
+        )}
         <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: isTemplate ? '30px 38px' : '24px 12px', background: isTemplate ? '#fff' : 'var(--mist)', color: '#111827' }}>
           {isTemplate
             ? (payload.body || []).map(renderPara)
-            : <PdfDoc url={payload.pdfUrl} renderOverlay={signingOverlay(payload.fields)} onPageSeen={notePageSeen} />}
+            : <PdfDoc url={payload.pdfUrl} zoom={zoom} onPageCount={setDocPages}
+                renderOverlay={signingOverlay(payload.fields)} onPageSeen={notePageSeen} />}
         </div>
         {/* Packet documents - attached PDFs signed in the same session */}
         {(payload.documents || []).map((d, di) => (
@@ -1321,7 +1603,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
               <FileText size={13} /> {d.name || `Document ${di + 2}`}
             </div>
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '24px 12px', background: 'var(--mist)' }}>
-              <PdfDoc url={d.pdfUrl} renderOverlay={signingOverlay(d.fields)} onPageSeen={notePageSeen} />
+              <PdfDoc url={d.pdfUrl} zoom={zoom} renderOverlay={signingOverlay(d.fields)} onPageSeen={notePageSeen} />
             </div>
           </div>
         ))}
@@ -1344,6 +1626,10 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
         onAdopt={(s) => { setSig(s); setPadOpen(false); }} />}
 
       {declineOpen && declineModal}
+      {paperStep > 0 && paperModal}
+      {historyOpen && historyApi && (
+        <HistoryPanel loadHistory={historyApi} onClose={() => setHistoryOpen(false)} />
+      )}
     </div>
   );
 }
@@ -1388,6 +1674,7 @@ function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
     fd.append('file', file);
     return api.mySignUpload(partyId, fd);
   };
+  const historyApi = useCallback(() => api.mySignHistory(partyId), [partyId]);
 
   return (
     <div ref={boxRef} style={fillPanelStyle(boxH)}>
@@ -1404,7 +1691,8 @@ function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
           {!payload
             ? <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} /></div>
             : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onDecline={decline}
-                gateApi={gateApi} onCleared={() => load().catch(() => {})} uploadApi={uploadApi} />}
+                gateApi={gateApi} onCleared={() => load().catch(() => {})} uploadApi={uploadApi}
+                historyApi={historyApi} />}
         </div>
       </div>
     </div>
@@ -1675,7 +1963,9 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
     if (!fl) return;
     setUploading(true);
     try {
-      if (isDocx(fl)) fl = await docxToPdf(fl); // Word docs convert client-side, upload as PDF
+      // Same rule as the send wizard: a template attachment is signed too, so
+      // it is converted by a real Word engine on the server or not at all.
+      if (isDocx(fl)) fl = await api.convertDocxToPdf(fl);
       const form = new FormData();
       form.append('file', fl);
       const a = await api.uploadSignAttachment(form);
@@ -1930,7 +2220,7 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
 }
 
 // ── Send wizard - in-shell, DocuSign-style: Doc → Recipients → Fields → Send ──
-function SendWizard({ templates, employees, entities, prefill, onClose, onSent, toastOk, toastErr }) {
+function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed, onClose, onSent, toastOk, toastErr }) {
   const [boxRef, boxH] = useFillHeight();
   const [step, setStep] = useState(0);
   // Excluded-record acknowledgment (ESIGN 15 U.S.C. 7003 / Cal. Civ. Code
@@ -2032,12 +2322,121 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                ...(kept || {}), ...(existing || {}), role_key: r.key, roleLabel: r.label || r.key };
     }));
   }
+  // The Documents template library, most-used first. Nexus Sign selects from
+  // it; it never manages it (requirement 25).
+  const [docTemplates, setDocTemplates] = useState(null);
+  const [tplQuery, setTplQuery] = useState('');
+  const [docTemplateId, setDocTemplateId] = useState('');
+  const [generating, setGenerating] = useState('');
+  useEffect(() => {
+    api.getDocTemplates({ status: 'active', sort: 'usage' })
+      .then(setDocTemplates).catch(() => setDocTemplates([]));
+  }, []);
+  const shownDocTemplates = useMemo(() => {
+    const q = tplQuery.trim().toLowerCase();
+    const all = docTemplates || [];
+    if (!q) return all.slice(0, 12);       // the most-used handful, not all 60
+    return all.filter(t => t.name.toLowerCase().includes(q)
+                        || (t.department || '').toLowerCase().includes(q)
+                        || (t.category || '').toLowerCase().includes(q));
+  }, [docTemplates, tplQuery]);
+
+  // Picking a template GENERATES the document from it and sends that - the
+  // same path Documents' own "Send for Signature" takes, so there is one
+  // generation engine and one set of approved language. Recipients are
+  // pre-filled from the template's default signers.
+  // Picking a template with variables opens its form HERE. Sending someone to
+  // another tab to fill it in and come back is not a flow, it is a detour -
+  // and the inputs are the shared TypedFieldInput/validateFieldValue the
+  // Documents wizard uses, so this is the same form, not a second one.
+  const [pendingTpl, setPendingTpl] = useState(null);
+  const [fillValues, setFillValues] = useState({});
+  const [fillErrors, setFillErrors] = useState({});
+  const askableFields = (t) => (t?.fieldDefs || []).filter(fd => !RESERVED_FIELD_TYPES.includes(fd.type));
+
+  const pickDocTemplate = async (t) => {
+    if (generating) return;
+    const fields = askableFields(t);
+    if (fields.length) {
+      setPendingTpl(t);
+      setFillErrors({});
+      // Defaults the template already carries, so common values are pre-filled.
+      setFillValues(Object.fromEntries(fields.map(fd => [fd.token, fd.default || ''])));
+      return;
+    }
+    await generateFromTemplate(t, {});
+  };
+
+  const submitTemplateFill = async () => {
+    const t = pendingTpl;
+    const errs = {};
+    for (const fd of askableFields(t)) {
+      const err = validateFieldValue(fd, fillValues[fd.token]);
+      if (err) errs[fd.token] = err;
+    }
+    setFillErrors(errs);
+    if (Object.keys(errs).length) return;
+    const values = Object.fromEntries(
+      askableFields(t)
+        .filter(fd => fillValues[fd.token] !== undefined && fillValues[fd.token] !== '')
+        .map(fd => [fd.token, formatFieldValue(fd, fillValues[fd.token])]));
+    const ok = await generateFromTemplate(t, values);
+    if (ok) setPendingTpl(null);
+  };
+
+  const generateFromTemplate = async (t, fillValuesPayload) => {
+    setGenerating(t.id);
+    try {
+      const doc = await api.createDocument({
+        title: t.name, templateId: t.id,
+        ...(Object.keys(fillValuesPayload).length ? { fillValues: fillValuesPayload } : {}) });
+      const { blob, filename } = await api.exportDocumentPdf(doc.id);
+      const file = new File([blob], (filename || `${t.name}.pdf`).replace(/\.pdf$/i, '') + '.pdf',
+                            { type: 'application/pdf' });
+      await pickFile(file);
+      setDocTemplateId(t.id);
+      setTitle(t.name);
+      if ((t.signerRoles || []).length) {
+        setParties((t.signerRoles || []).map(r => ({
+          _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer',
+          access_code: '', phone: '', roleLabel: r.label || r.key,
+        })));
+      }
+      toastOk(`Generated from "${t.name}" - add recipients and place the fields.`);
+      return true;
+    } catch (e) {
+      toastErr(e?.message || `Could not generate a document from "${t.name}"`);
+      return false;
+    } finally { setGenerating(''); }
+  };
+
+  const [egnyteOpen, setEgnyteOpen] = useState(false);
+  const [converting, setConverting] = useState(false);
   const newRk = () => `p${++rkCounter.current}`;
   async function pickFile(fl) {
     if (!fl) return;
     if (isDocx(fl)) {
-      try { fl = await docxToPdf(fl); toastOk('Word document converted to PDF.'); }
-      catch { toastErr('Could not convert that Word file - is it a valid .docx?'); return; }
+      // A Word file is converted on the SERVER, by a real Word layout engine,
+      // or not at all. The old client-side path (mammoth -> pdf-lib reflow)
+      // rewrote the document to fit US Letter with 56pt margins and the two
+      // standard PDF fonts, so an A4 contract in Calibri came out as a Letter
+      // page in Helvetica with the characters it could not encode replaced by
+      // "?" - and then that was what people signed. Sagar, Sep 16: "0
+      // alterations means 0." Refusing beats silently reflowing a contract.
+      setConverting(true);
+      try {
+        fl = await api.convertDocxToPdf(fl);
+        toastOk('Word document converted - layout preserved.');
+      } catch (e) {
+        toastErr(e?.status === 501
+          ? 'Word conversion is not available on this deployment yet. Please save the '
+            + 'document as PDF in Word (File - Save As - PDF) and upload that, so the '
+            + 'signed copy matches your original exactly.'
+          : (e?.message || 'Could not convert that Word file - is it a valid .docx?'));
+        setConverting(false);
+        return;
+      }
+      setConverting(false);
     } else if (fl.type !== 'application/pdf') { toastErr('Choose a PDF or Word (.docx) file.'); return; }
     setFile(fl); setSource('pdf'); setTemplateId(''); setFields([]);
     setTitle(t => t || fl.name.replace(/\.pdf$/i, ''));
@@ -2052,7 +2451,19 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
   // Documents module handoff (Phase 5): a Document Builder export lands here
   // as a synthetic File on prefill.file - feed it through the exact same
   // pickFile() path a real file-picker selection would take.
-  useEffect(() => { if (prefill?.file) pickFile(prefill.file); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  //
+  // Then tell the owner to let go of it. A prefill is a ONE-SHOT handoff, and
+  // the parent used to hold it until this wizard closed: <ESign> is mounted on
+  // the Nexus Sign tab, so leaving the tab and coming back remounted it, saw a
+  // prefill still sitting there, reopened the wizard and re-applied
+  // prefill.file - silently putting the ORIGINAL export back over whatever the
+  // sender had done since, Edit PDF changes included. Releasing it here (after
+  // this component's state initializers have already read it) means a remount
+  // finds nothing to re-apply.
+  useEffect(() => {
+    if (prefill?.file) pickFile(prefill.file);
+    if (prefill) onPrefillConsumed?.();
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const setParty = (i, k, v) => setParties(ps => ps.map((p, j) => j === i ? { ...p, [k]: v } : p));
   const movParty = (i, dir) => setParties(ps => {
@@ -2287,29 +2698,89 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
           <div style={{ maxWidth: 980, margin: '0 auto', padding: '26px 18px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 18 }}>
               <div>
+                {/* The company's ONE template library (requirement 25 - Nexus
+                    Sign signs, it does not manage templates). Most-used first,
+                    because with 15-60 templates the handful people actually
+                    send should be at the top rather than whatever sorts first
+                    alphabetically. */}
+                {pendingTpl ? (
+                  /* The template's own variables, asked for right here. Same
+                     TypedFieldInput and validateFieldValue the Documents
+                     wizard uses - one form, two doors. */
+                  <>
+                    <label style={FL}>Fill in {pendingTpl.name}</label>
+                    <div style={{ border: '1.5px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 11, maxHeight: 420, overflowY: 'auto' }}>
+                        {askableFields(pendingTpl).map(fd => (
+                          <div key={fd.token}>
+                            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+                              {fd.label}{fd.required && <span style={{ color: 'hsl(var(--color-red))' }}> *</span>}
+                            </label>
+                            {fd.description && (
+                              <p style={{ fontSize: 11, color: 'var(--muted)', margin: '0 0 4px' }}>{fd.description}</p>
+                            )}
+                            <TypedFieldInput def={fd} value={fillValues[fd.token]} error={fillErrors[fd.token]}
+                              onChange={(v) => setFillValues(prev => ({ ...prev, [fd.token]: v }))} />
+                            {fillErrors[fd.token] && (
+                              <p style={{ fontSize: 11, color: 'hsl(var(--color-red))', margin: '3px 0 0' }}>{fillErrors[fd.token]}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+                        <button className="secondary-btn" style={{ fontSize: 12.5 }}
+                          onClick={() => { setPendingTpl(null); setFillErrors({}); }}>Back to templates</button>
+                        <button className="primary-btn" disabled={!!generating} onClick={submitTemplateFill}
+                          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {generating ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={13} />}
+                          Generate &amp; Continue
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                <>
                 <label style={FL}>Start from a template</label>
-                <div style={{ display: 'grid', gap: 8 }}>
-                  {templates.filter(t => t.status === 'active').map(t => (
-                    <button key={t.id} onClick={() => pickTemplate(t)}
+                <div style={{ position: 'relative', marginBottom: 8 }}>
+                  <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+                  <input className="form-input" value={tplQuery} onChange={e => setTplQuery(e.target.value)}
+                    placeholder="Search templates…" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }} />
+                </div>
+                <div style={{ display: 'grid', gap: 8, maxHeight: 340, overflowY: 'auto' }}>
+                  {shownDocTemplates.map(t => (
+                    <button key={t.id} onClick={() => pickDocTemplate(t)} disabled={generating === t.id}
                       style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderRadius: 12, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif',
-                        background: 'var(--card)', border: templateId === t.id && source === 'template' ? '2px solid var(--pine)' : '1.5px solid var(--line)' }}>
+                        background: 'var(--card)', border: docTemplateId === t.id ? '2px solid var(--pine)' : '1.5px solid var(--line)' }}>
                       <FileText size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} />
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{t.name}</span>
-                        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{KIND_LABEL[t.kind] || t.kind} · {(t.roles || []).length} signer role{(t.roles || []).length === 1 ? '' : 's'}{(t.attachments || []).length > 0 && ` · ${t.attachments.length} attached doc${t.attachments.length === 1 ? '' : 's'}`}</span>
+                        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+                          {t.department || 'Company-wide'}
+                          {t.usageCount > 0 && ` · used ${t.usageCount} time${t.usageCount === 1 ? '' : 's'}`}
+                          {(t.signerRoles || []).length > 0 && ` · ${t.signerRoles.length} signer${t.signerRoles.length === 1 ? '' : 's'}`}
+                        </span>
                       </span>
-                      {templateId === t.id && source === 'template' && <CheckCircle size={17} style={{ color: 'var(--pine)' }} />}
+                      {generating === t.id
+                        ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', color: 'var(--pine)' }} />
+                        : docTemplateId === t.id && <CheckCircle size={17} style={{ color: 'var(--pine)' }} />}
                     </button>
                   ))}
-                  {templates.filter(t => t.status === 'active').length === 0 && (
+                  {docTemplates === null && (
+                    <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 16px' }}>Loading templates…</div>
+                  )}
+                  {docTemplates !== null && shownDocTemplates.length === 0 && (
                     <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 16px', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
-                      No templates yet - add them in the Templates tab, or upload a PDF →
+                      {tplQuery.trim()
+                        ? `No active template matches "${tplQuery.trim()}".`
+                        : 'No active templates yet - create one in the Templates tab, or upload a PDF →'}
                     </div>
                   )}
                 </div>
+                </>
+                )}
               </div>
               <div>
-                <label style={FL}>Or upload a PDF / Word document</label>
+                <label style={FL}>Or choose a PDF / Word document</label>
                 <label onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
                   onDrop={e => { e.preventDefault(); setDragOver(false); pickFile(e.dataTransfer.files?.[0]); }}
                   style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, minHeight: 180, borderRadius: 14, cursor: 'pointer',
@@ -2323,11 +2794,26 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                   ) : (
                     <>
                       <span style={{ fontSize: 13.5, fontWeight: 700 }}>Drop a PDF or Word file here</span>
-                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or click to browse - .docx converts to PDF automatically</span>
+                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or click to browse your computer</span>
                     </>
                   )}
                   <input type="file" accept="application/pdf,.docx" style={{ display: 'none' }} onChange={e => pickFile(e.target.files?.[0])} />
                 </label>
+                {/* Two sources, side by side: this computer, or the company
+                    file store. Most documents that get signed already live in
+                    Egnyte, and making people download-then-re-upload is the
+                    same round trip the filing rule exists to remove. */}
+                <button className="secondary-btn" onClick={() => setEgnyteOpen(true)} disabled={converting}
+                  title="Pick a document from the company Egnyte file store"
+                  style={{ marginTop: 10, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontSize: 12.5 }}>
+                  <Cloud size={14} /> Choose from Egnyte
+                </button>
+                {converting && (
+                  <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted)' }}>
+                    <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                    Converting the Word document, preserving its layout…
+                  </div>
+                )}
                 {isPdf && file && (
                   <button className="secondary-btn" onClick={() => setPdfEditOpen(true)}
                     title="Fix the PDF itself - text, pages, images - before placing fields"
@@ -2728,6 +3214,10 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
           </div>
         )}
       </div>
+      {egnyteOpen && (
+        <EgnyteBrowser onClose={() => setEgnyteOpen(false)}
+          onPick={(picked) => { setEgnyteOpen(false); pickFile(picked); }} />
+      )}
       {pdfEditOpen && file && (
         <PdfEditor file={file} fileName={file.name} toastErr={toastErr}
           onClose={() => setPdfEditOpen(false)}
@@ -2908,7 +3398,6 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   const [sendOpen, setSendOpen] = useState(false);
   const [detailId, setDetailId] = useState(null);
   const [editTpl, setEditTpl] = useState(undefined);
-  const [seedBusy, setSeedBusy] = useState(false);
   const [reqSearch, setReqSearch] = useState('');
   const [reqFilter, setReqFilter] = useState('all');
 
@@ -2996,7 +3485,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   );
   if (sendOpen) return (
     <SendWizard templates={templates || []} employees={employees} entities={entities}
-      prefill={prefill} toastOk={toastOk} toastErr={toastErr}
+      prefill={prefill} onPrefillConsumed={onPrefillConsumed} toastOk={toastOk} toastErr={toastErr}
       onClose={() => { setSendOpen(false); onPrefillConsumed?.(); }}
       onSent={(sent) => { loadRequests(); loadInbox(); onSentRequest?.(sent); }} />
   );
@@ -3097,13 +3586,25 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
         !templates ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
         : (
           <>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-              <button className="secondary-btn" onClick={() => setEditTpl(null)} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> New Template</button>
-              <button className="secondary-btn" disabled={seedBusy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                onClick={async () => { setSeedBusy(true);
-                  try { const r = await api.seedSignTemplates(); toastOk(r.added.length ? `Added: ${r.added.join(', ')}` : 'Starters already present.'); loadTemplates(); }
-                  catch (e) { toastErr(e?.message || 'Could not seed.'); } setSeedBusy(false); }}>
-                {seedBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={13} />} Add starter templates
+            {/* Nexus Sign is the signing layer, not a second template manager
+                (requirements 10 and 25). Templates are authored once, in the
+                Templates tab, which is the only place that has variables,
+                department ownership, versioning and Word import. These are the
+                legacy signing templates: still usable, no longer added to. */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+              padding: '9px 14px', marginBottom: 12, borderRadius: 9,
+              background: 'var(--mist)', border: '1px solid var(--line)',
+            }}>
+              <Info size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+              <span style={{ fontSize: 12.5, color: 'var(--muted)', flex: 1, minWidth: 220 }}>
+                Templates are now created in the <strong>Templates</strong> tab, where they carry
+                variables, an owning department and version history. These older signing templates
+                still work; new ones are made there.
+              </span>
+              <button className="secondary-btn" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-templates' } }))}>
+                Go to Templates
               </button>
             </div>
             {templates.length === 0 ? empty(FileText, 'No templates yet - start from the standard Offer / NDA / Handbook set.')
