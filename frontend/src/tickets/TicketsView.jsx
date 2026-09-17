@@ -23,7 +23,7 @@ import {
   setOpenTicketId, clearOpenTicketId, isTicketDrawerOpen,
 } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
-import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar, SelectMenu } from '../tasks/components';
+import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar, SelectMenu } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
@@ -67,7 +67,13 @@ const TICKET_VIEW_TABS = [
 const TICKET_COLUMNS = [
   { key: 'checkbox', label: '', width: 34, fixed: true },
   { key: 'type', label: '', width: 34, fixed: true },
-  { key: 'title', label: 'Title', width: 260, sort: (t) => (t.subject || '').toLowerCase() },
+  // template (not just width) so Title absorbs whatever width the other,
+  // all-fixed-px columns don't use - every other column here is a fixed
+  // size, so without an elastic one the leftover space on a wide screen
+  // painted as a bare empty grid track after the last column (Pranshu, Sep
+  // 17 2026 - "extra empty column"). Same fix MyTasksView.jsx's own `title`
+  // column already uses.
+  { key: 'title', label: 'Title', width: 260, template: 'minmax(220px,1fr)', sort: (t) => (t.subject || '').toLowerCase() },
   { key: 'company', label: 'Company', width: 130, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
   // State and Priority each carry a second chip when a ticket needs it
   // (Awaiting approval / SLA breached), so they're sized for the pair - at 150
@@ -228,7 +234,7 @@ function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
 function TicketMobileFilters({
   onClose, statusFilter, setStatusFilter, priorityFilter, setPriorityFilter,
   typeFilter, setTypeFilter, slaFilter, setSlaFilter, hrDeptFilter, setHrDeptFilter, hrDepts,
-  serviceAreaFilter, setServiceAreaFilter,
+  serviceAreaFilter, setServiceAreaFilter, assigneeFilter, setAssigneeFilter, assigneeOptions,
   groupBy, setGroupBy, showGroup,
 }) {
   const row = { width: '100%', fontSize: 15, padding: '10px 12px' };
@@ -268,6 +274,13 @@ function TicketMobileFilters({
         <TicketSelect value={serviceAreaFilter} onChange={setServiceAreaFilter} style={row}
           options={[['all', 'All service areas'], ['', 'Not set'], ...serviceAreaOptions()]} />
       </div>
+      {assigneeOptions.length > 0 && (
+        <div style={wrap}>
+          <label style={lab}>Assigned To</label>
+          <TicketSelect value={assigneeFilter} onChange={setAssigneeFilter} style={row} searchPlaceholder="Search people…"
+            options={[['all', 'Anyone'], ...assigneeOptions]} />
+        </div>
+      )}
       {showGroup && (
         <div style={wrap}>
           <label style={lab}>Group by</label>
@@ -286,7 +299,7 @@ function TicketMobileFilters({
 function TicketFilterMenu({
   statusFilter, setStatusFilter, priorityFilter, setPriorityFilter, typeFilter, setTypeFilter,
   slaFilter, setSlaFilter, hrDeptFilter, setHrDeptFilter, hrDepts,
-  serviceAreaFilter, setServiceAreaFilter,
+  serviceAreaFilter, setServiceAreaFilter, assigneeFilter, setAssigneeFilter, assigneeOptions,
 }) {
   const [open, setOpen] = useState(false);
   // Not useClickOutside: every filter here is a TicketSelect, which renders
@@ -305,7 +318,7 @@ function TicketFilterMenu({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
-  const active = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter].filter((v) => v !== 'all').length;
+  const active = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter, assigneeFilter].filter((v) => v !== 'all').length;
   const rowStyle = { width: '100%' };
   const wrap = { marginBottom: 10 };
   const lab = { ...label, fontSize: 12 };
@@ -348,8 +361,15 @@ function TicketFilterMenu({
             <TicketSelect value={serviceAreaFilter} onChange={setServiceAreaFilter} style={rowStyle}
               options={[['all', 'All service areas'], ['', 'Not set'], ...serviceAreaOptions()]} />
           </div>
+          {assigneeOptions.length > 0 && (
+            <div style={wrap}>
+              <label style={lab}>Assigned To</label>
+              <TicketSelect value={assigneeFilter} onChange={setAssigneeFilter} style={rowStyle} searchPlaceholder="Search people…"
+                options={[['all', 'Anyone'], ...assigneeOptions]} />
+            </div>
+          )}
           {active > 0 && (
-            <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); setServiceAreaFilter('all'); }}
+            <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); setServiceAreaFilter('all'); setAssigneeFilter('all'); }}
               style={{ ...btn('ghost'), width: '100%', justifyContent: 'center', color: NX.red, fontSize: 12.5 }}>Clear filters</button>
           )}
           </div>
@@ -500,6 +520,7 @@ export default function TicketsView() {
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [hrDeptFilter, setHrDeptFilter] = useState('all');
+  const [assigneeFilter, setAssigneeFilter] = useState('all');
   const [serviceAreaFilter, setServiceAreaFilter] = useState('all');
   const [slaFilter, setSlaFilter] = useState('all');   // all | breached | at_risk | ok
   const [groupBy, setGroupBy] = useState('none');
@@ -590,6 +611,21 @@ export default function TicketsView() {
     completedCollapsed ? collapsedList.filter((k) => k !== 'completed') : [...collapsedList, 'completed'],
   );
 
+  // Assignee filter options - every distinct current assignee across the
+  // tickets already on screen, not a separate directory fetch: this only
+  // ever needs to offer people something is ACTUALLY assigned to right now,
+  // and deriving it from the data in hand keeps it correct with zero extra
+  // calls (same spirit as hrDepts being its own fetch only because
+  // departments genuinely aren't on the ticket rows).
+  const assigneeOptions = useMemo(() => {
+    const byEmail = new Map();
+    for (const t of tickets) {
+      const email = (t.assigneeId || '').toLowerCase();
+      if (email && !byEmail.has(email)) byEmail.set(email, nameOf(t.assigneeId) || t.assigneeId);
+    }
+    return [...byEmail.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [tickets, nameOf]);
+
   // Column sort - click a header to sort by it, click again to flip direction.
   const [sort, setSort] = useState({ key: 'created', dir: 'desc' });
   const onSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
@@ -603,6 +639,7 @@ export default function TicketsView() {
     // still CLEAR the filter, or applying it silently keeps whatever narrowing
     // was on screen and shows a different list than the one it names.
     setServiceAreaFilter(f.serviceAreaFilter ?? 'all');
+    setAssigneeFilter(f.assigneeFilter ?? 'all');
     setSearch(f.search ?? '');
     if (v.group) setGroupBy(v.group);
     if (v.view) setView(v.view);
@@ -612,7 +649,7 @@ export default function TicketsView() {
     if (!name || !name.trim()) return;
     createTicketView({
       name: name.trim(), view, group: groupBy,
-      filters: { scope, statusFilter, priorityFilter, typeFilter, slaFilter, serviceAreaFilter, search },
+      filters: { scope, statusFilter, priorityFilter, typeFilter, slaFilter, serviceAreaFilter, assigneeFilter, search },
     }).catch((e) => alert(`Could not save view: ${e.message || e}`));
   };
 
@@ -628,6 +665,7 @@ export default function TicketsView() {
       // Routing queue (IT Admin): gated requests nobody has been asked to sign off yet.
       if (scope === 'route' && !(t.approvalStatus === 'pending' && !t.approverId)) return false;
       if (hrDeptFilter !== 'all' && (t.hrDepartmentId || '') !== hrDeptFilter) return false;
+      if (assigneeFilter !== 'all' && (t.assigneeId || '').toLowerCase() !== assigneeFilter) return false;
       // 'open' is a bucket, not a status: any state that is not resolved/closed.
       // Without it the Open tile had nothing to select, so it cleared the
       // filters instead - showing closed tickets under a count that excluded them.
@@ -646,7 +684,7 @@ export default function TicketsView() {
       }
       return true;
     });
-  }, [tickets, scope, myEmail, search, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, serviceAreaFilter, approvalCount]);
+  }, [tickets, scope, myEmail, search, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, assigneeFilter, serviceAreaFilter, approvalCount]);
 
   // List-view sort - applied before grouping so it holds within each bucket too.
   const sortTickets = useCallback((list) => {
@@ -791,6 +829,7 @@ export default function TicketsView() {
               slaFilter={slaFilter} setSlaFilter={setSlaFilter}
               hrDeptFilter={hrDeptFilter} setHrDeptFilter={setHrDeptFilter} hrDepts={hrDepts}
               serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
+              assigneeFilter={assigneeFilter} setAssigneeFilter={setAssigneeFilter} assigneeOptions={assigneeOptions}
             />
             <button
               onClick={() => downloadTicketsCsv([...sortedVisible, ...sortedCompleted], nameOf, companyName, hrDeptName)}
@@ -1008,6 +1047,7 @@ export default function TicketsView() {
               slaFilter={slaFilter} setSlaFilter={setSlaFilter}
               hrDeptFilter={hrDeptFilter} setHrDeptFilter={setHrDeptFilter} hrDepts={hrDepts}
               serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
+              assigneeFilter={assigneeFilter} setAssigneeFilter={setAssigneeFilter} assigneeOptions={assigneeOptions}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'}
             />
           )}
@@ -2337,28 +2377,30 @@ export function TicketDrawer({ ticketId, onClose }) {
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(t.serviceArea) || '-'}</div>
           )}
         </div>
-        {canSeeAssignSla && (
-          <div style={field}>
-            <label style={label}>SLA Due Date</label>
-            {fullAccess ? (
-              <DateField value={t.slaDueOn || ''} onChange={(v) => patch({ slaDueOn: v || '' })} color={overdue ? NX.red : undefined}
-                style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
-            ) : (
-              <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-                {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
-              </div>
-            )}
-            {/* "Needs a comment" - a signal separate from the due date above:
-                nobody has said anything in longer than this priority's
-                check-in cadence, whether or not the due date has passed. */}
-            {commentStale(t) && (
-              <div title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h`}
-                style={{ ...chip(COMMENT_STALE_META.color, COMMENT_STALE_META.tint), display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '2px 8px', marginTop: 6 }}>
-                <COMMENT_STALE_META.Icon size={12} />{COMMENT_STALE_META.label}
-              </div>
-            )}
+        {/* NOT gated on canSeeAssignSla (Pranshu, Sep 17 2026: "I want SLA due
+            date for all type of tickets") - that gate exists to keep Assign
+            To a desk decision, not the requester's to make or see while a
+            ticket is still Open, but the due date itself is informational
+            for everyone regardless of who's viewing or what state it's in. */}
+        <div style={field}>
+          <label style={label}>SLA Due Date</label>
+          {/* Read-only always (Pranshu, Sep 17 2026) - it follows Priority
+              automatically (_sla_due_from_priority in update_ticket), and a
+              manual DateField editor here let it drift out of step with the
+              priority it's supposed to track. Change Priority to move it. */}
+          <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
+            {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
           </div>
-        )}
+          {/* "Needs a comment" - a signal separate from the due date above:
+              nobody has said anything in longer than this priority's
+              check-in cadence, whether or not the due date has passed. */}
+          {commentStale(t) && (
+            <div title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h`}
+              style={{ ...chip(COMMENT_STALE_META.color, COMMENT_STALE_META.tint), display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '2px 8px', marginTop: 6 }}>
+              <COMMENT_STALE_META.Icon size={12} />{COMMENT_STALE_META.label}
+            </div>
+          )}
+        </div>
         {CLOSED_STATES.includes(t.status) && (
           <div style={field}>
             <label style={label}>Resolution</label>
@@ -2789,16 +2831,24 @@ function TicketConversation({ ticketId, nameOf }) {
   const [internal, setInternal] = useState(false);
   const [busy, setBusy] = useState(false);
   const people = usePeople();
+  // A comment updates the ticket row itself (last_comment_at, which drives
+  // the "Needs a comment" staleness badge - ticketMeta.js's commentStale) -
+  // reload() above only re-fetches the comment thread, so without this the
+  // ticket sitting in TasksContext's own state still held the OLD
+  // lastCommentAt, and the badge never cleared after actually commenting
+  // (Pranshu, Sep 17 2026). refresh() re-pulls the ticket list so the drawer
+  // (and every list/board cell showing this ticket) picks up the new value.
+  const { refresh } = useTasks();
   const reload = () => api.getTicketComments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
   const send = async () => {
     if (isEmptyDoc(body) || busy) return;
     setBusy(true);
-    try { await api.addTicketComment(ticketId, { body, internal }); setBody(''); await reload(); }
+    try { await api.addTicketComment(ticketId, { body, internal }); setBody(''); await Promise.all([reload(), refresh()]); }
     catch { /* ignore */ } finally { setBusy(false); }
   };
-  const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); reload(); };
+  const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); await Promise.all([reload(), refresh()]); };
 
   return (
     <div>

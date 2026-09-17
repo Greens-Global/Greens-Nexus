@@ -1885,6 +1885,31 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] letterhead seed skipped: {e}")
+    # Backfill sla_due_on on tickets that predate the column ever being
+    # populated for every row (it used to only get set on create, and older
+    # rows were never revisited) - "there is no SLA due date for few tickets"
+    # (Pranshu, Sep 17 2026). Computed the same way update_ticket/create_ticket
+    # do (routers/tickets.py's _sla_due_from_priority), so a ticket's due date
+    # always reads as "created_at + its priority's target hours" regardless of
+    # how old it is. Cheap no-op once every existing gap is filled - the
+    # WHERE already limits it to rows that still need it.
+    try:
+        from database import SessionLocal
+        from routers.tickets import _sla_due_from_priority
+        db = SessionLocal()
+        try:
+            rows = db.query(models.TaskTicket).filter(
+                (models.TaskTicket.sla_due_on == None) | (models.TaskTicket.sla_due_on == "")  # noqa: E711
+            ).all()
+            for t in rows:
+                t.sla_due_on = _sla_due_from_priority(db, t.created_at, t.priority or "medium")
+            if rows:
+                db.commit()
+                print(f"[startup] backfilled sla_due_on on {len(rows)} ticket(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] ticket sla_due_on backfill skipped: {e}")
     # Asana sync fallback poll (webhooks handle real-time; this is the safety net).
     try:
         from asana_sync import start_auto_pull, is_sync_worker
