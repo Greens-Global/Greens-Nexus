@@ -1447,8 +1447,13 @@ def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager
 
 
 # ── Taxonomy settings (admin): SLA target hours + per-type intake fields ──────
+# GET is read-only config every ticket submitter needs (ticketConfig.js's
+# useTicketConfig runs for any employee opening the create-ticket form, not
+# just managers) - gating it behind require_manager 401'd employees there,
+# and api.js treats a 401 as a dead session and force-redirects to login,
+# which looked like Nexus randomly logging people out (Sep 17 2026).
 @router.get("/task-tickets/taxonomy/settings")
-def get_ticket_taxonomy_settings(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+def get_ticket_taxonomy_settings(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     return ticket_taxonomy.get_config(db)
 
 
