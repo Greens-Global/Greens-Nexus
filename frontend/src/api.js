@@ -1008,6 +1008,11 @@ export const api = {
   // a slow conversion well before the server even times out.
   uploadEntityLogo: (id, form) => req(`/hr/entities/${id}/logo`, { method: 'POST', body: form, timeoutMs: 90_000 }),
   getEntitySignatureTemplates: (id) => req(`/hr/entities/${id}/signature-templates`),
+  getManualSignatures: (id) => req(`/hr/entities/${id}/manual-signatures`),
+  createManualSignature: (id, data) => req(`/hr/entities/${id}/manual-signatures`, { method: 'POST', body: JSON.stringify(data) }),
+  updateManualSignature: (id, sigId, data) => req(`/hr/entities/${id}/manual-signatures/${sigId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteManualSignature: (id, sigId) => req(`/hr/entities/${id}/manual-signatures/${sigId}`, { method: 'DELETE' }),
+  uploadManualSignatureLogo: (id, sigId, form) => req(`/hr/entities/${id}/manual-signatures/${sigId}/logo`, { method: 'POST', body: form, timeoutMs: 90_000 }),
   getGroupManager: ()        => req('/hr/group-manager'),
   setGroupManager: (email)   => req('/hr/group-manager', { method: 'PUT', body: JSON.stringify({ email }) }),
   deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),

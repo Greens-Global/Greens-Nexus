@@ -1903,7 +1903,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
 # ---------------------------------------------------------------------------
 # HR Section A - Companies/Entities + Work Sites (structural foundation)
 # ---------------------------------------------------------------------------
-from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday
+from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday, HrManualSignature
 
 
 class EntityIn(BaseModel):
@@ -2126,6 +2126,140 @@ def entity_signature_templates(entity_id: str,
         "templates": admin_preview_templates(row),
         "template": row.signature_template or "classic",
     }
+
+
+# ── Manual (non-directory) signatures - a hand-filled signature for a sender
+# email Nexus doesn't have an employee record for (Sep 19, Pranshu: "if the
+# email is not integrated in NEXUS but we want the same sig for that sender
+# email"). Rendered with the company's own picked template, same as everyone
+# else's, just fed from typed-in fields instead of NexusEmployee.
+_MAX_MANUAL_SIG_CUSTOM_FIELDS = 12
+
+
+class ManualSignatureIn(BaseModel):
+    name:          str
+    title:         Optional[str] = ""
+    company_name:  Optional[str] = ""
+    address:       Optional[str] = ""
+    url:           Optional[str] = ""
+    custom_fields: Optional[list] = None   # [{"label": "...", "value": "..."}]
+
+
+def _clean_custom_fields(raw) -> list:
+    out = []
+    for item in (raw or [])[:_MAX_MANUAL_SIG_CUSTOM_FIELDS]:
+        label = str((item or {}).get("label", "")).strip()[:60]
+        value = str((item or {}).get("value", "")).strip()[:200]
+        if label or value:
+            out.append({"label": label, "value": value})
+    return out
+
+
+def _serialize_manual_signature(row: HrManualSignature, company: HrEntity) -> dict:
+    from routers.myhr import render_manual_signature
+    rendered = render_manual_signature(row, company)
+    return {
+        "id": row.id, "name": row.name, "title": row.title, "companyName": row.company_name,
+        "address": row.address, "url": row.url, "logoUrl": row.logo_url,
+        "customFields": row.custom_fields or [], "html": rendered["html"],
+    }
+
+
+def _get_entity_or_404(entity_id: str, user: dict, db: Session) -> HrEntity:
+    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Entity not found")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Entity not found")
+    return row
+
+
+@router.get("/entities/{entity_id}/manual-signatures")
+def list_manual_signatures(entity_id: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    company = _get_entity_or_404(entity_id, user, db)
+    rows = (db.query(HrManualSignature).filter(HrManualSignature.company_id == entity_id)
+            .order_by(HrManualSignature.created_at).all())
+    return [_serialize_manual_signature(r, company) for r in rows]
+
+
+@router.post("/entities/{entity_id}/manual-signatures")
+def create_manual_signature(entity_id: str, body: ManualSignatureIn,
+                            user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    company = _get_entity_or_404(entity_id, user, db)
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    now = datetime.now(timezone.utc).isoformat()
+    row = HrManualSignature(
+        id=str(uuid.uuid4()), company_id=entity_id, name=body.name.strip()[:120],
+        title=(body.title or "").strip()[:120], company_name=(body.company_name or "").strip()[:200],
+        address=(body.address or "").strip()[:300], url=(body.url or "").strip()[:300],
+        custom_fields=_clean_custom_fields(body.custom_fields),
+        created_by=user["email"], created_at=now, updated_at=now,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _serialize_manual_signature(row, company)
+
+
+@router.put("/entities/{entity_id}/manual-signatures/{sig_id}")
+def update_manual_signature(entity_id: str, sig_id: str, body: ManualSignatureIn,
+                            user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    company = _get_entity_or_404(entity_id, user, db)
+    row = db.query(HrManualSignature).filter(HrManualSignature.id == sig_id,
+                                              HrManualSignature.company_id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Signature not found")
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    row.name = body.name.strip()[:120]
+    row.title = (body.title or "").strip()[:120]
+    row.company_name = (body.company_name or "").strip()[:200]
+    row.address = (body.address or "").strip()[:300]
+    row.url = (body.url or "").strip()[:300]
+    row.custom_fields = _clean_custom_fields(body.custom_fields)
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_manual_signature(row, company)
+
+
+@router.delete("/entities/{entity_id}/manual-signatures/{sig_id}")
+def delete_manual_signature(entity_id: str, sig_id: str,
+                            user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    _get_entity_or_404(entity_id, user, db)
+    row = db.query(HrManualSignature).filter(HrManualSignature.id == sig_id,
+                                              HrManualSignature.company_id == entity_id).first()
+    if row:
+        db.delete(row); db.commit()
+    return {"ok": True}
+
+
+@router.post("/entities/{entity_id}/manual-signatures/{sig_id}/logo")
+async def upload_manual_signature_logo(entity_id: str, sig_id: str, file: UploadFile = File(...),
+                                       user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    company = _get_entity_or_404(entity_id, user, db)
+    row = db.query(HrManualSignature).filter(HrManualSignature.id == sig_id,
+                                              HrManualSignature.company_id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Signature not found")
+    content_type = file.content_type or ""
+    ext = _IMAGE_TYPES.get(content_type)
+    if not ext:
+        raise HTTPException(400, "Logo must be JPEG, PNG, WebP, or GIF")
+    data = await file.read()
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise HTTPException(400, "Logo must be under 5 MB")
+    path = f"manual-signatures/{sig_id}/{uuid.uuid4()}.{ext}"
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": content_type, "cache-control": "max-age=31536000"},
+        content=data, timeout=60,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    row.logo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_manual_signature(row, company)
 
 
 # ── Group manager - one person overseeing ALL companies (the escalation step
