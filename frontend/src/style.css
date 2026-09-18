@@ -735,7 +735,16 @@ h1,h2,h3,h4,h5,h6,
 }
 .form-input:focus, .form-select:focus {
   border-color: var(--wk-brand);
-  background: var(--card);
+  /* background-color, not `background` (Sep 19: "dropdowns are normal if i
+     don't click on them - once i click on them same issue as earlier" - this
+     is the ACTUAL bug, in both themes: clicking a select to open it focuses
+     it, and this un-scoped :focus rule's `background` shorthand was
+     resetting background-repeat to its default on every focus, retiling the
+     chevron. The earlier dark-only background-color fix on the [data-
+     theme="dark"] rules never touched this one, so the moment you clicked
+     any select the tiling came right back, in light mode too - just less
+     visible there against a near-white chevron stroke). */
+  background-color: var(--card);
   box-shadow: 0 0 0 3px var(--wk-brand-tint);
 }
 .form-input::placeholder, .form-select::placeholder, textarea::placeholder { color: var(--wk-faint); }
