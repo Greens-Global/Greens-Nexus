@@ -3,11 +3,11 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight } from 'lucide-react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight, Check, Minus } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle } from './theme';
-import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField, TaskCountBadges, SearchSelect, ExportMenu } from './components';
+import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField, TaskCountBadges, SearchSelect, ExportMenu, usePeople } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
 import MobileTaskBar from './MobileTaskBar';
 import CreateTaskModal from './CreateTaskModal';
@@ -18,6 +18,8 @@ import { FilesView } from './views/more';
 import BoardView from './views/board';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue, useTableSetting } from './tableCols';
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
+import { selectionAfterClick } from './rowSelection';
+import BulkActionBar from './BulkActionBar';
 
 const VIEW_TABS = [
   { key: 'list', label: 'List', icon: ListIcon },
@@ -137,10 +139,27 @@ function projectOptions(projects) {
       .map((p) => ({ id: p.id, label: p.name }))];
 }
 
+// Square select box, same look as the Task List's (views/richlist.jsx) so batch
+// selection reads as one control across the module. `partial` = some but not
+// all rows picked (header only).
+function SelectBox({ checked, partial = false, onClick, title }) {
+  const on = checked || partial;
+  return (
+    <button onClick={(e) => { e.stopPropagation(); onClick(e); }} title={title} aria-label={title} aria-pressed={checked}
+      style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${on ? NX.primary : NX.border}`, background: on ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
+      {checked ? <Check size={11} strokeWidth={3} color="#fff" /> : partial ? <Minus size={11} strokeWidth={3} color="#fff" /> : null}
+    </button>
+  );
+}
+
+// The select box sits in its own leading track ahead of the user's columns, so
+// dragging or resizing columns never moves it off the left edge.
+const ROW_GRID = '16px var(--nx-grid)';
+
 // `band` = this row sits on an odd index inside its group, so it gets the
 // zebra tint. Banding is what lets the eye follow a row all the way out to the
 // Collaborators/Projects columns on a wide screen.
-function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST_COLS, isMobilePortrait = false }) {
+function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST_COLS, isMobilePortrait = false, selected = false, onPick }) {
   // A subtask's project is its parent's; the project cell then names the parent
   // (click-through) rather than offering a select that would re-home the subtask.
   const parent = t.parentTaskId ? rootParent(t, store.taskById) : null;
@@ -152,7 +171,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
     : t.dueOn < today ? 'rgba(220,38,38,0.10)'
     : t.dueOn === today ? 'rgba(232,163,61,0.16)'
     : NX.surface2;
-  const rowBg = band ? NX.zebra : 'transparent';
+  const rowBg = selected ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : 'transparent';
   // Cells are keyed and rendered in the header's order, not in source order -
   // once columns can be dragged, a row that renders them in a fixed sequence
   // puts every value under the wrong heading.
@@ -179,7 +198,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
       // the row's right edge instead of the left-aligned default, so it isn't
       // stranded in a sea of empty space between it and the name column.
       <div style={isMobilePortrait ? { display: 'flex', justifyContent: 'flex-end', width: '100%' } : undefined}>
-        <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)}
+        <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={dueColor(t.dueOn, t.completed)}
           title="Due Date" compact
           style={t.dueOn ? { fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' } : undefined} />
       </div>
@@ -210,8 +229,9 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
     // text, but the Due Date/Collaborators columns are mostly blank, so
     // there's nothing else to read the row boundary from and the divider
     // needs to actually show up. NX.border is the same 1px line, darker.
-    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)} onMouseLeave={(e) => (e.currentTarget.style.background = rowBg)}>
+    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}
+      onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = rowBg; }}>
+      <SelectBox checked={selected} onClick={(e) => onPick(t.id, e)} title={selected ? 'Deselect' : 'Select'} />
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>
   );
@@ -295,6 +315,33 @@ export default function MyTasksView({ onNavigate }) {
   const groups = useMemo(() => groupTasks(mine, group, ctx), [mine, group, nameOf, store.projectName, store.teamName, store.taskById]);
   const boardTasks = useMemo(() => sortTasks(allMine, sort, [], sortCtx), [allMine, sort, sortCtx]);
 
+  // Batch selection - same gestures as the Task List (click, shift+click for a
+  // range, ctrl+click to add; see rowSelection.js) and the same bulk bar.
+  // Only rows still on screen count: a filter or a completed task that drops a
+  // row out of view drops it out of the batch too, so the bar never acts on
+  // something the person can no longer see.
+  const directory = usePeople();
+  const [picked, setPicked] = useState(() => new Set());
+  const [anchor, setAnchor] = useState({ anchorId: null, focusId: null });
+  const visibleIds = useMemo(() => groups.flatMap((g) => g.tasks.map((t) => t.id)), [groups]);
+  const selected = useMemo(() => {
+    const onScreen = new Set(visibleIds);
+    return new Set([...picked].filter((id) => onScreen.has(id)));
+  }, [picked, visibleIds]);
+  const pickRow = (id, e) => {
+    const next = selectionAfterClick({
+      selected, orderedIds: visibleIds, id,
+      anchorId: anchor.anchorId, focusId: anchor.focusId,
+      shift: e?.shiftKey, ctrl: e?.ctrlKey || e?.metaKey,
+    });
+    setPicked(next.selected);
+    setAnchor({ anchorId: next.anchorId, focusId: next.focusId });
+  };
+  const clearSel = () => setPicked(new Set());
+  const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const someSel = !allSel && selected.size > 0;
+  const selectAll = () => setPicked(allSel ? new Set() : new Set(visibleIds));
+
   // Collapsed group keys, persisted per person like the rest of this table's
   // settings (view/group/sort) - see richlist.jsx's identical pattern.
   const [collapsedList, setCollapsedList] = useTableSetting('mytasks', 'collapsed', []);
@@ -374,7 +421,8 @@ export default function MyTasksView({ onNavigate }) {
                 scrollbar on a screen with nothing to its right. */}
             <div style={{ overflowX: 'auto' }}>
               <div ref={wrapRef} style={{ minWidth: isMobilePortrait ? 0 : 560, '--nx-grid': template }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', gap: 8, padding: '6px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+                <div style={{ display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '6px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+                  <SelectBox checked={allSel} partial={someSel} onClick={selectAll} title={allSel ? 'Deselect All' : 'Select All'} />
                   {listCols.map((c) => (
                     <TableHead key={c.key} label={c.label} sortKey={c.key} sort={sort} setSort={setSort}
                       sortReset={{ key: 'manual', dir: 'asc' }} style={{ color: NX.dim }}
@@ -395,16 +443,16 @@ export default function MyTasksView({ onNavigate }) {
                         <ChevronDown size={14} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
                         {g.label} <span style={{ color: NX.faint, fontWeight: 600, fontSize: 12 }}>{g.tasks.length} item{g.tasks.length !== 1 ? 's' : ''}</span>
                       </button>
-                      {!isCol && g.tasks.map((t, i) => <TaskRow key={t.id} t={t} people={people} projects={projects} store={store} onOpen={setOpenId} band={i % 2 === 1} cols={listCols} isMobilePortrait={isMobilePortrait} />)}
+                      {!isCol && g.tasks.map((t, i) => <TaskRow key={t.id} t={t} people={people} projects={projects} store={store} onOpen={setOpenId} band={i % 2 === 1} cols={listCols} isMobilePortrait={isMobilePortrait} selected={selected.has(t.id)} onPick={pickRow} />)}
                     </div>
                   );
                 })}
               </div>
             </div>
-            {/* Said "Add Section" and opened the Create Task modal. There are no
-                sections on this screen - the groups above come from the group-by
-                control - so it is what it always was: a new task assigned to me. */}
-            <button onClick={() => openCreate({ assigneeId: myEmail })} style={{ ...btn('ghost'), padding: '8px 16px', color: NX.faint }}><Plus size={15} /> Add Task</button>
+            {/* No "Add Task" row here: it was a third way to open the same Create
+                Task form, next to the module bar's "+ Create" and the floating
+                "+". Nothing is lost: the form defaults a new task's assignee to
+                whoever creates it (CreateTaskModal). */}
           </div>
         ) : view === 'calendar' ? (
           <CalendarView tasks={mine} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
@@ -420,6 +468,10 @@ export default function MyTasksView({ onNavigate }) {
         )}
         {view === 'list' && mine.length === 0 && group !== 'date' && <EmptyState icon={CheckCircle2} title="No Tasks" hint="You're all caught up." />}
       </div>
+
+      {view === 'list' && (
+        <BulkActionBar selected={selected} clearSel={clearSel} store={store} people={directory} isMobile={isMobile} />
+      )}
 
       {isMobile && (
         <MobileTaskBar

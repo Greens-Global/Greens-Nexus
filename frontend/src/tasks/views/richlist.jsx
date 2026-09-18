@@ -17,7 +17,7 @@ import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, field
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
-import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar } from '../components';
+import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar, localTodayISO } from '../components';
 import { emailToName, rootZoom } from '../../lib/utils';
 import { matchPeople, onEnterPickFirst } from '../../lib/peopleSearch';
 
@@ -421,7 +421,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // due
         due: (
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
-          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)} title="Due Date" compact style={{ fontSize: 12, width: '100%' }} />
+          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={dueColor(t.dueOn, t.completed)} title="Due Date" compact style={{ fontSize: 12, width: '100%' }} />
         </div>
         ),
         // estimate
@@ -765,7 +765,7 @@ function TimelineCell({ t, color, onChange }) {
                 style={{ ...inputStyle, marginTop: 3, fontSize: 12.5, padding: '5px 8px' }} />
             </label>
             <label style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>DUE
-              <input type="date" value={t.dueOn || ''} onChange={(e) => onChange({ dueOn: e.target.value })}
+              <input type="date" value={t.dueOn || ''} min={localTodayISO()} onChange={(e) => { const v = e.target.value; if (!v || v >= localTodayISO()) onChange({ dueOn: v }); }}
                 style={{ ...inputStyle, marginTop: 3, fontSize: 12.5, padding: '5px 8px' }} />
             </label>
           </div>

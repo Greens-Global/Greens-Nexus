@@ -216,13 +216,27 @@ const CAL_YEAR_PAGE = 12;
 const pad2 = (n) => String(n).padStart(2, '0');
 const dateToISO = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const isoToDate = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, (m || 1) - 1, d || 1); };
+/** Today as YYYY-MM-DD in the viewer's LOCAL calendar. Not
+ *  toISOString().slice(0, 10) - that is the UTC date, which in a US evening is
+ *  already tomorrow and would lock today out of a due-date picker. */
+export const localTodayISO = () => dateToISO(new Date());
+/** Clamp for a due date typed/picked through a native <input type="date">,
+ *  which honours `min` in its calendar but still lets a past date be typed. */
+export const notPast = (iso) => (iso && iso < localTodayISO() ? '' : iso);
 const sameYMD = (a, b) => !!a && !!b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 // Popover calendar rendered to a portal, fixed-positioned near the trigger and
 // flipped up when there isn't room below - so it works inside modals/sheets too.
-function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
+// `min` (YYYY-MM-DD): days before it are shown but cannot be picked, and
+// months/years wholly before it are greyed out the same way.
+function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '' }) {
   const selected = value ? isoToDate(value) : null;
   const today = new Date();
+  const minDate = min ? isoToDate(min) : null;
+  const beforeMin = (d) => !!minDate && d < minDate;
+  const monthBeforeMin = (y, m) => !!minDate && (y < minDate.getFullYear() || (y === minDate.getFullYear() && m < minDate.getMonth()));
+  const yearBeforeMin = (y) => !!minDate && y < minDate.getFullYear();
+  const disabledCell = { cursor: 'not-allowed', opacity: 0.35 };
   const [cursor, setCursor] = useState(() => { const b = selected || today; return new Date(b.getFullYear(), b.getMonth(), 1); });
   // Zoom level, iOS-style: days -> months -> years. Clicking the month in the
   // title zooms out to that year's months, clicking the year zooms out to a
@@ -308,13 +322,16 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
               const inMonth = d.getMonth() === cursor.getMonth();
               const isToday = sameYMD(d, today);
               const isSel = sameYMD(d, selected);
+              const off = beforeMin(d);
               return (
-                <button key={i} onClick={() => { onChange(dateToISO(d)); onClose(); }} style={{
+                <button key={i} disabled={off} title={off ? 'Past dates cannot be picked' : undefined}
+                  onClick={() => { onChange(dateToISO(d)); onClose(); }} style={{
                   height: 36, borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13,
                   fontWeight: (isSel || isToday) ? 700 : 500, fontFamily: FONT,
                   background: isSel ? NX.primary : 'transparent',
                   color: isSel ? '#fff' : (inMonth ? NX.ink : NX.faint),
                   boxShadow: isToday && !isSel ? `inset 0 0 0 1.5px ${NX.blue}` : 'none',
+                  ...(off && !isSel ? { ...disabledCell, textDecoration: 'line-through' } : null),
                 }}>{d.getDate()}</button>
               );
             })}
@@ -327,10 +344,11 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
           {CAL_MONTHS_SHORT.map((label, i) => {
             const isNow = today.getFullYear() === cursor.getFullYear() && today.getMonth() === i;
             const isSel = !!selected && selected.getFullYear() === cursor.getFullYear() && selected.getMonth() === i;
+            const off = monthBeforeMin(cursor.getFullYear(), i);
             return (
-              <button key={label} onClick={() => { setCursor(new Date(cursor.getFullYear(), i, 1)); setZoom('days'); }}
+              <button key={label} disabled={off} onClick={() => { setCursor(new Date(cursor.getFullYear(), i, 1)); setZoom('days'); }}
                 style={{ ...cellBtn, background: isSel ? NX.primary : 'transparent', color: isSel ? '#fff' : NX.ink,
-                  boxShadow: isNow && !isSel ? `inset 0 0 0 1.5px ${NX.blue}` : 'none' }}>{label}</button>
+                  boxShadow: isNow && !isSel ? `inset 0 0 0 1.5px ${NX.blue}` : 'none', ...(off && !isSel ? disabledCell : null) }}>{label}</button>
             );
           })}
         </div>
@@ -341,17 +359,20 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
           {Array.from({ length: CAL_YEAR_PAGE }, (_, i) => yearStart + i).map((y) => {
             const isNow = today.getFullYear() === y;
             const isSel = !!selected && selected.getFullYear() === y;
+            const off = yearBeforeMin(y);
             return (
-              <button key={y} onClick={() => { setCursor(new Date(y, cursor.getMonth(), 1)); setZoom('months'); }}
+              <button key={y} disabled={off} onClick={() => { setCursor(new Date(y, cursor.getMonth(), 1)); setZoom('months'); }}
                 style={{ ...cellBtn, background: isSel ? NX.primary : 'transparent', color: isSel ? '#fff' : NX.ink,
-                  boxShadow: isNow && !isSel ? `inset 0 0 0 1.5px ${NX.blue}` : 'none' }}>{y}</button>
+                  boxShadow: isNow && !isSel ? `inset 0 0 0 1.5px ${NX.blue}` : 'none', ...(off && !isSel ? disabledCell : null) }}>{y}</button>
             );
           })}
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, borderTop: `1px solid ${NX.border2}`, paddingTop: 8 }}>
         <button onClick={() => { onChange(null); onClose(); }} style={linkBtn}>Clear</button>
-        <button onClick={() => { onChange(dateToISO(today)); onClose(); }} style={linkBtn}>Today</button>
+        {!beforeMin(new Date(today.getFullYear(), today.getMonth(), today.getDate())) && (
+          <button onClick={() => { onChange(dateToISO(today)); onClose(); }} style={linkBtn}>Today</button>
+        )}
       </div>
     </div>,
     document.body,
@@ -365,7 +386,11 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
 // icon. A date once set shows as plain text, same as before. Form inputs
 // (Create/Edit Task, filters, recurrence end date) keep the old look, since a
 // tiny circle reads as broken sitting inside a full-width boxed field.
-export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false }) {
+// `noPast`: the calendar will not offer a day before today - for DUE dates
+// (a task cannot be made due in the past). An existing overdue date still
+// displays as it is; it just cannot be moved to another past day.
+export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false }) {
+  const min = noPast ? localTodayISO() : '';
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
   const btnRef = useRef(null);
@@ -386,7 +411,7 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
             padding: 0, cursor: disabled ? 'default' : 'pointer', flexShrink: 0,
           }}
         ><CalendarDays size={13} strokeWidth={2} /></button>
-        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} />}
+        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} />}
       </span>
     );
   }
@@ -409,7 +434,7 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
           onClick={toggle}
         />
       )}
-      {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} />}
+      {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} />}
     </span>
   );
 }
@@ -1221,6 +1246,24 @@ export function AttachmentViewer({ att, onClose }) {
       <div onClick={(e) => e.stopPropagation()}>{body}</div>
     </div>
   );
+}
+
+/** Click-to-enlarge for images inside rich text (descriptions, comments).
+ *  Images there are shown as capped previews (see .nx-rich img in style.css),
+ *  so the full-size picture has to be one gesture away. Returns the handler to
+ *  put on the container (it ignores anything that is not an <img>) and the
+ *  viewer element to render once, anywhere in the component. */
+export function useImageZoom() {
+  const [att, setAtt] = useState(null);
+  const open = (e) => {
+    const img = e.target;
+    if (img?.tagName !== 'IMG' || !img.src) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setAtt({ url: img.src, name: img.alt || 'Image', kind: 'image' });
+  };
+  const viewer = att ? <AttachmentViewer att={att} onClose={() => setAtt(null)} /> : null;
+  return [open, viewer];
 }
 
 // ── Grid / list switcher ─────────────────────────────────────────────────────

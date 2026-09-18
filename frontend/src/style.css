@@ -2884,7 +2884,15 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 .nx-rich .ProseMirror pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
 .nx-rich .ProseMirror blockquote { border-left: 3px solid var(--line, #e5e7eb); margin: 0 0 8px; padding-left: 10px; color: #6b7280; }
-.nx-rich .ProseMirror img { max-width: 100%; height: auto; border-radius: 8px; }
+/* Images in rich text are previews, not full-size: a pasted screenshot or a
+   logo used to fill the whole description at its natural size. Capped in
+   height (width follows, aspect kept); the full picture opens in the viewer -
+   double-click in the editor, click in a posted comment (useImageZoom). */
+.nx-rich .ProseMirror img {
+  display: block; max-width: 100%; max-height: 240px; width: auto; height: auto;
+  object-fit: contain; border-radius: 8px; border: 1px solid var(--line, #e5e7eb); margin: 4px 0; cursor: zoom-in;
+}
+.nx-rich .ProseMirror img.ProseMirror-selectednode { outline: 2px solid #2563eb; outline-offset: 2px; }
 .nx-rich .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: #9ca3af;
 }
@@ -2896,7 +2904,10 @@ button, [role="button"], select { touch-action: manipulation; }
 .nx-rich-view ul, .nx-rich-view ol { margin: 0 0 8px; padding-left: 22px; }
 .nx-rich-view a { color: #2563eb; text-decoration: underline; }
 .nx-rich-view mark { background: #fde68a; border-radius: 2px; padding: 0 1px; }
-.nx-rich-view img { max-width: 100%; height: auto; border-radius: 8px; }
+.nx-rich-view img, .nx-rich-body img {
+  display: block; max-width: 100%; max-height: 240px; width: auto; height: auto;
+  object-fit: contain; border-radius: 8px; border: 1px solid var(--line, #e5e7eb); margin: 4px 0; cursor: zoom-in;
+}
 .nx-rich-view pre {
   background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 10px 12px;
   overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
