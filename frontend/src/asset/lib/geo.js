@@ -70,6 +70,40 @@ export function geocode(query) {
 }
 
 /**
+ * Free-text search via Nominatim, returning `{ coord: [lat,lng], address }` for the top
+ * match, or `null`. Unlike geocode(), this keeps the result's own `display_name` instead of
+ * discarding it - used by LocationPickerMap's search box, where a typed query should resolve
+ * to a real address string in one round trip rather than a second reverse-geocode call.
+ * Shares the same cache + rate-limited queue as geocode() (same fair-use constraint).
+ */
+export function geocodeSearch(query) {
+  const cacheKey = `full:${query}`;
+  const cache = readGeocodeCache();
+  if (cacheKey in cache) {
+    return Promise.resolve(cache[cacheKey] === 'null' ? null : cache[cacheKey]);
+  }
+
+  const request = geocodeQueueTail
+    .then(() => new Promise((resolve) => setTimeout(resolve, GEOCODE_REQUEST_DELAY_MS)))
+    .then(() =>
+      fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(query), {
+        headers: { Accept: 'application/json' },
+      })
+        .then((r) => r.json())
+        .then((results) => {
+          const hit = results && results[0];
+          const result = hit ? { coord: [+hit.lat, +hit.lon], address: hit.display_name } : null;
+          writeGeocodeCacheEntry(cacheKey, result);
+          return result;
+        })
+        .catch(() => null)
+    );
+
+  geocodeQueueTail = request.catch(() => {});
+  return request;
+}
+
+/**
  * Reverse-geocode `[lat, lng]` into a human address string via Nominatim, or `null` if no
  * match. Shares the same cache + rate-limited queue as geocode() above (same fair-use
  * constraint applies - see the module comment).
