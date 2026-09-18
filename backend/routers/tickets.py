@@ -534,16 +534,29 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     # from the payload.
     if body.requester_email and not _has_desk_grant(user, db):
         body.requester_email = user["email"]
+    # Company on intake (Sep 19, Pranshu: "End user don't have the ability to
+    # choose company but here it is showing the ticket is raised for GGcon
+    # company"). A desk-grant caller (raising on someone else's behalf, or an
+    # agent correcting it) keeps the existing unrestricted override. A plain
+    # requester's own choice is only honoured when an admin has actually
+    # turned the company field on AND picked that exact company to offer -
+    # same never-trust-the-client-alone posture requester_email just got
+    # above - otherwise (the setting is off, or off a stray/manipulated
+    # value) it silently falls back to their own People-record company,
+    # same as before this setting existed.
+    company_id = (body.company_id or "").strip()
+    if company_id and not _has_desk_grant(user, db):
+        cfg = ticket_taxonomy.company_field(db)
+        if not (cfg.get("enabled") and company_id in (cfg.get("companyIds") or [])):
+            company_id = ""
+    company_id = company_id or company_for(db, (body.requester_email or user["email"]))
     t = models.TaskTicket(
         id=body.id or gen_id(), code=body.code or _next_ticket_code(db), subject=body.subject,
         description=body.description or "", type=body.type or "request",
         status=(body.status if (body.status and body.status != "new") else "open"), priority=body.priority or "medium",
         requester_email=(body.requester_email or user["email"]).strip().lower(),
         assignee_email=(body.assignee_email or "").strip().lower(), department_id=body.department_id or "",
-        # Resolved from the requester's People record when intake did not send
-        # one - the form no longer asks. Still honours an explicit value so an
-        # agent raising a ticket on someone else's behalf can override it.
-        company_id=(body.company_id or company_for(db, (body.requester_email or user["email"]))),
+        company_id=company_id,
         hr_department_id=body.hr_department_id or "",
         linked_task_id=body.linked_task_id or "", tags=body.tags or [], images=body.images or [],
         watcher_emails=body.watcher_emails or [], resolution=body.resolution or "",
@@ -668,6 +681,16 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             if blocked == ["company_id"]:
                 raise HTTPException(403, "Only the requester (before the ticket is picked up) or a manager can change the company on a ticket.")
             raise HTTPException(403, f"You can only update {', '.join(sorted(scope))} on a ticket you're not the requester/owner of - not: {', '.join(blocked)}")
+    # Same allow-list gate as create_ticket (Sep 19, Pranshu) - a desk-grant
+    # caller (a manager correcting it) is unrestricted; a plain requester
+    # re-picking company_id in the pre-pickup window _ticket_edit_scope opens
+    # to them may only choose a company the admin has actually turned on for
+    # self-service, never an arbitrary id.
+    if "company_id" in data and not _has_desk_grant(user, db):
+        cid = (data["company_id"] or "").strip()
+        cfg = ticket_taxonomy.company_field(db)
+        if not (cid and cfg.get("enabled") and cid in (cfg.get("companyIds") or [])):
+            raise HTTPException(400, "That company isn't offered for self-service ticket intake.")
     # The requester's OWN status transitions are narrower than the field-level
     # scope above can express: pre-in_progress they otherwise have unrestricted
     # access (see _ticket_edit_scope), which let them set status to anything -
