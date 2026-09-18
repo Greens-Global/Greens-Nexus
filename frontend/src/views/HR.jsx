@@ -3693,16 +3693,15 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
 // which ones actually apply) plus manual per-company holidays. Every row
 // here shows up on that company's employees' Calendar dashboard
 // (dashboards.py's /holidays, wired into dashboard/panels.jsx's CalendarPanel
-// the same way birthdays already are).
-const HOLIDAY_COUNTRIES = [
-  { code: 'US', label: 'United States (US)' },
-  { code: 'IN', label: 'India (IN)' },
-];
-
+// the same way birthdays already are). Country list is the same full
+// COUNTRIES set as the Overview tab - not every country has public-holiday
+// data behind it (backend returns a clear 404 for those, not a crash), but
+// the picker itself isn't artificially limited to a handful.
 function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
   const [holidays, setHolidays] = useState([]);
-  const [country, setCountry] = useState(HOLIDAY_COUNTRIES.some(c => c.code === entity.country) ? entity.country : 'US');
+  const [country, setCountry] = useState(COUNTRIES.some(c => c.code === entity.country) ? entity.country : 'US');
   const [suggestions, setSuggestions] = useState(null); // null = not loaded yet
+  const [noData, setNoData] = useState(false);          // true = 404, country has no data source
   const [suggestBusy, setSuggestBusy] = useState(false);
   const [manualDate, setManualDate] = useState('');
   const [manualName, setManualName] = useState('');
@@ -3716,11 +3715,15 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
   async function loadSuggestions() {
     setSuggestBusy(true);
     setSuggestions(null);
+    setNoData(false);
     try {
       const year = new Date().getFullYear();
       const [a, b] = await Promise.all([api.getPublicHolidays(country, year), api.getPublicHolidays(country, year + 1)]);
       setSuggestions([...(a || []), ...(b || [])]);
-    } catch (e) { toastErr(e?.message || 'Could not load public holidays.'); }
+    } catch (e) {
+      if (e?.status === 404) setNoData(true);
+      else toastErr(e?.message || 'Could not load public holidays.');
+    }
     setSuggestBusy(false);
   }
 
@@ -3761,13 +3764,16 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
       <div style={{ marginBottom: 26 }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Public holidays</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-          <select className="form-input" style={{ width: 220 }} value={country} onChange={e => { setCountry(e.target.value); setSuggestions(null); }}>
-            {HOLIDAY_COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+          <select className="form-input" style={{ width: 220 }} value={country} onChange={e => { setCountry(e.target.value); setSuggestions(null); setNoData(false); }}>
+            {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
           </select>
           <button className="secondary-btn" onClick={loadSuggestions} disabled={suggestBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {suggestBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={13} />} Load holidays
           </button>
         </div>
+        {noData && (
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>No public holiday data available for this country yet - add holidays manually below instead.</p>
+        )}
         {suggestions && (
           suggestions.length === 0 ? (
             <p style={{ fontSize: 12, color: 'var(--muted)' }}>No public holidays found for this country.</p>
