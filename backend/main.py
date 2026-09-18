@@ -735,6 +735,9 @@ def _run_migrations():
             # country doesn't always match where a given employee is; the
             # signature phone's dial code now comes from here instead.
             "ALTER TABLE nexus_employees ADD COLUMN country VARCHAR DEFAULT ''",
+            # Personal signature logo override (Sep 19) - '' falls back to the
+            # company's own logo_url.
+            "ALTER TABLE nexus_employees ADD COLUMN signature_logo_url VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1537,6 +1540,7 @@ def _run_migrations():
         "ALTER TABLE monitoring_policy ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS country VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_logo_url VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
