@@ -15,7 +15,7 @@
 //    with nothing to hand-update.
 import { useEffect, useState } from 'react';
 import {
-  X, Layers, Database as DatabaseIcon, Globe, Server, Plug, Search,
+  ArrowLeft, Layers, Database as DatabaseIcon, Globe, Server, Plug, Search,
   ChevronDown, ChevronRight, Building2, Users, Clock, FileSignature,
   FolderOpen, BookOpen, KeyRound, Ticket, CheckSquare, HardHat, Package,
   Home, Landmark, FlaskConical, Shield, Link2, Megaphone, Settings2, Archive,
@@ -181,34 +181,38 @@ export default function SystemDesignModal({ onClose }) {
     if (tab === 'dictionary' && !dict) api.getSupportDataDictionary().then(setDict).catch(() => {});
   }, [tab, dict]);
 
+  // A full page, not a floating dialog (Sep 19, Pranshu: "i want it to open
+  // as full page") - fixed, edge-to-edge, above the app chrome, with its own
+  // "< Back" header instead of a centered card + dimmed backdrop. Same
+  // z-index/positioning family as the app's other full-screen takeovers
+  // (e.g. HR.jsx's CompanySetupPage editor), just scoped to this modal
+  // rather than swapping the router's whole view.
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: NX.canvas, borderRadius: 14, width: '100%', maxWidth: 920, maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.35)', fontFamily: FONT }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
-          <Layers size={18} style={{ color: NX.primary }} />
-          <div style={{ fontSize: 15.5, fontWeight: 700, color: NX.ink, flex: 1 }}>System & Design</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: NX.faint, display: 'flex', padding: 4 }}>
-            <X size={18} />
+    <div style={{ position: 'fixed', inset: 0, background: NX.canvas, zIndex: 1300, display: 'flex', flexDirection: 'column', fontFamily: FONT }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 24px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
+        <button onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', color: NX.dim, fontSize: 13, fontWeight: 600, padding: 6, fontFamily: FONT }}>
+          <ArrowLeft size={17} /> Back
+        </button>
+        <div style={{ width: 1, height: 20, background: NX.border, flexShrink: 0 }} />
+        <Layers size={18} style={{ color: NX.primary, flexShrink: 0 }} />
+        <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink }}>System & Design</div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, padding: '12px 24px 0', flexShrink: 0, borderBottom: `1px solid ${NX.border}` }}>
+        {[['architecture', 'Architecture', Layers], ['dictionary', 'Data Dictionary', DatabaseIcon]].map(([key, label, Icon]) => (
+          <button key={key} type="button" onClick={() => setTab(key)} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: '8px 8px 0 0',
+            border: 'none', borderBottom: tab === key ? `2px solid ${NX.primary}` : '2px solid transparent',
+            background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            color: tab === key ? NX.ink : NX.faint, fontFamily: FONT,
+          }}>
+            <Icon size={14} /> {label}
           </button>
-        </div>
+        ))}
+      </div>
 
-        <div style={{ display: 'flex', gap: 6, padding: '10px 20px 0', flexShrink: 0 }}>
-          {[['architecture', 'Architecture', Layers], ['dictionary', 'Data Dictionary', DatabaseIcon]].map(([key, label, Icon]) => (
-            <button key={key} type="button" onClick={() => setTab(key)} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: '8px 8px 0 0',
-              border: 'none', borderBottom: tab === key ? `2px solid ${NX.primary}` : '2px solid transparent',
-              background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-              color: tab === key ? NX.ink : NX.faint, fontFamily: FONT,
-            }}>
-              <Icon size={14} /> {label}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
-          {tab === 'architecture' ? <ArchitectureTab info={info} /> : <DataDictionaryTab dict={dict} />}
-        </div>
+      <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, maxWidth: 1100, width: '100%', margin: '0 auto' }}>
+        {tab === 'architecture' ? <ArchitectureTab info={info} /> : <DataDictionaryTab dict={dict} />}
       </div>
     </div>
   );
