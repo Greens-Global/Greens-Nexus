@@ -871,13 +871,18 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 
 [data-theme="dark"] .form-input,
 [data-theme="dark"] .form-select {
-  background: var(--mist);
+  /* background-color, not the `background` shorthand (Sep 19: "This week"
+     and "Update a document" selects showed a whole row of tiled chevrons
+     instead of one) - `background: var(--mist)` here was resetting
+     background-repeat/position/image to their initial values on every
+     <select> app-wide, undoing the single no-repeat chevron set above. */
+  background-color: var(--mist);
   border-color: rgba(255,255,255,0.1);
   color: var(--ink);
 }
 [data-theme="dark"] .form-input:focus,
 [data-theme="dark"] .form-select:focus {
-  background: var(--card);
+  background-color: var(--card);   /* longhand - see the note above */
   border-color: rgba(255,255,255,0.3);
   box-shadow: 0 0 0 3px rgba(255,255,255,0.06);
 }
@@ -2917,6 +2922,44 @@ button, [role="button"], select { touch-action: manipulation; }
   --wk-shadow:    0 4px 12px rgba(29,33,57,.05);
   --wk-shadow-hov:0 8px 20px rgba(29,33,57,.09);
   --wk-font:      'Figtree', 'Inter', sans-serif;
+}
+
+/* Dark mode for the Work OS token layer (Sep 19, Pranshu: "audit across
+   whole NEXUS, dark mode is very messed up... the actual colours of icon
+   has also faded"). These --wk-* tokens back nearly every icon chip, badge,
+   border and hover state across every module, but until now only ever had
+   ONE (light) definition - [data-theme="dark"] never touched them. Some
+   individual components (the .dk-* dashboard, .wkc cards, .ppl-table, …)
+   were separately hand-patched with their own [data-theme="dark"] override
+   over the years, which is why dark mode looked "fine in spots, broken
+   everywhere else": every OTHER screen that reads --wk-ink/--wk-dim/
+   --wk-card/--wk-brand-tint/--wk-green etc. directly was silently still
+   rendering light-mode values on a dark background - pale chip tints,
+   washed-out icon colors, near-invisible borders. Fixing the tokens
+   themselves fixes every one of those screens at once instead of patching
+   them individually. The accent hues below match the already-correct
+   --ok-fg/--warn-fg/--bad-fg/--info-fg and .dk-chip--* dark values already
+   in this file, so nothing that WAS already patched changes look. */
+[data-theme="dark"] {
+  --wk-bg:        var(--paper);
+  --wk-card:      var(--card);
+  --wk-ink:       var(--ink);
+  --wk-dim:       var(--muted);
+  --wk-faint:     var(--text-muted);
+  --wk-line:      rgba(255,255,255,0.10);
+  --wk-line2:     rgba(255,255,255,0.08);
+  --wk-hover:     rgba(255,255,255,0.05);
+  --wk-brand-tint:rgba(43,69,225,0.18);
+  --wk-green:     #4ade80;
+  --wk-green-bg:  rgba(0,200,117,.14);
+  --wk-orange:    #fbbf24;
+  --wk-orange-bg: rgba(232,147,12,.16);
+  --wk-red:       #f87171;
+  --wk-red-bg:    rgba(226,68,92,.16);
+  --wk-blue:      #60a5fa;
+  --wk-blue-bg:   rgba(61,126,232,.18);
+  --wk-shadow:    0 4px 12px rgba(0,0,0,.45);
+  --wk-shadow-hov:0 8px 24px rgba(0,0,0,.55);
 }
 
 /* ── Warm theme ("Sand" - Lisso-inspired, owner request Jul 28) ────────────
