@@ -339,7 +339,7 @@ function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
   );
 }
 
-export default function DocumentsBrowser({ openCreateSignal, openDocSignal, employees = [], entities = [], toastOk, toastErr }) {
+export default function DocumentsBrowser({ openCreateSignal, employees = [], entities = [], toastOk, toastErr }) {
   const [folders, setFolders] = useState([]);
   const [docs, setDocs] = useState(null);
   const [folderId, setFolderId] = useState('');
@@ -364,7 +364,6 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
   useEffect(() => { api.getDocFolders().then(setFolders).catch(() => setFolders([])); }, []);
   useEffect(() => { load(); }, [folderId, statusFilter, search]);
   useEffect(() => { if (openCreateSignal) setCreateOpen(true); }, [openCreateSignal]);
-  useEffect(() => { if (openDocSignal?.id) setEditingDoc(openDocSignal.id); }, [openDocSignal]);
 
   const act = (id, fn, okMsg) => {
     setBusyId(id);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { generateJSON, generateHTML } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -8,7 +8,7 @@ import {
   Table as TableIcon, ImagePlus, SeparatorHorizontal, Undo, Redo, Check, AlertCircle, Award,
   Users, FileDown, Printer, Send, History, RotateCcw,
   AlignLeft, AlignCenter, AlignRight, AlignJustify, Link2, Link2Off, FileSearch,
-  Shapes, Square, Circle, Minus, Triangle, ArrowRight, Type, Upload, Cloud, Sparkles, FileStack,
+  Shapes, Square, Circle, Minus, Triangle, ArrowRight, Type, Upload, Cloud, Sparkles, FileStack, ZoomIn, ZoomOut,
   Indent, Outdent, RotateCw, Rows, Columns, Combine, SquareSplitHorizontal, Trash2, Plus,
   Copy, MoreVertical, FileText as PageIcon, Pilcrow, PaintBucket,
   Paintbrush, Search, Smile, Bookmark,
@@ -23,7 +23,8 @@ import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import { slugifyToken, variableFromDrop } from '../lib/mergeFieldTypes';
 import { extractVariables, mergeFieldDefs } from '../lib/extractVariables';
-import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, pageCanvasStyle } from '../lib/pageSetup';
+import { Pagination, paginationKey, planBreaks } from '../lib/docBuilderPagination';
+import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, pageCanvasStyle, textFlowPx, textColumnPx, sheetPadding, sheetsFor, scrollableAncestor, measureHtmlHeight } from '../lib/pageSetup';
 import { useIsMobile } from '../lib/useIsMobile';
 import EgnyteBrowser from './EgnyteBrowser';
 import DefineMergeFieldModal from './DefineMergeFieldModal';
@@ -143,9 +144,9 @@ function stripToFormat(nodes) {
 // build one from scratch). A hook can't be called conditionally/dynamically
 // inside the parent's render, so each page is its own component instance -
 // that's the actual reason this is split out, not just organization.
-function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, compact, showMarks, onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
+function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, compact, zoom, firstSheetPx, showMarks, onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
   const editor = useEditor({
-    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' })],
+    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination],
     content: initialJson || null,
     editable,
     onUpdate: () => onUpdate(pageId),
@@ -158,6 +159,58 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
   useEffect(() => { editor?.setEditable(editable); }, [editable, editor]);
+
+  // ── Lay the blocks out onto sheets ────────────────────────────────────────
+  // Measure the top-level blocks as they actually sit, work out which ones
+  // straddle a sheet boundary, and push those onto the next sheet. The
+  // measurement subtracts the gap a block is already carrying, or every pass
+  // would add another one and the document would walk down the screen.
+  const sheetPx = compact ? 0 : textFlowPx(pageSetup);
+  const repaginate = useCallback(() => {
+    if (!editor || editor.isDestroyed || !sheetPx) return;
+    const dom = editor.view.dom;
+    const kids = Array.from(dom.children);
+    if (!kids.length) return;
+    const z = zoom || 1;
+    const prev = paginationKey.getState(editor.state)?.breaks || [];
+    const gapAt = new Map(prev.map((b) => [b.index, b.gap]));
+
+    const originTop = dom.getBoundingClientRect().top;
+    const tops = kids.map((el) => (el.getBoundingClientRect().top - originTop) / z);
+    const total = dom.getBoundingClientRect().height / z;
+    const heights = kids.map((_, i) => {
+      const next = i + 1 < tops.length ? tops[i + 1] : total;
+      return Math.max(0, next - tops[i] - (gapAt.get(i + 1) || 0));
+    });
+
+    // index -> document position, so a decoration can name the block.
+    const posByIndex = [];
+    editor.state.doc.forEach((_node, offset) => { posByIndex.push(offset); });
+    const next = planBreaks(heights, sheetPx, firstSheetPx)
+      .filter((b) => posByIndex[b.index] !== undefined)
+      .map((b) => ({ ...b, pos: posByIndex[b.index] }));
+
+    const same = next.length === prev.length
+      && next.every((b, i) => prev[i] && prev[i].pos === b.pos && Math.abs(prev[i].gap - b.gap) < 1);
+    if (same) return;   // nothing to do - and dispatching anyway would loop
+    editor.view.dispatch(editor.state.tr.setMeta(paginationKey, { breaks: next }));
+  }, [editor, sheetPx, firstSheetPx, zoom]);
+
+  // Re-lay out after content, geometry or zoom changes. rAF lets the browser
+  // finish the layout we are about to measure.
+  useEffect(() => {
+    if (!editor) return undefined;
+    let raf = 0;
+    let timer = 0;
+    const run = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { raf = requestAnimationFrame(repaginate); }, 180);
+    };
+    run();
+    editor.on('update', run);
+    return () => { editor.off('update', run); clearTimeout(timer); cancelAnimationFrame(raf); };
+  }, [editor, repaginate]);
+
   const border = pageSetup.pageBorder;
   return (
     <div className={`doc-page${pageSetup.lineNumbers ? ' doc-line-numbers' : ''}`}
@@ -214,6 +267,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
   const [preview, setPreview] = useState(false);
+  // Canvas zoom (Sagar, Sep 17). CSS `zoom`, not `transform: scale()` - zoom
+  // reflows the layout box, so ProseMirror's caret placement and posAtCoords
+  // stay correct. A transform leaves the layout box at its old size and the
+  // editor then puts the caret where the text used to be, which is exactly the
+  // class of bug this module already fought once.
+  const [zoom, setZoom] = useState(1);
+  const zoomBy = (d) => setZoom(z => Math.min(2, Math.max(0.5, Math.round((z + d) * 100) / 100)));
   // Requirement 7: a generated document is FINAL - it carries the approved
   // template language with the supplied values, so it is not freely editable
   // afterwards. The server enforces this (documents.py refuses a content
@@ -276,6 +336,40 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [linkUrlDraft, setLinkUrlDraft] = useState('');
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
   const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
+
+  // ── Preview fills the window ────────────────────────────────────────────
+  // Sagar, Sep 17: "make the preview window larger and expand the height of
+  // the window to the bottom of the screen", and move the action row up.
+  //
+  // The box was minHeight:70vh, so it stopped well short of the bottom and
+  // left dead space under a document people read page by page. What sits
+  // above it is not a constant we can subtract - .viewport's padding alone is
+  // set at seven breakpoints, from 32px down to 8px - so measure where the box
+  // actually begins and claim the rest of the window. The negative bottom
+  // margin cancels .viewport's own bottom padding, which would otherwise
+  // become a scrollbar the moment the box reaches the bottom edge.
+  const previewBoxRef = useRef(null);
+  const [previewFill, setPreviewFill] = useState(null);
+  const [previewPull, setPreviewPull] = useState(0);
+  useLayoutEffect(() => {
+    if (!preview) { setPreviewFill(null); setPreviewPull(0); return; }
+    const measure = () => {
+      const el = previewBoxRef.current;
+      if (!el) return;
+      const vp = el.closest('.viewport');
+      const cs = vp ? getComputedStyle(vp) : null;
+      const padB = cs ? parseFloat(cs.paddingBottom) || 0 : 0;
+      const padT = cs ? parseFloat(cs.paddingTop) || 0 : 0;
+      // Lift the action row toward the top, but never eat the gutter whole -
+      // at the 8px breakpoint there is nothing to reclaim.
+      setPreviewPull(Math.min(14, Math.max(0, padT - 8)));
+      const top = el.getBoundingClientRect().top;
+      setPreviewFill({ height: Math.max(340, Math.round(window.innerHeight - top)), marginBottom: -padB });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [preview, pdfPreviewUrl, pdfPreviewLoading]);
   const [shapePopoverOpen, setShapePopoverOpen] = useState(false);
   const [shapeFill, setShapeFill] = useState('#dbeafe');
   const [shapeStroke, setShapeStroke] = useState('#2563eb');
@@ -295,6 +389,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // Page Setup (Phase 14) - content.pageSetup, a sibling of body/header/footer
   // in the same JSON blob (no schema change needed).
   const [pageSetup, setPageSetup] = useState(DEFAULT_PAGE_SETUP);
+  // Read inside goToSheet, which is a stable callback - refs keep it stable
+  // instead of rebuilding every thumbnail's handler on each zoom keystroke.
+  const pageSetupRef = useRef(pageSetup);
+  useEffect(() => { pageSetupRef.current = pageSetup; }, [pageSetup]);
+  const zoomRef = useRef(1);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
   // Pages (each a real independent editor instance - see DocPage above).
   // `pages` only tracks existence/order/the seed content a freshly
@@ -304,6 +404,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // had focus/a selection change - toolbar commands and contextual "is X
   // active" checks all route through it.
   const [pages, setPages] = useState([]);
+  const pagesRef = useRef([]);
+  useEffect(() => { pagesRef.current = pages; }, [pages]);
   const [activePageId, setActivePageId] = useState('');
   const editorsRef = useRef(new Map()); // pageId -> live TipTap editor
   const pendingFocusId = useRef(''); // page just added/duplicated - focus+scroll to it once its editor registers
@@ -342,6 +444,26 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // frame after focus (rAF) lets it run last and actually win, and
   // block:'center' shows the page's surrounding context instead of just
   // scraping the top edge into view.
+  // Sagar, Sep 17: "clicking on the particular page (left pane) should
+  // navigate to the correct part in the document". The rail's thumbnails are
+  // SLICES of one continuously-flowing page, so scrolling the PAGE into view
+  // only ever reached slice 1. Scroll to the slice's own offset instead.
+  const goToSheet = useCallback((pageId, slice) => {
+    const ed = editorsRef.current.get(pageId);
+    const pageEl = ed?.view?.dom?.closest('.doc-page');
+    if (!pageEl) return;
+    if (!slice) { pageEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    const scroller = scrollableAncestor(pageEl);
+    // CSS `zoom` scales the rendered box getBoundingClientRect reports, while
+    // textFlowPx is in unzoomed layout pixels - without this, page 5 at 150%
+    // lands around page 3.
+    const offset = slice * textFlowPx(pageSetupRef.current) * (zoomRef.current || 1);
+    const isDoc = scroller === document.scrollingElement || scroller === document.documentElement;
+    const scrollerTop = isDoc ? 0 : scroller.getBoundingClientRect().top;
+    const delta = pageEl.getBoundingClientRect().top - scrollerTop;
+    scroller.scrollTo({ top: scroller.scrollTop + delta + offset - 8, behavior: 'smooth' });
+  }, []);
+
   const goToPage = useCallback((pageId, cursorPos = 'start') => {
     const ed = editorsRef.current.get(pageId);
     if (!ed) return;
@@ -353,6 +475,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     });
   }, []);
   const registerPageEditor = useCallback((pageId, editor) => {
+    if (editor) scheduleMeasureSpansRef.current?.();
     if (editor) {
       editorsRef.current.set(pageId, editor);
       if (pendingFocusId.current === pageId) {
@@ -384,9 +507,58 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // knowledge of how the editor schedules its work.
   const detectRef = useRef(null);         // refreshed every render, like scheduleSaveRef
   const detectTimerRef = useRef(null);
+  // How many SHEETS each editor page's content actually fills.
+  //
+  // Sagar, Sep 17, twice: "it's a 6 page document but the left panel shows only
+  // one page". The rail used to draw one thumbnail per editor page - the sheets
+  // you add with Add page - and a page's overflow was simply clipped, so a
+  // document that ran to six sheets still showed one. Now the live editor DOM
+  // is measured against the height of one sheet and the rail draws one
+  // thumbnail per sheetful, each showing its own slice.
+  //
+  // This is the BROWSER's reckoning of where the pages fall. The exported PDF
+  // is laid out by reportlab, a different engine with its own metrics, so the
+  // two can disagree by a page on a long document. It is an honest preview of
+  // the pagination, not a promise about the PDF.
+  // How much of page 1 the letterhead takes. The exporter draws it into the
+  // first page's HEADER, so page 1's text frame is that much shorter; without
+  // reserving the same band the editor fits more onto page 1 than the PDF does.
+  const letterheadRef = useRef(null);
+  const [letterheadPx, setLetterheadPx] = useState(0);
+  const [pageSpans, setPageSpans] = useState({});
+  const spanTimerRef = useRef(null);
+  const measureSpans = useCallback(() => {
+    // Measure at the REAL text-column width, not by reading the live editor
+    // DOM: the editor wraps text in a 624px column now, but the measurement
+    // must also be immune to the canvas zoom, and measureHtmlHeight returns a
+    // plain number so the read can never be deferred past the probe's life.
+    const width = textColumnPx(pageSetup);
+    const next = {};
+    for (const p of pagesRef.current || []) {
+      const ed = editorsRef.current.get(p.id);
+      const json = ed ? ed.getJSON() : p.json;
+      let html = '';
+      try { html = json ? generateHTML(json, BODY_EXTENSIONS) : ''; } catch { html = ''; }
+      const isFirstPage = (pagesRef.current || [])[0]?.id === p.id;
+      next[p.id] = sheetsFor(measureHtmlHeight(html, width), pageSetup,
+                             isFirstPage ? firstSheetPxRef.current : undefined);
+    }
+    setPageSpans(next);
+  }, [pageSetup]);
+  const scheduleMeasureSpansRef = useRef(null);
+  const firstSheetPxRef = useRef(0);
+  const scheduleMeasureSpans = useCallback(() => {
+    if (spanTimerRef.current) clearTimeout(spanTimerRef.current);
+    spanTimerRef.current = setTimeout(() => { spanTimerRef.current = null; measureSpans(); }, 350);
+  }, [measureSpans]);
+
+  useEffect(() => { scheduleMeasureSpansRef.current = scheduleMeasureSpans; }, [scheduleMeasureSpans]);
+
+
   const onPageUpdate = useCallback((pageId) => {
     scheduleSaveRef.current?.();
     setSelectionTick((t) => t + 1);
+    scheduleMeasureSpans();
     if (!pageId) return;
     // Debounced: the scan reads the page's text, which is not free on a long
     // document, and nobody wants a chip appearing mid-word.
@@ -397,8 +569,18 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       if (!ed || !TOKEN_IN_PAGE_RE.test(ed.state.doc.textContent)) return;
       detectRef.current?.(pageId, { quiet: true });
     }, 600);
-  }, []);
+  }, [scheduleMeasureSpans]);
   useEffect(() => () => { if (detectTimerRef.current) clearTimeout(detectTimerRef.current); }, []);
+  useEffect(() => () => { if (spanTimerRef.current) clearTimeout(spanTimerRef.current); }, []);
+  // Re-measure when the page geometry changes (size/orientation/margins), when
+  // pages are added or removed, and once the editors have mounted their content.
+  // `preview` is in here deliberately. Leaving Preview unmounts and remounts
+  // every page editor, so the spans measured before it are stale - and because
+  // the new editors mount empty for a frame, the measurement has to wait for
+  // them (scheduleMeasureSpans is debounced, and re-runs as content arrives via
+  // onPageUpdate). Without this the rail came back from Preview showing one
+  // page. Sagar, Sep 18.
+  useEffect(() => { scheduleMeasureSpans(); }, [pages, pageSetup, zoom, preview, scheduleMeasureSpans]);
   const onPageActivity = useCallback((pageId) => {
     setActivePageId(pageId);
     setSelectionTick((t) => t + 1);
@@ -654,6 +836,25 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   };
 
   const activeLetterhead = letterheads.find(l => l.id === letterheadId);
+
+  useLayoutEffect(() => {
+    const el = letterheadRef.current;
+    if (!el) { setLetterheadPx(0); return undefined; }
+    const measure = () => {
+      const h = el.getBoundingClientRect().height / (zoom || 1);
+      setLetterheadPx(Number.isFinite(h) ? Math.round(h) : 0);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [activeLetterhead, pageSetup, zoom, preview]);
+
+  // The first sheet is shorter by the letterhead band; later sheets are full.
+  const firstSheetPx = Math.max(1, textFlowPx(pageSetup) - (letterheadPx || 0));
+  useEffect(() => {
+    firstSheetPxRef.current = firstSheetPx;
+    scheduleMeasureSpansRef.current?.();
+  }, [firstSheetPx]);
 
   const changeEmployee = (id) => {
     setEmployeeId(id);
@@ -1411,8 +1612,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   );
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+    <div style={previewPull ? { marginTop: -previewPull } : undefined}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: preview ? 6 : 8, flexWrap: 'wrap' }}>
         <button onClick={close} title="Close"
           style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
           <X size={16} />
@@ -1652,11 +1853,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         // finished document and rendered page breaks as a cosmetic divider).
         // Inline in the page (not a modal) per the same reasoning as the
         // rest of this module's "replace the tab content" convention.
-        <div style={{ flex: 1, minHeight: '70vh', display: 'flex', flexDirection: 'column' }}>
+        <div ref={previewBoxRef}
+          style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 340, ...(previewFill || {}) }}>
           {pdfPreviewLoading ? (
             <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>
           ) : pdfPreviewUrl ? (
-            <iframe title="Document Preview" src={pdfPreviewUrl} style={{ flex: 1, border: '1px solid var(--line)', borderRadius: 8, width: '100%', minHeight: '70vh' }} />
+            <iframe title="Document Preview" src={pdfPreviewUrl} style={{ flex: 1, border: '1px solid var(--line)', borderRadius: 8, width: '100%', minHeight: 0 }} />
           ) : null}
         </div>
       ) : (
@@ -2169,25 +2371,52 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         const scale = thumbW / canvas.maxWidth;
         return (
           <div style={{ flex: '0 0 116px', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: 10, alignSelf: 'flex-start' }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Pages</div>
-            {pages.map((p, i) => {
+            {/* "Pages" here means EDITOR pages - the sheets you added with
+                Add page, each its own TipTap instance. It is not the exported
+                page count: the canvas is one continuous unpaginated box (see
+                the DocPage note above), and reportlab decides the real page
+                breaks at export. A one-sheet document printing to six PDF
+                pages is correct, and looked like a bug without this label. */}
+            <div title="Where the pages fall as the browser lays this out. The exported PDF is rendered by a different engine, so a long document can differ by a page."
+              style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Pages
+            </div>
+            {(() => { let sheetNo = 0; return pages.map((p, i) => {
               const ed = editorsRef.current.get(p.id);
               const json = ed ? ed.getJSON() : (p.json || { type: 'doc', content: [{ type: 'paragraph' }] });
-              return (
-              <div key={p.id} style={{ position: 'relative' }}>
-                <div onClick={() => goToPage(p.id)}
-                  style={{ width: thumbW, height: thumbH, border: p.id === activePageId ? '2px solid hsl(var(--color-blue))' : '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', background: '#fff', boxShadow: 'var(--shadow-sm)', cursor: 'pointer' }}>
-                  <div style={{ width: canvas.maxWidth, transform: `scale(${scale})`, transformOrigin: 'top left', pointerEvents: 'none' }}
-                    dangerouslySetInnerHTML={{ __html: generateHTML(json, BODY_EXTENSIONS) }} />
+              const html = generateHTML(json, BODY_EXTENSIONS);
+              // The sheet's own geometry, reproduced so the slices line up with
+              // what the editor is actually showing: the thumbnail used to
+              // render the body at the FULL page width with no margins, so its
+              // line breaks - and therefore its height - never matched the page.
+              const { padV, padH } = sheetPadding(canvas);
+              const sheet = textFlowPx(pageSetup);
+              const spans = Math.max(1, pageSpans[p.id] || 1);
+              return Array.from({ length: spans }, (_, slice) => {
+                sheetNo += 1;
+                const label = sheetNo;
+                // Only the first slice carries the page menu and the selected
+                // outline: duplicate/delete act on the EDITOR page, and a slice
+                // is not one.
+                const isFirst = slice === 0;
+                return (
+              <div key={`${p.id}:${slice}`} style={{ position: 'relative' }}>
+                <div onClick={() => goToSheet(p.id, slice)}
+                  style={{ width: thumbW, height: thumbH, border: (isFirst && p.id === activePageId) ? '2px solid hsl(var(--color-blue))' : '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', background: '#fff', boxShadow: 'var(--shadow-sm)', cursor: 'pointer' }}>
+                  <div style={{ width: canvas.maxWidth, boxSizing: 'border-box', padding: `${padV}px ${padH}px`,
+                      transform: `scale(${scale}) translateY(${-slice * sheet}px)`, transformOrigin: 'top left', pointerEvents: 'none' }}
+                    dangerouslySetInnerHTML={{ __html: html }} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3, gap: 2 }}>
-                  <span onClick={() => goToPage(p.id)} style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, cursor: 'pointer' }}>Page {i + 1}</span>
+                  <span onClick={() => goToSheet(p.id, slice)} style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, cursor: 'pointer' }}>Page {label}</span>
+                  {isFirst && (
                   <button onClick={() => setPageMenuOpen(pageMenuOpen === p.id ? '' : p.id)} title="Page options"
                     style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: 1, color: 'var(--muted)', flex: '0 0 auto' }}>
                     <MoreVertical size={13} />
                   </button>
+                  )}
                 </div>
-                {pageMenuOpen === p.id && (<>
+                {isFirst && pageMenuOpen === p.id && (<>
                   <div onClick={() => setPageMenuOpen('')} style={{ position: 'fixed', inset: 0, zIndex: 29 }} />
                   <div style={{ position: 'absolute', top: '100%', right: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 9, boxShadow: 'var(--shadow-lg)', zIndex: 30, minWidth: 190, padding: 5 }}>
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Duplicate page</div>
@@ -2209,8 +2438,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                   </div>
                 </>)}
               </div>
-              );
-            })}
+                );
+              });
+            }); })()}
             <button onClick={addPage}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: thumbW, height: 40, border: '1px dashed var(--line)', borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
               <Plus size={14} /> Add page
@@ -2218,7 +2448,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </div>
         );
       })()}
-      <div style={{ flex: 1, minWidth: 0, background: 'var(--mist)', borderRadius: 12, padding: '20px 24px 4px' }}>
+      <div style={{ flex: 1, minWidth: 0, background: 'var(--mist)', borderRadius: 12, padding: '10px 24px 4px',
+        overflowX: zoom > 1 ? 'auto' : 'visible' }}>
+      <div style={zoom === 1 ? undefined : { zoom }}>
 
       {!preview && !headerVisible && (
         <button onClick={() => setHeaderVisible(true)}
@@ -2233,7 +2465,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           made the misalignment worse, not better - consistent beats
           "technically repeats" here. */}
       {(activeLetterhead || headerVisible) && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup, { compact: isMobile }).maxWidth, margin: '0 auto 16px', paddingBottom: 12, borderBottom: '2px solid #111827' }}>
+        <div ref={letterheadRef} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup, { compact: isMobile }).maxWidth, margin: '0 auto 16px', paddingBottom: 12, borderBottom: '2px solid #111827' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             {activeLetterhead?.logoPath && <img src={activeLetterhead.logoPath} alt={activeLetterhead.name} style={{ height: 34, maxWidth: 140, objectFit: 'contain', flex: '0 0 auto' }} />}
             {activeLetterhead && (
@@ -2260,7 +2492,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           stacked paper" AND the actual boundary between two independent
           editors) - not one continuous scroll with a dashed-line marker. */}
       {pages.map((p, i) => (
-        <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked} pageSetup={pageSetup} compact={isMobile} showMarks={showMarks}
+        <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
+          firstSheetPx={i === 0 ? firstSheetPx : undefined} showMarks={showMarks}
           onReady={registerPageEditor} onUpdate={onPageUpdate}
           onActivity={onPageActivity} onPaste={onBodyPaste} onVariableDrop={onVariableDrop} onTocClick={goToTocLink} />
       ))}
@@ -2289,7 +2522,38 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       )}
       </div>
       </div>
+      </div>
       </>
+      )}
+
+      {!preview && (
+        <div style={{
+          position: 'fixed', right: 20, bottom: 20, zIndex: 40,
+          display: 'flex', alignItems: 'center', gap: 8,
+          background: 'var(--card)', border: '1px solid var(--line)',
+          borderRadius: 999, padding: '6px 12px', boxShadow: 'var(--shadow-lg)',
+        }}>
+          <button title="Zoom out" onClick={() => zoomBy(-0.1)} disabled={zoom <= 0.5}
+            style={{ background: 'none', border: 'none', cursor: zoom <= 0.5 ? 'default' : 'pointer', color: 'var(--ink)', display: 'flex', padding: 3, opacity: zoom <= 0.5 ? 0.4 : 1 }}>
+            <ZoomOut size={15} />
+          </button>
+          <input type="range" min={50} max={200} step={10} value={Math.round(zoom * 100)}
+            onChange={e => setZoom(Number(e.target.value) / 100)}
+            aria-label="Zoom" title={`Zoom ${Math.round(zoom * 100)}%`}
+            style={{ width: 96, accentColor: 'var(--pine)', cursor: 'pointer' }} />
+          <button title="Zoom in" onClick={() => zoomBy(0.1)} disabled={zoom >= 2}
+            style={{ background: 'none', border: 'none', cursor: zoom >= 2 ? 'default' : 'pointer', color: 'var(--ink)', display: 'flex', padding: 3, opacity: zoom >= 2 ? 0.4 : 1 }}>
+            <ZoomIn size={15} />
+          </button>
+          {/* The readout doubles as Reset - the one control people reach for
+              after overshooting with the slider. */}
+          <button title="Reset to 100%" onClick={() => setZoom(1)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 700,
+              color: zoom === 1 ? 'var(--muted)' : 'var(--ink)', fontFamily: 'Inter, sans-serif',
+              minWidth: 38, textAlign: 'right', padding: 0 }}>
+            {Math.round(zoom * 100)}%
+          </button>
+        </div>
       )}
 
       {historyOpen && (

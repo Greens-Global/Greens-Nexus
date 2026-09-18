@@ -27,29 +27,35 @@ export const MARGIN_IN = Object.fromEntries(MARGIN_PRESETS.map((m) => [m.value, 
 
 export const DEFAULT_PAGE_SETUP = { size: 'letter', orientation: 'portrait', margins: 'normal' };
 
-// The live editor's ".doc-page" canvas is an editing-comfort width, not a
-// literal-scale page (850px was always a chosen default, not 8.5in*96dpi) -
-// scale everything relative to that Letter/Normal baseline so switching page
-// size/margins visibly changes the canvas without disturbing the existing
-// look for the common case (Letter, Portrait, Normal).
-const WIDTH_PX_PER_IN = 850 / PAGE_SIZE_DIMS.letter.wIn; // calibrated so Letter/Portrait keeps today's 850px width exactly
-const PADDING_PX_PER_IN = { v: 56, h: 64 }; // calibrated so Normal (1in) keeps today's 56px/64px padding exactly
+// The canvas is a REAL page, at one scale: 96px to the inch, everywhere.
+//
+// Sagar, Sep 18: "both (editor and preview) should be using the same sizes."
+//
+// It used to be drawn at three different scales - 100px/in wide (a chosen
+// 850px default, never 8.5in x 96dpi), 56px/in of vertical padding and 64px/in
+// horizontal - picked for editing comfort. The text inside never played along:
+// CSS `pt` is absolute, so type always flows at 96px to the inch whatever the
+// box does. The result was an editor whose text column ran 722px where the
+// page gives 624px (15.7% wide) and whose sheet held 988px of text where a
+// page holds 864px (14% tall). The same words therefore filled about one page
+// fewer on screen than in the PDF - the "5 pages here, 6 in the preview" bug -
+// and no amount of correcting the page COUNT could fix the fact that the line
+// breaks themselves were in the wrong places.
+//
+// At 96px/in the canvas and the exported page are the same page: Letter
+// portrait is 816 x 1056 with 96px margins, a 624 x 864 text area, which is
+// exactly 8.5 x 11in with 1in margins. Lines wrap where they will wrap in the
+// PDF. The page is ~4% narrower on screen than it used to be; that is the cost
+// of it being true.
+const CSS_PX_PER_IN = 96;
+const WIDTH_PX_PER_IN = CSS_PX_PER_IN;
+const PADDING_PX_PER_IN = { v: CSS_PX_PER_IN, h: CSS_PX_PER_IN };
 
-// Phone padding, in the same "px per inch of margin" shape so the margin
-// PRESET still visibly matters (Narrow is still tighter than Wide) - it is the
-// scale that changes, not the meaning. A 1in Normal margin at the desktop
-// figure costs 128px of horizontal padding; on a 375px screen that is a third
-// of the display spent on white space, leaving a ~215px text column that
-// wrapped legal prose to four or five words a line. At 20px/in it leaves ~335px.
+// The phone canvas stays deliberately untrue: at 96px/in a 1in margin would
+// eat half a 375px screen. Readability wins there, and the page rail (the one
+// thing that depends on exact pagination) is hidden on phones anyway.
 const COMPACT_PADDING_PX_PER_IN = { v: 28, h: 20 };
 
-/**
- * The inline style for one page of the live editor canvas.
- *
- * `compact` is the phone rendering (see useIsMobile in DocumentBuilder): the
- * same page, same proportions, with padding that doesn't eat the screen. Call
- * it with no options and you get the desktop numbers exactly as before.
- */
 export function pageCanvasStyle(pageSetup, { compact = false } = {}) {
   const ps = { ...DEFAULT_PAGE_SETUP, ...(pageSetup || {}) };
   const dims = PAGE_SIZE_DIMS[ps.size] || PAGE_SIZE_DIMS.letter;
@@ -83,4 +89,119 @@ export function pageCanvasStyle(pageSetup, { compact = false } = {}) {
     minHeight: Math.round(widthPx * (hIn / wIn)),
     padding: `${Math.round(marginIn * PADDING_PX_PER_IN.v)}px ${Math.round(marginIn * PADDING_PX_PER_IN.h)}px`,
   };
+}
+
+// How many sheets a run of content fills.
+//
+// Used by the Document Builder's page rail, which draws one thumbnail per
+// sheetful (Sagar, Sep 17: "it's a 6 page document but the left panel shows
+// only one page").
+//
+// The subtlety that made the first attempt read 5 pages where the PDF had 6:
+// the canvas is NOT drawn at a single scale. Its width is 100px/in (850/8.5),
+// its vertical padding 56px/in and its horizontal padding 64px/in - those are
+// editing-comfort numbers, chosen to preserve the original look, not a
+// faithful page. The TEXT, though, is sized in pt, and CSS pt is absolute:
+// 1pt = 1/72in = 1.333px at 96dpi. So text always flows at 96px to the inch
+// whatever the box around it is doing.
+//
+// Counting against the box (minHeight - 2 x padding = 988px for Letter/Normal)
+// therefore allowed ~14% more text per sheet than a real page holds, and lost
+// a page on anything long. Count against the real geometry instead: the usable
+// inches of paper, at the 96dpi the text is actually laid out in.
+
+/** Usable WIDTH of one sheet - the text column - in the same CSS pixels.
+ *
+ * The canvas draws this column 722px wide for Letter/Normal (850 minus 64 of
+ * padding a side) where the real page gives 6.5in = 624px. 15.7% wider, so the
+ * same words wrap into ~13% fewer lines, the content measures short, and the
+ * page count comes up one light on a six-page document. Anything counting
+ * pages has to lay the text out at THIS width, not the canvas's. */
+export function textColumnPx(pageSetup) {
+  const ps = { ...DEFAULT_PAGE_SETUP, ...(pageSetup || {}) };
+  const dims = PAGE_SIZE_DIMS[ps.size] || PAGE_SIZE_DIMS.letter;
+  let { wIn, hIn } = dims;
+  if (ps.orientation === 'landscape') { [wIn, hIn] = [hIn, wIn]; }
+  const marginIn = MARGIN_IN[ps.margins] ?? MARGIN_IN.normal;
+  return Math.max(1, Math.round((wIn - marginIn * 2) * CSS_PX_PER_IN));
+}
+
+/** Usable height of one sheet, in the CSS pixels the text flows in. */
+export function textFlowPx(pageSetup) {
+  const ps = { ...DEFAULT_PAGE_SETUP, ...(pageSetup || {}) };
+  const dims = PAGE_SIZE_DIMS[ps.size] || PAGE_SIZE_DIMS.letter;
+  let { wIn, hIn } = dims;
+  if (ps.orientation === 'landscape') { [wIn, hIn] = [hIn, wIn]; }
+  const marginIn = MARGIN_IN[ps.margins] ?? MARGIN_IN.normal;
+  return Math.max(1, Math.round((hIn - marginIn * 2) * CSS_PX_PER_IN));
+}
+
+/** The canvas box's own padding, for drawing a thumbnail that matches it. */
+export function sheetPadding(canvasStyle) {
+  const parts = String(canvasStyle?.padding || '0px').trim().split(/\s+/);
+  const padV = parseFloat(parts[0]) || 0;
+  return { padV, padH: parseFloat(parts[1] ?? parts[0]) || 0 };
+}
+
+export function sheetsFor(contentHeightPx, pageSetup, firstSheetPx) {
+  const h = Number(contentHeightPx) || 0;
+  const sheet = textFlowPx(pageSetup);
+  // The first sheet is shorter when a letterhead occupies page 1's header -
+  // the exporter reserves that band, so the rail has to count it the same way.
+  const first = Math.max(1, Number(firstSheetPx) || sheet);
+  if (h <= first) return 1;
+  return 1 + Math.ceil((h - first) / sheet);
+}
+
+// The element that actually scrolls `el`.
+//
+// Do NOT assume .viewport: it carries overflow-y:auto but no height, so it
+// only becomes a scroll container in the one module that also sets a height
+// (.viewport-flush). Everywhere else it grows with its content and the
+// DOCUMENT scrolls - its scrollTop stays 0 and scrollTo() on it silently does
+// nothing, which is exactly how the page rail's navigation failed. Walk up and
+// find the first ancestor that can and does scroll; fall back to the document.
+export function scrollableAncestor(el) {
+  let n = el?.parentElement;
+  while (n) {
+    const oy = getComputedStyle(n).overflowY;
+    if ((oy === 'auto' || oy === 'scroll' || oy === 'overlay') && n.scrollHeight > n.clientHeight + 1) return n;
+    n = n.parentElement;
+  }
+  return document.scrollingElement || document.documentElement;
+}
+
+/**
+ * Lay `html` out at `widthPx` off-screen and return its height, synchronously.
+ *
+ * Returns a NUMBER on purpose. The page rail first did this inline inside a
+ * setPageSpans(prev => ...) updater, which React runs during a later render -
+ * long after the enclosing finally had detached the probe. A detached element
+ * reports scrollHeight 0, so every page measured as one sheet and the rail
+ * silently collapsed to a single thumbnail. Handing back a plain number leaves
+ * no way to defer the read past the element's lifetime.
+ *
+ * The probe carries `className` (.doc-page) so it inherits the editor's
+ * typography, with the box overridden to the real text column - see
+ * textColumnPx for why the canvas's own width is the wrong one to measure at.
+ */
+export function measureHtmlHeight(html, widthPx, { className = 'doc-page' } = {}) {
+  if (typeof document === 'undefined') return 0;
+  const probe = document.createElement('div');
+  probe.className = className;
+  probe.setAttribute('aria-hidden', 'true');
+  probe.style.cssText = [
+    'position:absolute', 'left:-99999px', 'top:0', 'visibility:hidden',
+    'pointer-events:none', `width:${Math.max(1, widthPx)}px`, 'max-width:none',
+    'min-height:0', 'padding:0', 'margin:0', 'box-shadow:none', 'border:0',
+  ].join(';');
+  document.body.appendChild(probe);
+  try {
+    probe.innerHTML = html || '';
+    return probe.scrollHeight || 0;
+  } catch {
+    return 0;
+  } finally {
+    probe.remove();
+  }
 }
