@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import {
   Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
@@ -37,6 +37,9 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
 import { COUNTRIES } from '../lib/countries';
 import LocationPickerMap from '../components/LocationPickerMap';
+// Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
+// only loads once an admin actually opens a company's policy tab.
+const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -3317,6 +3320,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
 // a popup (Pranshu, Sep 18).
 const COMPANY_TABS = [
   { key: 'overview', label: 'Overview' },
+  { key: 'monitoring', label: 'Workforce Analytics Policy' },
   { key: 'departments', label: 'Departments' },
   { key: 'sites', label: 'Work Sites' },
   { key: 'holidays', label: 'Holiday Calendar' },
@@ -3531,6 +3535,17 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
           </>
         )}
 
+        {mode !== 'new' && tab === 'monitoring' && (
+          editingEntity
+            ? (
+              <div style={{ padding: '18px 4px', maxWidth: 640 }}>
+                <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>}>
+                  <MonitoringPolicy companyId={editingEntity.id} />
+                </Suspense>
+              </div>
+            )
+            : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
+        )}
         {mode !== 'new' && tab === 'departments' && (
           editingEntity
             ? <CompanyDepartments entity={editingEntity} employees={employees} toastOk={toastOk} toastErr={toastErr} />
