@@ -3313,9 +3313,22 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   );
 }
 
-export function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, toastErr, scoped = false }) {
+// Tabs inside a company's full-screen editor - Overview is the form that used
+// to be the whole modal; Departments/Work Sites/Holidays used to be separate
+// entry points (a second modal, or nothing yet) and are now sub-tabs of the
+// same "manage this company" screen, since a company has too much on it for
+// a popup (Pranshu, Sep 18).
+const COMPANY_TABS = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'departments', label: 'Departments' },
+  { key: 'sites', label: 'Work Sites' },
+  { key: 'holidays', label: 'Holiday Calendar' },
+];
+
+export function CompanySetupPage({ entities, employees = [], sites = [], onChangedEntities, onChangedSites, toastOk, toastErr }) {
   const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '', domains: '', manager_email: '', logo_url: '', website: '', main_phone: '', facebook_url: '', linkedin_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
+  const [tab, setTab] = useState('overview');
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
@@ -3336,10 +3349,10 @@ export function EntitiesModal({ entities, employees = [], onClose, onChanged, to
   }
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const formSnapshotRef = useRef(blank);
-  const startNew = () => { setF(blank); formSnapshotRef.current = blank; setMode('new'); };
+  const startNew = () => { setF(blank); formSnapshotRef.current = blank; setTab('overview'); setMode('new'); };
   const startEdit = en => {
     const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '', manager_email: en.managerEmail || '', logo_url: en.logoUrl || '', website: en.website || '', main_phone: en.mainPhone || '', facebook_url: en.facebookUrl || '', linkedin_url: en.linkedinUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
-    setF(seeded); formSnapshotRef.current = seeded; setMode(en.id);
+    setF(seeded); formSnapshotRef.current = seeded; setTab('overview'); setMode(en.id);
   };
   async function uploadLogo(file) {
     if (!file || mode === 'new') return;   // logo needs a saved company id - save first
@@ -3350,31 +3363,30 @@ export function EntitiesModal({ entities, employees = [], onClose, onChanged, to
       const updated = await api.uploadEntityLogo(mode, form);
       set('logo_url', updated.logoUrl || '');
       formSnapshotRef.current = { ...formSnapshotRef.current, logo_url: updated.logoUrl || '' };
-      await onChanged(); toastOk('Logo uploaded.');
+      await onChangedEntities(); toastOk('Logo uploaded.');
     } catch (e) { toastErr(e?.message || 'Could not upload logo.'); }
     setLogoBusy(false);
   }
-  const deptId = (typeof mode === 'string' && mode.startsWith('dept:')) ? mode.slice(5) : null;
-  const deptEntity = deptId ? entities.find(e => e.id === deptId) : null;
+  const editingEntity = (mode && mode !== 'new') ? entities.find(e => e.id === mode) : null;
 
   async function save() {
     if (!f.name.trim() || busy) return; setBusy(true);
     try {
       if (mode === 'new') await api.createEntity(f); else await api.updateEntity(mode, f);
-      await onChanged(); toastOk('Company saved.'); setMode(null);
+      await onChangedEntities(); toastOk('Company saved.'); setMode(null);
     } catch (e) { toastErr(e?.message || 'Could not save company.'); }
     setBusy(false);
   }
   async function remove(en) {
     if (!await dialog.confirm(`Delete "${en.name}"? Workers keep their record but lose this company link.`, { title: 'Delete company', confirmText: 'Delete', danger: true })) return;
-    try { await api.deleteEntity(en.id); await onChanged(); toastOk('Company deleted.'); }
+    try { await api.deleteEntity(en.id); await onChangedEntities(); toastOk('Company deleted.'); }
     catch (e) { toastErr(e?.message || 'Could not delete company.'); }
   }
   async function seedDefaults() {
     setBusy(true);
     try {
       for (const [name, country] of [['Greens', 'US'], ['Greens India', 'IN'], ['MCD', 'US'], ['Oversite', 'US']]) await api.createEntity({ name, country });
-      await onChanged(); toastOk('Added the 4 default entities.');
+      await onChangedEntities(); toastOk('Added the 4 default entities.');
     } catch (e) { toastErr(e?.message || 'Could not add defaults.'); }
     setBusy(false);
   }
@@ -3385,35 +3397,30 @@ export function EntitiesModal({ entities, employees = [], onClose, onChanged, to
     </div>
   );
 
-  // Only the add/edit form (mode set, not the department sub-view) carries
-  // unsaved state - the list view itself has nothing to lose.
-  const dirty = !!mode && !deptId && JSON.stringify(f) !== JSON.stringify(formSnapshotRef.current);
-  const guard = useUnsavedGuard(dirty, onClose, f.name.trim() ? save : undefined);
+  // Only the Overview tab's form carries unsaved state - Departments/Work
+  // Sites/Holidays manage and save their own rows independently as you go.
+  const dirty = !!mode && tab === 'overview' && JSON.stringify(f) !== JSON.stringify(formSnapshotRef.current);
+  const backToList = () => setMode(null);
+  const guard = useUnsavedGuard(dirty, backToList, f.name.trim() ? save : undefined);
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 60vw, 980px)', maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+  if (mode) {
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <button onClick={guard.requestClose} className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px' }}>
+            <ChevronLeft size={14} /> Back
+          </button>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Building2 size={17} color="hsl(var(--color-blue))" />
           </div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{deptId ? `Departments · ${deptEntity?.name || ''}` : mode ? (mode === 'new' ? 'Add Company' : 'Edit Company') : 'Company Setup'}</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{mode === 'new' ? 'Add Company' : editingEntity?.name || 'Edit Company'}</h3>
         </div>
 
-        {deptId ? (
+        {mode !== 'new' && <ModuleTabs tabs={COMPANY_TABS} active={tab} onChange={setTab} inline />}
+
+        {(mode === 'new' || tab === 'overview') && (
           <>
-            {deptEntity
-              ? <CompanyDepartments entity={deptEntity} employees={employees} toastOk={toastOk} toastErr={toastErr} />
-              : <div style={{ flex: 1, padding: 24, color: 'var(--muted)' }}>Company not found.</div>}
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
-              <button className="secondary-btn" onClick={() => setMode(null)}>Back</button>
-            </div>
-          </>
-        ) : mode ? (
-          <>
-            <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div style={{ padding: '18px 4px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxWidth: 980 }}>
               <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Greens India' })}</div>
               {field('LEGAL NAME', 'legal_name', { placeholder: 'full registered name' })}
               <div>
@@ -3471,55 +3478,186 @@ export function EntitiesModal({ entities, employees = [], onClose, onChanged, to
                 <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
               </div>
             </div>
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-              <button className="secondary-btn" onClick={() => setMode(null)} disabled={busy}>Back</button>
+            <div style={{ display: 'flex', gap: 10, padding: '14px 4px' }}>
               <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
                 {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
               </button>
             </div>
           </>
-        ) : (
-          <>
-            <div style={{ overflowY: 'auto', flex: 1, padding: '14px 18px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>Group manager</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Oversees every company - the escalation step above each company's manager.</div>
-                </div>
-                <select className="form-input" disabled={groupMgrBusy} value={groupMgr} onChange={e => saveGroupMgr(e.target.value)} style={{ width: 220, fontSize: 12.5, flexShrink: 0 }}>
-                  <option value="">- not set -</option>
-                  {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
-                </select>
-              </div>
-              {entities.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)' }}>
-                  <p style={{ fontSize: 13, marginBottom: 14 }}>No companies yet. Add your legal entities so every worker can be tied to one.</p>
-                  <button className="secondary-btn" onClick={seedDefaults} disabled={busy} style={{ marginRight: 8 }}>Add Greens · Greens India · MCD · Oversite</button>
-                </div>
-              ) : entities.map(en => (
-                <div key={en.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
-                  <CompanyLogo name={en.name} logoUrl={en.logoUrl} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, en.managerEmail && personName(en.managerEmail) && `Manager ${personName(en.managerEmail)}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
-                  </div>
-                  <button className="secondary-btn" onClick={() => setMode('dept:' + en.id)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Building2 size={13} /> Departments</button>
-                  <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
-                  {!scoped && <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>}
-                </div>
-              ))}
-            </div>
-            {!scoped && (
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
-              <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Company</button>
-            </div>
-            )}
-          </>
+        )}
+
+        {mode !== 'new' && tab === 'departments' && (
+          editingEntity
+            ? <CompanyDepartments entity={editingEntity} employees={employees} toastOk={toastOk} toastErr={toastErr} />
+            : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
+        )}
+        {mode !== 'new' && tab === 'sites' && (
+          editingEntity
+            ? <CompanyWorkSitesTab entity={editingEntity} sites={sites} onChanged={onChangedSites} toastOk={toastOk} toastErr={toastErr} />
+            : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
+        )}
+        {mode !== 'new' && tab === 'holidays' && (
+          editingEntity
+            ? <CompanyHolidaysTab entity={editingEntity} toastOk={toastOk} toastErr={toastErr} />
+            : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
+        )}
+
+        {guard.confirming && (
+          <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={backToList} onSave={f.name.trim() ? guard.saveAndClose : undefined} saving={busy} />
         )}
       </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={f.name.trim() ? guard.saveAndClose : undefined} saving={busy} />
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Group manager</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Oversees every company - the escalation step above each company's manager.</div>
+        </div>
+        <select className="form-input" disabled={groupMgrBusy} value={groupMgr} onChange={e => saveGroupMgr(e.target.value)} style={{ width: 220, fontSize: 12.5, flexShrink: 0 }}>
+          <option value="">- not set -</option>
+          {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
+        </select>
+      </div>
+      {entities.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)' }}>
+          <p style={{ fontSize: 13, marginBottom: 14 }}>No companies yet. Add your legal entities so every worker can be tied to one.</p>
+          <button className="secondary-btn" onClick={seedDefaults} disabled={busy} style={{ marginRight: 8 }}>Add Greens · Greens India · MCD · Oversite</button>
+        </div>
+      ) : entities.map(en => (
+        <div key={en.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
+          <CompanyLogo name={en.name} logoUrl={en.logoUrl} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, en.managerEmail && personName(en.managerEmail) && `Manager ${personName(en.managerEmail)}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
+          </div>
+          <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
+          <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
+        </div>
+      ))}
+      <div style={{ padding: '14px 4px', display: 'flex', justifyContent: 'flex-end' }}>
+        <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Company</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Work Sites tab, nested inside a single company's editor - sites are
+// per-company now, not a shared central list (Pranshu, Sep 18). Existing
+// sites with no company yet (pre-dating this change) show up in every
+// company's "Unassigned" bucket so an admin can claim the ones that are
+// actually theirs, one at a time, instead of a forced bulk migration.
+function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
+  const blank = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, notes: '' };
+  const [mode, setMode] = useState(null); // null | 'new' | site.id
+  const [f, setF] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const mySites = sites.filter(s => s.company === entity.id);
+  const unassigned = sites.filter(s => !s.company);
+
+  const startNew = () => { setF(blank); setMode('new'); };
+  const startEdit = s => { setF({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, notes: s.notes || '' }); setMode(s.id); };
+
+  async function save() {
+    if (!f.name.trim() || busy) return; setBusy(true);
+    try {
+      const body = { ...f, radius_m: Number(f.radius_m) || 150, company: entity.id };
+      if (mode === 'new') await api.createWorkSite(body); else await api.updateWorkSite(mode, body);
+      await onChanged(); toastOk('Work site saved.'); setMode(null);
+    } catch (e) { toastErr(e?.message || 'Could not save work site.'); }
+    setBusy(false);
+  }
+  async function remove(s) {
+    if (!await dialog.confirm(`Delete work site "${s.name}"?`, { title: 'Delete work site', confirmText: 'Delete', danger: true })) return;
+    try { await api.deleteWorkSite(s.id); await onChanged(); toastOk('Work site deleted.'); }
+    catch (e) { toastErr(e?.message || 'Could not delete.'); }
+  }
+  async function claim(s) {
+    try { await api.updateWorkSite(s.id, { company: entity.id }); await onChanged(); toastOk(`Assigned to ${entity.name}.`); }
+    catch (e) { toastErr(e?.message || 'Could not assign.'); }
+  }
+  const field = (label, key, props = {}) => (
+    <div><label style={FL}>{label}</label>
+      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
+  );
+
+  if (mode) {
+    return (
+      <div style={{ padding: '18px 4px', maxWidth: 640 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Escondido Office' })}</div>
+          <div style={{ gridColumn: '1 / -1' }}>{field('ADDRESS', 'address')}</div>
+          {field('LATITUDE', 'latitude', { placeholder: 'e.g. 33.1192' })}
+          {field('LONGITUDE', 'longitude', { placeholder: 'e.g. -117.0864' })}
+          {field('GEOFENCE RADIUS (m)', 'radius_m', { type: 'number', min: 10 })}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={FL}>NOTES</label>
+            <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, paddingTop: 14 }}>
+          <button className="secondary-btn" onClick={() => setMode(null)} disabled={busy}>Back</button>
+          <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '18px 4px' }}>
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 12px' }}>Geofenced clock-in locations for {entity.name}.</p>
+      {mySites.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>No work sites for {entity.name} yet.</div>
+      ) : mySites.map(s => (
+        <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '-'}</div>
+          </div>
+          <button className="secondary-btn" onClick={() => startEdit(s)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
+          <button onClick={() => remove(s)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
+        </div>
+      ))}
+      <div style={{ paddingTop: 14 }}>
+        <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Work Site</button>
+      </div>
+
+      {unassigned.length > 0 && (
+        <div style={{ marginTop: 28, paddingTop: 18, borderTop: '1px solid var(--line)' }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Unassigned work sites</div>
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 10px' }}>From before work sites were per-company - claim the ones that belong to {entity.name}.</p>
+          {unassigned.map(s => (
+            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 10px', borderBottom: '1px solid var(--line)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{s.name}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.address || '-'}</div>
+              </div>
+              <button className="secondary-btn" onClick={() => claim(s)} style={{ padding: '5px 10px', fontSize: 12 }}>Assign to {entity.name}</button>
+            </div>
+          ))}
+        </div>
       )}
+    </div>
+  );
+}
+
+// ── Holiday Calendar tab (placeholder, Sep 18) - country public holidays +
+// manual per-company holidays, surfaced to that company's employees on their
+// Calendar dashboard. Coming in a follow-up change.
+function CompanyHolidaysTab({ entity }) {
+  return (
+    <div style={{ padding: '32px 4px', textAlign: 'center', color: 'var(--muted)' }}>
+      <CalendarDays size={26} style={{ opacity: 0.4, marginBottom: 10 }} />
+      <p style={{ fontSize: 13, maxWidth: 420, margin: '0 auto' }}>
+        Holiday calendar for {entity.name} is coming soon - pick a country to pull in its public holidays,
+        choose which ones actually apply, and add your own. Every holiday set here will show up on this
+        company's employees' Calendar dashboard.
+      </p>
     </div>
   );
 }

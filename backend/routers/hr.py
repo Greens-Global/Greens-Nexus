@@ -2366,6 +2366,13 @@ def list_work_sites(user: dict = Depends(require_hr_read), db: Session = Depends
 def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     if not body.name.strip():
         raise HTTPException(400, "name is required")
+    # Work sites are per-company now (Sep 18) - a shared/global site can no
+    # longer be created. Existing pre-migration sites with no company keep
+    # working as shared geofences; admins claim them into a company (or
+    # leave them alone) via each company's Work Sites tab rather than a
+    # forced bulk migration.
+    if not (body.company or "").strip():
+        raise HTTPException(400, "Pick a company for this work site")
     scope = hr_scope(user, db)
     if scope is not None and (body.company or "").strip() not in scope:
         raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
