@@ -70,6 +70,37 @@ export function geocode(query) {
 }
 
 /**
+ * Reverse-geocode `[lat, lng]` into a human address string via Nominatim, or `null` if no
+ * match. Shares the same cache + rate-limited queue as geocode() above (same fair-use
+ * constraint applies - see the module comment).
+ */
+export function reverseGeocode(lat, lng) {
+  const query = `rev:${lat.toFixed(6)},${lng.toFixed(6)}`;
+  const cache = readGeocodeCache();
+  if (query in cache) {
+    return Promise.resolve(cache[query] === 'null' ? null : cache[query]);
+  }
+
+  const request = geocodeQueueTail
+    .then(() => new Promise((resolve) => setTimeout(resolve, GEOCODE_REQUEST_DELAY_MS)))
+    .then(() =>
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, {
+        headers: { Accept: 'application/json' },
+      })
+        .then((r) => r.json())
+        .then((result) => {
+          const address = (result && result.display_name) || null;
+          writeGeocodeCacheEntry(query, address);
+          return address;
+        })
+        .catch(() => null)
+    );
+
+  geocodeQueueTail = request.catch(() => {});
+  return request;
+}
+
+/**
  * Pull `[lat, lng]` straight out of a pasted Google Maps URL, without hitting the network.
  * Handles both the "@lat,lng,zoom" form (from the address bar of an open map view) and the
  * "?q=lat,lng" / "?query=lat,lng" / "?ll=lat,lng" / "?destination=lat,lng" query-param forms.

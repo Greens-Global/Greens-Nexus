@@ -1912,6 +1912,7 @@ class EntityIn(BaseModel):
     logo_url:           Optional[str] = ""
     website:            Optional[str] = ""
     main_phone:         Optional[str] = ""
+    main_phone_type:    Optional[str] = "phone"   # "phone" | "fax" | "telephone"
     facebook_url:       Optional[str] = ""
     linkedin_url:       Optional[str] = ""
     twitter_url:        Optional[str] = ""
@@ -1931,6 +1932,7 @@ class EntityUpdate(BaseModel):
     logo_url:           Optional[str] = None
     website:            Optional[str] = None
     main_phone:         Optional[str] = None
+    main_phone_type:    Optional[str] = None
     facebook_url:       Optional[str] = None
     linkedin_url:       Optional[str] = None
     twitter_url:        Optional[str] = None
@@ -1947,6 +1949,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
         "logoUrl": e.logo_url, "website": e.website or "", "mainPhone": e.main_phone or "",
+        "mainPhoneType": e.main_phone_type or "phone",
         "facebookUrl": e.facebook_url or "", "linkedinUrl": e.linkedin_url or "",
         "twitterUrl": e.twitter_url or "", "instagramUrl": e.instagram_url or "",
         "signatureTemplate": e.signature_template or "classic", "signatureClosing": e.signature_closing or "",
@@ -1978,6 +1981,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
         logo_url=(body.logo_url or "").strip(), website=(body.website or "").strip(),
         main_phone=(body.main_phone or "").strip(),
+        main_phone_type=(body.main_phone_type or "phone").strip() or "phone",
         facebook_url=(body.facebook_url or "").strip(), linkedin_url=(body.linkedin_url or "").strip(),
         twitter_url=(body.twitter_url or "").strip(), instagram_url=(body.instagram_url or "").strip(),
         notes=body.notes or "",

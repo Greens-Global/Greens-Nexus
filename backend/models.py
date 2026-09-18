@@ -1266,6 +1266,10 @@ class HrEntity(Base):
     # and other branded surfaces pull from - set once here, consistent everywhere.
     website            = Column(String, default="")
     main_phone         = Column(String, default="")
+    # What main_phone actually is (Sep 18) - "phone" numbers store the dial
+    # code baked into main_phone itself ("+1 7003313331"); fax/telephone
+    # don't use a country-code picker, so main_phone is just the raw value.
+    main_phone_type    = Column(String, default="phone")
     # Social links for the signature's icon row (Sep 16, Pranshu) - company-wide
     # like the rest of branding, not per-employee, so every signature carries the
     # same official company pages.
