@@ -8,6 +8,7 @@ the HR team; this router is the scoped-to-self counterpart:
 Leave (time off) reuses the existing /timeclock/timeoff endpoints.
 """
 import html as html_lib
+import re
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -26,6 +27,7 @@ from models import (NexusEmployee, HrEntity, HrSignRequest, HrSignParty, HrDocum
 from routers.hr import (_SUPABASE_URL, _storage_headers, _DOC_BUCKET,
                         _AVATAR_BUCKET, _IMAGE_TYPES, _MAX_AVATAR_BYTES)
 from routers.esign import _log
+from services.countries import COUNTRY_DIAL, NANP_COUNTRIES
 
 router = APIRouter(prefix="/myhr", tags=["My HR"], dependencies=[Depends(get_current_user)])
 
@@ -156,6 +158,32 @@ _BRAND_GREEN = "#1f8a4d"
 # (Pranshu, Sep 16). '' = no closing line / template's own default.
 SIGNATURE_CLOSINGS = ["", "Sincerely", "Best regards", "Kind regards", "Warm regards"]
 
+
+def _format_signature_phone(raw: str, country_code: str) -> str:
+    """Prefix the employee's signature phone with their COMPANY's country's
+    dial code (Pranshu, Sep 19: "NEXUS should be smart enough to fetch what
+    is the country selected for the employee... show the number" in the
+    right format) - +91 7595898853 for India, +1 (949) 201-9160 for the US.
+    US/Canada (NANP) get the familiar "(area) exchange-line" grouping;
+    everywhere else just gets "<dial code> <digits>", since no other
+    country's local grouping convention is assumed. A raw value already
+    starting with "+" (an employee who typed their own international
+    prefix) is trusted as-is and left untouched."""
+    raw = (raw or "").strip()
+    if not raw or raw.startswith("+"):
+        return raw
+    digits = re.sub(r"\D", "", raw)
+    if not digits:
+        return raw
+    dial = COUNTRY_DIAL.get((country_code or "").upper(), "")
+    if not dial:
+        return raw
+    if (country_code or "").upper() in NANP_COUNTRIES and len(digits) >= 10:
+        d = digits[-10:]
+        return f"{dial} ({d[0:3]}) {d[3:6]}-{d[6:10]}"
+    return f"{dial} {digits}"
+
+
 def _signature_fields(e: NexusEmployee, db: Session) -> dict:
     company = db.query(HrEntity).filter(HrEntity.id == e.company).first() if e.company else None
     full_name = (e.display_name or f"{e.first_name} {e.last_name}").strip()
@@ -166,7 +194,7 @@ def _signature_fields(e: NexusEmployee, db: Session) -> dict:
     # Sep 19: switched from parens to quotes around the preferred name).
     name = f'{full_name} "{preferred}"' if preferred and preferred.lower() != full_name.lower() else full_name
     role = (e.designation or e.job_title or "").strip()
-    phone = (e.signature_phone or e.phone or "").strip()
+    phone = _format_signature_phone((e.signature_phone or e.phone or "").strip(), company.country if company else "")
     return {
         "name": name, "role": role, "phone": phone, "email": e.work_email or "",
         "photoUrl": e.photo_url or "",
