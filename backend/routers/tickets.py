@@ -59,11 +59,12 @@ require_ticket_desk = require_any_module_grant("tasks", "tickets")
 # Target hours are admin-configurable (ticket_taxonomy.py, Sep 2026 - was a
 # hardcoded dict here, mirrored by a second hardcoded copy in
 # frontend/src/tickets/ticketMeta.js that the two had to be kept in step by
-# hand). The server is authoritative: create_ticket always computes its own
-# value (never trusts body.sla_due_on), and update_ticket recomputes it
-# whenever priority changes to a new value in a request that doesn't ALSO set
-# sla_due_on explicitly in the same request (that's a manual override via the
-# drawer's own DateField editor, and stays respected as-is). ──
+# hand). The server is authoritative and there is no override path at all
+# (Sep 17 2026 - there used to be one, via the drawer's own DateField editor):
+# create_ticket always computes its own value, never trusting body.sla_due_on,
+# and update_ticket recomputes it whenever priority changes to a new value,
+# full stop. See main.py's startup backfill for tickets that predate this
+# column ever being populated. ──
 
 def _sla_due_from_priority(db: Session, created_at_iso: str, priority: str) -> str:
     """created_at + the priority's target hours, as a YYYY-MM-DD date string -
@@ -453,7 +454,7 @@ def _notify_participants(db: Session, t: models.TaskTicket, actor_email: str, ki
         task_notify(db, kind=kind, for_email=email, title=title, body=body, ticket_id=t.id, nexus_action=action)
 
 
-def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: str) -> None:
+def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: str) -> "models.TicketTeamsMessage | None":
     """Queue a Teams DM to the ticket's requester about this update - same
     guaranteed-delivery queue TimeBod posts use (teams_post.py), posted AS the
     agent who made the change into a 1:1 chat Graph creates on first contact.
@@ -462,15 +463,24 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
     block) - one definition of "worth telling the requester about," not two.
     Skipped when the actor IS the requester (their own edit needs no DM) or
     there's no requester on file (never happens in practice, but a queued row
-    with an empty requester_email would just fail Graph forever)."""
+    with an empty requester_email would just fail Graph forever).
+
+    Returns the queued row (or None if skipped) so the caller can make the
+    same inline delivery attempt the BOD/EOD queue makes in timeclock.py's
+    /bod endpoint - without it, a DM only goes out on ticket_teams_post_loop's
+    sweep, which skips rows younger than SWEEP_MIN_AGE_SEC and only runs every
+    RETRY_EVERY_SEC (3 min) - a 2-5 minute delay on every ticket update
+    instead of landing with the update (Pranshu, Sep 17 2026)."""
     requester = (t.requester_email or "").strip().lower()
     actor = (actor_email or "").strip().lower()
     if not requester or requester == actor:
-        return
+        return None
     link = tmpl._ticket_url(app_url(), t.id, for_requester=True)
     html = f'{ticket_no(t.code)} has been updated. To view the ticket, please visit: <a href="{link}">{link}</a>'
-    db.add(models.TicketTeamsMessage(id=gen_id(), ticket_id=t.id, agent_email=actor,
-                                     requester_email=requester, html=html, created_at=now_iso()))
+    row = models.TicketTeamsMessage(id=gen_id(), ticket_id=t.id, agent_email=actor,
+                                     requester_email=requester, html=html, created_at=now_iso())
+    db.add(row)
+    return row
 
 
 @router.get("/task-tickets")
@@ -524,16 +534,29 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     # from the payload.
     if body.requester_email and not _has_desk_grant(user, db):
         body.requester_email = user["email"]
+    # Company on intake (Sep 19, Pranshu: "End user don't have the ability to
+    # choose company but here it is showing the ticket is raised for GGcon
+    # company"). A desk-grant caller (raising on someone else's behalf, or an
+    # agent correcting it) keeps the existing unrestricted override. A plain
+    # requester's own choice is only honoured when an admin has actually
+    # turned the company field on AND picked that exact company to offer -
+    # same never-trust-the-client-alone posture requester_email just got
+    # above - otherwise (the setting is off, or off a stray/manipulated
+    # value) it silently falls back to their own People-record company,
+    # same as before this setting existed.
+    company_id = (body.company_id or "").strip()
+    if company_id and not _has_desk_grant(user, db):
+        cfg = ticket_taxonomy.company_field(db)
+        if not (cfg.get("enabled") and company_id in (cfg.get("companyIds") or [])):
+            company_id = ""
+    company_id = company_id or company_for(db, (body.requester_email or user["email"]))
     t = models.TaskTicket(
         id=body.id or gen_id(), code=body.code or _next_ticket_code(db), subject=body.subject,
         description=body.description or "", type=body.type or "request",
         status=(body.status if (body.status and body.status != "new") else "open"), priority=body.priority or "medium",
         requester_email=(body.requester_email or user["email"]).strip().lower(),
         assignee_email=(body.assignee_email or "").strip().lower(), department_id=body.department_id or "",
-        # Resolved from the requester's People record when intake did not send
-        # one - the form no longer asks. Still honours an explicit value so an
-        # agent raising a ticket on someone else's behalf can override it.
-        company_id=(body.company_id or company_for(db, (body.requester_email or user["email"]))),
+        company_id=company_id,
         hr_department_id=body.hr_department_id or "",
         linked_task_id=body.linked_task_id or "", tags=body.tags or [], images=body.images or [],
         watcher_emails=body.watcher_emails or [], resolution=body.resolution or "",
@@ -658,6 +681,16 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             if blocked == ["company_id"]:
                 raise HTTPException(403, "Only the requester (before the ticket is picked up) or a manager can change the company on a ticket.")
             raise HTTPException(403, f"You can only update {', '.join(sorted(scope))} on a ticket you're not the requester/owner of - not: {', '.join(blocked)}")
+    # Same allow-list gate as create_ticket (Sep 19, Pranshu) - a desk-grant
+    # caller (a manager correcting it) is unrestricted; a plain requester
+    # re-picking company_id in the pre-pickup window _ticket_edit_scope opens
+    # to them may only choose a company the admin has actually turned on for
+    # self-service, never an arbitrary id.
+    if "company_id" in data and not _has_desk_grant(user, db):
+        cid = (data["company_id"] or "").strip()
+        cfg = ticket_taxonomy.company_field(db)
+        if not (cid and cfg.get("enabled") and cid in (cfg.get("companyIds") or [])):
+            raise HTTPException(400, "That company isn't offered for self-service ticket intake.")
     # The requester's OWN status transitions are narrower than the field-level
     # scope above can express: pre-in_progress they otherwise have unrestricted
     # access (see _ticket_edit_scope), which let them set status to anything -
@@ -698,6 +731,11 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     prev_application, prev_service_area = t.application, t.service_area
     prev_resolution = t.resolution
     prev_type_fields = dict(t.type_fields or {})
+    # sla_due_on is never applied from the payload directly - it is derived
+    # from priority a few lines down, same as create_ticket never trusting
+    # body.sla_due_on. Still accepted on the model for backward-compat
+    # payloads that include it; just ignored.
+    data.pop("sla_due_on", None)
     for k, v in data.items():
         if k in ("assignee_email",) and v is not None:
             # strip() too - a padded address never matches the same person again,
@@ -710,10 +748,13 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     if "application" in data and "service_area" not in data:
         t.application = (t.application or "").strip()
         t.service_area = service_area_for(db, t.application)
-    # SLA due date follows priority automatically - unless this same request
-    # ALSO set sla_due_on explicitly (the drawer's manual DateField editor),
-    # which is respected as-is and never silently overridden.
-    if "priority" in data and t.priority != prev_priority and "sla_due_on" not in data:
+    # SLA due date follows priority automatically, full stop - the drawer's
+    # manual DateField editor that let a caller override it in the same
+    # request is gone (Pranshu, Sep 17 2026: "if priority changes the SLA due
+    # date changes"). Mirrors create_ticket, which never trusts body.sla_due_on
+    # either - any sla_due_on a caller sends is ignored; it is ALWAYS
+    # recomputed from priority.
+    if "priority" in data and t.priority != prev_priority:
         t.sla_due_on = _sla_due_from_priority(db, t.created_at, t.priority)
     if data.get("status") in ("resolved", "closed") and not t.resolved_at:
         t.resolved_at = now_iso()
@@ -796,7 +837,12 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         _log("application_changed", f"changed application to {t.application or '-'}")
     if t.service_area != prev_service_area:
         _log("service_area_changed", f"changed service area to {t.service_area or '-'}")
-    if "sla_due_on" in data and t.sla_due_on != prev_due:
+    if t.sla_due_on != prev_due:
+        # Not gated on "in data" like the fields above - sla_due_on is never
+        # in the payload now (see the pop() above), it only ever moves as a
+        # side effect of a priority change, and that's still worth a line in
+        # the audit trail (see this function's "gets logged if it actually
+        # happened" comment above the mutation loop).
         _log("sla_changed", f"changed the SLA due date to {t.sla_due_on or '-'}")
     if t.resolution != prev_resolution:
         _log("resolution_changed", f"set resolution to {_type_label(t.resolution) if t.resolution else '-'}")
@@ -840,10 +886,12 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
                                    prev_status=prev_status, update_kind=f"Status changed to {t.status}")
     elif "priority" in data and t.priority != prev_priority:
+        # Covers the SLA due date moving too - it's never in `data` itself
+        # (see the pop() above), it only ever moves as a side effect of this
+        # same priority change, so there's no separate "due date changed"
+        # case left to reach on its own.
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
                                    update_kind=f"Priority changed to {t.priority}")
-    elif "sla_due_on" in data and t.sla_due_on != prev_due:
-        background_tasks.add_task(notify_ticket_event, t.id, "updated", actor, update_kind="Due date changed")
     elif "resolution" in data or "description" in data or "type" in data or "hr_department_id" in data:
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor, update_kind="Ticket details updated")
 
@@ -852,10 +900,20 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # definition, not two).
     if ((assignee_changed and t.assignee_email) or status_changed
             or ("priority" in data and t.priority != prev_priority)
-            or ("sla_due_on" in data and t.sla_due_on != prev_due)
             or ("resolution" in data or "description" in data or "type" in data or "hr_department_id" in data)):
-        _queue_requester_teams_dm(db, t, actor)
+        dm_row = _queue_requester_teams_dm(db, t, actor)
         db.commit()
+        # One inline delivery attempt so the common case lands in Teams right
+        # away, same as timeclock.py's /bod endpoint - without this, the DM
+        # only goes out on ticket_teams_post_loop's next sweep (up to ~5 min
+        # later). Sync endpoint = FastAPI threadpool, so blocking HTTP is fine
+        # here; anything that fails stays queued for the sweep to retry.
+        if dm_row is not None:
+            try:
+                import teams_post
+                teams_post.deliver_ticket_row(db, dm_row)
+            except Exception:
+                pass   # queued; the sweep owns it now
 
     return ticket_to_dict(t)
 
@@ -980,6 +1038,20 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
                                    # Full comment text - the email renders it in its own
                                    # quote block, so no truncation (was capped at 280).
                                    update_kind="New comment added", latest_comment=body.body or "")
+        # Teams DM too - a reply is exactly as "worth telling the requester
+        # about" as a status/field change, but update_ticket's DM block never
+        # runs for comments (they're their own endpoint). Without this, a
+        # requester who only watches Teams never heard about a reply at all
+        # (Pranshu, Sep 17 2026). Same inline-attempt-then-sweep-fallback
+        # shape as update_ticket's block just below it.
+        dm_row = _queue_requester_teams_dm(db, t, user["email"])
+        db.commit()
+        if dm_row is not None:
+            try:
+                import teams_post
+                teams_post.deliver_ticket_row(db, dm_row)
+            except Exception:
+                pass   # queued; the sweep owns it now
     return _tcomment(c)
 
 

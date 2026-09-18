@@ -1,7 +1,7 @@
 import { MapPin, Trophy, TrendingUp, Search, ArrowUp, ArrowDown, Minus } from 'lucide-react'
 import { computeLocalSearchStats } from './aggregate'
 import { formatNumber } from '../shared/utils'
-import { C, alpha } from '../theme'
+import { C, HOVER_TINT } from '../theme'
 
 const truncate = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 
@@ -94,7 +94,7 @@ export default function LocalSearchCard({ rows }) {
                 <tr
                   key={`${r.facility}-${r.keyword}`}
                   style={{ borderBottom: ri === rows.length - 1 ? 'none' : `1px solid ${C.gray50}` }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = alpha(C.gray50, 0.6))}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = HOVER_TINT)}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
                   <td style={{ padding: '10px', paddingLeft: 0, fontWeight: 500, color: C.gray900, whiteSpace: 'nowrap' }}>{r.facility}</td>

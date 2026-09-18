@@ -458,7 +458,7 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     has_in = (db.query(TimePunch)
               .filter(TimePunch.employee_email == email, TimePunch.kind == "in",
                       TimePunch.local_date == local_today, TimePunch.voided == 0).first())
-    pol = _get_policy(db)
+    pol = _get_policy(db, _company_of(db, email))
     _rr = db.query(PayrollRate).filter(PayrollRate.employee_email == email).first()
     _bod_ex = _is_bod_exempt(db, email)
     return {
@@ -1582,13 +1582,30 @@ _MONITORING_NOTICE = (
 )
 
 
-def _get_policy(db: Session) -> MonitoringPolicy:
-    """The single monitoring policy row, created with safe defaults on first read."""
-    p = db.query(MonitoringPolicy).filter(MonitoringPolicy.id == "default").first()
+def _get_policy(db: Session, company_id: str = "") -> MonitoringPolicy:
+    """One monitoring policy row per company (Sep 19) - company_id="" is the
+    fallback row (the old singleton, id='default') for anyone with no company
+    set. Auto-created with safe defaults on first read, same as before."""
+    company_id = company_id or ""
+    p = db.query(MonitoringPolicy).filter(MonitoringPolicy.company_id == company_id).first()
     if not p:
-        p = MonitoringPolicy(id="default", updated_at=_now_iso())
+        p = MonitoringPolicy(id=str(uuid.uuid4()), company_id=company_id, updated_at=_now_iso())
         db.add(p); db.commit()
     return p
+
+
+def _company_of(db: Session, email: str) -> str:
+    row = db.query(NexusEmployee.company).filter(NexusEmployee.work_email == email).first()
+    return (row[0] if row else "") or ""
+
+
+def _policy_for_email(db: Session, email: str, cache: dict) -> MonitoringPolicy:
+    """Per-request memo so a roster loop over many employees resolves each
+    distinct COMPANY's policy once, not once per employee."""
+    company_id = _company_of(db, email)
+    if company_id not in cache:
+        cache[company_id] = _get_policy(db, company_id)
+    return cache[company_id]
 
 
 def _policy_dict(p: MonitoringPolicy) -> dict:
@@ -1687,7 +1704,7 @@ def upload_screenshot(request: Request, file: UploadFile = File(...),
     email = user["email"]
     if not _clocked_in(db, email):
         raise HTTPException(409, "Not clocked in - capture stops with the shift.")
-    pol = _get_policy(db)
+    pol = _get_policy(db, _company_of(db, email))
     if not (pol.enabled and pol.track_screens):
         raise HTTPException(409, "Screen capture is disabled by policy.")
     if _is_monitoring_exempt(db, email):
@@ -1723,9 +1740,12 @@ def record_monitoring_consent(body: MonitoringConsentIn, request: Request,
 
 @router.get("/monitoring/policy")
 def get_monitoring_policy(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Effective policy - any authenticated user (incl. the interactive agent using
-    the employee's own token) may read it; it's cadence/toggles, not sensitive data."""
-    return _policy_dict(_get_policy(db))
+    """The CALLER's OWN effective policy (their company's) - any authenticated
+    user (incl. the interactive agent using the employee's own token) may
+    read it; it's cadence/toggles, not sensitive data. For an admin viewing/
+    editing a SPECIFIC company's policy from Settings -> Company Setup, see
+    the /monitoring/policy/{company_id} pair below instead."""
+    return _policy_dict(_get_policy(db, _company_of(db, user["email"])))
 
 
 class MonitoringPolicyIn(BaseModel):
@@ -1737,11 +1757,30 @@ class MonitoringPolicyIn(BaseModel):
     track_input:      Optional[bool] = None
 
 
-@router.put("/monitoring/policy")
-def set_monitoring_policy(body: MonitoringPolicyIn, user: dict = Depends(require_tracking_full),
-                          db: Session = Depends(get_db)):
-    """Admin sets the monitoring cadence and what's collected. Central + auditable."""
-    p = _get_policy(db)
+def _require_company_tracking_scope(user: dict, company_id: str, db: Session):
+    """A company-scoped employee-tracking/HR grant may only touch companies
+    within its own scope - same boundary as every other Company Setup tab
+    (Departments/Work Sites/Holidays)."""
+    from auth import hr_scope
+    scope = hr_scope(user, db)
+    if scope is not None and company_id not in scope:
+        raise HTTPException(404, "Company not found")
+
+
+@router.get("/monitoring/policy/{company_id}")
+def get_company_monitoring_policy(company_id: str, user: dict = Depends(require_tracking_full),
+                                  db: Session = Depends(get_db)):
+    """Settings -> Company Setup -> a company's Workforce Analytics Policy tab."""
+    _require_company_tracking_scope(user, company_id, db)
+    return _policy_dict(_get_policy(db, company_id))
+
+
+@router.put("/monitoring/policy/{company_id}")
+def set_company_monitoring_policy(company_id: str, body: MonitoringPolicyIn,
+                                  user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
+    """Admin sets one company's monitoring cadence and what's collected."""
+    _require_company_tracking_scope(user, company_id, db)
+    p = _get_policy(db, company_id)
     if body.enabled          is not None: p.enabled = int(body.enabled)
     if body.interval_minutes is not None: p.interval_minutes = max(1, min(60, int(body.interval_minutes)))
     if body.randomize        is not None: p.randomize = int(body.randomize)
@@ -1759,31 +1798,28 @@ def monitoring_alerts(user: dict = Depends(require_tracking_read), db: Session =
     but whose agent has gone quiet - the honest, visible way to catch someone
     killing/uninstalling the agent to dodge capture. Nothing is hidden; the gap is
     surfaced to their manager (team-scoped) as an attributable event. Computed from
-    existing heartbeat/punch/screenshot data - no new storage."""
-    pol = _get_policy(db)
-    if not pol.enabled:
-        return {"enabled": False, "alerts": []}
+    existing heartbeat/punch/screenshot data - no new storage.
+
+    Policy is per-company now (Sep 19) - each employee's thresholds/gating come
+    from THEIR OWN company's policy (cached per company within this request,
+    not re-fetched per employee), not one shared setting."""
+    pol_cache = {}
     visible = _visible_emails(db, user)   # None = whole company (admin/HR grant)
     now = datetime.now(timezone.utc)
-    interval_min = max(1, int(pol.interval_minutes or 5))
-    # Heartbeat is ~1/min; treat an enrolled agent as "quiet" after 5 min or two
-    # capture intervals, whichever is longer. Screenshot gap uses ~2.5 intervals.
-    stale_sec = max(300, interval_min * 60 * 2 + 120)
-    shot_gap_sec = int(interval_min * 60 * 2.5) + 120
 
     # Latest punch per employee over the last 2 days → who is currently clocked in.
     since = (now - timedelta(days=2)).isoformat()
     pq = db.query(TimePunch).filter(TimePunch.voided == 0, TimePunch.at >= since)
     if visible is not None:
         if not visible:
-            return {"enabled": True, "alerts": []}
+            return {"alerts": []}
         pq = pq.filter(TimePunch.employee_email.in_(visible))
     latest = {}
     for p in pq.order_by(TimePunch.at.desc()).all():
         latest.setdefault(p.employee_email, p)
     clocked = {e: p for e, p in latest.items() if p.kind != "out"}
     if not clocked:
-        return {"enabled": True, "alerts": []}
+        return {"alerts": []}
 
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
@@ -1797,6 +1833,15 @@ def monitoring_alerts(user: dict = Depends(require_tracking_read), db: Session =
 
     alerts = []
     for email, punch in clocked.items():
+        pol = _policy_for_email(db, email, pol_cache)
+        if not pol.enabled:
+            continue   # this employee's company has monitoring off entirely
+        interval_min = max(1, int(pol.interval_minutes or 5))
+        # Heartbeat is ~1/min; treat an enrolled agent as "quiet" after 5 min or
+        # two capture intervals, whichever is longer. Screenshot gap ~2.5 intervals.
+        stale_sec = max(300, interval_min * 60 * 2 + 120)
+        shot_gap_sec = int(interval_min * 60 * 2.5) + 120
+
         dev = (db.query(AgentDevice)
                .filter(AgentDevice.employee_email == email, AgentDevice.revoked == 0)
                .order_by(AgentDevice.last_seen_at.desc()).first())
@@ -1835,7 +1880,7 @@ def monitoring_alerts(user: dict = Depends(require_tracking_read), db: Session =
             })
     # High severity first, then most-recently clocked in
     alerts.sort(key=lambda a: (a["severity"] != "high", a["clockedInSince"]), reverse=False)
-    return {"enabled": True, "alerts": alerts, "checkedAt": _now_iso()}
+    return {"alerts": alerts, "checkedAt": _now_iso()}
 
 
 @router.get("/monitoring/coverage")
@@ -1844,21 +1889,19 @@ def monitoring_coverage(user: dict = Depends(require_tracking_read), db: Session
     captured right now - desktop agent, in-browser Chrome share, or NOT captured
     (the gap). Team-scoped like the alerts feed; derived from punch + heartbeat +
     screenshot data, no new storage. The capture source is read from the most
-    recent frame's active_view ("desktop agent ..." = agent, else the browser)."""
-    pol = _get_policy(db)
+    recent frame's active_view ("desktop agent ..." = agent, else the browser).
+
+    Policy is per-company now (Sep 19) - each employee's thresholds/gating come
+    from THEIR OWN company's policy (cached per company within this request)."""
+    pol_cache = {}
     visible = _visible_emails(db, user)
     now = datetime.now(timezone.utc)
-    interval_min = max(1, int(pol.interval_minutes or 5))
-    shot_gap_sec = int(interval_min * 60 * 2.5) + 120      # a frame is "recent" within this
-    stale_sec = max(300, interval_min * 60 * 2 + 120)      # an agent heartbeat is "live" within this
-    screens_required = bool(pol.enabled and pol.track_screens)
 
     since = (now - timedelta(days=2)).isoformat()
     pq = db.query(TimePunch).filter(TimePunch.voided == 0, TimePunch.at >= since)
     if visible is not None:
         if not visible:
-            return {"enabled": bool(pol.enabled), "screensRequired": screens_required,
-                    "checkedAt": _now_iso(), "people": []}
+            return {"checkedAt": _now_iso(), "people": []}
         pq = pq.filter(TimePunch.employee_email.in_(visible))
     latest = {}
     for p in pq.order_by(TimePunch.at.desc()).all():
@@ -1875,6 +1918,11 @@ def monitoring_coverage(user: dict = Depends(require_tracking_read), db: Session
 
     people = []
     for email, punch in clocked.items():
+        pol = _policy_for_email(db, email, pol_cache)
+        interval_min = max(1, int(pol.interval_minutes or 5))
+        shot_gap_sec = int(interval_min * 60 * 2.5) + 120      # a frame is "recent" within this
+        stale_sec = max(300, interval_min * 60 * 2 + 120)      # an agent heartbeat is "live" within this
+        screens_required = bool(pol.enabled and pol.track_screens)
         on_break = punch.kind == "break_start"
         exempt = _is_monitoring_exempt(db, email)
         last_shot = (db.query(TimeScreenshot)
@@ -1920,8 +1968,7 @@ def monitoring_coverage(user: dict = Depends(require_tracking_read), db: Session
     # Gaps first (need attention), then browser, agent, paused; then by name.
     order = {"gap": 0, "browser": 1, "agent": 2, "on_break": 3, "screens_off": 4, "exempt": 5}
     people.sort(key=lambda x: (order.get(x["status"], 9), x["name"].lower()))
-    return {"enabled": bool(pol.enabled), "screensRequired": screens_required,
-            "checkedAt": _now_iso(), "people": people}
+    return {"checkedAt": _now_iso(), "people": people}
 
 
 # ── Punch-fix requests (employee asks, approver approves/rejects) ─────────────
@@ -2668,8 +2715,9 @@ def agent_devices(user: dict = Depends(require_tracking), db: Session = Depends(
     # capturing = online AND the subject (bound user or assigned owner) is on a live
     # shift with screen capture enabled. Offline => powered off, asleep, killed, or
     # uninstalled (indistinguishable from here, so we just report "offline").
-    pol = _get_policy(db)
-    cap_on = bool(pol.enabled and pol.track_screens)
+    # Policy is per-company now (Sep 19) - resolved per device's subject, cached
+    # per company within this request.
+    pol_cache = {}
     now = datetime.now(timezone.utc)
     online_cutoff = (now - timedelta(seconds=150)).strftime("%Y-%m-%dT%H:%M:%S")
     out = []
@@ -2678,6 +2726,8 @@ def agent_devices(user: dict = Depends(require_tracking), db: Session = Depends(
         secs = int((now - _ts).total_seconds()) if _ts else None
         online = bool(d.last_seen_at and d.last_seen_at >= online_cutoff)
         subject = (d.active_email or d.employee_email or "").strip()
+        pol = _policy_for_email(db, subject, pol_cache)
+        cap_on = bool(pol.enabled and pol.track_screens)
 
         # Clock state of the bound user and of the enroll owner (only worth a
         # query while the agent is online).
@@ -2824,7 +2874,7 @@ def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_dev
     # the PC's assigned owner (see _agent_subject). No subject => nobody to capture.
     active = _agent_subject(dev)
     clocked, on_break = _punch_state(db, active) if active else (False, False)
-    pol = _get_policy(db)
+    pol = _get_policy(db, _company_of(db, active) if active else "")
     # Monitoring-exempt people (leadership) are never captured - by the AGENT too,
     # not just the browser path. Same exemption, one source of truth.
     exempt = _is_monitoring_exempt(db, active) if active else False
@@ -2925,7 +2975,7 @@ def agent_screenshot(request: Request, file: UploadFile = File(...),
     clocked, on_break = _punch_state(db, email)
     if not clocked or on_break:
         raise HTTPException(409, "Not on a live shift - capture paused.")
-    pol = _get_policy(db)
+    pol = _get_policy(db, _company_of(db, email))
     if not (pol.enabled and pol.track_screens):
         raise HTTPException(409, "Screen capture is disabled by policy.")
     row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min,
@@ -2959,7 +3009,7 @@ def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device
     clocked, on_break = _punch_state(db, email)
     if not clocked or on_break:
         return {"ok": True, "skipped": "not on a live shift"}
-    pol = _get_policy(db)
+    pol = _get_policy(db, _company_of(db, email))
     if not (pol.enabled and pol.track_windows):
         return {"ok": True, "skipped": "app tracking off"}
     now = _now_iso()
@@ -3005,7 +3055,7 @@ def _subject_state(db: Session, email: str) -> str:
     Mirrors the screenshot capture gates exactly."""
     if not email or _is_monitoring_exempt(db, email):
         return "offline"
-    if not (_get_policy(db).enabled):
+    if not (_get_policy(db, _company_of(db, email)).enabled):
         return "offline"
     clocked, on_break = _punch_state(db, email)
     if not clocked:
@@ -5205,7 +5255,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # frame whose idle-at-capture ≥ 4 min stands in for one capture interval of
     # idle time. Only meaningful while the browser capture was actively sharing;
     # 0 otherwise. Capped at worked so active never goes negative.
-    interval_min = max(1, int(_get_policy(db).interval_minutes or 5))
+    interval_min = max(1, int(_get_policy(db, _company_of(db, em)).interval_minutes or 5))
     idle_frames = (db.query(TimeScreenshot)
                    .filter(TimeScreenshot.employee_email == em,
                            TimeScreenshot.local_date >= start, TimeScreenshot.local_date <= end,

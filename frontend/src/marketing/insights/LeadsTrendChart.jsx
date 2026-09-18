@@ -126,7 +126,7 @@ export default function LeadsTrendChart({ rows, prevRows }) {
             labelStyle={{ fontWeight: 600 }}
             formatter={(v) => Math.round(Number(v) || 0).toLocaleString('en-US')}
           />
-          <Legend verticalAlign="top" align="right" iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: '#6b7280', paddingBottom: 8 }} />
+          <Legend verticalAlign="top" align="right" iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: C.gray500, paddingBottom: 8 }} />
           <Line yAxisId="left" type="monotone" dataKey="leads" name="Leads" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />
           <Line yAxisId="right" type="monotone" dataKey="sessions" name="Sessions" stroke="#a855f7" strokeWidth={2} dot={false} isAnimationActive={false} />
           {compare && (

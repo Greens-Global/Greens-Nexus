@@ -52,6 +52,7 @@ class EmployeeIn(BaseModel):
     manager_email:   Optional[str] = ""
     status:          Optional[str] = "active"
     location:        Optional[str] = ""
+    country:         Optional[str] = ""   # ISO 3166 alpha-2 - THIS person's own country, e.g. for signature phone formatting
     company:         Optional[str] = ""
     identity_type:   Optional[str] = "internal"
     contractor:      Optional[dict] = None
@@ -74,6 +75,7 @@ class EmployeeUpdate(BaseModel):
     manager_email:   Optional[str] = None
     status:          Optional[str] = None
     location:        Optional[str] = None
+    country:         Optional[str] = None
     company:         Optional[str] = None
     division:        Optional[str] = None
     identity_type:   Optional[str] = None
@@ -154,6 +156,7 @@ def _serialize(e: NexusEmployee) -> dict:
         "photoUrl":       e.photo_url,
         "status":         e.status,
         "location":       e.location,
+        "country":        e.country or "",
         "company":        e.company,
         "division":       e.division or "",
         "identityType":   e.identity_type or "internal",
@@ -210,6 +213,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         manager_email=(body.manager_email or "").strip().lower(),
         status=body.status or "active",
         location=(body.location or "").strip(),
+        country=(body.country or "").strip().upper(),
         company=(body.company or "").strip(),
         identity_type=body.identity_type or "internal",
         contractor=body.contractor or {},
@@ -1899,7 +1903,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
 # ---------------------------------------------------------------------------
 # HR Section A - Companies/Entities + Work Sites (structural foundation)
 # ---------------------------------------------------------------------------
-from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting
+from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday, HrManualSignature
 
 
 class EntityIn(BaseModel):
@@ -1912,6 +1916,7 @@ class EntityIn(BaseModel):
     logo_url:           Optional[str] = ""
     website:            Optional[str] = ""
     main_phone:         Optional[str] = ""
+    main_phone_type:    Optional[str] = "phone"   # "phone" | "fax" | "telephone"
     facebook_url:       Optional[str] = ""
     linkedin_url:       Optional[str] = ""
     twitter_url:        Optional[str] = ""
@@ -1931,12 +1936,12 @@ class EntityUpdate(BaseModel):
     logo_url:           Optional[str] = None
     website:            Optional[str] = None
     main_phone:         Optional[str] = None
+    main_phone_type:    Optional[str] = None
     facebook_url:       Optional[str] = None
     linkedin_url:       Optional[str] = None
     twitter_url:        Optional[str] = None
     instagram_url:      Optional[str] = None
     signature_template: Optional[str] = None
-    signature_closing:  Optional[str] = None
     notes:              Optional[str] = None
     domains:            Optional[str] = None
     manager_email:      Optional[str] = None
@@ -1947,9 +1952,10 @@ def _serialize_entity(e: HrEntity) -> dict:
         "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
         "logoUrl": e.logo_url, "website": e.website or "", "mainPhone": e.main_phone or "",
+        "mainPhoneType": e.main_phone_type or "phone",
         "facebookUrl": e.facebook_url or "", "linkedinUrl": e.linkedin_url or "",
         "twitterUrl": e.twitter_url or "", "instagramUrl": e.instagram_url or "",
-        "signatureTemplate": e.signature_template or "classic", "signatureClosing": e.signature_closing or "",
+        "signatureTemplate": e.signature_template or "classic",
         "notes": e.notes, "domains": e.domains or "",
         "managerEmail": e.manager_email or "",
         "createdAt": e.created_at, "updatedAt": e.updated_at,
@@ -1978,6 +1984,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
         logo_url=(body.logo_url or "").strip(), website=(body.website or "").strip(),
         main_phone=(body.main_phone or "").strip(),
+        main_phone_type=(body.main_phone_type or "phone").strip() or "phone",
         facebook_url=(body.facebook_url or "").strip(), linkedin_url=(body.linkedin_url or "").strip(),
         twitter_url=(body.twitter_url or "").strip(), instagram_url=(body.instagram_url or "").strip(),
         notes=body.notes or "",
@@ -2008,12 +2015,10 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
         raise HTTPException(403, "Only a company-wide admin can change a company's email domains")
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
-    if body.signature_template is not None or body.signature_closing is not None:
-        from routers.myhr import SIGNATURE_TEMPLATES, SIGNATURE_CLOSINGS
-        if body.signature_template is not None and body.signature_template not in SIGNATURE_TEMPLATES:
+    if body.signature_template is not None:
+        from routers.myhr import SIGNATURE_TEMPLATES
+        if body.signature_template not in SIGNATURE_TEMPLATES:
             raise HTTPException(400, "Unknown signature template")
-        if body.signature_closing is not None and body.signature_closing not in SIGNATURE_CLOSINGS:
-            raise HTTPException(400, "Unknown signature closing")
     for key, value in body.model_dump(exclude_unset=True).items():
         if value is None:
             continue
@@ -2045,7 +2050,7 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
     """Company logo for branding/signature use - same avatar bucket and size
     limit as employee photos (Sep 16, Neil: consistent company branding).
 
-    Also accepts MP4 (Sep 17, Pranshu: "convenient to upload any live
+    Also accepts MP4 and MOV (Sep 17, Pranshu: "convenient to upload any live
     signature") - converted server-side to an animated GIF before storage,
     since no email client plays a raw video in a signature. The conversion
     is real CPU work (a worst-case noisy clip took 45s in testing), so it
@@ -2060,12 +2065,20 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
         raise HTTPException(404, "Entity not found")
 
     content_type = file.content_type or ""
-    if content_type == "video/mp4":
+    # Browsers send video/quicktime for .mov; some send video/mp4 for both
+    # containers after a client-side re-mux, so fall back to the filename
+    # suffix when the content-type alone can't tell them apart.
+    _VIDEO_EXTENSIONS = {"video/mp4": ".mp4", "video/quicktime": ".mov"}
+    video_ext = _VIDEO_EXTENSIONS.get(content_type)
+    if not video_ext and (file.filename or "").lower().endswith((".mp4", ".mov")):
+        video_ext = "." + file.filename.rsplit(".", 1)[-1].lower()
+    if video_ext:
         data = await file.read()
         if len(data) > logo_video.MAX_SOURCE_VIDEO_BYTES:
             raise HTTPException(400, f"Video must be under {logo_video.MAX_SOURCE_VIDEO_BYTES // (1024 * 1024)} MB")
         try:
-            data = await asyncio.wait_for(asyncio.to_thread(logo_video.mp4_to_gif, data), timeout=60)
+            data = await asyncio.wait_for(
+                asyncio.to_thread(logo_video.video_to_gif, data, video_ext), timeout=60)
         except asyncio.TimeoutError:
             raise HTTPException(400, "Video took too long to convert - try a shorter or simpler clip")
         except logo_video.VideoConversionError as exc:
@@ -2074,7 +2087,7 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
     else:
         ext = _IMAGE_TYPES.get(content_type)
         if not ext:
-            raise HTTPException(400, "Logo must be JPEG, PNG, WebP, GIF, or MP4")
+            raise HTTPException(400, "Logo must be JPEG, PNG, WebP, GIF, MP4, or MOV")
         data = await file.read()
         if len(data) > _MAX_AVATAR_BYTES:
             raise HTTPException(400, "Logo must be under 5 MB")
@@ -2095,28 +2108,158 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
 
 
 @router.get("/entities/{entity_id}/signature-templates")
-def entity_signature_templates(entity_id: str, closing: str = None,
+def entity_signature_templates(entity_id: str,
                                user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """Every signature template pre-rendered with this company's real
     branding + placeholder person data, for the Settings picker (Pranshu,
-    Sep 16: template/sign-off is a company-wide admin choice, not personal).
-    `closing` optionally previews a not-yet-saved sign-off choice across all
-    templates without a round trip through PATCH first."""
+    Sep 16: template is a company-wide admin choice, not personal; Sep 19:
+    sign-off moved OUT to My Profile - each employee sets their own, admin
+    no longer controls or previews it here)."""
     row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
     if not row:
         raise HTTPException(404, "Entity not found")
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Entity not found")
-    from routers.myhr import admin_preview_templates, SIGNATURE_CLOSINGS
-    if closing is not None and closing not in SIGNATURE_CLOSINGS:
-        raise HTTPException(400, "Unknown signature closing")
+    from routers.myhr import admin_preview_templates
     return {
-        "templates": admin_preview_templates(row, closing=closing),
-        "closings": SIGNATURE_CLOSINGS,
+        "templates": admin_preview_templates(row),
         "template": row.signature_template or "classic",
-        "closing": row.signature_closing or "",
     }
+
+
+# ── Manual (non-directory) signatures - a hand-filled signature for a sender
+# email Nexus doesn't have an employee record for (Sep 19, Pranshu: "if the
+# email is not integrated in NEXUS but we want the same sig for that sender
+# email"). Rendered with the company's own picked template, same as everyone
+# else's, just fed from typed-in fields instead of NexusEmployee.
+_MAX_MANUAL_SIG_CUSTOM_FIELDS = 12
+
+
+class ManualSignatureIn(BaseModel):
+    name:          str
+    title:         Optional[str] = ""
+    company_name:  Optional[str] = ""
+    address:       Optional[str] = ""
+    url:           Optional[str] = ""
+    custom_fields: Optional[list] = None   # [{"label": "...", "value": "..."}]
+
+
+def _clean_custom_fields(raw) -> list:
+    out = []
+    for item in (raw or [])[:_MAX_MANUAL_SIG_CUSTOM_FIELDS]:
+        label = str((item or {}).get("label", "")).strip()[:60]
+        value = str((item or {}).get("value", "")).strip()[:200]
+        if label or value:
+            out.append({"label": label, "value": value})
+    return out
+
+
+def _serialize_manual_signature(row: HrManualSignature, company: HrEntity) -> dict:
+    from routers.myhr import render_manual_signature
+    rendered = render_manual_signature(row, company)
+    return {
+        "id": row.id, "name": row.name, "title": row.title, "companyName": row.company_name,
+        "address": row.address, "url": row.url, "logoUrl": row.logo_url,
+        "customFields": row.custom_fields or [], "html": rendered["html"],
+    }
+
+
+def _get_entity_or_404(entity_id: str, user: dict, db: Session) -> HrEntity:
+    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Entity not found")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Entity not found")
+    return row
+
+
+@router.get("/entities/{entity_id}/manual-signatures")
+def list_manual_signatures(entity_id: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    company = _get_entity_or_404(entity_id, user, db)
+    rows = (db.query(HrManualSignature).filter(HrManualSignature.company_id == entity_id)
+            .order_by(HrManualSignature.created_at).all())
+    return [_serialize_manual_signature(r, company) for r in rows]
+
+
+@router.post("/entities/{entity_id}/manual-signatures")
+def create_manual_signature(entity_id: str, body: ManualSignatureIn,
+                            user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    company = _get_entity_or_404(entity_id, user, db)
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    now = datetime.now(timezone.utc).isoformat()
+    row = HrManualSignature(
+        id=str(uuid.uuid4()), company_id=entity_id, name=body.name.strip()[:120],
+        title=(body.title or "").strip()[:120], company_name=(body.company_name or "").strip()[:200],
+        address=(body.address or "").strip()[:300], url=(body.url or "").strip()[:300],
+        custom_fields=_clean_custom_fields(body.custom_fields),
+        created_by=user["email"], created_at=now, updated_at=now,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _serialize_manual_signature(row, company)
+
+
+@router.put("/entities/{entity_id}/manual-signatures/{sig_id}")
+def update_manual_signature(entity_id: str, sig_id: str, body: ManualSignatureIn,
+                            user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    company = _get_entity_or_404(entity_id, user, db)
+    row = db.query(HrManualSignature).filter(HrManualSignature.id == sig_id,
+                                              HrManualSignature.company_id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Signature not found")
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    row.name = body.name.strip()[:120]
+    row.title = (body.title or "").strip()[:120]
+    row.company_name = (body.company_name or "").strip()[:200]
+    row.address = (body.address or "").strip()[:300]
+    row.url = (body.url or "").strip()[:300]
+    row.custom_fields = _clean_custom_fields(body.custom_fields)
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_manual_signature(row, company)
+
+
+@router.delete("/entities/{entity_id}/manual-signatures/{sig_id}")
+def delete_manual_signature(entity_id: str, sig_id: str,
+                            user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    _get_entity_or_404(entity_id, user, db)
+    row = db.query(HrManualSignature).filter(HrManualSignature.id == sig_id,
+                                              HrManualSignature.company_id == entity_id).first()
+    if row:
+        db.delete(row); db.commit()
+    return {"ok": True}
+
+
+@router.post("/entities/{entity_id}/manual-signatures/{sig_id}/logo")
+async def upload_manual_signature_logo(entity_id: str, sig_id: str, file: UploadFile = File(...),
+                                       user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    company = _get_entity_or_404(entity_id, user, db)
+    row = db.query(HrManualSignature).filter(HrManualSignature.id == sig_id,
+                                              HrManualSignature.company_id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Signature not found")
+    content_type = file.content_type or ""
+    ext = _IMAGE_TYPES.get(content_type)
+    if not ext:
+        raise HTTPException(400, "Logo must be JPEG, PNG, WebP, or GIF")
+    data = await file.read()
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise HTTPException(400, "Logo must be under 5 MB")
+    path = f"manual-signatures/{sig_id}/{uuid.uuid4()}.{ext}"
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": content_type, "cache-control": "max-age=31536000"},
+        content=data, timeout=60,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    row.logo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_manual_signature(row, company)
 
 
 # ── Group manager - one person overseeing ALL companies (the escalation step
@@ -2358,6 +2501,13 @@ def list_work_sites(user: dict = Depends(require_hr_read), db: Session = Depends
 def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     if not body.name.strip():
         raise HTTPException(400, "name is required")
+    # Work sites are per-company now (Sep 18) - a shared/global site can no
+    # longer be created. Existing pre-migration sites with no company keep
+    # working as shared geofences; admins claim them into a company (or
+    # leave them alone) via each company's Work Sites tab rather than a
+    # forced bulk migration.
+    if not (body.company or "").strip():
+        raise HTTPException(400, "Pick a company for this work site")
     scope = hr_scope(user, db)
     if scope is not None and (body.company or "").strip() not in scope:
         raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
@@ -2403,6 +2553,158 @@ def delete_work_site(site_id: str, user: dict = Depends(require_hr_delete), db: 
     if row:
         db.delete(row); db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Company holiday calendar (Sep 18, Pranshu) - per company, not central. A row
+# is either picked from a country's public holidays (source="public") or
+# typed in by hand (source="manual"); once created it's just a flat date +
+# name with no ongoing link back to the public-holiday API.
+#
+# Every country in the picker (frontend/src/lib/countries.js - all ~195 ISO
+# 3166-1 countries) can be tried; not every one has public-holiday data
+# behind it, and that's fine - an admin whose country isn't covered just adds
+# holidays manually. Two free, keyless sources, tried in order:
+#   1. date.nager.at - clean JSON, but only ~204 countries/territories, and
+#      notably NOT India, Singapore, Taiwan, Vietnam, or Saudi Arabia (Sep
+#      18: India selected here returned a 500 - date.nager.at answers 204 No
+#      Content for a country it doesn't have, and the old code called
+#      resp.json() on that empty body outside the try/except, so the crash
+#      escaped unhandled instead of degrading to "no data").
+#   2. Google's public per-country holiday calendars (the ones every Google
+#      Calendar user can already subscribe to under Settings -> Holidays) as
+#      a fallback for a short list of major countries confirmed missing from
+#      Nager - each entry below was verified by hand (curl'd and checked for
+#      a real 200 + holiday data) rather than guessed, since Google's
+#      calendar-id naming isn't a predictable function of the ISO code (e.g.
+#      "en.indian", not "en.india") and a wrong guess is exactly the kind of
+#      silent 500 this fix exists to stop happening again.
+# A country in neither source returns 404 with a clear message, never a 500.
+# ---------------------------------------------------------------------------
+_GOOGLE_HOLIDAY_CALENDARS = {
+    "IN": "en.indian", "SG": "en.singapore", "TW": "en.taiwan",
+    "VN": "en.vietnamese", "SA": "en.saudiarabian",
+}
+
+
+def _fetch_nager_holidays(country: str, year: int) -> Optional[list]:
+    try:
+        resp = httpx.get(f"https://date.nager.at/api/v3/PublicHolidays/{year}/{country}", timeout=10)
+    except Exception:  # noqa: BLE001 - network hiccup, just fall through to the next source
+        return None
+    if resp.status_code == 204:
+        # Nager answers 204 both for "real country, zero holidays this year"
+        # and for a country it doesn't recognize at all (confirmed for
+        # India, which isn't in its AvailableCountries list) - there's no
+        # way to tell those apart from the status code alone, so treat it as
+        # "no answer" and let the Google fallback (or the final 404) take
+        # over, rather than confidently returning an empty list for a
+        # country whose real holidays we just haven't found yet.
+        return None
+    if not resp.is_success:
+        return None
+    try:
+        data = resp.json()
+    except ValueError:
+        return None
+    return [{"date": h.get("date"), "name": h.get("localName") or h.get("name") or ""} for h in data]
+
+
+def _fetch_google_holidays(country: str, year: int) -> Optional[list]:
+    cal_id = _GOOGLE_HOLIDAY_CALENDARS.get(country)
+    if not cal_id:
+        return None
+    url = f"https://calendar.google.com/calendar/ical/{cal_id}%23holiday%40group.v.calendar.google.com/public/basic.ics"
+    try:
+        resp = httpx.get(url, timeout=10)
+        resp.raise_for_status()
+    except Exception:  # noqa: BLE001
+        return None
+    out = []
+    for block in resp.text.split("BEGIN:VEVENT")[1:]:
+        date_m = re.search(r"DTSTART;VALUE=DATE:(\d{8})", block)
+        if not date_m or date_m.group(1)[:4] != str(year):
+            continue
+        name_m = re.search(r"SUMMARY:(.+)", block)
+        name = (name_m.group(1).strip() if name_m else "").replace("\\,", ",")
+        d = date_m.group(1)
+        out.append({"date": f"{d[:4]}-{d[4:6]}-{d[6:8]}", "name": name})
+    return out
+
+
+class CompanyHolidayIn(BaseModel):
+    date:         str             # YYYY-MM-DD
+    name:         str
+    source:       Optional[str] = "manual"   # "manual" | "public"
+    country_code: Optional[str] = ""
+
+
+def _serialize_holiday(h: HrCompanyHoliday) -> dict:
+    return {
+        "id": h.id, "date": h.date, "name": h.name, "source": h.source,
+        "countryCode": h.country_code, "createdAt": h.created_at,
+    }
+
+
+@router.get("/entities/{entity_id}/holidays")
+def list_company_holidays(entity_id: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    rows = (db.query(HrCompanyHoliday).filter(HrCompanyHoliday.company_id == entity_id)
+            .order_by(HrCompanyHoliday.date).all())
+    return [_serialize_holiday(h) for h in rows]
+
+
+@router.post("/entities/{entity_id}/holidays")
+def create_company_holiday(entity_id: str, body: CompanyHolidayIn,
+                           user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", (body.date or "").strip()):
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    now = datetime.now(timezone.utc).isoformat()
+    row = HrCompanyHoliday(
+        id=str(uuid.uuid4()), company_id=entity_id, date=body.date.strip(), name=body.name.strip(),
+        source=body.source if body.source in ("manual", "public") else "manual",
+        country_code=(body.country_code or "").strip().upper(),
+        created_by=user["email"], created_at=now, updated_at=now,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _serialize_holiday(row)
+
+
+@router.delete("/entities/{entity_id}/holidays/{holiday_id}")
+def delete_company_holiday(entity_id: str, holiday_id: str,
+                           user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    row = db.query(HrCompanyHoliday).filter(HrCompanyHoliday.id == holiday_id,
+                                             HrCompanyHoliday.company_id == entity_id).first()
+    if row:
+        db.delete(row); db.commit()
+    return {"ok": True}
+
+
+@router.get("/public-holidays")
+def public_holidays(country: str = "US", year: Optional[int] = None, user: dict = Depends(require_hr_read)):
+    """Proxies public holiday sources (see the two helpers above) so the
+    browser never calls a third party directly. Sync def (not async) -
+    FastAPI runs it in the thread pool, so these outbound calls can't stall
+    the event loop the way an unguarded `await httpx` call on the main
+    thread would (see CLAUDE.md's Aug 2 note)."""
+    country = (country or "US").strip().upper()
+    yr = year or datetime.now(timezone.utc).year
+    result = _fetch_nager_holidays(country, yr)
+    if result is None:
+        result = _fetch_google_holidays(country, yr)
+    if result is None:
+        raise HTTPException(404, "No public holiday data available for this country yet - add holidays manually instead")
+    return result
 
 
 # ---------------------------------------------------------------------------

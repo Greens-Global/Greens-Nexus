@@ -24,7 +24,7 @@ import {
 } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
 import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
-import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar, SelectMenu, useImageZoom } from '../tasks/components';
+import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar, SelectMenu, useImageZoom } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
@@ -37,7 +37,7 @@ import {
   ticketNo, ticketNoShort, normalizeCode,
   SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
 } from './ticketMeta';
-import { useTicketConfig } from './ticketConfig';
+import { useTicketConfig, COMPANY_FIELD } from './ticketConfig';
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
 } from './TicketAtoms';
@@ -229,7 +229,7 @@ function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
 function TicketMobileFilters({
   onClose, statusFilter, setStatusFilter, priorityFilter, setPriorityFilter,
   typeFilter, setTypeFilter, slaFilter, setSlaFilter, hrDeptFilter, setHrDeptFilter, hrDepts,
-  serviceAreaFilter, setServiceAreaFilter,
+  serviceAreaFilter, setServiceAreaFilter, assigneeFilter, setAssigneeFilter, assigneeOptions,
   groupBy, setGroupBy, showGroup,
 }) {
   const row = { width: '100%', fontSize: 15, padding: '10px 12px' };
@@ -269,6 +269,13 @@ function TicketMobileFilters({
         <TicketSelect value={serviceAreaFilter} onChange={setServiceAreaFilter} style={row}
           options={[['all', 'All service areas'], ['', 'Not set'], ...serviceAreaOptions()]} />
       </div>
+      {assigneeOptions.length > 0 && (
+        <div style={wrap}>
+          <label style={lab}>Assigned To</label>
+          <TicketSelect value={assigneeFilter} onChange={setAssigneeFilter} style={row} searchPlaceholder="Search people…"
+            options={[['all', 'Anyone'], ...assigneeOptions]} />
+        </div>
+      )}
       {showGroup && (
         <div style={wrap}>
           <label style={lab}>Group by</label>
@@ -287,7 +294,7 @@ function TicketMobileFilters({
 function TicketFilterMenu({
   statusFilter, setStatusFilter, priorityFilter, setPriorityFilter, typeFilter, setTypeFilter,
   slaFilter, setSlaFilter, hrDeptFilter, setHrDeptFilter, hrDepts,
-  serviceAreaFilter, setServiceAreaFilter,
+  serviceAreaFilter, setServiceAreaFilter, assigneeFilter, setAssigneeFilter, assigneeOptions,
 }) {
   const [open, setOpen] = useState(false);
   // Not useClickOutside: every filter here is a TicketSelect, which renders
@@ -306,7 +313,7 @@ function TicketFilterMenu({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
-  const active = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter].filter((v) => v !== 'all').length;
+  const active = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter, assigneeFilter].filter((v) => v !== 'all').length;
   const rowStyle = { width: '100%' };
   const wrap = { marginBottom: 10 };
   const lab = { ...label, fontSize: 12 };
@@ -349,8 +356,15 @@ function TicketFilterMenu({
             <TicketSelect value={serviceAreaFilter} onChange={setServiceAreaFilter} style={rowStyle}
               options={[['all', 'All service areas'], ['', 'Not set'], ...serviceAreaOptions()]} />
           </div>
+          {assigneeOptions.length > 0 && (
+            <div style={wrap}>
+              <label style={lab}>Assigned To</label>
+              <TicketSelect value={assigneeFilter} onChange={setAssigneeFilter} style={rowStyle} searchPlaceholder="Search people…"
+                options={[['all', 'Anyone'], ...assigneeOptions]} />
+            </div>
+          )}
           {active > 0 && (
-            <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); setServiceAreaFilter('all'); }}
+            <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); setServiceAreaFilter('all'); setAssigneeFilter('all'); }}
               style={{ ...btn('ghost'), width: '100%', justifyContent: 'center', color: NX.red, fontSize: 12.5 }}>Clear filters</button>
           )}
           </div>
@@ -501,6 +515,7 @@ export default function TicketsView() {
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [hrDeptFilter, setHrDeptFilter] = useState('all');
+  const [assigneeFilter, setAssigneeFilter] = useState('all');
   const [serviceAreaFilter, setServiceAreaFilter] = useState('all');
   const [slaFilter, setSlaFilter] = useState('all');   // all | breached | at_risk | ok
   const [groupBy, setGroupBy] = useState('none');
@@ -591,6 +606,21 @@ export default function TicketsView() {
     completedCollapsed ? collapsedList.filter((k) => k !== 'completed') : [...collapsedList, 'completed'],
   );
 
+  // Assignee filter options - every distinct current assignee across the
+  // tickets already on screen, not a separate directory fetch: this only
+  // ever needs to offer people something is ACTUALLY assigned to right now,
+  // and deriving it from the data in hand keeps it correct with zero extra
+  // calls (same spirit as hrDepts being its own fetch only because
+  // departments genuinely aren't on the ticket rows).
+  const assigneeOptions = useMemo(() => {
+    const byEmail = new Map();
+    for (const t of tickets) {
+      const email = (t.assigneeId || '').toLowerCase();
+      if (email && !byEmail.has(email)) byEmail.set(email, nameOf(t.assigneeId) || t.assigneeId);
+    }
+    return [...byEmail.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [tickets, nameOf]);
+
   // Column sort - click a header to sort by it, click again to flip direction.
   const [sort, setSort] = useState({ key: 'created', dir: 'desc' });
   const onSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
@@ -604,6 +634,7 @@ export default function TicketsView() {
     // still CLEAR the filter, or applying it silently keeps whatever narrowing
     // was on screen and shows a different list than the one it names.
     setServiceAreaFilter(f.serviceAreaFilter ?? 'all');
+    setAssigneeFilter(f.assigneeFilter ?? 'all');
     setSearch(f.search ?? '');
     if (v.group) setGroupBy(v.group);
     if (v.view) setView(v.view);
@@ -613,7 +644,7 @@ export default function TicketsView() {
     if (!name || !name.trim()) return;
     createTicketView({
       name: name.trim(), view, group: groupBy,
-      filters: { scope, statusFilter, priorityFilter, typeFilter, slaFilter, serviceAreaFilter, search },
+      filters: { scope, statusFilter, priorityFilter, typeFilter, slaFilter, serviceAreaFilter, assigneeFilter, search },
     }).catch((e) => alert(`Could not save view: ${e.message || e}`));
   };
 
@@ -629,6 +660,7 @@ export default function TicketsView() {
       // Routing queue (IT Admin): gated requests nobody has been asked to sign off yet.
       if (scope === 'route' && !(t.approvalStatus === 'pending' && !t.approverId)) return false;
       if (hrDeptFilter !== 'all' && (t.hrDepartmentId || '') !== hrDeptFilter) return false;
+      if (assigneeFilter !== 'all' && (t.assigneeId || '').toLowerCase() !== assigneeFilter) return false;
       // 'open' is a bucket, not a status: any state that is not resolved/closed.
       // Without it the Open tile had nothing to select, so it cleared the
       // filters instead - showing closed tickets under a count that excluded them.
@@ -647,7 +679,7 @@ export default function TicketsView() {
       }
       return true;
     });
-  }, [tickets, scope, myEmail, search, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, serviceAreaFilter, approvalCount]);
+  }, [tickets, scope, myEmail, search, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, assigneeFilter, serviceAreaFilter, approvalCount]);
 
   // List-view sort - applied before grouping so it holds within each bucket too.
   const sortTickets = useCallback((list) => {
@@ -792,6 +824,7 @@ export default function TicketsView() {
               slaFilter={slaFilter} setSlaFilter={setSlaFilter}
               hrDeptFilter={hrDeptFilter} setHrDeptFilter={setHrDeptFilter} hrDepts={hrDepts}
               serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
+              assigneeFilter={assigneeFilter} setAssigneeFilter={setAssigneeFilter} assigneeOptions={assigneeOptions}
             />
             <button
               onClick={() => downloadTicketsCsv([...sortedVisible, ...sortedCompleted], nameOf, companyName, hrDeptName)}
@@ -924,7 +957,17 @@ export default function TicketsView() {
           // header/row inside reads the SAME template, so a resize or a
           // drag-reorder repaints the whole grid with zero React re-renders.
           <div className="nx-list-scroll" style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface }}>
-            <div ref={wrapRef} style={{ minWidth: 'fit-content', '--nx-grid': template }}>
+            {/* width (not just minWidth): every column here is a fixed px
+                size, none elastic, so a plain block div - which stretches to
+                fill its parent by default - kept painting the row/header
+                background past the last real column on any screen wider than
+                the columns' sum, reading as a stray blank column (Pranshu,
+                Sep 17 2026: "however much column I'm adding, the table
+                should show that much column only"). fit-content pins this
+                div's actual width to its grid content, so there's nothing
+                left over to paint; still never shrinks below it either, so
+                a narrow screen scrolls horizontally exactly as before. */}
+            <div ref={wrapRef} style={{ width: 'fit-content', minWidth: 'fit-content', '--nx-grid': template }}>
               <TicketListHeader cols={cols} widths={widths} startResize={startResize} resetWidth={resetWidth} autofitWidth={autofitWidth}
                 dragProps={dragProps} sort={sort} onSort={onSort} allSelected={allSelected} someSelected={someSelected} onToggleSelectAll={toggleSelectAll} />
               {groups.map((g) => (
@@ -1009,6 +1052,7 @@ export default function TicketsView() {
               slaFilter={slaFilter} setSlaFilter={setSlaFilter}
               hrDeptFilter={hrDeptFilter} setHrDeptFilter={setHrDeptFilter} hrDepts={hrDepts}
               serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
+              assigneeFilter={assigneeFilter} setAssigneeFilter={setAssigneeFilter} assigneeOptions={assigneeOptions}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'}
             />
           )}
@@ -1507,8 +1551,17 @@ export function CreateTicketModal({ onClose }) {
   const [allDepts, setAllDepts] = useState([]);
   useEffect(() => {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
-    api.getMyTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
   }, []);
+  // Departments come scoped to the requester's own company UNLESS an admin
+  // has turned the company field on (Sep 19) - then the requester may be
+  // filing for a different company than their own, so the unfiltered list
+  // (every company's departments, each carrying its own companyId) is
+  // fetched instead and narrowed client-side to whichever company is
+  // currently picked, same as deptOptions already does below.
+  useEffect(() => {
+    (COMPANY_FIELD.enabled ? api.getTicketDepartments() : api.getMyTicketDepartments())
+      .then(setAllDepts).catch(() => setAllDepts([]));
+  }, [COMPANY_FIELD.enabled]);
   // A draft stashed during a screen recording (recordingDraft.js) seeds the
   // form when it reopens - possibly after the user navigated to another view
   // and back. Consumed exactly once per mount via the ref guard.
@@ -1519,7 +1572,7 @@ export function CreateTicketModal({ onClose }) {
     // Opens on the first type offered, read from the order rather than named
     // here, so the two can never drift into a default that isn't in the list.
     subject: '', description: '', type: TICKET_TYPE_ORDER[0], priority: 'medium', status: 'open',
-    requesterId: myEmail || null, hrDepartmentId: '', application: '',
+    requesterId: myEmail || null, companyId: '', hrDepartmentId: '', application: '',
   });
   const [tf, setTf] = useState(seed?.tf || {});   // per-type field values (keyed by field key)
   const [step, setStep] = useState(seed ? 2 : 1);        // 1 = routing (company/dept/type), 2 = details
@@ -1544,10 +1597,30 @@ export function CreateTicketModal({ onClose }) {
   const svcFieldDefs = useMemo(
     () => withDynamicOptions(serviceFields(serviceArea, form.type), { sites }),
     [serviceArea, form.type, sites]);
-  // Already scoped server-side to the requester's own company
-  // (/ticket-departments?mine=true), so there is nothing to filter here - and
-  // nothing that could offer a department belonging to another company.
-  const deptOptions = allDepts;
+  // Company field on intake (Sep 19, Pranshu: "End user don't have the
+  // ability to choose company... admin have the control to turn on/off the
+  // company field"). Off (the default): unchanged from before this setting
+  // existed - no picker, departments come pre-scoped to the requester's own
+  // company. On: `enabledCompanies` is the admin-picked subset a requester
+  // may choose from - a picker only actually shows when there's a real
+  // choice to make (2+); exactly one auto-fills silently, same "nothing to
+  // choose from" reasoning the department/application fields already use.
+  const enabledCompanies = COMPANY_FIELD.enabled
+    ? companies.filter((c) => COMPANY_FIELD.companyIds.includes(c.id)) : [];
+  const showCompanyPicker = enabledCompanies.length > 1;
+  useEffect(() => {
+    if (COMPANY_FIELD.enabled && enabledCompanies.length === 1 && form.companyId !== enabledCompanies[0].id) {
+      set('companyId', enabledCompanies[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [COMPANY_FIELD.enabled, enabledCompanies.length && enabledCompanies[0]?.id]);
+  // Departments narrow to whichever company is in play: the requester's own
+  // (the field is off, or on with nothing picked yet) or the one they just
+  // chose. allDepts itself is already the right SET (see the load effect
+  // above) - this only picks the right SLICE of it.
+  const deptOptions = COMPANY_FIELD.enabled
+    ? allDepts.filter((d) => d.companyId === form.companyId)
+    : allDepts;
   // The chosen department's NAME - what the app list groups on, since External
   // Links stores department strings rather than HrDepartment ids.
   const deptName = deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || '';
@@ -1557,13 +1630,15 @@ export function CreateTicketModal({ onClose }) {
   // requiring a choice with nothing to choose from would be an inescapable form.
   // Application is demanded on the same terms: only once the directory has
   // actually loaded. Requiring it while the list is still in flight (or after
-  // the lookup failed) would be the same inescapable form.
+  // the lookup failed) would be the same inescapable form. Company follows
+  // the same rule - only demanded when there's an actual picker shown.
   const missingStep1 = useMemo(() => {
     const out = new Set();
+    if (showCompanyPicker && !form.companyId) out.add('companyId');
     if (deptOptions.length > 0 && !form.hrDepartmentId) out.add('hrDepartmentId');
     if (apps.length > 0 && !form.application) out.add('application');
     return out;
-  }, [form.hrDepartmentId, deptOptions, apps, form.application]);
+  }, [showCompanyPicker, form.companyId, form.hrDepartmentId, deptOptions, apps, form.application]);
 
   // ── Step 2 validation ──
   // Recomputed each render, so red marks clear as soon as a field is filled. Only
@@ -1644,7 +1719,7 @@ export function CreateTicketModal({ onClose }) {
         subject: form.subject.trim(), description: form.description, type: form.type, priority: form.priority, status: form.status,
         // Requester defaults to the current user; SLA due date is derived from
         // priority; the service area is derived server-side from application.
-        requesterId: form.requesterId || '', hrDepartmentId: form.hrDepartmentId || '',
+        requesterId: form.requesterId || '', companyId: form.companyId || '', hrDepartmentId: form.hrDepartmentId || '',
         application: form.application || '',
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
@@ -1715,6 +1790,7 @@ export function CreateTicketModal({ onClose }) {
             <span style={{ fontSize: 12.5, color: NX.red, marginRight: 'auto', fontWeight: 600 }}>
               {missingStep1.size > 1 ? 'Fill in the required fields to continue'
                 : missingStep1.has('application') ? 'Select an application to continue'
+                : missingStep1.has('companyId') ? 'Select a company to continue'
                 : 'Select a department to continue'}
             </span>
           )}
@@ -1726,10 +1802,23 @@ export function CreateTicketModal({ onClose }) {
         <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14 }}>
           Where does this ticket belong, and what kind is it? The next step asks for details specific to the type you pick.
         </div>
-        {/* No Company picker. A requester works for exactly one, the server
-            knows which (tickets.company_for), and asking was a question with a
-            single right answer they could still get wrong. The departments
-            offered below are already that company's. */}
+        {/* Company picker (Sep 19, Pranshu) - hidden by default. A requester
+            normally works for exactly one company, the server knows which
+            (tickets.company_for), and asking was a question with a single
+            right answer they could still get wrong - so this only appears
+            at all once an admin has turned it on AND picked 2+ companies to
+            offer (Settings > Tickets > SLA & Types). The departments below
+            are always that chosen company's, never a mix. */}
+        {showCompanyPicker && (
+          <div style={field}>
+            <label style={label}>Company <span style={{ color: NX.red }}>*</span></label>
+            <TicketSelect value={form.companyId} onChange={(v) => { set('companyId', v); set('hrDepartmentId', ''); }}
+              placeholder="Select company" searchPlaceholder="Search companies…" emptyText="No companies to choose from."
+              invalid={showErrors && missingStep1.has('companyId')} style={sel}
+              options={[['', 'Select company'], ...enabledCompanies.map((c) => [c.id, c.name])]} />
+            {showErrors && missingStep1.has('companyId') && <div style={requiredHint}>Required</div>}
+          </div>
+        )}
         <div style={field}>
           <label style={label}>Department {deptOptions.length > 0 && <span style={{ color: NX.red }}>*</span>}</label>
           <TicketSelect value={form.hrDepartmentId} onChange={(v) => set('hrDepartmentId', v)}
@@ -2343,28 +2432,30 @@ export function TicketDrawer({ ticketId, onClose }) {
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(t.serviceArea) || '-'}</div>
           )}
         </div>
-        {canSeeAssignSla && (
-          <div style={field}>
-            <label style={label}>SLA Due Date</label>
-            {fullAccess ? (
-              <DateField value={t.slaDueOn || ''} onChange={(v) => patch({ slaDueOn: v || '' })} color={overdue ? NX.red : undefined}
-                style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
-            ) : (
-              <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-                {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
-              </div>
-            )}
-            {/* "Needs a comment" - a signal separate from the due date above:
-                nobody has said anything in longer than this priority's
-                check-in cadence, whether or not the due date has passed. */}
-            {commentStale(t) && (
-              <div title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h`}
-                style={{ ...chip(COMMENT_STALE_META.color, COMMENT_STALE_META.tint), display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '2px 8px', marginTop: 6 }}>
-                <COMMENT_STALE_META.Icon size={12} />{COMMENT_STALE_META.label}
-              </div>
-            )}
+        {/* NOT gated on canSeeAssignSla (Pranshu, Sep 17 2026: "I want SLA due
+            date for all type of tickets") - that gate exists to keep Assign
+            To a desk decision, not the requester's to make or see while a
+            ticket is still Open, but the due date itself is informational
+            for everyone regardless of who's viewing or what state it's in. */}
+        <div style={field}>
+          <label style={label}>SLA Due Date</label>
+          {/* Read-only always (Pranshu, Sep 17 2026) - it follows Priority
+              automatically (_sla_due_from_priority in update_ticket), and a
+              manual DateField editor here let it drift out of step with the
+              priority it's supposed to track. Change Priority to move it. */}
+          <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
+            {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
           </div>
-        )}
+          {/* "Needs a comment" - a signal separate from the due date above:
+              nobody has said anything in longer than this priority's
+              check-in cadence, whether or not the due date has passed. */}
+          {commentStale(t) && (
+            <div title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h`}
+              style={{ ...chip(COMMENT_STALE_META.color, COMMENT_STALE_META.tint), display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '2px 8px', marginTop: 6 }}>
+              <COMMENT_STALE_META.Icon size={12} />{COMMENT_STALE_META.label}
+            </div>
+          )}
+        </div>
         {CLOSED_STATES.includes(t.status) && (
           <div style={field}>
             <label style={label}>Resolution</label>
@@ -2811,16 +2902,24 @@ function TicketConversation({ ticketId, nameOf }) {
   const [busy, setBusy] = useState(false);
   const people = usePeople();
   const [zoomImage, zoomViewer] = useImageZoom();
+  // A comment updates the ticket row itself (last_comment_at, which drives
+  // the "Needs a comment" staleness badge - ticketMeta.js's commentStale) -
+  // reload() above only re-fetches the comment thread, so without this the
+  // ticket sitting in TasksContext's own state still held the OLD
+  // lastCommentAt, and the badge never cleared after actually commenting
+  // (Pranshu, Sep 17 2026). refresh() re-pulls the ticket list so the drawer
+  // (and every list/board cell showing this ticket) picks up the new value.
+  const { refresh } = useTasks();
   const reload = () => api.getTicketComments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
   const send = async () => {
     if (isEmptyDoc(body) || busy) return;
     setBusy(true);
-    try { await api.addTicketComment(ticketId, { body, internal }); setBody(''); await reload(); }
+    try { await api.addTicketComment(ticketId, { body, internal }); setBody(''); await Promise.all([reload(), refresh()]); }
     catch { /* ignore */ } finally { setBusy(false); }
   };
-  const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); reload(); };
+  const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); await Promise.all([reload(), refresh()]); };
 
   return (
     <div>

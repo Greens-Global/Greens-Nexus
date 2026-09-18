@@ -85,6 +85,35 @@
      Branding (lib/brandAccent.js) the way .primary-btn already does
      (Sagar, Sept 2 2026). */
   --nx-primary:  var(--wk-brand);
+
+  /* Marketing module palette (Sep 19, Pranshu: "audit whole NEXUS... colours
+     are still not accurate" - this module, ported from a standalone
+     Tailwind export, had literal hex everywhere and zero dark-mode wiring
+     at all). Light values below are byte-identical to the original literal
+     hex in marketing/theme.js, so light mode is unchanged; dark values are
+     added in the [data-theme="dark"] block. See marketing/theme.js's `C`
+     object, which every marketing component reads these through. */
+  --mkt-white: #ffffff;
+  --mkt-black: #000000;
+  --mkt-gray50: #f9fafb; --mkt-gray100: #f3f4f6; --mkt-gray200: #e5e7eb; --mkt-gray300: #d1d5db;
+  --mkt-gray400: #9ca3af; --mkt-gray500: #6b7280; --mkt-gray600: #4b5563; --mkt-gray700: #374151;
+  --mkt-gray800: #1f2937; --mkt-gray900: #111827;
+  --mkt-hover: rgba(0,0,0,0.035);
+  --mkt-emerald50: #ecfdf5; --mkt-emerald100: #d1fae5; --mkt-emerald400: #34d399;
+  --mkt-emerald500: #10b981; --mkt-emerald600: #059669; --mkt-emerald700: #047857;
+  --mkt-blue50: #eff6ff; --mkt-blue100: #dbeafe; --mkt-blue200: #bfdbfe;
+  --mkt-blue500: #3b82f6; --mkt-blue600: #2563eb; --mkt-blue700: #1d4ed8;
+  --mkt-amber50: #fffbeb; --mkt-amber100: #fef3c7; --mkt-amber200: #fde68a;
+  --mkt-amber500: #f59e0b; --mkt-amber600: #d97706; --mkt-amber700: #b45309;
+  --mkt-purple50: #faf5ff; --mkt-purple100: #f3e8ff; --mkt-purple200: #e9d5ff;
+  --mkt-purple500: #a855f7; --mkt-purple600: #9333ea; --mkt-purple700: #7e22ce;
+  --mkt-red50: #fef2f2; --mkt-red100: #fee2e2;
+  --mkt-red500: #ef4444; --mkt-red600: #dc2626; --mkt-red700: #b91c1c;
+  --mkt-orange50: #fff7ed; --mkt-orange100: #ffedd5; --mkt-orange500: #f97316; --mkt-orange600: #ea580c;
+  --mkt-teal50: #f0fdfa; --mkt-teal500: #14b8a6; --mkt-teal600: #0d9488;
+  --mkt-pink50: #fdf2f8; --mkt-pink500: #ec4899; --mkt-pink600: #db2777;
+  --mkt-indigo50: #eef2ff; --mkt-indigo500: #6366f1; --mkt-indigo600: #4f46e5;
+  --mkt-cyan50: #ecfeff; --mkt-cyan500: #06b6d4;
 }
 
 [data-theme="dark"] {
@@ -138,6 +167,42 @@
   --nx-hover:    rgba(255,255,255,0.06);
   --nx-zebra:    rgba(255,255,255,0.022);
   --nx-primary:  var(--wk-brand);   /* see the light-theme note above */
+
+  /* Marketing module palette - dark theme (see the light-theme note above).
+     Neutrals invert (gray900, the darkest light-mode text, becomes the
+     near-white PRIMARY dark-mode text - same principle as --ink elsewhere
+     in this file); the pale *50/*100/*200 tint backgrounds become low-alpha
+     translucent versions of their own accent hue (the same "tint, not
+     opaque pastel" pattern tasks/theme.js's STATUS_META/PRIORITY_META
+     already use, so a chip composites correctly over the dark card instead
+     of showing as a glaring light patch); the saturated *500/*600/*700
+     accent/icon shades follow Tailwind's own documented dark-mode
+     convention of swapping a 600/700 shade for the 400/300 of the same
+     hue, so text and icons keep good contrast against a dark card instead
+     of reading as muted/faded. */
+  --mkt-white: var(--card);
+  --mkt-black: #000000;
+  --mkt-gray50:  rgba(255,255,255,0.04);  --mkt-gray100: rgba(255,255,255,0.07);
+  --mkt-gray200: rgba(255,255,255,0.11);  --mkt-gray300: rgba(255,255,255,0.17);
+  --mkt-gray400: #64708a; --mkt-gray500: #8996ac; --mkt-gray600: #aab4c4;
+  --mkt-gray700: #c6cedb; --mkt-gray800: #dde3ec; --mkt-gray900: #f1f4f8;
+  --mkt-hover: rgba(255,255,255,0.05);
+  --mkt-emerald50: rgba(16,185,129,0.14); --mkt-emerald100: rgba(16,185,129,0.22);
+  --mkt-emerald400: #6ee7b7; --mkt-emerald500: #34d399; --mkt-emerald600: #34d399; --mkt-emerald700: #6ee7b7;
+  --mkt-blue50: rgba(59,130,246,0.16); --mkt-blue100: rgba(59,130,246,0.24); --mkt-blue200: rgba(59,130,246,0.32);
+  --mkt-blue500: #60a5fa; --mkt-blue600: #60a5fa; --mkt-blue700: #93c5fd;
+  --mkt-amber50: rgba(245,158,11,0.16); --mkt-amber100: rgba(245,158,11,0.24); --mkt-amber200: rgba(245,158,11,0.32);
+  --mkt-amber500: #fbbf24; --mkt-amber600: #fbbf24; --mkt-amber700: #fcd34d;
+  --mkt-purple50: rgba(168,85,247,0.16); --mkt-purple100: rgba(168,85,247,0.24); --mkt-purple200: rgba(168,85,247,0.32);
+  --mkt-purple500: #c084fc; --mkt-purple600: #c084fc; --mkt-purple700: #d8b4fe;
+  --mkt-red50: rgba(239,68,68,0.16); --mkt-red100: rgba(239,68,68,0.24);
+  --mkt-red500: #f87171; --mkt-red600: #f87171; --mkt-red700: #fca5a5;
+  --mkt-orange50: rgba(249,115,22,0.16); --mkt-orange100: rgba(249,115,22,0.24);
+  --mkt-orange500: #fb923c; --mkt-orange600: #fb923c;
+  --mkt-teal50: rgba(20,184,166,0.16); --mkt-teal500: #2dd4bf; --mkt-teal600: #2dd4bf;
+  --mkt-pink50: rgba(236,72,153,0.16); --mkt-pink500: #f472b6; --mkt-pink600: #f472b6;
+  --mkt-indigo50: rgba(99,102,241,0.16); --mkt-indigo500: #818cf8; --mkt-indigo600: #818cf8;
+  --mkt-cyan50: rgba(6,182,212,0.16); --mkt-cyan500: #22d3ee;
 }
 
 /* â”€â”€ Reset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -748,7 +813,16 @@ h1,h2,h3,h4,h5,h6,
 }
 .form-input:focus, .form-select:focus {
   border-color: var(--wk-brand);
-  background: var(--card);
+  /* background-color, not `background` (Sep 19: "dropdowns are normal if i
+     don't click on them - once i click on them same issue as earlier" - this
+     is the ACTUAL bug, in both themes: clicking a select to open it focuses
+     it, and this un-scoped :focus rule's `background` shorthand was
+     resetting background-repeat to its default on every focus, retiling the
+     chevron. The earlier dark-only background-color fix on the [data-
+     theme="dark"] rules never touched this one, so the moment you clicked
+     any select the tiling came right back, in light mode too - just less
+     visible there against a near-white chevron stroke). */
+  background-color: var(--card);
   box-shadow: 0 0 0 3px var(--wk-brand-tint);
 }
 .form-input::placeholder, .form-select::placeholder, textarea::placeholder { color: var(--wk-faint); }
@@ -884,13 +958,18 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 
 [data-theme="dark"] .form-input,
 [data-theme="dark"] .form-select {
-  background: var(--mist);
+  /* background-color, not the `background` shorthand (Sep 19: "This week"
+     and "Update a document" selects showed a whole row of tiled chevrons
+     instead of one) - `background: var(--mist)` here was resetting
+     background-repeat/position/image to their initial values on every
+     <select> app-wide, undoing the single no-repeat chevron set above. */
+  background-color: var(--mist);
   border-color: rgba(255,255,255,0.1);
   color: var(--ink);
 }
 [data-theme="dark"] .form-input:focus,
 [data-theme="dark"] .form-select:focus {
-  background: var(--card);
+  background-color: var(--card);   /* longhand - see the note above */
   border-color: rgba(255,255,255,0.3);
   box-shadow: 0 0 0 3px rgba(255,255,255,0.06);
 }
@@ -2961,6 +3040,44 @@ button, [role="button"], select { touch-action: manipulation; }
   --wk-shadow:    0 4px 12px rgba(29,33,57,.05);
   --wk-shadow-hov:0 8px 20px rgba(29,33,57,.09);
   --wk-font:      'Figtree', 'Inter', sans-serif;
+}
+
+/* Dark mode for the Work OS token layer (Sep 19, Pranshu: "audit across
+   whole NEXUS, dark mode is very messed up... the actual colours of icon
+   has also faded"). These --wk-* tokens back nearly every icon chip, badge,
+   border and hover state across every module, but until now only ever had
+   ONE (light) definition - [data-theme="dark"] never touched them. Some
+   individual components (the .dk-* dashboard, .wkc cards, .ppl-table, …)
+   were separately hand-patched with their own [data-theme="dark"] override
+   over the years, which is why dark mode looked "fine in spots, broken
+   everywhere else": every OTHER screen that reads --wk-ink/--wk-dim/
+   --wk-card/--wk-brand-tint/--wk-green etc. directly was silently still
+   rendering light-mode values on a dark background - pale chip tints,
+   washed-out icon colors, near-invisible borders. Fixing the tokens
+   themselves fixes every one of those screens at once instead of patching
+   them individually. The accent hues below match the already-correct
+   --ok-fg/--warn-fg/--bad-fg/--info-fg and .dk-chip--* dark values already
+   in this file, so nothing that WAS already patched changes look. */
+[data-theme="dark"] {
+  --wk-bg:        var(--paper);
+  --wk-card:      var(--card);
+  --wk-ink:       var(--ink);
+  --wk-dim:       var(--muted);
+  --wk-faint:     var(--text-muted);
+  --wk-line:      rgba(255,255,255,0.10);
+  --wk-line2:     rgba(255,255,255,0.08);
+  --wk-hover:     rgba(255,255,255,0.05);
+  --wk-brand-tint:rgba(43,69,225,0.18);
+  --wk-green:     #4ade80;
+  --wk-green-bg:  rgba(0,200,117,.14);
+  --wk-orange:    #fbbf24;
+  --wk-orange-bg: rgba(232,147,12,.16);
+  --wk-red:       #f87171;
+  --wk-red-bg:    rgba(226,68,92,.16);
+  --wk-blue:      #60a5fa;
+  --wk-blue-bg:   rgba(61,126,232,.18);
+  --wk-shadow:    0 4px 12px rgba(0,0,0,.45);
+  --wk-shadow-hov:0 8px 24px rgba(0,0,0,.55);
 }
 
 /* ── Warm theme ("Sand" - Lisso-inspired, owner request Jul 28) ────────────

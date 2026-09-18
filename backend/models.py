@@ -752,7 +752,13 @@ class NexusEmployee(Base):
     manager_email   = Column(String, default="")               # reporting line -> org chart (Phase 5)
     photo_url       = Column(String, default="")
     status          = Column(String, default="active")         # onboarding | active | inactive | offboarded
-    location        = Column(String, default="")
+    location        = Column(String, default="")               # free-text office/site description, e.g. "Escondido office"
+    # ISO 3166-1 alpha-2, e.g. "IN"/"US" (Sep 19, Pranshu: "phone number in
+    # sign should be pulled from HR directory not from company setup" - a
+    # company's own registered country doesn't always match where a given
+    # employee actually is). Structured (a <select>, not free text like
+    # `location` above) so it can drive a real dial-code lookup.
+    country         = Column(String, default="")
     company         = Column(String, default="")               # HrEntity.id - which legal entity employs this worker
     contractor      = Column(JSON, default=dict)               # contractor-only fields (scope/SOW/dates/rate/client) - HR Section A
     personal        = Column(JSON, default=dict)               # emergency contact, addresses, DOB, masked IDs - HR Section B
@@ -811,12 +817,30 @@ class NexusEmployee(Base):
     # Email signature overrides (Sep 16, Neil): name/role/company email are NOT
     # editable here - they stay pulled live from the directory fields above so
     # the signature can't drift from who someone actually is ("keeps everybody
-    # honest"). Only these two are self-service; empty = fall back to
+    # honest"). Only these are self-service; empty = fall back to
     # display_name/first+last and phone respectively.
     signature_display_name = Column(String, default="")        # preferred name shown on signature, e.g. "Sahil" -> "Sam"
     signature_phone         = Column(String, default="")       # override for signature only (e.g. desk line instead of cell)
     signature_template      = Column(String, default="classic") # which visual layout this employee picked (myhr.SIGNATURE_TEMPLATES)
-    signature_closing       = Column(String, default="")        # preset sign-off line, e.g. "Sincerely" (myhr.SIGNATURE_CLOSINGS) - '' = template default
+    # Sign-off is personal now (Sep 19, Pranshu: "Admin should not have the
+    # control of Sign off... it should be employee specific") - was company-
+    # wide (HrEntity.signature_closing, below); this column already existed
+    # but sat unused since Sep 16. Free text, not just a preset pick - an
+    # employee can type their own closing line entirely.
+    signature_closing       = Column(String, default="")        # this employee's own sign-off line, e.g. "Sincerely" - '' = template default
+    # Personal LinkedIn for the signature's icon row (Sep 19) - was pulled from
+    # the COMPANY's LinkedIn (HrEntity.linkedin_url, since removed from the
+    # Company Setup form) but a person's LinkedIn profile is theirs, not their
+    # employer's.
+    linkedin_url             = Column(String, default="")
+    # Personal signature logo override (Sep 19, Pranshu: "i want to have
+    # employee the ability to upload the logo for their signature... rest
+    # format of sign remain same") - '' falls back to the COMPANY's logo
+    # (HrEntity.logo_url), same override-with-fallback pattern as
+    # signature_phone/signature_display_name above. Only the logo IMAGE
+    # changes; name/role/email/template/address/socials are untouched -
+    # this isn't a second branding system, just one picture swapped out.
+    signature_logo_url       = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):
@@ -1266,18 +1290,27 @@ class HrEntity(Base):
     # and other branded surfaces pull from - set once here, consistent everywhere.
     website            = Column(String, default="")
     main_phone         = Column(String, default="")
+    # What main_phone actually is (Sep 18) - "phone" numbers store the dial
+    # code baked into main_phone itself ("+1 7003313331"); fax/telephone
+    # don't use a country-code picker, so main_phone is just the raw value.
+    main_phone_type    = Column(String, default="phone")
     # Social links for the signature's icon row (Sep 16, Pranshu) - company-wide
     # like the rest of branding, not per-employee, so every signature carries the
     # same official company pages.
     facebook_url       = Column(String, default="")
+    # linkedin_url here is VESTIGIAL (Sep 19) - LinkedIn moved to the employee
+    # (NexusEmployee.linkedin_url, a person's profile is theirs, not their
+    # employer's). Column kept rather than dropped so no existing data is
+    # lost; nothing reads it anymore.
     linkedin_url       = Column(String, default="")
     twitter_url        = Column(String, default="")
     instagram_url      = Column(String, default="")
-    # Signature template/sign-off (Sep 16, Pranshu): an admin-picked, company-
-    # wide default in Settings - not a per-employee choice. Every employee's
-    # signature uses their employer's pick (myhr.SIGNATURE_TEMPLATES /
-    # SIGNATURE_CLOSINGS); only display name and phone stay self-service.
+    # Signature template (Sep 16, Pranshu): an admin-picked, company-wide
+    # default in Settings - not a per-employee choice (myhr.SIGNATURE_TEMPLATES).
     signature_template = Column(String, default="classic")
+    # signature_closing here is ALSO VESTIGIAL (Sep 19) - sign-off moved to
+    # the employee too (NexusEmployee.signature_closing): "Admin should not
+    # have the control of Sign off... it should be employee specific."
     signature_closing  = Column(String, default="")
 
 
@@ -1352,6 +1385,53 @@ class HrWorkSite(Base):
     radius_m      = Column(Integer, default=150)       # geofence radius in metres
     company       = Column(String, default="")         # HrEntity.id this site belongs to (optional)
     notes         = Column(String, default="")
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class HrCompanyHoliday(Base):
+    """A holiday on a specific company's calendar (Sep 18, Pranshu: "if i add
+    a holiday for Greens global the employee in greens global can see that
+    holiday in their Calendar dashboard"). Two ways a row gets here: picked
+    from a country's public holidays (source="public", country_code set) or
+    typed in directly by the admin (source="manual"). Either way it's just a
+    flat date + name once created - there's no ongoing link back to the
+    public-holiday API, so a holiday that moves next year doesn't silently
+    move here too."""
+    __tablename__ = "hr_company_holidays"
+    id            = Column(String, primary_key=True)   # uuid
+    company_id    = Column(String, nullable=False, index=True)   # HrEntity.id
+    date          = Column(String, nullable=False)     # YYYY-MM-DD
+    name          = Column(String, nullable=False)
+    source        = Column(String, default="manual")   # "manual" | "public"
+    country_code  = Column(String, default="")         # set when source="public"
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class HrManualSignature(Base):
+    """A hand-filled signature that isn't tied to any NexusEmployee record
+    (Sep 19, Pranshu: "if the email is not integrated in NEXUS but we want
+    the same sig for that sender email") - a shared mailbox, an external
+    partner, or anyone Nexus doesn't have a directory row for yet. Rendered
+    with the SAME template the company has picked for everyone else
+    (myhr.SIGNATURE_TEMPLATES), just fed from these typed-in fields instead
+    of a directory record. New table - create_all builds it, no migration
+    line needed."""
+    __tablename__ = "hr_manual_signatures"
+    id            = Column(String, primary_key=True)   # uuid
+    company_id    = Column(String, nullable=False, index=True)   # HrEntity.id
+    name          = Column(String, nullable=False)      # e.g. "Sales Inbox"
+    title         = Column(String, default="")
+    company_name  = Column(String, default="")
+    address       = Column(String, default="")
+    url           = Column(String, default="")
+    logo_url      = Column(String, default="")
+    # Free-form extra rows (Sep 19: "custom addable field so we can add
+    # custom fields of how much we want") - [{"label": "...", "value": "..."}].
+    custom_fields = Column(JSON, default=list)
     created_by    = Column(String, default="")
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
@@ -2433,11 +2513,16 @@ class TrackPing(Base):
 class MonitoringPolicy(Base):
     """Admin-set, server-side policy the desktop agent fetches each heartbeat -
     replaces the agent's hardcoded interval/toggles so capture cadence and what's
-    collected are controlled centrally and auditable. Single row (id='default').
-    DISCLOSED monitoring: capture only runs while clocked in and after the
-    employee acknowledges it (see MonitoringConsent); this row just governs HOW."""
+    collected are controlled centrally and auditable. One row per company
+    (Sep 19, Pranshu: "all companies have their different workforce analytics
+    policy") plus a company_id="" fallback row (formerly the single id='default'
+    row) used for anyone with no company set, or a company that hasn't gotten
+    its own row yet. DISCLOSED monitoring: capture only runs while clocked in
+    and after the employee acknowledges it (see MonitoringConsent); this row
+    just governs HOW."""
     __tablename__ = "monitoring_policy"
     id               = Column(String, primary_key=True, default="default")
+    company_id       = Column(String, default="", index=True)   # HrEntity.id; "" = fallback
     enabled          = Column(Integer, default=1)   # master switch; 0 = no capture at all
     interval_minutes = Column(Integer, default=5)   # base cadence between captures
     randomize        = Column(Integer, default=1)   # jitter the interval so a shot can't be timed/gamed

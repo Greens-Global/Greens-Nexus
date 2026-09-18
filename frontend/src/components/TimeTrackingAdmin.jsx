@@ -484,21 +484,25 @@ const MON_SUBTABS = [
   { id: 'screenshots', label: 'Screenshots' },
 ];
 
-// ── Monitoring Policy (standalone) ─────────────────────────────────────────────
-// Named-exported so the Admin module can embed it directly as "Workforce
-// Analytics Policy" (Pranshu, Sep 11) - this used to be a Policy tab here,
-// now it lives only under Admin -> Company Settings.
-export function MonitoringPolicy() {
+// ── Monitoring Policy (per company) ────────────────────────────────────────────
+// Named-exported so it can be embedded as a company's "Workforce Analytics
+// Policy" tab (Pranshu, Sep 19: "all companies have their different
+// workforce analytics policy" - moved from one shared Admin Settings section
+// into Settings -> Company Setup -> a company's own tab, beside Overview).
+export function MonitoringPolicy({ companyId }) {
   const [policy, setPolicy] = useState(null);
   const [policyMsg, setPolicyMsg] = useState(null);   // {ok, text}
   const [savingPolicy, setSavingPolicy] = useState(false);
-  useEffect(() => { api.timeMonitoringPolicy().then(setPolicy).catch(() => setPolicy(null)); }, []);
+  useEffect(() => {
+    setPolicy(null);
+    api.timeCompanyMonitoringPolicy(companyId).then(setPolicy).catch(() => setPolicy(null));
+  }, [companyId]);
 
   async function savePolicy() {
     if (!policy || savingPolicy) return;
     setSavingPolicy(true); setPolicyMsg(null);
     try {
-      const saved = await api.timeSetMonitoringPolicy({
+      const saved = await api.timeSetCompanyMonitoringPolicy(companyId, {
         enabled:         !!policy.enabled,
         interval_minutes: Math.min(60, Math.max(1, Number(policy.intervalMinutes) || 5)),
         randomize:       !!policy.randomize,
@@ -517,7 +521,7 @@ export function MonitoringPolicy() {
   return (
     <div>
       <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
-        Sets what Nexus records while people are clocked in. Capture runs in the browser (Chrome screen sharing) -
+        Sets what Nexus records while this company's people are clocked in. Capture runs in the browser (Chrome screen sharing) -
         there’s no separate app to install. Employees see this notice and acknowledge it the first time they clock in
         each day. Changes take effect the next time someone starts a session.
       </p>

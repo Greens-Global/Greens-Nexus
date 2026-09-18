@@ -741,6 +741,10 @@ export const api = {
   getWebsites: () => req("/websites"),
   createWebsite: (data) => req("/websites", { method: "POST", body: JSON.stringify(data) }),
 
+  // Support > System & Design
+  getSupportSystemInfo: () => req("/support/system-info"),
+  getSupportDataDictionary: () => req("/support/data-dictionary"),
+
   // External Links
   getExternalLinks: () => req("/external-links"),
   getExternalLinksMeta: () => req("/external-links/meta"),
@@ -1007,7 +1011,12 @@ export const api = {
   // see services/logo_video.py) - the default 18s fetch timeout would abort
   // a slow conversion well before the server even times out.
   uploadEntityLogo: (id, form) => req(`/hr/entities/${id}/logo`, { method: 'POST', body: form, timeoutMs: 90_000 }),
-  getEntitySignatureTemplates: (id, closing) => req(`/hr/entities/${id}/signature-templates${closing != null ? `?closing=${encodeURIComponent(closing)}` : ''}`),
+  getEntitySignatureTemplates: (id) => req(`/hr/entities/${id}/signature-templates`),
+  getManualSignatures: (id) => req(`/hr/entities/${id}/manual-signatures`),
+  createManualSignature: (id, data) => req(`/hr/entities/${id}/manual-signatures`, { method: 'POST', body: JSON.stringify(data) }),
+  updateManualSignature: (id, sigId, data) => req(`/hr/entities/${id}/manual-signatures/${sigId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteManualSignature: (id, sigId) => req(`/hr/entities/${id}/manual-signatures/${sigId}`, { method: 'DELETE' }),
+  uploadManualSignatureLogo: (id, sigId, form) => req(`/hr/entities/${id}/manual-signatures/${sigId}/logo`, { method: 'POST', body: form, timeoutMs: 90_000 }),
   getGroupManager: ()        => req('/hr/group-manager'),
   setGroupManager: (email)   => req('/hr/group-manager', { method: 'PUT', body: JSON.stringify({ email }) }),
   deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),
@@ -1020,6 +1029,11 @@ export const api = {
   createWorkSite: (data)     => req('/hr/work-sites', { method: 'POST', body: JSON.stringify(data) }),
   updateWorkSite: (id, data) => req(`/hr/work-sites/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteWorkSite: (id)       => req(`/hr/work-sites/${id}`, { method: 'DELETE' }),
+  // per-company holiday calendar
+  getCompanyHolidays:    (entityId)         => req(`/hr/entities/${entityId}/holidays`),
+  createCompanyHoliday:  (entityId, data)   => req(`/hr/entities/${entityId}/holidays`, { method: 'POST', body: JSON.stringify(data) }),
+  deleteCompanyHoliday:  (entityId, id)     => req(`/hr/entities/${entityId}/holidays/${id}`, { method: 'DELETE' }),
+  getPublicHolidays:     (country, year)    => req(`/hr/public-holidays?country=${encodeURIComponent(country)}${year ? `&year=${year}` : ''}`),
 
   // HR - compensation + bank (restricted: hr_comp grant / owner)
   getCompensation:  (id)       => req(`/hr/employees/${id}/compensation`),
@@ -1159,8 +1173,10 @@ export const api = {
   timeShots:         (date, email) => req(`/timeclock/screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
   // Disclosed monitoring: per-shift consent, admin policy, manager-scoped gallery
   timeMonitoringConsent: () => req('/timeclock/monitoring/consent', { method: 'POST', body: JSON.stringify({ text_version: '', tz_offset_min: new Date().getTimezoneOffset() }) }),
-  timeMonitoringPolicy:  () => req('/timeclock/monitoring/policy'),
-  timeSetMonitoringPolicy: (data) => req('/timeclock/monitoring/policy', { method: 'PUT', body: JSON.stringify(data) }),
+  // Per-company now (Sep 19) - admin views/edits one company's policy from
+  // Settings -> Company Setup -> that company's Workforce Analytics Policy tab.
+  timeCompanyMonitoringPolicy:    (companyId)       => req(`/timeclock/monitoring/policy/${companyId}`),
+  timeSetCompanyMonitoringPolicy: (companyId, data) => req(`/timeclock/monitoring/policy/${companyId}`, { method: 'PUT', body: JSON.stringify(data) }),
   timeTeamShots:     (date, email) => req(`/timeclock/team-screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
   timeBodDay:        (email, date) => req(`/timeclock/bod/day?email=${encodeURIComponent(email || '')}&date=${date || ''}`),
   timeMonitoringAlerts: () => req('/timeclock/monitoring/alerts'),
@@ -1207,6 +1223,8 @@ export const api = {
   dashAgenda:     (start, end, tz) => req(`/dashboards/agenda?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&tz=${encodeURIComponent(tz)}`),
   // Whole-roster birthdays (month/day only, no year) - active Nexus employees.
   dashBirthdays:  ()               => req('/dashboards/birthdays'),
+  // The caller's own company's holiday calendar (exact dates, admin-managed).
+  dashHolidays:   ()               => req('/dashboards/holidays'),
 
   // ── My HR (employee self-service - own record only) ──
   myHrProfile:     ()      => req('/myhr/profile'),
@@ -1216,6 +1234,8 @@ export const api = {
   myHrPhotoRemove: ()      => req('/myhr/profile/photo', { method: 'DELETE' }),
   mySignature:     ()      => req('/myhr/signature'),
   mySignatureSave: (body)  => req('/myhr/signature', { method: 'PUT', body: JSON.stringify(body) }),
+  mySignatureLogoUpload: (form) => req('/myhr/signature/logo', { method: 'POST', body: form }),
+  mySignatureLogoRemove: ()     => req('/myhr/signature/logo', { method: 'DELETE' }),
   myHrDocs:        ()      => req('/myhr/documents'),
   myHrDocDownload: (rid)   => req(`/myhr/documents/${rid}/download`),
   myPaystubs:      ()      => req('/myhr/paystubs'),

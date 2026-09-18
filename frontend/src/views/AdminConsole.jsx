@@ -35,11 +35,12 @@
 // (Pranshu, Sep 11) - unused. Workforce Analytics Policy (the old Policy tab
 // under Employee Tracking) moved in as its replacement in the Company
 // Settings list.
-import { useState, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronDown, Tag, Shield, SlidersHorizontal,
-  Headset, Bell, Building2, MapPin, RefreshCw, Loader2, Timer,
-  UserCog, Activity, DoorOpen, ShieldCheck, Signature, Check,
+  Headset, Bell, Building2, RefreshCw, Loader2, Timer,
+  UserCog, Activity, DoorOpen, Signature, Check, Eye, X,
+  Plus, Pencil, Trash2, Upload, Copy,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -52,10 +53,7 @@ import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
 // admin actually opens that section.
 const ManageTypesModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.ManageTypesModal })));
 const CustomFieldsAdminModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.CustomFieldsAdminModal })));
-const EntitiesModal = lazy(() => import('./HR').then(m => ({ default: m.EntitiesModal })));
-const WorkSitesModal = lazy(() => import('./HR').then(m => ({ default: m.WorkSitesModal })));
-// Workforce Analytics Policy (Sep 11) - named-exported from TimeTrackingAdmin.jsx.
-const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
+const CompanySetupPage = lazy(() => import('./HR').then(m => ({ default: m.CompanySetupPage })));
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
 // `embedded` skips its own page header, since it gets one from the tab here.
@@ -188,21 +186,10 @@ function TicketSettingsSections() {
   );
 }
 
-// ── Workforce Analytics Policy ──────────────────────────────────────────────────
-// Moved here whole (Pranshu, Sep 11) - was the Policy tab on Workforce
-// Analytics (Employee Tracking); that screen's own tab strip no longer
-// carries it. Reuses MonitoringPolicy exactly, named-exported from
-// TimeTrackingAdmin.jsx so behavior can't drift between here and there.
-function WorkforceAnalyticsPolicySection() {
-  return (
-    <Section icon={ShieldCheck} title="Workforce Analytics Policy" defaultOpen={false}
-      sub="What Nexus records while people are clocked in, and how often - originally the Policy tab under Workforce Analytics.">
-      <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>}>
-        <MonitoringPolicy />
-      </Suspense>
-    </Section>
-  );
-}
+// Workforce Analytics Policy moved OUT of here (Sep 19, Pranshu: "all
+// companies have their different workforce analytics policy") - it's no
+// longer one shared setting, so it lives on each company's own tab in
+// Settings -> Company Setup instead. See HR.jsx's CompanySetupPage.
 
 // ── Email Signature (Pranshu, Sep 16) ──────────────────────────────────────────
 // Template + sign-off are a company-wide admin choice here, not a personal one
@@ -214,27 +201,64 @@ function WorkforceAnalyticsPolicySection() {
 // record automatically; preferred display name and phone override stay
 // self-service in My Profile (header → account menu) since those genuinely
 // are personal, just not the template.
+// The little rectangle that actually shows a signature's markup is a stand-in
+// for how it'll look pasted into an email - always white paper with dark
+// text, on purpose, the same in light or dark Nexus (an email client never
+// knows or cares what theme the admin's browser is in). Only the card CHROME
+// around it (border, label, buttons, the zoom modal's frame) follows Nexus's
+// own theme - that's the piece that was stuck hardcoded to white (Sep 19:
+// "when i'm changing the mode of NEXUS to dark the template background
+// should go black - but it is not").
+function SignaturePaper({ html, height = 60, scale = 0.7 }) {
+  return (
+    <div style={{ background: '#fff', borderRadius: 4, overflow: 'hidden', height, pointerEvents: 'none' }}>
+      <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: `${Math.round(100 / scale)}%` }}
+        dangerouslySetInnerHTML={{ __html: html }} />
+    </div>
+  );
+}
+
+function SignatureZoomModal({ title, html, onClose }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 12, maxWidth: 560, width: '100%', maxHeight: '80vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{title}</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div style={{ padding: 20, background: '#fff' }} dangerouslySetInnerHTML={{ __html: html }} />
+      </div>
+    </div>
+  );
+}
+
 function EmailSignatureSection({ toastOk, toastErr }) {
   const [entities, setEntities] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [companyId, setCompanyId] = useState('');
-  const [data, setData] = useState(null);       // { templates, closings, template, closing }
+  const [data, setData] = useState(null);       // { templates, template }
   const [selectedTemplate, setSelectedTemplate] = useState('classic');
-  const [selectedClosing, setSelectedClosing] = useState('');
   const [previewBusy, setPreviewBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
+  const [zoomTemplate, setZoomTemplate] = useState(null);   // { label, html } | null - full-size eye-icon preview
+  const [manualSigs, setManualSigs] = useState([]);
+  const [manualModal, setManualModal] = useState(null);     // 'new' | sig object | null
 
-  const loadPreview = useCallback((id, closing) => {
+  const loadPreview = useCallback((id) => {
     if (!id) return;
     setPreviewBusy(true);
-    api.getEntitySignatureTemplates(id, closing)
-      .then(d => {
-        setData(d);
-        setSelectedTemplate(d.template);
-        setSelectedClosing(closing != null ? closing : d.closing);
-      })
+    api.getEntitySignatureTemplates(id)
+      .then(d => { setData(d); setSelectedTemplate(d.template); })
       .catch(() => {})
       .finally(() => setPreviewBusy(false));
+  }, []);
+
+  const loadManualSigs = useCallback((id) => {
+    if (!id) return;
+    api.getManualSignatures(id).then(setManualSigs).catch(() => {});
   }, []);
 
   const load = useCallback(() => {
@@ -242,34 +266,41 @@ function EmailSignatureSection({ toastOk, toastErr }) {
     setLoaded(true);
     api.getEntities().then(rows => {
       setEntities(rows || []);
-      if (rows?.length) { setCompanyId(rows[0].id); loadPreview(rows[0].id); }
+      if (rows?.length) { setCompanyId(rows[0].id); loadPreview(rows[0].id); loadManualSigs(rows[0].id); }
     }).catch(() => {});
-  }, [loaded, loadPreview]);
+  }, [loaded, loadPreview, loadManualSigs]);
 
   function pickCompany(id) {
     setCompanyId(id);
     setData(null);
+    setManualSigs([]);
     loadPreview(id);
-  }
-
-  function pickClosing(c) {
-    setSelectedClosing(c);
-    loadPreview(companyId, c);
+    loadManualSigs(id);
   }
 
   async function save() {
     if (!companyId || saveBusy) return;
     setSaveBusy(true);
     try {
-      await api.updateEntity(companyId, { signature_template: selectedTemplate, signature_closing: selectedClosing });
-      toastOk('Company signature updated - every employee at this company picks it up automatically.');
+      await api.updateEntity(companyId, { signature_template: selectedTemplate });
+      toastOk('Company signature template updated - every employee at this company picks it up automatically.');
+      loadManualSigs(companyId);   // manual signatures render with this template too
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
     setSaveBusy(false);
   }
 
+  async function deleteManualSig(sig) {
+    if (!window.confirm(`Delete the "${sig.name}" signature?`)) return;
+    try {
+      await api.deleteManualSignature(companyId, sig.id);
+      setManualSigs(rows => rows.filter(r => r.id !== sig.id));
+      toastOk('Signature deleted.');
+    } catch (e) { toastErr(e?.message || 'Could not delete.'); }
+  }
+
   return (
     <Section icon={Signature} title="Email Signature" onToggle={load}
-      sub="One template + sign-off per company, applied to every employee's signature automatically - name/role/e-mail still come from their own directory record.">
+      sub="One visual template per company, applied to every employee's signature automatically - name/role/e-mail still come from their own directory record. Sign-off and LinkedIn are each employee's own choice, set from My Profile.">
       {entities.length === 0 ? (
         <div style={{ fontSize: 13, color: 'var(--muted)' }}>{loaded ? 'No companies set up yet - add one under Company Setup first.' : 'Loading…'}</div>
       ) : (
@@ -288,67 +319,261 @@ function EmailSignatureSection({ toastOk, toastErr }) {
                 {data.templates.map(t => {
                   const selected = t.id === selectedTemplate;
                   return (
-                    <button key={t.id} onClick={() => setSelectedTemplate(t.id)}
+                    <div key={t.id} role="button" tabIndex={0} onClick={() => setSelectedTemplate(t.id)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTemplate(t.id); } }}
                       style={{
                         textAlign: 'left', cursor: 'pointer', padding: 10, borderRadius: 8,
                         border: selected ? '2px solid hsl(var(--color-green))' : '1px solid var(--line)',
-                        background: '#fff', position: 'relative',
+                        background: 'var(--card)', position: 'relative',
                       }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#111', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <button type="button" title={`Preview ${t.label} full-size`}
+                        onClick={e => { e.stopPropagation(); setZoomTemplate(t); }}
+                        style={{
+                          position: 'absolute', top: 6, right: 6, background: 'var(--card)',
+                          border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer',
+                          display: 'flex', padding: 4, color: 'var(--muted)', zIndex: 1,
+                        }}>
+                        <Eye size={13} />
+                      </button>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
                         {t.label}
                         {selected && <Check size={12} style={{ color: 'hsl(var(--color-green))' }} />}
                       </div>
-                      <div style={{ overflow: 'hidden', height: 60, pointerEvents: 'none' }}>
-                        <div style={{ transform: 'scale(0.7)', transformOrigin: 'top left', width: '143%' }}
-                          dangerouslySetInnerHTML={{ __html: t.html }} />
-                      </div>
-                    </button>
+                      <SignaturePaper html={t.html} />
+                    </div>
                   );
                 })}
-              </div>
-              <div style={{ marginBottom: 14, maxWidth: 320 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-                  Sign-off (Sincerely / Kind Regards templates only)
-                </label>
-                <select className="form-input" style={{ width: '100%' }} value={selectedClosing} onChange={e => pickClosing(e.target.value)}>
-                  {data.closings.map(c => <option key={c} value={c}>{c || 'Template default'}</option>)}
-                </select>
               </div>
               <button className="primary-btn" onClick={save} disabled={saveBusy}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: saveBusy ? 0.6 : 1 }}>
                 {saveBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} Save
               </button>
+
+              <div style={{ marginTop: 22, marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                  Manual Signatures
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  For a sender email that isn't a Nexus employee - a shared inbox, an external contact, anyone without a directory record. Uses this company's template above.
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+                {manualSigs.map(sig => (
+                  <div key={sig.id} style={{ textAlign: 'left', padding: 10, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', position: 'relative' }}>
+                    <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4, zIndex: 1 }}>
+                      <button type="button" title={`Preview ${sig.name} full-size`} onClick={() => setZoomTemplate({ label: sig.name, html: sig.html })}
+                        style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'var(--muted)' }}>
+                        <Eye size={13} />
+                      </button>
+                      <button type="button" title="Edit" onClick={() => setManualModal(sig)}
+                        style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'var(--muted)' }}>
+                        <Pencil size={13} />
+                      </button>
+                      <button type="button" title="Delete" onClick={() => deleteManualSig(sig)}
+                        style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'hsl(var(--color-red))' }}>
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', marginBottom: 6, paddingRight: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {sig.name}
+                    </div>
+                    <SignaturePaper html={sig.html} />
+                  </div>
+                ))}
+                <div role="button" tabIndex={0} onClick={() => setManualModal('new')}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setManualModal('new'); } }}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
+                    minHeight: 92, cursor: 'pointer', borderRadius: 8, border: '1.5px dashed var(--line)',
+                    background: 'transparent', color: 'var(--muted)',
+                  }}>
+                  <Plus size={18} />
+                  <span style={{ fontSize: 11.5, fontWeight: 600 }}>Add Signature</span>
+                </div>
+              </div>
             </>
           )}
         </>
+      )}
+      {zoomTemplate && (
+        <SignatureZoomModal title={zoomTemplate.label} html={zoomTemplate.html} onClose={() => setZoomTemplate(null)} />
+      )}
+      {manualModal && (
+        <ManualSignatureModal
+          companyId={companyId}
+          sig={manualModal === 'new' ? null : manualModal}
+          onClose={() => setManualModal(null)}
+          onSaved={updated => {
+            setManualSigs(rows => {
+              const exists = rows.some(r => r.id === updated.id);
+              return exists ? rows.map(r => (r.id === updated.id ? updated : r)) : [...rows, updated];
+            });
+          }}
+          toastOk={toastOk} toastErr={toastErr}
+        />
       )}
     </Section>
   );
 }
 
+function ManualSignatureModal({ companyId, sig, onClose, onSaved, toastOk, toastErr }) {
+  const [name, setName] = useState(sig?.name || '');
+  const [title, setTitle] = useState(sig?.title || '');
+  const [companyName, setCompanyName] = useState(sig?.companyName || '');
+  const [address, setAddress] = useState(sig?.address || '');
+  const [url, setUrl] = useState(sig?.url || '');
+  const [customFields, setCustomFields] = useState(sig?.customFields?.length ? sig.customFields : []);
+  const [row, setRow] = useState(sig || null);   // saved row (has an id/logoUrl/html once created)
+  const [busy, setBusy] = useState(false);
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  function addField() { setCustomFields(f => [...f, { label: '', value: '' }]); }
+  function setField(i, key, val) { setCustomFields(f => f.map((r, idx) => (idx === i ? { ...r, [key]: val } : r))); }
+  function removeField(i) { setCustomFields(f => f.filter((_, idx) => idx !== i)); }
+
+  async function save() {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    try {
+      const body = { name: name.trim(), title, company_name: companyName, address, url, custom_fields: customFields };
+      const saved = row
+        ? await api.updateManualSignature(companyId, row.id, body)
+        : await api.createManualSignature(companyId, body);
+      setRow(saved);
+      onSaved(saved);
+      toastOk('Signature saved.');
+    } catch (e) { toastErr(e?.message || 'Could not save.'); }
+    setBusy(false);
+  }
+
+  async function uploadLogo(file) {
+    if (!file || !row) return;
+    setLogoBusy(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const updated = await api.uploadManualSignatureLogo(companyId, row.id, form);
+      setRow(updated);
+      onSaved(updated);
+      toastOk('Logo uploaded.');
+    } catch (e) { toastErr(e?.message || 'Could not upload logo.'); }
+    setLogoBusy(false);
+  }
+
+  async function copySignature() {
+    if (!row?.html) return;
+    try {
+      if (navigator.clipboard?.write && window.ClipboardItem) {
+        const blob = new Blob([row.html], { type: 'text/html' });
+        await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })]);
+      } else {
+        await navigator.clipboard.writeText(row.html);
+      }
+      setCopied(true); setTimeout(() => setCopied(false), 2000);
+    } catch { toastErr('Could not copy - open the preview and copy manually.'); }
+  }
+
+  const inputStyle = { width: '100%' };
+  const label = { fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 5 };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 12, maxWidth: 480, width: '100%', maxHeight: '86vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{row ? 'Edit Signature' : 'Add Signature'}</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={label}>Name</label>
+            <input className="form-input" style={inputStyle} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Sales Inbox" />
+          </div>
+          <div>
+            <label style={label}>Title</label>
+            <input className="form-input" style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Sales Team" />
+          </div>
+          <div>
+            <label style={label}>Company Name</label>
+            <input className="form-input" style={inputStyle} value={companyName} onChange={e => setCompanyName(e.target.value)} />
+          </div>
+          <div>
+            <label style={label}>Company Address</label>
+            <input className="form-input" style={inputStyle} value={address} onChange={e => setAddress(e.target.value)} />
+          </div>
+          <div>
+            <label style={label}>Company URL</label>
+            <input className="form-input" style={inputStyle} value={url} onChange={e => setUrl(e.target.value)} placeholder="example.com" />
+          </div>
+          <div>
+            <label style={label}>Company Logo</label>
+            {row ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {row.logoUrl && <img src={row.logoUrl} alt="" style={{ height: 32, maxWidth: 120, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid var(--line)' }} />}
+                <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', opacity: logoBusy ? 0.6 : 1 }}>
+                  {logoBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={13} />}
+                  {row.logoUrl ? 'Replace' : 'Upload'}
+                  <input type="file" accept="image/*" style={{ display: 'none' }} disabled={logoBusy}
+                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadLogo(f); }} />
+                </label>
+              </div>
+            ) : (
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Save once first, then upload a logo.</div>
+            )}
+          </div>
+
+          <div>
+            <label style={label}>Custom Fields</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {customFields.map((f, i) => (
+                <div key={i} style={{ display: 'flex', gap: 6 }}>
+                  <input className="form-input" style={{ flex: 1 }} placeholder="Label" value={f.label} onChange={e => setField(i, 'label', e.target.value)} />
+                  <input className="form-input" style={{ flex: 1 }} placeholder="Value" value={f.value} onChange={e => setField(i, 'value', e.target.value)} />
+                  <button type="button" onClick={() => removeField(i)}
+                    style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', alignItems: 'center', padding: '0 8px' }}>
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              <button type="button" className="secondary-btn" onClick={addField}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }}>
+                <Plus size={13} /> Add Field
+              </button>
+            </div>
+          </div>
+
+          {row?.html && (
+            <div>
+              <label style={label}>Preview</label>
+              <SignaturePaper html={row.html} height={90} scale={0.85} />
+              <button className="secondary-btn" onClick={copySignature}
+                style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy Signature'}
+              </button>
+            </div>
+          )}
+
+          <button className="primary-btn" onClick={save} disabled={busy || !name.trim()}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1, alignSelf: 'flex-start' }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── People: Company Setup, Work Sites, Sync M365 ──────────────────────────────
-function CompanySection({ toastOk, toastErr }) {
-  const [entities, setEntities] = useState([]);
-  const [employees, setEmployees] = useState([]);
-  const [sites, setSites] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-  const [entitiesOpen, setEntitiesOpen] = useState(false);
-  const [sitesOpen, setSitesOpen] = useState(false);
+// M365 directory sync only now - Company Setup and Work Sites moved out to
+// their own top-level "Company Setup" tab (Pranshu, Sep 18), since a company
+// has too much on it (departments, per-company work sites, holiday calendar)
+// to keep managing from a popup nested inside this accordion.
+function M365SyncSection({ toastOk, toastErr }) {
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncLabel, setSyncLabel] = useState('');
-
-  const loadEntities = useCallback(() => api.getEntities().then(setEntities).catch(() => {}), []);
-  const loadSites = useCallback(() => api.getWorkSites().then(setSites).catch(() => {}), []);
-
-  const load = useCallback(() => {
-    if (loaded) return;
-    setLoaded(true);
-    loadEntities();
-    loadSites();
-    api.getEmployees().then(rows => {
-      setEmployees((rows || []).filter(e => !['guest', 'external'].includes(e.identityType || 'internal')));
-    }).catch(() => {});
-  }, [loaded, loadEntities, loadSites]);
 
   // Same handler as HR.jsx's "Sync M365" button - kicks off the server-side
   // background job and polls its status.
@@ -387,33 +612,42 @@ function CompanySection({ toastOk, toastErr }) {
   }
 
   return (
-    <Section icon={Building2} title="Company Setup, Work Sites & M365 Sync" onToggle={load}
-      sub="Legal entities, geofenced clock-in sites, and directory sync - originally on the People → Overview screen.">
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <button className="secondary-btn" onClick={() => setEntitiesOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Building2 size={14} /> Company Setup
-        </button>
-        <button className="secondary-btn" onClick={() => setSitesOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <MapPin size={14} /> Work Sites
-        </button>
-        <button className="secondary-btn" onClick={runSync} disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={14} />}
-          {syncBusy && syncLabel ? syncLabel : 'Sync M365'}
-        </button>
-      </div>
-      {entitiesOpen && (
-        <Suspense fallback={<ModalFallback />}>
-          <EntitiesModal entities={entities} employees={employees} onClose={() => setEntitiesOpen(false)}
-            onChanged={loadEntities} toastOk={toastOk} toastErr={toastErr} />
-        </Suspense>
-      )}
-      {sitesOpen && (
-        <Suspense fallback={<ModalFallback />}>
-          <WorkSitesModal sites={sites} entities={entities} onClose={() => setSitesOpen(false)}
-            onChanged={loadSites} toastOk={toastOk} toastErr={toastErr} />
-        </Suspense>
-      )}
+    <Section icon={RefreshCw} title="M365 Sync" sub="Pull/push the M365 directory - originally on the People → Overview screen.">
+      <button className="secondary-btn" onClick={runSync} disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={14} />}
+        {syncBusy && syncLabel ? syncLabel : 'Sync M365'}
+      </button>
     </Section>
+  );
+}
+
+// ── Company Setup tab (Pranshu, Sep 18) - its own top-level tab, not an
+// accordion popup: legal entities, and inside each one's full-screen editor,
+// its departments, work sites, and (soon) holiday calendar.
+function CompanySetupSection({ toastOk, toastErr }) {
+  const [entities, setEntities] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [sites, setSites] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  const loadEntities = useCallback(() => api.getEntities().then(setEntities).catch(() => {}), []);
+  const loadSites = useCallback(() => api.getWorkSites().then(setSites).catch(() => {}), []);
+
+  useEffect(() => {
+    if (loaded) return;
+    setLoaded(true);
+    loadEntities();
+    loadSites();
+    api.getEmployees().then(rows => {
+      setEmployees((rows || []).filter(e => !['guest', 'external'].includes(e.identityType || 'internal')));
+    }).catch(() => {});
+  }, [loaded, loadEntities, loadSites]);
+
+  return (
+    <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0' }}>Loading…</div>}>
+      <CompanySetupPage entities={entities} employees={employees} sites={sites}
+        onChangedEntities={loadEntities} onChangedSites={loadSites} toastOk={toastOk} toastErr={toastErr} />
+    </Suspense>
   );
 }
 
@@ -466,6 +700,7 @@ function ActAsSection() {
 
 const TOP_TABS = [
   { key: 'settings', label: 'Company Settings', Icon: SlidersHorizontal },
+  { key: 'company',  label: 'Company Setup',    Icon: Building2 },
   { key: 'access',   label: 'Roles & Access',   Icon: Shield },
   { key: 'actas',    label: 'Act As',           Icon: UserCog },
   { key: 'audit',    label: 'Audit Logs',       Icon: Activity },
@@ -511,7 +746,9 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           the in-page strip (ModuleTabs handles both) */}
       <ModuleTabs tabs={visibleTabs} active={topTab} onChange={setTopTab} />
 
-      {topTab === 'access' ? (
+      {topTab === 'company' ? (
+        <CompanySetupSection toastOk={toastOk} toastErr={toastErr} />
+      ) : topTab === 'access' ? (
         <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0' }}>Loading…</div>}>
           <RolesAccess embedded />
         </Suspense>
@@ -528,9 +765,8 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           </div>
           <ItemSettingsSection toast={showToast} />
           <TicketSettingsSections />
-          <WorkforceAnalyticsPolicySection />
           <EmailSignatureSection toastOk={toastOk} toastErr={toastErr} />
-          <CompanySection toastOk={toastOk} toastErr={toastErr} />
+          <M365SyncSection toastOk={toastOk} toastErr={toastErr} />
         </>
       )}
 
