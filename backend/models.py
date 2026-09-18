@@ -1403,6 +1403,32 @@ class HrCompanyHoliday(Base):
     updated_at    = Column(String, default="")
 
 
+class HrManualSignature(Base):
+    """A hand-filled signature that isn't tied to any NexusEmployee record
+    (Sep 19, Pranshu: "if the email is not integrated in NEXUS but we want
+    the same sig for that sender email") - a shared mailbox, an external
+    partner, or anyone Nexus doesn't have a directory row for yet. Rendered
+    with the SAME template the company has picked for everyone else
+    (myhr.SIGNATURE_TEMPLATES), just fed from these typed-in fields instead
+    of a directory record. New table - create_all builds it, no migration
+    line needed."""
+    __tablename__ = "hr_manual_signatures"
+    id            = Column(String, primary_key=True)   # uuid
+    company_id    = Column(String, nullable=False, index=True)   # HrEntity.id
+    name          = Column(String, nullable=False)      # e.g. "Sales Inbox"
+    title         = Column(String, default="")
+    company_name  = Column(String, default="")
+    address       = Column(String, default="")
+    url           = Column(String, default="")
+    logo_url      = Column(String, default="")
+    # Free-form extra rows (Sep 19: "custom addable field so we can add
+    # custom fields of how much we want") - [{"label": "...", "value": "..."}].
+    custom_fields = Column(JSON, default=list)
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
 class HrMailboxExport(Base):
     __tablename__ = "hr_mailbox_exports"
     id            = Column(String, primary_key=True)

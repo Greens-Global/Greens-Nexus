@@ -287,6 +287,26 @@ def _role_company_line(f: dict) -> str:
     return f["role"] or f["companyName"]
 
 
+def _extra_rows(f: dict, color: str = "#333333") -> str:
+    """Manual (non-directory) signatures can carry arbitrary label/value pairs
+    (Sep 19: "custom addable field") - rendered as extra table rows in the
+    same style as phone/email/website/address. Directory-backed employee
+    signatures never set "extraFields", so this is a no-op for them."""
+    return "".join(
+        f'<tr><td style="padding:2px 0;color:{color};">{item["label"]}: {item["value"]}</td></tr>'
+        for item in (f.get("extraFields") or []) if item.get("value")
+    )
+
+
+def _extra_inline(f: dict) -> str:
+    """Same as `_extra_rows`, for the single-line templates (Modern/Minimal)
+    that join their fields with a separator instead of a table."""
+    return " &nbsp;|&nbsp; ".join(
+        f'{item["label"]}: {item["value"]}'
+        for item in (f.get("extraFields") or []) if item.get("value")
+    )
+
+
 def _closing_line(f: dict, style: str) -> str:
     """Plain (non-script) sign-off line for Classic/Modern/Minimal/Bold -
     those four never rendered `closing` at all (only Sincerely/Kind Regards
@@ -305,7 +325,7 @@ def _render_classic(f: dict) -> str:
         for v in (f["role"], f"Phone: {f['phone']}" if f["phone"] else "",
                   f"Email: {f['email']}" if f["email"] else "", f["website"], f["address"])
         if v
-    )
+    ) + _extra_rows(f)
     logo_cell = (f'<td style="padding-right:14px;vertical-align:top;">'
                  f'<img src="{f["logoUrl"]}" alt="" style="max-height:60px;max-width:160px;" /></td>'
                  if f["logoUrl"] else "")
@@ -328,6 +348,9 @@ def _render_modern(f: dict) -> str:
         f"Phone: {f['phone']}" if f["phone"] else "",
         f"Email: {f['email']}" if f["email"] else "", f["website"],
     ) if v)
+    extra_inline = _extra_inline(f)
+    if extra_inline:
+        contact = f"{contact} &nbsp;|&nbsp; {extra_inline}" if contact else extra_inline
     logo_row = (f'<tr><td colspan="2" style="padding-top:8px;"><img src="{f["logoUrl"]}" alt="" '
                 f'style="max-height:44px;max-width:150px;" /></td></tr>' if f["logoUrl"] else "")
     social = _social_icons(f)
@@ -349,6 +372,9 @@ def _render_minimal(f: dict) -> str:
         f["role"], f"Phone: {f['phone']}" if f["phone"] else "",
         f"Email: {f['email']}" if f["email"] else "",
     ) if v)
+    extra_inline = _extra_inline(f)
+    if extra_inline:
+        line = f"{line} &middot; {extra_inline}" if line else extra_inline
     tail = f" &nbsp;&mdash;&nbsp; {line}" if line else ""
     social = _social_icons(f)
     social_block = f'<div style="margin-top:4px;">{social}</div>' if social else ""
@@ -371,7 +397,7 @@ def _render_bold(f: dict) -> str:
         for v in (f"Phone: {f['phone']}" if f["phone"] else "",
                   f"Email: {f['email']}" if f["email"] else "", f["website"], f["address"])
         if v
-    )
+    ) + _extra_rows(f, "#444444")
     role_span = (f'<span style="color:#eafff2;font-size:12.5px;"> &nbsp;&middot;&nbsp; {f["role"]}</span>'
                  if f["role"] else "")
     social = _social_icons(f)
@@ -402,7 +428,7 @@ def _render_sincerely(f: dict) -> str:
         for v in (f"Phone: {f['phone']}" if f["phone"] else "",
                   f"Email: {f['email']}" if f["email"] else "", f["website"])
         if v
-    )
+    ) + _extra_rows(f)
     social = _social_icons(f)
     social_row = f'<tr><td colspan="2" style="padding-top:10px;">{social}</td></tr>' if social else ""
     role_line = _role_company_line(f)
@@ -431,7 +457,7 @@ def _render_kind_regards(f: dict) -> str:
         for v in (f"Phone: {f['phone']}" if f["phone"] else "",
                   f"Email: {f['email']}" if f["email"] else "", f["website"])
         if v
-    )
+    ) + _extra_rows(f)
     # No logo -> the social row still needs somewhere to live.
     social = _social_icons(f)
     fallback_social = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if not f["logoUrl"] and social else ""
@@ -493,6 +519,38 @@ def admin_preview_templates(company) -> list:
     esc = {k: html_lib.escape(v) if isinstance(v, str) else v for k, v in fields.items()}
     return [{"id": tid, "label": label, "html": render_fn(esc)}
             for tid, (label, render_fn) in SIGNATURE_TEMPLATES.items()]
+
+
+def manual_signature_fields(row, company) -> dict:
+    """Field dict for a HrManualSignature row - same shape `_signature_fields`
+    builds for a directory employee, so it can reuse the exact same
+    SIGNATURE_TEMPLATES render functions (Sep 19: "the same sig for that
+    sender email"). No phone/email/social slots (nothing in the manual form
+    collects them) - anything extra goes through `extraFields` instead."""
+    return {
+        "name": row.name, "role": row.title or "", "phone": "", "email": "",
+        "photoUrl": "", "closing": "",
+        "logoUrl": row.logo_url or "",
+        "website": row.url or "",
+        "address": row.address or "",
+        "companyPhone": "",
+        "companyName": row.company_name or "",
+        "facebookUrl": "", "linkedinUrl": "", "twitterUrl": "", "instagramUrl": "",
+        "extraFields": row.custom_fields or [],
+    }
+
+
+def render_manual_signature(row, company) -> dict:
+    fields = manual_signature_fields(row, company)
+    esc = {
+        k: html_lib.escape(v) if isinstance(v, str) else
+           [{"label": html_lib.escape(i.get("label", "")), "value": html_lib.escape(i.get("value", ""))} for i in v]
+        for k, v in fields.items()
+    }
+    tid = (company.signature_template if company else "") or _DEFAULT_TEMPLATE
+    if tid not in SIGNATURE_TEMPLATES:
+        tid = _DEFAULT_TEMPLATE
+    return {"fields": fields, "html": SIGNATURE_TEMPLATES[tid][1](esc), "template": tid}
 
 
 def _render_signature(e: NexusEmployee, db: Session, template: str = None) -> dict:

@@ -40,6 +40,7 @@ import {
   Settings2, ChevronDown, Tag, Shield, SlidersHorizontal,
   Headset, Bell, Building2, RefreshCw, Loader2, Timer,
   UserCog, Activity, DoorOpen, Signature, Check, Eye, X,
+  Plus, Pencil, Trash2, Upload, Copy,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -200,6 +201,40 @@ function TicketSettingsSections() {
 // record automatically; preferred display name and phone override stay
 // self-service in My Profile (header → account menu) since those genuinely
 // are personal, just not the template.
+// The little rectangle that actually shows a signature's markup is a stand-in
+// for how it'll look pasted into an email - always white paper with dark
+// text, on purpose, the same in light or dark Nexus (an email client never
+// knows or cares what theme the admin's browser is in). Only the card CHROME
+// around it (border, label, buttons, the zoom modal's frame) follows Nexus's
+// own theme - that's the piece that was stuck hardcoded to white (Sep 19:
+// "when i'm changing the mode of NEXUS to dark the template background
+// should go black - but it is not").
+function SignaturePaper({ html, height = 60, scale = 0.7 }) {
+  return (
+    <div style={{ background: '#fff', borderRadius: 4, overflow: 'hidden', height, pointerEvents: 'none' }}>
+      <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: `${Math.round(100 / scale)}%` }}
+        dangerouslySetInnerHTML={{ __html: html }} />
+    </div>
+  );
+}
+
+function SignatureZoomModal({ title, html, onClose }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 12, maxWidth: 560, width: '100%', maxHeight: '80vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{title}</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div style={{ padding: 20, background: '#fff' }} dangerouslySetInnerHTML={{ __html: html }} />
+      </div>
+    </div>
+  );
+}
+
 function EmailSignatureSection({ toastOk, toastErr }) {
   const [entities, setEntities] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -209,6 +244,8 @@ function EmailSignatureSection({ toastOk, toastErr }) {
   const [previewBusy, setPreviewBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [zoomTemplate, setZoomTemplate] = useState(null);   // { label, html } | null - full-size eye-icon preview
+  const [manualSigs, setManualSigs] = useState([]);
+  const [manualModal, setManualModal] = useState(null);     // 'new' | sig object | null
 
   const loadPreview = useCallback((id) => {
     if (!id) return;
@@ -219,19 +256,26 @@ function EmailSignatureSection({ toastOk, toastErr }) {
       .finally(() => setPreviewBusy(false));
   }, []);
 
+  const loadManualSigs = useCallback((id) => {
+    if (!id) return;
+    api.getManualSignatures(id).then(setManualSigs).catch(() => {});
+  }, []);
+
   const load = useCallback(() => {
     if (loaded) return;
     setLoaded(true);
     api.getEntities().then(rows => {
       setEntities(rows || []);
-      if (rows?.length) { setCompanyId(rows[0].id); loadPreview(rows[0].id); }
+      if (rows?.length) { setCompanyId(rows[0].id); loadPreview(rows[0].id); loadManualSigs(rows[0].id); }
     }).catch(() => {});
-  }, [loaded, loadPreview]);
+  }, [loaded, loadPreview, loadManualSigs]);
 
   function pickCompany(id) {
     setCompanyId(id);
     setData(null);
+    setManualSigs([]);
     loadPreview(id);
+    loadManualSigs(id);
   }
 
   async function save() {
@@ -240,8 +284,18 @@ function EmailSignatureSection({ toastOk, toastErr }) {
     try {
       await api.updateEntity(companyId, { signature_template: selectedTemplate });
       toastOk('Company signature template updated - every employee at this company picks it up automatically.');
+      loadManualSigs(companyId);   // manual signatures render with this template too
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
     setSaveBusy(false);
+  }
+
+  async function deleteManualSig(sig) {
+    if (!window.confirm(`Delete the "${sig.name}" signature?`)) return;
+    try {
+      await api.deleteManualSignature(companyId, sig.id);
+      setManualSigs(rows => rows.filter(r => r.id !== sig.id));
+      toastOk('Signature deleted.');
+    } catch (e) { toastErr(e?.message || 'Could not delete.'); }
   }
 
   return (
@@ -270,25 +324,22 @@ function EmailSignatureSection({ toastOk, toastErr }) {
                       style={{
                         textAlign: 'left', cursor: 'pointer', padding: 10, borderRadius: 8,
                         border: selected ? '2px solid hsl(var(--color-green))' : '1px solid var(--line)',
-                        background: '#fff', position: 'relative',
+                        background: 'var(--card)', position: 'relative',
                       }}>
                       <button type="button" title={`Preview ${t.label} full-size`}
                         onClick={e => { e.stopPropagation(); setZoomTemplate(t); }}
                         style={{
-                          position: 'absolute', top: 6, right: 6, background: 'rgba(255,255,255,0.9)',
+                          position: 'absolute', top: 6, right: 6, background: 'var(--card)',
                           border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer',
                           display: 'flex', padding: 4, color: 'var(--muted)', zIndex: 1,
                         }}>
                         <Eye size={13} />
                       </button>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#111', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
                         {t.label}
                         {selected && <Check size={12} style={{ color: 'hsl(var(--color-green))' }} />}
                       </div>
-                      <div style={{ overflow: 'hidden', height: 60, pointerEvents: 'none' }}>
-                        <div style={{ transform: 'scale(0.7)', transformOrigin: 'top left', width: '143%' }}
-                          dangerouslySetInnerHTML={{ __html: t.html }} />
-                      </div>
+                      <SignaturePaper html={t.html} />
                     </div>
                   );
                 })}
@@ -297,25 +348,221 @@ function EmailSignatureSection({ toastOk, toastErr }) {
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: saveBusy ? 0.6 : 1 }}>
                 {saveBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} Save
               </button>
+
+              <div style={{ marginTop: 22, marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                  Manual Signatures
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  For a sender email that isn't a Nexus employee - a shared inbox, an external contact, anyone without a directory record. Uses this company's template above.
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+                {manualSigs.map(sig => (
+                  <div key={sig.id} style={{ textAlign: 'left', padding: 10, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', position: 'relative' }}>
+                    <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4, zIndex: 1 }}>
+                      <button type="button" title={`Preview ${sig.name} full-size`} onClick={() => setZoomTemplate({ label: sig.name, html: sig.html })}
+                        style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'var(--muted)' }}>
+                        <Eye size={13} />
+                      </button>
+                      <button type="button" title="Edit" onClick={() => setManualModal(sig)}
+                        style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'var(--muted)' }}>
+                        <Pencil size={13} />
+                      </button>
+                      <button type="button" title="Delete" onClick={() => deleteManualSig(sig)}
+                        style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'hsl(var(--color-red))' }}>
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', marginBottom: 6, paddingRight: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {sig.name}
+                    </div>
+                    <SignaturePaper html={sig.html} />
+                  </div>
+                ))}
+                <div role="button" tabIndex={0} onClick={() => setManualModal('new')}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setManualModal('new'); } }}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
+                    minHeight: 92, cursor: 'pointer', borderRadius: 8, border: '1.5px dashed var(--line)',
+                    background: 'transparent', color: 'var(--muted)',
+                  }}>
+                  <Plus size={18} />
+                  <span style={{ fontSize: 11.5, fontWeight: 600 }}>Add Signature</span>
+                </div>
+              </div>
             </>
           )}
         </>
       )}
       {zoomTemplate && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-          onClick={e => e.target === e.currentTarget && setZoomTemplate(null)}>
-          <div style={{ background: '#fff', borderRadius: 12, maxWidth: 560, width: '100%', maxHeight: '80vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
-              <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>{zoomTemplate.label}</span>
-              <button onClick={() => setZoomTemplate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
-                <X size={18} />
-              </button>
-            </div>
-            <div style={{ padding: 20 }} dangerouslySetInnerHTML={{ __html: zoomTemplate.html }} />
-          </div>
-        </div>
+        <SignatureZoomModal title={zoomTemplate.label} html={zoomTemplate.html} onClose={() => setZoomTemplate(null)} />
+      )}
+      {manualModal && (
+        <ManualSignatureModal
+          companyId={companyId}
+          sig={manualModal === 'new' ? null : manualModal}
+          onClose={() => setManualModal(null)}
+          onSaved={updated => {
+            setManualSigs(rows => {
+              const exists = rows.some(r => r.id === updated.id);
+              return exists ? rows.map(r => (r.id === updated.id ? updated : r)) : [...rows, updated];
+            });
+          }}
+          toastOk={toastOk} toastErr={toastErr}
+        />
       )}
     </Section>
+  );
+}
+
+function ManualSignatureModal({ companyId, sig, onClose, onSaved, toastOk, toastErr }) {
+  const [name, setName] = useState(sig?.name || '');
+  const [title, setTitle] = useState(sig?.title || '');
+  const [companyName, setCompanyName] = useState(sig?.companyName || '');
+  const [address, setAddress] = useState(sig?.address || '');
+  const [url, setUrl] = useState(sig?.url || '');
+  const [customFields, setCustomFields] = useState(sig?.customFields?.length ? sig.customFields : []);
+  const [row, setRow] = useState(sig || null);   // saved row (has an id/logoUrl/html once created)
+  const [busy, setBusy] = useState(false);
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  function addField() { setCustomFields(f => [...f, { label: '', value: '' }]); }
+  function setField(i, key, val) { setCustomFields(f => f.map((r, idx) => (idx === i ? { ...r, [key]: val } : r))); }
+  function removeField(i) { setCustomFields(f => f.filter((_, idx) => idx !== i)); }
+
+  async function save() {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    try {
+      const body = { name: name.trim(), title, company_name: companyName, address, url, custom_fields: customFields };
+      const saved = row
+        ? await api.updateManualSignature(companyId, row.id, body)
+        : await api.createManualSignature(companyId, body);
+      setRow(saved);
+      onSaved(saved);
+      toastOk('Signature saved.');
+    } catch (e) { toastErr(e?.message || 'Could not save.'); }
+    setBusy(false);
+  }
+
+  async function uploadLogo(file) {
+    if (!file || !row) return;
+    setLogoBusy(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const updated = await api.uploadManualSignatureLogo(companyId, row.id, form);
+      setRow(updated);
+      onSaved(updated);
+      toastOk('Logo uploaded.');
+    } catch (e) { toastErr(e?.message || 'Could not upload logo.'); }
+    setLogoBusy(false);
+  }
+
+  async function copySignature() {
+    if (!row?.html) return;
+    try {
+      if (navigator.clipboard?.write && window.ClipboardItem) {
+        const blob = new Blob([row.html], { type: 'text/html' });
+        await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })]);
+      } else {
+        await navigator.clipboard.writeText(row.html);
+      }
+      setCopied(true); setTimeout(() => setCopied(false), 2000);
+    } catch { toastErr('Could not copy - open the preview and copy manually.'); }
+  }
+
+  const inputStyle = { width: '100%' };
+  const label = { fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 5 };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 12, maxWidth: 480, width: '100%', maxHeight: '86vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{row ? 'Edit Signature' : 'Add Signature'}</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={label}>Name</label>
+            <input className="form-input" style={inputStyle} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Sales Inbox" />
+          </div>
+          <div>
+            <label style={label}>Title</label>
+            <input className="form-input" style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Sales Team" />
+          </div>
+          <div>
+            <label style={label}>Company Name</label>
+            <input className="form-input" style={inputStyle} value={companyName} onChange={e => setCompanyName(e.target.value)} />
+          </div>
+          <div>
+            <label style={label}>Company Address</label>
+            <input className="form-input" style={inputStyle} value={address} onChange={e => setAddress(e.target.value)} />
+          </div>
+          <div>
+            <label style={label}>Company URL</label>
+            <input className="form-input" style={inputStyle} value={url} onChange={e => setUrl(e.target.value)} placeholder="example.com" />
+          </div>
+          <div>
+            <label style={label}>Company Logo</label>
+            {row ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {row.logoUrl && <img src={row.logoUrl} alt="" style={{ height: 32, maxWidth: 120, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid var(--line)' }} />}
+                <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', opacity: logoBusy ? 0.6 : 1 }}>
+                  {logoBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={13} />}
+                  {row.logoUrl ? 'Replace' : 'Upload'}
+                  <input type="file" accept="image/*" style={{ display: 'none' }} disabled={logoBusy}
+                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadLogo(f); }} />
+                </label>
+              </div>
+            ) : (
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Save once first, then upload a logo.</div>
+            )}
+          </div>
+
+          <div>
+            <label style={label}>Custom Fields</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {customFields.map((f, i) => (
+                <div key={i} style={{ display: 'flex', gap: 6 }}>
+                  <input className="form-input" style={{ flex: 1 }} placeholder="Label" value={f.label} onChange={e => setField(i, 'label', e.target.value)} />
+                  <input className="form-input" style={{ flex: 1 }} placeholder="Value" value={f.value} onChange={e => setField(i, 'value', e.target.value)} />
+                  <button type="button" onClick={() => removeField(i)}
+                    style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', alignItems: 'center', padding: '0 8px' }}>
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              <button type="button" className="secondary-btn" onClick={addField}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }}>
+                <Plus size={13} /> Add Field
+              </button>
+            </div>
+          </div>
+
+          {row?.html && (
+            <div>
+              <label style={label}>Preview</label>
+              <SignaturePaper html={row.html} height={90} scale={0.85} />
+              <button className="secondary-btn" onClick={copySignature}
+                style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy Signature'}
+              </button>
+            </div>
+          )}
+
+          <button className="primary-btn" onClick={save} disabled={busy || !name.trim()}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1, alignSelf: 'flex-start' }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} Save
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
