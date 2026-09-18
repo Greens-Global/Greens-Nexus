@@ -35,6 +35,8 @@ import InvestorChart from '../components/InvestorChart';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
+import { COUNTRIES } from '../lib/countries';
+import LocationPickerMap from '../components/LocationPickerMap';
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -3304,11 +3306,6 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
             ))}
           </div>
         )}
-      <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 16 }}>
-        Tickets raised against a department arrive unassigned and notify its <strong>ticket lead</strong> (and backup), who assigns them to an employee.
-        A department with no lead notifies nobody - its tickets sit in the triage queue until someone picks them up.
-      </p>
-      <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>Removing a department leaves anyone already in it untouched - it just stops being pickable.</p>
     </div>
   );
 }
@@ -3326,7 +3323,12 @@ const COMPANY_TABS = [
 ];
 
 export function CompanySetupPage({ entities, employees = [], sites = [], onChangedEntities, onChangedSites, toastOk, toastErr }) {
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '', domains: '', manager_email: '', logo_url: '', website: '', main_phone: '', facebook_url: '', linkedin_url: '', twitter_url: '', instagram_url: '' };
+  // linkedin_url is deliberately NOT in this form state (Sep 18: removed from
+  // the UI) - omitting the key means an update PATCH never sends it, so
+  // Pydantic's exclude_unset leaves whatever a company already has in the DB
+  // untouched (still rendered in signatures); this form just stops offering
+  // a way to view/set it.
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '', domains: '', manager_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const [f, setF] = useState(blank);
@@ -3351,7 +3353,18 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   const formSnapshotRef = useRef(blank);
   const startNew = () => { setF(blank); formSnapshotRef.current = blank; setTab('overview'); setMode('new'); };
   const startEdit = en => {
-    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '', manager_email: en.managerEmail || '', logo_url: en.logoUrl || '', website: en.website || '', main_phone: en.mainPhone || '', facebook_url: en.facebookUrl || '', linkedin_url: en.linkedinUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
+    const phoneType = en.mainPhoneType || 'phone';
+    // "phone" numbers store the dial code baked into mainPhone itself
+    // ("+1 7003313331") - split it back apart here so the country picker and
+    // number box seed correctly. No match just means the stored value
+    // predates this format (or is fax/telephone) - it lands whole in the
+    // number box, country defaults to US.
+    let phoneCountry = 'US', phoneNumber = en.mainPhone || '';
+    if (phoneType === 'phone' && en.mainPhone) {
+      const hit = COUNTRIES.find(c => en.mainPhone.startsWith(c.dial + ' '));
+      if (hit) { phoneCountry = hit.code; phoneNumber = en.mainPhone.slice(hit.dial.length + 1); }
+    }
+    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '', manager_email: en.managerEmail || '', logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
     setF(seeded); formSnapshotRef.current = seeded; setTab('overview'); setMode(en.id);
   };
   async function uploadLogo(file) {
@@ -3372,7 +3385,16 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   async function save() {
     if (!f.name.trim() || busy) return; setBusy(true);
     try {
-      if (mode === 'new') await api.createEntity(f); else await api.updateEntity(mode, f);
+      // main_phone_country is UI-only (drives the dropdown) - the dial code
+      // gets baked into main_phone itself before it's sent, so the backend
+      // never needs to know the country/dial-code mapping.
+      const { main_phone_country, ...rest } = f;
+      const dial = COUNTRIES.find(c => c.code === main_phone_country)?.dial || '';
+      const payload = {
+        ...rest,
+        main_phone: f.main_phone_type === 'phone' && f.main_phone.trim() ? `${dial} ${f.main_phone.trim()}` : f.main_phone.trim(),
+      };
+      if (mode === 'new') await api.createEntity(payload); else await api.updateEntity(mode, payload);
       await onChangedEntities(); toastOk('Company saved.'); setMode(null);
     } catch (e) { toastErr(e?.message || 'Could not save company.'); }
     setBusy(false);
@@ -3420,62 +3442,83 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
 
         {(mode === 'new' || tab === 'overview') && (
           <>
-            <div style={{ padding: '18px 4px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, maxWidth: 980 }}>
-              <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Greens India' })}</div>
-              {field('LEGAL NAME', 'legal_name', { placeholder: 'full registered name' })}
-              <div>
-                <label style={FL}>COUNTRY</label>
-                <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => set('country', e.target.value)}>
-                  <option value="">-</option><option value="US">United States (US)</option><option value="IN">India (IN)</option>
-                </select>
-              </div>
-              {field('TAX ID (EIN / GSTIN)', 'tax_id')}
-              {field('AUTHORIZED SIGNATORY', 'signatory', { placeholder: 'name, title' })}
-              <div>
-                <label style={FL}>COMPANY MANAGER</label>
-                <select className="form-input" style={{ width: '100%' }} value={f.manager_email} onChange={e => set('manager_email', e.target.value)}>
-                  <option value="">- not set -</option>
-                  {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
-                </select>
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>{field('REGISTERED ADDRESS', 'registered_address')}</div>
-              {field('WEBSITE', 'website', { placeholder: 'e.g. greensglobal.com' })}
-              {field('MAIN PHONE', 'main_phone', { placeholder: 'company main line' })}
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={FL}>LOGO</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  {f.logo_url
-                    ? <img src={f.logo_url} alt="" style={{ height: 44, maxWidth: 160, objectFit: 'contain', borderRadius: 6, border: '1px solid var(--line)', background: '#fff' }} />
-                    : <div style={{ height: 44, width: 88, borderRadius: 6, border: '1px dashed var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, color: 'var(--muted)' }}>No logo</div>}
-                  <label className="secondary-btn" style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: mode === 'new' ? 'not-allowed' : 'pointer', padding: '5px 12px', opacity: mode === 'new' ? 0.5 : 1 }}>
-                    {logoBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={12} />} {logoBusy ? 'Uploading…' : 'Upload logo or video'}
-                    <input type="file" accept="image/*,video/mp4,video/quicktime,.mov" hidden disabled={mode === 'new' || logoBusy} onChange={e => { uploadLogo(e.target.files?.[0]); e.target.value = ''; }} />
-                  </label>
+            <div style={{ padding: '18px 4px', display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              <div style={{ flex: '1 1 560px', maxWidth: 620, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Greens India' })}</div>
+                {field('LEGAL NAME', 'legal_name', { placeholder: 'full registered name' })}
+                <div>
+                  <label style={FL}>COUNTRY</label>
+                  <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => set('country', e.target.value)}>
+                    <option value="">-</option>
+                    {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
+                  </select>
                 </div>
-                {mode === 'new' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>Save the company first, then come back to add a logo.</p>}
-                <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>MP4 or MOV works too - it's converted to an animated GIF (email clients never play video directly), up to 6s. Converting a video can take a few seconds.</p>
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={FL}>SOCIAL LINKS</label>
-                <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 8px' }}>
-                  Shown as icons on every employee's email signature (Sincerely / Kind Regards templates).
-                </p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  {field('FACEBOOK', 'facebook_url', { placeholder: 'https://facebook.com/...' })}
-                  {field('LINKEDIN', 'linkedin_url', { placeholder: 'https://linkedin.com/company/...' })}
-                  {field('X (TWITTER)', 'twitter_url', { placeholder: 'https://x.com/...' })}
-                  {field('INSTAGRAM', 'instagram_url', { placeholder: 'https://instagram.com/...' })}
+                {field('TAX ID (EIN / GSTIN)', 'tax_id')}
+                {field('AUTHORIZED SIGNATORY', 'signatory', { placeholder: 'name, title' })}
+                <div>
+                  <label style={FL}>COMPANY MANAGER</label>
+                  <select className="form-input" style={{ width: '100%' }} value={f.manager_email} onChange={e => set('manager_email', e.target.value)}>
+                    <option value="">- not set -</option>
+                    {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
+                  </select>
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>{field('REGISTERED ADDRESS', 'registered_address', { placeholder: 'pick a spot on the map, or type it in' })}</div>
+                {field('WEBSITE', 'website', { placeholder: 'e.g. greensglobal.com' })}
+                <div>
+                  <label style={FL}>MAIN PHONE</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <select className="form-input" style={{ width: 108, flexShrink: 0 }} value={f.main_phone_type} onChange={e => set('main_phone_type', e.target.value)}>
+                      <option value="phone">Phone</option>
+                      <option value="fax">Fax</option>
+                      <option value="telephone">Telephone</option>
+                    </select>
+                    {f.main_phone_type === 'phone' && (
+                      <select className="form-input" style={{ width: 92, flexShrink: 0 }} value={f.main_phone_country} onChange={e => set('main_phone_country', e.target.value)}>
+                        {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.dial}</option>)}
+                      </select>
+                    )}
+                    <input className="form-input" style={{ width: '100%', minWidth: 0 }} value={f.main_phone} onChange={e => set('main_phone', e.target.value)} placeholder="company main line" />
+                  </div>
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL}>LOGO</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    {f.logo_url
+                      ? <img src={f.logo_url} alt="" style={{ height: 44, maxWidth: 160, objectFit: 'contain', borderRadius: 6, border: '1px solid var(--line)', background: '#fff' }} />
+                      : <div style={{ height: 44, width: 88, borderRadius: 6, border: '1px dashed var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, color: 'var(--muted)' }}>No logo</div>}
+                    <label className="secondary-btn" style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: mode === 'new' ? 'not-allowed' : 'pointer', padding: '5px 12px', opacity: mode === 'new' ? 0.5 : 1 }}>
+                      {logoBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={12} />} {logoBusy ? 'Uploading…' : 'Upload logo or video'}
+                      <input type="file" accept="image/*,video/mp4,video/quicktime,.mov" hidden disabled={mode === 'new' || logoBusy} onChange={e => { uploadLogo(e.target.files?.[0]); e.target.value = ''; }} />
+                    </label>
+                  </div>
+                  {mode === 'new' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>Save the company first, then come back to add a logo.</p>}
+                  <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>MP4 or MOV works too - it's converted to an animated GIF (email clients never play video directly), up to 6s. Converting a video can take a few seconds.</p>
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL}>SOCIAL LINKS</label>
+                  <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+                    Shown as icons on every employee's email signature (Sincerely / Kind Regards templates).
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    {field('FACEBOOK', 'facebook_url', { placeholder: 'https://facebook.com/...' })}
+                    {field('X (TWITTER)', 'twitter_url', { placeholder: 'https://x.com/...' })}
+                    {field('INSTAGRAM', 'instagram_url', { placeholder: 'https://instagram.com/...' })}
+                  </div>
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  {field('EMAIL DOMAINS', 'domains', { placeholder: 'e.g. aaravconstruction.com - comma-separated' })}
+                  <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>
+                    Sync from M365 imports accounts on these domains and tags them to this company automatically (never overwrites a company already set on a profile).
+                  </p>
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL}>NOTES</label>
+                  <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
                 </div>
               </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                {field('EMAIL DOMAINS', 'domains', { placeholder: 'e.g. aaravconstruction.com - comma-separated' })}
-                <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>
-                  Sync from M365 imports accounts on these domains and tags them to this company automatically (never overwrites a company already set on a profile).
-                </p>
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={FL}>NOTES</label>
-                <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
+              <div style={{ flex: '1 1 360px', minWidth: 300, position: 'sticky', top: 18 }}>
+                <label style={FL}>PICK LOCATION ON MAP</label>
+                <LocationPickerMap onAddressPicked={address => set('registered_address', address)} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, padding: '14px 4px' }}>
@@ -3650,16 +3693,15 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
 // which ones actually apply) plus manual per-company holidays. Every row
 // here shows up on that company's employees' Calendar dashboard
 // (dashboards.py's /holidays, wired into dashboard/panels.jsx's CalendarPanel
-// the same way birthdays already are).
-const HOLIDAY_COUNTRIES = [
-  { code: 'US', label: 'United States (US)' },
-  { code: 'IN', label: 'India (IN)' },
-];
-
+// the same way birthdays already are). Country list is the same full
+// COUNTRIES set as the Overview tab - not every country has public-holiday
+// data behind it (backend returns a clear 404 for those, not a crash), but
+// the picker itself isn't artificially limited to a handful.
 function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
   const [holidays, setHolidays] = useState([]);
-  const [country, setCountry] = useState(HOLIDAY_COUNTRIES.some(c => c.code === entity.country) ? entity.country : 'US');
+  const [country, setCountry] = useState(COUNTRIES.some(c => c.code === entity.country) ? entity.country : 'US');
   const [suggestions, setSuggestions] = useState(null); // null = not loaded yet
+  const [noData, setNoData] = useState(false);          // true = 404, country has no data source
   const [suggestBusy, setSuggestBusy] = useState(false);
   const [manualDate, setManualDate] = useState('');
   const [manualName, setManualName] = useState('');
@@ -3673,11 +3715,15 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
   async function loadSuggestions() {
     setSuggestBusy(true);
     setSuggestions(null);
+    setNoData(false);
     try {
       const year = new Date().getFullYear();
       const [a, b] = await Promise.all([api.getPublicHolidays(country, year), api.getPublicHolidays(country, year + 1)]);
       setSuggestions([...(a || []), ...(b || [])]);
-    } catch (e) { toastErr(e?.message || 'Could not load public holidays.'); }
+    } catch (e) {
+      if (e?.status === 404) setNoData(true);
+      else toastErr(e?.message || 'Could not load public holidays.');
+    }
     setSuggestBusy(false);
   }
 
@@ -3718,13 +3764,16 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
       <div style={{ marginBottom: 26 }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Public holidays</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-          <select className="form-input" style={{ width: 220 }} value={country} onChange={e => { setCountry(e.target.value); setSuggestions(null); }}>
-            {HOLIDAY_COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+          <select className="form-input" style={{ width: 220 }} value={country} onChange={e => { setCountry(e.target.value); setSuggestions(null); setNoData(false); }}>
+            {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
           </select>
           <button className="secondary-btn" onClick={loadSuggestions} disabled={suggestBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {suggestBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={13} />} Load holidays
           </button>
         </div>
+        {noData && (
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>No public holiday data available for this country yet - add holidays manually below instead.</p>
+        )}
         {suggestions && (
           suggestions.length === 0 ? (
             <p style={{ fontSize: 12, color: 'var(--muted)' }}>No public holidays found for this country.</p>

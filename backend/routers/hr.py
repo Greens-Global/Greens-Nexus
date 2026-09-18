@@ -1912,6 +1912,7 @@ class EntityIn(BaseModel):
     logo_url:           Optional[str] = ""
     website:            Optional[str] = ""
     main_phone:         Optional[str] = ""
+    main_phone_type:    Optional[str] = "phone"   # "phone" | "fax" | "telephone"
     facebook_url:       Optional[str] = ""
     linkedin_url:       Optional[str] = ""
     twitter_url:        Optional[str] = ""
@@ -1931,6 +1932,7 @@ class EntityUpdate(BaseModel):
     logo_url:           Optional[str] = None
     website:            Optional[str] = None
     main_phone:         Optional[str] = None
+    main_phone_type:    Optional[str] = None
     facebook_url:       Optional[str] = None
     linkedin_url:       Optional[str] = None
     twitter_url:        Optional[str] = None
@@ -1947,6 +1949,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
         "logoUrl": e.logo_url, "website": e.website or "", "mainPhone": e.main_phone or "",
+        "mainPhoneType": e.main_phone_type or "phone",
         "facebookUrl": e.facebook_url or "", "linkedinUrl": e.linkedin_url or "",
         "twitterUrl": e.twitter_url or "", "instagramUrl": e.instagram_url or "",
         "signatureTemplate": e.signature_template or "classic", "signatureClosing": e.signature_closing or "",
@@ -1978,6 +1981,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
         logo_url=(body.logo_url or "").strip(), website=(body.website or "").strip(),
         main_phone=(body.main_phone or "").strip(),
+        main_phone_type=(body.main_phone_type or "phone").strip() or "phone",
         facebook_url=(body.facebook_url or "").strip(), linkedin_url=(body.linkedin_url or "").strip(),
         twitter_url=(body.twitter_url or "").strip(), instagram_url=(body.instagram_url or "").strip(),
         notes=body.notes or "",
@@ -2424,11 +2428,77 @@ def delete_work_site(site_id: str, user: dict = Depends(require_hr_delete), db: 
 # Company holiday calendar (Sep 18, Pranshu) - per company, not central. A row
 # is either picked from a country's public holidays (source="public") or
 # typed in by hand (source="manual"); once created it's just a flat date +
-# name with no ongoing link back to the public-holiday API. Countries are
-# capped to the same set the company Overview form's Country field offers
-# (US/IN) so the picker never suggests a country nobody here is set up for.
+# name with no ongoing link back to the public-holiday API.
+#
+# Every country in the picker (frontend/src/lib/countries.js - all ~195 ISO
+# 3166-1 countries) can be tried; not every one has public-holiday data
+# behind it, and that's fine - an admin whose country isn't covered just adds
+# holidays manually. Two free, keyless sources, tried in order:
+#   1. date.nager.at - clean JSON, but only ~204 countries/territories, and
+#      notably NOT India, Singapore, Taiwan, Vietnam, or Saudi Arabia (Sep
+#      18: India selected here returned a 500 - date.nager.at answers 204 No
+#      Content for a country it doesn't have, and the old code called
+#      resp.json() on that empty body outside the try/except, so the crash
+#      escaped unhandled instead of degrading to "no data").
+#   2. Google's public per-country holiday calendars (the ones every Google
+#      Calendar user can already subscribe to under Settings -> Holidays) as
+#      a fallback for a short list of major countries confirmed missing from
+#      Nager - each entry below was verified by hand (curl'd and checked for
+#      a real 200 + holiday data) rather than guessed, since Google's
+#      calendar-id naming isn't a predictable function of the ISO code (e.g.
+#      "en.indian", not "en.india") and a wrong guess is exactly the kind of
+#      silent 500 this fix exists to stop happening again.
+# A country in neither source returns 404 with a clear message, never a 500.
 # ---------------------------------------------------------------------------
-_HOLIDAY_COUNTRIES = {"US", "IN"}
+_GOOGLE_HOLIDAY_CALENDARS = {
+    "IN": "en.indian", "SG": "en.singapore", "TW": "en.taiwan",
+    "VN": "en.vietnamese", "SA": "en.saudiarabian",
+}
+
+
+def _fetch_nager_holidays(country: str, year: int) -> Optional[list]:
+    try:
+        resp = httpx.get(f"https://date.nager.at/api/v3/PublicHolidays/{year}/{country}", timeout=10)
+    except Exception:  # noqa: BLE001 - network hiccup, just fall through to the next source
+        return None
+    if resp.status_code == 204:
+        # Nager answers 204 both for "real country, zero holidays this year"
+        # and for a country it doesn't recognize at all (confirmed for
+        # India, which isn't in its AvailableCountries list) - there's no
+        # way to tell those apart from the status code alone, so treat it as
+        # "no answer" and let the Google fallback (or the final 404) take
+        # over, rather than confidently returning an empty list for a
+        # country whose real holidays we just haven't found yet.
+        return None
+    if not resp.is_success:
+        return None
+    try:
+        data = resp.json()
+    except ValueError:
+        return None
+    return [{"date": h.get("date"), "name": h.get("localName") or h.get("name") or ""} for h in data]
+
+
+def _fetch_google_holidays(country: str, year: int) -> Optional[list]:
+    cal_id = _GOOGLE_HOLIDAY_CALENDARS.get(country)
+    if not cal_id:
+        return None
+    url = f"https://calendar.google.com/calendar/ical/{cal_id}%23holiday%40group.v.calendar.google.com/public/basic.ics"
+    try:
+        resp = httpx.get(url, timeout=10)
+        resp.raise_for_status()
+    except Exception:  # noqa: BLE001
+        return None
+    out = []
+    for block in resp.text.split("BEGIN:VEVENT")[1:]:
+        date_m = re.search(r"DTSTART;VALUE=DATE:(\d{8})", block)
+        if not date_m or date_m.group(1)[:4] != str(year):
+            continue
+        name_m = re.search(r"SUMMARY:(.+)", block)
+        name = (name_m.group(1).strip() if name_m else "").replace("\\,", ",")
+        d = date_m.group(1)
+        out.append({"date": f"{d[:4]}-{d[4:6]}-{d[6:8]}", "name": name})
+    return out
 
 
 class CompanyHolidayIn(BaseModel):
@@ -2491,21 +2561,19 @@ def delete_company_holiday(entity_id: str, holiday_id: str,
 
 @router.get("/public-holidays")
 def public_holidays(country: str = "US", year: Optional[int] = None, user: dict = Depends(require_hr_read)):
-    """Proxies date.nager.at (free, no key) so the browser never calls a
-    third-party API directly and a flaky upstream can't leak raw errors to
-    the admin. Sync def (not async) - FastAPI runs it in the thread pool, so
-    this outbound call can't stall the event loop the way an unguarded
-    `await httpx` call on the main thread would (see CLAUDE.md's Aug 2 note)."""
+    """Proxies public holiday sources (see the two helpers above) so the
+    browser never calls a third party directly. Sync def (not async) -
+    FastAPI runs it in the thread pool, so these outbound calls can't stall
+    the event loop the way an unguarded `await httpx` call on the main
+    thread would (see CLAUDE.md's Aug 2 note)."""
     country = (country or "US").strip().upper()
-    if country not in _HOLIDAY_COUNTRIES:
-        raise HTTPException(400, "Unsupported country")
     yr = year or datetime.now(timezone.utc).year
-    try:
-        resp = httpx.get(f"https://date.nager.at/api/v3/PublicHolidays/{yr}/{country}", timeout=10)
-        resp.raise_for_status()
-    except Exception as exc:  # noqa: BLE001 - any upstream failure is "try again shortly" to the admin
-        raise HTTPException(502, "Could not fetch public holidays right now - try again shortly") from exc
-    return [{"date": h.get("date"), "name": h.get("localName") or h.get("name") or ""} for h in resp.json()]
+    result = _fetch_nager_holidays(country, yr)
+    if result is None:
+        result = _fetch_google_holidays(country, yr)
+    if result is None:
+        raise HTTPException(404, "No public holiday data available for this country yet - add holidays manually instead")
+    return result
 
 
 # ---------------------------------------------------------------------------
