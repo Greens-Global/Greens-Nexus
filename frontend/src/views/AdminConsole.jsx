@@ -204,21 +204,16 @@ function EmailSignatureSection({ toastOk, toastErr }) {
   const [entities, setEntities] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [companyId, setCompanyId] = useState('');
-  const [data, setData] = useState(null);       // { templates, closings, template, closing }
+  const [data, setData] = useState(null);       // { templates, template }
   const [selectedTemplate, setSelectedTemplate] = useState('classic');
-  const [selectedClosing, setSelectedClosing] = useState('');
   const [previewBusy, setPreviewBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
 
-  const loadPreview = useCallback((id, closing) => {
+  const loadPreview = useCallback((id) => {
     if (!id) return;
     setPreviewBusy(true);
-    api.getEntitySignatureTemplates(id, closing)
-      .then(d => {
-        setData(d);
-        setSelectedTemplate(d.template);
-        setSelectedClosing(closing != null ? closing : d.closing);
-      })
+    api.getEntitySignatureTemplates(id)
+      .then(d => { setData(d); setSelectedTemplate(d.template); })
       .catch(() => {})
       .finally(() => setPreviewBusy(false));
   }, []);
@@ -238,24 +233,19 @@ function EmailSignatureSection({ toastOk, toastErr }) {
     loadPreview(id);
   }
 
-  function pickClosing(c) {
-    setSelectedClosing(c);
-    loadPreview(companyId, c);
-  }
-
   async function save() {
     if (!companyId || saveBusy) return;
     setSaveBusy(true);
     try {
-      await api.updateEntity(companyId, { signature_template: selectedTemplate, signature_closing: selectedClosing });
-      toastOk('Company signature updated - every employee at this company picks it up automatically.');
+      await api.updateEntity(companyId, { signature_template: selectedTemplate });
+      toastOk('Company signature template updated - every employee at this company picks it up automatically.');
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
     setSaveBusy(false);
   }
 
   return (
     <Section icon={Signature} title="Email Signature" onToggle={load}
-      sub="One template + sign-off per company, applied to every employee's signature automatically - name/role/e-mail still come from their own directory record.">
+      sub="One visual template per company, applied to every employee's signature automatically - name/role/e-mail still come from their own directory record. Sign-off and LinkedIn are each employee's own choice, set from My Profile.">
       {entities.length === 0 ? (
         <div style={{ fontSize: 13, color: 'var(--muted)' }}>{loaded ? 'No companies set up yet - add one under Company Setup first.' : 'Loading…'}</div>
       ) : (
@@ -291,14 +281,6 @@ function EmailSignatureSection({ toastOk, toastErr }) {
                     </button>
                   );
                 })}
-              </div>
-              <div style={{ marginBottom: 14, maxWidth: 320 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-                  Sign-off (Sincerely / Kind Regards templates only)
-                </label>
-                <select className="form-input" style={{ width: '100%' }} value={selectedClosing} onChange={e => pickClosing(e.target.value)}>
-                  {data.closings.map(c => <option key={c} value={c}>{c || 'Template default'}</option>)}
-                </select>
               </div>
               <button className="primary-btn" onClick={save} disabled={saveBusy}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: saveBusy ? 0.6 : 1 }}>

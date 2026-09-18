@@ -1938,7 +1938,6 @@ class EntityUpdate(BaseModel):
     twitter_url:        Optional[str] = None
     instagram_url:      Optional[str] = None
     signature_template: Optional[str] = None
-    signature_closing:  Optional[str] = None
     notes:              Optional[str] = None
     domains:            Optional[str] = None
     manager_email:      Optional[str] = None
@@ -1952,7 +1951,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "mainPhoneType": e.main_phone_type or "phone",
         "facebookUrl": e.facebook_url or "", "linkedinUrl": e.linkedin_url or "",
         "twitterUrl": e.twitter_url or "", "instagramUrl": e.instagram_url or "",
-        "signatureTemplate": e.signature_template or "classic", "signatureClosing": e.signature_closing or "",
+        "signatureTemplate": e.signature_template or "classic",
         "notes": e.notes, "domains": e.domains or "",
         "managerEmail": e.manager_email or "",
         "createdAt": e.created_at, "updatedAt": e.updated_at,
@@ -2012,12 +2011,10 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
         raise HTTPException(403, "Only a company-wide admin can change a company's email domains")
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
-    if body.signature_template is not None or body.signature_closing is not None:
-        from routers.myhr import SIGNATURE_TEMPLATES, SIGNATURE_CLOSINGS
-        if body.signature_template is not None and body.signature_template not in SIGNATURE_TEMPLATES:
+    if body.signature_template is not None:
+        from routers.myhr import SIGNATURE_TEMPLATES
+        if body.signature_template not in SIGNATURE_TEMPLATES:
             raise HTTPException(400, "Unknown signature template")
-        if body.signature_closing is not None and body.signature_closing not in SIGNATURE_CLOSINGS:
-            raise HTTPException(400, "Unknown signature closing")
     for key, value in body.model_dump(exclude_unset=True).items():
         if value is None:
             continue
@@ -2107,27 +2104,23 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
 
 
 @router.get("/entities/{entity_id}/signature-templates")
-def entity_signature_templates(entity_id: str, closing: str = None,
+def entity_signature_templates(entity_id: str,
                                user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """Every signature template pre-rendered with this company's real
     branding + placeholder person data, for the Settings picker (Pranshu,
-    Sep 16: template/sign-off is a company-wide admin choice, not personal).
-    `closing` optionally previews a not-yet-saved sign-off choice across all
-    templates without a round trip through PATCH first."""
+    Sep 16: template is a company-wide admin choice, not personal; Sep 19:
+    sign-off moved OUT to My Profile - each employee sets their own, admin
+    no longer controls or previews it here)."""
     row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
     if not row:
         raise HTTPException(404, "Entity not found")
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Entity not found")
-    from routers.myhr import admin_preview_templates, SIGNATURE_CLOSINGS
-    if closing is not None and closing not in SIGNATURE_CLOSINGS:
-        raise HTTPException(400, "Unknown signature closing")
+    from routers.myhr import admin_preview_templates
     return {
-        "templates": admin_preview_templates(row, closing=closing),
-        "closings": SIGNATURE_CLOSINGS,
+        "templates": admin_preview_templates(row),
         "template": row.signature_template or "classic",
-        "closing": row.signature_closing or "",
     }
 
 
