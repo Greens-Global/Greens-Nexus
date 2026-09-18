@@ -727,6 +727,9 @@ def _run_migrations():
             # Workforce Analytics Policy goes per-company (Sep 19) - was a single
             # id='default' row; see the Python backfill below for splitting it.
             "ALTER TABLE monitoring_policy ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # Personal LinkedIn for the signature icon row (Sep 19) - was the
+            # company's LinkedIn; a person's profile is theirs, not their employer's.
+            "ALTER TABLE nexus_employees ADD COLUMN linkedin_url VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1527,6 +1530,7 @@ def _run_migrations():
         # Same addition as the SQLite list above - see the note there.
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS main_phone_type VARCHAR DEFAULT 'phone'",
         "ALTER TABLE monitoring_policy ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

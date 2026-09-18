@@ -811,12 +811,22 @@ class NexusEmployee(Base):
     # Email signature overrides (Sep 16, Neil): name/role/company email are NOT
     # editable here - they stay pulled live from the directory fields above so
     # the signature can't drift from who someone actually is ("keeps everybody
-    # honest"). Only these two are self-service; empty = fall back to
+    # honest"). Only these are self-service; empty = fall back to
     # display_name/first+last and phone respectively.
     signature_display_name = Column(String, default="")        # preferred name shown on signature, e.g. "Sahil" -> "Sam"
     signature_phone         = Column(String, default="")       # override for signature only (e.g. desk line instead of cell)
     signature_template      = Column(String, default="classic") # which visual layout this employee picked (myhr.SIGNATURE_TEMPLATES)
-    signature_closing       = Column(String, default="")        # preset sign-off line, e.g. "Sincerely" (myhr.SIGNATURE_CLOSINGS) - '' = template default
+    # Sign-off is personal now (Sep 19, Pranshu: "Admin should not have the
+    # control of Sign off... it should be employee specific") - was company-
+    # wide (HrEntity.signature_closing, below); this column already existed
+    # but sat unused since Sep 16. Free text, not just a preset pick - an
+    # employee can type their own closing line entirely.
+    signature_closing       = Column(String, default="")        # this employee's own sign-off line, e.g. "Sincerely" - '' = template default
+    # Personal LinkedIn for the signature's icon row (Sep 19) - was pulled from
+    # the COMPANY's LinkedIn (HrEntity.linkedin_url, since removed from the
+    # Company Setup form) but a person's LinkedIn profile is theirs, not their
+    # employer's.
+    linkedin_url             = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):
@@ -1274,14 +1284,19 @@ class HrEntity(Base):
     # like the rest of branding, not per-employee, so every signature carries the
     # same official company pages.
     facebook_url       = Column(String, default="")
+    # linkedin_url here is VESTIGIAL (Sep 19) - LinkedIn moved to the employee
+    # (NexusEmployee.linkedin_url, a person's profile is theirs, not their
+    # employer's). Column kept rather than dropped so no existing data is
+    # lost; nothing reads it anymore.
     linkedin_url       = Column(String, default="")
     twitter_url        = Column(String, default="")
     instagram_url      = Column(String, default="")
-    # Signature template/sign-off (Sep 16, Pranshu): an admin-picked, company-
-    # wide default in Settings - not a per-employee choice. Every employee's
-    # signature uses their employer's pick (myhr.SIGNATURE_TEMPLATES /
-    # SIGNATURE_CLOSINGS); only display name and phone stay self-service.
+    # Signature template (Sep 16, Pranshu): an admin-picked, company-wide
+    # default in Settings - not a per-employee choice (myhr.SIGNATURE_TEMPLATES).
     signature_template = Column(String, default="classic")
+    # signature_closing here is ALSO VESTIGIAL (Sep 19) - sign-off moved to
+    # the employee too (NexusEmployee.signature_closing): "Admin should not
+    # have the control of Sign off... it should be employee specific."
     signature_closing  = Column(String, default="")
 
 

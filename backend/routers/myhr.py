@@ -161,25 +161,28 @@ def _signature_fields(e: NexusEmployee, db: Session) -> dict:
     full_name = (e.display_name or f"{e.first_name} {e.last_name}").strip()
     preferred = (e.signature_display_name or "").strip()
     # Preferred name is shown ALONGSIDE the real name, never in place of it -
-    # "Pranshu Pandey (PP)", not just "PP" - so the signature still reads as
-    # who someone actually is (Pranshu, Sep 16: was fully replacing the name).
-    name = f"{full_name} ({preferred})" if preferred and preferred.lower() != full_name.lower() else full_name
+    # "Pranshu Pandey "PP"", not just "PP" - so the signature still reads as
+    # who someone actually is (Pranshu, Sep 16: was fully replacing the name;
+    # Sep 19: switched from parens to quotes around the preferred name).
+    name = f'{full_name} "{preferred}"' if preferred and preferred.lower() != full_name.lower() else full_name
     role = (e.designation or e.job_title or "").strip()
     phone = (e.signature_phone or e.phone or "").strip()
     return {
         "name": name, "role": role, "phone": phone, "email": e.work_email or "",
         "photoUrl": e.photo_url or "",
-        # Sign-off is a company-wide admin choice now, not personal (Pranshu,
-        # Sep 16: template/sign-off moved to Settings; only name/phone stay
-        # self-service in My Profile).
-        "closing": ((company.signature_closing if company else "") or "").strip(),
+        # Sign-off is personal now (Sep 19, Pranshu: "Admin should not have
+        # the control of Sign off... it should be employee specific") - was
+        # a company-wide admin choice (Sep 16); each employee sets their own
+        # from My Profile, free text, not just a preset pick.
+        "closing": (e.signature_closing or "").strip(),
         "logoUrl": (company.logo_url if company else "") or "",
         "website": (company.website if company else "") or "",
         "address": (company.registered_address if company else "") or "",
         "companyPhone": (company.main_phone if company else "") or "",
         "companyName": (company.name if company else "") or "",
         "facebookUrl": (company.facebook_url if company else "") or "",
-        "linkedinUrl": (company.linkedin_url if company else "") or "",
+        # Personal, not the company's (Sep 19) - see NexusEmployee.linkedin_url.
+        "linkedinUrl": (e.linkedin_url or "").strip(),
         "twitterUrl": (company.twitter_url if company else "") or "",
         "instagramUrl": (company.instagram_url if company else "") or "",
     }
@@ -389,31 +392,34 @@ SIGNATURE_TEMPLATES = {
 _DEFAULT_TEMPLATE = "classic"
 
 
-def admin_preview_fields(company, closing: str = None) -> dict:
+def admin_preview_fields(company) -> dict:
     """Sample fields for the company-wide template picker in Settings - real
     branding, placeholder person data (there's no 'current employee' in an
-    admin's company-wide preview, since the choice applies to everyone)."""
+    admin's company-wide preview, since the choice applies to everyone).
+    No closing/LinkedIn here (Sep 19) - both are personal now, so the preview
+    just shows each template's own hardcoded default closing line and no
+    LinkedIn icon; an employee's real signature fills both from My Profile."""
     domain = ((company.domains or "").split(",")[0].strip() if company and company.domains else "") or "example.com"
     return {
         "name": "Jane Doe", "role": "Job Title", "phone": "(000) 000-0000",
         "email": f"jane.doe@{domain}", "photoUrl": "",
-        "closing": (closing if closing is not None else (company.signature_closing if company else "")) or "",
+        "closing": "",
         "logoUrl": (company.logo_url if company else "") or "",
         "website": (company.website if company else "") or "",
         "address": (company.registered_address if company else "") or "",
         "companyPhone": (company.main_phone if company else "") or "",
         "companyName": (company.name if company else "") or "",
         "facebookUrl": (company.facebook_url if company else "") or "",
-        "linkedinUrl": (company.linkedin_url if company else "") or "",
+        "linkedinUrl": "",
         "twitterUrl": (company.twitter_url if company else "") or "",
         "instagramUrl": (company.instagram_url if company else "") or "",
     }
 
 
-def admin_preview_templates(company, closing: str = None) -> list:
+def admin_preview_templates(company) -> list:
     """Every template pre-rendered with the company's real branding, for the
     Settings picker (backend/routers/hr.py's /entities/{id}/signature-templates)."""
-    fields = admin_preview_fields(company, closing)
+    fields = admin_preview_fields(company)
     esc = {k: html_lib.escape(v) if isinstance(v, str) else v for k, v in fields.items()}
     return [{"id": tid, "label": label, "html": render_fn(esc)}
             for tid, (label, render_fn) in SIGNATURE_TEMPLATES.items()]
@@ -439,6 +445,12 @@ def _signature_dict(e: NexusEmployee, db: Session) -> dict:
         "canEditDisplayName": True, "canEditPhone": True,
         "displayNameOverride": e.signature_display_name or "",
         "phoneOverride": e.signature_phone or "",
+        "closingOverride": e.signature_closing or "",
+        "linkedinOverride": e.linkedin_url or "",
+        # Quick-pick presets for the sign-off field (Sep 19) - a convenience
+        # that fills the free-text box, not a gate; an employee can still
+        # type anything else in it.
+        "closingPresets": SIGNATURE_CLOSINGS,
     }
 
 
@@ -450,6 +462,8 @@ def my_signature(user: dict = Depends(get_current_user), db: Session = Depends(g
 class SignatureIn(BaseModel):
     display_name: Optional[str] = None   # e.g. "Sahil" -> "Sam" - name/role/e-mail otherwise always come from the directory
     phone:        Optional[str] = None   # e.g. desk line instead of cell
+    closing:      Optional[str] = None   # sign-off line, e.g. "Sincerely" - free text (Sep 19: personal, not admin-set)
+    linkedin_url: Optional[str] = None   # personal LinkedIn for the signature's icon row (Sep 19)
 
 
 @router.put("/signature")
@@ -457,6 +471,10 @@ def save_my_signature(body: SignatureIn, user: dict = Depends(get_current_user),
     e = _me(db, user["email"])
     if body.display_name is not None:
         e.signature_display_name = body.display_name.strip()[:120]
+    if body.closing is not None:
+        e.signature_closing = body.closing.strip()[:60]
+    if body.linkedin_url is not None:
+        e.linkedin_url = body.linkedin_url.strip()[:300]
     if body.phone is not None:
         e.signature_phone = body.phone.strip()[:50]
     e.updated_at = _now()

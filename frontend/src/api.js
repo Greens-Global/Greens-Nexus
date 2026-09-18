@@ -1007,7 +1007,7 @@ export const api = {
   // see services/logo_video.py) - the default 18s fetch timeout would abort
   // a slow conversion well before the server even times out.
   uploadEntityLogo: (id, form) => req(`/hr/entities/${id}/logo`, { method: 'POST', body: form, timeoutMs: 90_000 }),
-  getEntitySignatureTemplates: (id, closing) => req(`/hr/entities/${id}/signature-templates${closing != null ? `?closing=${encodeURIComponent(closing)}` : ''}`),
+  getEntitySignatureTemplates: (id) => req(`/hr/entities/${id}/signature-templates`),
   getGroupManager: ()        => req('/hr/group-manager'),
   setGroupManager: (email)   => req('/hr/group-manager', { method: 'PUT', body: JSON.stringify({ email }) }),
   deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),
