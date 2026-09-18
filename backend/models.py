@@ -1357,6 +1357,27 @@ class HrWorkSite(Base):
     updated_at    = Column(String, default="")
 
 
+class HrCompanyHoliday(Base):
+    """A holiday on a specific company's calendar (Sep 18, Pranshu: "if i add
+    a holiday for Greens global the employee in greens global can see that
+    holiday in their Calendar dashboard"). Two ways a row gets here: picked
+    from a country's public holidays (source="public", country_code set) or
+    typed in directly by the admin (source="manual"). Either way it's just a
+    flat date + name once created - there's no ongoing link back to the
+    public-holiday API, so a holiday that moves next year doesn't silently
+    move here too."""
+    __tablename__ = "hr_company_holidays"
+    id            = Column(String, primary_key=True)   # uuid
+    company_id    = Column(String, nullable=False, index=True)   # HrEntity.id
+    date          = Column(String, nullable=False)     # YYYY-MM-DD
+    name          = Column(String, nullable=False)
+    source        = Column(String, default="manual")   # "manual" | "public"
+    country_code  = Column(String, default="")         # set when source="public"
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
 class HrMailboxExport(Base):
     __tablename__ = "hr_mailbox_exports"
     id            = Column(String, primary_key=True)

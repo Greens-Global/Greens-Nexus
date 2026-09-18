@@ -35,10 +35,10 @@
 // (Pranshu, Sep 11) - unused. Workforce Analytics Policy (the old Policy tab
 // under Employee Tracking) moved in as its replacement in the Company
 // Settings list.
-import { useState, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronDown, Tag, Shield, SlidersHorizontal,
-  Headset, Bell, Building2, MapPin, RefreshCw, Loader2, Timer,
+  Headset, Bell, Building2, RefreshCw, Loader2, Timer,
   UserCog, Activity, DoorOpen, ShieldCheck, Signature, Check,
 } from 'lucide-react';
 import { api } from '../api';
@@ -52,8 +52,7 @@ import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
 // admin actually opens that section.
 const ManageTypesModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.ManageTypesModal })));
 const CustomFieldsAdminModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.CustomFieldsAdminModal })));
-const EntitiesModal = lazy(() => import('./HR').then(m => ({ default: m.EntitiesModal })));
-const WorkSitesModal = lazy(() => import('./HR').then(m => ({ default: m.WorkSitesModal })));
+const CompanySetupPage = lazy(() => import('./HR').then(m => ({ default: m.CompanySetupPage })));
 // Workforce Analytics Policy (Sep 11) - named-exported from TimeTrackingAdmin.jsx.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
@@ -327,28 +326,13 @@ function EmailSignatureSection({ toastOk, toastErr }) {
 }
 
 // ── People: Company Setup, Work Sites, Sync M365 ──────────────────────────────
-function CompanySection({ toastOk, toastErr }) {
-  const [entities, setEntities] = useState([]);
-  const [employees, setEmployees] = useState([]);
-  const [sites, setSites] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-  const [entitiesOpen, setEntitiesOpen] = useState(false);
-  const [sitesOpen, setSitesOpen] = useState(false);
+// M365 directory sync only now - Company Setup and Work Sites moved out to
+// their own top-level "Company Setup" tab (Pranshu, Sep 18), since a company
+// has too much on it (departments, per-company work sites, holiday calendar)
+// to keep managing from a popup nested inside this accordion.
+function M365SyncSection({ toastOk, toastErr }) {
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncLabel, setSyncLabel] = useState('');
-
-  const loadEntities = useCallback(() => api.getEntities().then(setEntities).catch(() => {}), []);
-  const loadSites = useCallback(() => api.getWorkSites().then(setSites).catch(() => {}), []);
-
-  const load = useCallback(() => {
-    if (loaded) return;
-    setLoaded(true);
-    loadEntities();
-    loadSites();
-    api.getEmployees().then(rows => {
-      setEmployees((rows || []).filter(e => !['guest', 'external'].includes(e.identityType || 'internal')));
-    }).catch(() => {});
-  }, [loaded, loadEntities, loadSites]);
 
   // Same handler as HR.jsx's "Sync M365" button - kicks off the server-side
   // background job and polls its status.
@@ -387,33 +371,42 @@ function CompanySection({ toastOk, toastErr }) {
   }
 
   return (
-    <Section icon={Building2} title="Company Setup, Work Sites & M365 Sync" onToggle={load}
-      sub="Legal entities, geofenced clock-in sites, and directory sync - originally on the People → Overview screen.">
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <button className="secondary-btn" onClick={() => setEntitiesOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Building2 size={14} /> Company Setup
-        </button>
-        <button className="secondary-btn" onClick={() => setSitesOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <MapPin size={14} /> Work Sites
-        </button>
-        <button className="secondary-btn" onClick={runSync} disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={14} />}
-          {syncBusy && syncLabel ? syncLabel : 'Sync M365'}
-        </button>
-      </div>
-      {entitiesOpen && (
-        <Suspense fallback={<ModalFallback />}>
-          <EntitiesModal entities={entities} employees={employees} onClose={() => setEntitiesOpen(false)}
-            onChanged={loadEntities} toastOk={toastOk} toastErr={toastErr} />
-        </Suspense>
-      )}
-      {sitesOpen && (
-        <Suspense fallback={<ModalFallback />}>
-          <WorkSitesModal sites={sites} entities={entities} onClose={() => setSitesOpen(false)}
-            onChanged={loadSites} toastOk={toastOk} toastErr={toastErr} />
-        </Suspense>
-      )}
+    <Section icon={RefreshCw} title="M365 Sync" sub="Pull/push the M365 directory - originally on the People → Overview screen.">
+      <button className="secondary-btn" onClick={runSync} disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={14} />}
+        {syncBusy && syncLabel ? syncLabel : 'Sync M365'}
+      </button>
     </Section>
+  );
+}
+
+// ── Company Setup tab (Pranshu, Sep 18) - its own top-level tab, not an
+// accordion popup: legal entities, and inside each one's full-screen editor,
+// its departments, work sites, and (soon) holiday calendar.
+function CompanySetupSection({ toastOk, toastErr }) {
+  const [entities, setEntities] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [sites, setSites] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  const loadEntities = useCallback(() => api.getEntities().then(setEntities).catch(() => {}), []);
+  const loadSites = useCallback(() => api.getWorkSites().then(setSites).catch(() => {}), []);
+
+  useEffect(() => {
+    if (loaded) return;
+    setLoaded(true);
+    loadEntities();
+    loadSites();
+    api.getEmployees().then(rows => {
+      setEmployees((rows || []).filter(e => !['guest', 'external'].includes(e.identityType || 'internal')));
+    }).catch(() => {});
+  }, [loaded, loadEntities, loadSites]);
+
+  return (
+    <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0' }}>Loading…</div>}>
+      <CompanySetupPage entities={entities} employees={employees} sites={sites}
+        onChangedEntities={loadEntities} onChangedSites={loadSites} toastOk={toastOk} toastErr={toastErr} />
+    </Suspense>
   );
 }
 
@@ -466,6 +459,7 @@ function ActAsSection() {
 
 const TOP_TABS = [
   { key: 'settings', label: 'Company Settings', Icon: SlidersHorizontal },
+  { key: 'company',  label: 'Company Setup',    Icon: Building2 },
   { key: 'access',   label: 'Roles & Access',   Icon: Shield },
   { key: 'actas',    label: 'Act As',           Icon: UserCog },
   { key: 'audit',    label: 'Audit Logs',       Icon: Activity },
@@ -511,7 +505,9 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           the in-page strip (ModuleTabs handles both) */}
       <ModuleTabs tabs={visibleTabs} active={topTab} onChange={setTopTab} />
 
-      {topTab === 'access' ? (
+      {topTab === 'company' ? (
+        <CompanySetupSection toastOk={toastOk} toastErr={toastErr} />
+      ) : topTab === 'access' ? (
         <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0' }}>Loading…</div>}>
           <RolesAccess embedded />
         </Suspense>
@@ -530,7 +526,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           <TicketSettingsSections />
           <WorkforceAnalyticsPolicySection />
           <EmailSignatureSection toastOk={toastOk} toastErr={toastErr} />
-          <CompanySection toastOk={toastOk} toastErr={toastErr} />
+          <M365SyncSection toastOk={toastOk} toastErr={toastErr} />
         </>
       )}
 
