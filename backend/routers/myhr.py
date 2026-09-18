@@ -234,6 +234,21 @@ _TYPEWRITER_CSS = (
 )
 
 
+def _normalize_url(url: str) -> str:
+    """A social URL saved without a scheme (e.g. "linkedin.com/in/x", or an
+    employee pasting the wrong thing entirely) renders as a RELATIVE link -
+    the browser/mail client resolves it against whatever page the signature
+    happens to be copied from, not the real external site (Sep 19: reported
+    as the LinkedIn icon in a copied signature pointing at
+    "https://dev.nexus.../admin-console/www.linkedin.com/..." instead of
+    LinkedIn itself). Defaults a missing scheme to https:// rather than
+    silently producing a broken href."""
+    url = (url or "").strip()
+    if not url or re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", url):
+        return url
+    return f"https://{url}"
+
+
 def _social_icons(f: dict) -> str:
     """Small monochrome-brand circular badges (text glyphs, not hosted images -
     stays a real text-based signature, no image blocking). Shown on every
@@ -246,7 +261,7 @@ def _social_icons(f: dict) -> str:
     they looked fine in our own preview. Table cells keep their background
     everywhere, so this is the standard "bulletproof" email-HTML pattern."""
     links = [(f["facebookUrl"], "f"), (f["linkedinUrl"], "in"), (f["twitterUrl"], "X"), (f["instagramUrl"], "ig")]
-    active = [(url, label) for url, label in links if url]
+    active = [(_normalize_url(url), label) for url, label in links if url]
     if not active:
         return ""
     cells = "".join(
@@ -265,6 +280,18 @@ def _role_company_line(f: dict) -> str:
     return f["role"] or f["companyName"]
 
 
+def _closing_line(f: dict, style: str) -> str:
+    """Plain (non-script) sign-off line for Classic/Modern/Minimal/Bold -
+    those four never rendered `closing` at all (only Sincerely/Kind Regards
+    did, in their own script font), so an employee's sign-off silently
+    vanished on every other template (Sep 19: "Neither the Sign off value is
+    getting copied"). Purely optional here - no fallback default text,
+    unlike Sincerely/Kind Regards, since these templates have no closing-word
+    identity of their own to fall back to."""
+    closing = (f.get("closing") or "").strip()
+    return f'<div style="{style}">{closing},</div>' if closing else ""
+
+
 def _render_classic(f: dict) -> str:
     rows = "".join(
         f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
@@ -277,9 +304,11 @@ def _render_classic(f: dict) -> str:
                  if f["logoUrl"] else "")
     social = _social_icons(f)
     social_row = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if social else ""
+    closing = _closing_line(f, "color:#333333;padding-bottom:4px;")
     return (
         '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
         f'<tr>{logo_cell}<td style="vertical-align:top;">'
+        f'{closing}'
         f'<table style="border-collapse:collapse;"><tr><td style="font-weight:bold;color:#111111;padding-bottom:2px;">{f["name"]}</td></tr>'
         f'{rows}</table></td></tr>'
         f'{social_row}'
@@ -296,9 +325,11 @@ def _render_modern(f: dict) -> str:
                 f'style="max-height:44px;max-width:150px;" /></td></tr>' if f["logoUrl"] else "")
     social = _social_icons(f)
     social_row = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if social else ""
+    closing = _closing_line(f, "color:#555555;margin-bottom:4px;")
     return (
         f'<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
         f'<tr><td style="border-left:3px solid {_BRAND_GREEN};padding-left:12px;">'
+        f'{closing}'
         f'<div style="font-size:15px;font-weight:bold;color:#111111;">{f["name"]}</div>'
         f'<div style="color:{_BRAND_GREEN};font-weight:600;margin:2px 0 6px;">{f["role"]}</div>'
         f'<div style="color:#555555;">{contact}</div>'
@@ -314,7 +345,9 @@ def _render_minimal(f: dict) -> str:
     tail = f" &nbsp;&mdash;&nbsp; {line}" if line else ""
     social = _social_icons(f)
     social_block = f'<div style="margin-top:4px;">{social}</div>' if social else ""
+    closing = _closing_line(f, "color:#666666;margin-bottom:3px;")
     return (
+        f'{closing}'
         '<div style="font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#333333;">'
         f'<span style="font-weight:bold;color:#111111;">{f["name"]}</span>'
         f'{tail}'
@@ -336,6 +369,7 @@ def _render_bold(f: dict) -> str:
                  if f["role"] else "")
     social = _social_icons(f)
     social_block = f'<div style="padding-top:8px;">{social}</div>' if social else ""
+    closing = _closing_line(f, "color:#666666;font-size:12.5px;padding-bottom:6px;")
     return (
         '<table style="font-family:Arial,Helvetica,sans-serif;border-collapse:collapse;">'
         f'<tr><td style="background:{_BRAND_GREEN};padding:10px 14px;border-radius:4px 4px 0 0;" colspan="2">'
@@ -343,6 +377,7 @@ def _render_bold(f: dict) -> str:
         f'{role_span}'
         '</td></tr>'
         f'<tr><td style="border:1px solid #e2e2e2;border-top:none;padding:10px 14px;" colspan="2">'
+        f'{closing}'
         f'<table style="border-collapse:collapse;"><tr>{logo_cell}<td style="vertical-align:top;">'
         f'<table style="border-collapse:collapse;">{rows}</table></td></tr></table>'
         f'{social_block}'
