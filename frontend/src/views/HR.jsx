@@ -7,7 +7,7 @@ import {
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
-  ChevronDown,
+  ChevronDown, Globe2,
 } from 'lucide-react';
 import { api } from '../api';
 import { geocode } from '../asset/lib/geo';
@@ -35,7 +35,7 @@ import InvestorChart from '../components/InvestorChart';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
-import { COUNTRIES } from '../lib/countries';
+import { COUNTRIES, countryName } from '../lib/countries';
 import LocationPickerMap from '../components/LocationPickerMap';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
@@ -136,6 +136,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     manager_email:   e?.managerEmail || '',
     status:          e?.status || 'active',
     location:        e?.location || '',
+    country:         e?.country || '',
     company:         e?.company || '',
     identity_type:   e?.identityType || 'internal',
     contractor:      e?.contractor || {},
@@ -382,6 +383,14 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
             </select>
           </div>
           {input('LOCATION', 'location', { placeholder: 'e.g. Escondido office' })}
+          <div>
+            <label style={FL}>COUNTRY</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => set('country', e.target.value)}>
+              <option value="">-</option>
+              {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>Where this person actually is - drives their email signature's phone country code.</div>
+          </div>
           <div>
             <label style={FL}>ACCOUNT TYPE</label>
             <select className="form-input" style={{ width: '100%' }} value={f.identity_type} onChange={e => set('identity_type', e.target.value)}>
@@ -1706,6 +1715,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {companyName && row(Building2, 'Company', companyName)}
               {row(CalendarOff, 'Start date', formatDate(e.startDate))}
               {row(MapPin, 'Location', e.location)}
+              {e.country && row(Globe2, 'Country', countryName(e.country))}
               {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
               {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', formatDate(e.contractor.contract_end))}
               {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}

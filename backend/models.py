@@ -752,7 +752,13 @@ class NexusEmployee(Base):
     manager_email   = Column(String, default="")               # reporting line -> org chart (Phase 5)
     photo_url       = Column(String, default="")
     status          = Column(String, default="active")         # onboarding | active | inactive | offboarded
-    location        = Column(String, default="")
+    location        = Column(String, default="")               # free-text office/site description, e.g. "Escondido office"
+    # ISO 3166-1 alpha-2, e.g. "IN"/"US" (Sep 19, Pranshu: "phone number in
+    # sign should be pulled from HR directory not from company setup" - a
+    # company's own registered country doesn't always match where a given
+    # employee actually is). Structured (a <select>, not free text like
+    # `location` above) so it can drive a real dial-code lookup.
+    country         = Column(String, default="")
     company         = Column(String, default="")               # HrEntity.id - which legal entity employs this worker
     contractor      = Column(JSON, default=dict)               # contractor-only fields (scope/SOW/dates/rate/client) - HR Section A
     personal        = Column(JSON, default=dict)               # emergency contact, addresses, DOB, masked IDs - HR Section B
