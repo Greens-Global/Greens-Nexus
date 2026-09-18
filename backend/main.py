@@ -724,6 +724,9 @@ def _run_migrations():
             # Main Phone type picker (Sep 18) - "phone" bakes the dial code into
             # main_phone itself; fax/telephone don't.
             "ALTER TABLE hr_entities ADD COLUMN main_phone_type VARCHAR DEFAULT 'phone'",
+            # Workforce Analytics Policy goes per-company (Sep 19) - was a single
+            # id='default' row; see the Python backfill below for splitting it.
+            "ALTER TABLE monitoring_policy ADD COLUMN company_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1523,6 +1526,7 @@ def _run_migrations():
         "WHERE NOT EXISTS (SELECT 1 FROM ticket_departments td WHERE td.id = d.id)",
         # Same addition as the SQLite list above - see the note there.
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS main_phone_type VARCHAR DEFAULT 'phone'",
+        "ALTER TABLE monitoring_policy ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -1915,6 +1919,45 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] ticket sla_due_on backfill skipped: {e}")
+    # Workforce Analytics Policy goes per-company (Sep 19, Pranshu: "all
+    # companies have their different workforce analytics policy"). Was a
+    # single shared row (id='default', company_id=''); that row now stays as
+    # the fallback for anyone with no company. Every EXISTING company gets
+    # its own copy of that row's actual settings, so nobody's live monitoring
+    # behavior changes the moment this ships - only going forward, once an
+    # admin edits a specific company's copy from Settings -> Company Setup,
+    # do they diverge. A company created after this runs just gets the
+    # model's plain built-in defaults instead (via _get_policy's own
+    # auto-create), which is fine - there's nothing "today's settings" to
+    # preserve for a company that didn't exist yet.
+    try:
+        import uuid as _uuid
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            default_row = db.query(models.MonitoringPolicy).filter(models.MonitoringPolicy.id == "default").first()
+            if default_row is not None:
+                have = {row[0] for row in db.query(models.MonitoringPolicy.company_id)
+                        .filter(models.MonitoringPolicy.company_id != "").all()}
+                created = 0
+                for e in db.query(models.HrEntity).all():
+                    if e.id in have:
+                        continue
+                    db.add(models.MonitoringPolicy(
+                        id=str(_uuid.uuid4()), company_id=e.id,
+                        enabled=default_row.enabled, interval_minutes=default_row.interval_minutes,
+                        randomize=default_row.randomize, track_screens=default_row.track_screens,
+                        track_windows=default_row.track_windows, track_input=default_row.track_input,
+                        updated_by="migration", updated_at=datetime.now(timezone.utc).isoformat(),
+                    ))
+                    created += 1
+                if created:
+                    db.commit()
+                    print(f"[startup] backfilled monitoring_policy for {created} compan{'y' if created == 1 else 'ies'} from the shared default")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] monitoring_policy company backfill skipped: {e}")
     # Asana sync fallback poll (webhooks handle real-time; this is the safety net).
     try:
         from asana_sync import start_auto_pull, is_sync_worker

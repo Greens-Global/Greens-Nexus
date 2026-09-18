@@ -1164,8 +1164,10 @@ export const api = {
   timeShots:         (date, email) => req(`/timeclock/screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
   // Disclosed monitoring: per-shift consent, admin policy, manager-scoped gallery
   timeMonitoringConsent: () => req('/timeclock/monitoring/consent', { method: 'POST', body: JSON.stringify({ text_version: '', tz_offset_min: new Date().getTimezoneOffset() }) }),
-  timeMonitoringPolicy:  () => req('/timeclock/monitoring/policy'),
-  timeSetMonitoringPolicy: (data) => req('/timeclock/monitoring/policy', { method: 'PUT', body: JSON.stringify(data) }),
+  // Per-company now (Sep 19) - admin views/edits one company's policy from
+  // Settings -> Company Setup -> that company's Workforce Analytics Policy tab.
+  timeCompanyMonitoringPolicy:    (companyId)       => req(`/timeclock/monitoring/policy/${companyId}`),
+  timeSetCompanyMonitoringPolicy: (companyId, data) => req(`/timeclock/monitoring/policy/${companyId}`, { method: 'PUT', body: JSON.stringify(data) }),
   timeTeamShots:     (date, email) => req(`/timeclock/team-screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
   timeBodDay:        (email, date) => req(`/timeclock/bod/day?email=${encodeURIComponent(email || '')}&date=${date || ''}`),
   timeMonitoringAlerts: () => req('/timeclock/monitoring/alerts'),

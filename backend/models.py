@@ -2458,11 +2458,16 @@ class TrackPing(Base):
 class MonitoringPolicy(Base):
     """Admin-set, server-side policy the desktop agent fetches each heartbeat -
     replaces the agent's hardcoded interval/toggles so capture cadence and what's
-    collected are controlled centrally and auditable. Single row (id='default').
-    DISCLOSED monitoring: capture only runs while clocked in and after the
-    employee acknowledges it (see MonitoringConsent); this row just governs HOW."""
+    collected are controlled centrally and auditable. One row per company
+    (Sep 19, Pranshu: "all companies have their different workforce analytics
+    policy") plus a company_id="" fallback row (formerly the single id='default'
+    row) used for anyone with no company set, or a company that hasn't gotten
+    its own row yet. DISCLOSED monitoring: capture only runs while clocked in
+    and after the employee acknowledges it (see MonitoringConsent); this row
+    just governs HOW."""
     __tablename__ = "monitoring_policy"
     id               = Column(String, primary_key=True, default="default")
+    company_id       = Column(String, default="", index=True)   # HrEntity.id; "" = fallback
     enabled          = Column(Integer, default=1)   # master switch; 0 = no capture at all
     interval_minutes = Column(Integer, default=5)   # base cadence between captures
     randomize        = Column(Integer, default=1)   # jitter the interval so a shot can't be timed/gamed

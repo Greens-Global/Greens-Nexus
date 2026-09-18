@@ -39,7 +39,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronDown, Tag, Shield, SlidersHorizontal,
   Headset, Bell, Building2, RefreshCw, Loader2, Timer,
-  UserCog, Activity, DoorOpen, ShieldCheck, Signature, Check,
+  UserCog, Activity, DoorOpen, Signature, Check,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -53,8 +53,6 @@ import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
 const ManageTypesModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.ManageTypesModal })));
 const CustomFieldsAdminModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.CustomFieldsAdminModal })));
 const CompanySetupPage = lazy(() => import('./HR').then(m => ({ default: m.CompanySetupPage })));
-// Workforce Analytics Policy (Sep 11) - named-exported from TimeTrackingAdmin.jsx.
-const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
 // `embedded` skips its own page header, since it gets one from the tab here.
@@ -187,21 +185,10 @@ function TicketSettingsSections() {
   );
 }
 
-// ── Workforce Analytics Policy ──────────────────────────────────────────────────
-// Moved here whole (Pranshu, Sep 11) - was the Policy tab on Workforce
-// Analytics (Employee Tracking); that screen's own tab strip no longer
-// carries it. Reuses MonitoringPolicy exactly, named-exported from
-// TimeTrackingAdmin.jsx so behavior can't drift between here and there.
-function WorkforceAnalyticsPolicySection() {
-  return (
-    <Section icon={ShieldCheck} title="Workforce Analytics Policy" defaultOpen={false}
-      sub="What Nexus records while people are clocked in, and how often - originally the Policy tab under Workforce Analytics.">
-      <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>}>
-        <MonitoringPolicy />
-      </Suspense>
-    </Section>
-  );
-}
+// Workforce Analytics Policy moved OUT of here (Sep 19, Pranshu: "all
+// companies have their different workforce analytics policy") - it's no
+// longer one shared setting, so it lives on each company's own tab in
+// Settings -> Company Setup instead. See HR.jsx's CompanySetupPage.
 
 // ── Email Signature (Pranshu, Sep 16) ──────────────────────────────────────────
 // Template + sign-off are a company-wide admin choice here, not a personal one
@@ -524,7 +511,6 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           </div>
           <ItemSettingsSection toast={showToast} />
           <TicketSettingsSections />
-          <WorkforceAnalyticsPolicySection />
           <EmailSignatureSection toastOk={toastOk} toastErr={toastErr} />
           <M365SyncSection toastOk={toastOk} toastErr={toastErr} />
         </>
