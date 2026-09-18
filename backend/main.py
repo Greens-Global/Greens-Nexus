@@ -721,6 +721,9 @@ def _run_migrations():
             "INSERT INTO ticket_departments (id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at) "
             "SELECT id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at FROM hr_departments "
             "WHERE NOT EXISTS (SELECT 1 FROM ticket_departments WHERE ticket_departments.id = hr_departments.id)",
+            # Main Phone type picker (Sep 18) - "phone" bakes the dial code into
+            # main_phone itself; fax/telephone don't.
+            "ALTER TABLE hr_entities ADD COLUMN main_phone_type VARCHAR DEFAULT 'phone'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1518,6 +1521,8 @@ def _run_migrations():
         "INSERT INTO ticket_departments (id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at) "
         "SELECT id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at FROM hr_departments d "
         "WHERE NOT EXISTS (SELECT 1 FROM ticket_departments td WHERE td.id = d.id)",
+        # Same addition as the SQLite list above - see the note there.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS main_phone_type VARCHAR DEFAULT 'phone'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
