@@ -52,6 +52,7 @@ class EmployeeIn(BaseModel):
     manager_email:   Optional[str] = ""
     status:          Optional[str] = "active"
     location:        Optional[str] = ""
+    country:         Optional[str] = ""   # ISO 3166 alpha-2 - THIS person's own country, e.g. for signature phone formatting
     company:         Optional[str] = ""
     identity_type:   Optional[str] = "internal"
     contractor:      Optional[dict] = None
@@ -74,6 +75,7 @@ class EmployeeUpdate(BaseModel):
     manager_email:   Optional[str] = None
     status:          Optional[str] = None
     location:        Optional[str] = None
+    country:         Optional[str] = None
     company:         Optional[str] = None
     division:        Optional[str] = None
     identity_type:   Optional[str] = None
@@ -154,6 +156,7 @@ def _serialize(e: NexusEmployee) -> dict:
         "photoUrl":       e.photo_url,
         "status":         e.status,
         "location":       e.location,
+        "country":        e.country or "",
         "company":        e.company,
         "division":       e.division or "",
         "identityType":   e.identity_type or "internal",
@@ -210,6 +213,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         manager_email=(body.manager_email or "").strip().lower(),
         status=body.status or "active",
         location=(body.location or "").strip(),
+        country=(body.country or "").strip().upper(),
         company=(body.company or "").strip(),
         identity_type=body.identity_type or "internal",
         contractor=body.contractor or {},

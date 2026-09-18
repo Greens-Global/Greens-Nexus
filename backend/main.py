@@ -730,6 +730,10 @@ def _run_migrations():
             # Personal LinkedIn for the signature icon row (Sep 19) - was the
             # company's LinkedIn; a person's profile is theirs, not their employer's.
             "ALTER TABLE nexus_employees ADD COLUMN linkedin_url VARCHAR DEFAULT ''",
+            # THIS employee's own country (Sep 19) - a company's registered
+            # country doesn't always match where a given employee is; the
+            # signature phone's dial code now comes from here instead.
+            "ALTER TABLE nexus_employees ADD COLUMN country VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1531,6 +1535,7 @@ def _run_migrations():
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS main_phone_type VARCHAR DEFAULT 'phone'",
         "ALTER TABLE monitoring_policy ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS country VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

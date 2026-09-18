@@ -194,7 +194,14 @@ def _signature_fields(e: NexusEmployee, db: Session) -> dict:
     # Sep 19: switched from parens to quotes around the preferred name).
     name = f'{full_name} "{preferred}"' if preferred and preferred.lower() != full_name.lower() else full_name
     role = (e.designation or e.job_title or "").strip()
-    phone = _format_signature_phone((e.signature_phone or e.phone or "").strip(), company.country if company else "")
+    # THIS employee's own country, not their company's (Sep 19: "phone number
+    # in sign should be pulled from HR directory not from company setup" - a
+    # company's registered country doesn't always match where a given
+    # employee actually is, e.g. a US-registered company with staff in
+    # India). Falls back to the company's country for anyone who hasn't set
+    # their own yet, so existing signatures don't regress to no dial code.
+    phone_country = (e.country or "").strip() or (company.country if company else "") or ""
+    phone = _format_signature_phone((e.signature_phone or e.phone or "").strip(), phone_country)
     return {
         "name": name, "role": role, "phone": phone, "email": e.work_email or "",
         "photoUrl": e.photo_url or "",
