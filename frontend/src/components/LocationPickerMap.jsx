@@ -37,11 +37,17 @@ export default function LocationPickerMap({ onLocationPicked, initialLatLng, pla
   useEffect(() => {
     let map;
     try {
-      map = L.map(mapElRef.current, { scrollWheelZoom: true }).setView(initialLatLng || [20, 0], initialLatLng ? 13 : 2);
+      map = L.map(mapElRef.current, { scrollWheelZoom: true }).setView(initialLatLng || [20, 40], initialLatLng ? 13 : 2);
     } catch { return; }
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, attribution: '&copy; OpenStreetMap',
-    }).addTo(map);
+    // Same Map/Satellite base layers + toggle as Workforce Analytics ->
+    // Locations (Esri World Imagery is free, no key) - Pranshu, Sep 19:
+    // "prefer to use the same map style in company setup and work sites".
+    const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' });
+    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics' });
+    const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+    const hybrid = L.layerGroup([satellite, labels]);
+    hybrid.addTo(map);   // default to Satellite, same as Locations
+    L.control.layers({ 'Map': street, 'Satellite': hybrid }, {}, { position: 'topright', collapsed: false }).addTo(map);
     mapRef.current = map;
     setTimeout(() => { try { map.invalidateSize(); } catch { /* torn down */ } }, 120);
 
@@ -96,7 +102,7 @@ export default function LocationPickerMap({ onLocationPicked, initialLatLng, pla
           {searching ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={14} />}
         </button>
       </div>
-      <div ref={mapElRef} style={{ width: '100%', height: '100%', minHeight: 320, borderRadius: 10, border: '1px solid var(--line)', overflow: 'hidden' }} />
+      <div ref={mapElRef} style={{ width: '100%', height: '100%', minHeight: 560, borderRadius: 10, border: '1px solid var(--line)', overflow: 'hidden' }} />
       <p style={{ fontSize: 11, color: 'var(--muted)', margin: '6px 0 0' }}>Search, or click/drag the pin on the map.</p>
     </div>
   );
