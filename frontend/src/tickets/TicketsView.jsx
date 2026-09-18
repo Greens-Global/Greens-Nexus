@@ -23,7 +23,8 @@ import {
   setOpenTicketId, clearOpenTicketId, isTicketDrawerOpen,
 } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
-import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar, SelectMenu } from '../tasks/components';
+import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
+import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar, SelectMenu, useImageZoom } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
@@ -1913,7 +1914,7 @@ export function CreateTicketModal({ onClose }) {
           )}
           {/* capture="environment" opens the rear camera on a phone. */}
           <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFiles} />
-          <input ref={libRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onFiles} />
+          <input ref={libRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={onFiles} />
           <input ref={attachRef} type="file" multiple style={{ display: 'none' }} onChange={onFiles} />
           <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onScan} />
         </div>
@@ -2063,7 +2064,7 @@ function readOnlyFieldValue(f, value, nameOf) {
 // scopes what a non-desk person can see/do, same as it would inside the
 // module for someone without the desk grant.
 export function TicketDrawer({ ticketId, onClose }) {
-  const { tickets, tasks, projects = [],
+  const { tickets, tasks, projects = [], loading: tasksLoading,
     addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
   // An approval decision changes status/resolution server-side, so pull the whole
@@ -2086,6 +2087,9 @@ export function TicketDrawer({ ticketId, onClose }) {
   // "This section hit a snag". Inside the Tickets module the store is already
   // warm, `t` exists on the first render, and the fault never shows.
   const [requestingControl, setRequestingControl] = useState(false);
+  // A linked task opened in place, over the ticket - so working on it does not
+  // mean closing the ticket and hunting for the task in the Task module.
+  const [openTaskId, setOpenTaskId] = useState(null);
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
   useEffect(() => {
@@ -2254,7 +2258,9 @@ export function TicketDrawer({ ticketId, onClose }) {
     {/* No width override - the Modal default (clamp(520px, 60vw, 980px)) is
         the shared "big form" sizing used across the app; the fixed 620px this
         used to pass read as a cramped tab next to that (Pranshu, Sept 8 2026). */}
-    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={onClose} footer={
+    {/* While a linked task is open on top, Escape (which Modal also listens
+        for) closes the task first rather than the ticket underneath it. */}
+    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? setOpenTaskId(null) : onClose())} footer={
       <>
         {canDelete && (
           <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
@@ -2498,7 +2504,7 @@ export function TicketDrawer({ ticketId, onClose }) {
 
       <div style={field}>
         <label style={label}>Tasks</label>
-        <TicketTasks taskIds={taskIds} tasks={tasks} onSpawn={spawnTask} onLink={linkTask} onUnlink={unlinkTask} readOnly={!fullAccess} />
+        <TicketTasks taskIds={taskIds} tasks={tasks} tasksLoading={tasksLoading} onOpen={setOpenTaskId} onSpawn={spawnTask} onLink={linkTask} onUnlink={unlinkTask} readOnly={!fullAccess} />
       </div>
 
       <div style={field}>
@@ -2521,6 +2527,7 @@ export function TicketDrawer({ ticketId, onClose }) {
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
       </div>
     </Modal>
+    {openTaskId && <TaskDetailDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} zIndex={4100} />}
     {requestingControl && (
       <LiveView assist email={t.requesterId} name={nameOf(t.requesterId) || t.requesterId} onClose={() => setRequestingControl(false)} />
     )}
@@ -2651,9 +2658,16 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
 }
 
 // ── Tasks spawned from / linked to a ticket (one ticket → many tasks) ─────────
-function TicketTasks({ taskIds, tasks, onSpawn, onLink, onUnlink, readOnly }) {
+// Each row opens the task in place (onOpen) and carries its live status chip,
+// so progress on the work is readable from the ticket without switching module.
+// A linked id the store does not hold (deleted, or not visible to this person)
+// still gets a row - hiding it made the link look like it had never been made.
+function TicketTasks({ taskIds, tasks, tasksLoading = false, onOpen, onSpawn, onLink, onUnlink, readOnly }) {
   const [linking, setLinking] = useState(false);
-  const linked = taskIds.map((id) => tasks.find((x) => x.id === id)).filter(Boolean);
+  const linked = taskIds.map((id) => tasks.find((x) => x.id === id) || { id, missing: true });
+  // Still fetching (Support mounts its own store lazily): a link is not
+  // "missing" until the list it would be found in has actually arrived.
+  if (tasksLoading && linked.some((x) => x.missing)) return <span className="skel" style={{ display: 'block', width: 220, height: 14 }} />;
   const options = tasks.filter((x) => !taskIds.includes(x.id));
   return (
     <div>
@@ -2661,12 +2675,19 @@ function TicketTasks({ taskIds, tasks, onSpawn, onLink, onUnlink, readOnly }) {
       {linked.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
           {linked.map((task) => (
-            <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, minWidth: 0 }}>
               <ClipboardList size={13} style={{ color: NX.faint, flexShrink: 0 }} />
-              <span style={{ color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {task.code ? `${task.code} · ` : ''}{task.title}
-              </span>
-              {task.status && <span style={{ fontSize: 11, color: NX.faint, flexShrink: 0 }}>{task.status === 'done' ? '✓ done' : task.status}</span>}
+              {task.missing ? (
+                <span style={{ color: NX.faint, fontStyle: 'italic' }}>Task not available - it may have been deleted or you may not have access</span>
+              ) : (
+                <>
+                  <button onClick={() => onOpen(task.id)} title="Open Task"
+                    style={{ ...btn('ghost'), padding: 0, minWidth: 0, color: NX.primary, fontWeight: 600, fontSize: 13, textDecoration: task.completed ? 'line-through' : 'underline', textUnderlineOffset: 2, justifyContent: 'flex-start' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.code ? `${task.code} · ` : ''}{task.title}</span>
+                  </button>
+                  <span style={{ flexShrink: 0 }}><StatusChip status={task.completed ? 'completed' : task.status} /></span>
+                </>
+              )}
               {!readOnly && <button onClick={() => onUnlink(task.id)} title="Unlink task" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>}
             </div>
           ))}
@@ -2880,6 +2901,7 @@ function TicketConversation({ ticketId, nameOf }) {
   const [internal, setInternal] = useState(false);
   const [busy, setBusy] = useState(false);
   const people = usePeople();
+  const [zoomImage, zoomViewer] = useImageZoom();
   // A comment updates the ticket row itself (last_comment_at, which drives
   // the "Needs a comment" staleness badge - ticketMeta.js's commentStale) -
   // reload() above only re-fetches the comment thread, so without this the
@@ -2901,6 +2923,7 @@ function TicketConversation({ ticketId, nameOf }) {
 
   return (
     <div>
+      {zoomViewer}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
         {rows === null ? <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>
           : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No comments yet.</div>
@@ -2917,7 +2940,7 @@ function TicketConversation({ ticketId, nameOf }) {
                   {/* richBodyHtml sanitizes, and wraps a plain-text body (every
                       comment written before this change) in paragraphs - so old
                       and new comments render the same way. */}
-                  <div className="nx-rich-body" style={{ fontSize: 13, color: NX.dim, marginTop: 2 }}
+                  <div className="nx-rich-body" style={{ fontSize: 13, color: NX.dim, marginTop: 2 }} onClick={zoomImage}
                     dangerouslySetInnerHTML={{ __html: richBodyHtml(c.body, nameOf) }} />
                 </div>
               </div>

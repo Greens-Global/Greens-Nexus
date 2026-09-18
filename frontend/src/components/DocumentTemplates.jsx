@@ -208,7 +208,7 @@ function LetterheadsPanel({ toastOk, toastErr }) {
   );
 }
 
-export default function DocumentTemplates({ openCreateSignal, openTemplateSignal, toastOk, toastErr }) {
+export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr }) {
   const [sub, setSub] = useState('library');
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
@@ -229,7 +229,6 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
   useEffect(() => { load(); }, [category, search, statusFilter]);
   useEffect(() => { api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([])); }, []);
   useEffect(() => { if (openCreateSignal) setCreateOpen(true); }, [openCreateSignal]);
-  useEffect(() => { if (openTemplateSignal?.id) setEditingId(openTemplateSignal.id); }, [openTemplateSignal]);
 
   const seedStarters = () => {
     setSeeding(true);
@@ -253,7 +252,7 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
 
   return (
     <div>
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginBottom: 10, borderBottom: '1px solid var(--line)' }}>
         {[['library', 'Templates'], ['letterheads', 'Letterheads']].map(([v, l]) => (
           <button key={v} onClick={() => setSub(v)}
             style={{ padding: '9px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${sub === v ? 'var(--pine)' : 'transparent'}`, color: sub === v ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', marginBottom: -1 }}>

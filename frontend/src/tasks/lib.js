@@ -602,6 +602,49 @@ async function storeTaskFile(file, onProgress) {
   });
   return supabase.storage.from('task-files').getPublicUrl(path).data.publicUrl;
 }
+/** A data: URL as a File, for re-uploading an inline image. */
+export function dataUrlToFile(dataUrl, name) {
+  const m = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(dataUrl || '');
+  if (!m) return null;
+  const type = m[1] || 'application/octet-stream';
+  const raw = m[2] ? atob(m[3]) : decodeURIComponent(m[3]);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+  return new File([bytes], name, { type });
+}
+
+/** Moves images pasted into a description out of the text and onto the task.
+ *
+ *  A picture pasted before the task exists (the Create Task form) can only be
+ *  held inline, as a data: URL - there is nothing to attach it to yet. Left
+ *  that way it bloats the description (a single screenshot is ~1 MB of text),
+ *  never shows under Attachments, and the Asana sync skips it. Once the task
+ *  has an id, each inline image is uploaded as a task attachment and its src
+ *  swapped for the stored file's URL, so the description still shows it in
+ *  place - it just points at the file now.
+ *
+ *  `upload(file)` returns the saved attachment row. An image whose upload fails,
+ *  or that comes back inline anyway (no storage configured), keeps its data:
+ *  URL: still visible, never worse than before. Returns the rewritten HTML, or
+ *  the input unchanged when there was nothing to move. */
+export async function externalizeInlineImages(html, upload) {
+  const src = String(html || '');
+  const found = [...new Set([...src.matchAll(/<img\b[^>]*?\bsrc="(data:image\/[^"]+)"/gi)].map((m) => m[1]))];
+  if (!found.length) return src;
+  let out = src;
+  let n = 0;
+  for (const dataUrl of found) {
+    n += 1;
+    const ext = (/^data:image\/([a-z0-9.+-]+)/i.exec(dataUrl)?.[1] || 'png').replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+    const file = dataUrlToFile(dataUrl, `pasted-image-${n}.${ext}`);
+    if (!file) continue;
+    const row = await upload(file).catch(() => null);
+    const url = row?.url || '';
+    if (url && !url.startsWith('data:')) out = out.split(`src="${dataUrl}"`).join(`src="${url}"`);
+  }
+  return out;
+}
+
 export async function uploadTaskAttachment(taskId, file, extra = {}, onProgress) {
   const size = `${Math.max(1, Math.round(file.size / 1024))} KB`;
   const kind = attachmentKindOf(file);

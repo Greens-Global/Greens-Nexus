@@ -114,6 +114,13 @@ KNOWN_PUBLIC = {
     # code are the credentials, with the same hashing/rate-limit machinery.
     "/external-auth/activate/verify-phone",
     "/external-auth/activate/send-phone-code",
+    # Task-email actions (Sept 2026, routers/mail_actions.py). /card is called by
+    # Outlook with a Microsoft-signed Actionable Message JWT (issuer, audience,
+    # AM app id and our own sender verified); /page is the non-Outlook fallback,
+    # authorized by an HMAC-signed, expiring token bound to one task and one
+    # recipient. GET /page only renders a form - it never changes anything.
+    "/mail-actions/card",
+    "/mail-actions/page",
 }
 
 _AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device", "get_addin_user")

@@ -725,6 +725,19 @@ h1,h2,h3,h4,h5,h6,
    widths so its cards can run edge to edge on phones. */
 .viewport.viewport-flush { padding: 0; }
 
+/* Documents: same trick, milder. Sagar, Sep 17 - "I don't want that much empty
+   space at the top... reduce the empty spaces so I can get more usable area".
+   The module has no title band any more, so on desktop the first thing on the
+   page is a sub-tab strip or a filter row sitting under 32px of gutter, on
+   every one of its screens at once.
+   Only from 641px up: below that .viewport is already down to 8-14px, and a
+   flat override would make small screens LOOSER, not tighter. Two classes
+   (0,2,0) again, so it beats the plain `.viewport` rules whatever their order -
+   the same reason the flush variant is written this way. */
+@media (min-width: 641px) {
+  .viewport.viewport-tight { padding-top: 10px; }
+}
+
 /* â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .primary-btn, .btn-primary {
   display: inline-flex;
@@ -2592,8 +2605,8 @@ button, [role="button"], select { touch-action: manipulation; }
    visual consistency with E-Sign's template editor. */
 .doc-toolbar {
   display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
-  padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px;
-  background: var(--card); margin-bottom: 14px;
+  padding: 6px 10px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card); margin-bottom: 8px;
 }
 .doc-toolbar button {
   display: flex; align-items: center; justify-content: center;
@@ -2633,8 +2646,11 @@ button, [role="button"], select { touch-action: manipulation; }
 
 .doc-page {
   position: relative;
-  background: #fff; max-width: 850px; margin: 0 auto; border-radius: 4px;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.09); padding: 56px 64px;
+  /* Fallback only - pageCanvasStyle() sets these inline per page setup. Kept
+     in step with it: 96px to the inch, so Letter is 8.5in x 96 = 816 with 1in
+     (96px) margins. See the scale note in lib/pageSetup.js. */
+  background: #fff; max-width: 816px; margin: 0 auto; border-radius: 4px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.09); padding: 96px;
   font-family: Inter, sans-serif; font-size: 14.5px; line-height: 1.7; color: #111827;
 }
 .doc-letterhead {
@@ -2680,6 +2696,23 @@ button, [role="button"], select { touch-action: manipulation; }
 .show-marks .ProseMirror li::after {
   content: '¶'; color: #9ca3af; margin-left: 3px; font-weight: 400; user-select: none;
 }
+/* A block pushed onto the next sheet (docBuilderPagination.js). The margin
+   that moves it is set per-block as an inline decoration style; this paints
+   the space it leaves so it reads as the gutter between two sheets rather
+   than as an accidental blank gap. The rule sits at the TOP of the margin box,
+   where the previous sheet ends. */
+.doc-sheet-start { position: relative; }
+.doc-sheet-start::before {
+  content: '';
+  position: absolute; left: -96px; right: -96px;
+  top: calc(-1 * var(--doc-sheet-gap, 0px));
+  height: var(--doc-sheet-gap, 0px);
+  background: var(--mist);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  pointer-events: none;
+}
+
 .doc-pagebreak {
   display: flex; align-items: center; gap: 10px; margin: 18px 0;
   color: #9ca3af; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
@@ -2930,7 +2963,15 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 .nx-rich .ProseMirror pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
 .nx-rich .ProseMirror blockquote { border-left: 3px solid var(--line, #e5e7eb); margin: 0 0 8px; padding-left: 10px; color: #6b7280; }
-.nx-rich .ProseMirror img { max-width: 100%; height: auto; border-radius: 8px; }
+/* Images in rich text are previews, not full-size: a pasted screenshot or a
+   logo used to fill the whole description at its natural size. Capped in
+   height (width follows, aspect kept); the full picture opens in the viewer -
+   double-click in the editor, click in a posted comment (useImageZoom). */
+.nx-rich .ProseMirror img {
+  display: block; max-width: 100%; max-height: 240px; width: auto; height: auto;
+  object-fit: contain; border-radius: 8px; border: 1px solid var(--line, #e5e7eb); margin: 4px 0; cursor: zoom-in;
+}
+.nx-rich .ProseMirror img.ProseMirror-selectednode { outline: 2px solid #2563eb; outline-offset: 2px; }
 .nx-rich .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: #9ca3af;
 }
@@ -2942,7 +2983,10 @@ button, [role="button"], select { touch-action: manipulation; }
 .nx-rich-view ul, .nx-rich-view ol { margin: 0 0 8px; padding-left: 22px; }
 .nx-rich-view a { color: #2563eb; text-decoration: underline; }
 .nx-rich-view mark { background: #fde68a; border-radius: 2px; padding: 0 1px; }
-.nx-rich-view img { max-width: 100%; height: auto; border-radius: 8px; }
+.nx-rich-view img, .nx-rich-body img {
+  display: block; max-width: 100%; max-height: 240px; width: auto; height: auto;
+  object-fit: contain; border-radius: 8px; border: 1px solid var(--line, #e5e7eb); margin: 4px 0; cursor: zoom-in;
+}
 .nx-rich-view pre {
   background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 10px 12px;
   overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;

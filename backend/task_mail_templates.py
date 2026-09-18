@@ -94,12 +94,13 @@ def task_email_html(*, task_title: str, status: str, heading: str,
         <a href="{escape(cta_url)}" style="display:inline-block;background:#248f4b;color:#ffffff;text-decoration:none;
           font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">{escape(cta_label)}</a>
         {secondary_html}
+        <!--NEXUS-MAIL-ACTIONS-->
         {note_html}
       </td>
     </tr>
     <tr>
       <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
-        This is an automated notification from the Task Management System. Please open the task using the link above to provide updates or responses.
+        This is an automated notification from the Task Management System. Use the buttons above, or open the task, to provide updates or responses.
       </td>
     </tr>
   </table>
@@ -208,6 +209,23 @@ def due_reminder_email(*, t: dict, base_url: str, logo_url: str, days_left: int)
         rows=_common_rows(t),
         cta_label="Open Task", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
         note="Action required." if overdue else "",
+    )
+    return subject, html
+
+
+def recurring_email(*, t: dict, base_url: str, logo_url: str, due_today: bool) -> tuple[str, str]:
+    """A recurring task's next occurrence has arrived (created on its scheduled
+    date by the daily scan, see routers/tasks.spawn_scheduled_occurrences)."""
+    subject = _task_subject(t, "Recurring - Due Today" if due_today else "Recurring - Due")
+    html = task_email_html(
+        task_title=t["title"], status=t["status"],
+        heading="Your recurring task is due today" if due_today else "Your recurring task is due",
+        intro=("This task repeats on a schedule and today's occurrence is ready."
+               if due_today else
+               f"This task repeats on a schedule and its next occurrence is due {t.get('dueDateDisplay') or 'soon'}."),
+        rows=_common_rows(t),
+        cta_label="Open Task", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
+        note="Action required.",
     )
     return subject, html
 
