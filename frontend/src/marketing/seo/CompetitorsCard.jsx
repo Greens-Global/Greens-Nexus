@@ -1,6 +1,6 @@
 import { Shield, Trophy, TrendingUp, Users } from 'lucide-react'
 import { formatNumber } from '../shared/utils'
-import { C, alpha } from '../theme'
+import { C, alpha, HOVER_TINT } from '../theme'
 
 const truncate = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 
@@ -100,7 +100,7 @@ export default function CompetitorsCard({ own, competitors }) {
                 <tr
                   key={c.domain}
                   style={{ borderBottom: ri === competitors.length - 1 ? 'none' : `1px solid ${C.gray50}` }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = alpha(C.gray50, 0.6))}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = HOVER_TINT)}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
                   <td style={{ padding: '10px', paddingLeft: 0, fontWeight: 500, color: C.gray900, whiteSpace: 'nowrap' }}>{c.domain}</td>

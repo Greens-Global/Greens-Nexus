@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import LeadCard from './LeadCard'
 import { STAGE_ORDER, groupByStage } from './aggregate'
-import { C, alpha } from '../theme'
+import { C, HOVER_TINT } from '../theme'
 
 const STAGE_COLOR = {
   New: { color: C.blue600, background: C.blue50 },
@@ -37,7 +37,7 @@ export default function KanbanBoard({ leads, onSelectLead, onChangeStage }) {
             style={{
               borderRadius: 12,
               border: '1px solid ' + (over ? C.gray400 : C.gray200),
-              background: over ? C.gray100 : alpha(C.gray50, 0.6),
+              background: over ? C.gray100 : HOVER_TINT,
               padding: 10,
               minHeight: 200,
               transition: 'all .15s',

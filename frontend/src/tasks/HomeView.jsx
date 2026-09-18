@@ -436,10 +436,16 @@ export default function HomeView({ onNavigate }) {
             <div key={d.iso} role="button" tabIndex={0} title={`${d.iso}: ${d.n} due - open upcoming tasks`}
               onClick={() => { setTab('Upcoming'); onNavigate('mine'); }}
               onKeyDown={(e) => { if (e.key === 'Enter') { setTab('Upcoming'); onNavigate('mine'); } }}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px', borderRadius: 12, background: d.today ? NX.ink : NX.hover, minWidth: 0, cursor: 'pointer' }}>
+              /* Today's cell inverts to stand out - NX.primary (brand blue,
+                 unchanged across themes), not NX.ink (Sep 19: "not visible
+                 clearly" - NX.ink is near-black in light mode, which reads
+                 fine as an inverted dark tile with white text, but flips to
+                 near-white in dark mode, so the hardcoded white date number
+                 below was rendering white-on-near-white). */
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px', borderRadius: 12, background: d.today ? NX.primary : NX.hover, minWidth: 0, cursor: 'pointer' }}>
               <span style={{ fontSize: 11, color: d.today ? 'rgba(255,255,255,.7)' : NX.faint }}>{d.day}</span>
               <span style={{ fontSize: 15, fontWeight: 800, color: d.today ? '#fff' : NX.ink, fontVariantNumeric: 'tabular-nums' }}>{d.date}</span>
-              <span style={{ minWidth: 20, textAlign: 'center', padding: '1px 6px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: d.n > 0 ? (d.today ? 'rgba(255,255,255,.22)' : '#dff3fc') : 'transparent', color: d.n > 0 ? (d.today ? '#fff' : '#0998c3') : (d.today ? 'rgba(255,255,255,.4)' : NX.border) }}>
+              <span style={{ minWidth: 20, textAlign: 'center', padding: '1px 6px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: d.n > 0 ? (d.today ? 'rgba(255,255,255,.22)' : 'rgba(9,152,195,0.16)') : 'transparent', color: d.n > 0 ? (d.today ? '#fff' : '#0998c3') : (d.today ? 'rgba(255,255,255,.4)' : NX.faint) }}>
                 {d.n > 0 ? d.n : '·'}
               </span>
             </div>
@@ -534,10 +540,17 @@ export default function HomeView({ onNavigate }) {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: isMobile ? 6 : 16 }}>
         {[
-          { label: 'Priority', n: priorityMine.length, of: openMine.length, unit: 'open', Icon: Flag, chip: '#06c698', bg: '#e4f5ee', go: () => onNavigate('mine'), title: 'Open my tasks' },
-          { label: 'Upcoming', n: upcoming.length, of: myTasks.length, unit: 'tasks', Icon: CalendarDays, chip: '#0998c3', bg: '#dff3fc', go: () => setTab('Upcoming'), title: 'Show upcoming' },
-          { label: 'Overdue', n: overdue.length, of: myTasks.length, unit: 'tasks', Icon: Clock, chip: '#7c6af0', bg: '#eae6fc', go: () => setTab('Overdue'), title: 'Show overdue' },
-          { label: 'Completed', n: completed.length, of: myTasks.length, unit: 'tasks', Icon: CheckCircle2, chip: '#fc6363', bg: '#fde8e3', go: () => setTab('Completed'), title: 'Show completed' },
+          /* bg is a translucent tint of `chip`, not an opaque pastel hex (Sep
+             19: "Colours are still not accurate" - an opaque light pastel
+             like #e4f5ee reads fine on a white card but turns into a glaring
+             light patch on a dark one; the rest of the app's tint pattern -
+             STATUS_META/PRIORITY_META in theme.js - already solves this by
+             using low-alpha rgba of the accent colour, which reads correctly
+             composited over either card colour). */
+          { label: 'Priority', n: priorityMine.length, of: openMine.length, unit: 'open', Icon: Flag, chip: '#06c698', bg: 'rgba(6,198,152,0.16)', go: () => onNavigate('mine'), title: 'Open my tasks' },
+          { label: 'Upcoming', n: upcoming.length, of: myTasks.length, unit: 'tasks', Icon: CalendarDays, chip: '#0998c3', bg: 'rgba(9,152,195,0.16)', go: () => setTab('Upcoming'), title: 'Show upcoming' },
+          { label: 'Overdue', n: overdue.length, of: myTasks.length, unit: 'tasks', Icon: Clock, chip: '#7c6af0', bg: 'rgba(124,106,240,0.16)', go: () => setTab('Overdue'), title: 'Show overdue' },
+          { label: 'Completed', n: completed.length, of: myTasks.length, unit: 'tasks', Icon: CheckCircle2, chip: '#fc6363', bg: 'rgba(252,99,99,0.16)', go: () => setTab('Completed'), title: 'Show completed' },
         ].map(({ label, n, of, unit, Icon, chip, bg, go, title }) => (
           /* Horizontal anatomy (chip left, text right) at desktop width - a
              vertical (chip-on-top) tile stretched across a wide column reads

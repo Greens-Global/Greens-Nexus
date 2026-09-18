@@ -125,7 +125,7 @@ export default function ProfileViewsChart({ rows, prevRows, platform = 'google' 
             labelStyle={{ fontWeight: 600 }}
             formatter={(v) => Math.round(Number(v) || 0).toLocaleString('en-US')}
           />
-          <Legend verticalAlign="top" align="right" iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: '#6b7280', paddingBottom: 8 }} />
+          <Legend verticalAlign="top" align="right" iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: C.gray500, paddingBottom: 8 }} />
           <Line type="monotone" dataKey="mapsViews" name={primaryLabel} stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />
           <Line type="monotone" dataKey="searchViews" name={secondaryLabel} stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={false} />
           {compare && (

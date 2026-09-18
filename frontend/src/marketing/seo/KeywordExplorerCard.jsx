@@ -4,7 +4,7 @@ import { LineChart, Line } from 'recharts'
 import { useSortable } from '../shared/useSortable'
 import { formatNumber, formatCurrency } from '../shared/utils'
 import { searchKeywords } from './aggregate'
-import { C, alpha } from '../theme'
+import { C, HOVER_TINT } from '../theme'
 
 const INTENT_STYLE = {
   Informational: { color: C.blue600, background: C.blue50 },
@@ -117,7 +117,7 @@ export default function KeywordExplorerCard({ database, trackedKeywordNames, onS
                 <tr
                   key={k.keyword}
                   style={{ borderBottom: ri === sorted.length - 1 ? 'none' : `1px solid ${C.gray50}` }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = alpha(C.gray50, 0.6))}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = HOVER_TINT)}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
                   <td style={{ padding: '10px', paddingLeft: 0, whiteSpace: 'nowrap' }}>

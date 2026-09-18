@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { buildHeatmapRows, MONTH_LABELS } from './aggregate'
 import { formatNumber } from '../shared/utils'
-import { C, alpha } from '../theme'
+import { C, HOVER_TINT } from '../theme'
 
 export default function KeywordHeatmap({ keywords }) {
   const rows = useMemo(() => buildHeatmapRows(keywords, 10), [keywords])
@@ -38,7 +38,7 @@ export default function KeywordHeatmap({ keywords }) {
               <tr
                 key={r.keyword}
                 style={{ transition: 'background-color .15s' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = alpha(C.gray50, 0.8))}
+                onMouseEnter={(e) => (e.currentTarget.style.background = HOVER_TINT)}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 <td
