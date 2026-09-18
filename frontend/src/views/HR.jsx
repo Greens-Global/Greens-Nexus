@@ -84,6 +84,21 @@ function Avatar({ e, size = 38, card = true }) {
   return <PersonHover email={e.workEmail} name={fullName(e)} disabled={!card}>{img}</PersonHover>;
 }
 
+// Same photo-or-initials pattern as Avatar, for a company row instead of a
+// person - initials come from the company name's first letters (e.g. "Greens
+// Global" -> "GG") rather than first/last name.
+const companyInitials = name => (name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+const hueForString = s => AVATAR_HUES[(s || '').split('').reduce((n, c) => n + c.charCodeAt(0), 0) % AVATAR_HUES.length];
+function CompanyLogo({ name, logoUrl, size = 36 }) {
+  return logoUrl
+    ? <img src={logoUrl} alt="" style={{ width: size, height: size, borderRadius: size * 0.28, objectFit: 'contain', background: '#fff', border: '1px solid var(--line)', flexShrink: 0 }} />
+    : (
+      <div style={{ width: size, height: size, borderRadius: size * 0.28, background: `hsla(${hueForString(name)},0.13)`, color: `hsl(${hueForString(name)})`, fontSize: size * 0.34, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {companyInitials(name)}
+      </div>
+    );
+}
+
 function useIsMobile(bp = 900) {
   const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${bp}px)`).matches);
   useEffect(() => {
@@ -3483,6 +3498,7 @@ export function EntitiesModal({ entities, employees = [], onClose, onChanged, to
                 </div>
               ) : entities.map(en => (
                 <div key={en.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
+                  <CompanyLogo name={en.name} logoUrl={en.logoUrl} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, en.managerEmail && personName(en.managerEmail) && `Manager ${personName(en.managerEmail)}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
