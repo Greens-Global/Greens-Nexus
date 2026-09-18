@@ -3,7 +3,7 @@ import { useState } from 'react'
 import Modal from '../shared/Modal'
 import { formatNumber } from '../shared/utils'
 import { buildSerpResults } from './data'
-import { C, alpha } from '../theme'
+import { C, alpha, HOVER_TINT } from '../theme'
 
 function kdColor(kd) {
   if (kd < 30) return { color: C.emerald600, background: C.emerald50 }
@@ -67,7 +67,7 @@ export default function SerpOverviewModal({ keyword, onClose }) {
                 key={r.position}
                 style={{
                   borderBottom: ri === results.length - 1 ? 'none' : `1px solid ${C.gray50}`,
-                  background: r.isOwnDomain ? alpha(C.emerald50, 0.6) : hoverPos === r.position ? alpha(C.gray50, 0.6) : 'transparent',
+                  background: r.isOwnDomain ? alpha(C.emerald50, 0.6) : hoverPos === r.position ? HOVER_TINT : 'transparent',
                 }}
                 onMouseEnter={() => !r.isOwnDomain && setHoverPos(r.position)}
                 onMouseLeave={() => !r.isOwnDomain && setHoverPos(null)}

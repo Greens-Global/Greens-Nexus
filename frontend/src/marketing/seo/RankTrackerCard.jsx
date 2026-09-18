@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArrowUp, ArrowDown, Minus, Plus, ExternalLink } from 'lucide-react'
 import { LineChart, Line } from 'recharts'
 import { positionDelta } from './aggregate'
-import { C, alpha } from '../theme'
+import { C, HOVER_TINT } from '../theme'
 
 const PRIORITY_STYLE = {
   High: { color: C.red600, background: C.red50 },
@@ -60,7 +60,7 @@ export default function RankTrackerCard({ rows, onAddKeyword, onRemove }) {
               return (
                 <tr
                   key={r.id}
-                  style={{ borderBottom: ri === rows.length - 1 ? 'none' : `1px solid ${C.gray50}`, background: hoverId === r.id ? alpha(C.gray50, 0.6) : 'transparent' }}
+                  style={{ borderBottom: ri === rows.length - 1 ? 'none' : `1px solid ${C.gray50}`, background: hoverId === r.id ? HOVER_TINT : 'transparent' }}
                   onMouseEnter={() => setHoverId(r.id)}
                   onMouseLeave={() => setHoverId(null)}
                 >

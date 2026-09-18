@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArrowUpDown } from 'lucide-react'
 import Modal from './Modal'
 import { useSortable } from './useSortable'
-import { C, FONT, alpha } from '../theme'
+import { C, FONT, HOVER_TINT } from '../theme'
 
 export default function PropertyComparisonModal({ title, rows, columns, onClose }) {
   const [hoveredRow, setHoveredRow] = useState(null)
@@ -89,7 +89,7 @@ export default function PropertyComparisonModal({ title, rows, columns, onClose 
                   onMouseLeave={() => setHoveredRow(null)}
                   style={{
                     borderBottom: isLast ? 'none' : '1px solid ' + C.gray50,
-                    background: hoveredRow === r.name ? alpha(C.gray50, 0.6) : 'transparent',
+                    background: hoveredRow === r.name ? HOVER_TINT : 'transparent',
                   }}
                 >
                   <td
