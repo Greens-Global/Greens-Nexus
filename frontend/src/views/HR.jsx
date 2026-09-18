@@ -3462,22 +3462,24 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                     {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
                   </select>
                 </div>
-                <div style={{ gridColumn: '1 / -1' }}>{field('REGISTERED ADDRESS', 'registered_address', { placeholder: 'pick a spot on the map, or type it in' })}</div>
-                {field('WEBSITE', 'website', { placeholder: 'e.g. greensglobal.com' })}
-                <div>
-                  <label style={FL}>MAIN PHONE</label>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <select className="form-input" style={{ width: 108, flexShrink: 0 }} value={f.main_phone_type} onChange={e => set('main_phone_type', e.target.value)}>
-                      <option value="phone">Phone</option>
-                      <option value="fax">Fax</option>
-                      <option value="telephone">Telephone</option>
-                    </select>
-                    {f.main_phone_type === 'phone' && (
-                      <select className="form-input" style={{ width: 92, flexShrink: 0 }} value={f.main_phone_country} onChange={e => set('main_phone_country', e.target.value)}>
-                        {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.dial}</option>)}
+                <div style={{ gridColumn: '1 / -1' }}>{field('REGISTERED ADDRESS', 'registered_address', { placeholder: 'search or pick a spot on the map, or type it in' })}</div>
+                <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 14 }}>
+                  <div style={{ flex: '0 1 200px' }}>{field('WEBSITE', 'website', { placeholder: 'e.g. greensglobal.com' })}</div>
+                  <div style={{ flex: '1 1 340px' }}>
+                    <label style={FL}>MAIN PHONE</label>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <select className="form-input" style={{ width: 108, flexShrink: 0 }} value={f.main_phone_type} onChange={e => set('main_phone_type', e.target.value)}>
+                        <option value="phone">Phone</option>
+                        <option value="fax">Fax</option>
+                        <option value="telephone">Telephone</option>
                       </select>
-                    )}
-                    <input className="form-input" style={{ width: '100%', minWidth: 0 }} value={f.main_phone} onChange={e => set('main_phone', e.target.value)} placeholder="company main line" />
+                      {f.main_phone_type === 'phone' && (
+                        <select className="form-input" style={{ width: 92, flexShrink: 0 }} value={f.main_phone_country} onChange={e => set('main_phone_country', e.target.value)}>
+                          {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.dial}</option>)}
+                        </select>
+                      )}
+                      <input className="form-input" style={{ flex: 1, minWidth: 160 }} value={f.main_phone} onChange={e => set('main_phone', e.target.value)} placeholder="company main line" />
+                    </div>
                   </div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
@@ -3518,7 +3520,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
               </div>
               <div style={{ flex: '1 1 360px', minWidth: 300, position: 'sticky', top: 18 }}>
                 <label style={FL}>PICK LOCATION ON MAP</label>
-                <LocationPickerMap onAddressPicked={address => set('registered_address', address)} />
+                <LocationPickerMap onLocationPicked={address => set('registered_address', address)} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, padding: '14px 4px' }}>
@@ -3628,11 +3630,12 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
   );
 
   if (mode) {
+    const initialLatLng = (f.latitude && f.longitude) ? [Number(f.latitude), Number(f.longitude)] : null;
     return (
-      <div style={{ padding: '18px 4px', maxWidth: 640 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <div style={{ padding: '18px 4px', display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div style={{ flex: '1 1 420px', maxWidth: 480, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Escondido Office' })}</div>
-          <div style={{ gridColumn: '1 / -1' }}>{field('ADDRESS', 'address')}</div>
+          <div style={{ gridColumn: '1 / -1' }}>{field('ADDRESS', 'address', { placeholder: 'search or pick a spot on the map' })}</div>
           {field('LATITUDE', 'latitude', { placeholder: 'e.g. 33.1192' })}
           {field('LONGITUDE', 'longitude', { placeholder: 'e.g. -117.0864' })}
           {field('GEOFENCE RADIUS (m)', 'radius_m', { type: 'number', min: 10 })}
@@ -3641,7 +3644,12 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
             <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10, paddingTop: 14 }}>
+        <div style={{ flex: '1 1 360px', minWidth: 300 }}>
+          <label style={FL}>PICK LOCATION ON MAP</label>
+          <LocationPickerMap initialLatLng={initialLatLng}
+            onLocationPicked={(address, [lat, lng]) => { set('address', address); set('latitude', String(lat.toFixed(6))); set('longitude', String(lng.toFixed(6))); }} />
+        </div>
+        <div style={{ flex: '1 1 100%', display: 'flex', gap: 10, marginTop: 4 }}>
           <button className="secondary-btn" onClick={() => setMode(null)} disabled={busy}>Back</button>
           <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
             {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
