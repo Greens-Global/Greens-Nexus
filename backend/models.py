@@ -833,6 +833,14 @@ class NexusEmployee(Base):
     # Company Setup form) but a person's LinkedIn profile is theirs, not their
     # employer's.
     linkedin_url             = Column(String, default="")
+    # Personal signature logo override (Sep 19, Pranshu: "i want to have
+    # employee the ability to upload the logo for their signature... rest
+    # format of sign remain same") - '' falls back to the COMPANY's logo
+    # (HrEntity.logo_url), same override-with-fallback pattern as
+    # signature_phone/signature_display_name above. Only the logo IMAGE
+    # changes; name/role/email/template/address/socials are untouched -
+    # this isn't a second branding system, just one picture swapped out.
+    signature_logo_url       = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):
