@@ -741,6 +741,10 @@ export const api = {
   getWebsites: () => req("/websites"),
   createWebsite: (data) => req("/websites", { method: "POST", body: JSON.stringify(data) }),
 
+  // Support > System & Design
+  getSupportSystemInfo: () => req("/support/system-info"),
+  getSupportDataDictionary: () => req("/support/data-dictionary"),
+
   // External Links
   getExternalLinks: () => req("/external-links"),
   getExternalLinksMeta: () => req("/external-links/meta"),

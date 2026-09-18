@@ -42,6 +42,7 @@ from routers import external_links  # External Links directory rebuild (Aug 2026
 from routers import link_layouts  # Per-user Links Module personalization overlay (Aug 13) - own file, see its docstring
 from routers import external_users  # External users (guest allowlist) admin CRUD (Aug 17)
 from routers import external_auth  # External passwordless auth: invite activation + code sign-in (Aug 18)
+from routers import support  # Support > System & Design + live Data Dictionary (Sep 19)
 from audit import AuditMiddleware
 
 
@@ -2399,6 +2400,7 @@ app.include_router(jobroles.router)
 app.include_router(access_scopes.router)
 app.include_router(external_users.router)  # External users: B2B-guest allowlist admin CRUD (Aug 17)
 app.include_router(external_auth.router)   # External passwordless auth - public: the emailed link/code IS the credential (Aug 18)
+app.include_router(support.router)         # Support > System & Design + live Data Dictionary (Sep 19)
 app.include_router(qa.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
