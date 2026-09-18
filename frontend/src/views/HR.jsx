@@ -3752,7 +3752,16 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
     try {
       const year = new Date().getFullYear();
       const [a, b] = await Promise.all([api.getPublicHolidays(country, year), api.getPublicHolidays(country, year + 1)]);
-      setSuggestions([...(a || []), ...(b || [])]);
+      // Current year in full, plus just the first week of next January (Sep
+      // 19, Pranshu: "admin should get the holiday list for only current
+      // year... and 1 week of Jan [next year]" - not the whole next year,
+      // which is what a plain year+year+1 concat showed before). No stored
+      // "which year" state to roll forward - `year` is recomputed from
+      // today() on every load, so the window naturally slides to
+      // year/year+1 on its own once the calendar turns over into January.
+      const nextJanCutoff = `${year + 1}-01-07`;
+      const bFirstWeek = (b || []).filter(h => h.date <= nextJanCutoff);
+      setSuggestions([...(a || []), ...bFirstWeek]);
     } catch (e) {
       if (e?.status === 404) setNoData(true);
       else toastErr(e?.message || 'Could not load public holidays.');
