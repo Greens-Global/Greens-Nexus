@@ -3646,18 +3646,125 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
   );
 }
 
-// ── Holiday Calendar tab (placeholder, Sep 18) - country public holidays +
-// manual per-company holidays, surfaced to that company's employees on their
-// Calendar dashboard. Coming in a follow-up change.
-function CompanyHolidaysTab({ entity }) {
+// ── Holiday Calendar tab (Sep 18) - country public holidays (admin picks
+// which ones actually apply) plus manual per-company holidays. Every row
+// here shows up on that company's employees' Calendar dashboard
+// (dashboards.py's /holidays, wired into dashboard/panels.jsx's CalendarPanel
+// the same way birthdays already are).
+const HOLIDAY_COUNTRIES = [
+  { code: 'US', label: 'United States (US)' },
+  { code: 'IN', label: 'India (IN)' },
+];
+
+function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
+  const [holidays, setHolidays] = useState([]);
+  const [country, setCountry] = useState(HOLIDAY_COUNTRIES.some(c => c.code === entity.country) ? entity.country : 'US');
+  const [suggestions, setSuggestions] = useState(null); // null = not loaded yet
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const [manualDate, setManualDate] = useState('');
+  const [manualName, setManualName] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    api.getCompanyHolidays(entity.id).then(setHolidays).catch(() => {});
+  }, [entity.id]);
+  useEffect(() => { load(); }, [load]);
+
+  async function loadSuggestions() {
+    setSuggestBusy(true);
+    setSuggestions(null);
+    try {
+      const year = new Date().getFullYear();
+      const [a, b] = await Promise.all([api.getPublicHolidays(country, year), api.getPublicHolidays(country, year + 1)]);
+      setSuggestions([...(a || []), ...(b || [])]);
+    } catch (e) { toastErr(e?.message || 'Could not load public holidays.'); }
+    setSuggestBusy(false);
+  }
+
+  const keyOf = h => `${h.date}|${h.name}`;
+  const existingByKey = new Map(holidays.map(h => [keyOf(h), h]));
+
+  async function toggleSuggestion(s) {
+    const match = existingByKey.get(keyOf(s));
+    try {
+      if (match) await api.deleteCompanyHoliday(entity.id, match.id);
+      else await api.createCompanyHoliday(entity.id, { date: s.date, name: s.name, source: 'public', country_code: country });
+      load();
+    } catch (e) { toastErr(e?.message || 'Could not update holiday.'); }
+  }
+
+  async function addManual() {
+    if (!manualDate || !manualName.trim() || busy) return;
+    setBusy(true);
+    try {
+      await api.createCompanyHoliday(entity.id, { date: manualDate, name: manualName.trim(), source: 'manual' });
+      setManualDate(''); setManualName(''); load(); toastOk('Holiday added.');
+    } catch (e) { toastErr(e?.message || 'Could not add holiday.'); }
+    setBusy(false);
+  }
+
+  async function remove(h) {
+    if (!await dialog.confirm(`Remove "${h.name}" (${formatDate(h.date)})?`, { title: 'Remove holiday', confirmText: 'Remove', danger: true })) return;
+    try { await api.deleteCompanyHoliday(entity.id, h.id); load(); }
+    catch (e) { toastErr(e?.message || 'Could not remove.'); }
+  }
+
   return (
-    <div style={{ padding: '32px 4px', textAlign: 'center', color: 'var(--muted)' }}>
-      <CalendarDays size={26} style={{ opacity: 0.4, marginBottom: 10 }} />
-      <p style={{ fontSize: 13, maxWidth: 420, margin: '0 auto' }}>
-        Holiday calendar for {entity.name} is coming soon - pick a country to pull in its public holidays,
-        choose which ones actually apply, and add your own. Every holiday set here will show up on this
-        company's employees' Calendar dashboard.
+    <div style={{ padding: '18px 4px', maxWidth: 720 }}>
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 20px' }}>
+        Every holiday below shows up on {entity.name}'s employees' Calendar dashboard.
       </p>
+
+      <div style={{ marginBottom: 26 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Public holidays</div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+          <select className="form-input" style={{ width: 220 }} value={country} onChange={e => { setCountry(e.target.value); setSuggestions(null); }}>
+            {HOLIDAY_COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+          </select>
+          <button className="secondary-btn" onClick={loadSuggestions} disabled={suggestBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {suggestBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={13} />} Load holidays
+          </button>
+        </div>
+        {suggestions && (
+          suggestions.length === 0 ? (
+            <p style={{ fontSize: 12, color: 'var(--muted)' }}>No public holidays found for this country.</p>
+          ) : (
+            <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 280, overflowY: 'auto' }}>
+              {suggestions.map((s, i) => (
+                <label key={`${s.date}-${s.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 12.5 }}>
+                  <input type="checkbox" checked={existingByKey.has(keyOf(s))} onChange={() => toggleSuggestion(s)} />
+                  <span style={{ fontWeight: 600, minWidth: 90 }}>{formatDate(s.date)}</span>
+                  <span>{s.name}</span>
+                </label>
+              ))}
+            </div>
+          )
+        )}
+      </div>
+
+      <div style={{ marginBottom: 26 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Add a holiday manually</div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <input type="date" className="form-input" style={{ width: 180 }} value={manualDate} onChange={e => setManualDate(e.target.value)} />
+          <input className="form-input" style={{ flex: 1 }} placeholder="e.g. Founders' Day" value={manualName} onChange={e => setManualName(e.target.value)} />
+          <button className="primary-btn" onClick={addManual} disabled={!manualDate || !manualName.trim() || busy}>Add</button>
+        </div>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{entity.name}'s holidays ({holidays.length})</div>
+        {holidays.length === 0 ? (
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>No holidays set yet.</p>
+        ) : holidays.map(h => (
+          <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, minWidth: 90 }}>{formatDate(h.date)}</div>
+            <div style={{ flex: 1, fontSize: 12.5 }}>
+              {h.name} {h.source === 'public' && <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>· {h.countryCode} public holiday</span>}
+            </div>
+            <button onClick={() => remove(h)} title="Remove" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 6 }}><Trash2 size={13} /></button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

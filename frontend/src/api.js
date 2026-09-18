@@ -1020,6 +1020,11 @@ export const api = {
   createWorkSite: (data)     => req('/hr/work-sites', { method: 'POST', body: JSON.stringify(data) }),
   updateWorkSite: (id, data) => req(`/hr/work-sites/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteWorkSite: (id)       => req(`/hr/work-sites/${id}`, { method: 'DELETE' }),
+  // per-company holiday calendar
+  getCompanyHolidays:    (entityId)         => req(`/hr/entities/${entityId}/holidays`),
+  createCompanyHoliday:  (entityId, data)   => req(`/hr/entities/${entityId}/holidays`, { method: 'POST', body: JSON.stringify(data) }),
+  deleteCompanyHoliday:  (entityId, id)     => req(`/hr/entities/${entityId}/holidays/${id}`, { method: 'DELETE' }),
+  getPublicHolidays:     (country, year)    => req(`/hr/public-holidays?country=${encodeURIComponent(country)}${year ? `&year=${year}` : ''}`),
 
   // HR - compensation + bank (restricted: hr_comp grant / owner)
   getCompensation:  (id)       => req(`/hr/employees/${id}/compensation`),
@@ -1207,6 +1212,8 @@ export const api = {
   dashAgenda:     (start, end, tz) => req(`/dashboards/agenda?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&tz=${encodeURIComponent(tz)}`),
   // Whole-roster birthdays (month/day only, no year) - active Nexus employees.
   dashBirthdays:  ()               => req('/dashboards/birthdays'),
+  // The caller's own company's holiday calendar (exact dates, admin-managed).
+  dashHolidays:   ()               => req('/dashboards/holidays'),
 
   // ── My HR (employee self-service - own record only) ──
   myHrProfile:     ()      => req('/myhr/profile'),

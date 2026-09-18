@@ -1048,3 +1048,23 @@ def birthdays(user: dict = Depends(get_current_user), db: Session = Depends(get_
         return {"birthdays": out}
 
     return {**cache.dashboard_birthdays.get_or_load((), _load), "at": _now()}
+
+
+# The caller's OWN company's holiday calendar for the Calendar widget (Sep
+# 18, Pranshu: "if i add a holiday for Greens global the employee in greens
+# global can see that holiday in their Calendar dashboard"). Admin manages
+# the rows per company in Settings -> Company Setup -> a company's Holiday
+# Calendar tab (routers/hr.py); this is the read-only, no-HR-grant-needed
+# view of them, same privacy stance as /birthdays - every employee benefits
+# from knowing which days are holidays, and a date+name pair reveals nothing
+# sensitive. Someone with no company set (or not on the roster) just sees no
+# holidays, same as an employee with no DOB on file sees no birthdays.
+@router.get("/holidays")
+def company_holidays(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == user["email"]).first()
+    company_id = (emp.company if emp else "") or ""
+    if not company_id:
+        return {"holidays": []}
+    rows = (db.query(models.HrCompanyHoliday).filter(models.HrCompanyHoliday.company_id == company_id)
+            .order_by(models.HrCompanyHoliday.date).all())
+    return {"holidays": [{"date": h.date, "name": h.name} for h in rows]}

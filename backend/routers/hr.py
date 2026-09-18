@@ -1899,7 +1899,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
 # ---------------------------------------------------------------------------
 # HR Section A - Companies/Entities + Work Sites (structural foundation)
 # ---------------------------------------------------------------------------
-from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting
+from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday
 
 
 class EntityIn(BaseModel):
@@ -2418,6 +2418,94 @@ def delete_work_site(site_id: str, user: dict = Depends(require_hr_delete), db: 
     if row:
         db.delete(row); db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Company holiday calendar (Sep 18, Pranshu) - per company, not central. A row
+# is either picked from a country's public holidays (source="public") or
+# typed in by hand (source="manual"); once created it's just a flat date +
+# name with no ongoing link back to the public-holiday API. Countries are
+# capped to the same set the company Overview form's Country field offers
+# (US/IN) so the picker never suggests a country nobody here is set up for.
+# ---------------------------------------------------------------------------
+_HOLIDAY_COUNTRIES = {"US", "IN"}
+
+
+class CompanyHolidayIn(BaseModel):
+    date:         str             # YYYY-MM-DD
+    name:         str
+    source:       Optional[str] = "manual"   # "manual" | "public"
+    country_code: Optional[str] = ""
+
+
+def _serialize_holiday(h: HrCompanyHoliday) -> dict:
+    return {
+        "id": h.id, "date": h.date, "name": h.name, "source": h.source,
+        "countryCode": h.country_code, "createdAt": h.created_at,
+    }
+
+
+@router.get("/entities/{entity_id}/holidays")
+def list_company_holidays(entity_id: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    rows = (db.query(HrCompanyHoliday).filter(HrCompanyHoliday.company_id == entity_id)
+            .order_by(HrCompanyHoliday.date).all())
+    return [_serialize_holiday(h) for h in rows]
+
+
+@router.post("/entities/{entity_id}/holidays")
+def create_company_holiday(entity_id: str, body: CompanyHolidayIn,
+                           user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", (body.date or "").strip()):
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    now = datetime.now(timezone.utc).isoformat()
+    row = HrCompanyHoliday(
+        id=str(uuid.uuid4()), company_id=entity_id, date=body.date.strip(), name=body.name.strip(),
+        source=body.source if body.source in ("manual", "public") else "manual",
+        country_code=(body.country_code or "").strip().upper(),
+        created_by=user["email"], created_at=now, updated_at=now,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _serialize_holiday(row)
+
+
+@router.delete("/entities/{entity_id}/holidays/{holiday_id}")
+def delete_company_holiday(entity_id: str, holiday_id: str,
+                           user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    row = db.query(HrCompanyHoliday).filter(HrCompanyHoliday.id == holiday_id,
+                                             HrCompanyHoliday.company_id == entity_id).first()
+    if row:
+        db.delete(row); db.commit()
+    return {"ok": True}
+
+
+@router.get("/public-holidays")
+def public_holidays(country: str = "US", year: Optional[int] = None, user: dict = Depends(require_hr_read)):
+    """Proxies date.nager.at (free, no key) so the browser never calls a
+    third-party API directly and a flaky upstream can't leak raw errors to
+    the admin. Sync def (not async) - FastAPI runs it in the thread pool, so
+    this outbound call can't stall the event loop the way an unguarded
+    `await httpx` call on the main thread would (see CLAUDE.md's Aug 2 note)."""
+    country = (country or "US").strip().upper()
+    if country not in _HOLIDAY_COUNTRIES:
+        raise HTTPException(400, "Unsupported country")
+    yr = year or datetime.now(timezone.utc).year
+    try:
+        resp = httpx.get(f"https://date.nager.at/api/v3/PublicHolidays/{yr}/{country}", timeout=10)
+        resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001 - any upstream failure is "try again shortly" to the admin
+        raise HTTPException(502, "Could not fetch public holidays right now - try again shortly") from exc
+    return [{"date": h.get("date"), "name": h.get("localName") or h.get("name") or ""} for h in resp.json()]
 
 
 # ---------------------------------------------------------------------------
