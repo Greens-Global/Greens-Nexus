@@ -2092,6 +2092,10 @@ _CSRF_EXEMPT_PATHS = frozenset({
     "/external-auth/activate/verify",
     "/external-auth/request-code",
     "/external-auth/login-verify",
+    # Task-email actions: authorized by a signed per-task token (or Outlook's
+    # own JWT), never by the session cookie - see routers/mail_actions.py.
+    "/mail-actions/card",
+    "/mail-actions/page",
 })
 
 
@@ -2357,4 +2361,7 @@ app.include_router(user_tours.router)     # Per-user guided-tour "seen" state (s
 
 from routers import auth_bff               # noqa: E402  BFF login (dual-mode)
 app.include_router(auth_bff.router)        # /auth/login|callback|logout|me - inert without NEXUS_BFF_CLIENT_SECRET
+
+from routers import mail_actions           # noqa: E402
+app.include_router(mail_actions.router)    # Task-email actions: Outlook Actionable Message card + signed-link fallback page
 

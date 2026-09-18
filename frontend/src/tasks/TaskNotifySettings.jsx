@@ -24,6 +24,7 @@ const EVENT_LABELS = {
   overdue: 'Overdue reminder', completed: 'Task completed', commented: 'New comment',
   mentioned: 'Mentioned in a comment',
   follower_added: 'Added as collaborator', modified: 'Task details changed', deleted: 'Task deleted',
+  recurring: 'Recurring task due',
 };
 const STATUS_META = {
   sent: { color: NX.green, Icon: CheckCircle2 }, failed: { color: NX.red, Icon: AlertTriangle },
