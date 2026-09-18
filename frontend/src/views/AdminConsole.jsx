@@ -39,7 +39,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronDown, Tag, Shield, SlidersHorizontal,
   Headset, Bell, Building2, RefreshCw, Loader2, Timer,
-  UserCog, Activity, DoorOpen, Signature, Check,
+  UserCog, Activity, DoorOpen, Signature, Check, Eye, X,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -208,6 +208,7 @@ function EmailSignatureSection({ toastOk, toastErr }) {
   const [selectedTemplate, setSelectedTemplate] = useState('classic');
   const [previewBusy, setPreviewBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
+  const [zoomTemplate, setZoomTemplate] = useState(null);   // { label, html } | null - full-size eye-icon preview
 
   const loadPreview = useCallback((id) => {
     if (!id) return;
@@ -264,12 +265,22 @@ function EmailSignatureSection({ toastOk, toastErr }) {
                 {data.templates.map(t => {
                   const selected = t.id === selectedTemplate;
                   return (
-                    <button key={t.id} onClick={() => setSelectedTemplate(t.id)}
+                    <div key={t.id} role="button" tabIndex={0} onClick={() => setSelectedTemplate(t.id)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTemplate(t.id); } }}
                       style={{
                         textAlign: 'left', cursor: 'pointer', padding: 10, borderRadius: 8,
                         border: selected ? '2px solid hsl(var(--color-green))' : '1px solid var(--line)',
                         background: '#fff', position: 'relative',
                       }}>
+                      <button type="button" title={`Preview ${t.label} full-size`}
+                        onClick={e => { e.stopPropagation(); setZoomTemplate(t); }}
+                        style={{
+                          position: 'absolute', top: 6, right: 6, background: 'rgba(255,255,255,0.9)',
+                          border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer',
+                          display: 'flex', padding: 4, color: 'var(--muted)', zIndex: 1,
+                        }}>
+                        <Eye size={13} />
+                      </button>
                       <div style={{ fontSize: 11, fontWeight: 700, color: '#111', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
                         {t.label}
                         {selected && <Check size={12} style={{ color: 'hsl(var(--color-green))' }} />}
@@ -278,7 +289,7 @@ function EmailSignatureSection({ toastOk, toastErr }) {
                         <div style={{ transform: 'scale(0.7)', transformOrigin: 'top left', width: '143%' }}
                           dangerouslySetInnerHTML={{ __html: t.html }} />
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -289,6 +300,20 @@ function EmailSignatureSection({ toastOk, toastErr }) {
             </>
           )}
         </>
+      )}
+      {zoomTemplate && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={e => e.target === e.currentTarget && setZoomTemplate(null)}>
+          <div style={{ background: '#fff', borderRadius: 12, maxWidth: 560, width: '100%', maxHeight: '80vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+              <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>{zoomTemplate.label}</span>
+              <button onClick={() => setZoomTemplate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: 20 }} dangerouslySetInnerHTML={{ __html: zoomTemplate.html }} />
+          </div>
+        </div>
       )}
     </Section>
   );
