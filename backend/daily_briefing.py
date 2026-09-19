@@ -874,9 +874,16 @@ def _acquire_employee_lock(db: Session, email: str) -> None:
     can both pass _trigger_due's _already_logged_today check before either
     commits, and both send - confirmed in NexusDailyBriefingLog as several
     rows for the same employee/date sharing the exact same sentAt second
-    (Pranshu, Sep 20 - "it happened a few times in earlier days also")."""
+    (Pranshu, Sep 20 - "it happened a few times in earlier days also").
+
+    ::int cast on :ns is required, not decorative - psycopg2 sends a plain
+    Python int as bigint, and Postgres then has no pg_advisory_xact_lock
+    (bigint, integer) overload to resolve to (only (bigint) and (int, int)
+    exist), which 500'd every call here in prod (Sep 20 - force_resend
+    surfaced it immediately since it's the first caller to run outside the
+    background loop's own already-tolerant error handling)."""
     if db.bind.dialect.name == "postgresql":
-        db.execute(text("SELECT pg_advisory_xact_lock(:ns, hashtext(:email))"),
+        db.execute(text("SELECT pg_advisory_xact_lock(:ns::int, hashtext(:email))"),
                    {"ns": _BRIEFING_LOCK_NS, "email": email})
 
 
