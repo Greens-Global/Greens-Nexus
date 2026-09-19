@@ -1,8 +1,16 @@
-import { useState, useRef, useEffect, Component } from 'react';
+import { useState, useRef, useEffect, Component, lazy, Suspense } from 'react';
 import { MessageCircle, X, Send, Loader2, Sparkles } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { api } from '../api';
+
+// react-markdown + remark-gfm only load once someone actually opens the
+// widget and gets a reply - this widget is mounted globally on every screen,
+// so most page loads never need the parser at all.
+const MarkdownReply = lazy(async () => {
+  const [{ default: ReactMarkdown }, { default: remarkGfm }] = await Promise.all([
+    import('react-markdown'), import('remark-gfm'),
+  ]);
+  return { default: ({ children }) => <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown> };
+});
 
 // A crash inside the widget must not blank the whole app (CLAUDE.md's
 // "never let a screen render blank" rule) - RootErrorBoundary would catch it,
@@ -124,7 +132,7 @@ function AssistantWidgetInner() {
               fontSize: 13, lineHeight: 1.5,
             }}>
               {m.role === 'assistant'
-                ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                ? <Suspense fallback={m.content}><MarkdownReply>{m.content}</MarkdownReply></Suspense>
                 : m.content}
             </div>
           ))}
