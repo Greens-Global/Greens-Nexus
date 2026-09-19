@@ -621,9 +621,10 @@ export const api = {
   getDailyBriefingConfig: () => req("/daily-briefing/config"),
   updateDailyBriefingConfig: (patch) => req("/daily-briefing/config", { method: "PUT", body: JSON.stringify(patch) }),
   getDailyBriefingLog: (params = {}) => req(`/daily-briefing/log?${new URLSearchParams(params).toString()}`),
-  // Clears one dedupe row so the next scan pass can retrigger that employee/
-  // day - for when a shift or mode was edited AFTER that day's briefing had
-  // already fired (the dedupe otherwise blocks a retrigger until tomorrow).
+  // Clears one dedupe row AND immediately sends that employee's briefing
+  // right now, bypassing their shift window - a deliberate admin override,
+  // not the automatic per-shift trigger. No effect on any other employee or
+  // on the normal 15-minute scan schedule. Returns {sentNow, mode, hadContent}.
   forceResendDailyBriefing: (logId) => req(`/daily-briefing/log/${logId}`, { method: "DELETE" }),
   // Replies mailed back to a task notification (manager+). The drain normally
   // runs itself every minute on the deployed API; this triggers one pass now.
