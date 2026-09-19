@@ -10,7 +10,7 @@ import { useTasks } from './TasksContext';
 import { DeletedTasksTab as RecycleBinPanel } from './ManageView';
 import { fmtDate, taskIdFromUrl, taskAssignees } from './lib';
 import { NX, FONT, btn, card, PRIORITY_ORDER } from './theme';
-import { Avatar, useClickOutside, useIsMobile } from './components';
+import { Avatar, useClickOutside, useIsMobile, localTodayISO, notPast } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
 
 const WIDGET_META = [
@@ -70,8 +70,13 @@ function MasonryCell({ masonry, style, children, ...rest }) {
   );
 }
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+// LOCAL calendar dates throughout. toISOString() is the UTC date, which on a US
+// evening is already tomorrow - "today" and the range edges were a day off.
+const localISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const todayISO = () => localISO(new Date());
+const addDays = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + n); return localISO(d); };
+/** The local date a task was completed on ('' if it never recorded one). */
+const completedOn = (t) => (t.completedAt ? localISO(new Date(t.completedAt)) : '');
 const fmtUS = (iso) => fmtDate(iso);
 const dueColor = (iso, done) => { if (!iso || done) return NX.faint; const t = todayISO(); return iso < t ? NX.red : iso === t ? NX.amber : NX.dim; };
 
@@ -127,10 +132,26 @@ export default function HomeView({ onNavigate }) {
   const myTasks = useMemo(() => tasks.filter((t) => t.type !== 'section' && taskAssignees(t).includes(myEmail)), [tasks, myEmail]);
   const rangeDef = RANGES.find((r) => r.key === range);
   const rangeEnd = addDays(todayISO(), rangeDef.days);
+  // The My Day / My Week / My Month picker scopes every tile and tab except
+  // Overdue (overdue is overdue whatever the window). It used to narrow only
+  // Upcoming - and that list also carried every undated task, so switching the
+  // range barely moved a number and read as a dead control.
+  //   Upcoming  - open, due between today and the end of the window
+  //   Completed - finished within the same window looking back (today / last
+  //               7 / last 30 days)
+  //   Priority  - urgent/high among the open work due by the window's end
+  //               (overdue included - it is still on the plate) or undated
+  const rangeStart = addDays(todayISO(), -rangeDef.days);
   const overdue = myTasks.filter((t) => !t.completed && t.dueOn && t.dueOn < todayISO());
-  const completed = myTasks.filter((t) => t.completed);
-  const upcoming = myTasks.filter((t) => !t.completed && (!t.dueOn || (t.dueOn >= todayISO() && t.dueOn <= rangeEnd)));
-  const shown = tab === 'Upcoming' ? upcoming : tab === 'Overdue' ? overdue : completed;
+  const completed = myTasks.filter((t) => t.completed && completedOn(t) >= rangeStart && completedOn(t) <= todayISO());
+  const upcoming = myTasks.filter((t) => !t.completed && t.dueOn && t.dueOn >= todayISO() && t.dueOn <= rangeEnd);
+  // The Upcoming LIST still carries undated open work, after the dated tasks -
+  // the tile counts only what is actually due in the window, but a task with
+  // no date (e.g. one just added from this card without one) must not vanish
+  // from Home altogether.
+  const undated = myTasks.filter((t) => !t.completed && !t.dueOn);
+  const upcomingList = [...upcoming.slice().sort((x, y) => x.dueOn.localeCompare(y.dueOn)), ...undated];
+  const shown = tab === 'Upcoming' ? upcomingList : tab === 'Overdue' ? overdue : completed;
   const myTeams = useMemo(() => teams.filter((d) => (d.memberIds || []).includes(myEmail)), [teams, myEmail]);
   const teamMembers = useMemo(() => { const s = new Set(); myTeams.forEach((d) => (d.memberIds || []).forEach((id) => s.add(id))); return [...s]; }, [myTeams]);
   // The bookmark rows, in the order the person set. A bookmark whose project
@@ -152,7 +173,8 @@ export default function HomeView({ onNavigate }) {
   }, [tasks]);
   // Taskboard-kit summary tiles: my open totals split by what needs attention.
   const openMine = myTasks.filter((t) => !t.completed);
-  const priorityMine = openMine.filter((t) => t.priority === 'urgent' || t.priority === 'high');
+  const openInRange = openMine.filter((t) => !t.dueOn || t.dueOn <= rangeEnd);
+  const priorityMine = openInRange.filter((t) => t.priority === 'urgent' || t.priority === 'high');
   // Kit "Urgently task" list: projects ranked by overdue load, bar = completion.
   const urgentProjects = useMemo(() => {
     const today = todayISO();
@@ -237,7 +259,7 @@ export default function HomeView({ onNavigate }) {
             <input autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(false); if (e.key === 'Escape') cancelCreate(); }} onBlur={() => commitCreate(false)} placeholder="Write a task name" style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13, color: NX.ink }} />
             {newDue && <span style={{ fontSize: 12, fontWeight: 500, color: dueColor(newDue, false) }}>{fmtUS(newDue)}</span>}
             <button onMouseDown={(e) => { e.preventDefault(); dateRef.current?.showPicker?.() ?? dateRef.current?.focus(); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Set due date"><CalendarDays size={16} /></button>
-            <input ref={dateRef} type="date" value={newDue ?? ''} onChange={(e) => setNewDue(e.target.value || null)} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
+            <input ref={dateRef} type="date" value={newDue ?? ''} min={localTodayISO()} onChange={(e) => setNewDue(notPast(e.target.value) || null)} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
             <button onMouseDown={(e) => { e.preventDefault(); commitCreate(true); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Details"><ChevronRight size={16} /></button>
           </div>
         ) : (
@@ -253,7 +275,7 @@ export default function HomeView({ onNavigate }) {
               </div>
             ))}
           </div>
-        ) : shown.length === 0 ? <p style={{ padding: '24px 0', textAlign: 'center', fontSize: 13, color: NX.faint }}>Nothing here.</p> : (
+        ) : shown.length === 0 ? <p style={{ padding: '24px 0', textAlign: 'center', fontSize: 13, color: NX.faint }}>{tab === 'Completed' ? `Nothing completed ${rangeDef.key === 'day' ? 'today' : `in the last ${rangeDef.days} days`}.` : tab === 'Upcoming' ? `Nothing due ${rangeDef.key === 'day' ? 'today' : `in the next ${rangeDef.days} days`}.` : 'Nothing here.'}</p> : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {shown.map((t) => (
               <div key={t.id} data-task-row onClick={() => setOpenId(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border2}`, padding: '8px 6px', margin: '0 -6px', borderRadius: 6, fontSize: 13, cursor: 'pointer', transition: 'background 0.12s' }}
@@ -436,10 +458,16 @@ export default function HomeView({ onNavigate }) {
             <div key={d.iso} role="button" tabIndex={0} title={`${d.iso}: ${d.n} due - open upcoming tasks`}
               onClick={() => { setTab('Upcoming'); onNavigate('mine'); }}
               onKeyDown={(e) => { if (e.key === 'Enter') { setTab('Upcoming'); onNavigate('mine'); } }}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px', borderRadius: 12, background: d.today ? NX.ink : NX.hover, minWidth: 0, cursor: 'pointer' }}>
+              /* Today's cell inverts to stand out - NX.primary (brand blue,
+                 unchanged across themes), not NX.ink (Sep 19: "not visible
+                 clearly" - NX.ink is near-black in light mode, which reads
+                 fine as an inverted dark tile with white text, but flips to
+                 near-white in dark mode, so the hardcoded white date number
+                 below was rendering white-on-near-white). */
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px', borderRadius: 12, background: d.today ? NX.primary : NX.hover, minWidth: 0, cursor: 'pointer' }}>
               <span style={{ fontSize: 11, color: d.today ? 'rgba(255,255,255,.7)' : NX.faint }}>{d.day}</span>
               <span style={{ fontSize: 15, fontWeight: 800, color: d.today ? '#fff' : NX.ink, fontVariantNumeric: 'tabular-nums' }}>{d.date}</span>
-              <span style={{ minWidth: 20, textAlign: 'center', padding: '1px 6px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: d.n > 0 ? (d.today ? 'rgba(255,255,255,.22)' : '#dff3fc') : 'transparent', color: d.n > 0 ? (d.today ? '#fff' : '#0998c3') : (d.today ? 'rgba(255,255,255,.4)' : NX.border) }}>
+              <span style={{ minWidth: 20, textAlign: 'center', padding: '1px 6px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: d.n > 0 ? (d.today ? 'rgba(255,255,255,.22)' : 'rgba(9,152,195,0.16)') : 'transparent', color: d.n > 0 ? (d.today ? '#fff' : '#0998c3') : (d.today ? 'rgba(255,255,255,.4)' : NX.faint) }}>
                 {d.n > 0 ? d.n : '·'}
               </span>
             </div>
@@ -534,10 +562,17 @@ export default function HomeView({ onNavigate }) {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: isMobile ? 6 : 16 }}>
         {[
-          { label: 'Priority', n: priorityMine.length, of: openMine.length, unit: 'open', Icon: Flag, chip: '#06c698', bg: '#e4f5ee', go: () => onNavigate('mine'), title: 'Open my tasks' },
-          { label: 'Upcoming', n: upcoming.length, of: myTasks.length, unit: 'tasks', Icon: CalendarDays, chip: '#0998c3', bg: '#dff3fc', go: () => setTab('Upcoming'), title: 'Show upcoming' },
-          { label: 'Overdue', n: overdue.length, of: myTasks.length, unit: 'tasks', Icon: Clock, chip: '#7c6af0', bg: '#eae6fc', go: () => setTab('Overdue'), title: 'Show overdue' },
-          { label: 'Completed', n: completed.length, of: myTasks.length, unit: 'tasks', Icon: CheckCircle2, chip: '#fc6363', bg: '#fde8e3', go: () => setTab('Completed'), title: 'Show completed' },
+          /* bg is a translucent tint of `chip`, not an opaque pastel hex (Sep
+             19: "Colours are still not accurate" - an opaque light pastel
+             like #e4f5ee reads fine on a white card but turns into a glaring
+             light patch on a dark one; the rest of the app's tint pattern -
+             STATUS_META/PRIORITY_META in theme.js - already solves this by
+             using low-alpha rgba of the accent colour, which reads correctly
+             composited over either card colour). */
+          { label: 'Priority', n: priorityMine.length, of: openInRange.length, unit: 'open', Icon: Flag, chip: '#06c698', bg: 'rgba(6,198,152,0.16)', go: () => onNavigate('mine'), title: 'Open my tasks' },
+          { label: 'Upcoming', n: upcoming.length, of: myTasks.length, unit: 'tasks', Icon: CalendarDays, chip: '#0998c3', bg: 'rgba(9,152,195,0.16)', go: () => setTab('Upcoming'), title: 'Show upcoming' },
+          { label: 'Overdue', n: overdue.length, of: myTasks.length, unit: 'tasks', Icon: Clock, chip: '#7c6af0', bg: 'rgba(124,106,240,0.16)', go: () => setTab('Overdue'), title: 'Show overdue' },
+          { label: 'Completed', n: completed.length, of: myTasks.length, unit: 'tasks', Icon: CheckCircle2, chip: '#fc6363', bg: 'rgba(252,99,99,0.16)', go: () => setTab('Completed'), title: 'Show completed' },
         ].map(({ label, n, of, unit, Icon, chip, bg, go, title }) => (
           /* Horizontal anatomy (chip left, text right) at desktop width - a
              vertical (chip-on-top) tile stretched across a wide column reads

@@ -24,6 +24,8 @@ const fmtAcc = (m) => m >= 1000 ? `±${(m / 1000).toFixed(m >= 10000 ? 0 : 1)}km
 function locStatus(p) {
   if (p.geoStatus === 'in_fence') return { color: '#16a34a', label: `On Site${p.workSiteName ? ` · ${p.workSiteName}` : ''}` };
   if (p.geoStatus === 'out_of_fence') return { color: '#d97706', label: `Off Site${p.workSiteName ? ` · ${p.workSiteName}` : ''}` };
+  // Tagged remote in People - Work Mode: anywhere is fine, nothing to flag (Neil, Sep 19).
+  if (p.geoStatus === 'remote') return { color: '#2563eb', label: 'Remote' };
   const a = p.accuracyM || 0;
   if (a > 0 && a <= 100) return { color: '#2563eb', label: `GPS ${fmtAcc(a)}` };       // precise phone/GPS fix
   if (a > 0 && a <= 1000) return { color: '#64748b', label: `Approx. ${fmtAcc(a)}` };

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { NX, FONT } from './theme';
 import { Avatar } from './components';
-import { useClickOutside } from './components';
+import { useClickOutside, useImageZoom } from './components';
 import { api } from '../api';
 import { matchPeople } from '../lib/peopleSearch';
 
@@ -45,7 +45,11 @@ const buildExtensions = (placeholder) => [
     link: { openOnClick: false, autolink: true, HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' } },
   }),
   Highlight,
-  Image.configure({ inline: false, HTMLAttributes: { style: 'max-width:100%;height:auto;border-radius:8px' } }),
+  // allowBase64: a pasted/inserted image with no task to upload to yet (the
+  // Create Task form, a ticket reply) is stored inline as a data: URL. The
+  // extension's default parse rule SKIPS data: images, so they showed while
+  // typing, saved fine, and then vanished from the editor on the next load.
+  Image.configure({ inline: false, allowBase64: true, HTMLAttributes: { style: 'max-width:100%;height:auto;border-radius:8px' } }),
   Placeholder.configure({ placeholder }),
 ];
 
@@ -89,6 +93,9 @@ export default function RichDescription({
   const addPanelRef = useRef(null);
   const fileRef = useRef(null);
   const imageRef = useRef(null);
+  // Double-click, not click: a single click on an image in the editor selects
+  // it (to delete or move it), which must keep working.
+  const [zoomImage, zoomViewer] = useImageZoom();
   // handlePaste is captured once when the editor is created, so it can't close
   // over `attach` directly - that would freeze the first render's callback.
   const pasteRef = useRef(() => {});
@@ -120,7 +127,8 @@ export default function RichDescription({
         const files = [...(event.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
         if (!files.length) return false;
         event.preventDefault();
-        files.forEach((f) => pasteRef.current(f));
+        // One after another, so several pasted images keep their order.
+        (async () => { for (const f of files) await pasteRef.current(f); })();
         return true;
       },
     },
@@ -140,15 +148,25 @@ export default function RichDescription({
     if (next !== editor.getHTML()) editor.commands.setContent(next, { emitUpdate: false });
   }, [value, editor]);
 
-  const insertImage = useCallback((file) => {
-    const reader = new FileReader();
-    // Fires after the read completes, which can be after the modal closed.
-    reader.onload = () => {
-      if (!editor || editor.isDestroyed) return;
-      editor.chain().focus().setImage({ src: String(reader.result) }).run();
-    };
-    reader.readAsDataURL(file);
+  // Inserted AFTER the current selection, never over it. An image that has
+  // just been inserted is left selected (a node selection), and setImage /
+  // insertContent replace a selection - so picking two pictures used to put the
+  // second one in place of the first, leaving only one.
+  const insertAfterSelection = useCallback((content) => {
+    if (!editor || editor.isDestroyed) return;   // the read/upload outlived the editor
+    editor.chain().focus().insertContentAt(editor.state.selection.to, content).run();
   }, [editor]);
+  const placeImage = useCallback((src) => insertAfterSelection({ type: 'image', attrs: { src } }), [insertAfterSelection]);
+
+  const insertImage = useCallback(async (file) => {
+    const src = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+    if (src) placeImage(src);
+  }, [placeImage]);
 
   const attach = useCallback(async (file) => {
     // Asana parity: the file lands on the task AND, when it's an image, embeds
@@ -156,13 +174,12 @@ export default function RichDescription({
     const saved = await onAttachFile?.(file).catch(() => null);
     if (!editor || editor.isDestroyed) return;   // the upload outlived the editor
     if (file.type.startsWith('image/')) {
-      if (saved?.url) editor?.chain().focus().setImage({ src: saved.url }).run();
-      else insertImage(file);
+      if (saved?.url) placeImage(saved.url);
+      else await insertImage(file);
     } else if (saved?.url) {
-      editor?.chain().focus().extendMarkRange('link')
-        .insertContent(`<a href="${saved.url}">${saved.name || file.name}</a>`).run();
+      insertAfterSelection(`<a href="${saved.url}">${saved.name || file.name}</a> `);
     }
-  }, [editor, insertImage, onAttachFile]);
+  }, [editor, insertImage, placeImage, insertAfterSelection, onAttachFile]);
 
   // A mention is a mailto link, not a custom node: it reuses the Link mark (no extra
   // TipTap package) and degrades to a working mailto anywhere the HTML is rendered
@@ -262,8 +279,9 @@ export default function RichDescription({
   return (
     <div style={wrap}>
       <div className="nx-rich" style={{ padding: '10px 12px', minHeight, cursor: 'text', position: 'relative' }}
-        onClick={() => editor.chain().focus().run()}>
+        onClick={() => editor.chain().focus().run()} onDoubleClick={zoomImage}>
         <EditorContent editor={editor} />
+        {zoomViewer}
         {mention && matches.length > 0 && (
           <div style={{ position: 'absolute', left: 8, bottom: -6, transform: 'translateY(100%)', zIndex: 70,
                         minWidth: 240, background: NX.surface, border: `1px solid ${NX.border}`,
@@ -324,10 +342,12 @@ export default function RichDescription({
             </div>
           )}
         </span>
-        <input ref={fileRef} type="file" style={{ display: 'none' }}
-          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) attach(f); }} />
-        <input ref={imageRef} type="file" accept="image/*" style={{ display: 'none' }}
-          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) insertImage(f); }} />
+        {/* `multiple`: a batch of photos is picked in one go. Uploaded one after
+            another (not in parallel) so they land in the order they were picked. */}
+        <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
+          onChange={async (e) => { const fs = [...(e.target.files || [])]; e.target.value = ''; for (const f of fs) await attach(f); }} />
+        <input ref={imageRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+          onChange={async (e) => { const fs = [...(e.target.files || [])]; e.target.value = ''; for (const f of fs) await insertImage(f); }} />
 
         <Divider />
         <Btn icon={Undo2} label="Undo" disabled={!can?.undo().run} onClick={() => editor.chain().focus().undo().run()} />

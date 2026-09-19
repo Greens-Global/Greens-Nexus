@@ -275,6 +275,12 @@ function GeoChip({ p }) {
       title="Recorded and flagged for review - this never blocks your punch.">
       <AlertTriangle size={12} /> {p.distanceM}m from {p.workSiteName || 'nearest site'} - flagged
     </span>);
+  // Tagged remote by HR: any location is accepted and nothing is flagged.
+  if (p.geoStatus === 'remote') return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
+      title="You are set up as remote, so you can punch from anywhere. Your location is still recorded with the punch.">
+      <MapPin size={12} /> remote
+    </span>);
   if (p.geoStatus === 'low_accuracy') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
       title="This device gave only a rough Wi-Fi/IP location (no GPS) - too coarse to judge the geofence. Punch from a phone for a precise fix.">
@@ -610,6 +616,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       const p = res.punch;
       const where = p.geoStatus === 'in_fence' ? ` at ${p.workSiteName}`
         : p.geoStatus === 'out_of_fence' ? ` - ${p.distanceM}m from ${p.workSiteName || 'the nearest site'}, flagged for review`
+        : p.geoStatus === 'remote' ? ' - remote'
         : p.geoStatus === 'low_accuracy' ? ' - location too approximate to judge (no GPS on this device)'
         : pos ? '' : ' - location unavailable, recorded without it';
       toast(true, `${KIND_META[kind].label} at ${localTime(p.at)}${where}.`);

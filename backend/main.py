@@ -42,6 +42,7 @@ from routers import external_links  # External Links directory rebuild (Aug 2026
 from routers import link_layouts  # Per-user Links Module personalization overlay (Aug 13) - own file, see its docstring
 from routers import external_users  # External users (guest allowlist) admin CRUD (Aug 17)
 from routers import external_auth  # External passwordless auth: invite activation + code sign-in (Aug 18)
+from routers import support  # Support > System & Design + live Data Dictionary (Sep 19)
 from audit import AuditMiddleware
 
 
@@ -721,6 +722,29 @@ def _run_migrations():
             "INSERT INTO ticket_departments (id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at) "
             "SELECT id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at FROM hr_departments "
             "WHERE NOT EXISTS (SELECT 1 FROM ticket_departments WHERE ticket_departments.id = hr_departments.id)",
+            # Main Phone type picker (Sep 18) - "phone" bakes the dial code into
+            # main_phone itself; fax/telephone don't.
+            "ALTER TABLE hr_entities ADD COLUMN main_phone_type VARCHAR DEFAULT 'phone'",
+            # Workforce Analytics Policy goes per-company (Sep 19) - was a single
+            # id='default' row; see the Python backfill below for splitting it.
+            "ALTER TABLE monitoring_policy ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # Personal LinkedIn for the signature icon row (Sep 19) - was the
+            # company's LinkedIn; a person's profile is theirs, not their employer's.
+            "ALTER TABLE nexus_employees ADD COLUMN linkedin_url VARCHAR DEFAULT ''",
+            # THIS employee's own country (Sep 19) - a company's registered
+            # country doesn't always match where a given employee is; the
+            # signature phone's dial code now comes from here instead.
+            "ALTER TABLE nexus_employees ADD COLUMN country VARCHAR DEFAULT ''",
+            # Personal signature logo override (Sep 19) - '' falls back to the
+            # company's own logo_url.
+            "ALTER TABLE nexus_employees ADD COLUMN signature_logo_url VARCHAR DEFAULT ''",
+            # Remote flag replaces the per-person geofence (Neil, Sep 19). The
+            # UPDATE carries everyone who HAD a personal location across as
+            # remote - they were the people working away from a site, and without
+            # it their next punch would be flagged off-site. It zeroes the radius
+            # in the same statement, so it matches nothing on any later start.
+            "ALTER TABLE nexus_employees ADD COLUMN work_remote INTEGER DEFAULT 0",
+            "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1518,6 +1542,16 @@ def _run_migrations():
         "INSERT INTO ticket_departments (id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at) "
         "SELECT id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at FROM hr_departments d "
         "WHERE NOT EXISTS (SELECT 1 FROM ticket_departments td WHERE td.id = d.id)",
+        # Same addition as the SQLite list above - see the note there.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS main_phone_type VARCHAR DEFAULT 'phone'",
+        "ALTER TABLE monitoring_policy ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS country VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_logo_url VARCHAR DEFAULT ''",
+        # Remote flag replaces the per-person geofence - see the matching SQLite
+        # migration above. Same one-shot carry-over.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_remote INTEGER DEFAULT 0",
+        "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -1885,6 +1919,70 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] letterhead seed skipped: {e}")
+    # Backfill sla_due_on on tickets that predate the column ever being
+    # populated for every row (it used to only get set on create, and older
+    # rows were never revisited) - "there is no SLA due date for few tickets"
+    # (Pranshu, Sep 17 2026). Computed the same way update_ticket/create_ticket
+    # do (routers/tickets.py's _sla_due_from_priority), so a ticket's due date
+    # always reads as "created_at + its priority's target hours" regardless of
+    # how old it is. Cheap no-op once every existing gap is filled - the
+    # WHERE already limits it to rows that still need it.
+    try:
+        from database import SessionLocal
+        from routers.tickets import _sla_due_from_priority
+        db = SessionLocal()
+        try:
+            rows = db.query(models.TaskTicket).filter(
+                (models.TaskTicket.sla_due_on == None) | (models.TaskTicket.sla_due_on == "")  # noqa: E711
+            ).all()
+            for t in rows:
+                t.sla_due_on = _sla_due_from_priority(db, t.created_at, t.priority or "medium")
+            if rows:
+                db.commit()
+                print(f"[startup] backfilled sla_due_on on {len(rows)} ticket(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] ticket sla_due_on backfill skipped: {e}")
+    # Workforce Analytics Policy goes per-company (Sep 19, Pranshu: "all
+    # companies have their different workforce analytics policy"). Was a
+    # single shared row (id='default', company_id=''); that row now stays as
+    # the fallback for anyone with no company. Every EXISTING company gets
+    # its own copy of that row's actual settings, so nobody's live monitoring
+    # behavior changes the moment this ships - only going forward, once an
+    # admin edits a specific company's copy from Settings -> Company Setup,
+    # do they diverge. A company created after this runs just gets the
+    # model's plain built-in defaults instead (via _get_policy's own
+    # auto-create), which is fine - there's nothing "today's settings" to
+    # preserve for a company that didn't exist yet.
+    try:
+        import uuid as _uuid
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            default_row = db.query(models.MonitoringPolicy).filter(models.MonitoringPolicy.id == "default").first()
+            if default_row is not None:
+                have = {row[0] for row in db.query(models.MonitoringPolicy.company_id)
+                        .filter(models.MonitoringPolicy.company_id != "").all()}
+                created = 0
+                for e in db.query(models.HrEntity).all():
+                    if e.id in have:
+                        continue
+                    db.add(models.MonitoringPolicy(
+                        id=str(_uuid.uuid4()), company_id=e.id,
+                        enabled=default_row.enabled, interval_minutes=default_row.interval_minutes,
+                        randomize=default_row.randomize, track_screens=default_row.track_screens,
+                        track_windows=default_row.track_windows, track_input=default_row.track_input,
+                        updated_by="migration", updated_at=datetime.now(timezone.utc).isoformat(),
+                    ))
+                    created += 1
+                if created:
+                    db.commit()
+                    print(f"[startup] backfilled monitoring_policy for {created} compan{'y' if created == 1 else 'ies'} from the shared default")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] monitoring_policy company backfill skipped: {e}")
     # Asana sync fallback poll (webhooks handle real-time; this is the safety net).
     try:
         from asana_sync import start_auto_pull, is_sync_worker
@@ -2092,6 +2190,10 @@ _CSRF_EXEMPT_PATHS = frozenset({
     "/external-auth/activate/verify",
     "/external-auth/request-code",
     "/external-auth/login-verify",
+    # Task-email actions: authorized by a signed per-task token (or Outlook's
+    # own JWT), never by the session cookie - see routers/mail_actions.py.
+    "/mail-actions/card",
+    "/mail-actions/page",
 })
 
 
@@ -2317,6 +2419,7 @@ app.include_router(jobroles.router)
 app.include_router(access_scopes.router)
 app.include_router(external_users.router)  # External users: B2B-guest allowlist admin CRUD (Aug 17)
 app.include_router(external_auth.router)   # External passwordless auth - public: the emailed link/code IS the credential (Aug 18)
+app.include_router(support.router)         # Support > System & Design + live Data Dictionary (Sep 19)
 app.include_router(qa.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
@@ -2357,4 +2460,7 @@ app.include_router(user_tours.router)     # Per-user guided-tour "seen" state (s
 
 from routers import auth_bff               # noqa: E402  BFF login (dual-mode)
 app.include_router(auth_bff.router)        # /auth/login|callback|logout|me - inert without NEXUS_BFF_CLIENT_SECRET
+
+from routers import mail_actions           # noqa: E402
+app.include_router(mail_actions.router)    # Task-email actions: Outlook Actionable Message card + signed-link fallback page
 

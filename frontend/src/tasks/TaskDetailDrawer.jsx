@@ -18,7 +18,7 @@ import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
-import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag } from './components';
+import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, localTodayISO, notPast } from './components';
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import ProjectPicker from './ProjectPicker';
@@ -192,7 +192,9 @@ function MenuItem({ icon, onClick, danger, children }) {
 // them open it - the Replies log opens a task because a comment arrived by
 // email, and landing on Overview would leave the reader to go find it.
 // Defaults to Overview, so every existing caller behaves exactly as before.
-export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab = 'overview' }) {
+// `zIndex`: the drawer normally sits at 3500, under Modal (4000). A caller that
+// opens it FROM a modal (the ticket drawer's linked tasks) raises it above.
+export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab = 'overview', zIndex = 3500 }) {
   const store = useTasks();
   const { taskById, tasks, teams, projects, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment, offerUndo } = store;
   // Externals included: Assignee and Collaborators are who does the work, and
@@ -206,6 +208,29 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const [shareOpen, setShareOpen] = useState(false);
 
   const task = taskById[activeId];
+
+  // Mark Complete from the header closes the drawer once the completion has
+  // played out - the task is done, so there is nothing left to do in it. The
+  // store holds the save ~550ms for the unicorn (TasksContext.toggleComplete);
+  // the extra beat lets "Completed" show before the panel slides away.
+  // Guarded so it never closes something else: if the person switched to
+  // another task, or un-completed it again, during the wait, the drawer stays.
+  // Completing a SUBTASK opened inside the drawer steps back to its parent
+  // instead of closing the whole thing.
+  const latest = useRef({ activeId, taskById });
+  useEffect(() => { latest.current = { activeId, taskById }; });
+  const markComplete = () => {
+    const completing = !task.completed;
+    const doneId = task.id;
+    const done = store.toggleComplete(task);
+    if (!completing) return;
+    Promise.resolve(done).then(() => setTimeout(() => {
+      const now = latest.current;
+      if (now.activeId !== doneId || !now.taskById[doneId]?.completed) return;
+      if (doneId !== taskId) setActiveId(taskId);
+      else onClose();
+    }, 650));
+  };
 
   // resizable width (persisted); default 60% of viewport, expand → full width.
   const maxW = typeof window !== 'undefined' ? window.innerWidth : 1200;
@@ -314,7 +339,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   };
 
   return createPortal(
-    <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex: 3500, fontFamily: FONT }}>
+    <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
       <aside style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
         {/* drag handle */}
         {!isMobile && (
@@ -326,7 +351,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {/* On a phone this collapses to its circle-check icon - the label is
                 the widest thing in the header and crowds out the actions. */}
-            <button onClick={() => store.toggleComplete(task)} title={task.completed ? 'Completed' : 'Mark Complete'}
+            <button onClick={markComplete} title={task.completed ? 'Completed' : 'Mark Complete'}
               style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: task.completed ? NX.green : NX.dim }}>
               {task.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
               {!isMobile && (task.completed ? 'Completed' : 'Mark Complete')}
@@ -684,7 +709,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       </Row>
 
       <Row label="Due Date">
-        <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} compact
+        <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} compact noPast
           style={task.dueOn ? { ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 } : undefined} />
       </Row>
 
@@ -948,21 +973,22 @@ function useCommentAttachments(taskId) {
 // doesn't exist yet while its composer is still open.
 function PendingAttachments({ files, setFiles }) {
   const fileRef = useRef(null);
-  const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) setFiles((p) => [...p, f]); };
+  // Several at once - a photo dump is one pick, not one trip per picture.
+  const onFile = (e) => { const fs = [...(e.target.files || [])]; e.target.value = ''; if (fs.length) setFiles((p) => [...p, ...fs]); };
   const remove = (i) => setFiles((p) => p.filter((_, j) => j !== i));
   if (!files.length) {
     return (
       <>
-        <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFile} />
-        <button type="button" onClick={() => fileRef.current?.click()} title="Attach file"
+        <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
+        <button type="button" onClick={() => fileRef.current?.click()} title="Attach Files"
           style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Paperclip size={13} /></button>
       </>
     );
   }
   return (
     <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-      <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFile} />
-      <button type="button" onClick={() => fileRef.current?.click()} title="Attach another file"
+      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
+      <button type="button" onClick={() => fileRef.current?.click()} title="Attach More Files"
         style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Paperclip size={13} /></button>
       {files.map((f, i) => (
         <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 8px 2px 2px', fontSize: 11.5, color: NX.dim }}>
@@ -1235,6 +1261,7 @@ function CommentItem({ c, nameOf, mine, attachments = [], onPin, onEdit, onDelet
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(c.body);
   const [hover, setHover] = useState(false);
+  const [zoomImage, zoomViewer] = useImageZoom();
   const imported = parseImportedAuthor(c.body);
   const displayName = imported?.name || nameOf(c.authorId);
   const displayBody = imported ? imported.text : c.body;
@@ -1268,9 +1295,10 @@ function CommentItem({ c, nameOf, mine, attachments = [], onPin, onEdit, onDelet
         ) : (
           // Bodies are HTML now (rich editor + Asana's html_text); richBodyHtml
           // sanitizes them and escapes the older plain-text rows.
-          <div className="nx-rich-view" style={{ marginTop: 2, color: NX.dim }}
+          <div className="nx-rich-view" style={{ marginTop: 2, color: NX.dim }} onClick={zoomImage}
             dangerouslySetInnerHTML={{ __html: richBodyHtml(displayBody, nameOf) }} />
         )}
+        {zoomViewer}
         {attachments.length > 0 && <CommentAttachments items={attachments} />}
       </div>
     </div>
@@ -1514,7 +1542,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
           style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
         {dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(dueOn)}</span>}
         <button onClick={() => dateRef.current?.showPicker?.() ?? dateRef.current?.focus()} title="Due Date" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><CalendarDays size={15} /></button>
-        <input ref={dateRef} type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
+        <input ref={dateRef} type="date" value={dueOn} min={localTodayISO()} onChange={(e) => setDueOn(notPast(e.target.value))} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
         <div style={{ minWidth: 150 }}>
           <PersonSelect value={assigneeId || null} people={people} onChange={(email) => setAssigneeId(email || '')} placeholder="Assignee" />
         </div>

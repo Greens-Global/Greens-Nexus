@@ -611,10 +611,11 @@ def _letterhead_flow(letterhead: dict, content_width: float) -> list:
 
 def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_blocks: list,
                letterhead: dict = None, page_setup: dict = None) -> bytes:
-    from reportlab.lib.units import inch, mm
+    from reportlab.lib.units import inch
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+    from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame,
+                                    NextPageTemplate, Paragraph, PageBreak)
 
     w_in, h_in, margin_in = _resolve_page_setup(page_setup)
     pagesize = (w_in * inch, h_in * inch)
@@ -625,8 +626,14 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
                                 fontSize=10.5, leading=15, spaceAfter=8)
     content_width = pagesize[0] - 2 * margin
 
-    flow = [Paragraph(_esc(title), ParagraphStyle("title", parent=styles["Title"], fontSize=16)), Spacer(1, 4 * mm)]
-    flow.extend(_letterhead_flow(letterhead, content_width))
+    # The document's NAME is not part of the document (Sagar, Sep 18: "Document
+    # name should not be posted in the document"). It was printed as a Title
+    # paragraph above the letterhead, so every export opened with a heading
+    # nobody had written - and on a letterhead document it sat above the
+    # letterhead, which reads as if the company were a subheading of the file
+    # name. It still goes into the PDF's metadata title below, which is where a
+    # file name belongs.
+    flow = []
     # pages_blocks: one block-list per page (Document Builder's Pages panel -
     # each page is now a real, independent unit, not a pageBreak marker
     # inside one continuous body). Force a real page boundary between them;
@@ -658,10 +665,53 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
         canvas.drawRightString(pagesize[0] - margin, margin - 14, f"Page {canvas.getPageNumber()}")
         canvas.restoreState()
 
+    # The letterhead belongs in the FIRST PAGE'S HEADER, not at the top of the
+    # body (Sagar, Sep 18). Two page templates: page 1 gets a shorter frame with
+    # the letterhead drawn into the band above it, later pages get the full
+    # frame. SimpleDocTemplate cannot vary a frame per page, so this drops to
+    # BaseDocTemplate - the flow itself is unchanged.
+    lh_flow = _letterhead_flow(letterhead, content_width) if letterhead else []
+    lh_height = 0.0
+    if lh_flow:
+        # Measure against a generous height: wrap() returns what each flowable
+        # actually needs, and the band is the sum.
+        for f in lh_flow:
+            try:
+                lh_height += f.wrap(content_width, pagesize[1])[1]
+            except Exception:
+                pass
+        # Never let the letterhead eat the page: if it somehow measures huge,
+        # cap it at a third of the sheet and let it clip rather than leave no
+        # room for the body.
+        lh_height = min(lh_height, pagesize[1] / 3.0)
+
+    def draw_letterhead(canvas, doc):
+        decorate(canvas, doc)
+        if not lh_flow:
+            return
+        y = pagesize[1] - margin
+        for f in lh_flow:
+            try:
+                h = f.wrap(content_width, pagesize[1])[1]
+                y -= h
+                f.drawOn(canvas, margin, y)
+            except Exception:
+                pass
+
     buf = io.BytesIO()
-    SimpleDocTemplate(buf, pagesize=pagesize, topMargin=margin, bottomMargin=margin,
-                      leftMargin=margin, rightMargin=margin, title=title).build(
-        flow, onFirstPage=decorate, onLaterPages=decorate)
+    doc_tmpl = BaseDocTemplate(buf, pagesize=pagesize, topMargin=margin, bottomMargin=margin,
+                               leftMargin=margin, rightMargin=margin, title=title)
+    body_h = pagesize[1] - 2 * margin
+    first_frame = Frame(margin, margin, content_width, max(1.0, body_h - lh_height), id="first")
+    rest_frame = Frame(margin, margin, content_width, body_h, id="rest")
+    doc_tmpl.addPageTemplates([
+        PageTemplate(id="first", frames=[first_frame], onPage=draw_letterhead),
+        PageTemplate(id="rest", frames=[rest_frame], onPage=decorate),
+    ])
+    # Without this, reportlab keeps using the FIRST template for every page and
+    # the letterhead reprints on all of them - it only switches when the flow
+    # says so. Queued ahead of the content, so it takes effect from page 2.
+    doc_tmpl.build([NextPageTemplate("rest"), *flow])
     return buf.getvalue()
 
 
@@ -964,39 +1014,49 @@ def render_docx(title: str, header_blocks: list, pages_blocks: list, footer_bloc
     if footer_text:
         section.footer.paragraphs[0].text = footer_text
 
-    doc.add_heading(title, level=1)
+    # No title heading: the document's NAME is not part of the document
+    # (Sagar, Sep 18). Word still carries it as the file's core title property,
+    # set by the caller, which is where a file name belongs.
 
     if letterhead:
+        # Into the FIRST PAGE'S HEADER, not the body. different_first_page_
+        # header_footer gives page 1 its own header part, so the letterhead
+        # appears once - a real Word letterhead, editable in Word's own header
+        # view - instead of being body text anyone can type over.
+        section.different_first_page_header_footer = True
+        hdr = section.first_page_header
+        # The part starts with one empty paragraph; write into it rather than
+        # leaving a blank line above the letterhead.
+        slots = list(hdr.paragraphs)
+        def _hdr_para():
+            return slots.pop(0) if slots else hdr.add_paragraph()
+
         lh_header = _letterhead_text(letterhead, "headerJson")
         if lh_header:
-            p = doc.add_paragraph(lh_header)
-            if p.runs:
-                p.runs[0].font.size = Pt(8)
+            p = _hdr_para()
+            run = p.add_run(lh_header)
+            run.font.size = Pt(8)
         logo_url = letterhead.get("logoPath") or ""
         if logo_url:
             data = _fetch_image_bytes(logo_url)
             if data:
                 try:
-                    doc.add_picture(io.BytesIO(data), width=Inches(1.8))
+                    _hdr_para().add_run().add_picture(io.BytesIO(data), width=Inches(1.8))
                 except Exception:
                     pass
         name = letterhead.get("name") or ""
         if name:
-            p = doc.add_paragraph()
-            run = p.add_run(name)
+            run = _hdr_para().add_run(name)
             run.bold = True
             run.font.size = Pt(13)
         address = letterhead.get("address") or ""
         if address:
-            p = doc.add_paragraph(address)
-            if p.runs:
-                p.runs[0].font.size = Pt(9)
+            run = _hdr_para().add_run(address)
+            run.font.size = Pt(9)
         lh_footer = _letterhead_text(letterhead, "footerJson")
         if lh_footer:
-            p = doc.add_paragraph(lh_footer)
-            if p.runs:
-                p.runs[0].font.size = Pt(8)
-        doc.add_paragraph()
+            run = _hdr_para().add_run(lh_footer)
+            run.font.size = Pt(8)
 
     # pages_blocks: one block-list per page (see render_pdf's matching
     # comment) - a real page break between each one, on top of

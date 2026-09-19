@@ -14,7 +14,7 @@
 // already-open ticket screen picks up the change immediately, the same way
 // TicketDeskSettings/TicketNotifySettings's saves take effect live.
 import { useEffect, useState } from 'react';
-import { Timer, ListTree, Plus, ChevronDown, ChevronUp, Save, RotateCcw } from 'lucide-react';
+import { Timer, ListTree, Building2, Plus, ChevronDown, ChevronUp, Save, RotateCcw } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
@@ -170,8 +170,9 @@ function TypeRow({ typeKey, meta, shown, onToggleShown, canMoveUp, canMoveDown, 
 
 export default function TicketTaxonomySettings() {
   const { myLevel } = useRole();
-  const [cfg, setCfg] = useState(null);       // raw server config: { slaTargetHours, types, typeOrder }
+  const [cfg, setCfg] = useState(null);       // raw server config: { slaTargetHours, types, typeOrder, companyField }
   const [order, setOrder] = useState([]);     // working copy of the shown/ordered type keys
+  const [companies, setCompanies] = useState([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
@@ -179,7 +180,7 @@ export default function TicketTaxonomySettings() {
   const load = () => api.getTicketTaxonomySettings()
     .then((c) => { setCfg(c); setOrder(Array.isArray(c.typeOrder) ? c.typeOrder : null); })
     .catch((e) => setErr(e.message || String(e)));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([])); }, []);
 
   if (myLevel < 3) {
     return (
@@ -198,6 +199,12 @@ export default function TicketTaxonomySettings() {
 
   const setSla = (k, v) => setCfg((c) => ({ ...c, slaTargetHours: { ...c.slaTargetHours, [k]: Math.max(1, Number(v) || 1) } }));
   const setTypeCfg = (key, patch) => setCfg((c) => ({ ...c, types: { ...c.types, [key]: { ...(c.types[key] || {}), ...patch } } }));
+  const setCompanyField = (patch) => setCfg((c) => ({ ...c, companyField: { ...c.companyField, ...patch } }));
+  const toggleCompanyId = (id) => setCompanyField({
+    companyIds: cfg.companyField.companyIds.includes(id)
+      ? cfg.companyField.companyIds.filter((c) => c !== id)
+      : [...cfg.companyField.companyIds, id],
+  });
   const toggleShown = (key) => {
     const cur = order ?? allKeys.filter((k) => TICKET_TYPE_META[k]);
     setOrder(cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]);
@@ -214,7 +221,7 @@ export default function TicketTaxonomySettings() {
   const save = async () => {
     setSaving(true); setErr(''); setSaved(false);
     try {
-      const next = await api.updateTicketTaxonomySettings({ slaTargetHours: cfg.slaTargetHours, types: cfg.types, typeOrder: order });
+      const next = await api.updateTicketTaxonomySettings({ slaTargetHours: cfg.slaTargetHours, types: cfg.types, typeOrder: order, companyField: cfg.companyField });
       setCfg(next);
       setOrder(Array.isArray(next.typeOrder) ? next.typeOrder : null);
       await refreshTicketConfig();
@@ -231,18 +238,71 @@ export default function TicketTaxonomySettings() {
         <div style={{ fontSize: 18, fontWeight: 700 }}>Ticket SLA & Types</div>
       </div>
 
-      <div style={{ ...card, padding: 18, marginBottom: 18, maxWidth: 560 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>SLA target hours</div>
-        <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
-          How many hours after a ticket is raised its SLA due date lands, by priority. Changing this here takes effect
-          immediately, server-side - no redeploy.
+      {/* Side by side (Sep 19, Pranshu: "utilize the blank space, move the
+          company field intake beside SLA") - SLA's own grid tops out at 4
+          narrow number fields, which left the whole right half of the panel
+          empty next to it. Both cards keep their own maxWidth so neither
+          stretches absurdly wide on an ultra-wide monitor; they wrap to
+          stacked full-width on a narrow one since this is a flex row, not a
+          fixed 2-up grid. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, marginBottom: 18 }}>
+        <div style={{ ...card, padding: 18, flex: '1 1 380px', maxWidth: 560 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>SLA target hours</div>
+          <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
+            How many hours after a ticket is raised its SLA due date lands, by priority. Changing this here takes effect
+            immediately, server-side - no redeploy.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+            {PRIORITIES.map(([k, lab]) => (
+              <Field key={k} label={lab} hint={`${(cfg.slaTargetHours[k] / 24).toFixed(1)} days`}>
+                <input type="number" min={1} value={cfg.slaTargetHours[k]} onChange={(e) => setSla(k, e.target.value)} style={inputStyle} />
+              </Field>
+            ))}
+          </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-          {PRIORITIES.map(([k, lab]) => (
-            <Field key={k} label={lab} hint={`${(cfg.slaTargetHours[k] / 24).toFixed(1)} days`}>
-              <input type="number" min={1} value={cfg.slaTargetHours[k]} onChange={(e) => setSla(k, e.target.value)} style={inputStyle} />
-            </Field>
-          ))}
+
+        <div style={{ ...card, padding: 18, flex: '1 1 380px', maxWidth: 560 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Building2 size={15} style={{ color: NX.dim }} />
+            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Company field at intake</div>
+          </div>
+          <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
+            Off by default - a ticket is silently filed under the requester's own company (from their People record),
+            same as always. Turn this on to let them pick instead, from whichever companies you enable below.
+          </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: NX.ink, fontWeight: 600, marginBottom: cfg.companyField.enabled ? 14 : 0 }}>
+            <Toggle on={cfg.companyField.enabled} onChange={() => setCompanyField({ enabled: !cfg.companyField.enabled })} />
+            Let the requester choose the company
+          </label>
+          {cfg.companyField.enabled && (
+            companies.length === 0 ? (
+              <div style={{ fontSize: 12, color: NX.faint }}>No companies set up yet - add one under Company Setup first.</div>
+            ) : (
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, letterSpacing: '.04em', marginBottom: 8 }}>OFFERED AT INTAKE</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {companies.map((c) => (
+                    <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5, color: NX.ink, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={cfg.companyField.companyIds.includes(c.id)} onChange={() => toggleCompanyId(c.id)} />
+                      {c.name}
+                    </label>
+                  ))}
+                </div>
+                {cfg.companyField.companyIds.length === 0 && (
+                  <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 8 }}>
+                    Nothing checked yet - with none offered, the field stays hidden and every ticket still
+                    files under the requester's own company.
+                  </div>
+                )}
+                {cfg.companyField.companyIds.length === 1 && (
+                  <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 8 }}>
+                    Only one company checked - it's used automatically, no picker shown. Check a second to
+                    make it an actual choice.
+                  </div>
+                )}
+              </>
+            )
+          )}
         </div>
       </div>
 

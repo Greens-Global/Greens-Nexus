@@ -38,7 +38,6 @@ export const SUBMENUS = {
     { sub: 'site-staff', label: 'Site Staff & Scheduling' },
   ],
   accounting: [
-    { sub: 'pnl',            label: 'Profit & Loss' },
     { sub: 'reports',        label: 'Reports' },
   ],
   hr: [

@@ -21,7 +21,15 @@ const EVENT = 'nexus:ticket-taxonomy-config';
 let _loaded = false;
 let _loading = null;
 
+// Company field on intake (Sep 19, Pranshu: admin-controlled toggle to let an
+// end user pick their ticket's company from an admin-picked subset, instead
+// of it always being silently derived from their own People record). Off by
+// default, mutated in place like everything else here so CreateTicketModal
+// re-renders via useTicketConfig() without needing its own fetch.
+export const COMPANY_FIELD = { enabled: false, companyIds: [] };
+
 function applyConfig(cfg) {
+  if (cfg?.companyField) Object.assign(COMPANY_FIELD, cfg.companyField);
   if (cfg?.slaTargetHours) Object.assign(SLA_TARGET_HOURS, cfg.slaTargetHours);
   if (cfg?.types) {
     for (const [key, override] of Object.entries(cfg.types)) {

@@ -15,7 +15,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 // that opens its create form should wear it, not a generic document.
 import {
   Ticket, Users, ArrowUpRight, Shield, FileSignature, Bug, Search,
-  ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight,
+  ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, Layers,
 } from 'lucide-react';
 import { api } from '../api';
 import { ticketNoShort, normalizeCode, TICKET_STATUS_META, TICKET_STATUS_ORDER } from '../tickets/ticketMeta';
@@ -89,6 +89,11 @@ const TicketDetail = lazy(async () => {
   };
 });
 
+// System & Design (Sep 19) - lazy, same reasoning as the composers above:
+// its Data Dictionary tab is its own chunk of table/field rendering that
+// most visits to this page never touch.
+const SystemDesign = lazy(() => import('./SystemDesignModal'));
+
 const go = (view, sub) => window.dispatchEvent(
   new CustomEvent('nexus:navigate', { detail: sub ? { view, sub } : { view } }));
 
@@ -121,6 +126,7 @@ export default function Support() {
   const [submitting, setSubmitting] = useState(false);
   const [reportingBug, setReportingBug] = useState(false);
   const [viewingTicketId, setViewingTicketId] = useState(null);
+  const [showingSystemDesign, setShowingSystemDesign] = useState(false);
   const [tickets, setTickets] = useState(null);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -218,6 +224,8 @@ export default function Support() {
       onOpen: () => go('privacy-policy') },
     { icon: FileSignature, title: 'Terms & Conditions', desc: 'The terms that govern your use of Nexus.',
       onOpen: () => go('terms-conditions') },
+    { icon: Layers, title: 'System & Design', desc: 'The tech Nexus is built with, and a live dictionary of every database table.',
+      onOpen: () => setShowingSystemDesign(true) },
   ];
 
   // Closed tickets are not what "My Open Tickets" means, but a requester whose
@@ -406,6 +414,12 @@ export default function Support() {
               (within the requester's own edit access), and the table above
               should reflect that without a manual refresh. */}
           <TicketDetail ticketId={viewingTicketId} onClose={() => { setViewingTicketId(null); load(); }} />
+        </Suspense>
+      )}
+
+      {showingSystemDesign && (
+        <Suspense fallback={null}>
+          <SystemDesign onClose={() => setShowingSystemDesign(false)} />
         </Suspense>
       )}
 

@@ -47,7 +47,8 @@ beforeEach(() => {
 describe('Documents module', () => {
   it('renders the dashboard tab by default, with the full tab strip', async () => {
     render(<Documents activeSub="" onSubChange={() => {}} />);
-    expect(screen.getByText('Documents')).toBeTruthy();
+    // The module title band was removed (Sep 17) - the tab strip is the proof
+    // that the shell rendered.
     for (const label of ['Dashboard', 'My Documents', 'Templates', 'Nexus Sign', 'PDF Tools']) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
@@ -89,7 +90,7 @@ describe('Documents module', () => {
     getDocuments.mockRejectedValueOnce(new Error('500'));
     mySignatures.mockRejectedValueOnce(new Error('403'));
     render(<Documents activeSub="documents-dashboard" onSubChange={() => {}} />);
-    expect(screen.getByText('Documents')).toBeTruthy();
+    expect(screen.getAllByText('Dashboard').length).toBeGreaterThan(0);
     await waitFor(() => expect(mySignatures).toHaveBeenCalled());
   });
 });

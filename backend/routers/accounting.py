@@ -87,6 +87,37 @@ async def report_cash_position(asof: str | None = None, location: str | None = N
     return await _acct_get("/api/internal/reports/cash-position", {"asof": asof, "location": location})
 
 
+@router.get("/search")
+async def search_ledger(
+    q: str | None = None,
+    location: str | None = None,
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = None,
+    party_kind: str | None = None,
+    party: str | None = None,
+    account: str | None = None,
+    journal: str | None = None,
+    min_: str | None = Query(default=None, alias="min"),
+    max_: str | None = Query(default=None, alias="max"),
+    book: str | None = None,
+    offset: int = 0,
+    limit: int = 100,
+):
+    """Global search over the posted ledger (Neil, Sep 17: type a vendor or a
+    customer and see every line they are on; Charmi: anything that CONTAINS what
+    was typed, then filter down). Every word must appear somewhere on the line -
+    description, memo, entry / document number, account, entity, vendor,
+    customer, employee or amount. The same call is the report drill-down: no
+    words, one `account` (GL code), a period and an entity. Returns one page of
+    lines, the totals over the WHOLE result, and the facets to narrow it with."""
+    return await _acct_get("/api/internal/search", {
+        "q": (q or "").strip() or None, "location": location, "from": from_, "to": to,
+        "party_kind": party_kind if party else None, "party": party,
+        "account": account, "journal": journal, "min": min_, "max": max_,
+        "book": book, "offset": max(0, offset), "limit": max(1, min(limit, 1000)),
+    })
+
+
 # ── Single sign-on into the accounting app (Nexus is the access authority) ──
 # Nobody gets a password on accounting.greensglobal.com. Holding the Nexus
 # "accounting" grant (or an administrator+ role, which bypasses grants app-wide)

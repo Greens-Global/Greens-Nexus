@@ -92,7 +92,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
             <span style={fieldLabel}><CalendarDays size={13} /> Due date <span style={{ color: NX.red }}>*</span></span>
-            <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} placeholder="Pick a date" style={sel} />
+            <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} noPast placeholder="Pick a date" style={sel} />
           </div>
           <div>
             <span style={fieldLabel}><User size={13} /> Assignee <span style={{ color: NX.red }}>*</span></span>
@@ -143,7 +143,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
           )}
           {/* Hidden inputs - capture=environment opens the camera on mobile */}
           <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={addFiles} />
-          <input ref={libRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={addFiles} />
+          <input ref={libRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={addFiles} />
           <input ref={attachRef} type="file" multiple style={{ display: 'none' }} onChange={addFiles} />
           <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onScan} />
         </div>

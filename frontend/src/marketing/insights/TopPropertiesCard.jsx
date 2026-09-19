@@ -3,7 +3,7 @@ import { ArrowRight, ArrowUpDown, Search } from 'lucide-react'
 import { useSortable } from '../shared/useSortable'
 import Modal from '../shared/Modal'
 import { formatNumber } from '../shared/utils'
-import { C, card, alpha } from '../theme'
+import { C, card, HOVER_TINT } from '../theme'
 
 function rate(r) {
   return r.leads > 0 ? (r.moveIns / r.leads) * 100 : 0
@@ -77,7 +77,7 @@ function PropertyTable({ rows, searchable, onSelectProperty }) {
               <tr
                 key={r.name}
                 style={{ borderBottom: ri < filtered.length - 1 ? '1px solid ' + C.gray50 : 'none' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = alpha(C.gray50, 0.6))}
+                onMouseEnter={(e) => (e.currentTarget.style.background = HOVER_TINT)}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
               >
                 <td style={{ padding: '10px 10px', paddingLeft: 0, fontWeight: 500, whiteSpace: 'nowrap' }}>

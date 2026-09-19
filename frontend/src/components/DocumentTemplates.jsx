@@ -111,7 +111,7 @@ function LetterheadForm({ letterhead, onSaved, toastErr }) {
   const [busy, setBusy] = useState(false);
 
   const doUpload = async (file) => {
-    const path = `document-images/letterheads/${Date.now()}-${(file.name || 'logo').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const path = `letterheads/${Date.now()}-${(file.name || 'logo').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const { url, error } = await uploadToSupabase(file, 'document-images', path);
     if (error) { toastErr?.(error); return; }
     setLogoPath(url);
@@ -208,7 +208,7 @@ function LetterheadsPanel({ toastOk, toastErr }) {
   );
 }
 
-export default function DocumentTemplates({ openCreateSignal, openTemplateSignal, toastOk, toastErr }) {
+export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr }) {
   const [sub, setSub] = useState('library');
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
@@ -229,7 +229,6 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
   useEffect(() => { load(); }, [category, search, statusFilter]);
   useEffect(() => { api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([])); }, []);
   useEffect(() => { if (openCreateSignal) setCreateOpen(true); }, [openCreateSignal]);
-  useEffect(() => { if (openTemplateSignal?.id) setEditingId(openTemplateSignal.id); }, [openTemplateSignal]);
 
   const seedStarters = () => {
     setSeeding(true);
@@ -253,7 +252,7 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
 
   return (
     <div>
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginBottom: 10, borderBottom: '1px solid var(--line)' }}>
         {[['library', 'Templates'], ['letterheads', 'Letterheads']].map(([v, l]) => (
           <button key={v} onClick={() => setSub(v)}
             style={{ padding: '9px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${sub === v ? 'var(--pine)' : 'transparent'}`, color: sub === v ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', marginBottom: -1 }}>
@@ -338,7 +337,12 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
                       </span>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  {/* 8 icon buttons at ~30px need ~276px, but the grid track
+                      bottoms out at 240px (212px inside the padding) - so this
+                      row overflowed its own card at the narrow end even on a
+                      desktop, and always on a phone. Wrapping costs one extra
+                      line at narrow widths and nothing at wide ones. */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <button title="Preview" onClick={() => setPreviewId(t.id)}
                       style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Eye size={14} /></button>
                     <button title="Edit" onClick={() => setEditingId(t.id)}

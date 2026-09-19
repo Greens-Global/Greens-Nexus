@@ -404,7 +404,7 @@ const DEFAULT_SUBS = {
   documents:         "documents-dashboard",
   "investor-relations": "investor-dashboard",
   marketing:         "marketing-ads",
-  accounting:        "pnl",
+  accounting:        "reports",
   egnyte:            "browse",
   "employee-tracking": "coverage",
   // My Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
@@ -727,6 +727,7 @@ function MainApp() {
                 and so sat off-center at most widths. */}
             <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc) ? 'viewport viewport-flush'
               : activeView === 'dashboard' ? 'viewport viewport-desk'
+              : activeView === 'documents' ? 'viewport viewport-tight'
               : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>
               <Suspense fallback={

@@ -73,7 +73,7 @@ function GapRow({ t, gaps, store, onOpen, selected, toggleSel }) {
         {gaps.map((g) => gapChip(g.label))}
       </div>
       <div onClick={(e) => e.stopPropagation()}>
-        <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })}
+        <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast
           title="Due Date" compact
           style={{ fontSize: 12.5, padding: '3px 6px', background: has('dueOn') ? 'rgba(217,119,6,0.08)' : 'transparent', borderRadius: 6 }} />
       </div>
@@ -253,7 +253,7 @@ export default function DataQualityTab({ store }) {
         return (
           <div className="nx-scroll" style={{ position: 'absolute', left: '50%', bottom: 22, transform: 'translateX(-50%)', background: NX.primary, color: '#fff', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.28)', zIndex: 30, maxWidth: 'min(96vw, 1180px)', overflowX: 'auto' }}>
             <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>{selected.size} selected</span>
-            <DateField value="" onChange={(v) => apply({ dueOn: v })} placeholder="Due date…" color="#fff"
+            <DateField value="" onChange={(v) => apply({ dueOn: v })} noPast placeholder="Due date…" color="#fff"
               style={{ ...selStyle, minWidth: 118 }} />
             <select onChange={(e) => { if (e.target.value) apply({ priority: e.target.value }); }} defaultValue="" style={selStyle}>
               <option value="" disabled>Priority…</option>

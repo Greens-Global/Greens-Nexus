@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, DollarSign, Scale, ExternalLink, Loader2 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
-import ModuleTabs from '../components/ModuleTabs';
-import PnlReport from '../components/accounting/PnlReport';
 import ReportsTab from '../components/accounting/ReportsTab';
 
 // Accounting in Nexus is read-only reporting over the Nexus Accounting ledger
@@ -15,30 +13,24 @@ import ReportsTab from '../components/accounting/ReportsTab';
 // one has real data behind it. To add a tab: add a report route in the
 // accounting app (/api/internal/reports/*), a proxy in
 // backend/routers/accounting.py, an api.js entry, then the tab here.
-const TABS = [
-  { key: 'pnl', label: 'Profit & Loss' },
-  { key: 'reports', label: 'Reports' },
-];
+//
+// Sep 19 (Visesh): the separate Profit & Loss tab is gone. Reports already has
+// the P&L - with the entity and period filters, the global search and the
+// drill-downs - so a second, plainer copy of it was only a place for the two
+// to disagree. One surface means no tab strip either.
 
 const usd = (n) => n == null ? '-' : `$${Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(0)}K` : Math.round(n).toLocaleString('en-US')}`;
 
-export default function Accounting({ activeSub, onSubChange }) {
-  const sub = TABS.some((t) => t.key === activeSub) ? activeSub : 'pnl';
+export default function Accounting() {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
   // Access); seeing this screen does not imply it. Administrators bypass.
   const { canAccessModule } = useRole();
   const canOpenApp = canAccessModule('accounting-app', 'administrator', 'viewer');
 
-  // Year-to-date headline numbers for the KPI cards. The Profit & Loss tab
-  // does its own range-driven fetch; this one is fixed to the calendar year so
-  // the cards read the same regardless of the tab.
+  // Year-to-date headline numbers for the KPI cards, fixed to the calendar year
+  // whatever period the report below is showing.
   const [ytd, setYtd] = useState(null);
   const [ytdError, setYtdError] = useState('');
-  // Entities (Intacct locations, named) for the P&L tab's filter.
-  const [locations, setLocations] = useState([]);
-  useEffect(() => {
-    api.getAccountingLocations().then((d) => setLocations(d?.entities || [])).catch(() => setLocations([]));
-  }, []);
   useEffect(() => {
     const now = new Date();
     const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -101,7 +93,7 @@ export default function Accounting({ activeSub, onSubChange }) {
           { label: 'Expenses (YTD)',     value: usd(ytd?.expense),      color: 'card-blue',  Icon: TrendingDown },
           { label: 'Net Income (YTD)',   value: usd(ytd?.net_income),   color: (ytd?.net_income ?? 0) >= 0 ? 'card-green' : 'card-red', Icon: DollarSign },
         ].map(({ label, value, color, Icon }) => (
-          <div key={label} className={`kpi-card ${color}`} style={{ cursor: 'pointer' }} onClick={() => onSubChange('pnl')}>
+          <div key={label} className={`kpi-card ${color}`}>
             <div className="kpi-card-header">
               <span className="kpi-title">{label}</span>
               <div className="kpi-icon-container"><Icon size={18} /></div>
@@ -112,13 +104,8 @@ export default function Accounting({ activeSub, onSubChange }) {
         ))}
       </div>
 
-      {/* Desktop: tabs render centered in the top header; phones keep the
-          in-page strip (ModuleTabs handles both) */}
-      <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
-
       <div style={{ marginBottom: 24 }}>
-        {sub === 'pnl' && <PnlReport locations={locations} />}
-        {sub === 'reports' && <ReportsTab />}
+        <ReportsTab />
       </div>
     </div>
   );

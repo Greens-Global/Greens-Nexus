@@ -138,7 +138,7 @@ export default function PerformanceChart({ rows, prevRows }) {
             align="right"
             iconType="circle"
             iconSize={8}
-            wrapperStyle={{ fontSize: 12, color: '#6b7280', paddingBottom: 8 }}
+            wrapperStyle={{ fontSize: 12, color: C.gray500, paddingBottom: 8 }}
           />
           <Line yAxisId="left" type="monotone" dataKey="clicks" name="Clicks" stroke="#22c55e" strokeWidth={2} dot={false} isAnimationActive={false} />
           <Line yAxisId="right" type="monotone" dataKey="conversions" name="Conversions" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />

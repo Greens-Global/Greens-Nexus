@@ -4,11 +4,11 @@ import { C } from '../theme'
 
 const cards = [
   { key: 'spend', label: 'Total Spend', icon: DollarSign, color: { c: C.blue500, bg: C.blue50 }, format: formatCurrency },
-  { key: 'impressions', label: 'Impressions', icon: Layers, color: { c: C.indigo500, bg: '#eef2ff' }, format: formatNumber },
+  { key: 'impressions', label: 'Impressions', icon: Layers, color: { c: C.indigo500, bg: C.indigo50 }, format: formatNumber },
   { key: 'clicks', label: 'Clicks', icon: MousePointerClick, color: { c: C.purple500, bg: C.purple50 }, format: formatNumber },
   { key: 'conversions', label: 'Conversions', icon: Target, color: { c: C.emerald500, bg: C.emerald50 }, format: formatNumber },
   { key: 'costPerConv', label: 'Cost / Conversion', icon: Wallet, color: { c: C.orange500, bg: C.orange50 }, format: formatCurrency, lowerIsBetter: true },
-  { key: 'ctr', label: 'CTR', icon: Percent, color: { c: '#06b6d4', bg: '#ecfeff' }, format: (n) => formatPercent(n) },
+  { key: 'ctr', label: 'CTR', icon: Percent, color: { c: C.cyan500, bg: C.cyan50 }, format: (n) => formatPercent(n) },
   { key: 'avgCpc', label: 'Avg. CPC', icon: CircleDollarSign, color: { c: C.pink500, bg: C.pink50 }, format: formatCurrency, lowerIsBetter: true },
 ]
 

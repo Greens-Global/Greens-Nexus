@@ -30,6 +30,7 @@ import models
 from database import SessionLocal
 import graph_mail
 import task_mail_templates as tmpl
+import task_mail_actions as mail_actions
 from app_url import app_url
 from task_inbound_parse import reply_address, reply_mailbox
 from routers.task_util import log_activity, task_assignees
@@ -53,7 +54,7 @@ _DEFAULT_SETTINGS = {
     "enabledEvents": {
         "created": True, "assigned": True, "due_soon": True, "overdue": True,
         "completed": True, "commented": True, "mentioned": True, "follower_added": True,
-        "modified": True, "deleted": True,
+        "modified": True, "deleted": True, "recurring": True,
     },
 }
 
@@ -263,7 +264,26 @@ def _task_context(db: Session, t: models.Task, actor_email: str) -> dict:
         "actorEmail": actor_email, "actorName": _name_of(db, actor_email),
         "eventAtDisplay": _fmt(datetime.now(timezone.utc).isoformat()),
         "dueDateDisplay": _fmt(t.due_on) if t.due_on else "",
+        # For the in-mail actions (task_mail_actions): the status dropdown is
+        # scoped to the task's project, and the card's "Open in Nexus" button
+        # needs the same link the HTML CTA uses.
+        "projectId": t.project_id or "",
+        "taskUrl": tmpl._task_url(app_url(), t.id),
     }
+
+
+def _with_actions(db: Session, html: str, *, event_type: str, ctx: dict, recipient: str,
+                  comment_body: str = "", comment_author: str = "") -> str:
+    """Adds the in-mail action buttons / Outlook card to a rendered email.
+    Never lets a problem here cost the email itself - worst case it goes out
+    exactly as it did before actions existed."""
+    try:
+        return mail_actions.decorate(
+            html, event_type=event_type, t=ctx, recipient=recipient,
+            options=mail_actions.status_options(db, ctx.get("projectId") or ""),
+            comment_body=comment_body, comment_author=comment_author)
+    except Exception:
+        return html.replace(mail_actions.ACTIONS_SLOT, "")
 
 
 def _fmt(iso: str) -> str:
@@ -332,6 +352,9 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
                 subject, html = tmpl.deleted_email(t=ctx, base_url=app_url(), logo_url=logo_url)
             else:
                 continue
+            html = _with_actions(db, html, event_type=event_type, ctx=ctx, recipient=recipient,
+                                 comment_body=kw.get("comment_body", ""),
+                                 comment_author=ctx.get("actorName", ""))
             _send_one(db, task_id=task_id, task_code=t.code, event_type=event_type,
                       idem_suffix=str(version), recipient=recipient, role=role,
                       subject=subject, html=html, cfg=cfg)
@@ -391,6 +414,10 @@ def _due_reminders_once(db: Session) -> None:
         elif 0 <= days_left <= due_soon_days:
             if not cfg["enabledEvents"].get("due_soon", True):
                 continue
+            # A recurring occurrence the schedule just created already got its
+            # own "due today" email (_recurrence_once) - don't send a second.
+            if _recurring_mail_sent(db, t):
+                continue
             event_type, idem_suffix = "due_soon", day_key
         else:
             continue
@@ -402,8 +429,58 @@ def _due_reminders_once(db: Session) -> None:
         for who in recipients:
             ctx = _task_context(db, t, who)
             subject, html = tmpl.due_reminder_email(t=ctx, base_url=app_url(), logo_url=logo_url, days_left=days_left)
+            html = _with_actions(db, html, event_type=event_type, ctx=ctx, recipient=who)
             _send_one(db, task_id=t.id, task_code=t.code, event_type=event_type, idem_suffix=idem_suffix,
                       recipient=who, role="assignee", subject=subject, html=html, cfg=cfg)
+
+
+# ── Recurring tasks: create each occurrence on its scheduled date ──────────
+
+# The day a recurrence "arrives" is a business day in the company's own time
+# zone, not the server's (Azure runs in UTC, which would roll tomorrow's
+# occurrence out on a US afternoon). Same zone the daily briefing uses.
+_BUSINESS_TZ = "America/Los_Angeles"
+
+
+def _business_today() -> str:
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo(_BUSINESS_TZ)).date().isoformat()
+
+
+def _recurring_mail_sent(db: Session, t: models.Task) -> bool:
+    return bool(t.due_on) and db.query(models.TaskEmailLog).filter(
+        models.TaskEmailLog.task_id == t.id,
+        models.TaskEmailLog.event_type == "recurring",
+        models.TaskEmailLog.idempotency_key.like(f"{t.id}:recurring:{t.due_on[:10]}:%"),
+    ).first() is not None
+
+
+def _recurrence_once(db: Session) -> None:
+    """Roll every calendar recurrence whose date has arrived, then email each
+    new occurrence's assignees (with the in-mail actions). Idempotent: the roll
+    is guarded by `nextOccurrenceId`, the email by its idempotency key."""
+    from routers.tasks import spawn_scheduled_occurrences
+    from routers.task_util import fire_task_event
+    today = _business_today()
+    spawned = spawn_scheduled_occurrences(db, today)
+    cfg = get_settings(db)
+    for nxt in spawned:
+        fire_task_event(nxt.id, "created")
+        log_activity(db, type="recurrence_scheduled", actor_email="system", entity_kind="task",
+                     entity_id=nxt.id, entity_code=nxt.code, entity_title=nxt.title,
+                     detail=f"Scheduled occurrence created for {nxt.due_on}")
+        db.commit()
+        if not cfg["enabledEvents"].get("recurring", True):
+            continue
+        logo_url = cfg.get("logoUrl") or ""
+        for who in [a for a in task_assignees(nxt) if _is_sendable(db, a)]:
+            ctx = _task_context(db, nxt, who)
+            subject, html = tmpl.recurring_email(t=ctx, base_url=app_url(), logo_url=logo_url,
+                                                 due_today=(nxt.due_on or "")[:10] == today)
+            html = _with_actions(db, html, event_type="recurring", ctx=ctx, recipient=who)
+            _send_one(db, task_id=nxt.id, task_code=nxt.code, event_type="recurring",
+                      idem_suffix=(nxt.due_on or today)[:10], recipient=who, role="assignee",
+                      subject=subject, html=html, cfg=cfg)
 
 
 # ── Background loops (same bare-asyncio-loop convention as ticket_notify.py /
@@ -490,6 +567,8 @@ def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[st
                                     actor_name=ctx.get("actorName", ""))
     if event_type == "follower_added":
         return tmpl.follower_added_email(t=ctx, base_url=app_url(), logo_url=logo_url)
+    if event_type == "recurring":
+        return tmpl.recurring_email(t=ctx, base_url=app_url(), logo_url=logo_url, due_today=True)
     if event_type in ("due_soon", "overdue"):
         return tmpl.due_reminder_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                        days_left=-1 if event_type == "overdue" else 0)
@@ -509,6 +588,12 @@ def _task_scan_once(do_due: bool) -> None:
     try:
         _retry_failed_once(db)
         if do_due:
+            # Recurrences first, so an occurrence created today is already on
+            # the books - and already mailed - when the due-date scan looks.
+            try:
+                _recurrence_once(db)
+            except Exception:
+                db.rollback()
             _due_reminders_once(db)
     finally:
         db.close()

@@ -703,13 +703,24 @@ def _next_due(base_iso: str, rec: dict) -> str:
     return (base + timedelta(days=interval)).isoformat()
 
 
-def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[models.Task]:
-    """When a recurring task is completed, create its next occurrence (unless the
-    end condition - `until` date or `count` - is reached). Returns the new task
-    or None if the series has ended. Top-level tasks only; subtasks don't recur."""
+def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
+                           next_due_override: str = "") -> Optional[models.Task]:
+    """Create the occurrence after `t` (unless the end condition - `until` date
+    or `count` - is reached). Returns the new task, or None if the series has
+    ended or `t` already rolled forward. Top-level tasks only; subtasks don't
+    recur.
+
+    Two callers, one roll-forward each (Sept 2026): completing an occurrence
+    (update_task), and the daily schedule (spawn_scheduled_occurrences) - a
+    calendar series now produces its next occurrence ON its date even if this
+    one is still open. Whichever gets there first stamps `nextOccurrenceId` on
+    `t`, and the other then does nothing - so completing Monday's task after
+    Tuesday's already appeared cannot create a second Tuesday."""
     rec = t.recurrence
     if not isinstance(rec, dict) or not rec.get("freq") or t.parent_task_id:
         return None
+    if rec.get("nextOccurrenceId"):
+        return None  # already rolled forward (by the schedule or a completion)
 
     count = rec.get("count")
     if count is not None and int(count) <= 1:
@@ -723,6 +734,8 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
         days = max(1, int(rec.get("daysAfterCompletion") or 1))
         base = datetime.strptime((t.completed_at or now_iso())[:10], "%Y-%m-%d").date()
         next_due = (base + timedelta(days=days)).isoformat()
+    elif next_due_override:
+        next_due = next_due_override
     else:
         base_iso = t.due_on or (t.completed_at or now_iso())[:10]
         next_due = _next_due(base_iso, rec)
@@ -730,7 +743,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
     if until and next_due > until:
         return None  # past the series end date
 
-    new_rec = dict(rec)
+    new_rec = {k: v for k, v in rec.items() if k != "nextOccurrenceId"}
     if count is not None:
         new_rec["count"] = int(count) - 1
 
@@ -771,6 +784,8 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
         created_at=now, modified_at=now, created_by=user["email"],
     )
     db.add(nxt)
+    # Reassigned (not mutated in place) so SQLAlchemy sees the JSON change.
+    t.recurrence = {**rec, "nextOccurrenceId": nid}
     aid = log_activity(db, type="created", actor_email=user["email"], entity_id=nid,
                        entity_code=nxt.code, entity_title=nxt.title,
                        detail=f"recurring occurrence generated from {t.title}")
@@ -783,6 +798,50 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
                     body=f"{nxt.title} (due {next_due})", task_id=nid,
                     nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     return nxt
+
+
+# Series whose next date comes from the calendar. `periodic` is excluded on
+# purpose: its next date is N days after THIS one is completed, so it cannot
+# be scheduled ahead - it keeps rolling forward on completion only.
+_SCHEDULED_FREQS = {"daily", "weekly", "monthly", "yearly", "custom"}
+
+
+def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task]:
+    """Daily roll-forward for calendar recurrences: every series whose next
+    date has arrived gets that occurrence now, whether or not the current one
+    was completed. Called from task_notify's hourly scan; idempotent through
+    `nextOccurrenceId` (see _spawn_next_occurrence), so re-running the same day
+    creates nothing.
+
+    A series that fell behind (the scan was down, or nobody touched it for
+    weeks) jumps to its most recent date on or before today rather than
+    back-filling one stale task per missed day - the missed dates are not work
+    anyone can still do on time."""
+    spawned: list[models.Task] = []
+    rows = (db.query(models.Task)
+            .filter(models.Task.recurrence.isnot(None),
+                    (models.Task.parent_task_id == "") | (models.Task.parent_task_id.is_(None)))
+            .all())
+    for t in rows:
+        rec = t.recurrence
+        if (not isinstance(rec, dict) or rec.get("freq") not in _SCHEDULED_FREQS
+                or rec.get("nextOccurrenceId") or not t.due_on):
+            continue
+        nd = _next_due(t.due_on, rec)
+        if nd > today_iso:
+            continue
+        while True:
+            after = _next_due(nd, rec)
+            if after > today_iso or after == nd:
+                break
+            nd = after
+        owner = t.owner_email or t.created_by or t.assignee_email or "system"
+        nxt = _spawn_next_occurrence(db, t, {"email": owner}, next_due_override=nd)
+        if nxt is not None:
+            spawned.append(nxt)
+    if spawned:
+        db.commit()
+    return spawned
 
 
 @router.get("")
@@ -1389,6 +1448,13 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
             # then never equals the same person anywhere else, so the task is
             # assigned to somebody who never sees it in My Tasks.
             val = (val or "").strip().lower()
+        if field == "recurrence" and isinstance(val, dict):
+            # The editor sends the rule back without the server-only
+            # `nextOccurrenceId` marker. Dropping it would let the daily
+            # schedule spawn this occurrence's successor a second time.
+            nxt_id = (t.recurrence or {}).get("nextOccurrenceId") if isinstance(t.recurrence, dict) else None
+            if nxt_id and "nextOccurrenceId" not in val:
+                val = {**val, "nextOccurrenceId": nxt_id}
         setattr(t, field, val)
 
     # Assignment goes through the setter so the legacy mirror can never drift
