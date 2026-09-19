@@ -10,6 +10,7 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 const STATUS = {
   in_fence:     { color: '#16a34a', label: 'On site' },
   out_of_fence: { color: '#d97706', label: 'Off site' },
+  remote:       { color: '#2563eb', label: 'Remote' },
   low_accuracy: { color: '#64748b', label: 'Weak GPS' },
   no_location:  { color: '#64748b', label: 'No fix' },
 };

@@ -1345,7 +1345,7 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEm
       {geo && (locateEmail
         ? <button onClick={openMap} aria-label="See on map" title="See this person's last location on the map"
             style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, padding: 0, cursor: 'pointer', border: 'none', background: dotColor, boxShadow: `0 0 0 2px var(--card), 0 0 0 3px ${dotColor}` }} />
-        : <span title={geo === 'in_fence' ? 'On site' : geo === 'out_of_fence' ? 'Off site' : 'No location'}
+        : <span title={geo === 'in_fence' ? 'On site' : geo === 'out_of_fence' ? 'Off site' : geo === 'remote' ? 'Remote' : 'No location'}
             style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: dotColor }} />)}
       <button onClick={() => { if (!id) return; setVal(utcToInput(raw)); setEditing(true); }}
         title={id ? (self ? 'Propose a new time - goes to your approver; pay unchanged until approved' : 'Click to edit this punch time - the original stays on record') : ''}

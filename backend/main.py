@@ -715,6 +715,13 @@ def _run_migrations():
             "INSERT INTO ticket_departments (id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at) "
             "SELECT id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at FROM hr_departments "
             "WHERE NOT EXISTS (SELECT 1 FROM ticket_departments WHERE ticket_departments.id = hr_departments.id)",
+            # Remote flag replaces the per-person geofence (Neil, Sep 19). The
+            # UPDATE carries everyone who HAD a personal location across as
+            # remote - they were the people working away from a site, and without
+            # it their next punch would be flagged off-site. It zeroes the radius
+            # in the same statement, so it matches nothing on any later start.
+            "ALTER TABLE nexus_employees ADD COLUMN work_remote INTEGER DEFAULT 0",
+            "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1506,6 +1513,10 @@ def _run_migrations():
         "INSERT INTO ticket_departments (id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at) "
         "SELECT id, company_id, name, sort_order, lead_email, backup_email, created_by, created_at FROM hr_departments d "
         "WHERE NOT EXISTS (SELECT 1 FROM ticket_departments td WHERE td.id = d.id)",
+        # Remote flag replaces the per-person geofence - see the matching SQLite
+        # migration above. Same one-shot carry-over.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_remote INTEGER DEFAULT 0",
+        "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
