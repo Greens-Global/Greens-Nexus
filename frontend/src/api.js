@@ -614,6 +614,12 @@ export const api = {
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
   updateTaskNotifySettings: (patch) => req("/tasks/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTaskNotifyLog: (params = {}) => req(`/tasks/notify/log?${new URLSearchParams(params).toString()}`),
+  // Daily Briefing (Sep 2026) - admin settings only, Global-Admin gated on the
+  // backend (require_administrator, not the lower manager bar ticket/task
+  // notify settings use - this flag controls whether every employee starts
+  // receiving a daily email).
+  getDailyBriefingConfig: () => req("/daily-briefing/config"),
+  updateDailyBriefingConfig: (patch) => req("/daily-briefing/config", { method: "PUT", body: JSON.stringify(patch) }),
   // Replies mailed back to a task notification (manager+). The drain normally
   // runs itself every minute on the deployed API; this triggers one pass now.
   getTaskInboundLog: (params = {}) => req(`/tasks/inbound/log?${new URLSearchParams(params).toString()}`),
