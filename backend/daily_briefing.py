@@ -876,14 +876,20 @@ def _acquire_employee_lock(db: Session, email: str) -> None:
     rows for the same employee/date sharing the exact same sentAt second
     (Pranshu, Sep 20 - "it happened a few times in earlier days also").
 
-    ::int cast on :ns is required, not decorative - psycopg2 sends a plain
-    Python int as bigint, and Postgres then has no pg_advisory_xact_lock
-    (bigint, integer) overload to resolve to (only (bigint) and (int, int)
-    exist), which 500'd every call here in prod (Sep 20 - force_resend
-    surfaced it immediately since it's the first caller to run outside the
-    background loop's own already-tolerant error handling)."""
+    CAST(:ns AS integer) is required, not decorative - psycopg2 sends a
+    plain Python int as bigint, and Postgres then has no
+    pg_advisory_xact_lock(bigint, integer) overload to resolve to (only
+    (bigint) and (int, int) exist), which 500'd every call here in prod
+    (Sep 20 - force_resend surfaced it immediately since it's the first
+    caller to run outside the background loop's own tolerant error
+    handling). CAST(... AS integer), not the :ns::int shorthand - SQLAlchemy
+    text()'s own ":name" bind-parameter syntax collides with Postgres's ::
+    cast operator when they're adjacent with no space, so :ns::int is a
+    genuine SQL syntax error, not just a style choice (confirmed via the
+    force_resend error-surfacing added right after the first attempt at
+    this fix still 500'd)."""
     if db.bind.dialect.name == "postgresql":
-        db.execute(text("SELECT pg_advisory_xact_lock(:ns::int, hashtext(:email))"),
+        db.execute(text("SELECT pg_advisory_xact_lock(CAST(:ns AS integer), hashtext(:email))"),
                    {"ns": _BRIEFING_LOCK_NS, "email": email})
 
 
