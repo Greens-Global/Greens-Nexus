@@ -184,6 +184,7 @@ function DeliveryLog() {
   const [emailFilter, setEmailFilter] = useState('');
   const [offset, setOffset] = useState(0);
   const [err, setErr] = useState('');
+  const [resendingId, setResendingId] = useState('');
 
   const load = () => {
     setRows(null);
@@ -193,6 +194,23 @@ function DeliveryLog() {
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [offset]);
+
+  const forceResend = async (row) => {
+    const already = row.sentAt
+      ? 'This day already sent successfully - clearing it risks a SECOND real email if the window is still open. '
+      : '';
+    if (!window.confirm(
+      `${already}Clear ${row.employeeEmail}'s ${row.briefingDate} entry so the next scan (within 15 min) can retrigger them?\n\n` +
+      `This does not send mail itself - it only clears the row blocking a retrigger. Whether anything actually goes out ` +
+      `still depends on their shift window being open right now and the mode being test/live with content to report.`
+    )) return;
+    setResendingId(row.id);
+    try {
+      await api.forceResendDailyBriefing(row.id);
+      load();
+    } catch (e) { setErr(e.message || String(e)); }
+    finally { setResendingId(''); }
+  };
 
   const currentPage = Math.floor(offset / LOG_LIMIT) + 1;
   const totalPages = Math.max(1, Math.ceil(total / LOG_LIMIT));
@@ -223,6 +241,11 @@ function DeliveryLog() {
                   <span style={{ color: NX.faint, flexShrink: 0, width: 50, textTransform: 'capitalize' }}>{r.mode}</span>
                   <span style={{ color: NX.faint, flexShrink: 0, width: 110 }}>{r.redCount}R / {r.amberCount}A / {r.greenCount}G</span>
                   <span style={{ color: meta.color, fontWeight: 600, flexShrink: 0, width: 130 }}>{meta.label}</span>
+                  <button onClick={() => forceResend(r)} disabled={resendingId === r.id}
+                    title="Clear this day's dedupe row so the next scan can retrigger them"
+                    style={{ ...btn('ghost'), flexShrink: 0, fontSize: 11.5, padding: '4px 8px', opacity: resendingId === r.id ? 0.5 : 1 }}>
+                    {resendingId === r.id ? '…' : 'Force Resend'}
+                  </button>
                 </div>
               );
             })}

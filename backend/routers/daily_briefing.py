@@ -7,7 +7,7 @@ starts receiving a daily email, so it sits behind require_administrator like
 branding.py's config, not the lower require_manager bar ticket settings use.
 Frontend panel added Sep 20 (see AdminConsole.jsx / DailyBriefingSettings.jsx).
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -60,3 +60,26 @@ def get_log(employee_email: str = "", limit: int = 50, offset: int = 0, db: Sess
         "amberCount": r.amber_count or 0, "greenCount": r.green_count or 0,
         "createdAt": r.created_at,
     } for r in rows]}
+
+
+@router.delete("/log/{log_id}", dependencies=[Depends(require_administrator)])
+def force_resend(log_id: str, db: Session = Depends(get_db)):
+    """Clears one employee's dedupe row for one calendar day so the next
+    scan pass (within SCAN_EVERY_SEC, up to 15 min) can trigger them again -
+    for when a shift or the mode was edited AFTER that day's briefing had
+    already fired, which otherwise silently blocks any retrigger until the
+    NEXT calendar day (Pranshu, Sep 20: "the shift is set up at 3:45am but I
+    have not received the mail" - the dedupe had nothing to do with the new
+    shift time, it was still holding the slot from an earlier trigger under
+    the old one).
+
+    This does NOT send mail itself - it only clears the row that was
+    blocking a retrigger. Whether anything actually sends still depends on
+    _trigger_due finding the employee's (possibly just-edited) shift window
+    currently open and daily-briefing mode being test/live with content."""
+    row = db.query(models.NexusDailyBriefingLog).filter(models.NexusDailyBriefingLog.id == log_id).first()
+    if not row:
+        raise HTTPException(404, "Log entry not found.")
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
