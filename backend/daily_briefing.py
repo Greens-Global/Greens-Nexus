@@ -310,11 +310,19 @@ def _esign_needs_to_know_rows(db: Session, email: str, since_iso: str) -> list:
     for full completion (a decline usually means re-sending to someone
     else)."""
     rows = []
-    declined = (db.query(models.HrSignRequest)
+    # Dedupe in Python, not .distinct() - HrSignRequest has JSON (not JSONB)
+    # columns, which Postgres has no equality operator for, so a
+    # SELECT DISTINCT across the full entity 500s there (fine on SQLite,
+    # which is why local testing never caught it).
+    seen_ids, declined = set(), []
+    for req in (db.query(models.HrSignRequest)
                 .join(models.HrSignEvent, models.HrSignEvent.request_id == models.HrSignRequest.id)
                 .filter(models.HrSignRequest.created_by == email,
                         models.HrSignEvent.type == "declined",
-                        models.HrSignEvent.at >= since_iso).distinct().all())
+                        models.HrSignEvent.at >= since_iso).all()):
+        if req.id not in seen_ids:
+            seen_ids.add(req.id)
+            declined.append(req)
     for req in declined:
         rows.append({
             "title": f"Declined: {req.title}",
