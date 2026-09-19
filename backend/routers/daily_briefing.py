@@ -95,17 +95,27 @@ def force_resend(log_id: str, db: Session = Depends(get_db)):
     if not emp:
         return {"ok": True, "sentNow": False, "reason": "Employee record not found - cleared the log row only."}
 
-    daily_briefing._acquire_employee_lock(db, email)
-    cfg = daily_briefing.get_settings(db)
-    # Reuse the shift's own resolved date when the window happens to be open
-    # right now (matches what the automatic scan would have used); fall back
-    # to today's UTC date otherwise - _trigger_due returns "" for
-    # briefing_date exactly when it's not due, which is also the case we're
-    # deliberately overriding here.
-    _due, briefing_date, _ = daily_briefing._trigger_due(db, email)
-    if not briefing_date:
-        briefing_date = datetime.now(timezone.utc).date().isoformat()
-    daily_briefing._send_one(db, emp, cfg, briefing_date)   # commits internally
+    try:
+        daily_briefing._acquire_employee_lock(db, email)
+        cfg = daily_briefing.get_settings(db)
+        # Reuse the shift's own resolved date when the window happens to be
+        # open right now (matches what the automatic scan would have used);
+        # fall back to today's UTC date otherwise - _trigger_due returns ""
+        # for briefing_date exactly when it's not due, which is also the
+        # case we're deliberately overriding here.
+        _due, briefing_date, _ = daily_briefing._trigger_due(db, email)
+        if not briefing_date:
+            briefing_date = datetime.now(timezone.utc).date().isoformat()
+        daily_briefing._send_one(db, emp, cfg, briefing_date)   # commits internally
+    except Exception as e:
+        db.rollback()
+        # Re-raised as an HTTPException (not left to the app's catch-all
+        # Exception handler) specifically so this admin-gated action reports
+        # the real cause instead of a blanket "Internal server error" - the
+        # 500 surfaced on Sep 20 with zero diagnostic detail otherwise
+        # available short of an Azure log-stream login nobody in this
+        # session had.
+        raise HTTPException(500, f"Force resend failed for {email}: {type(e).__name__}: {e}")
 
     sent_row = (db.query(models.NexusDailyBriefingLog)
                 .filter(models.NexusDailyBriefingLog.employee_email == email,
