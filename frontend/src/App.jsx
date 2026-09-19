@@ -661,7 +661,7 @@ function MainApp() {
         <StepUpOverlay />
         <TimeclockWidget />
         <GlobalSearch onNavigate={navigate} />
-        <AssistantWidget />
+        <AssistantWidget activeView={activeView} />
         <PullToRefresh />
         <TaskPrefetch />
         {activeView === 'sso' && activeSub === 'accounting' && (
