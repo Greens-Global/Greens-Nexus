@@ -33,7 +33,7 @@ import uuid
 from datetime import datetime, timezone, timedelta, date
 from html import escape
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 import models
@@ -857,6 +857,29 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
     db.commit()
 
 
+# Two-int-form Postgres advisory lock, its own keyspace entirely separate
+# from asana_sync._acquire_pull_lock's single-bigint-form lock - the two can
+# never collide regardless of which constants either module picks.
+_BRIEFING_LOCK_NS = 918273645
+
+
+def _acquire_employee_lock(db: Session, email: str) -> None:
+    """Cross-process serialization for one employee's due-check + send +
+    log-insert - a transaction-scoped Postgres advisory lock keyed per
+    employee, auto-released on this transaction's commit/rollback so a
+    killed worker can never leave it stuck. No-op on local SQLite, where
+    there's only one process.
+
+    Without this, two dev App Service workers scanning at the same instant
+    can both pass _trigger_due's _already_logged_today check before either
+    commits, and both send - confirmed in NexusDailyBriefingLog as several
+    rows for the same employee/date sharing the exact same sentAt second
+    (Pranshu, Sep 20 - "it happened a few times in earlier days also")."""
+    if db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:ns, hashtext(:email))"),
+                   {"ns": _BRIEFING_LOCK_NS, "email": email})
+
+
 def _scan_once() -> int:
     db = SessionLocal()
     sent = 0
@@ -866,8 +889,14 @@ def _scan_once() -> int:
                      .filter(models.NexusEmployee.work_email != "").all())
         for emp in employees:
             try:
+                # Each employee gets its own short transaction so the lock is
+                # held only for this employee's check, not the whole scan -
+                # _send_one's own commit releases it on the due path, the
+                # explicit rollback below releases it on the not-due path.
+                _acquire_employee_lock(db, emp.work_email)
                 due, briefing_date, _ = _trigger_due(db, emp.work_email)
                 if not due:
+                    db.rollback()
                     continue
                 _send_one(db, emp, cfg, briefing_date)
                 sent += 1
