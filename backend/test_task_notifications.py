@@ -26,6 +26,14 @@ import database
 import models
 import task_notify
 from routers.task_util import gen_id, now_iso
+
+# The reminder scan works in each person's own time zone and only after their
+# reminder hour (task_notify_prefs; default 8 AM Pacific). Pin the clock to
+# noon Pacific on a fixed day so these cadence tests mean the same thing
+# whatever hour, and in whatever zone, they happen to run.
+from datetime import datetime, timezone  # noqa: E402
+TODAY = date(2026, 9, 21)
+NOW = datetime(2026, 9, 21, 19, 0, tzinfo=timezone.utc)   # 12:00 PDT
 from routers.tasks import bulk_update, BulkUpdate
 
 ACTOR = {"email": "actor@greensglobal.com", "level": 3}
@@ -61,7 +69,7 @@ class OverdueScheduleTests(unittest.TestCase):
     def _overdue_task(self, days):
         """A task that went overdue `days` days ago (1 == yesterday)."""
         t = models.Task(id=gen_id(), title="Late", code="TASK-1", assignee_email=ASSIGNEE,
-                        due_on=(date.today() - timedelta(days=days)).isoformat(),
+                        due_on=(TODAY - timedelta(days=days)).isoformat(),
                         completed=False, created_at=now_iso(), modified_at=now_iso())
         self.db.add(t)
         self.db.commit()
@@ -77,7 +85,7 @@ class OverdueScheduleTests(unittest.TestCase):
         self._overdue_task(overdue_days)
         self._set_repeat(repeat)
         self.sent.clear()
-        task_notify._due_reminders_once(self.db)
+        task_notify._due_reminders_once(self.db, now_utc=NOW)
         return [s for s in self.sent if s.get("event_type") == "overdue"]
 
     def test_repeat_zero_mails_only_on_the_first_day(self):
@@ -112,18 +120,18 @@ class OverdueScheduleTests(unittest.TestCase):
         t.completed = True
         self.db.commit()
         self.sent.clear()
-        task_notify._due_reminders_once(self.db)
+        task_notify._due_reminders_once(self.db, now_utc=NOW)
         self.assertEqual([s for s in self.sent if s.get("event_type") == "overdue"], [])
 
     def test_a_task_due_today_is_not_overdue(self):
         self._set_repeat(3)
         t = models.Task(id=gen_id(), title="Today", code="TASK-2", assignee_email=ASSIGNEE,
-                        due_on=date.today().isoformat(), completed=False,
+                        due_on=TODAY.isoformat(), completed=False,
                         created_at=now_iso(), modified_at=now_iso())
         self.db.add(t)
         self.db.commit()
         self.sent.clear()
-        task_notify._due_reminders_once(self.db)
+        task_notify._due_reminders_once(self.db, now_utc=NOW)
         self.assertEqual([s for s in self.sent if s.get("event_type") == "overdue"], [])
 
 
