@@ -38,7 +38,7 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronDown, Tag, Shield, SlidersHorizontal,
-  Headset, Bell, Building2, RefreshCw, Loader2, Timer,
+  Headset, Bell, Mail, Building2, RefreshCw, Loader2, Timer,
   UserCog, Activity, DoorOpen, Signature, Check, Eye, X,
   Plus, Pencil, Trash2, Upload, Copy,
 } from 'lucide-react';
@@ -48,6 +48,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
+import DailyBriefingSettings from '../components/DailyBriefingSettings';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
 // admin actually opens that section.
@@ -183,6 +184,18 @@ function TicketSettingsSections() {
         </Suspense>
       </Section>
     </>
+  );
+}
+
+// ── Daily Briefing ─────────────────────────────────────────────────────────
+// Global-Admin only (see DailyBriefingSettings.jsx) - was "callable directly"
+// via the API with no UI at all until now (Pranshu, Sep 20).
+function DailyBriefingSection() {
+  return (
+    <Section icon={Mail} title="Daily Briefing" defaultOpen={false}
+      sub="Turn the one-email-a-day digest on for everyone, or test it against a few recipients first.">
+      <DailyBriefingSettings />
+    </Section>
   );
 }
 
@@ -765,6 +778,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           </div>
           <ItemSettingsSection toast={showToast} />
           <TicketSettingsSections />
+          <DailyBriefingSection />
           <EmailSignatureSection toastOk={toastOk} toastErr={toastErr} />
           <M365SyncSection toastOk={toastOk} toastErr={toastErr} />
         </>
