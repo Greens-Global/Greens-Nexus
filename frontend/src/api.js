@@ -614,6 +614,9 @@ export const api = {
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
   updateTaskNotifySettings: (patch) => req("/tasks/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTaskNotifyLog: (params = {}) => req(`/tasks/notify/log?${new URLSearchParams(params).toString()}`),
+  // The signed-in person's OWN task email preferences (MyEmailSettings.jsx).
+  getMyTaskNotifyPrefs: () => req("/tasks/notify/me"),
+  saveMyTaskNotifyPrefs: (prefs) => req("/tasks/notify/me", { method: "PUT", body: JSON.stringify(prefs) }),
   // Daily Briefing (Sep 2026) - admin settings only, Global-Admin gated on the
   // backend (require_administrator, not the lower manager bar ticket/task
   // notify settings use - this flag controls whether every employee starts

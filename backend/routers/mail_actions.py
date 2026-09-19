@@ -147,6 +147,12 @@ def _perform(request: Request, db, *, user: dict, task_id: str, action: str, tex
         t.reactions = reactions
         db.commit()
         return f"Reacted {text}" if toggled_on else f"Removed your {text} reaction"
+    if action == "mute":
+        # The recipient's own preference, not a change to the task - so no
+        # task role is needed, only that the signed link was theirs.
+        import task_notify_prefs
+        task_notify_prefs.mute_task(db, user["email"], task_id)
+        return "Emails muted for this task. You can unmute it in your email settings"
     raise HTTPException(400, "Unknown action")
 
 
@@ -214,7 +220,7 @@ def _card_error(message: str, status: int) -> JSONResponse:
 # ── Fallback page (non-Outlook clients) ──────────────────────────────────────
 
 _PAGE_TITLES = {"comment": "Add Comment", "reply": "Reply", "status": "Change Status",
-                "complete": "Mark Complete", "react": "React"}
+                "complete": "Mark Complete", "react": "React", "mute": "Mute This Task"}
 
 
 def _page(title: str, inner: str) -> HTMLResponse:
@@ -273,6 +279,9 @@ def action_page(token: str = "", do: str = "comment"):
                            for k, v in tma.status_options(db, t.project_id or ""))
             field = ("<select name='text' style='width:100%;border:1px solid #d1d5db;border-radius:8px;"
                      f"padding:9px;font:inherit;font-size:14px'>{opts}</select>")
+        elif do == "mute":
+            field = ("<p style='margin:0;font-size:14px'>Stop all emails about this task? "
+                     "You will still be emailed if someone mentions you on it.</p>")
         elif do == "complete":
             field = "<p style='margin:0;font-size:14px'>Mark this task as complete?</p>"
         form = (f"<form method='post' action='/mail-actions/page'>"
