@@ -336,6 +336,11 @@ def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> li
             "detail": a.detail or a.type,
             "url": f"{app_url()}/tasks/mine?task={t.id}",
             "module": "tasks", "task_id": t.id, "action_email": email,
+            # Open task, not yet a decided approval or already-closed-out row -
+            # the one place "act on it" plausibly means change status/complete
+            # it, not just comment/react. Approval rows have their own
+            # Approve/Reject; a completed row needs neither.
+            "task_open": not bool(t.completed),
         })
     rows.extend(_item_needs_to_know_rows(db, email, since_iso, bool(my_reports)))
     return rows
@@ -490,6 +495,14 @@ def _card_html(color: str, row: dict) -> str:
                         f"style='{btn}background:#ffffff;color:#374151;border:1px solid #d8ddd6'>&#128172; Comment</a>")
         buttons.append(f"<a href='{escape(base)}&do=react' class='nx-btn' "
                         f"style='{btn}background:#ffffff;color:#374151;border:1px solid #d8ddd6'>&#128512; React</a>")
+        if row.get("task_open"):
+            # Full parity with the task card in Nexus, not just an FYI link -
+            # same do=status/complete the task notification email already
+            # ships, same token, no new endpoint.
+            buttons.append(f"<a href='{escape(base)}&do=status' class='nx-btn' "
+                            f"style='{btn}background:#ffffff;color:#374151;border:1px solid #d8ddd6'>Change Status</a>")
+            buttons.append(f"<a href='{escape(base)}&do=complete' class='nx-btn' "
+                            f"style='{btn}background:#ffffff;color:#374151;border:1px solid #d8ddd6'>Mark Complete</a>")
     if row.get("url"):
         buttons.append(f"<a href='{escape(row['url'])}' class='nx-btn' "
                         f"style='{btn}background:{accent};color:#ffffff'>Open in Nexus &rarr;</a>")
