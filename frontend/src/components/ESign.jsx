@@ -16,6 +16,7 @@ import EgnyteBrowser from './EgnyteBrowser';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import { useRole } from '../contexts/RoleContext';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
@@ -2220,7 +2221,22 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
 }
 
 // ── Send wizard - in-shell, DocuSign-style: Doc → Recipients → Fields → Send ──
+/** The company a new envelope defaults to: the SENDER's own company from their
+ *  People record, else Greens Global, else whatever is first. It used to be
+ *  simply the first entity - alphabetically "Aarav Construction" - so every
+ *  request went out under a sister company unless someone noticed and changed
+ *  it (Sagar, Sep 19). Exported for the unit test. */
+export function defaultSendEntityId(entities, employees, senderEmail) {
+  const list = entities || [];
+  const me = (senderEmail || '').toLowerCase();
+  const mine = me && (employees || []).find((e) => (e.workEmail || '').toLowerCase() === me);
+  if (mine?.company && list.some((en) => en.id === mine.company)) return mine.company;
+  const greens = list.find((en) => /^greens global\b/i.test((en.name || '').trim()));
+  return greens?.id || list[0]?.id || '';
+}
+
 function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed, onClose, onSent, toastOk, toastErr }) {
+  const { myEmail } = useRole() || {};
   const [boxRef, boxH] = useFillHeight();
   const [step, setStep] = useState(0);
   // Excluded-record acknowledgment (ESIGN 15 U.S.C. 7003 / Cal. Civ. Code
@@ -2247,7 +2263,17 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const [dragOver, setDragOver] = useState(false);
   const [subjectId, setSubjectId] = useState(prefill?.candidateId ? `c:${prefill.candidateId}` : '');
   const [candidates, setCandidates] = useState([]);
-  const [entityId, setEntityId] = useState(entities[0]?.id || '');
+  const [entityId, setEntityIdRaw] = useState(() => defaultSendEntityId(entities, employees, myEmail));
+  // Entities and employees arrive asynchronously (react-query / a separate
+  // fetch), so the first render often has neither. Keep applying the default
+  // as they land - until the sender picks a company themselves.
+  const entityTouched = useRef(false);
+  const setEntityId = (id) => { entityTouched.current = true; setEntityIdRaw(id); };
+  useEffect(() => {
+    if (entityTouched.current) return;
+    const d = defaultSendEntityId(entities, employees, myEmail);
+    if (d) setEntityIdRaw(d);
+  }, [entities, employees, myEmail]);
   const [title, setTitle] = useState(prefill?.title || '');
   const [message, setMessage] = useState('');
   const [expiresOn, setExpiresOn] = useState('');
