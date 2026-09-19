@@ -745,6 +745,8 @@ def _run_migrations():
             # in the same statement, so it matches nothing on any later start.
             "ALTER TABLE nexus_employees ADD COLUMN work_remote INTEGER DEFAULT 0",
             "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
+            # Emoji reactions on tasks - see the matching Postgres migration below.
+            "ALTER TABLE tasks ADD COLUMN reactions JSON DEFAULT '{}'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1552,6 +1554,8 @@ def _run_migrations():
         # migration above. Same one-shot carry-over.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_remote INTEGER DEFAULT 0",
         "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
+        # Emoji reactions on tasks - same one-shot addition as the SQLite list above.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

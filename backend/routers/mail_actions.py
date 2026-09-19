@@ -125,6 +125,28 @@ def _perform(request: Request, db, *, user: dict, task_id: str, action: str, tex
         tasks_router.update_task(task_id, tasks_router.TaskUpdate(status=text), bt, user=user, db=db)
         label = tma.status_label(text, tma.status_options(db, getattr(t, "project_id", "") or ""))
         return f"Status changed to {label}"
+    if action == "react":
+        if text not in tma.REACTION_EMOJIS:
+            raise HTTPException(422, "Pick a reaction from the list.")
+        t = db.query(models.Task).filter(models.Task.id == task_id).first()
+        if not t:
+            raise HTTPException(404, "Task not found")
+        # Same bar as commenting, not editor - reacting is lighter-weight than
+        # changing the task, and require_task_role already treats any assignee
+        # as at least an editor, so this only actually gates a non-assignee.
+        from routers.task_util import require_task_role
+        require_task_role(db, user, t, "commenter")
+        reactions = dict(t.reactions or {})
+        holders = set(reactions.get(text) or [])
+        toggled_on = user["email"] not in holders
+        holders.symmetric_difference_update({user["email"]})
+        if holders:
+            reactions[text] = sorted(holders)
+        else:
+            reactions.pop(text, None)
+        t.reactions = reactions
+        db.commit()
+        return f"Reacted {text}" if toggled_on else f"Removed your {text} reaction"
     raise HTTPException(400, "Unknown action")
 
 
@@ -192,7 +214,7 @@ def _card_error(message: str, status: int) -> JSONResponse:
 # ── Fallback page (non-Outlook clients) ──────────────────────────────────────
 
 _PAGE_TITLES = {"comment": "Add Comment", "reply": "Reply", "status": "Change Status",
-                "complete": "Mark Complete"}
+                "complete": "Mark Complete", "react": "React"}
 
 
 def _page(title: str, inner: str) -> HTMLResponse:
@@ -226,6 +248,21 @@ def action_page(token: str = "", do: str = "comment"):
         if not t:
             return _page("Task Not Found", "<p>This task no longer exists.</p>")
         do = do if do in _PAGE_TITLES else "comment"
+        if do == "react":
+            # One click, not two - each emoji is its own form (a shared outer
+            # form can't carry six different `text` values at once) so tapping
+            # an emoji submits immediately instead of picking-then-confirming.
+            btns = "".join(
+                f"<form method='post' action='/mail-actions/page' style='display:inline-block;margin:0 6px 6px 0'>"
+                f"<input type='hidden' name='token' value='{escape(token)}'>"
+                f"<input type='hidden' name='action' value='react'>"
+                f"<input type='hidden' name='text' value='{escape(emoji)}'>"
+                f"<button type='submit' style='font-size:22px;line-height:1;border:1px solid #e5e7eb;"
+                f"border-radius:10px;background:#fff;padding:8px 12px;cursor:pointer'>{emoji}</button></form>"
+                for emoji in tma.REACTION_EMOJIS)
+            return _page("React", _task_header(t) +
+                        "<p style='margin:0 0 12px;font-size:14px'>Tap a reaction:</p>"
+                        f"<div>{btns}</div>")
         field = ""
         if do in ("comment", "reply"):
             field = ("<textarea name='text' rows='5' required autofocus style='width:100%;box-sizing:border-box;"

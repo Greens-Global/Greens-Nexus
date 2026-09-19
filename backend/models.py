@@ -45,6 +45,11 @@ class Task(Base):
     owner_email       = Column(String, default="", index=True)
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)
+    # Emoji reactions (Sep 2026 - "add emojis for tasks so we can react",
+    # driven off the Daily Briefing's one-click mail actions). {emoji: [email,
+    # ...]} - a dict rather than one liked_by_emails-style list per emoji so a
+    # task with no reactions yet costs nothing extra to scan.
+    reactions         = Column(JSON, default=dict)
     access_level      = Column(String, default="org")      # org|restricted
     # Multi-company walls (Aug 2026): the HrEntity company this task belongs to,
     # stamped from its creator at creation. The company wall (auth.company_scope

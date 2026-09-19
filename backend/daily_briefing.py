@@ -40,6 +40,7 @@ import models
 from database import SessionLocal
 import graph_mail
 import briefing_mail_actions
+import task_mail_actions
 from app_url import app_url
 from routers.task_util import task_assignees
 from routers.timeclock import _shift_start_for, _shift_local_now
@@ -210,7 +211,7 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
             "title": f"Approve: {t.title}",
             "detail": "Waiting on your decision",
             "url": f"{app_url()}/tasks/mine?task={t.id}",
-            "module": "tasks",
+            "module": "tasks", "task_id": t.id,
             # One decision, no photo/picker required - safe to act on straight
             # from the email (via the confirm page, not a bare GET - see
             # briefing_mail_actions.py for why).
@@ -334,7 +335,7 @@ def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> li
             "title": f"{t.code or 'Task'} - {a.entity_title or t.title}",
             "detail": a.detail or a.type,
             "url": f"{app_url()}/tasks/mine?task={t.id}",
-            "module": "tasks",
+            "module": "tasks", "task_id": t.id, "action_email": email,
         })
     rows.extend(_item_needs_to_know_rows(db, email, since_iso, bool(my_reports)))
     return rows
@@ -370,7 +371,7 @@ def _green_rows(db: Session, email: str, since_iso: str) -> list:
             "title": f"{t.code or 'Task'} - {t.title}",
             "detail": "Completed",
             "url": f"{app_url()}/tasks/mine?task={t.id}",
-            "module": "tasks",
+            "module": "tasks", "task_id": t.id, "action_email": email,
         })
     rows.extend(_item_completed_rows(db, email, since_iso))
     return rows
@@ -478,6 +479,17 @@ def _card_html(color: str, row: dict) -> str:
                         f"style='{btn}background:#2f8a55;color:#ffffff'>Approve &check;</a>")
         buttons.append(f"<a href='{escape(reject_url)}' class='nx-btn' "
                         f"style='{btn}background:#ffffff;color:#6b6b6b;border:1px solid #d8ddd6'>Reject</a>")
+    if row.get("task_id"):
+        # Same buttons Nexus itself shows on a task - Comment and React -
+        # reusing task_mail_actions.py's already-shipped token + confirm page
+        # (routers/mail_actions.py) wholesale rather than a second copy: one
+        # token per (task, recipient), do=comment/react picks the form.
+        tok = task_mail_actions.sign_token(row["task_id"], row.get("action_email", ""))
+        base = f"{task_mail_actions.api_base()}/mail-actions/page?token={tok}"
+        buttons.append(f"<a href='{escape(base)}&do=comment' class='nx-btn' "
+                        f"style='{btn}background:#ffffff;color:#374151;border:1px solid #d8ddd6'>&#128172; Comment</a>")
+        buttons.append(f"<a href='{escape(base)}&do=react' class='nx-btn' "
+                        f"style='{btn}background:#ffffff;color:#374151;border:1px solid #d8ddd6'>&#128512; React</a>")
     if row.get("url"):
         buttons.append(f"<a href='{escape(row['url'])}' class='nx-btn' "
                         f"style='{btn}background:{accent};color:#ffffff'>Open in Nexus &rarr;</a>")
