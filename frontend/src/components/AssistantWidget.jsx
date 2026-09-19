@@ -2,13 +2,6 @@ import { useState, useRef, useEffect, Component, lazy, Suspense } from 'react';
 import { X, Send, Loader2, Sparkles } from 'lucide-react';
 import { api } from '../api';
 
-// The floating "+" (Task module's CreateMenu, variant="fab") sits bottom-right
-// at bottom: fabBottom, height FAB_SIZE=56, right: FAB_RIGHT=16 (see
-// tasks/CreateMenu.jsx). On Tasks, fabBottom tops out at 60 on desktop, so its
-// top edge reaches 116px. Raise the bubble clear of that instead of guessing a
-// number that silently drifts if either widget's offsets change.
-const TASKS_CLEARANCE_BOTTOM = 134;
-
 // react-markdown + remark-gfm only load once someone actually opens the
 // widget and gets a reply - this widget is mounted globally on every screen,
 // so most page loads never need the parser at all.
@@ -46,7 +39,7 @@ class AssistantErrorBoundary extends Component {
   }
 }
 
-function AssistantWidgetInner({ activeView }) {
+function AssistantWidgetInner() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]); // {role, content}
   const [conversationId, setConversationId] = useState(null);
@@ -54,7 +47,6 @@ function AssistantWidgetInner({ activeView }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const listRef = useRef(null);
-  const bubbleBottom = activeView === 'tasks' ? TASKS_CLEARANCE_BOTTOM : 18;
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -87,17 +79,17 @@ function AssistantWidgetInner({ activeView }) {
   return (
     <>
       {/* Bubble - bottom-right, a pill badge (not a plain icon circle) so it
-          reads as "AI" at a glance; raised clear of the Tasks module's
-          floating "+" when that module is active. */}
+          reads as "AI" at a glance. Fixed position, same on every module -
+          Neil/Pranshu, Sep 19: no per-module repositioning, even on Tasks
+          where it sits close to the module's own floating "+". */}
       <button
         onClick={() => setOpen(o => !o)}
         aria-label="Nexus Assistant"
         style={{
-          position: 'fixed', bottom: bubbleBottom, right: 18, zIndex: 1190,
+          position: 'fixed', bottom: 18, right: 18, zIndex: 1190,
           border: 'none', borderRadius: 999, padding: 2, cursor: 'pointer',
           background: 'linear-gradient(135deg, #06b6d4, #22c55e)',
           boxShadow: '0 8px 28px rgba(0,0,0,0.22)',
-          transition: 'bottom 0.18s ease',
         }}
       >
         <span style={{
@@ -111,7 +103,7 @@ function AssistantWidgetInner({ activeView }) {
 
       {/* Panel */}
       <div style={{
-        position: 'fixed', bottom: bubbleBottom + 60, right: 18, zIndex: 1190,
+        position: 'fixed', bottom: 78, right: 18, zIndex: 1190,
         width: 'min(380px, 92vw)', height: 'min(560px, 70vh)',
         background: 'var(--card)', border: '1px solid var(--line)',
         borderRadius: 16, boxShadow: '0 24px 70px rgba(17,24,39,0.30)',
@@ -194,10 +186,10 @@ function AssistantWidgetInner({ activeView }) {
   );
 }
 
-export default function AssistantWidget({ activeView }) {
+export default function AssistantWidget() {
   return (
     <AssistantErrorBoundary>
-      <AssistantWidgetInner activeView={activeView} />
+      <AssistantWidgetInner />
     </AssistantErrorBoundary>
   );
 }
