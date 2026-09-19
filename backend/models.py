@@ -4261,3 +4261,16 @@ class AiMessage(Base):
     content         = Column(Text, nullable=False)
     tool_calls      = Column(JSON, default=list)
     created_at      = Column(String, nullable=False)
+
+
+class TaskNotifyPref(Base):
+    """One person's own task-email preferences (Sept 2026): when reminders
+    arrive, how often overdue mails repeat, one email per task vs a daily
+    summary, which instant emails they want, muted tasks/projects. Absent row
+    or absent key = the company default in task_notify's settings, so people
+    who never open the page keep exactly the company behavior. Shape and
+    validation live in task_notify_prefs.py."""
+    __tablename__ = "task_notify_prefs"
+    email      = Column(String, primary_key=True)   # lowercased work email
+    prefs      = Column(JSON, default=dict)
+    updated_at = Column(String, default="")

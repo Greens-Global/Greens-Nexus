@@ -2241,6 +2241,41 @@ def put_task_notify_settings(patch: dict, user: dict = Depends(require_manager),
     return _save_task_notify_settings(db, patch, user["email"])
 
 
+# ── My own task email preferences (every user) ──────────────────────────────
+def _my_notify_payload(db: Session, email: str, prefs: dict) -> dict:
+    import task_notify_prefs as tnp
+    cfg = _get_task_notify_settings(db)
+    muted_tasks = (db.query(models.Task).filter(models.Task.id.in_(prefs["mutedTaskIds"])).all()
+                   if prefs["mutedTaskIds"] else [])
+    muted_projects = (db.query(models.TaskProject).filter(models.TaskProject.id.in_(prefs["mutedProjectIds"])).all()
+                      if prefs["mutedProjectIds"] else [])
+    return {
+        "prefs": prefs,
+        "company": {"dueSoonDays": int(cfg.get("dueSoonDays") or 0),
+                    "overdueRepeatDays": int(cfg.get("overdueRepeatDays") or 0),
+                    "allowUserOverdueOff": bool(cfg.get("allowUserOverdueOff")),
+                    "enabledEvents": cfg.get("enabledEvents") or {}},
+        "lockedEvents": list(tnp.LOCKED_EVENTS),
+        "optionalEvents": list(tnp.OPTIONAL_EVENTS),
+        "mutedTasks": [{"id": t.id, "title": t.title} for t in muted_tasks],
+        "mutedProjects": [{"id": p.id, "name": p.name} for p in muted_projects],
+    }
+
+
+@router.get("/notify/me")
+def get_my_task_notify_prefs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import task_notify_prefs as tnp
+    return _my_notify_payload(db, user["email"], tnp.load(db, user["email"]))
+
+
+@router.put("/notify/me")
+def put_my_task_notify_prefs(body: dict, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Replaces the caller's own preferences - only ever their own row, keyed on
+    the authenticated email, never an address from the body."""
+    import task_notify_prefs as tnp
+    return _my_notify_payload(db, user["email"], tnp.save(db, user["email"], body or {}))
+
+
 @router.get("/notify/log")
 def get_task_notify_log(task_id: str = "", status: str = "", limit: int = 20, offset: int = 0,
                         user: dict = Depends(require_manager), db: Session = Depends(get_db)):

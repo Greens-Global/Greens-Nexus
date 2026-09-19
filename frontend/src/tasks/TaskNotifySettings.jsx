@@ -146,6 +146,12 @@ export default function TaskNotifySettings() {
                 <input type="number" min={0} value={cfg.overdueRepeatDays ?? 0} onChange={(e) => set('overdueRepeatDays', Math.max(0, Number(e.target.value) || 0))}
                   style={{ ...inputStyle, width: 120 }} />
               </Field>
+              {/* The two reminder numbers above are the COMPANY DEFAULT: each
+                  person can change their own in Email Settings (My Tasks).
+                  This decides whether "Off" is one of their choices. */}
+              <Field label="Let People Turn Off Overdue Reminders" hint="Company settings above are everyone's default; each person can adjust their own in My Tasks, Email Settings. When this is off, the least anyone can choose is once a week or only once.">
+                <Toggle on={!!cfg.allowUserOverdueOff} onChange={() => set('allowUserOverdueOff', !cfg.allowUserOverdueOff)} />
+              </Field>
 
               <InboundSection cfg={cfg} set={set} />
             </div>

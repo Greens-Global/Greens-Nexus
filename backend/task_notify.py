@@ -22,7 +22,7 @@ completed, commented, follower_added, modified, deleted.
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone, date
+from datetime import datetime, timedelta, timezone, date
 
 from sqlalchemy.orm import Session
 
@@ -31,6 +31,7 @@ from database import SessionLocal
 import graph_mail
 import task_mail_templates as tmpl
 import task_mail_actions as mail_actions
+import task_notify_prefs as prefs_mod
 from app_url import app_url
 from task_inbound_parse import reply_address, reply_mailbox
 from routers.task_util import log_activity, task_assignees
@@ -56,6 +57,10 @@ _DEFAULT_SETTINGS = {
         "completed": True, "commented": True, "mentioned": True, "follower_added": True,
         "modified": True, "deleted": True, "recurring": True,
     },
+    # Whether a person may switch overdue reminders OFF in their own email
+    # settings (task_notify_prefs). Off by default: the least they can choose
+    # is weekly / only once, so overdue work never goes completely silent.
+    "allowUserOverdueOff": False,
 }
 
 MAX_ATTEMPTS = 5
@@ -283,7 +288,18 @@ def _with_actions(db: Session, html: str, *, event_type: str, ctx: dict, recipie
             options=mail_actions.status_options(db, ctx.get("projectId") or ""),
             comment_body=comment_body, comment_author=comment_author)
     except Exception:
-        return html.replace(mail_actions.ACTIONS_SLOT, "")
+        return html.replace(mail_actions.ACTIONS_SLOT, "").replace(mail_actions.FOOTER_SLOT, "")
+
+
+def _recently_sent(db: Session, task_id: str, event_type: str, recipient: str, minutes: int) -> bool:
+    if not minutes:
+        return False
+    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    return db.query(models.TaskEmailLog).filter(
+        models.TaskEmailLog.task_id == task_id, models.TaskEmailLog.event_type == event_type,
+        models.TaskEmailLog.recipient == recipient, models.TaskEmailLog.status == "sent",
+        models.TaskEmailLog.created_at >= since,
+    ).first() is not None
 
 
 def _fmt(iso: str) -> str:
@@ -328,6 +344,15 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
         version = _next_event_version(db, task_id, event_type)
 
         for recipient, role in recipients:
+            # The person's own email settings: events they turned off, muted
+            # tasks/projects, and at most one "Updated" email per task per N
+            # minutes (task_notify_prefs). Assigned/mentioned always pass.
+            p = prefs_mod.load(db, recipient)
+            if not prefs_mod.wants_event(p, event_type, t):
+                continue
+            if event_type == "modified" and _recently_sent(db, task_id, "modified", recipient,
+                                                           p["updateThrottleMinutes"]):
+                continue
             if event_type == "created":
                 subject, html = tmpl.created_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                                     audience="assignee" if role == "assignee" else "other")
@@ -372,65 +397,96 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
 
 # ── Due-date reminders (scheduled scan - no mutation triggers this) ────────
 
-def _due_reminders_once(db: Session) -> None:
+def _due_reminders_once(db: Session, now_utc: datetime | None = None) -> None:
+    """Due-soon / overdue reminders, per PERSON (Sept 2026): each assignee's
+    own preferences (task_notify_prefs) decide when their reminders arrive,
+    which window counts as "due soon", how often an overdue task repeats, and
+    whether they get one email per task or a single daily summary. The company
+    settings are the default for anyone who hasn't chosen.
+
+    Runs hourly; a person is only considered once their chosen hour has been
+    reached in their own time zone, and every send is keyed to their LOCAL
+    calendar day, so each reminder still goes out at most once a day."""
     cfg = get_settings(db)
-    due_soon_days = cfg.get("dueSoonDays") or 0
-    overdue_repeat = cfg.get("overdueRepeatDays") or 0
-    if not due_soon_days and not cfg["enabledEvents"].get("overdue", True):
+    now_utc = now_utc or datetime.now(timezone.utc)
+    overdue_on = cfg["enabledEvents"].get("overdue", True)
+    due_soon_on = cfg["enabledEvents"].get("due_soon", True)
+    if not overdue_on and not due_soon_on:
         return
-    today = date.today()
-    day_key = today.isoformat()
     tasks = (db.query(models.Task)
-            .filter(models.Task.due_on != "", models.Task.completed == False).all())  # noqa: E712
+             .filter(models.Task.due_on != "", models.Task.completed == False).all())  # noqa: E712
+
+    # person -> their open dated tasks. Grouped first so each person's
+    # preferences are read once and a summary can cover all of their tasks.
+    by_person: dict[str, list] = {}
+    sendable: dict[str, bool] = {}
     for t in tasks:
-        try:
-            due = date.fromisoformat((t.due_on or "")[:10])
-        except ValueError:
+        for who in task_assignees(t):
+            if who not in sendable:
+                sendable[who] = _is_sendable(db, who)
+            if sendable[who]:
+                by_person.setdefault(who, []).append(t)
+
+    logo_url = cfg.get("logoUrl") or ""
+    for who, items in by_person.items():
+        p = prefs_mod.load(db, who)
+        if not prefs_mod.reminders_due_now(p, now_utc):
             continue
-        days_left = (due - today).days
-        recipients = [a for a in task_assignees(t) if _is_sendable(db, a)]
-        if not recipients:
+        today = prefs_mod.local_now(p, now_utc).date()
+        day_key = today.isoformat()
+        soon_window = prefs_mod.due_soon_days(p, cfg)
+        repeat = prefs_mod.overdue_repeat(p, cfg)
+
+        picked = []   # (task, days_left, event_type)
+        for t in items:
+            if prefs_mod.is_muted(p, t):
+                continue
+            try:
+                due = date.fromisoformat((t.due_on or "")[:10])
+            except ValueError:
+                continue
+            days_left = (due - today).days
+            if days_left < 0:
+                if not overdue_on or repeat is None:
+                    continue
+                # ALWAYS mail on the first day overdue - that's the one that
+                # matters - then repeat every `repeat` days after it; 0 means
+                # the first day only. (The original condition inverted both
+                # halves: "only once" mailed daily forever, and with a 3-day
+                # repeat the first overdue day itself was silent.)
+                overdue_days = -days_left          # 1 == first day overdue
+                if overdue_days > 1 and (not repeat or (overdue_days - 1) % repeat != 0):
+                    continue
+                picked.append((t, days_left, "overdue"))
+            elif soon_window is not None and days_left <= soon_window:
+                if not due_soon_on:
+                    continue
+                # A recurring occurrence the schedule just created already got
+                # its own "due today" email (_recurrence_once).
+                if _recurring_mail_sent(db, t):
+                    continue
+                picked.append((t, days_left, "due_soon"))
+        if not picked:
             continue
 
-        if days_left < 0:
-            if not cfg["enabledEvents"].get("overdue", True):
-                continue
-            # ALWAYS mail on the first day overdue - that's the one that matters
-            # - then repeat every `overdue_repeat` days after it. 0 means the
-            # first day only.
-            #
-            # The old condition (`if overdue_repeat and abs(days_left) %
-            # overdue_repeat != 0`) inverted both halves of its own docstring:
-            #   - overdue_repeat == 0 is falsy, so the guard never ran and the
-            #     "only once" setting mailed the assignee EVERY DAY, forever.
-            #   - with the default 3, day 1 gave 1 % 3 != 0 -> skipped, so the
-            #     day a task actually went overdue was silent and the first
-            #     mail didn't land until day 3.
-            overdue_days = -days_left          # 1 == first day overdue
-            if overdue_days > 1 and (not overdue_repeat
-                                     or (overdue_days - 1) % overdue_repeat != 0):
-                continue
-            event_type, idem_suffix = "overdue", day_key
-        elif 0 <= days_left <= due_soon_days:
-            if not cfg["enabledEvents"].get("due_soon", True):
-                continue
-            # A recurring occurrence the schedule just created already got its
-            # own "due today" email (_recurrence_once) - don't send a second.
-            if _recurring_mail_sent(db, t):
-                continue
-            event_type, idem_suffix = "due_soon", day_key
-        else:
+        if p["reminderDelivery"] == "digest" and len(picked) > 1:
+            rows = []
+            for t, days_left, _ev in picked:
+                ctx = _task_context(db, t, who)
+                rows.append({"t": ctx, "days_left": days_left,
+                             "links": mail_actions.task_links_html(t.id, who, done=bool(t.completed))})
+            subject, html = tmpl.reminder_digest_email(items=rows, base_url=app_url(), logo_url=logo_url,
+                                                       recipient_name=_name_of(db, who))
+            html = html.replace(mail_actions.FOOTER_SLOT, mail_actions.footer_links_html())
+            _send_one(db, task_id="", task_code="", event_type="digest", idem_suffix=day_key,
+                      recipient=who, role="assignee", subject=subject, html=html, cfg=cfg)
             continue
 
-        logo_url = cfg.get("logoUrl") or ""
-        # One reminder each. _send_one's idempotency key already includes the
-        # recipient, so the "only once per day" guarantee holds per person
-        # rather than being spent by whoever happens to be first in the list.
-        for who in recipients:
+        for t, days_left, event_type in picked:
             ctx = _task_context(db, t, who)
             subject, html = tmpl.due_reminder_email(t=ctx, base_url=app_url(), logo_url=logo_url, days_left=days_left)
             html = _with_actions(db, html, event_type=event_type, ctx=ctx, recipient=who)
-            _send_one(db, task_id=t.id, task_code=t.code, event_type=event_type, idem_suffix=idem_suffix,
+            _send_one(db, task_id=t.id, task_code=t.code, event_type=event_type, idem_suffix=day_key,
                       recipient=who, role="assignee", subject=subject, html=html, cfg=cfg)
 
 
@@ -474,6 +530,8 @@ def _recurrence_once(db: Session) -> None:
             continue
         logo_url = cfg.get("logoUrl") or ""
         for who in [a for a in task_assignees(nxt) if _is_sendable(db, a)]:
+            if not prefs_mod.wants_event(prefs_mod.load(db, who), "recurring", nxt):
+                continue
             ctx = _task_context(db, nxt, who)
             subject, html = tmpl.recurring_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                                  due_today=(nxt.due_on or "")[:10] == today)
@@ -499,6 +557,9 @@ def _retry_failed_once(db: Session) -> None:
                 started = cutoff
             if (cutoff - started).total_seconds() < _STALE_PENDING_SEC:
                 continue
+        if row.event_type == "digest":
+            _retry_digest(db, row)
+            continue
         t = db.query(models.Task).filter(models.Task.id == row.task_id).first()
         if not t:
             # Deleted-task emails legitimately have no row to re-render from -
@@ -543,6 +604,28 @@ def _retry_failed_once(db: Session) -> None:
                          detail=f"Retry {row.attempts}/{MAX_ATTEMPTS} failed for {row.recipient}: {row.error[:200]}")
         row.updated_at = datetime.now(timezone.utc).isoformat()
         db.commit()
+
+
+def _retry_digest(db: Session, row) -> None:
+    """A daily summary has no single task to re-render from - resend the body
+    exactly as it was built (row.html always exists for digest rows)."""
+    cfg = get_settings(db)
+    from_email = (cfg.get("fromMailbox") or graph_mail.DEFAULT_FROM_EMAIL or "").strip()
+    row.status = "retrying"
+    row.attempts += 1
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    try:
+        result = graph_mail.send_mail(from_email=from_email, to=[row.recipient], cc=[],
+                                      subject=row.subject, html=row.html or "")
+        row.status = "sent"
+        row.graph_message_id = result.get("messageId", "")
+        row.error = ""
+    except graph_mail.GraphMailError as e:
+        row.status = "failed"
+        row.error = str(e)[:1000]
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
 
 
 def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[str, str]:

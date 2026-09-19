@@ -1561,6 +1561,9 @@ def _run_migrations():
         # would also catch these, per CLAUDE.md's recurring-gap note).
         "ALTER TABLE ai_conversations ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ai_messages ENABLE ROW LEVEL SECURITY",
+        # Per-person task email preferences (Sept 2026) - new table, same
+        # belt-and-suspenders RLS enable as above.
+        "ALTER TABLE task_notify_prefs ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
