@@ -1575,6 +1575,11 @@ export const api = {
   // browser/machine for the same user).
   getToursSeen:  ()      => req("/tours"),
   markTourSeen:  (tour)  => req(`/tours/${encodeURIComponent(tour)}/seen`, { method: "POST" }),
+
+  // Nexus Assistant (Phase 0) - see backend/ai_assistant.py
+  askAssistant:            (data) => req("/assistant/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
+  getAssistantConversations: ()   => req("/assistant/conversations"),
+  getAssistantMessages:    (id)   => req(`/assistant/conversations/${id}/messages`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

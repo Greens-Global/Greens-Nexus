@@ -4229,3 +4229,35 @@ class ChangelogSeen(Base):
     __tablename__ = "changelog_seen"
     email        = Column(String, primary_key=True)   # lowercased
     last_seen_at = Column(String, default="")          # UTC ISO
+
+
+class AiConversation(Base):
+    """One Nexus Assistant chat thread. Private to `user_email` - no manager or
+    admin override reads another person's conversation (see routers/assistant.py).
+
+    New table - create_all builds it, so no migration line is needed. It DOES
+    need `ALTER TABLE ai_conversations ENABLE ROW LEVEL SECURITY` on dev and
+    prod as part of the release (CLAUDE.md)."""
+    __tablename__ = "ai_conversations"
+    id         = Column(String, primary_key=True)
+    user_email = Column(String, nullable=False, index=True)
+    title      = Column(String, default="")
+    created_at = Column(String)
+    updated_at = Column(String)
+
+
+class AiMessage(Base):
+    """One turn in an AiConversation. `tool_calls` records which ai_assistant.py
+    tools fired for an assistant reply, for audit (which reads a message
+    triggered, not what data came back).
+
+    New table - create_all builds it, so no migration line is needed. It DOES
+    need `ALTER TABLE ai_messages ENABLE ROW LEVEL SECURITY` on dev and prod as
+    part of the release (CLAUDE.md)."""
+    __tablename__ = "ai_messages"
+    id              = Column(String, primary_key=True)
+    conversation_id = Column(String, nullable=False, index=True)
+    role            = Column(String, nullable=False)   # user | assistant
+    content         = Column(Text, nullable=False)
+    tool_calls      = Column(JSON, default=list)
+    created_at      = Column(String, nullable=False)
