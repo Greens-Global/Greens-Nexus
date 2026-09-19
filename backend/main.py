@@ -2194,6 +2194,9 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # own JWT), never by the session cookie - see routers/mail_actions.py.
     "/mail-actions/card",
     "/mail-actions/page",
+    # Daily Briefing one-click actions: authorized by a signed per-decision
+    # token, same reasoning - see routers/briefing_actions.py.
+    "/briefing-actions/page",
 })
 
 
@@ -2463,4 +2466,7 @@ app.include_router(auth_bff.router)        # /auth/login|callback|logout|me - in
 
 from routers import mail_actions           # noqa: E402
 app.include_router(mail_actions.router)    # Task-email actions: Outlook Actionable Message card + signed-link fallback page
+
+from routers import briefing_actions       # noqa: E402
+app.include_router(briefing_actions.router)  # Daily Briefing one-click Approve/Reject: signed-link confirm page
 
