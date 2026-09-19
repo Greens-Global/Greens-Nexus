@@ -1,6 +1,13 @@
 import { useState, useRef, useEffect, Component, lazy, Suspense } from 'react';
-import { MessageCircle, X, Send, Loader2, Sparkles } from 'lucide-react';
+import { X, Send, Loader2, Sparkles } from 'lucide-react';
 import { api } from '../api';
+
+// The floating "+" (Task module's CreateMenu, variant="fab") sits bottom-right
+// at bottom: fabBottom, height FAB_SIZE=56, right: FAB_RIGHT=16 (see
+// tasks/CreateMenu.jsx). On Tasks, fabBottom tops out at 60 on desktop, so its
+// top edge reaches 116px. Raise the bubble clear of that instead of guessing a
+// number that silently drifts if either widget's offsets change.
+const TASKS_CLEARANCE_BOTTOM = 134;
 
 // react-markdown + remark-gfm only load once someone actually opens the
 // widget and gets a reply - this widget is mounted globally on every screen,
@@ -23,7 +30,7 @@ class AssistantErrorBoundary extends Component {
     if (!this.state.error) return this.props.children;
     return (
       <div style={{
-        position: 'fixed', bottom: 18, left: 18, zIndex: 1190,
+        position: 'fixed', bottom: 18, right: 18, zIndex: 1190,
         width: 260, background: 'var(--card)', border: '1px solid var(--line)',
         borderRadius: 14, padding: '14px 16px', fontFamily: 'Inter, sans-serif',
         boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
@@ -39,7 +46,7 @@ class AssistantErrorBoundary extends Component {
   }
 }
 
-function AssistantWidgetInner() {
+function AssistantWidgetInner({ activeView }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]); // {role, content}
   const [conversationId, setConversationId] = useState(null);
@@ -47,6 +54,7 @@ function AssistantWidgetInner() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const listRef = useRef(null);
+  const bubbleBottom = activeView === 'tasks' ? TASKS_CLEARANCE_BOTTOM : 18;
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -78,26 +86,32 @@ function AssistantWidgetInner() {
 
   return (
     <>
-      {/* Bubble - bottom-left, clear of TimeclockWidget's bottom-right pill */}
+      {/* Bubble - bottom-right, a pill badge (not a plain icon circle) so it
+          reads as "AI" at a glance; raised clear of the Tasks module's
+          floating "+" when that module is active. */}
       <button
         onClick={() => setOpen(o => !o)}
         aria-label="Nexus Assistant"
         style={{
-          position: 'fixed', bottom: 18, left: 18, zIndex: 1190,
-          width: 48, height: 48, borderRadius: 24, border: 'none',
-          background: open ? 'var(--mist)' : 'var(--ink)',
-          color: open ? 'var(--ink)' : 'var(--card)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', boxShadow: '0 8px 28px rgba(0,0,0,0.25)',
-          transition: 'background var(--transition-fast)',
+          position: 'fixed', bottom: bubbleBottom, right: 18, zIndex: 1190,
+          border: 'none', borderRadius: 999, padding: 2, cursor: 'pointer',
+          background: 'linear-gradient(135deg, #06b6d4, #22c55e)',
+          boxShadow: '0 8px 28px rgba(0,0,0,0.22)',
+          transition: 'bottom 0.18s ease',
         }}
       >
-        {open ? <X size={20} /> : <MessageCircle size={20} />}
+        <span style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: 'var(--card)', color: 'var(--ink)', borderRadius: 999,
+          padding: open ? '10px' : '10px 16px',
+        }}>
+          {open ? <X size={16} /> : <><Sparkles size={14} /><span style={{ fontWeight: 700, fontSize: 13 }}>AI</span></>}
+        </span>
       </button>
 
       {/* Panel */}
       <div style={{
-        position: 'fixed', bottom: 78, left: 18, zIndex: 1190,
+        position: 'fixed', bottom: bubbleBottom + 60, right: 18, zIndex: 1190,
         width: 'min(380px, 92vw)', height: 'min(560px, 70vh)',
         background: 'var(--card)', border: '1px solid var(--line)',
         borderRadius: 16, boxShadow: '0 24px 70px rgba(17,24,39,0.30)',
@@ -180,10 +194,10 @@ function AssistantWidgetInner() {
   );
 }
 
-export default function AssistantWidget() {
+export default function AssistantWidget({ activeView }) {
   return (
     <AssistantErrorBoundary>
-      <AssistantWidgetInner />
+      <AssistantWidgetInner activeView={activeView} />
     </AssistantErrorBoundary>
   );
 }
