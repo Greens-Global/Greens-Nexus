@@ -184,6 +184,7 @@ function DeliveryLog() {
   const [emailFilter, setEmailFilter] = useState('');
   const [offset, setOffset] = useState(0);
   const [err, setErr] = useState('');
+  const [resendingId, setResendingId] = useState('');
 
   const load = () => {
     setRows(null);
@@ -193,6 +194,32 @@ function DeliveryLog() {
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [offset]);
+
+  const forceResend = async (row) => {
+    const already = row.sentAt
+      ? 'This day already sent successfully - this WILL send a second real email right now. '
+      : '';
+    if (!window.confirm(
+      `${already}Send ${row.employeeEmail}'s ${row.briefingDate} briefing right now?\n\n` +
+      `This sends immediately, regardless of their shift window - it does not wait for the next scan or for the ` +
+      `window to be open. Nothing changes for any other employee or for the normal 15-minute scan schedule.`
+    )) return;
+    setResendingId(row.id);
+    try {
+      const result = await api.forceResendDailyBriefing(row.id);
+      if (result.sentNow) {
+        alert(`Sent - ${row.employeeEmail}'s briefing went out just now (mode: ${result.mode}).`);
+      } else if (result.mode === 'off') {
+        alert(`Cleared, but mode is currently Off - nothing was sent. Switch to Test or Live first.`);
+      } else if (!result.hadContent) {
+        alert(`Cleared, but there was nothing to report for ${row.employeeEmail} right now - no email needed.`);
+      } else {
+        alert(`Cleared, but the send did not go through - check the Delivery Log for details.`);
+      }
+      load();
+    } catch (e) { setErr(e.message || String(e)); }
+    finally { setResendingId(''); }
+  };
 
   const currentPage = Math.floor(offset / LOG_LIMIT) + 1;
   const totalPages = Math.max(1, Math.ceil(total / LOG_LIMIT));
@@ -223,6 +250,11 @@ function DeliveryLog() {
                   <span style={{ color: NX.faint, flexShrink: 0, width: 50, textTransform: 'capitalize' }}>{r.mode}</span>
                   <span style={{ color: NX.faint, flexShrink: 0, width: 110 }}>{r.redCount}R / {r.amberCount}A / {r.greenCount}G</span>
                   <span style={{ color: meta.color, fontWeight: 600, flexShrink: 0, width: 130 }}>{meta.label}</span>
+                  <button onClick={() => forceResend(r)} disabled={resendingId === r.id}
+                    title="Sends this employee's briefing right now, regardless of their shift window"
+                    style={{ ...btn('ghost'), flexShrink: 0, fontSize: 11.5, padding: '4px 8px', opacity: resendingId === r.id ? 0.5 : 1 }}>
+                    {resendingId === r.id ? 'Sending…' : 'Force Resend'}
+                  </button>
                 </div>
               );
             })}
