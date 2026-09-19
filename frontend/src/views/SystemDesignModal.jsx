@@ -211,7 +211,12 @@ export default function SystemDesignModal({ onClose }) {
         ))}
       </div>
 
-      <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, maxWidth: 1100, width: '100%', margin: '0 auto' }}>
+      {/* Left-aligned, full width (Sep 19: "please start from left and use
+          full screen") - the maxWidth+auto-margin centering this replaced
+          left a big dead gap on the left of any monitor wider than ~1100px,
+          same width the ArchitectureTab cards already wrap onto (auto-fill
+          minmax grid) rather than needing a hard cap to look intentional. */}
+      <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
         {tab === 'architecture' ? <ArchitectureTab info={info} /> : <DataDictionaryTab dict={dict} />}
       </div>
     </div>

@@ -17,6 +17,7 @@ import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import UpdateBanner from "./components/UpdateBanner";
+import AssistantWidget from "./components/AssistantWidget";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import { onBackendHealth, isBackendDown } from "./api";
 import { applyBrandAccent } from "./lib/brandAccent";
@@ -404,7 +405,7 @@ const DEFAULT_SUBS = {
   documents:         "documents-dashboard",
   "investor-relations": "investor-dashboard",
   marketing:         "marketing-ads",
-  accounting:        "pnl",
+  accounting:        "reports",
   egnyte:            "browse",
   "employee-tracking": "coverage",
   // My Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
@@ -660,6 +661,7 @@ function MainApp() {
         <StepUpOverlay />
         <TimeclockWidget />
         <GlobalSearch onNavigate={navigate} />
+        <AssistantWidget />
         <PullToRefresh />
         <TaskPrefetch />
         {activeView === 'sso' && activeSub === 'accounting' && (

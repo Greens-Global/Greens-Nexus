@@ -63,6 +63,12 @@ COMMENT_EVENTS = {"commented", "mentioned"}
 BUILTIN_STATUSES = [("not_started", "Not Started"), ("in_progress", "In Progress"),
                     ("completed", "Completed")]
 
+# Preset set for the "React" action (Sep 2026 - "add emojis for tasks so we
+# can react"). Fixed and small on purpose: an open picker needs its own UI,
+# and these six cover the reactions people actually reach for in Teams/Slack.
+REACTION_EMOJIS = ["\U0001F44D", "❤️", "\U0001F389", "\U0001F44F", "\U0001F602", "\U0001F525"]
+# 👍 ❤️ 🎉 👏 😂 🔥
+
 
 def api_base() -> str:
     """Public https base of THIS API - what Outlook and the fallback links call.

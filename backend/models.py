@@ -45,6 +45,11 @@ class Task(Base):
     owner_email       = Column(String, default="", index=True)
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)
+    # Emoji reactions (Sep 2026 - "add emojis for tasks so we can react",
+    # driven off the Daily Briefing's one-click mail actions). {emoji: [email,
+    # ...]} - a dict rather than one liked_by_emails-style list per emoji so a
+    # task with no reactions yet costs nothing extra to scan.
+    reactions         = Column(JSON, default=dict)
     access_level      = Column(String, default="org")      # org|restricted
     # Multi-company walls (Aug 2026): the HrEntity company this task belongs to,
     # stamped from its creator at creation. The company wall (auth.company_scope
@@ -814,6 +819,13 @@ class NexusEmployee(Base):
     geofence_source   = Column(String, default="")            # last_punch | address | manual
     geofence_set_by   = Column(String, default="")
     geofence_set_at   = Column(String, default="")
+    # Remote (Neil, Sep 19): a person is EITHER remote - may punch from anywhere,
+    # it is a contractual arrangement, not a place - OR must be at ANY company
+    # work site. Replaces the per-person geofence above, which judged someone
+    # against one assigned location ("We're not tagging them to a specific
+    # location. We're tagging them to our locations."). The geofence_* columns
+    # stay for history; nothing judges a punch against them anymore.
+    work_remote       = Column(Integer, default=0)
     # Email signature overrides (Sep 16, Neil): name/role/company email are NOT
     # editable here - they stay pulled live from the directory fields above so
     # the signature can't drift from who someone actually is ("keeps everybody
@@ -4217,3 +4229,35 @@ class ChangelogSeen(Base):
     __tablename__ = "changelog_seen"
     email        = Column(String, primary_key=True)   # lowercased
     last_seen_at = Column(String, default="")          # UTC ISO
+
+
+class AiConversation(Base):
+    """One Nexus Assistant chat thread. Private to `user_email` - no manager or
+    admin override reads another person's conversation (see routers/assistant.py).
+
+    New table - create_all builds it, so no migration line is needed. It DOES
+    need `ALTER TABLE ai_conversations ENABLE ROW LEVEL SECURITY` on dev and
+    prod as part of the release (CLAUDE.md)."""
+    __tablename__ = "ai_conversations"
+    id         = Column(String, primary_key=True)
+    user_email = Column(String, nullable=False, index=True)
+    title      = Column(String, default="")
+    created_at = Column(String)
+    updated_at = Column(String)
+
+
+class AiMessage(Base):
+    """One turn in an AiConversation. `tool_calls` records which ai_assistant.py
+    tools fired for an assistant reply, for audit (which reads a message
+    triggered, not what data came back).
+
+    New table - create_all builds it, so no migration line is needed. It DOES
+    need `ALTER TABLE ai_messages ENABLE ROW LEVEL SECURITY` on dev and prod as
+    part of the release (CLAUDE.md)."""
+    __tablename__ = "ai_messages"
+    id              = Column(String, primary_key=True)
+    conversation_id = Column(String, nullable=False, index=True)
+    role            = Column(String, nullable=False)   # user | assistant
+    content         = Column(Text, nullable=False)
+    tool_calls      = Column(JSON, default=list)
+    created_at      = Column(String, nullable=False)

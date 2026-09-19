@@ -614,6 +614,13 @@ export const api = {
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
   updateTaskNotifySettings: (patch) => req("/tasks/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTaskNotifyLog: (params = {}) => req(`/tasks/notify/log?${new URLSearchParams(params).toString()}`),
+  // Daily Briefing (Sep 2026) - admin settings only, Global-Admin gated on the
+  // backend (require_administrator, not the lower manager bar ticket/task
+  // notify settings use - this flag controls whether every employee starts
+  // receiving a daily email).
+  getDailyBriefingConfig: () => req("/daily-briefing/config"),
+  updateDailyBriefingConfig: (patch) => req("/daily-briefing/config", { method: "PUT", body: JSON.stringify(patch) }),
+  getDailyBriefingLog: (params = {}) => req(`/daily-briefing/log?${new URLSearchParams(params).toString()}`),
   // Replies mailed back to a task notification (manager+). The drain normally
   // runs itself every minute on the deployed API; this triggers one pass now.
   getTaskInboundLog: (params = {}) => req(`/tasks/inbound/log?${new URLSearchParams(params).toString()}`),
@@ -979,6 +986,13 @@ export const api = {
     req(`/accounting/reports/trial-balance?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
   getAccountingCashPosition: (asof, location) =>
     req(`/accounting/reports/cash-position?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
+  // Global search over the posted ledger, and the report drill-down (same call
+  // with an `account`). Empty / null params are left out of the query string.
+  searchAccountingLedger: (params = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') qs.set(k, v); });
+    return req(`/accounting/search?${qs.toString()}`);
+  },
   // One-time sign-in URL for accounting.greensglobal.com - Nexus is the only
   // way in there (no passwords). Open the returned url immediately.
   launchAccounting: (next) => req(`/accounting/launch${next ? `?next=${encodeURIComponent(next)}` : ""}`, { method: "POST" }),
@@ -1568,6 +1582,11 @@ export const api = {
   // browser/machine for the same user).
   getToursSeen:  ()      => req("/tours"),
   markTourSeen:  (tour)  => req(`/tours/${encodeURIComponent(tour)}/seen`, { method: "POST" }),
+
+  // Nexus Assistant (Phase 0) - see backend/ai_assistant.py
+  askAssistant:            (data) => req("/assistant/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
+  getAssistantConversations: ()   => req("/assistant/conversations"),
+  getAssistantMessages:    (id)   => req(`/assistant/conversations/${id}/messages`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

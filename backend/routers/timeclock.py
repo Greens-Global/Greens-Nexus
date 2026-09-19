@@ -139,30 +139,31 @@ def _soft_gate(d: float, radius: int, accuracy_m: int, base: dict) -> dict:
 
 
 def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "") -> dict:
-    """Soft-gate verdict for a punch. A person with a PERSONAL geofence assigned
-    (geofence_radius_m > 0) is judged against that location - it is their work
-    area. Everyone else is judged against the nearest geofenced work site."""
+    """Soft-gate verdict for a punch (Neil, Sep 19). Nobody is tied to ONE place:
+    a person is on site when they are inside ANY company work site's fence, and
+    a person tagged remote is fine wherever they are - that is a contractual
+    arrangement, not a location. ("You're either remote or you're coming into
+    any of our offices.") The per-person geofence this replaces judged someone
+    against a single assigned location.
+
+    A remote person standing at a work site still resolves to that site, so
+    billable-time-per-location keeps attributing their hours to the property.
+    Anywhere else they get geo_status="remote": recorded with its coordinates
+    (still reviewable on the map), never flagged, never escalated."""
     try:
         plat, plng = float(lat), float(lng)
     except (TypeError, ValueError):
         return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
-    # Personal geofence wins when set.
-    if email:
-        emp = (db.query(NexusEmployee)
-               .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
-        if emp and (emp.geofence_radius_m or 0) > 0:
-            try:
-                glat, glng = float(emp.geofence_lat), float(emp.geofence_lng)
-            except (TypeError, ValueError):
-                glat = glng = None
-            if glat is not None:
-                d = _haversine_m(plat, plng, glat, glng)
-                radius = max(25, int(emp.geofence_radius_m or 150))
-                base = {"work_site_id": "personal",
-                        "work_site_name": emp.geofence_label or "Assigned work location",
-                        "distance_m": int(round(d))}
-                return _soft_gate(d, radius, accuracy_m, base)
-    return _geofence_site(db, plat, plng, accuracy_m)
+    verdict = _geofence_site(db, plat, plng, accuracy_m)
+    if verdict["geo_status"] != "in_fence" and email and _is_remote(db, email):
+        return {"geo_status": "remote", "work_site_id": "", "work_site_name": "Remote", "distance_m": 0}
+    return verdict
+
+
+def _is_remote(db: Session, email: str) -> bool:
+    emp = (db.query(NexusEmployee)
+           .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
+    return bool(emp and (emp.work_remote or 0))
 
 
 def _geofence_site(db: Session, plat: float, plng: float, accuracy_m: int, sites=None) -> dict:
