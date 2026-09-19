@@ -1,4 +1,4 @@
-"""Nexus AI Assistant - the shared tool-dispatch engine (Phase 0).
+"""Nexus AI Assistant - the shared tool-dispatch engine (Phase 0 + Phase 1).
 
 Raw httpx against the Messages API, matching construction_ai.py / help.py /
 items.py's web-search call. The codebase has no Anthropic SDK dependency and
@@ -11,12 +11,17 @@ auth.company_scope) and must never let a model-supplied argument widen that
 scope - the model chooses WHAT to ask, never WHOSE data it reads. This is the
 whole reason the assistant is safe to expose to every employee from day one.
 
-Phase 0 ships exactly two tools, both read-only and scoped to the caller's
-own rows: get_my_profile and get_my_notifications. Later modules add their
-own tools to _TOOLS / _TOOL_HANDLERS here - one engine, same as asana_sync.py
-is "one engine, three entry points" for the Asana side.
+Every tool here is read-only and scoped to the caller's own rows. Tools that
+belong to another developer's owned module (items.py is Visesh's) query
+models.py directly, or import a handful of plain, non-router helper
+functions from that module (e.g. routers.timeclock, routers.task_util) -
+never the router file's own endpoint functions, and no router file is ever
+edited from here. Later modules add their own tools to _TOOLS /
+_TOOL_HANDLERS here - one engine, same as asana_sync.py is "one engine,
+three entry points" for the Asana side.
 """
 import os
+from datetime import date, timedelta
 
 import httpx
 from sqlalchemy.orm import Session
@@ -30,7 +35,9 @@ _MAX_TOOL_ITERATIONS = 6
 
 _SYSTEM = """You are the Nexus Assistant, built into Greens Nexus (the internal staff portal for Greens Global).
 
-Answer only from what your tools return - never invent data about the user's items, notifications, role, or anything else in Nexus. If a tool has no data or you have no tool for what was asked, say so plainly and suggest what the person could check manually; do not guess.
+You can look up the asking user's own profile, notifications, clock status and worked hours, tasks, items they hold, and search the Knowledge Base for SOPs and guides.
+
+Answer only from what your tools return - never invent data about the user's items, notifications, hours, tasks, role, or anything else in Nexus. If a tool has no data or you have no tool for what was asked, say so plainly and suggest what the person could check manually; do not guess.
 
 Keep answers short and direct. Use Markdown (lists, bold) only when it genuinely helps readability. Use American English spelling. Never use em dashes; use plain hyphens."""
 
@@ -54,6 +61,52 @@ _TOOLS = [
             "properties": {
                 "limit": {"type": "integer", "description": "Max notifications to return, default 10, max 25."},
             },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_my_clock_status",
+        "description": "Get whether the asking user is currently clocked in, clocked out, or on break, and since when.",
+        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "get_my_hours",
+        "description": "Get the asking user's worked hours per day over a date range (e.g. \"my hours yesterday\").",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start": {"type": "string", "description": "ISO date yyyy-mm-dd, inclusive. Defaults to yesterday."},
+                "end": {"type": "string", "description": "ISO date yyyy-mm-dd, inclusive. Defaults to today."},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_my_tasks",
+        "description": "Get tasks assigned to the asking user from the Tasks module.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filter": {"type": "string", "enum": ["open", "due_today", "overdue", "completed"],
+                            "description": "Which subset to return. Defaults to open."},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_my_items",
+        "description": "Get items the asking user currently holds or has pending, checked-out or permanently assigned.",
+        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "search_knowledge_base",
+        "description": "Search the Nexus Knowledge Base for an approved SOP, manual or guide matching a topic.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "What to search for, e.g. 'Microsoft admin'."},
+            },
+            "required": ["query"],
             "additionalProperties": False,
         },
     },
@@ -103,9 +156,114 @@ def _get_my_notifications(user: dict, db: Session, limit: int = 10, **_args) -> 
     }
 
 
+def _get_my_clock_status(user: dict, db: Session, **_args) -> dict:
+    last = (
+        db.query(models.TimePunch)
+        .filter(models.TimePunch.employee_email == user["email"], models.TimePunch.voided == 0)
+        .order_by(models.TimePunch.at.desc())
+        .first()
+    )
+    if not last:
+        return {"clocked_in": False, "on_break": False, "last_punch": None}
+    return {
+        "clocked_in": last.kind in ("in", "break_end"),
+        "on_break": last.kind == "break_start",
+        "last_punch_kind": last.kind,
+        "last_punch_at": last.at,
+    }
+
+
+def _get_my_hours(user: dict, db: Session, start: str = "", end: str = "", **_args) -> dict:
+    from routers import timeclock
+    if not start and not end:
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        start, end = yesterday, date.today().isoformat()
+    punches = timeclock._live_punches(db, user["email"], start=start, end=end)
+    days = timeclock._day_summaries(
+        punches, timeclock._round_min(db),
+        break_cfg=timeclock._break_cfg_for(db, user["email"]),
+    )
+    return {"days": days}
+
+
+def _get_my_tasks(user: dict, db: Session, filter: str = "open", **_args) -> dict:
+    from routers.task_util import wall_tasks, task_assignees
+    email = user["email"].lower()
+    rows = wall_tasks(db, user, db.query(models.Task).all())
+    mine = [t for t in rows if email in task_assignees(t)]
+
+    today = date.today().isoformat()
+    if filter == "completed":
+        mine = [t for t in mine if t.completed]
+    elif filter == "overdue":
+        mine = [t for t in mine if not t.completed and t.due_on and t.due_on[:10] < today]
+    elif filter == "due_today":
+        mine = [t for t in mine if not t.completed and t.due_on and t.due_on[:10] == today]
+    else:
+        mine = [t for t in mine if not t.completed]
+
+    return {
+        "tasks": [
+            {"title": t.title, "due_on": t.due_on, "priority": t.priority,
+             "status": t.status, "completed": t.completed}
+            for t in mine[:20]
+        ]
+    }
+
+
+def _get_my_items(user: dict, db: Session, **_args) -> dict:
+    checkouts = (
+        db.query(models.ItemCheckout)
+        .filter(
+            models.ItemCheckout.requested_by_email == user["email"],
+            models.ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"]),
+        )
+        .all()
+    )
+    assignments = (
+        db.query(models.ItemAssignment)
+        .filter(
+            models.ItemAssignment.assignee_email == user["email"],
+            models.ItemAssignment.status.in_(["pending_acceptance", "active", "return_initiated"]),
+        )
+        .all()
+    )
+    return {
+        "checkouts": [
+            {"item_name": c.item_name, "status": c.status,
+             "in_hand": c.status == "allocated"}
+            for c in checkouts
+        ],
+        "assignments": [
+            {"item_name": a.item_name, "status": a.status,
+             "in_hand": a.status in ("active", "return_initiated"),
+             "pending_your_acceptance": a.status == "pending_acceptance"}
+            for a in assignments
+        ],
+    }
+
+
+def _search_knowledge_base(user: dict, db: Session, query: str = "", **_args) -> dict:
+    from routers import knowledge_base
+    if not query.strip():
+        return {"results": []}
+    docs = knowledge_base._rank_docs(query, db)
+    return {
+        "results": [
+            {"doc_code": d.doc_code, "title": d.title, "summary": knowledge_base._doc_context(d)}
+            for d in docs
+        ]
+    }
+
+
 _TOOL_HANDLERS = {
     "get_my_profile": _get_my_profile,
     "get_my_notifications": _get_my_notifications,
+    "get_my_clock_status": _get_my_clock_status,
+    "get_my_hours": _get_my_hours,
+    "get_my_tasks": _get_my_tasks,
+    "get_my_items": _get_my_items,
+    "search_knowledge_base": _search_knowledge_base,
 }
 
 

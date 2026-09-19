@@ -126,7 +126,7 @@ function AssistantWidgetInner() {
         <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {messages.length === 0 && (
             <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-              Ask about your own Nexus data - your profile or your notifications, for now. More is coming.
+              Ask about your own Nexus data - hours, tasks, items you hold, notifications, or search the Knowledge Base. More is coming.
             </div>
           )}
           {messages.map((m, i) => (
