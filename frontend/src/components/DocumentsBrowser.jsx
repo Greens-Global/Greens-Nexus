@@ -11,7 +11,7 @@ import { uploadToSupabase } from '../lib/docBuilderUpload';
 import AsyncSection, { SkeletonBlocks } from './AsyncState';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import TypedFieldInput from './TypedFieldInput';
-import { validateFieldValue, formatFieldValue, RESERVED_TYPES } from '../lib/mergeFieldTypes';
+import { validateFieldValue, formatFieldValue, RESERVED_TYPES, isAutoToken } from '../lib/mergeFieldTypes';
 
 // ── My Documents (Phase 1 browse/organize, Phase 2 adds the editor) ─────────
 // Folder browse + search/status filter + draft/library list. "Edit" opens
@@ -58,14 +58,21 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
   useEffect(() => {
     setFillValues({}); setFillErrors({});
     if (!templateId) { setFieldDefs([]); return; }
-    api.getDocTemplate(templateId).then(t => setFieldDefs(t.fieldDefs || [])).catch(() => setFieldDefs([]));
+    // A `template.*` variable is filled by the system from the template row
+    // (its name, version, last-updated date, owning department), so the wizard
+    // must not ask a person for it - typing your own template's version number
+    // is exactly the manual work this module exists to remove, and a
+    // hand-typed one can be wrong.
+    api.getDocTemplate(templateId)
+      .then(t => setFieldDefs((t.fieldDefs || []).filter(fd => !isAutoToken(fd.token))))
+      .catch(() => setFieldDefs([]));
   }, [templateId]);
 
   const setFillValue = (token, v) => setFillValues(prev => ({ ...prev, [token]: v }));
 
   const uploadImportedImage = async (docId, bytes, mime, n) => {
     const extGuess = (mime || '').split('/')[1]?.split('+')[0] || 'png';
-    const path = `document-images/${docId}/imported-${Date.now()}-${n}.${extGuess}`;
+    const path = `${docId}/imported-${Date.now()}-${n}.${extGuess}`;
     const file = new File([bytes], `imported-${n}.${extGuess}`, { type: mime || 'image/png' });
     const { url, error } = await uploadToSupabase(file, 'document-images', path);
     return error ? '' : url;
@@ -332,7 +339,7 @@ function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
   );
 }
 
-export default function DocumentsBrowser({ openCreateSignal, openDocSignal, employees = [], entities = [], toastOk, toastErr }) {
+export default function DocumentsBrowser({ openCreateSignal, employees = [], entities = [], toastOk, toastErr }) {
   const [folders, setFolders] = useState([]);
   const [docs, setDocs] = useState(null);
   const [folderId, setFolderId] = useState('');
@@ -357,7 +364,6 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
   useEffect(() => { api.getDocFolders().then(setFolders).catch(() => setFolders([])); }, []);
   useEffect(() => { load(); }, [folderId, statusFilter, search]);
   useEffect(() => { if (openCreateSignal) setCreateOpen(true); }, [openCreateSignal]);
-  useEffect(() => { if (openDocSignal?.id) setEditingDoc(openDocSignal.id); }, [openDocSignal]);
 
   const act = (id, fn, okMsg) => {
     setBusyId(id);
@@ -421,9 +427,9 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
         const signSt = d.signRequestId ? SIGN_STATUS[d.signStatus] : null;
         const folder = folders.find(f => f.id === d.folderId);
         return (
-          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', border: '1px solid var(--line)', borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
+          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 16px', border: '1px solid var(--line)', borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
             <FileText size={17} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ flex: '1 1 160px', minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                 {folder ? folder.name : 'No folder'} · v{d.currentVersion} · updated {formatDate(d.updatedAt)}
@@ -447,7 +453,7 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
                 <PenTool size={10} /> {signSt.label}
               </button>
             )}
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexShrink: 0 }}>
               <button title="Edit" onClick={() => setEditingDoc(d.id)}
                 style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Pencil size={14} /></button>
               <button title="Folder & Tags" onClick={() => setOrganizeDoc(d)}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { generateJSON, generateHTML } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -8,21 +8,27 @@ import {
   Table as TableIcon, ImagePlus, SeparatorHorizontal, Undo, Redo, Check, AlertCircle, Award,
   Users, FileDown, Printer, Send, History, RotateCcw,
   AlignLeft, AlignCenter, AlignRight, AlignJustify, Link2, Link2Off, FileSearch,
-  Shapes, Square, Circle, Minus, Triangle, ArrowRight, Type, Upload, Cloud, Sparkles, FileStack,
+  Shapes, Square, Circle, Minus, Triangle, ArrowRight, Type, Upload, Cloud, Sparkles, FileStack, ZoomIn, ZoomOut,
   Indent, Outdent, RotateCw, Rows, Columns, Combine, SquareSplitHorizontal, Trash2, Plus,
   Copy, MoreVertical, FileText as PageIcon, Pilcrow, PaintBucket,
   Paintbrush, Search, Smile, Bookmark,
   Scissors, ClipboardCopy, ClipboardPaste, Strikethrough, Subscript as SubscriptIcon, Superscript as SuperscriptIcon,
   Highlighter, ArrowDownAZ, ArrowUpZA, RectangleHorizontal, MousePointerSquareDashed, ListTree,
+  Variable, Lock, LockOpen, Wand2,
 } from 'lucide-react';
 import { api } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
-import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
+import { BODY_EXTENSIONS, repairDocJson } from '../lib/docBuilderSchema';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
-import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, pageCanvasStyle } from '../lib/pageSetup';
+import { slugifyToken, variableFromDrop } from '../lib/mergeFieldTypes';
+import { extractVariables, mergeFieldDefs } from '../lib/extractVariables';
+import { Pagination, paginationKey, planBreaks } from '../lib/docBuilderPagination';
+import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, pageCanvasStyle, textFlowPx, textColumnPx, sheetPadding, sheetsFor, scrollableAncestor, measureHtmlHeight } from '../lib/pageSetup';
+import { useIsMobile } from '../lib/useIsMobile';
 import EgnyteBrowser from './EgnyteBrowser';
 import DefineMergeFieldModal from './DefineMergeFieldModal';
+import VariableLibrary from './VariableLibrary';
 
 const FONT_GROUPS = {
   'Sans-serif': ['Inter', 'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Roboto', 'Open Sans', 'Lato', 'Montserrat'],
@@ -30,6 +36,28 @@ const FONT_GROUPS = {
   'Monospace': ['Courier New', 'Consolas', 'Monaco', 'Lucida Console'],
   'Display': ['Comic Sans MS', 'Impact', 'Brush Script MT'],
 };
+// A complete {{token}} somewhere in the page's text - the cheap check that
+// decides whether the (more expensive) conversion pass is worth running.
+// Does this content say anything at all? Text, a picture, a variable chip, a
+// shape or a table all count; a lone empty paragraph does not. Used to refuse
+// a save that would blank a document that had content a moment ago.
+const SUBSTANTIVE = new Set(['image', 'mergeField', 'docShape', 'docTextbox', 'table', 'pageBreak', 'bookmark']);
+
+export function isEmptyContent(content) {
+  let found = false;
+  const walk = (n) => {
+    if (found || !n || typeof n !== 'object') return;
+    if (n.type === 'text' && (n.text || '').trim()) { found = true; return; }
+    if (SUBSTANTIVE.has(n.type)) { found = true; return; }
+    (n.content || []).forEach(walk);
+  };
+  for (const page of (content?.pages || [])) walk(page?.json);
+  if (!found) { walk(content?.header); walk(content?.footer); }
+  return !found;
+}
+
+const TOKEN_IN_PAGE_RE = /\{\{\s*[A-Za-z0-9_.]+\s*\}\}/;
+
 const FONT_SIZES = ['10', '11', '12', '14', '16', '18', '20', '24', '28', '32', '36', '48'];
 const SYMBOL_CHARS = ['©', '®', '™', '°', '±', '×', '÷', '•', '…', '–', '—', '§', '¶', '†', '‡', '∞', '√', '≈', '≠', '≤', '≥', '€', '£', '¥', '¢', '½', '¼', '¾', 'α', 'β', 'π', 'Ω', '→', '←', '↑', '↓'];
 const EMOJI_CHARS = ['😀', '😂', '😊', '😍', '🙌', '👍', '👎', '🙏', '🎉', '🔥', '✅', '❌', '⚠️', '💡', '📌', '📎', '📅', '⏰', '💬', '📧', '🚀', '⭐', '❤️', '👀', '🤔', '😅', '🙂', '🎯', '📈', '📉'];
@@ -116,12 +144,12 @@ function stripToFormat(nodes) {
 // build one from scratch). A hook can't be called conditionally/dynamically
 // inside the parent's render, so each page is its own component instance -
 // that's the actual reason this is split out, not just organization.
-function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, showMarks, onReady, onUpdate, onActivity, onPaste, onTocClick }) {
+function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editable, pageSetup, compact, zoom, firstSheetPx, showMarks, onReady, onUpdate, onActivity, onPaste, onVariableDrop, onTocClick }) {
   const editor = useEditor({
-    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' })],
+    extensions: [...BODY_EXTENSIONS, Placeholder.configure({ placeholder: 'Start typing your document…' }), Pagination],
     content: initialJson || null,
     editable,
-    onUpdate: () => onUpdate(),
+    onUpdate: () => onUpdate(pageId),
     onSelectionUpdate: () => onActivity(pageId),
   });
   useEffect(() => {
@@ -131,11 +159,63 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
   useEffect(() => { editor?.setEditable(editable); }, [editable, editor]);
+
+  // ── Lay the blocks out onto sheets ────────────────────────────────────────
+  // Measure the top-level blocks as they actually sit, work out which ones
+  // straddle a sheet boundary, and push those onto the next sheet. The
+  // measurement subtracts the gap a block is already carrying, or every pass
+  // would add another one and the document would walk down the screen.
+  const sheetPx = compact ? 0 : textFlowPx(pageSetup);
+  const repaginate = useCallback(() => {
+    if (!editor || editor.isDestroyed || !sheetPx) return;
+    const dom = editor.view.dom;
+    const kids = Array.from(dom.children);
+    if (!kids.length) return;
+    const z = zoom || 1;
+    const prev = paginationKey.getState(editor.state)?.breaks || [];
+    const gapAt = new Map(prev.map((b) => [b.index, b.gap]));
+
+    const originTop = dom.getBoundingClientRect().top;
+    const tops = kids.map((el) => (el.getBoundingClientRect().top - originTop) / z);
+    const total = dom.getBoundingClientRect().height / z;
+    const heights = kids.map((_, i) => {
+      const next = i + 1 < tops.length ? tops[i + 1] : total;
+      return Math.max(0, next - tops[i] - (gapAt.get(i + 1) || 0));
+    });
+
+    // index -> document position, so a decoration can name the block.
+    const posByIndex = [];
+    editor.state.doc.forEach((_node, offset) => { posByIndex.push(offset); });
+    const next = planBreaks(heights, sheetPx, firstSheetPx)
+      .filter((b) => posByIndex[b.index] !== undefined)
+      .map((b) => ({ ...b, pos: posByIndex[b.index] }));
+
+    const same = next.length === prev.length
+      && next.every((b, i) => prev[i] && prev[i].pos === b.pos && Math.abs(prev[i].gap - b.gap) < 1);
+    if (same) return;   // nothing to do - and dispatching anyway would loop
+    editor.view.dispatch(editor.state.tr.setMeta(paginationKey, { breaks: next }));
+  }, [editor, sheetPx, firstSheetPx, zoom]);
+
+  // Re-lay out after content, geometry or zoom changes. rAF lets the browser
+  // finish the layout we are about to measure.
+  useEffect(() => {
+    if (!editor) return undefined;
+    let raf = 0;
+    let timer = 0;
+    const run = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { raf = requestAnimationFrame(repaginate); }, 180);
+    };
+    run();
+    editor.on('update', run);
+    return () => { editor.off('update', run); clearTimeout(timer); cancelAnimationFrame(raf); };
+  }, [editor, repaginate]);
+
   const border = pageSetup.pageBorder;
   return (
     <div className={`doc-page${pageSetup.lineNumbers ? ' doc-line-numbers' : ''}`}
       style={{
-        display: 'flex', flexDirection: 'column', margin: '0 auto 28px', ...pageCanvasStyle(pageSetup),
+        display: 'flex', flexDirection: 'column', margin: '0 auto 28px', ...pageCanvasStyle(pageSetup, { compact }),
         background: pageSetup.pageColor || '#fff',
         border: border?.style ? `${border.width || 1}px ${border.style} ${border.color || '#111827'}` : undefined,
       }}
@@ -146,7 +226,11 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
         onActivity(pageId);
       }}>
       <div style={{ flex: 1, columnCount: pageSetup.columns > 1 ? pageSetup.columns : undefined, columnGap: pageSetup.columns > 1 ? 32 : undefined }}>
-        <EditorContent editor={editor} className={`doc-editor${showMarks ? ' show-marks' : ''}`} onPaste={(e) => onPaste(pageId, e)} />
+        <EditorContent editor={editor} className={`doc-editor${showMarks ? ' show-marks' : ''}`}
+          onPaste={(e) => onPaste(pageId, e)}
+          // dragOver must be cancelled or the browser refuses the drop.
+          onDragOver={(e) => { if (editable) e.preventDefault(); }}
+          onDrop={(e) => { if (editable) onVariableDrop(pageId, e); }} />
       </div>
       {/* A running footer on every page, on by default - title left, page
           number right, the standard document-footer layout. Purely a
@@ -175,10 +259,28 @@ function ToolbarBtn({ onClick, active, disabled, title, children }) {
 
 export default function DocumentBuilder({ docId, kind = 'document', employees = [], entities = [], onClose, toastOk, toastErr, quickSections = [], onContentSaved }) {
   const { get: apiGet, update: apiUpdate, nameKey, getVersions, getVersion } = KIND_API[kind];
+  // Phone layout. The editor is a Word-shaped surface - a fixed-width page, a
+  // 36-button ribbon and a thumbnail rail - none of which fit a 375px screen
+  // as authored, so each is given a phone form rather than being hidden.
+  const isMobile = useIsMobile();
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
   const [preview, setPreview] = useState(false);
+  // Canvas zoom (Sagar, Sep 17). CSS `zoom`, not `transform: scale()` - zoom
+  // reflows the layout box, so ProseMirror's caret placement and posAtCoords
+  // stay correct. A transform leaves the layout box at its old size and the
+  // editor then puts the caret where the text used to be, which is exactly the
+  // class of bug this module already fought once.
+  const [zoom, setZoom] = useState(1);
+  const zoomBy = (d) => setZoom(z => Math.min(2, Math.max(0.5, Math.round((z + d) * 100) / 100)));
+  // Requirement 7: a generated document is FINAL - it carries the approved
+  // template language with the supplied values, so it is not freely editable
+  // afterwards. The server enforces this (documents.py refuses a content
+  // PATCH on a final document); this is the same rule made visible, so nobody
+  // types into a page whose save is going to be rejected.
+  const [unlocking, setUnlocking] = useState(false);
+  const isLocked = kind === 'document' && doc?.status === 'final';
   const [showMarks, setShowMarks] = useState(false); // Word's "Show/Hide ¶" - CSS-only, view preference not saved with the doc
   // Word-style ribbon tabs (Home/Insert/Layout - Phase 18). References/Review/
   // View/Help aren't built - Comments, Equation Editor, and Table of Contents
@@ -197,6 +299,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [symbolPopoverOpen, setSymbolPopoverOpen] = useState(false);
   const [symbolTab, setSymbolTab] = useState('symbols'); // 'symbols' | 'emoji'
   const [saveStatus, setSaveStatus] = useState('idle');
+  // Whether this document has ever held real content in this session - the
+  // empty-save guard only bites once we know there is something to lose.
+  const lastGoodRef = useRef(false);
+  // Emptying a document ON PURPOSE stays possible: Ctrl+S saves exactly what
+  // is on screen. It is only the unattended autosave that refuses to blank a
+  // document, because an autosave firing on a half-built editor is what caused
+  // the loss - nobody asked for that write.
   const [headerVisible, setHeaderVisible] = useState(false);
   const [footerVisible, setFooterVisible] = useState(false);
   const [letterheads, setLetterheads] = useState([]);
@@ -227,6 +336,40 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const [linkUrlDraft, setLinkUrlDraft] = useState('');
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
   const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
+
+  // ── Preview fills the window ────────────────────────────────────────────
+  // Sagar, Sep 17: "make the preview window larger and expand the height of
+  // the window to the bottom of the screen", and move the action row up.
+  //
+  // The box was minHeight:70vh, so it stopped well short of the bottom and
+  // left dead space under a document people read page by page. What sits
+  // above it is not a constant we can subtract - .viewport's padding alone is
+  // set at seven breakpoints, from 32px down to 8px - so measure where the box
+  // actually begins and claim the rest of the window. The negative bottom
+  // margin cancels .viewport's own bottom padding, which would otherwise
+  // become a scrollbar the moment the box reaches the bottom edge.
+  const previewBoxRef = useRef(null);
+  const [previewFill, setPreviewFill] = useState(null);
+  const [previewPull, setPreviewPull] = useState(0);
+  useLayoutEffect(() => {
+    if (!preview) { setPreviewFill(null); setPreviewPull(0); return; }
+    const measure = () => {
+      const el = previewBoxRef.current;
+      if (!el) return;
+      const vp = el.closest('.viewport');
+      const cs = vp ? getComputedStyle(vp) : null;
+      const padB = cs ? parseFloat(cs.paddingBottom) || 0 : 0;
+      const padT = cs ? parseFloat(cs.paddingTop) || 0 : 0;
+      // Lift the action row toward the top, but never eat the gutter whole -
+      // at the 8px breakpoint there is nothing to reclaim.
+      setPreviewPull(Math.min(14, Math.max(0, padT - 8)));
+      const top = el.getBoundingClientRect().top;
+      setPreviewFill({ height: Math.max(340, Math.round(window.innerHeight - top)), marginBottom: -padB });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [preview, pdfPreviewUrl, pdfPreviewLoading]);
   const [shapePopoverOpen, setShapePopoverOpen] = useState(false);
   const [shapeFill, setShapeFill] = useState('#dbeafe');
   const [shapeStroke, setShapeStroke] = useState('#2563eb');
@@ -242,9 +385,16 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // values, not the field metadata itself).
   const [fieldDefs, setFieldDefs] = useState([]);
   const [mergeFieldModal, setMergeFieldModal] = useState(null); // null | { range?: {from,to}, existingDef?: object, initialLabel?: string }
+  const [variableLibraryOpen, setVariableLibraryOpen] = useState(false);
   // Page Setup (Phase 14) - content.pageSetup, a sibling of body/header/footer
   // in the same JSON blob (no schema change needed).
   const [pageSetup, setPageSetup] = useState(DEFAULT_PAGE_SETUP);
+  // Read inside goToSheet, which is a stable callback - refs keep it stable
+  // instead of rebuilding every thumbnail's handler on each zoom keystroke.
+  const pageSetupRef = useRef(pageSetup);
+  useEffect(() => { pageSetupRef.current = pageSetup; }, [pageSetup]);
+  const zoomRef = useRef(1);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
   // Pages (each a real independent editor instance - see DocPage above).
   // `pages` only tracks existence/order/the seed content a freshly
@@ -254,6 +404,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // had focus/a selection change - toolbar commands and contextual "is X
   // active" checks all route through it.
   const [pages, setPages] = useState([]);
+  const pagesRef = useRef([]);
+  useEffect(() => { pagesRef.current = pages; }, [pages]);
   const [activePageId, setActivePageId] = useState('');
   const editorsRef = useRef(new Map()); // pageId -> live TipTap editor
   const pendingFocusId = useRef(''); // page just added/duplicated - focus+scroll to it once its editor registers
@@ -292,6 +444,26 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // frame after focus (rAF) lets it run last and actually win, and
   // block:'center' shows the page's surrounding context instead of just
   // scraping the top edge into view.
+  // Sagar, Sep 17: "clicking on the particular page (left pane) should
+  // navigate to the correct part in the document". The rail's thumbnails are
+  // SLICES of one continuously-flowing page, so scrolling the PAGE into view
+  // only ever reached slice 1. Scroll to the slice's own offset instead.
+  const goToSheet = useCallback((pageId, slice) => {
+    const ed = editorsRef.current.get(pageId);
+    const pageEl = ed?.view?.dom?.closest('.doc-page');
+    if (!pageEl) return;
+    if (!slice) { pageEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    const scroller = scrollableAncestor(pageEl);
+    // CSS `zoom` scales the rendered box getBoundingClientRect reports, while
+    // textFlowPx is in unzoomed layout pixels - without this, page 5 at 150%
+    // lands around page 3.
+    const offset = slice * textFlowPx(pageSetupRef.current) * (zoomRef.current || 1);
+    const isDoc = scroller === document.scrollingElement || scroller === document.documentElement;
+    const scrollerTop = isDoc ? 0 : scroller.getBoundingClientRect().top;
+    const delta = pageEl.getBoundingClientRect().top - scrollerTop;
+    scroller.scrollTo({ top: scroller.scrollTop + delta + offset - 8, behavior: 'smooth' });
+  }, []);
+
   const goToPage = useCallback((pageId, cursorPos = 'start') => {
     const ed = editorsRef.current.get(pageId);
     if (!ed) return;
@@ -303,6 +475,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     });
   }, []);
   const registerPageEditor = useCallback((pageId, editor) => {
+    if (editor) scheduleMeasureSpansRef.current?.();
     if (editor) {
       editorsRef.current.set(pageId, editor);
       if (pendingFocusId.current === pageId) {
@@ -323,7 +496,91 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // binding before its declaration), so the ref is refreshed on every render
   // just below scheduleSave itself.
   const scheduleSaveRef = useRef(null);
-  const onPageUpdate = useCallback(() => { scheduleSaveRef.current?.(); setSelectionTick((t) => t + 1); }, []);
+  // {{tokens}} become real merge fields whenever they appear on the page -
+  // driven by the editor's own update, not by the paste event.
+  //
+  // Hooking the paste was wrong twice over: the handler runs before ProseMirror
+  // has committed a rich paste (it captures Word HTML through a hidden element
+  // and applies it a tick or two later), and it covers only one of the ways
+  // text arrives. Watching the document instead catches a paste, a drag, an
+  // undo that brings a token back, and simply typing one - and needs no
+  // knowledge of how the editor schedules its work.
+  const detectRef = useRef(null);         // refreshed every render, like scheduleSaveRef
+  const detectTimerRef = useRef(null);
+  // How many SHEETS each editor page's content actually fills.
+  //
+  // Sagar, Sep 17, twice: "it's a 6 page document but the left panel shows only
+  // one page". The rail used to draw one thumbnail per editor page - the sheets
+  // you add with Add page - and a page's overflow was simply clipped, so a
+  // document that ran to six sheets still showed one. Now the live editor DOM
+  // is measured against the height of one sheet and the rail draws one
+  // thumbnail per sheetful, each showing its own slice.
+  //
+  // This is the BROWSER's reckoning of where the pages fall. The exported PDF
+  // is laid out by reportlab, a different engine with its own metrics, so the
+  // two can disagree by a page on a long document. It is an honest preview of
+  // the pagination, not a promise about the PDF.
+  // How much of page 1 the letterhead takes. The exporter draws it into the
+  // first page's HEADER, so page 1's text frame is that much shorter; without
+  // reserving the same band the editor fits more onto page 1 than the PDF does.
+  const letterheadRef = useRef(null);
+  const [letterheadPx, setLetterheadPx] = useState(0);
+  const [pageSpans, setPageSpans] = useState({});
+  const spanTimerRef = useRef(null);
+  const measureSpans = useCallback(() => {
+    // Measure at the REAL text-column width, not by reading the live editor
+    // DOM: the editor wraps text in a 624px column now, but the measurement
+    // must also be immune to the canvas zoom, and measureHtmlHeight returns a
+    // plain number so the read can never be deferred past the probe's life.
+    const width = textColumnPx(pageSetup);
+    const next = {};
+    for (const p of pagesRef.current || []) {
+      const ed = editorsRef.current.get(p.id);
+      const json = ed ? ed.getJSON() : p.json;
+      let html = '';
+      try { html = json ? generateHTML(json, BODY_EXTENSIONS) : ''; } catch { html = ''; }
+      const isFirstPage = (pagesRef.current || [])[0]?.id === p.id;
+      next[p.id] = sheetsFor(measureHtmlHeight(html, width), pageSetup,
+                             isFirstPage ? firstSheetPxRef.current : undefined);
+    }
+    setPageSpans(next);
+  }, [pageSetup]);
+  const scheduleMeasureSpansRef = useRef(null);
+  const firstSheetPxRef = useRef(0);
+  const scheduleMeasureSpans = useCallback(() => {
+    if (spanTimerRef.current) clearTimeout(spanTimerRef.current);
+    spanTimerRef.current = setTimeout(() => { spanTimerRef.current = null; measureSpans(); }, 350);
+  }, [measureSpans]);
+
+  useEffect(() => { scheduleMeasureSpansRef.current = scheduleMeasureSpans; }, [scheduleMeasureSpans]);
+
+
+  const onPageUpdate = useCallback((pageId) => {
+    scheduleSaveRef.current?.();
+    setSelectionTick((t) => t + 1);
+    scheduleMeasureSpans();
+    if (!pageId) return;
+    // Debounced: the scan reads the page's text, which is not free on a long
+    // document, and nobody wants a chip appearing mid-word.
+    if (detectTimerRef.current) clearTimeout(detectTimerRef.current);
+    detectTimerRef.current = setTimeout(() => {
+      detectTimerRef.current = null;
+      const ed = editorsRef.current.get(pageId);
+      if (!ed || !TOKEN_IN_PAGE_RE.test(ed.state.doc.textContent)) return;
+      detectRef.current?.(pageId, { quiet: true });
+    }, 600);
+  }, [scheduleMeasureSpans]);
+  useEffect(() => () => { if (detectTimerRef.current) clearTimeout(detectTimerRef.current); }, []);
+  useEffect(() => () => { if (spanTimerRef.current) clearTimeout(spanTimerRef.current); }, []);
+  // Re-measure when the page geometry changes (size/orientation/margins), when
+  // pages are added or removed, and once the editors have mounted their content.
+  // `preview` is in here deliberately. Leaving Preview unmounts and remounts
+  // every page editor, so the spans measured before it are stale - and because
+  // the new editors mount empty for a frame, the measurement has to wait for
+  // them (scheduleMeasureSpans is debounced, and re-runs as content arrives via
+  // onPageUpdate). Without this the rail came back from Preview showing one
+  // page. Sagar, Sep 18.
+  useEffect(() => { scheduleMeasureSpans(); }, [pages, pageSetup, zoom, preview, scheduleMeasureSpans]);
   const onPageActivity = useCallback((pageId) => {
     setActivePageId(pageId);
     setSelectionTick((t) => t + 1);
@@ -368,9 +625,19 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const applyContent = useCallback((content) => {
     const c = content && typeof content === 'object' ? content : {};
     const pageList = Array.isArray(c.pages) && c.pages.length
-      ? c.pages.map(p => ({ id: p.id || genPageId(), json: p.json || null }))
+      // repairDocJson: a document saved by the old .docx importer holds block
+      // images inside paragraphs, which ProseMirror loads and then throws on as
+      // soon as anyone types in that paragraph. Repair on the way in, so an
+      // already-broken document becomes editable without a re-import.
+      ? c.pages.map(p => ({ id: p.id || genPageId(), json: p.json ? repairDocJson(p.json) : null }))
       : splitBodyIntoPages(c.body); // backward compat with pre-rewrite documents
     editorsRef.current = new Map();
+    // Arm the empty-save guard from what we LOADED, not from what has been
+    // typed since - otherwise the very first autosave after opening a full
+    // document is the one that can blank it.
+    if (!isEmptyContent({ pages: pageList, header: c.header, footer: c.footer })) {
+      lastGoodRef.current = true;
+    }
     setPages(pageList);
     setActivePageId(pageList[0]?.id || '');
     if (c.header) { setHeaderVisible(true); headerEditor?.commands.setContent(c.header, { emitUpdate: false }); }
@@ -448,7 +715,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     else setFooterVisible(true);
   };
 
-  const doSave = useCallback(() => {
+  const doSave = useCallback(({ allowEmpty = false } = {}) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     // Defensive, belt-and-suspenders: even if something calls doSave directly
     // (Ctrl+S, the close-flush) before load finishes, never persist an
@@ -465,6 +732,20 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       console.warn('[DocumentBuilder] refusing to save a document with no pages');
       return Promise.resolve();
     }
+    // ...and the same judgement one level down. A page can exist and still be
+    // EMPTY, which the check above waves through - that is how a template with
+    // 138 blocks in it autosaved `chars=0` every couple of seconds, racing the
+    // real save at the same version number. Whichever landed last won, so the
+    // content survived or vanished by luck while the header said "Saved".
+    //
+    // An empty save is only ever refused when we KNOW the document had content
+    // (lastGoodRef): emptying a document deliberately has to keep working, and
+    // a genuinely blank new template must still save.
+    if (isEmptyContent(content) && lastGoodRef.current && !allowEmpty) {
+      console.warn('[DocumentBuilder] refusing to overwrite saved content with an empty document');
+      return Promise.resolve();
+    }
+    if (!isEmptyContent(content)) lastGoodRef.current = true;
     setSaveStatus('saving');
     const payload = kind === 'document' ? { content, note: 'Autosave' } : { content };
     return apiUpdate(docId, payload)
@@ -488,7 +769,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
 
   useEffect(() => {
     const onKey = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); doSave(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); doSave({ allowEmpty: true }); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -512,8 +793,11 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       closePdfPreview();
       return;
     }
-    if (saveTimer.current) doSave();
-    onClose?.();
+    // Wait for the pending write before unmounting. This used to fire doSave()
+    // and call onClose() in the same breath: the component went away while the
+    // request was still in flight, which is what "it says Saved and then
+    // discards everything" looked like from the outside.
+    Promise.resolve(flushPendingSave()).finally(() => onClose?.());
   };
 
   const changeLetterhead = (id) => {
@@ -553,6 +837,25 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
 
   const activeLetterhead = letterheads.find(l => l.id === letterheadId);
 
+  useLayoutEffect(() => {
+    const el = letterheadRef.current;
+    if (!el) { setLetterheadPx(0); return undefined; }
+    const measure = () => {
+      const h = el.getBoundingClientRect().height / (zoom || 1);
+      setLetterheadPx(Number.isFinite(h) ? Math.round(h) : 0);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [activeLetterhead, pageSetup, zoom, preview]);
+
+  // The first sheet is shorter by the letterhead band; later sheets are full.
+  const firstSheetPx = Math.max(1, textFlowPx(pageSetup) - (letterheadPx || 0));
+  useEffect(() => {
+    firstSheetPxRef.current = firstSheetPx;
+    scheduleMeasureSpansRef.current?.();
+  }, [firstSheetPx]);
+
   const changeEmployee = (id) => {
     setEmployeeId(id);
     apiUpdate(docId, { employeeId: id }).catch(e => toastErr?.(e.message || 'Failed to update'));
@@ -582,9 +885,28 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     if (value.trim()) next[token] = value; else delete next[token];
     saveMergeOverrides(next);
   };
-  const customVarKeys = Object.keys(mergeOverrides).filter(k => !MERGE_TOKENS.includes(k));
+  // Every variable this template knows about, from either place it can be
+  // declared: a default value typed into Merge data, or a field definition
+  // (which is what import/Detect variables writes). Listing only the first set
+  // meant a detected variable appeared as a chip in the document but was
+  // missing from Merge data and the insert picker - you could see it and not
+  // set a default for it.
+  const customVarKeys = useMemo(() => {
+    const keys = Object.keys(mergeOverrides).filter(k => !MERGE_TOKENS.includes(k));
+    for (const fd of fieldDefs) {
+      if (fd?.token && !MERGE_TOKENS.includes(fd.token) && !keys.includes(fd.token)) keys.push(fd.token);
+    }
+    return keys;
+  }, [mergeOverrides, fieldDefs]);
+  // The label a field definition gave it, so the picker reads "Offer - Letter
+  // Date" rather than a bare token.
+  const varLabel = useMemo(() => {
+    const out = {};
+    for (const fd of fieldDefs) if (fd?.token && fd.label) out[fd.token] = fd.label;
+    return out;
+  }, [fieldDefs]);
   const addCustomVariable = () => {
-    const key = newVarName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+|_+$/g, '');
+    const key = slugifyToken(newVarName);   // keeps the dotted taxonomy (principal.amount)
     if (!key || !newVarValue.trim()) return;
     saveMergeOverrides({ ...mergeOverrides, [key]: newVarValue.trim() });
     setNewVarName(''); setNewVarValue('');
@@ -687,7 +1009,10 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // font size through FONT_SIZES, defaulting from 12 if none is set yet.
   const stepFontSize = (delta) => {
     if (!activeEditor) return;
-    const current = parseInt(activeEditor.getAttributes('textStyle').fontSize || '12', 10);
+    // parseFloat, not parseInt: an imported Word document can carry a
+    // fractional size (12.2pt from a source stating 4.3mm), and truncating
+    // it to 12 makes Grow step to the size it is already closest to.
+    const current = parseFloat(activeEditor.getAttributes('textStyle').fontSize || '12') || 12;
     const idx = FONT_SIZES.findIndex(s => Number(s) >= current);
     const nextIdx = Math.max(0, Math.min(FONT_SIZES.length - 1, (idx === -1 ? FONT_SIZES.length - 1 : idx) + delta));
     activeEditor.chain().focus().setFontSize(`${FONT_SIZES[nextIdx]}px`).run();
@@ -1017,8 +1342,75 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const insertMergeField = (e) => {
     const token = e.target.value;
     if (!token) return;
-    activeEditor?.chain().focus().insertContent({ type: 'mergeField', attrs: { token } }).run();
+    insertVariable(token);
     e.target.value = '';
+  };
+
+  // One way in for every variable insertion - the toolbar picker, the library
+  // panel and a drag-and-drop all land here, so a variable is always a
+  // mergeField NODE and never typed "{{token}}" text that silently never
+  // populates because of a typo.
+  const insertVariable = (token) => {
+    if (!token) return;
+    activeEditor?.chain().focus().insertContent({ type: 'mergeField', attrs: { token } }).run();
+  };
+
+  // Converts every {{token}} already sitting on the page into a real merge
+  // field. Import does this automatically; this is for content that arrived
+  // some other way - pasted in, or written before the importer knew how - and
+  // for the documents that are already saved with their braces showing.
+  const [detecting, setDetecting] = useState(false);
+  const detectVariablesOn = async (onlyPageId, { quiet = false } = {}) => {
+    if (detecting) return;
+    setDetecting(true);
+    try {
+      let total = 0;
+      const found = [];
+      for (const p of pages) {
+        if (onlyPageId && p.id !== onlyPageId) continue;
+        const ed = editorsRef.current.get(p.id);
+        if (!ed) continue;
+        const { json, tokens } = extractVariables(ed.getJSON());
+        if (!tokens.length) continue;
+        total += tokens.length;
+        tokens.forEach(t => { if (!found.includes(t)) found.push(t); });
+        // emitUpdate keeps the autosave honest - the page really did change.
+        ed.commands.setContent(json, { emitUpdate: true });
+      }
+      if (!total) { if (!quiet) toastOk?.('No {{variables}} found on this page.'); return; }
+      let added = [];
+      if (kind === 'template') {
+        const merged = mergeFieldDefs(fieldDefs, found);
+        added = merged.added;
+        if (added.length) {
+          setFieldDefs(merged.fieldDefs);
+          await apiUpdate(docId, { fieldDefs: merged.fieldDefs });
+        }
+      }
+      scheduleSave();
+      toastOk?.(`${found.length} variable${found.length === 1 ? '' : 's'} converted`
+        + (added.length ? `, ${added.length} added to this template.` : '.'));
+    } catch (e) {
+      toastErr?.(e.message || 'Could not convert the variables on this page');
+    } finally { setDetecting(false); }
+  };
+
+  const detectVariables = () => detectVariablesOn(null);
+  detectRef.current = detectVariablesOn;   // so the update handler calls today's closure
+
+  // Dropping a variable from the library onto the page inserts it exactly
+  // where it was dropped, not wherever the cursor happened to be.
+  const onVariableDrop = (pageId, e) => {
+    const token = variableFromDrop(e);
+    if (!token) return;                       // some other drag (a file, text) - leave it alone
+    e.preventDefault();
+    const ed = editorsRef.current.get(pageId);
+    if (!ed) return;
+    const at = ed.view.posAtCoords({ left: e.clientX, top: e.clientY });
+    const chain = ed.chain().focus();
+    (at ? chain.insertContentAt(at.pos, { type: 'mergeField', attrs: { token } })
+        : chain.insertContent({ type: 'mergeField', attrs: { token } })).run();
+    onPageActivity(pageId);
   };
 
   // Template Builder (Phase 13) - "select text → Convert to Merge Field".
@@ -1115,7 +1507,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   };
 
   const doUploadImage = async (pageId, file) => {
-    const path = `document-images/${docId}/${Date.now()}-${safeName(file.name)}`;
+    const path = `${docId}/${Date.now()}-${safeName(file.name)}`;
     const { url, error } = await uploadToSupabase(file, 'document-images', path);
     if (error) { toastErr?.(error); return; }
     editorsRef.current.get(pageId)?.chain().focus().setImage({ src: url }).run();
@@ -1129,7 +1521,10 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
 
   const onBodyPaste = (pageId, e) => {
     const f = imageFromPaste(e);
-    if (f) { e.preventDefault(); doUploadImage(pageId, f); }
+    if (f) { e.preventDefault(); doUploadImage(pageId, f); return; }
+    // Nothing else to do here: {{tokens}} in pasted text are picked up by the
+    // page's own update watcher above, whenever ProseMirror gets round to
+    // committing them.
   };
 
   // Phase 10: import a Word/PDF/text file, replacing the body content.
@@ -1141,7 +1536,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // doesn't crash the import" convention doc_export.py already follows.
   const uploadImportedImage = async (bytes, mime, n) => {
     const extGuess = (mime || '').split('/')[1]?.split('+')[0] || 'png';
-    const path = `document-images/${docId}/imported-${Date.now()}-${n}.${extGuess}`;
+    const path = `${docId}/imported-${Date.now()}-${n}.${extGuess}`;
     const file = new File([bytes], `imported-${n}.${extGuess}`, { type: mime || 'image/png' });
     const { url, error } = await uploadToSupabase(file, 'document-images', path);
     return error ? '' : url;
@@ -1159,7 +1554,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       // preserves Word's own page breaks) - split it into real pages the same
       // way a pre-rewrite document upgrades on load, rather than dumping the
       // whole import onto a single page.
-      const newPages = splitBodyIntoPages(json);
+      // Any {{token}} the Word document was written with becomes a real merge
+      // field here, and the template gains a definition for each new one. Two
+      // reasons: nobody should have to delete placeholders and re-insert them
+      // one at a time, and a token left as plain TEXT never populates at all -
+      // the generator only substitutes merge-field nodes.
+      const { json: withFields, tokens } = extractVariables(repairDocJson(json));
+      const newPages = splitBodyIntoPages(withFields);
       editorsRef.current = new Map();
       setPages(newPages);
       setActivePageId(newPages[0]?.id || '');
@@ -1167,8 +1568,23 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       // margins (docxToTiptap.js) - apply them so the imported page setup
       // matches the original, not whatever this document had before.
       if (importedPageSetup) updatePageSetup(importedPageSetup);
-      if (warnings?.length) toastErr?.(`Imported with notes: ${warnings.slice(0, 2).join(' ')}`);
-      else toastOk?.('Imported - review formatting before sending');
+      // Save the discovered variables onto the template, leaving any the author
+      // already configured by hand exactly as they are.
+      let added = [];
+      if (tokens.length && kind === 'template') {
+        const merged = mergeFieldDefs(fieldDefs, tokens);
+        added = merged.added;
+        if (added.length) {
+          setFieldDefs(merged.fieldDefs);
+          await apiUpdate(docId, { fieldDefs: merged.fieldDefs })
+            .catch(e => toastErr?.(e.message || 'Imported, but the variables could not be saved'));
+        }
+      }
+      const found = tokens.length
+        ? ` ${tokens.length} variable${tokens.length === 1 ? '' : 's'} detected${added.length ? `, ${added.length} added to this template` : ''}.`
+        : '';
+      if (warnings?.length) toastErr?.(`Imported with notes: ${warnings.slice(0, 2).join(' ')}${found}`);
+      else toastOk?.(`Imported - review formatting before sending.${found}`);
       setImportPopoverOpen(false);
       scheduleSave();
     } catch (e) {
@@ -1196,8 +1612,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   );
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+    <div style={previewPull ? { marginTop: -previewPull } : undefined}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: preview ? 6 : 8, flexWrap: 'wrap' }}>
         <button onClick={close} title="Close"
           style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
           <X size={16} />
@@ -1319,15 +1735,21 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 8 }}>
                       {customVarKeys.map(key => (
                         <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 11, color: 'var(--muted)', width: 100, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={key}>{humanizeKey(key)}</span>
+                          <span style={{ fontSize: 11, color: 'var(--muted)', width: 100, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={key}>{varLabel[key] || humanizeKey(key)}</span>
                           <input key={`${key}-${mergeOverrides[key]}`} className="form-input" defaultValue={mergeOverrides[key] || ''}
+                            placeholder={varLabel[key] ? 'asked for on create' : ''}
                             style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }}
                             onBlur={e => setOverrideValue(key, e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && e.target.blur()} />
-                          <button onClick={() => removeOverride(key)} title="Remove variable"
-                            style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'flex', padding: 2 }}>
-                            <X size={13} />
-                          </button>
+                          {/* A variable the template DEFINES is removed by deleting its
+                              field, not by clearing a default here - so the X only
+                              appears for a plain typed-in default. */}
+                          {mergeOverrides[key] !== undefined && (
+                            <button onClick={() => removeOverride(key)} title="Clear this default value"
+                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'flex', padding: 2 }}>
+                              <X size={13} />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1431,11 +1853,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         // finished document and rendered page breaks as a cosmetic divider).
         // Inline in the page (not a modal) per the same reasoning as the
         // rest of this module's "replace the tab content" convention.
-        <div style={{ flex: 1, minHeight: '70vh', display: 'flex', flexDirection: 'column' }}>
+        <div ref={previewBoxRef}
+          style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 340, ...(previewFill || {}) }}>
           {pdfPreviewLoading ? (
             <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>
           ) : pdfPreviewUrl ? (
-            <iframe title="Document Preview" src={pdfPreviewUrl} style={{ flex: 1, border: '1px solid var(--line)', borderRadius: 8, width: '100%', minHeight: '70vh' }} />
+            <iframe title="Document Preview" src={pdfPreviewUrl} style={{ flex: 1, border: '1px solid var(--line)', borderRadius: 8, width: '100%', minHeight: 0 }} />
           ) : null}
         </div>
       ) : (
@@ -1450,6 +1873,36 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               </button>
             ))}
           </div>
+        {isLocked && (
+          /* Requirement 7 made visible. The server refuses the write either
+             way; this says WHY the page will not take a keystroke, and offers
+             the one deliberate way out. */
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            padding: '9px 14px', marginBottom: 10, borderRadius: 9,
+            background: 'rgba(251,191,36,0.14)', border: '1px solid rgba(217,119,6,0.35)',
+          }}>
+            <Lock size={14} style={{ color: '#b45309', flexShrink: 0 }} />
+            <span style={{ fontSize: 12.5, color: '#92400e', flex: 1, minWidth: 180 }}>
+              This document is final. It carries the approved template language with the values it was
+              generated from, so it is read-only.
+            </span>
+            <button className="secondary-btn" disabled={unlocking}
+              onClick={async () => {
+                if (!window.confirm('Unlock this document for editing? The change is recorded in its history.')) return;
+                setUnlocking(true);
+                try {
+                  const updated = await api.unlockDocument(docId);
+                  setDoc(updated);
+                  toastOk?.('Unlocked - this document is now a draft.');
+                } catch (e) { toastErr?.(e.message || 'Could not unlock this document'); }
+                finally { setUnlocking(false); }
+              }}
+              style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {unlocking ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <LockOpen size={13} />} Unlock to Edit
+            </button>
+          </div>
+        )}
         <div className="doc-toolbar">
           {ribbonTab === 'home' && (
           <>
@@ -1477,7 +1930,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </select>
           <ToolbarBtn title="Shrink font" onClick={() => stepFontSize(-1)}><span style={{ fontSize: 11, fontWeight: 700 }}>A↓</span></ToolbarBtn>
           <select onChange={e => { const v = e.target.value; if (v) activeEditor.chain().focus().setFontSize(`${v}px`).run(); else activeEditor.chain().focus().unsetFontSize().run(); }}
-            value={(activeEditor.getAttributes('textStyle').fontSize || '').replace('px', '')} title="Font size"
+            // Strips whatever unit the size carries - this control writes px,
+            // but an imported document states its sizes in pt.
+            value={(activeEditor.getAttributes('textStyle').fontSize || '').replace(/(px|pt)$/, '')} title="Font size"
             style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 6px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)', width: 58 }}>
             <option value="">Size</option>
             {FONT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -1611,13 +2066,21 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
               <Sparkles size={15} />
             </ToolbarBtn>
           )}
+          <ToolbarBtn title="Find {{variables}} written on the page and turn them into real merge fields"
+            disabled={detecting} onClick={detectVariables}>
+            {detecting ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Wand2 size={15} />}
+          </ToolbarBtn>
+          <ToolbarBtn title="Variable Library - browse every variable and drag one in"
+            active={variableLibraryOpen} onClick={() => setVariableLibraryOpen(o => !o)}>
+            <Variable size={15} />
+          </ToolbarBtn>
           <select onChange={insertMergeField} defaultValue=""
             style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', color: 'var(--ink)', background: 'var(--card)' }}>
             <option value="">✨ Insert auto-filled detail…</option>
             {MERGE_TOKENS.map(t => <option key={t} value={t}>{FRIENDLY_MERGE[t]}</option>)}
             {customVarKeys.length > 0 && (
               <optgroup label="Custom variables">
-                {customVarKeys.map(k => <option key={k} value={k}>{humanizeKey(k)}</option>)}
+                {customVarKeys.map(k => <option key={k} value={k}>{varLabel[k] || humanizeKey(k)}</option>)}
               </optgroup>
             )}
           </select>
@@ -1767,8 +2230,16 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           )}
 
           <span className="doc-toolbar-sep" />
-          <ToolbarBtn title="Undo" onClick={() => activeEditor.chain().focus().undo().run()}><Undo size={15} /></ToolbarBtn>
-          <ToolbarBtn title="Redo" onClick={() => activeEditor.chain().focus().redo().run()}><Redo size={15} /></ToolbarBtn>
+          {/* Greyed out when there is nothing to undo, the way Word's are.
+              These used to call .chain() on activeEditor unguarded: before any
+              page had registered its editor that threw inside the click
+              handler, so the button did nothing AND said nothing. Disabled
+              state is recomputed on every edit and selection change
+              (selectionTick), so it never goes stale. */}
+          <ToolbarBtn title="Undo" disabled={!activeEditor?.can().undo()}
+            onClick={() => activeEditor?.chain().focus().undo().run()}><Undo size={15} /></ToolbarBtn>
+          <ToolbarBtn title="Redo" disabled={!activeEditor?.can().redo()}
+            onClick={() => activeEditor?.chain().focus().redo().run()}><Redo size={15} /></ToolbarBtn>
           <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={onPickImage} style={{ display: 'none' }} />
         </div>
 
@@ -1894,31 +2365,58 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       )}
 
       <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
-      {kind === 'document' && !preview && (() => {
+      {kind === 'document' && !preview && !isMobile && (() => {
         const canvas = pageCanvasStyle(pageSetup);
         const thumbW = 92, thumbH = Math.round(thumbW * (canvas.minHeight / canvas.maxWidth));
         const scale = thumbW / canvas.maxWidth;
         return (
           <div style={{ flex: '0 0 116px', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: 10, alignSelf: 'flex-start' }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Pages</div>
-            {pages.map((p, i) => {
+            {/* "Pages" here means EDITOR pages - the sheets you added with
+                Add page, each its own TipTap instance. It is not the exported
+                page count: the canvas is one continuous unpaginated box (see
+                the DocPage note above), and reportlab decides the real page
+                breaks at export. A one-sheet document printing to six PDF
+                pages is correct, and looked like a bug without this label. */}
+            <div title="Where the pages fall as the browser lays this out. The exported PDF is rendered by a different engine, so a long document can differ by a page."
+              style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Pages
+            </div>
+            {(() => { let sheetNo = 0; return pages.map((p, i) => {
               const ed = editorsRef.current.get(p.id);
               const json = ed ? ed.getJSON() : (p.json || { type: 'doc', content: [{ type: 'paragraph' }] });
-              return (
-              <div key={p.id} style={{ position: 'relative' }}>
-                <div onClick={() => goToPage(p.id)}
-                  style={{ width: thumbW, height: thumbH, border: p.id === activePageId ? '2px solid hsl(var(--color-blue))' : '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', background: '#fff', boxShadow: 'var(--shadow-sm)', cursor: 'pointer' }}>
-                  <div style={{ width: canvas.maxWidth, transform: `scale(${scale})`, transformOrigin: 'top left', pointerEvents: 'none' }}
-                    dangerouslySetInnerHTML={{ __html: generateHTML(json, BODY_EXTENSIONS) }} />
+              const html = generateHTML(json, BODY_EXTENSIONS);
+              // The sheet's own geometry, reproduced so the slices line up with
+              // what the editor is actually showing: the thumbnail used to
+              // render the body at the FULL page width with no margins, so its
+              // line breaks - and therefore its height - never matched the page.
+              const { padV, padH } = sheetPadding(canvas);
+              const sheet = textFlowPx(pageSetup);
+              const spans = Math.max(1, pageSpans[p.id] || 1);
+              return Array.from({ length: spans }, (_, slice) => {
+                sheetNo += 1;
+                const label = sheetNo;
+                // Only the first slice carries the page menu and the selected
+                // outline: duplicate/delete act on the EDITOR page, and a slice
+                // is not one.
+                const isFirst = slice === 0;
+                return (
+              <div key={`${p.id}:${slice}`} style={{ position: 'relative' }}>
+                <div onClick={() => goToSheet(p.id, slice)}
+                  style={{ width: thumbW, height: thumbH, border: (isFirst && p.id === activePageId) ? '2px solid hsl(var(--color-blue))' : '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', background: '#fff', boxShadow: 'var(--shadow-sm)', cursor: 'pointer' }}>
+                  <div style={{ width: canvas.maxWidth, boxSizing: 'border-box', padding: `${padV}px ${padH}px`,
+                      transform: `scale(${scale}) translateY(${-slice * sheet}px)`, transformOrigin: 'top left', pointerEvents: 'none' }}
+                    dangerouslySetInnerHTML={{ __html: html }} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3, gap: 2 }}>
-                  <span onClick={() => goToPage(p.id)} style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, cursor: 'pointer' }}>Page {i + 1}</span>
+                  <span onClick={() => goToSheet(p.id, slice)} style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, cursor: 'pointer' }}>Page {label}</span>
+                  {isFirst && (
                   <button onClick={() => setPageMenuOpen(pageMenuOpen === p.id ? '' : p.id)} title="Page options"
                     style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: 1, color: 'var(--muted)', flex: '0 0 auto' }}>
                     <MoreVertical size={13} />
                   </button>
+                  )}
                 </div>
-                {pageMenuOpen === p.id && (<>
+                {isFirst && pageMenuOpen === p.id && (<>
                   <div onClick={() => setPageMenuOpen('')} style={{ position: 'fixed', inset: 0, zIndex: 29 }} />
                   <div style={{ position: 'absolute', top: '100%', right: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 9, boxShadow: 'var(--shadow-lg)', zIndex: 30, minWidth: 190, padding: 5 }}>
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Duplicate page</div>
@@ -1940,8 +2438,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                   </div>
                 </>)}
               </div>
-              );
-            })}
+                );
+              });
+            }); })()}
             <button onClick={addPage}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, width: thumbW, height: 40, border: '1px dashed var(--line)', borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
               <Plus size={14} /> Add page
@@ -1949,7 +2448,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </div>
         );
       })()}
-      <div style={{ flex: 1, minWidth: 0, background: 'var(--mist)', borderRadius: 12, padding: '20px 24px 4px' }}>
+      <div style={{ flex: 1, minWidth: 0, background: 'var(--mist)', borderRadius: 12, padding: '10px 24px 4px',
+        overflowX: zoom > 1 ? 'auto' : 'visible' }}>
+      <div style={zoom === 1 ? undefined : { zoom }}>
 
       {!preview && !headerVisible && (
         <button onClick={() => setHeaderVisible(true)}
@@ -1964,7 +2465,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           made the misalignment worse, not better - consistent beats
           "technically repeats" here. */}
       {(activeLetterhead || headerVisible) && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup).maxWidth, margin: '0 auto 16px', paddingBottom: 12, borderBottom: '2px solid #111827' }}>
+        <div ref={letterheadRef} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup, { compact: isMobile }).maxWidth, margin: '0 auto 16px', paddingBottom: 12, borderBottom: '2px solid #111827' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             {activeLetterhead?.logoPath && <img src={activeLetterhead.logoPath} alt={activeLetterhead.name} style={{ height: 34, maxWidth: 140, objectFit: 'contain', flex: '0 0 auto' }} />}
             {activeLetterhead && (
@@ -1991,16 +2492,17 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           stacked paper" AND the actual boundary between two independent
           editors) - not one continuous scroll with a dashed-line marker. */}
       {pages.map((p, i) => (
-        <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview} pageSetup={pageSetup} showMarks={showMarks}
+        <DocPage key={p.id} pageId={p.id} pageNumber={i + 1} pageCount={pages.length} docTitle={title || 'Untitled'} initialJson={p.json} editable={!preview && !isLocked} pageSetup={pageSetup} compact={isMobile} zoom={zoom}
+          firstSheetPx={i === 0 ? firstSheetPx : undefined} showMarks={showMarks}
           onReady={registerPageEditor} onUpdate={onPageUpdate}
-          onActivity={onPageActivity} onPaste={onBodyPaste} onTocClick={goToTocLink} />
+          onActivity={onPageActivity} onPaste={onBodyPaste} onVariableDrop={onVariableDrop} onTocClick={goToTocLink} />
       ))}
 
       {/* Same alignment fix at the bottom: the letterhead's own footer
           tagline (if it has one) and the document's footer editor share one
           row instead of stacking. */}
       {(activeLetterhead?.footerJson?.text || footerVisible) && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup).maxWidth, margin: '16px auto 0', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, maxWidth: pageCanvasStyle(pageSetup, { compact: isMobile }).maxWidth, margin: '16px auto 0', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
           {activeLetterhead?.footerJson?.text && <div className="doc-letterhead-tagline" style={{ margin: 0 }}>{activeLetterhead.footerJson.text}</div>}
           {footerVisible && (
             <div style={{ flex: '1 1 auto', maxWidth: 340, marginLeft: 'auto', textAlign: 'right' }}>
@@ -2020,7 +2522,38 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       )}
       </div>
       </div>
+      </div>
       </>
+      )}
+
+      {!preview && (
+        <div style={{
+          position: 'fixed', right: 20, bottom: 20, zIndex: 40,
+          display: 'flex', alignItems: 'center', gap: 8,
+          background: 'var(--card)', border: '1px solid var(--line)',
+          borderRadius: 999, padding: '6px 12px', boxShadow: 'var(--shadow-lg)',
+        }}>
+          <button title="Zoom out" onClick={() => zoomBy(-0.1)} disabled={zoom <= 0.5}
+            style={{ background: 'none', border: 'none', cursor: zoom <= 0.5 ? 'default' : 'pointer', color: 'var(--ink)', display: 'flex', padding: 3, opacity: zoom <= 0.5 ? 0.4 : 1 }}>
+            <ZoomOut size={15} />
+          </button>
+          <input type="range" min={50} max={200} step={10} value={Math.round(zoom * 100)}
+            onChange={e => setZoom(Number(e.target.value) / 100)}
+            aria-label="Zoom" title={`Zoom ${Math.round(zoom * 100)}%`}
+            style={{ width: 96, accentColor: 'var(--pine)', cursor: 'pointer' }} />
+          <button title="Zoom in" onClick={() => zoomBy(0.1)} disabled={zoom >= 2}
+            style={{ background: 'none', border: 'none', cursor: zoom >= 2 ? 'default' : 'pointer', color: 'var(--ink)', display: 'flex', padding: 3, opacity: zoom >= 2 ? 0.4 : 1 }}>
+            <ZoomIn size={15} />
+          </button>
+          {/* The readout doubles as Reset - the one control people reach for
+              after overshooting with the slider. */}
+          <button title="Reset to 100%" onClick={() => setZoom(1)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 700,
+              color: zoom === 1 ? 'var(--muted)' : 'var(--ink)', fontFamily: 'Inter, sans-serif',
+              minWidth: 38, textAlign: 'right', padding: 0 }}>
+            {Math.round(zoom * 100)}%
+          </button>
+        </div>
       )}
 
       {historyOpen && (
@@ -2057,6 +2590,10 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           </div>
         </div>
       )}
+
+      <VariableLibrary open={variableLibraryOpen} onClose={() => setVariableLibraryOpen(false)}
+        onInsert={insertVariable} localVariables={customVarKeys}
+        anchorLabel={kind === 'template' ? 'the template' : 'the document'} />
 
       {mergeFieldModal && (
         <DefineMergeFieldModal

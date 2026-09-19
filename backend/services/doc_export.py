@@ -19,7 +19,10 @@ Known, deliberate approximations (see the plan, not silent gaps):
 - DOCX hyperlinks render styled (colored+underlined) but are not clickable -
   python-docx's public API has no support for the OOXML hyperlink relationship.
 """
+import base64
+import re
 import io
+from urllib.parse import unquote_to_bytes
 from xml.sax.saxutils import escape as _esc
 import httpx
 
@@ -86,6 +89,19 @@ def _text_runs(nodes, merge: dict) -> list:
             runs.append({"text": value, "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE})
         elif t == "hardBreak":
             runs.append({"text": "\n", "bold": False, "italic": False, "underline": False, **_EMPTY_RUN_STYLE})
+        elif t == "image":
+            # An INLINE picture - the editor's image node is inline, because
+            # Word puts a picture inside the run where it sits (a meeting
+            # transcript's speaker avatar belongs beside the name, not on a
+            # line of its own). It rides along as a run so it keeps its exact
+            # position in the text; both renderers draw it in place.
+            attrs = n.get("attrs") or {}
+            src = attrs.get("src") or ""
+            if src:
+                runs.append({"text": "", "bold": False, "italic": False, "underline": False,
+                             **_EMPTY_RUN_STYLE,
+                             "image": {"src": src, "width": attrs.get("width"),
+                                       "height": attrs.get("height")}})
         else:
             runs.extend(_text_runs(n.get("content"), merge))
     return runs
@@ -179,6 +195,21 @@ def _blocks_to_plaintext(blocks: list) -> str:
 def _fetch_image_bytes(url: str):
     if not url:
         return None
+    # A picture carried INLINE as a data: URI rather than hosted. The .docx
+    # importer falls back to this whenever the storage upload does not happen -
+    # no bucket configured, an offline laptop, a permission - and httpx cannot
+    # fetch a data: URI, so every one of them was silently dropped and the
+    # exported document came out with no pictures at all.
+    if url.startswith("data:"):
+        try:
+            header, _, payload = url.partition(",")
+            if not payload:
+                return None
+            if ";base64" in header:
+                return base64.b64decode(payload)
+            return unquote_to_bytes(payload)
+        except Exception:
+            return None
     # Letterhead logos may be stored as a path relative to the frontend's own
     # static assets (e.g. "/assets/branding/logo.png") - the browser resolves
     # that against the current origin for free, but this export runs on the
@@ -194,13 +225,36 @@ def _fetch_image_bytes(url: str):
         return None
 
 
+_FONT_SIZE_RE = re.compile(r"-?\d*\.?\d+")
+# Word's own ceiling on font size. Anything above this is not a size someone
+# chose, it is a parse gone wrong, and rendering it produces a document
+# hundreds of pages long instead of an obvious error.
+_MAX_FONT_PT = 1638
+
+
 def _font_size_num(font_size):
-    """'18px' -> 18. Treated as points directly (an approximation already
-    baked into this export pipeline - see module docstring)."""
+    """'18px' -> 18.0, '12.2pt' -> 12.2. Treated as points directly (an
+    approximation already baked into this export pipeline - see module
+    docstring).
+
+    Parses the NUMBER, not the digits. This used to keep every digit character
+    and int() the result, so a fractional size - which is both valid CSS and
+    what a Word document stating its sizes in millimetres imports as - came out
+    an order of magnitude too big: '12.2pt' became 122pt, and a transcript
+    exported as a 498-page PDF.
+    """
     if not font_size:
         return None
-    digits = "".join(c for c in str(font_size) if c.isdigit())
-    return int(digits) if digits else None
+    m = _FONT_SIZE_RE.search(str(font_size))
+    if not m:
+        return None
+    try:
+        size = float(m.group())
+    except ValueError:
+        return None
+    if size <= 0:
+        return None
+    return min(size, _MAX_FONT_PT)
 
 
 def _letterhead_text(letterhead: dict, key: str) -> str:
@@ -246,9 +300,66 @@ def _pdf_image_flowable(url: str, max_width_pt: float):
         return None
 
 
+_INLINE_IMAGE_MAX_PT = 400   # a picture wider than the text column is the sender's mistake, not ours
+
+# Read from the bytes, never from the src's own claim about itself - an
+# imported picture's declared type and its actual encoding do not always agree.
+_IMAGE_MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+    (b"BM", "image/bmp"),
+)
+
+
+def _image_mime(data: bytes) -> str:
+    for magic, mime in _IMAGE_MAGIC:
+        if data.startswith(magic):
+            return mime
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "application/octet-stream"
+
+
+def _pdf_inline_image_markup(image: dict) -> str:
+    """One inline picture as reportlab Paragraph markup.
+
+    The bytes are resolved here and handed to reportlab as a data: URI rather
+    than the original src, so every source (hosted URL, app-relative path,
+    already-inline data URI) goes through the same one reader, and reportlab
+    never has to reach the network mid-render.
+    """
+    data = _fetch_image_bytes(image.get("src") or "")
+    if not data:
+        return ""
+    try:
+        from reportlab.lib.utils import ImageReader
+        reader = ImageReader(io.BytesIO(data))
+        iw, ih = reader.getSize()
+        if not iw or not ih:
+            return ""
+        # The width the editor shows it at, honored as points (the same
+        # px-as-pt approximation the rest of this pipeline makes); its own
+        # pixel size when the document does not say.
+        w = _font_size_num(image.get("width")) or iw
+        h = _font_size_num(image.get("height")) or (ih * (w / iw))
+        if w > _INLINE_IMAGE_MAX_PT:
+            h, w = h * (_INLINE_IMAGE_MAX_PT / w), _INLINE_IMAGE_MAX_PT
+        uri = f"data:{_image_mime(data)};base64," + base64.b64encode(data).decode("ascii")
+        return f'<img src="{uri}" width="{w:.1f}" height="{h:.1f}" valign="middle"/>'
+    except Exception:
+        return ""
+
+
 def _runs_to_markup(runs: list) -> str:
     parts = []
     for r in runs or []:
+        if r.get("image"):
+            markup = _pdf_inline_image_markup(r["image"])
+            if markup:
+                parts.append(markup)
+            continue
         t = _esc(r.get("text") or "").replace("\n", "<br/>")
         if r.get("bold"):
             t = f"<b>{t}</b>"
@@ -500,10 +611,11 @@ def _letterhead_flow(letterhead: dict, content_width: float) -> list:
 
 def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_blocks: list,
                letterhead: dict = None, page_setup: dict = None) -> bytes:
-    from reportlab.lib.units import inch, mm
+    from reportlab.lib.units import inch
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+    from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame,
+                                    NextPageTemplate, Paragraph, PageBreak)
 
     w_in, h_in, margin_in = _resolve_page_setup(page_setup)
     pagesize = (w_in * inch, h_in * inch)
@@ -514,8 +626,14 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
                                 fontSize=10.5, leading=15, spaceAfter=8)
     content_width = pagesize[0] - 2 * margin
 
-    flow = [Paragraph(_esc(title), ParagraphStyle("title", parent=styles["Title"], fontSize=16)), Spacer(1, 4 * mm)]
-    flow.extend(_letterhead_flow(letterhead, content_width))
+    # The document's NAME is not part of the document (Sagar, Sep 18: "Document
+    # name should not be posted in the document"). It was printed as a Title
+    # paragraph above the letterhead, so every export opened with a heading
+    # nobody had written - and on a letterhead document it sat above the
+    # letterhead, which reads as if the company were a subheading of the file
+    # name. It still goes into the PDF's metadata title below, which is where a
+    # file name belongs.
+    flow = []
     # pages_blocks: one block-list per page (Document Builder's Pages panel -
     # each page is now a real, independent unit, not a pageBreak marker
     # inside one continuous body). Force a real page boundary between them;
@@ -547,10 +665,53 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
         canvas.drawRightString(pagesize[0] - margin, margin - 14, f"Page {canvas.getPageNumber()}")
         canvas.restoreState()
 
+    # The letterhead belongs in the FIRST PAGE'S HEADER, not at the top of the
+    # body (Sagar, Sep 18). Two page templates: page 1 gets a shorter frame with
+    # the letterhead drawn into the band above it, later pages get the full
+    # frame. SimpleDocTemplate cannot vary a frame per page, so this drops to
+    # BaseDocTemplate - the flow itself is unchanged.
+    lh_flow = _letterhead_flow(letterhead, content_width) if letterhead else []
+    lh_height = 0.0
+    if lh_flow:
+        # Measure against a generous height: wrap() returns what each flowable
+        # actually needs, and the band is the sum.
+        for f in lh_flow:
+            try:
+                lh_height += f.wrap(content_width, pagesize[1])[1]
+            except Exception:
+                pass
+        # Never let the letterhead eat the page: if it somehow measures huge,
+        # cap it at a third of the sheet and let it clip rather than leave no
+        # room for the body.
+        lh_height = min(lh_height, pagesize[1] / 3.0)
+
+    def draw_letterhead(canvas, doc):
+        decorate(canvas, doc)
+        if not lh_flow:
+            return
+        y = pagesize[1] - margin
+        for f in lh_flow:
+            try:
+                h = f.wrap(content_width, pagesize[1])[1]
+                y -= h
+                f.drawOn(canvas, margin, y)
+            except Exception:
+                pass
+
     buf = io.BytesIO()
-    SimpleDocTemplate(buf, pagesize=pagesize, topMargin=margin, bottomMargin=margin,
-                      leftMargin=margin, rightMargin=margin, title=title).build(
-        flow, onFirstPage=decorate, onLaterPages=decorate)
+    doc_tmpl = BaseDocTemplate(buf, pagesize=pagesize, topMargin=margin, bottomMargin=margin,
+                               leftMargin=margin, rightMargin=margin, title=title)
+    body_h = pagesize[1] - 2 * margin
+    first_frame = Frame(margin, margin, content_width, max(1.0, body_h - lh_height), id="first")
+    rest_frame = Frame(margin, margin, content_width, body_h, id="rest")
+    doc_tmpl.addPageTemplates([
+        PageTemplate(id="first", frames=[first_frame], onPage=draw_letterhead),
+        PageTemplate(id="rest", frames=[rest_frame], onPage=decorate),
+    ])
+    # Without this, reportlab keeps using the FIRST template for every page and
+    # the letterhead reprints on all of them - it only switches when the flow
+    # says so. Queued ahead of the content, so it takes effect from page 2.
+    doc_tmpl.build([NextPageTemplate("rest"), *flow])
     return buf.getvalue()
 
 
@@ -592,9 +753,35 @@ def _docx_highlight(hex_color: str):
     return getattr(WD_COLOR_INDEX, name) if name else None
 
 
+def _docx_add_inline_image(paragraph, image: dict) -> None:
+    """One inline picture, in its own run, at its position in the text - which
+    is what makes the avatar sit beside the speaker's name rather than on a
+    line below it. python-docx draws a picture added to a run inline by
+    default, so this needs no drawing-anchor XML of its own."""
+    from docx.shared import Pt
+    data = _fetch_image_bytes(image.get("src") or "")
+    if not data:
+        return
+    width = _font_size_num(image.get("width"))
+    try:
+        # Width in POINTS, the same px-as-pt approximation the PDF path makes,
+        # so the two exports agree. No width: python-docx uses the picture's
+        # own size.
+        paragraph.add_run().add_picture(
+            io.BytesIO(data),
+            width=Pt(min(width, _INLINE_IMAGE_MAX_PT)) if width else None)
+    except Exception:
+        # A picture python-docx cannot decode must not take the document with
+        # it - the text around it is the part that matters.
+        pass
+
+
 def _add_runs(paragraph, runs: list) -> None:
     from docx.shared import Pt, RGBColor
     for r in runs or []:
+        if r.get("image"):
+            _docx_add_inline_image(paragraph, r["image"])
+            continue
         text = r.get("text") or ""
         if not text:
             continue
@@ -827,39 +1014,49 @@ def render_docx(title: str, header_blocks: list, pages_blocks: list, footer_bloc
     if footer_text:
         section.footer.paragraphs[0].text = footer_text
 
-    doc.add_heading(title, level=1)
+    # No title heading: the document's NAME is not part of the document
+    # (Sagar, Sep 18). Word still carries it as the file's core title property,
+    # set by the caller, which is where a file name belongs.
 
     if letterhead:
+        # Into the FIRST PAGE'S HEADER, not the body. different_first_page_
+        # header_footer gives page 1 its own header part, so the letterhead
+        # appears once - a real Word letterhead, editable in Word's own header
+        # view - instead of being body text anyone can type over.
+        section.different_first_page_header_footer = True
+        hdr = section.first_page_header
+        # The part starts with one empty paragraph; write into it rather than
+        # leaving a blank line above the letterhead.
+        slots = list(hdr.paragraphs)
+        def _hdr_para():
+            return slots.pop(0) if slots else hdr.add_paragraph()
+
         lh_header = _letterhead_text(letterhead, "headerJson")
         if lh_header:
-            p = doc.add_paragraph(lh_header)
-            if p.runs:
-                p.runs[0].font.size = Pt(8)
+            p = _hdr_para()
+            run = p.add_run(lh_header)
+            run.font.size = Pt(8)
         logo_url = letterhead.get("logoPath") or ""
         if logo_url:
             data = _fetch_image_bytes(logo_url)
             if data:
                 try:
-                    doc.add_picture(io.BytesIO(data), width=Inches(1.8))
+                    _hdr_para().add_run().add_picture(io.BytesIO(data), width=Inches(1.8))
                 except Exception:
                     pass
         name = letterhead.get("name") or ""
         if name:
-            p = doc.add_paragraph()
-            run = p.add_run(name)
+            run = _hdr_para().add_run(name)
             run.bold = True
             run.font.size = Pt(13)
         address = letterhead.get("address") or ""
         if address:
-            p = doc.add_paragraph(address)
-            if p.runs:
-                p.runs[0].font.size = Pt(9)
+            run = _hdr_para().add_run(address)
+            run.font.size = Pt(9)
         lh_footer = _letterhead_text(letterhead, "footerJson")
         if lh_footer:
-            p = doc.add_paragraph(lh_footer)
-            if p.runs:
-                p.runs[0].font.size = Pt(8)
-        doc.add_paragraph()
+            run = _hdr_para().add_run(lh_footer)
+            run.font.size = Pt(8)
 
     # pages_blocks: one block-list per page (see render_pdf's matching
     # comment) - a real page break between each one, on top of

@@ -1,3 +1,4 @@
+import { getSchema } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Paragraph from '@tiptap/extension-paragraph';
 import Heading from '@tiptap/extension-heading';
@@ -73,7 +74,11 @@ const StyledHeading = Heading.extend({ addAttributes() { return { ...this.parent
 export const BODY_EXTENSIONS = [
   StarterKit.configure({ paragraph: false, heading: false }),
   StyledParagraph, StyledHeading,
-  ResizableImage,
+  // Inline, like Word: a picture lives in the run where it was placed, so a
+  // Teams transcript's speaker avatar sits beside the name rather than on a
+  // line of its own. The node view is already built for it
+  // (.doc-image-wrap is display:inline-block, vertical-align:middle).
+  ResizableImage.configure({ inline: true }),
   Table.configure({ resizable: true }),
   TableRow, TableHeader, TableCell,
   MergeField, PageBreak, DocShape, DocTextbox, Bookmark, SectionBox,
@@ -84,3 +89,75 @@ export const BODY_EXTENSIONS = [
   // hyperlink, matching Word; previously explicitly disabled.
   Link.configure({ openOnClick: false, autolink: true }),
 ];
+
+// ── Structural repair ────────────────────────────────────────────────────────
+// ProseMirror does NOT validate on load: Node.fromJSON happily builds a
+// document whose content violates the schema, and the editor then throws
+// "Called contentMatchAt on a node with invalid content" on the first
+// transform that touches the bad node. To the person typing that reads as
+// "this document won't let me type, and undo does nothing" - on some
+// paragraphs but not others, because only the invalid ones fail.
+//
+// The .docx importer used to emit exactly that: `image` is a BLOCK node here
+// (the server exporter reads images at block level, so it has to be), but a
+// Word inline picture arrives inside a run and was written into the
+// paragraph's inline content. A Teams transcript is one avatar per speaker
+// turn, so most paragraphs in the document were unusable.
+//
+// The importer emits valid structure now. This repairs what is already SAVED,
+// on the way into the editor - a document written by the old importer would
+// otherwise stay broken forever, and re-importing it is not something anyone
+// would think to do.
+let _schema = null;
+const schemaOf = () => (_schema ||= getSchema(BODY_EXTENSIONS));
+
+function repairNodes(node, schema) {
+  if (!node || typeof node !== 'object' || !node.type) return [];
+  if (!Array.isArray(node.content) || !node.content.length) return [node];
+  const spec = schema.nodes[node.type];
+  const children = node.content.flatMap(c => repairNodes(c, schema));
+  const isInline = (n) => !!schema.nodes[n.type]?.isInline;
+
+  // A textblock (paragraph, heading) may hold inline content only. Lift any
+  // block child out, splitting the paragraph around it and keeping order.
+  if (spec?.isTextblock) {
+    const out = [];
+    let run = [];
+    const flush = () => { if (run.length) { out.push({ ...node, content: run }); run = []; } };
+    for (const child of children) {
+      if (isInline(child)) run.push(child);
+      else { flush(); out.push(child); }
+    }
+    flush();
+    // Everything lifted out: the paragraph only ever held the block node, so
+    // it leaves with it rather than staying behind as a blank line.
+    return out.length ? out : [];
+  }
+
+  // A block container (doc, list item, table cell) may not hold inline content
+  // directly - wrap any stray runs in a paragraph.
+  if (spec && /block|paragraph/.test(spec.spec.content || '')) {
+    const out = [];
+    let run = [];
+    const flush = () => { if (run.length) { out.push({ type: 'paragraph', content: run }); run = []; } };
+    for (const child of children) {
+      if (isInline(child)) run.push(child);
+      else { flush(); out.push(child); }
+    }
+    flush();
+    return [{ ...node, content: out }];
+  }
+
+  return [{ ...node, content: children }];
+}
+
+// Repairs one page/body document. Returns the input untouched when it is
+// already valid, so a good document is never rewritten.
+export function repairDocJson(json) {
+  if (!json || typeof json !== 'object') return json;
+  const [repaired] = repairNodes(json, schemaOf());
+  if (!repaired) return json;
+  // A doc must have at least one block; an empty one renders as nothing at all.
+  if (!repaired.content?.length) return { ...repaired, content: [{ type: 'paragraph' }] };
+  return repaired;
+}

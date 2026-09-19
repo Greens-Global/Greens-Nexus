@@ -85,6 +85,35 @@
      Branding (lib/brandAccent.js) the way .primary-btn already does
      (Sagar, Sept 2 2026). */
   --nx-primary:  var(--wk-brand);
+
+  /* Marketing module palette (Sep 19, Pranshu: "audit whole NEXUS... colours
+     are still not accurate" - this module, ported from a standalone
+     Tailwind export, had literal hex everywhere and zero dark-mode wiring
+     at all). Light values below are byte-identical to the original literal
+     hex in marketing/theme.js, so light mode is unchanged; dark values are
+     added in the [data-theme="dark"] block. See marketing/theme.js's `C`
+     object, which every marketing component reads these through. */
+  --mkt-white: #ffffff;
+  --mkt-black: #000000;
+  --mkt-gray50: #f9fafb; --mkt-gray100: #f3f4f6; --mkt-gray200: #e5e7eb; --mkt-gray300: #d1d5db;
+  --mkt-gray400: #9ca3af; --mkt-gray500: #6b7280; --mkt-gray600: #4b5563; --mkt-gray700: #374151;
+  --mkt-gray800: #1f2937; --mkt-gray900: #111827;
+  --mkt-hover: rgba(0,0,0,0.035);
+  --mkt-emerald50: #ecfdf5; --mkt-emerald100: #d1fae5; --mkt-emerald400: #34d399;
+  --mkt-emerald500: #10b981; --mkt-emerald600: #059669; --mkt-emerald700: #047857;
+  --mkt-blue50: #eff6ff; --mkt-blue100: #dbeafe; --mkt-blue200: #bfdbfe;
+  --mkt-blue500: #3b82f6; --mkt-blue600: #2563eb; --mkt-blue700: #1d4ed8;
+  --mkt-amber50: #fffbeb; --mkt-amber100: #fef3c7; --mkt-amber200: #fde68a;
+  --mkt-amber500: #f59e0b; --mkt-amber600: #d97706; --mkt-amber700: #b45309;
+  --mkt-purple50: #faf5ff; --mkt-purple100: #f3e8ff; --mkt-purple200: #e9d5ff;
+  --mkt-purple500: #a855f7; --mkt-purple600: #9333ea; --mkt-purple700: #7e22ce;
+  --mkt-red50: #fef2f2; --mkt-red100: #fee2e2;
+  --mkt-red500: #ef4444; --mkt-red600: #dc2626; --mkt-red700: #b91c1c;
+  --mkt-orange50: #fff7ed; --mkt-orange100: #ffedd5; --mkt-orange500: #f97316; --mkt-orange600: #ea580c;
+  --mkt-teal50: #f0fdfa; --mkt-teal500: #14b8a6; --mkt-teal600: #0d9488;
+  --mkt-pink50: #fdf2f8; --mkt-pink500: #ec4899; --mkt-pink600: #db2777;
+  --mkt-indigo50: #eef2ff; --mkt-indigo500: #6366f1; --mkt-indigo600: #4f46e5;
+  --mkt-cyan50: #ecfeff; --mkt-cyan500: #06b6d4;
 }
 
 [data-theme="dark"] {
@@ -138,6 +167,42 @@
   --nx-hover:    rgba(255,255,255,0.06);
   --nx-zebra:    rgba(255,255,255,0.022);
   --nx-primary:  var(--wk-brand);   /* see the light-theme note above */
+
+  /* Marketing module palette - dark theme (see the light-theme note above).
+     Neutrals invert (gray900, the darkest light-mode text, becomes the
+     near-white PRIMARY dark-mode text - same principle as --ink elsewhere
+     in this file); the pale *50/*100/*200 tint backgrounds become low-alpha
+     translucent versions of their own accent hue (the same "tint, not
+     opaque pastel" pattern tasks/theme.js's STATUS_META/PRIORITY_META
+     already use, so a chip composites correctly over the dark card instead
+     of showing as a glaring light patch); the saturated *500/*600/*700
+     accent/icon shades follow Tailwind's own documented dark-mode
+     convention of swapping a 600/700 shade for the 400/300 of the same
+     hue, so text and icons keep good contrast against a dark card instead
+     of reading as muted/faded. */
+  --mkt-white: var(--card);
+  --mkt-black: #000000;
+  --mkt-gray50:  rgba(255,255,255,0.04);  --mkt-gray100: rgba(255,255,255,0.07);
+  --mkt-gray200: rgba(255,255,255,0.11);  --mkt-gray300: rgba(255,255,255,0.17);
+  --mkt-gray400: #64708a; --mkt-gray500: #8996ac; --mkt-gray600: #aab4c4;
+  --mkt-gray700: #c6cedb; --mkt-gray800: #dde3ec; --mkt-gray900: #f1f4f8;
+  --mkt-hover: rgba(255,255,255,0.05);
+  --mkt-emerald50: rgba(16,185,129,0.14); --mkt-emerald100: rgba(16,185,129,0.22);
+  --mkt-emerald400: #6ee7b7; --mkt-emerald500: #34d399; --mkt-emerald600: #34d399; --mkt-emerald700: #6ee7b7;
+  --mkt-blue50: rgba(59,130,246,0.16); --mkt-blue100: rgba(59,130,246,0.24); --mkt-blue200: rgba(59,130,246,0.32);
+  --mkt-blue500: #60a5fa; --mkt-blue600: #60a5fa; --mkt-blue700: #93c5fd;
+  --mkt-amber50: rgba(245,158,11,0.16); --mkt-amber100: rgba(245,158,11,0.24); --mkt-amber200: rgba(245,158,11,0.32);
+  --mkt-amber500: #fbbf24; --mkt-amber600: #fbbf24; --mkt-amber700: #fcd34d;
+  --mkt-purple50: rgba(168,85,247,0.16); --mkt-purple100: rgba(168,85,247,0.24); --mkt-purple200: rgba(168,85,247,0.32);
+  --mkt-purple500: #c084fc; --mkt-purple600: #c084fc; --mkt-purple700: #d8b4fe;
+  --mkt-red50: rgba(239,68,68,0.16); --mkt-red100: rgba(239,68,68,0.24);
+  --mkt-red500: #f87171; --mkt-red600: #f87171; --mkt-red700: #fca5a5;
+  --mkt-orange50: rgba(249,115,22,0.16); --mkt-orange100: rgba(249,115,22,0.24);
+  --mkt-orange500: #fb923c; --mkt-orange600: #fb923c;
+  --mkt-teal50: rgba(20,184,166,0.16); --mkt-teal500: #2dd4bf; --mkt-teal600: #2dd4bf;
+  --mkt-pink50: rgba(236,72,153,0.16); --mkt-pink500: #f472b6; --mkt-pink600: #f472b6;
+  --mkt-indigo50: rgba(99,102,241,0.16); --mkt-indigo500: #818cf8; --mkt-indigo600: #818cf8;
+  --mkt-cyan50: rgba(6,182,212,0.16); --mkt-cyan500: #22d3ee;
 }
 
 /* â”€â”€ Reset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -660,6 +725,19 @@ h1,h2,h3,h4,h5,h6,
    widths so its cards can run edge to edge on phones. */
 .viewport.viewport-flush { padding: 0; }
 
+/* Documents: same trick, milder. Sagar, Sep 17 - "I don't want that much empty
+   space at the top... reduce the empty spaces so I can get more usable area".
+   The module has no title band any more, so on desktop the first thing on the
+   page is a sub-tab strip or a filter row sitting under 32px of gutter, on
+   every one of its screens at once.
+   Only from 641px up: below that .viewport is already down to 8-14px, and a
+   flat override would make small screens LOOSER, not tighter. Two classes
+   (0,2,0) again, so it beats the plain `.viewport` rules whatever their order -
+   the same reason the flush variant is written this way. */
+@media (min-width: 641px) {
+  .viewport.viewport-tight { padding-top: 10px; }
+}
+
 /* â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .primary-btn, .btn-primary {
   display: inline-flex;
@@ -735,7 +813,16 @@ h1,h2,h3,h4,h5,h6,
 }
 .form-input:focus, .form-select:focus {
   border-color: var(--wk-brand);
-  background: var(--card);
+  /* background-color, not `background` (Sep 19: "dropdowns are normal if i
+     don't click on them - once i click on them same issue as earlier" - this
+     is the ACTUAL bug, in both themes: clicking a select to open it focuses
+     it, and this un-scoped :focus rule's `background` shorthand was
+     resetting background-repeat to its default on every focus, retiling the
+     chevron. The earlier dark-only background-color fix on the [data-
+     theme="dark"] rules never touched this one, so the moment you clicked
+     any select the tiling came right back, in light mode too - just less
+     visible there against a near-white chevron stroke). */
+  background-color: var(--card);
   box-shadow: 0 0 0 3px var(--wk-brand-tint);
 }
 .form-input::placeholder, .form-select::placeholder, textarea::placeholder { color: var(--wk-faint); }
@@ -871,13 +958,18 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 
 [data-theme="dark"] .form-input,
 [data-theme="dark"] .form-select {
-  background: var(--mist);
+  /* background-color, not the `background` shorthand (Sep 19: "This week"
+     and "Update a document" selects showed a whole row of tiled chevrons
+     instead of one) - `background: var(--mist)` here was resetting
+     background-repeat/position/image to their initial values on every
+     <select> app-wide, undoing the single no-repeat chevron set above. */
+  background-color: var(--mist);
   border-color: rgba(255,255,255,0.1);
   color: var(--ink);
 }
 [data-theme="dark"] .form-input:focus,
 [data-theme="dark"] .form-select:focus {
-  background: var(--card);
+  background-color: var(--card);   /* longhand - see the note above */
   border-color: rgba(255,255,255,0.3);
   box-shadow: 0 0 0 3px rgba(255,255,255,0.06);
 }
@@ -2513,8 +2605,8 @@ button, [role="button"], select { touch-action: manipulation; }
    visual consistency with E-Sign's template editor. */
 .doc-toolbar {
   display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
-  padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px;
-  background: var(--card); margin-bottom: 14px;
+  padding: 6px 10px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card); margin-bottom: 8px;
 }
 .doc-toolbar button {
   display: flex; align-items: center; justify-content: center;
@@ -2525,10 +2617,40 @@ button, [role="button"], select { touch-action: manipulation; }
 .doc-toolbar button.is-active { background: hsla(var(--color-blue),0.14); color: hsl(var(--color-blue)); }
 .doc-toolbar-sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
 
+/* ── Document Builder on a phone (Sagar, Sep 17) ─────────────────────────────
+   The builder is a Word-shaped surface and none of its three chrome pieces fit
+   a 375px screen as authored. Each gets a phone form here rather than being
+   dropped, so the same document is still fully editable on a phone. */
+@media (max-width: 640px) {
+  /* The ribbon holds 36 controls. Wrapping them at 30px each built a four-row
+     ~150px wall above every document, so the page itself started below the
+     fold. One scrolling row keeps every command reachable and costs 40px.
+     Same idiom as .scroll-tabs: touch momentum, no visible scrollbar. */
+  .doc-toolbar {
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; -ms-overflow-style: none;
+    padding: 6px 8px; border-radius: 10px; margin-bottom: 10px;
+  }
+  .doc-toolbar::-webkit-scrollbar { display: none; height: 0; }
+  /* Without this the flex items are allowed to shrink below their own width
+     and the icons squash into slivers instead of scrolling. */
+  .doc-toolbar > * { flex: 0 0 auto; }
+  /* 34px clears the 24px minimum for a touch target on the icon buttons,
+     which are 30px on desktop where there is a cursor to aim with. */
+  .doc-toolbar button { width: 34px; height: 34px; }
+
+  /* The page keeps its shadow but loses the desktop side margin, so the sheet
+     uses the full screen width rather than floating in a gutter. */
+  .doc-page { box-shadow: 0 2px 10px rgba(0,0,0,0.08); border-radius: 6px; }
+}
+
 .doc-page {
   position: relative;
-  background: #fff; max-width: 850px; margin: 0 auto; border-radius: 4px;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.09); padding: 56px 64px;
+  /* Fallback only - pageCanvasStyle() sets these inline per page setup. Kept
+     in step with it: 96px to the inch, so Letter is 8.5in x 96 = 816 with 1in
+     (96px) margins. See the scale note in lib/pageSetup.js. */
+  background: #fff; max-width: 816px; margin: 0 auto; border-radius: 4px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.09); padding: 96px;
   font-family: Inter, sans-serif; font-size: 14.5px; line-height: 1.7; color: #111827;
 }
 .doc-letterhead {
@@ -2542,6 +2664,15 @@ button, [role="button"], select { touch-action: manipulation; }
 .doc-band { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px dashed var(--line); color: #6b7280; }
 .doc-band.doc-footer { padding-bottom: 0; padding-top: 14px; margin-bottom: 0; margin-top: 14px; border-bottom: none; border-top: 1px dashed var(--line); }
 .doc-editor .ProseMirror { outline: none; min-height: 240px; }
+/* prosemirror.css sets position:relative on .ProseMirror. In the Document
+   Builder, floating images/shapes (wrapMode behind/front) store x/y measured
+   from .doc-page and are positioned absolutely against it - see
+   applyWrapStyle in docBuilderExtensions.js and insertPageCoords in
+   DocumentBuilder.jsx. Letting .ProseMirror become the containing block would
+   shift every float by the page padding, so the anchor stays on .doc-page.
+   The gap cursor is unaffected: it is absolutely positioned with auto offsets,
+   so it renders at its static position either way. */
+.doc-editor .ProseMirror { position: static; }
 .doc-band .doc-editor .ProseMirror { min-height: 40px; }
 /* Header/footer editors sitting inline in the combined letterhead row (not
    wrapped in .doc-band anymore, now that they share a row with the
@@ -2565,6 +2696,23 @@ button, [role="button"], select { touch-action: manipulation; }
 .show-marks .ProseMirror li::after {
   content: '¶'; color: #9ca3af; margin-left: 3px; font-weight: 400; user-select: none;
 }
+/* A block pushed onto the next sheet (docBuilderPagination.js). The margin
+   that moves it is set per-block as an inline decoration style; this paints
+   the space it leaves so it reads as the gutter between two sheets rather
+   than as an accidental blank gap. The rule sits at the TOP of the margin box,
+   where the previous sheet ends. */
+.doc-sheet-start { position: relative; }
+.doc-sheet-start::before {
+  content: '';
+  position: absolute; left: -96px; right: -96px;
+  top: calc(-1 * var(--doc-sheet-gap, 0px));
+  height: var(--doc-sheet-gap, 0px);
+  background: var(--mist);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  pointer-events: none;
+}
+
 .doc-pagebreak {
   display: flex; align-items: center; gap: 10px; margin: 18px 0;
   color: #9ca3af; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
@@ -2815,7 +2963,15 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 .nx-rich .ProseMirror pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
 .nx-rich .ProseMirror blockquote { border-left: 3px solid var(--line, #e5e7eb); margin: 0 0 8px; padding-left: 10px; color: #6b7280; }
-.nx-rich .ProseMirror img { max-width: 100%; height: auto; border-radius: 8px; }
+/* Images in rich text are previews, not full-size: a pasted screenshot or a
+   logo used to fill the whole description at its natural size. Capped in
+   height (width follows, aspect kept); the full picture opens in the viewer -
+   double-click in the editor, click in a posted comment (useImageZoom). */
+.nx-rich .ProseMirror img {
+  display: block; max-width: 100%; max-height: 240px; width: auto; height: auto;
+  object-fit: contain; border-radius: 8px; border: 1px solid var(--line, #e5e7eb); margin: 4px 0; cursor: zoom-in;
+}
+.nx-rich .ProseMirror img.ProseMirror-selectednode { outline: 2px solid #2563eb; outline-offset: 2px; }
 .nx-rich .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: #9ca3af;
 }
@@ -2827,7 +2983,10 @@ button, [role="button"], select { touch-action: manipulation; }
 .nx-rich-view ul, .nx-rich-view ol { margin: 0 0 8px; padding-left: 22px; }
 .nx-rich-view a { color: #2563eb; text-decoration: underline; }
 .nx-rich-view mark { background: #fde68a; border-radius: 2px; padding: 0 1px; }
-.nx-rich-view img { max-width: 100%; height: auto; border-radius: 8px; }
+.nx-rich-view img, .nx-rich-body img {
+  display: block; max-width: 100%; max-height: 240px; width: auto; height: auto;
+  object-fit: contain; border-radius: 8px; border: 1px solid var(--line, #e5e7eb); margin: 4px 0; cursor: zoom-in;
+}
 .nx-rich-view pre {
   background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 10px 12px;
   overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
@@ -2881,6 +3040,44 @@ button, [role="button"], select { touch-action: manipulation; }
   --wk-shadow:    0 4px 12px rgba(29,33,57,.05);
   --wk-shadow-hov:0 8px 20px rgba(29,33,57,.09);
   --wk-font:      'Figtree', 'Inter', sans-serif;
+}
+
+/* Dark mode for the Work OS token layer (Sep 19, Pranshu: "audit across
+   whole NEXUS, dark mode is very messed up... the actual colours of icon
+   has also faded"). These --wk-* tokens back nearly every icon chip, badge,
+   border and hover state across every module, but until now only ever had
+   ONE (light) definition - [data-theme="dark"] never touched them. Some
+   individual components (the .dk-* dashboard, .wkc cards, .ppl-table, …)
+   were separately hand-patched with their own [data-theme="dark"] override
+   over the years, which is why dark mode looked "fine in spots, broken
+   everywhere else": every OTHER screen that reads --wk-ink/--wk-dim/
+   --wk-card/--wk-brand-tint/--wk-green etc. directly was silently still
+   rendering light-mode values on a dark background - pale chip tints,
+   washed-out icon colors, near-invisible borders. Fixing the tokens
+   themselves fixes every one of those screens at once instead of patching
+   them individually. The accent hues below match the already-correct
+   --ok-fg/--warn-fg/--bad-fg/--info-fg and .dk-chip--* dark values already
+   in this file, so nothing that WAS already patched changes look. */
+[data-theme="dark"] {
+  --wk-bg:        var(--paper);
+  --wk-card:      var(--card);
+  --wk-ink:       var(--ink);
+  --wk-dim:       var(--muted);
+  --wk-faint:     var(--text-muted);
+  --wk-line:      rgba(255,255,255,0.10);
+  --wk-line2:     rgba(255,255,255,0.08);
+  --wk-hover:     rgba(255,255,255,0.05);
+  --wk-brand-tint:rgba(43,69,225,0.18);
+  --wk-green:     #4ade80;
+  --wk-green-bg:  rgba(0,200,117,.14);
+  --wk-orange:    #fbbf24;
+  --wk-orange-bg: rgba(232,147,12,.16);
+  --wk-red:       #f87171;
+  --wk-red-bg:    rgba(226,68,92,.16);
+  --wk-blue:      #60a5fa;
+  --wk-blue-bg:   rgba(61,126,232,.18);
+  --wk-shadow:    0 4px 12px rgba(0,0,0,.45);
+  --wk-shadow-hov:0 8px 24px rgba(0,0,0,.55);
 }
 
 /* ── Warm theme ("Sand" - Lisso-inspired, owner request Jul 28) ────────────

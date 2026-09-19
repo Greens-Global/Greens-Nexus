@@ -43,11 +43,12 @@ export const dialog = {
 export function DialogHost() {
   const [item, setItem] = useState(null);
   const [value, setValue] = useState('');
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const inputRef = useRef(null);
   const okRef = useRef(null);
 
   useEffect(() => {
-    _present = (it) => { setValue(it.defaultValue || ''); setItem(it); };
+    _present = (it) => { setValue(it.defaultValue || ''); setConfirmingDiscard(false); setItem(it); };
     if (_queue.length) _present(_queue.shift());
     return () => { _present = null; };
   }, []);
@@ -76,9 +77,15 @@ export function DialogHost() {
   const okDisabled = isPrompt && item.required && !value.trim();
   const confirmResult = () => close(isPrompt ? value : true);
   const cancelResult = () => close(isPrompt ? null : false);
+  // A typed prompt whose value has diverged from the default is "dirty" -
+  // an unintentional exit (overlay click, Escape) asks first instead of
+  // silently dropping what was typed. The prompt's own visible Cancel
+  // button stays an immediate, deliberate discard.
+  const dirty = isPrompt && value !== (item.defaultValue || '');
+  const requestCancel = () => { if (dirty) setConfirmingDiscard(true); else cancelResult(); };
 
   const onKeyDown = (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); cancelResult(); }
+    if (e.key === 'Escape') { e.preventDefault(); requestCancel(); }
     else if (e.key === 'Enter' && !(isPrompt && item.multiline)) {
       e.preventDefault();
       if (!okDisabled) confirmResult();
@@ -90,10 +97,52 @@ export function DialogHost() {
     cursor: 'pointer', fontFamily: 'Inter, sans-serif', border: '1px solid transparent',
   };
 
+  if (confirmingDiscard) {
+    return (
+      <div
+        role="presentation"
+        onMouseDown={(e) => { if (e.target === e.currentTarget) setConfirmingDiscard(false); }}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 100000,
+          background: 'rgba(15, 21, 18, 0.42)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 20, backdropFilter: 'blur(2px)',
+        }}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setConfirmingDiscard(false); } }}
+          style={{
+            background: 'var(--card, var(--paper, #fff))',
+            border: '1px solid var(--line, #e6e8e2)',
+            borderRadius: 16, padding: '24px 24px 20px', width: '100%', maxWidth: 380,
+            boxShadow: '0 12px 40px rgba(0,0,0,.22)', fontFamily: 'Inter, sans-serif',
+          }}
+        >
+          <div style={{ fontSize: 16.5, fontWeight: 700, color: 'var(--ink, #17211c)', marginBottom: 8 }}>Save your changes?</div>
+          <div style={{ fontSize: 14, color: 'var(--muted, #5b675f)', lineHeight: 1.55 }}>
+            You have unsaved changes. Closing now will discard them.
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 9, marginTop: 20, flexWrap: 'wrap' }}>
+            <button type="button" onClick={() => setConfirmingDiscard(false)}
+              style={{ ...btnBase, background: 'transparent', color: 'var(--ink, #17211c)', borderColor: 'var(--line, #e6e8e2)' }}>Keep Editing</button>
+            <button type="button" onClick={cancelResult}
+              style={{ ...btnBase, background: 'transparent', color: 'var(--ink, #17211c)', borderColor: 'var(--line, #e6e8e2)' }}>Discard</button>
+            <button type="button" onClick={confirmResult} disabled={okDisabled}
+              style={{ ...btnBase, background: 'var(--ink, #17211c)', color: 'var(--paper, #fff)', opacity: okDisabled ? 0.5 : 1, cursor: okDisabled ? 'not-allowed' : 'pointer' }}>
+              {item.confirmText || 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       role="presentation"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) cancelResult(); }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) requestCancel(); }}
       style={{
         position: 'fixed', inset: 0, zIndex: 100000,
         background: 'rgba(15, 21, 18, 0.42)',

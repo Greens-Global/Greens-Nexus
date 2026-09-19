@@ -27,8 +27,11 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const [signature, setSignature] = useState(null);
   const [sigName, setSigName] = useState('');
   const [sigPhone, setSigPhone] = useState('');
+  const [sigClosing, setSigClosing] = useState('');
+  const [sigLinkedin, setSigLinkedin] = useState('');
   const [sigBusy, setSigBusy] = useState(false);
   const [sigStatus, setSigStatus] = useState('');
+  const [logoBusy, setLogoBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   // Fixed MAX_ZONES slots, '' = unset - a dropdown per slot rather than a
   // checklist of ~400 zones (Pranshu, Sep 1: "make it a drop down"). Local
@@ -48,7 +51,10 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
 
   useEffect(() => {
     api.myHrProfile().then(setProfile).catch(err => setError(err?.message || 'Could not load your profile.'));
-    api.mySignature().then(s => { setSignature(s); setSigName(s.displayNameOverride || ''); setSigPhone(s.phoneOverride || ''); }).catch(() => {});
+    api.mySignature().then(s => {
+      setSignature(s); setSigName(s.displayNameOverride || ''); setSigPhone(s.phoneOverride || '');
+      setSigClosing(s.closingOverride || ''); setSigLinkedin(s.linkedinOverride || '');
+    }).catch(() => {});
   }, []);
 
   function handlePhotoSaved(updated) {
@@ -56,10 +62,30 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
     refreshPhotoMap();
   }
 
+  async function uploadSignatureLogo(file) {
+    setLogoBusy(true); setSigStatus('');
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      setSignature(await api.mySignatureLogoUpload(form));
+      setSigStatus('Logo updated.');
+    } catch (e) { setSigStatus(e?.message || 'Could not upload logo.'); }
+    setLogoBusy(false);
+  }
+
+  async function removeSignatureLogo() {
+    setLogoBusy(true); setSigStatus('');
+    try {
+      setSignature(await api.mySignatureLogoRemove());
+      setSigStatus("Back to your company's logo.");
+    } catch (e) { setSigStatus(e?.message || 'Could not remove logo.'); }
+    setLogoBusy(false);
+  }
+
   async function saveSignature() {
     setSigBusy(true); setSigStatus('');
     try {
-      const s = await api.mySignatureSave({ display_name: sigName, phone: sigPhone });
+      const s = await api.mySignatureSave({ display_name: sigName, phone: sigPhone, closing: sigClosing, linkedin_url: sigLinkedin });
       setSignature(s); setSigStatus('Saved.');
     } catch (e) { setSigStatus(e?.message || 'Could not save.'); }
     setSigBusy(false);
@@ -140,7 +166,24 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
               <Signature size={11} /> Email Signature
             </div>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
-              Name, role and company e-mail come from your directory record, and the template is set company-wide by your admin. Add a preferred name below and it shows alongside your full name - you can also override your phone.
+              Name, role and company e-mail come from your directory record, and the visual template is set company-wide by your admin. Everything below is yours - a preferred name (shown alongside your full name), phone override, sign-off, your personal LinkedIn, and your own logo.
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              {signature.logoUrl && (
+                <img src={signature.logoUrl} alt="" style={{ height: 32, maxWidth: 120, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid var(--line)' }} />
+              )}
+              <label className="secondary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', opacity: logoBusy ? 0.6 : 1 }}>
+                {logoBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Camera size={12} />}
+                {signature.logoUrlOverride ? 'Replace logo' : 'Upload logo'}
+                <input type="file" accept="image/*" style={{ display: 'none' }} disabled={logoBusy}
+                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadSignatureLogo(f); }} />
+              </label>
+              {signature.logoUrlOverride && (
+                <button className="secondary-btn" onClick={removeSignatureLogo} disabled={logoBusy}
+                  style={{ fontSize: 12 }} title="Go back to your company's logo">
+                  Use company logo
+                </button>
+              )}
             </div>
             {/* The typewriter animation ships inside signature.html itself (backend
                 _TYPEWRITER_CSS) so it travels with a copy/paste into Outlook, not just
@@ -155,6 +198,19 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
                 onChange={e => setSigName(e.target.value)} style={{ fontSize: 13 }} />
               <input className="form-input" placeholder="Phone for signature (defaults to your profile phone)" value={sigPhone}
                 onChange={e => setSigPhone(e.target.value)} style={{ fontSize: 13 }} />
+              <input className="form-input" placeholder="Your LinkedIn (e.g. https://linkedin.com/in/...)" value={sigLinkedin}
+                onChange={e => setSigLinkedin(e.target.value)} style={{ fontSize: 13 }} />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input className="form-input" placeholder="Sign-off (e.g. Sincerely, or write your own)" value={sigClosing}
+                  onChange={e => setSigClosing(e.target.value)} style={{ fontSize: 13, flex: 1 }} />
+                {signature.closingPresets?.some(c => c) && (
+                  <select className="form-input" value="" onChange={e => { if (e.target.value) setSigClosing(e.target.value); }}
+                    style={{ fontSize: 12.5, width: 130, flexShrink: 0 }} title="Quick-pick a sign-off">
+                    <option value="">Quick pick…</option>
+                    {signature.closingPresets.filter(c => c).map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                )}
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="secondary-btn" onClick={saveSignature} disabled={sigBusy}

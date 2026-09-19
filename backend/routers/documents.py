@@ -28,13 +28,14 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
 
-from sqlalchemy import or_, cast, String as SqlString
+from sqlalchemy import or_, cast, func, String as SqlString
 
 from database import get_db
 from auth import get_current_user
 from models import (DocFolder, Document, DocumentVersion, DocTemplate, DocTemplateVersion,
-                    DocLetterhead, HrSignRequest, HrSignParty)
-from services.merge_fields import resolve_merge_data
+                    DocLetterhead, HrSignRequest, HrSignParty, NexusEmployee)
+from services.merge_fields import (BUILTIN_VARIABLES, group_label, is_auto_token,
+                                   is_valid_token, resolve_merge_data, token_group)
 from services.doc_export import tiptap_to_blocks, render_pdf, render_docx
 from routers.hr import require_hr_read, _hr_notify
 
@@ -50,11 +51,25 @@ _SYSTEM_FOLDERS = [
 
 _TEMPLATE_CATEGORIES = ("letterhead", "hr", "legal", "finance", "operations", "sales", "engineering", "general")
 
+# Requirement 3. A template is DRAFT while it is being written, ACTIVE once it
+# is the company's approved language, ARCHIVED when it is retired. Only an
+# active template may be generated from - that is what "company-approved"
+# buys you, and requirement 20 asks for a plain "template inactive" error
+# rather than a document quietly produced from unfinished language.
+_TEMPLATE_STATUSES = ("draft", "active", "archived")
+_TEMPLATE_TYPES = ("document", "email")
+
 # Template Builder (Phase 13) - merge-field type registry. "Reserved" types
 # never get a value out of the Generate-Document fill form (signature/initials
 # are placed later by the separate E-Sign field-placement step; image/file
 # upload-at-fill-time is a documented fast-follow) - see _reserved_placeholder.
+# Requirement 5 asks for text, number, currency, date, email, address and
+# person/name at minimum - and requirement 19 for the validation that goes with
+# them ("Email -> valid email"). email/address/person are their own types
+# rather than "text with a regex someone remembers to set", so a template
+# author picks the meaning and gets the checking for free.
 _FIELD_TYPES = ("text", "multiline", "number", "currency", "date", "time",
+                "email", "address", "person",
                 "dropdown", "radio", "checkbox", "signature", "initials", "image", "file")
 _RESERVED_FIELD_TYPES = ("signature", "initials", "image", "file")
 
@@ -93,6 +108,7 @@ def _ser_folder(f: DocFolder) -> dict:
 
 def _ser_document(d: Document, sign_status: str = "") -> dict:
     return {"id": d.id, "title": d.title, "folderId": d.folder_id, "templateId": d.template_id,
+            "templateVersion": d.template_version or 0,
             "content": d.content, "letterheadId": d.letterhead_id, "status": d.status,
             "employeeId": d.employee_id, "entityId": d.entity_id, "mergeOverrides": d.merge_overrides or {},
             "ownerEmail": d.owner_email, "tags": d.tags or [], "currentVersion": d.current_version,
@@ -254,6 +270,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
     content = body.content if body.content is not None else {}
     letterhead_id = ""
     merge_overrides = {}
+    tpl = None
     # Starting from a template clones its content (and, if the template
     # requires one, its letterhead - falling back to the org default) rather
     # than just recording template_id as a label. It also seeds the template's
@@ -262,6 +279,13 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
     # template, not re-typed on every document created from it.
     if body.templateId:
         tpl = db.query(DocTemplate).filter(DocTemplate.id == body.templateId).first()
+        if not tpl:
+            raise HTTPException(404, "That template no longer exists. Pick another from the library.")
+        if tpl.status != "active":
+            # Requirement 3/20 - a draft is unfinished language and an archived
+            # template is retired; neither is something to generate from.
+            raise HTTPException(409, f'The template "{tpl.name}" is {tpl.status}, so it cannot be '
+                                     f'used to create a document. Ask its department to activate it.')
         if tpl:
             if body.content is None:
                 content = copy.deepcopy(tpl.content) if tpl.content else {}
@@ -284,20 +308,79 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
             missing = [
                 fd.get("label") or fd.get("token") for fd in (tpl.field_defs or [])
                 if fd.get("required") and fd.get("type") not in _RESERVED_FIELD_TYPES
+                and not is_auto_token(fd.get("token"))
                 and not (merge_overrides.get(fd.get("token")) or "").strip()
             ]
             if missing:
                 raise HTTPException(422, f"Missing required field(s): {', '.join(missing)}")
+            bad = _invalid_values(tpl.field_defs or [], merge_overrides)
+            if bad:
+                raise HTTPException(422, "; ".join(bad))
+    # Requirement 7: "The generated output should be non-editable. The user
+    # should not be able to freely modify the final generated document after
+    # the template values have been populated."
+    #
+    # A document GENERATED from a template is therefore born final - the lock
+    # is not something someone has to remember to apply afterwards, or the
+    # guarantee is only as good as the person clicking. A document authored
+    # from scratch is not generated output and starts as a draft, as before.
+    # Unlock (POST /{did}/unlock) is the recorded way back for a typo.
+    generated = bool(body.templateId)
+    status = "final" if generated else "draft"
     row = Document(id=str(uuid.uuid4()), title=body.title.strip(), folder_id=body.folderId or "",
-                    template_id=body.templateId or "", content=content, letterhead_id=letterhead_id,
+                    template_id=body.templateId or "",
+                    template_version=(tpl.version or 1) if (generated and tpl) else 0,
+                    content=content, letterhead_id=letterhead_id,
                     merge_overrides=merge_overrides,
-                    status="draft", owner_email=user["email"].lower(), tags=_clean_tags(body.tags or []), current_version=1,
+                    status=status, owner_email=user["email"].lower(), tags=_clean_tags(body.tags or []), current_version=1,
                     created_by=user["email"], created_at=now, updated_by=user["email"], updated_at=now)
     db.add(row); db.flush()
     db.add(DocumentVersion(id=str(uuid.uuid4()), document_id=row.id, version_no=1, content=content,
-                            edited_by=user["email"], edited_at=now, note="Created"))
+                            edited_by=user["email"], edited_at=now,
+                            note="Generated from template" if generated else "Created"))
     db.commit(); db.refresh(row)
     return _ser_document(row)
+
+
+# ── Template ownership ───────────────────────────────────────────────────────
+# Requirement 12: "Department heads should be able to manage the templates
+# belonging to their respective departments." Templates carry the company's
+# APPROVED language, so who may rewrite them is the whole point - before this,
+# every template endpoint was guarded by get_current_user alone and any signed-in
+# person could rewrite or delete the legal team's NDA.
+#
+#   administrator+  - every template, including company-wide ones
+#   manager         - templates of their own department only
+#   below manager   - read only
+#
+# Reading stays open to the whole company: a template nobody can find is a
+# template nobody reuses, which is the behavior this module exists to fix.
+_MANAGER_LEVEL = 3  # auth._LEVELS["manager"]
+
+
+def _caller_department(db: Session, user: dict) -> str:
+    row = (db.query(NexusEmployee.department)
+           .filter(func.lower(NexusEmployee.work_email) == (user.get("email") or "").lower())
+           .first())
+    return (row[0] or "").strip() if row else ""
+
+
+def _same_department(a: str, b: str) -> bool:
+    return (a or "").strip().lower() == (b or "").strip().lower()
+
+
+def _require_template_manager(db: Session, user: dict, department: str) -> None:
+    """May this caller create or change a template owned by `department`?"""
+    if user.get("level", 0) >= _ADMIN_LEVEL:
+        return
+    if user.get("level", 0) < _MANAGER_LEVEL:
+        raise HTTPException(403, "Only department heads can manage templates")
+    if not (department or "").strip():
+        # Company-wide language is not any one department's to rewrite.
+        raise HTTPException(403, "Only an administrator can manage a company-wide template")
+    mine = _caller_department(db, user)
+    if not mine or not _same_department(mine, department):
+        raise HTTPException(403, f"This template belongs to {department}, not your department")
 
 
 def _ser_template(t: DocTemplate) -> dict:
@@ -305,6 +388,9 @@ def _ser_template(t: DocTemplate) -> dict:
             "content": t.content, "requiresLetterhead": t.requires_letterhead,
             "letterheadId": t.letterhead_id, "mergeOverrides": t.merge_overrides or {},
             "fieldDefs": t.field_defs or [],
+            "department": t.department or "",
+            "docType": t.doc_type or "document",
+            "signerRoles": t.signer_roles or [],
             "status": t.status, "version": t.version,
             "createdBy": t.created_by, "createdAt": t.created_at,
             "updatedBy": t.updated_by, "updatedAt": t.updated_at}
@@ -324,11 +410,18 @@ class TemplateIn(BaseModel):
     requiresLetterhead: Optional[bool] = False
     letterheadId: Optional[str] = ""
     fieldDefs: Optional[List[dict]] = None
+    department: Optional[str] = None
+    docType: Optional[str] = None
+    signerRoles: Optional[List[dict]] = None
+    status: Optional[str] = None
 
 
 class TemplateUpdate(BaseModel):
     name: Optional[str] = None
     category: Optional[str] = None
+    department: Optional[str] = None
+    docType: Optional[str] = None
+    signerRoles: Optional[List[dict]] = None
     tags: Optional[List[str]] = None
     content: Optional[dict] = None
     requiresLetterhead: Optional[bool] = None
@@ -357,6 +450,13 @@ class LetterheadUpdate(BaseModel):
     isDefault: Optional[bool] = None
 
 
+def _get_template(db: Session, tid: str) -> DocTemplate:
+    row = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
+    if not row:
+        raise HTTPException(404, "Template not found")
+    return row
+
+
 def _get_template_owned_or_admin(db: Session, tid: str, user: dict) -> DocTemplate:
     row = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
     if not row:
@@ -366,9 +466,151 @@ def _get_template_owned_or_admin(db: Session, tid: str, user: dict) -> DocTempla
     return row
 
 
+@router.get("/variables")
+def list_variables(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The variable library (requirements 5.1/5.2): everything a template author
+    can insert, grouped, so nobody has to remember or hand-type a curly-brace
+    token.
+
+    Two sources, one list. The BUILT-INS this server resolves by itself from
+    the subject person and company, and every CUSTOM variable the company's own
+    templates already define - which is what makes the library grow with the
+    library rather than needing a separate registry to maintain. A custom
+    variable groups by the part before its first dot (`principal.amount` ->
+    "principal"), which is the whole point of the dotted taxonomy.
+    """
+    seen = {}
+    for token, label, group in BUILTIN_VARIABLES:
+        seen[token] = {"token": token, "label": label, "group": group,
+                       "description": "", "source": "builtin", "usedBy": []}
+    for t in db.query(DocTemplate).filter(DocTemplate.status == "active").all():
+        # A template declares its variables two ways: typed fields the wizard
+        # asks for, and plain default values set on the template itself.
+        tokens = {str(fd.get("token") or ""): (str(fd.get("label") or ""), str(fd.get("description") or ""))
+                  for fd in (t.field_defs or []) if isinstance(fd, dict)}
+        for key in (t.merge_overrides or {}):
+            tokens.setdefault(str(key), ("", ""))
+        for token, (label, description) in tokens.items():
+            if not is_valid_token(token):
+                continue
+            entry = seen.get(token)
+            if entry is None:
+                entry = seen[token] = {
+                    "token": token,
+                    "label": label or token.split(".")[-1].replace("_", " ").title(),
+                    "description": description,
+                    "group": group_label(token_group(token)),
+                    "source": "template", "usedBy": []}
+            else:
+                if label and entry["source"] == "template" and not entry["label"]:
+                    entry["label"] = label
+                if description and not entry.get("description"):
+                    entry["description"] = description
+            if t.name not in entry["usedBy"]:
+                entry["usedBy"].append(t.name)
+    # Built-ins first, then the company's own groups alphabetically - a browser
+    # opens on the variables that always resolve.
+    order = {"Person": 0, "Company": 1, "Document": 2}
+    return sorted(seen.values(),
+                  key=lambda v: (0 if v["source"] == "builtin" else 1,
+                                 order.get(v["group"], 3), v["group"], v["token"]))
+
+
+@router.post("/templates/migrate-sign-templates")
+def migrate_sign_templates(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Bring the separate Nexus Sign templates into the one library.
+
+    Two template systems existed because hr_sign_templates carried signer roles
+    and the Documents library did not. It does now (signer_roles), so an e-sign
+    template has nothing left that this library cannot hold, and requirement
+    10/25 - "Nexus Sign is for signing, not template management" - can actually
+    be met.
+
+    What moves: the body (a list of plain strings) becomes real paragraphs,
+    {{tokens}} in it become merge fields with typed definitions, and the signing
+    roles become the template's default signers. The [[sign:role]] markers are
+    dropped from the body - they are field PLACEHOLDERS, and fields are placed
+    on the rendered PDF at send time.
+
+    Idempotent, and non-destructive: the e-sign templates are left exactly as
+    they are. Run it again after adding one and only the new one is copied.
+    """
+    if user.get("level", 0) < _ADMIN_LEVEL:
+        raise HTTPException(403, "Only an administrator can migrate the signing templates")
+    from models import HrSignTemplate
+    existing = {(t.name or "").strip().lower() for t in db.query(DocTemplate).all()}
+    now = _now_iso()
+    moved, skipped = [], []
+    for src in db.query(HrSignTemplate).filter(HrSignTemplate.status == "active").all():
+        if (src.name or "").strip().lower() in existing:
+            skipped.append(src.name)
+            continue
+        content, field_defs = _sign_body_to_content(src.body or [])
+        row = DocTemplate(
+            id=str(uuid.uuid4()), name=src.name, category="hr" if src.kind == "offer" else "legal",
+            tags=["migrated-from-nexus-sign"], content=content, field_defs=field_defs,
+            department="", doc_type="document",
+            signer_roles=_clean_signer_roles(src.roles or []),
+            # Draft, not active: migrated language is reviewed before anyone
+            # generates from it. Requirement 3.
+            status="draft", version=1, created_by=user["email"], created_at=now,
+            updated_by=user["email"], updated_at=now)
+        db.add(row); db.flush()
+        db.add(DocTemplateVersion(id=str(uuid.uuid4()), template_id=row.id, version_no=1,
+                                  content=content, edited_by=user["email"], edited_at=now,
+                                  note=f"Migrated from the Nexus Sign template \"{src.name}\""))
+        moved.append(src.name)
+    db.commit()
+    return {"migrated": moved, "skipped": skipped}
+
+
+# [[sign:role]] / [[date:role]] / [[check:role:label]] - field placeholders in an
+# e-sign body. They are not content: fields are placed on the rendered PDF at
+# send time, so they are dropped rather than carried across as literal text.
+_SIGN_MARKER_RE = re.compile(r"^\[\[(sign|date|initials|check|text)[^\]]*\]\]$")
+_BODY_TOKEN_RE = re.compile(r"\{\{\s*([a-z0-9_.]+)\s*\}\}", re.I)
+
+
+def _sign_body_to_content(body: list):
+    """A list of plain paragraph strings -> Document Builder content, with
+    {{tokens}} turned into real merge fields and typed definitions for them."""
+    paragraphs, tokens = [], []
+    for raw in body or []:
+        line = str(raw or "")
+        if _SIGN_MARKER_RE.match(line.strip()):
+            continue
+        inline, last = [], 0
+        for m in _BODY_TOKEN_RE.finditer(line):
+            token = m.group(1).lower()
+            if not is_valid_token(token):
+                continue
+            if m.start() > last:
+                inline.append({"type": "text", "text": line[last:m.start()]})
+            inline.append({"type": "mergeField", "attrs": {"token": token}})
+            if token not in tokens:
+                tokens.append(token)
+            last = m.end()
+        if last < len(line):
+            inline.append({"type": "text", "text": line[last:]})
+        paragraphs.append({"type": "paragraph", **({"content": inline} if inline else {})})
+    if not paragraphs:
+        paragraphs = [{"type": "paragraph"}]
+    content = {"pages": [{"id": "pg_migrated", "json": {"type": "doc", "content": paragraphs}}]}
+    field_defs = _clean_field_defs([{
+        "token": t,
+        "label": t.split(".")[-1].replace("_", " ").title(),
+        "type": "date" if t.endswith("date") or t == "today" else "text",
+        "required": True,
+    } for t in tokens])
+    return content, field_defs
+
+
 @router.get("/templates")
-def list_templates(category: str = "", status: str = "", q: str = "",
+def list_templates(category: str = "", status: str = "", q: str = "", sort: str = "",
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The template library. `sort=usage` puts the most-used first, which is
+    what a picker wants: with 15-60 templates, the handful people actually send
+    should be the ones at the top rather than whatever starts with "A"."""
     query = db.query(DocTemplate)
     if category:
         query = query.filter(DocTemplate.category == category)
@@ -377,13 +619,29 @@ def list_templates(category: str = "", status: str = "", q: str = "",
     if q:
         query = query.filter(DocTemplate.name.ilike(f"%{q.strip()}%"))
     rows = query.order_by(DocTemplate.name).all()
-    return [_ser_template(t) for t in rows]
+    # How many documents have actually been generated from each one. Counted in
+    # a single grouped query, not per template.
+    counts = dict(db.query(Document.template_id, func.count(Document.id))
+                  .filter(Document.template_id != "")
+                  .group_by(Document.template_id).all())
+    out = [{**_ser_template(t), "usageCount": int(counts.get(t.id, 0))} for t in rows]
+    if sort == "usage":
+        out.sort(key=lambda t: (-t["usageCount"], t["name"].lower()))
+    return out
 
 
 @router.post("/templates")
 def create_template(body: TemplateIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if not body.name.strip():
         raise HTTPException(400, "name is required")
+    department = (body.department or "").strip()
+    _require_template_manager(db, user, department)
+    doc_type = body.docType or "document"
+    if doc_type not in _TEMPLATE_TYPES:
+        raise HTTPException(400, f"docType must be one of {', '.join(_TEMPLATE_TYPES)}")
+    status = body.status or "active"
+    if status not in _TEMPLATE_STATUSES:
+        raise HTTPException(400, f"status must be one of {', '.join(_TEMPLATE_STATUSES)}")
     category = body.category or "general"
     if category not in _TEMPLATE_CATEGORIES:
         raise HTTPException(400, f"category must be one of {_TEMPLATE_CATEGORIES}")
@@ -393,7 +651,9 @@ def create_template(body: TemplateIn, user: dict = Depends(get_current_user), db
                        tags=body.tags or [], content=content,
                        requires_letterhead=bool(body.requiresLetterhead), letterhead_id=body.letterheadId or "",
                        field_defs=_clean_field_defs(body.fieldDefs or []),
-                       status="active", version=1, created_by=user["email"], created_at=now,
+                       department=department, doc_type=doc_type,
+                       signer_roles=_clean_signer_roles(body.signerRoles or []),
+                       status=status, version=1, created_by=user["email"], created_at=now,
                        updated_by=user["email"], updated_at=now)
     db.add(row); db.flush()
     db.add(DocTemplateVersion(id=str(uuid.uuid4()), template_id=row.id, version_no=1, content=content,
@@ -607,7 +867,13 @@ def get_template(tid: str, user: dict = Depends(get_current_user), db: Session =
 
 @router.patch("/templates/{tid}")
 def update_template(tid: str, body: TemplateUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    row = _get_template_owned_or_admin(db, tid, user)
+    row = _get_template(db, tid)
+    _require_template_manager(db, user, row.department)
+    if body.department is not None and not _same_department(body.department, row.department):
+        # Moving approved language between departments needs rights over BOTH
+        # ends, or a department head could annex another department's template.
+        _require_template_manager(db, user, (body.department or "").strip())
+        row.department = (body.department or "").strip()
     if body.name is not None:
         if not body.name.strip():
             raise HTTPException(400, "name cannot be blank")
@@ -627,7 +893,17 @@ def update_template(tid: str, body: TemplateUpdate, user: dict = Depends(get_cur
     if body.fieldDefs is not None:
         row.field_defs = _clean_field_defs(body.fieldDefs)
     if body.status is not None:
+        # Was unvalidated - any string at all became the template's status,
+        # so a typo could silently take a template out of the library.
+        if body.status not in _TEMPLATE_STATUSES:
+            raise HTTPException(400, f"status must be one of {', '.join(_TEMPLATE_STATUSES)}")
         row.status = body.status
+    if body.signerRoles is not None:
+        row.signer_roles = _clean_signer_roles(body.signerRoles)
+    if body.docType is not None:
+        if body.docType not in _TEMPLATE_TYPES:
+            raise HTTPException(400, f"docType must be one of {', '.join(_TEMPLATE_TYPES)}")
+        row.doc_type = body.docType
     if body.content is not None:
         row.content = body.content
         row.version += 1
@@ -659,7 +935,8 @@ def get_template_version(tid: str, vid: str, user: dict = Depends(get_current_us
 
 @router.delete("/templates/{tid}")
 def delete_template(tid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    row = _get_template_owned_or_admin(db, tid, user)
+    row = _get_template(db, tid)
+    _require_template_manager(db, user, row.department)
     # A template can be deleted out from under documents already generated
     # from it (Document.template_id is a plain string, no FK constraint) -
     # block it instead of silently orphaning those documents.
@@ -671,11 +948,12 @@ def delete_template(tid: str, user: dict = Depends(get_current_user), db: Sessio
 
 @router.post("/templates/{tid}/duplicate")
 def duplicate_template(tid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    src = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
-    if not src:
-        raise HTTPException(404, "Template not found")
+    src = _get_template(db, tid)
+    _require_template_manager(db, user, src.department)
     now = _now_iso()
     row = DocTemplate(id=str(uuid.uuid4()), name=f"{src.name} (Copy)", category=src.category,
+                       department=src.department or "", doc_type=src.doc_type or "document",
+                       signer_roles=list(src.signer_roles or []),
                        tags=src.tags or [], content=copy.deepcopy(src.content) if src.content else {},
                        requires_letterhead=src.requires_letterhead, letterhead_id=src.letterhead_id,
                        merge_overrides=src.merge_overrides or {},
@@ -860,7 +1138,10 @@ def _clean_field_defs(defs: list) -> list:
         if not isinstance(d, dict):
             continue
         token = str(d.get("token") or "")
-        if not re.fullmatch(r"[a-z0-9_]+", token):
+        # The dotted taxonomy (principal.amount) as well as the undotted
+        # built-ins - one shared validator, so a name the template editor
+        # accepts is never silently dropped here.
+        if not is_valid_token(token):
             continue
         ftype = d.get("type")
         if ftype not in _FIELD_TYPES:
@@ -870,6 +1151,12 @@ def _clean_field_defs(defs: list) -> list:
             "token": token,
             "label": str(d.get("label") or token)[:200],
             "type": ftype,
+            # Requirement 5's variable metadata: a description the library can
+            # show, so someone browsing knows what a variable MEANS rather than
+            # guessing from its name. Category defaults to the token's own
+            # group, which is what the dotted taxonomy is for.
+            "description": str(d.get("description") or "")[:500],
+            "category": str(d.get("category") or token_group(token))[:80],
             "required": bool(d.get("required")),
             "default": str(d.get("default") or "")[:2000],
             "validation": {k: v for k, v in validation.items()
@@ -881,6 +1168,74 @@ def _clean_field_defs(defs: list) -> list:
     return list(by_token.values())
 
 
+# Requirement 19: "Validate variable values before generation." The fill form
+# checks these too, but a direct API call must not be able to put "not-an-email"
+# into a document someone then signs. Deliberately the SAME small set the
+# requirement lists - date, email, number, currency - rather than a validation
+# framework nobody asked for.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+\.[^@\s]+$")
+_NON_NUMERIC_RE = re.compile(r"[^0-9.,\-]")
+
+
+def _invalid_values(field_defs: list, values: dict) -> list:
+    """Human-readable complaints about the supplied values, or []."""
+    out = []
+    for fd in field_defs or []:
+        if not isinstance(fd, dict):
+            continue
+        token, ftype = fd.get("token"), fd.get("type")
+        raw = (values.get(token) or "").strip()
+        if not raw:
+            continue                      # absent is the required guard's business, not ours
+        label = fd.get("label") or token
+        if ftype == "email" and not _EMAIL_RE.match(raw):
+            out.append(f'"{label}" needs a valid email address')
+        elif ftype in ("number", "currency"):
+            # People write money the way people write money: "$1,000",
+            # "INR 50,000", "₹12,00,000", "1 200,50". Strip the symbols, the
+            # grouping and a currency code, then insist on a number - rather
+            # than rejecting a figure that is perfectly clear to a reader.
+            # Keep the digits and separators, drop everything else: a symbol,
+            # a currency code, a stray space, whatever the browser's locale
+            # formatter produced ("US$12,00,000.00" is a real value from an
+            # en-IN browser). Anything with no number left in it still fails.
+            cleaned = _NON_NUMERIC_RE.sub("", raw).replace(",", "")
+            try:
+                float(cleaned)
+            except ValueError:
+                out.append(f'"{label}" needs to be a number')
+        elif ftype == "date":
+            try:
+                datetime.fromisoformat(raw)
+            except ValueError:
+                out.append(f'"{label}" needs to be a valid date')
+    return out
+
+
+_MAX_SIGNER_ROLES = 10
+
+
+def _clean_signer_roles(roles) -> list:
+    """[{key,label,order}] - who normally signs, in what order. Same shape the
+    e-sign envelope already speaks, so the send step can use it as-is."""
+    if not isinstance(roles, list):
+        return []
+    out, seen = [], set()
+    for i, r in enumerate(roles):
+        if not isinstance(r, dict):
+            continue
+        key = str(r.get("key") or "").strip().lower()[:40]
+        if not key or key in seen or not re.fullmatch(r"[a-z0-9_]+", key):
+            continue
+        seen.add(key)
+        out.append({"key": key,
+                    "label": str(r.get("label") or key.replace("_", " ").title())[:80],
+                    "order": int(r.get("order") or (i + 1))})
+        if len(out) >= _MAX_SIGNER_ROLES:
+            break
+    return sorted(out, key=lambda r: r["order"])
+
+
 def _clean_merge_overrides(overrides: dict) -> dict:
     """Same key-shape rule resolve_merge_data() already enforces at resolve
     time (services/merge_fields.py) - filtered again here defensively so a
@@ -888,13 +1243,60 @@ def _clean_merge_overrides(overrides: dict) -> dict:
     ignored later. Shared by Document and DocTemplate updates (Phase 11/12)."""
     return {
         k: str(v) for k, v in (overrides or {}).items()
-        if re.fullmatch(r"[a-z0-9_]+", str(k)) and isinstance(v, (str, int, float)) and str(v) != ""
+        if is_valid_token(str(k)) and isinstance(v, (str, int, float)) and str(v) != ""
     }
+
+
+def _touches_document_body(body: "DocumentUpdate") -> bool:
+    """Does this update change what the document SAYS?
+
+    Content and the merge values it was populated from are the document; the
+    title, its folder, tags and the e-sign link are filing, and a final
+    document still has to be movable, taggable and sendable. `status` is
+    excluded on purpose - that is how a document gets archived, and how unlock
+    sets it back to draft.
+    """
+    return (body.content is not None
+            or body.mergeOverrides is not None
+            or body.employeeId is not None
+            or body.entityId is not None
+            or body.letterheadId is not None)
+
+
+@router.post("/{did}/unlock")
+def unlock_document(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Take a final document back to draft so it can be amended.
+
+    Deliberately its own endpoint rather than a PATCH of status: unlocking an
+    approved output is a decision, and this way it leaves a mark. The version
+    history gets an entry naming who unlocked it, so "why does this differ from
+    the template" is always answerable from the document itself.
+    """
+    row = _get_owned_or_admin(db, did, user)
+    if row.status != "final":
+        raise HTTPException(409, "This document is not locked")
+    row.status = "draft"
+    row.current_version += 1
+    db.add(DocumentVersion(id=str(uuid.uuid4()), document_id=row.id, version_no=row.current_version,
+                            content=row.content, edited_by=user["email"], edited_at=_now_iso(),
+                            note=f"Unlocked for editing by {user['email']}"))
+    row.updated_by = user["email"]
+    row.updated_at = _now_iso()
+    db.commit(); db.refresh(row)
+    return _ser_document(row)
 
 
 @router.patch("/{did}")
 def update_document(did: str, body: DocumentUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = _get_owned_or_admin(db, did, user)
+    # A generated document is FINAL: the whole point of the module is that the
+    # output carries the approved template language with the supplied values,
+    # so it cannot be quietly reworded afterwards. Enforced here rather than
+    # only in the editor - a read-only screen is a suggestion, and any other
+    # client (or a tab left open before it was finalized) would walk straight
+    # past it. Unlock is a deliberate, recorded act: POST /{did}/unlock.
+    if row.status == "final" and _touches_document_body(body):
+        raise HTTPException(409, "This document is final. Unlock it before editing.")
     if body.title is not None:
         if not body.title.strip():
             raise HTTPException(400, "title cannot be blank")
@@ -1026,8 +1428,12 @@ def _export_prep(db: Session, did: str, user: dict):
     the document may export it), resolve its merge data, walk header/body/footer
     to blocks, and fetch its letterhead (if any) serialized for the renderers."""
     row = _get_readable(db, did, user)
+    # The template the document came from, so `template.*` resolves to what the
+    # template actually says rather than whatever someone typed months ago.
+    source_tpl = (db.query(DocTemplate).filter(DocTemplate.id == row.template_id).first()
+                  if row.template_id else None)
     merge = resolve_merge_data(db, employee_id=row.employee_id, entity_id=row.entity_id,
-                               overrides=row.merge_overrides or {})
+                               overrides=row.merge_overrides or {}, template=source_tpl)
     # Template Builder (Phase 13) - a signature/initials/image/file field is
     # never filled through the Generate-Document form (reserved for E-Sign /
     # a fast-follow upload path); render its label as a visible placeholder

@@ -37,6 +37,17 @@ _DEFAULTS = {
     # replaces the intake picker's order/membership.
     "types": {},
     "typeOrder": None,
+    # Company field on intake (Sep 19, Pranshu: "End user don't have the
+    # ability to choose company but here it is showing the ticket is raised
+    # for GGcon company - this is an issue... admin have the control to turn
+    # on/off the company field for end user"). Off by default - a requester's
+    # ticket is silently filed under their own People-record company, same as
+    # before this setting existed (see company_for in routers/tickets.py).
+    # When enabled, `companyIds` is the admin-picked subset an end user may
+    # choose from at intake - an empty list with enabled=True offers nothing
+    # (same "nothing to choose from" fallback the department/application
+    # pickers already use), not "every company".
+    "companyField": {"enabled": False, "companyIds": []},
 }
 
 
@@ -53,6 +64,11 @@ def get_config(db: Session) -> dict:
     merged["types"] = cfg.get("types") or {}
     if isinstance(cfg.get("typeOrder"), list):
         merged["typeOrder"] = cfg["typeOrder"]
+    cf = cfg.get("companyField") or {}
+    merged["companyField"] = {
+        "enabled": bool(cf.get("enabled")),
+        "companyIds": [c for c in (cf.get("companyIds") or []) if isinstance(c, str) and c],
+    }
     return merged
 
 
@@ -64,6 +80,13 @@ def save_config(db: Session, patch: dict, actor_email: str) -> dict:
         merged["types"] = {**merged["types"], **patch["types"]}
     if "typeOrder" in patch:
         merged["typeOrder"] = patch["typeOrder"]
+    if "companyField" in patch and isinstance(patch["companyField"], dict):
+        incoming = patch["companyField"]
+        merged["companyField"] = {
+            "enabled": bool(incoming.get("enabled", merged["companyField"]["enabled"])),
+            "companyIds": [c for c in (incoming.get("companyIds", merged["companyField"]["companyIds"]) or [])
+                           if isinstance(c, str) and c],
+        }
     row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
     if not row:
         row = models.NexusSetting(key=_SETTINGS_KEY)
@@ -83,3 +106,11 @@ def sla_hours(db: Session, priority: str) -> int:
     cfg = get_config(db)
     hours = cfg["slaTargetHours"]
     return hours.get(priority, hours["medium"])
+
+
+def company_field(db: Session) -> dict:
+    """The authoritative company-field intake setting - used by create_ticket
+    and update_ticket in routers/tickets.py to decide whether a plain
+    requester's own company_id choice is honoured, same never-trust-the-UI-
+    alone posture as every other permission check in that file."""
+    return get_config(db)["companyField"]

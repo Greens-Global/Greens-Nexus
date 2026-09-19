@@ -33,7 +33,12 @@ function highlightMatches(text, term) {
   const parts = text.split(new RegExp(`(${escaped})`, 'ig'))
   return parts.map((part, i) =>
     i % 2 === 1 ? (
-      <mark key={i} style={{ background: '#fde047', color: 'inherit', borderRadius: 2, padding: '0 1px' }}>{part}</mark>
+      // color is a fixed dark shade, not 'inherit' (Sep 19 dark-mode audit) -
+      // the highlight's own yellow background stays the same bright shade in
+      // both themes, but 'inherit' picked up the surrounding paragraph text
+      // colour, which is near-white in dark mode - illegible on bright
+      // yellow.
+      <mark key={i} style={{ background: '#fde047', color: '#1f2937', borderRadius: 2, padding: '0 1px' }}>{part}</mark>
     ) : (
       part
     ),

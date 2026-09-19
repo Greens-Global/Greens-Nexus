@@ -727,6 +727,7 @@ function MainApp() {
                 and so sat off-center at most widths. */}
             <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc) ? 'viewport viewport-flush'
               : activeView === 'dashboard' ? 'viewport viewport-desk'
+              : activeView === 'documents' ? 'viewport viewport-tight'
               : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>
               <Suspense fallback={

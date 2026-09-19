@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, Loader2, Plus, Copy, Archive, RotateCcw, FileText, Award, Star, Pencil, Trash2, Eye } from 'lucide-react';
+import { Search, Loader2, Plus, Copy, Archive, RotateCcw, FileText, Award, Star, Pencil, Trash2, Eye, Building2, Check } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import DocumentBuilder from './DocumentBuilder';
@@ -20,6 +20,8 @@ const cardStyle = (maxWidth) => ({ background: 'var(--card)', borderRadius: 16, 
 function CreateTemplateModal({ letterheads, onClose, onCreated, toastErr }) {
   const [name, setName] = useState('');
   const [category, setCategory] = useState('general');
+  const [department, setDepartment] = useState('');
+  const [status, setStatus] = useState('draft');
   const [requiresLetterhead, setRequiresLetterhead] = useState(false);
   const [letterheadId, setLetterheadId] = useState('');
   const [busy, setBusy] = useState(false);
@@ -27,7 +29,7 @@ function CreateTemplateModal({ letterheads, onClose, onCreated, toastErr }) {
   const create = () => {
     if (!name.trim()) return;
     setBusy(true);
-    api.createDocTemplate({ name: name.trim(), category, requiresLetterhead, letterheadId: requiresLetterhead ? letterheadId : '' })
+    api.createDocTemplate({ name: name.trim(), category, department: department.trim(), status, requiresLetterhead, letterheadId: requiresLetterhead ? letterheadId : '' })
       .then(t => { onCreated(t); onClose(); })
       .catch(e => toastErr?.(e.message || 'Failed to create template'))
       .finally(() => setBusy(false));
@@ -49,6 +51,33 @@ function CreateTemplateModal({ letterheads, onClose, onCreated, toastErr }) {
             <select className="form-input" style={{ width: '100%' }} value={category} onChange={e => setCategory(e.target.value)}>
               {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Owning department</label>
+            <input className="form-input" style={{ width: '100%' }} value={department}
+              onChange={e => setDepartment(e.target.value)} placeholder="e.g. Legal"
+              onKeyDown={e => e.key === 'Enter' && create()} />
+            {/* Requirement 12: department heads maintain their own department's
+                approved language. Blank makes it company-wide, which only an
+                administrator can create or edit. */}
+            <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>
+              Department heads maintain their own department's templates. Leave blank for a
+              company-wide template (administrators only).
+            </p>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Status</label>
+            <select className="form-input" style={{ width: '100%' }} value={status} onChange={e => setStatus(e.target.value)}>
+              <option value="draft">Draft - still being written</option>
+              <option value="active">Active - approved, ready to use</option>
+            </select>
+            {/* Requirement 3: only an Active template can be generated from, so
+                a draft is the safe place to build one up before anyone uses it. */}
+            <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>
+              {status === 'draft'
+                ? 'Nobody can create documents from it until you activate it.'
+                : 'Anyone who can create documents will be able to use it immediately.'}
+            </p>
           </div>
           <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
             <input type="checkbox" checked={requiresLetterhead} onChange={e => setRequiresLetterhead(e.target.checked)} />
@@ -82,7 +111,7 @@ function LetterheadForm({ letterhead, onSaved, toastErr }) {
   const [busy, setBusy] = useState(false);
 
   const doUpload = async (file) => {
-    const path = `document-images/letterheads/${Date.now()}-${(file.name || 'logo').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const path = `letterheads/${Date.now()}-${(file.name || 'logo').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const { url, error } = await uploadToSupabase(file, 'document-images', path);
     if (error) { toastErr?.(error); return; }
     setLogoPath(url);
@@ -179,11 +208,11 @@ function LetterheadsPanel({ toastOk, toastErr }) {
   );
 }
 
-export default function DocumentTemplates({ openCreateSignal, openTemplateSignal, toastOk, toastErr }) {
+export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr }) {
   const [sub, setSub] = useState('library');
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
-  const [showArchived, setShowArchived] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('active');   // active|draft|archived
   const [templates, setTemplates] = useState(null);
   const [letterheads, setLetterheads] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
@@ -193,14 +222,13 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
   const [seeding, setSeeding] = useState(false);
 
   const load = () => {
-    api.getDocTemplates({ status: showArchived ? 'archived' : 'active', ...(category ? { category } : {}), ...(search.trim() ? { q: search.trim() } : {}) })
+    api.getDocTemplates({ status: statusFilter, ...(category ? { category } : {}), ...(search.trim() ? { q: search.trim() } : {}) })
       .then(setTemplates).catch(() => setTemplates([]));
   };
 
-  useEffect(() => { load(); }, [category, search, showArchived]);
+  useEffect(() => { load(); }, [category, search, statusFilter]);
   useEffect(() => { api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([])); }, []);
   useEffect(() => { if (openCreateSignal) setCreateOpen(true); }, [openCreateSignal]);
-  useEffect(() => { if (openTemplateSignal?.id) setEditingId(openTemplateSignal.id); }, [openTemplateSignal]);
 
   const seedStarters = () => {
     setSeeding(true);
@@ -224,7 +252,7 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
 
   return (
     <div>
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginBottom: 10, borderBottom: '1px solid var(--line)' }}>
         {[['library', 'Templates'], ['letterheads', 'Letterheads']].map(([v, l]) => (
           <button key={v} onClick={() => setSub(v)}
             style={{ padding: '9px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${sub === v ? 'var(--pine)' : 'transparent'}`, color: sub === v ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', marginBottom: -1 }}>
@@ -251,9 +279,14 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
               <input className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }}
                 placeholder="Search templates…" value={search} onChange={e => setSearch(e.target.value)} />
             </div>
-            <label style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} /> Show archived
-            </label>
+            {/* Draft -> Active -> Archived (requirement 3). A draft has to be
+                reachable here or it is created and then invisible. */}
+            <select className="form-input" style={{ fontSize: 12.5, width: 130 }}
+              value={statusFilter} onChange={e => setStatusFilter(e.target.value)} title="Template status">
+              <option value="active">Active</option>
+              <option value="draft">Draft</option>
+              <option value="archived">Archived</option>
+            </select>
           </div>
 
           {!templates ? (
@@ -261,8 +294,10 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
           ) : templates.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '52px 20px', color: 'var(--muted)' }}>
               <FileText size={36} style={{ opacity: 0.3, marginBottom: 12 }} />
-              <p style={{ fontSize: 13.5, margin: '0 0 16px' }}>{showArchived ? 'No archived templates.' : 'No templates here yet.'}</p>
-              {!showArchived && (
+              <p style={{ fontSize: 13.5, margin: '0 0 16px' }}>{statusFilter === 'archived' ? 'No archived templates.'
+                : statusFilter === 'draft' ? 'No drafts - templates you are still writing appear here.'
+                : 'No templates here yet.'}</p>
+              {statusFilter === 'active' && (
                 <button className="primary-btn" disabled={seeding} onClick={seedStarters} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   {seeding ? 'Adding…' : 'Add starter templates'}
                 </button>
@@ -280,19 +315,61 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
                     <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800, color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)' }}>
                       {CATEGORIES.find(([v]) => v === t.category)?.[1] || t.category}
                     </span>
+                    <span title={`Status: ${t.status}`}
+                      style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800,
+                        color: t.status === 'active' ? 'var(--pine)' : t.status === 'draft' ? '#92400e' : 'var(--muted)',
+                        background: t.status === 'active' ? 'hsla(var(--color-green),0.12)'
+                          : t.status === 'draft' ? 'rgba(245,158,11,0.13)' : 'var(--mist)' }}>
+                      {t.status === 'active' ? 'Active' : t.status === 'draft' ? 'Draft' : 'Archived'}
+                    </span>
+                    <span title={t.department
+                        ? `Maintained by ${t.department}. Department heads of ${t.department}, and administrators, can edit it.`
+                        : 'Company-wide template - only an administrator can edit it.'}
+                      style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800,
+                        display: 'inline-flex', alignItems: 'center', gap: 3,
+                        color: t.department ? 'var(--pine)' : 'var(--muted)',
+                        background: t.department ? 'hsla(var(--color-green),0.12)' : 'var(--mist)' }}>
+                      <Building2 size={10} /> {t.department || 'Company-wide'}
+                    </span>
                     {t.requiresLetterhead && (
                       <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800, color: '#92400e', background: 'rgba(245,158,11,0.13)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         <Award size={10} /> Letterhead
                       </span>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  {/* 8 icon buttons at ~30px need ~276px, but the grid track
+                      bottoms out at 240px (212px inside the padding) - so this
+                      row overflowed its own card at the narrow end even on a
+                      desktop, and always on a phone. Wrapping costs one extra
+                      line at narrow widths and nothing at wide ones. */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <button title="Preview" onClick={() => setPreviewId(t.id)}
                       style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Eye size={14} /></button>
                     <button title="Edit" onClick={() => setEditingId(t.id)}
                       style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Pencil size={14} /></button>
+                    <button title="Set owning department" disabled={busyId === t.id} onClick={() => {
+                      const next = window.prompt(
+                        `Which department maintains "${t.name}"?
+
+Leave blank for a company-wide template (administrators only).`,
+                        t.department || '');
+                      if (next === null || next.trim() === (t.department || '')) return;
+                      setBusyId(t.id);
+                      api.updateDocTemplate(t.id, { department: next.trim() })
+                        .then(() => { toastOk?.(next.trim() ? `Now maintained by ${next.trim()}` : 'Now company-wide'); load(); })
+                        .catch(e => toastErr?.(e.message || 'Could not change the owning department'))
+                        .finally(() => setBusyId(''));
+                    }} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Building2 size={14} /></button>
                     <button title="Duplicate" disabled={busyId === t.id} onClick={() => act(t.id, api.duplicateDocTemplate, 'Duplicated')}
                       style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Copy size={14} /></button>
+                    {t.status === 'draft' && (
+                      /* Activating is what makes a template company-approved -
+                         only then can anyone generate a document from it. */
+                      <button title="Activate - makes this template usable for new documents"
+                        disabled={busyId === t.id}
+                        onClick={() => act(t.id, (id) => api.updateDocTemplate(id, { status: 'active' }), 'Activated')}
+                        style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex', color: 'var(--pine)' }}><Check size={14} /></button>
+                    )}
                     {t.status === 'active' ? (
                       <button title="Archive" disabled={busyId === t.id} onClick={() => act(t.id, (id) => api.updateDocTemplate(id, { status: 'archived' }), 'Archived')}
                         style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Archive size={14} /></button>

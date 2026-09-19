@@ -9,7 +9,7 @@ import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, PersonMultiSelect, usePeople, DateField, useIsMobile } from './components';
 import { ProjectCreateModal } from './ProjectsView';
 import { CustomFieldInput } from './TaskDetailDrawer';
-import { filesFromPaste, teamInProject, fieldsForProject, uploadTaskAttachment, taskAssignees } from './lib';
+import { filesFromPaste, teamInProject, fieldsForProject, uploadTaskAttachment, taskAssignees, externalizeInlineImages } from './lib';
 import ProjectPicker from './ProjectPicker';
 import RichDescription from './RichDescription';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
@@ -107,7 +107,14 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
 
   const addLabel = () => { const v = labelInput.trim(); if (v && !form.labels.includes(v)) set('labels', [...form.labels, v]); setLabelInput(''); };
   const addSubtask = () => { const v = subtaskInput.trim(); if (v) setSubtasks((s) => [...s, { title: v }]); setSubtaskInput(''); };
-  const onFiles = (list) => { if (list) setAttachments((prev) => [...prev, ...Array.from(list)]); };
+  // Copy the files out NOW, not inside the state updater. Every caller clears
+  // the input (`e.target.value = ''`) straight after calling this, and an
+  // input's FileList is live - by the time React ran a lazy updater the list
+  // was already empty, so "Attach file" picked files and then attached nothing.
+  const onFiles = (list) => {
+    const picked = Array.from(list || []);
+    if (picked.length) setAttachments((prev) => [...prev, ...picked]);
+  };
   const onPasteFiles = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); onFiles(files); } };
 
   // Mobile capture shortcuts in the footer - photo / attach / scan, mirroring the
@@ -208,6 +215,12 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
       }
       for (const s of subtasks.filter((s) => !s.id)) await createTask({ title: s.title, parentTaskId: parentId, projectId: form.projectId || '', teamId: form.teamId || '', status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
       for (const f of attachments) await uploadAttachment(parentId, f);
+      // Pictures pasted into the description are inline until the task exists;
+      // now that it does, file them as attachments and point the description
+      // at the stored copies (see externalizeInlineImages). The form showed
+      // them inline all along, and the saved description still shows them.
+      const desc = await externalizeInlineImages(core.description, (f) => uploadTaskAttachment(parentId, f));
+      if (desc !== (core.description || '')) await updateTask(parentId, { description: desc }).catch(() => {});
       onClose(true);
     } catch (e) { alert(`Could not save task: ${e.message || e}`); setBusy(false); }
   };
@@ -240,7 +253,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             )}
             {/* capture="environment" opens the rear camera on a phone. */}
             <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
-            <input ref={libRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
+            <input ref={libRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
             <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onScan} />
           </div>
         )}
@@ -330,7 +343,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           </div>
           <div style={field}>
             <label style={label}>Due Date {!isEdit && req}</label>
-            <DateField value={form.dueOn} onChange={(v) => set('dueOn', v || '')} placeholder="Pick a date" style={{ ...input, ...missStyle('due') }} />
+            <DateField value={form.dueOn} onChange={(v) => set('dueOn', v || '')} noPast placeholder="Pick a date" style={{ ...input, ...missStyle('due') }} />
           </div>
           <div style={field}>
             <label style={label}>Recurrence</label>

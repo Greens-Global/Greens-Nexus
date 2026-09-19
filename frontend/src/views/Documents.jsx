@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { FileSignature, LayoutDashboard, Folder, LayoutTemplate, FileText } from 'lucide-react';
 import { api } from '../api';
 import { useEntities } from '../lib/queries';
@@ -7,7 +7,6 @@ import PdfEditorModule from './PdfEditorModule';
 import DocumentsDashboard from '../components/DocumentsDashboard';
 import DocumentsBrowser from '../components/DocumentsBrowser';
 import DocumentTemplates from '../components/DocumentTemplates';
-import DocumentsSearchBar from '../components/DocumentsSearchBar';
 import ModuleTabs from '../components/ModuleTabs';
 
 // ── Documents module ─────────────────────────────────────────────────────────
@@ -39,10 +38,6 @@ export default function Documents({ activeSub, onSubChange }) {
   // bool) so a second click while already on that tab still re-triggers it.
   const [browseCreateSignal, setBrowseCreateSignal] = useState(0);
   const [templateCreateSignal, setTemplateCreateSignal] = useState(0);
-  // Search (Phase 6) hands off a specific id to open - {id, nonce} so picking
-  // the same result twice in a row still re-triggers (nonce always bumps).
-  const [openDocSignal, setOpenDocSignal] = useState(null);
-  const [openTemplateSignal, setOpenTemplateSignal] = useState(null);
 
   // When a PDF is open in the PDF Editor tab, the editor goes full-bleed
   // (App.jsx hides the Nexus header). Hide Documents' own title + tab strip too
@@ -63,6 +58,12 @@ export default function Documents({ activeSub, onSubChange }) {
     window.__esignPrefill = null;
     return p || null;
   });
+  // Which Document Builder document this envelope came from. Kept separately
+  // because esignPrefill is released the moment the wizard has applied it (a
+  // prefill left lying around gets re-applied on the next remount and wipes
+  // the sender's work) - but the link back to the document is only needed
+  // later, once the envelope is actually sent.
+  const esignSourceDocRef = useRef(esignPrefill?.sourceDocumentId || null);
 
   const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
@@ -79,6 +80,7 @@ export default function Documents({ activeSub, onSubChange }) {
   useEffect(() => {
     const onNav = (e) => {
       if (e.detail?.view === 'documents' && window.__esignPrefill) {
+        esignSourceDocRef.current = window.__esignPrefill.sourceDocumentId || null;
         setEsignPrefill(window.__esignPrefill);
         window.__esignPrefill = null;
       }
@@ -89,19 +91,14 @@ export default function Documents({ activeSub, onSubChange }) {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      {!pdfFullBleed && (
-      <div className="view-header" style={{ marginBottom: 18, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <div className="view-title-group">
-          <h2>Documents</h2>
-          <p>Send, sign and track company documents - one place</p>
-        </div>
-        <DocumentsSearchBar
-          onOpenDocument={(id) => { onSubChange?.('documents-browse'); setOpenDocSignal({ id, nonce: Date.now() }); }}
-          onOpenTemplate={(id) => { onSubChange?.('documents-templates'); setOpenTemplateSignal({ id, nonce: Date.now() }); }}
-          onGoToEsignRequests={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-requests' } }))} />
-      </div>
-      )}
-
+      {/* No module header. Sagar, Sep 17: "we don't need this on any page,
+          anyway we're having a search bar in all pages already - why keep
+          multiple". My Documents, Templates and Nexus Sign each carry their
+          own search over their own list, so a fourth box that searched across
+          all three was a second way to do the same thing, sitting on a band of
+          chrome that pushed every screen down by ~90px. The tab strip below is
+          the module's navigation. This also removed the only caller of
+          DocumentsSearchBar (deleted) and of the open-by-id signals. */}
       {/* Tabs */}
       {/* Desktop: tabs render centered in the top header; phones keep the
           in-page strip (ModuleTabs handles both) */}
@@ -115,12 +112,12 @@ export default function Documents({ activeSub, onSubChange }) {
       )}
 
       {sub === 'documents-browse' && (
-        <DocumentsBrowser openCreateSignal={browseCreateSignal} openDocSignal={openDocSignal}
+        <DocumentsBrowser openCreateSignal={browseCreateSignal}
           employees={employees} entities={entities} toastOk={toastOk} toastErr={toastErr} />
       )}
 
       {sub === 'documents-templates' && (
-        <DocumentTemplates openCreateSignal={templateCreateSignal} openTemplateSignal={openTemplateSignal}
+        <DocumentTemplates openCreateSignal={templateCreateSignal}
           toastOk={toastOk} toastErr={toastErr} />
       )}
 
@@ -131,7 +128,7 @@ export default function Documents({ activeSub, onSubChange }) {
             // Phase 5 bridge: a send that originated from a Document Builder
             // export carries sourceDocumentId on the prefill - link the new
             // envelope back onto the document once it's actually sent.
-            const docId = esignPrefill?.sourceDocumentId;
+            const docId = esignSourceDocRef.current;
             if (docId) api.updateDocument(docId, { signRequestId: sent.id, status: 'final' }).catch(toastErr);
           }} />
       )}
