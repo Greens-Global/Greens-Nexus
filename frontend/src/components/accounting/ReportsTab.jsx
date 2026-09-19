@@ -1,14 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Download, RefreshCw, Building2, Search } from 'lucide-react';
+import { Download, RefreshCw, Building2, Search, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
+import LedgerSearch from './LedgerSearch';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
 // ledger without opening Nexus Accounting: Profit & Loss, Balance Sheet,
 // Trial Balance, filtered by Intacct location (entity) and period. Read-only,
 // served by the accounting app's internal API through the backend proxy (the
 // Accounting grant is the gate). Export writes a CSV of the table shown.
+//
+// The search box on top is the global search (Neil, Sep 17): type a vendor, a
+// customer, an invoice number or an amount and every posted line containing it
+// replaces the report, inside the entity picked here. Every account amount on
+// a report is a drill-down into the same view - the lines behind that number,
+// for the report's period and entity - so nobody has to open Intacct to see
+// what an amount is made of.
 
 const REPORTS = [
   { key: 'pnl', label: 'Profit & Loss', period: 'range' },
@@ -76,6 +84,24 @@ export default function ReportsTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showAccounts, setShowAccounts] = useState(true);
+  // Global search + drill-down. `searchText` is what is typed; `term` follows it
+  // after a pause so the ledger is not queried on every keystroke.
+  const [searchText, setSearchText] = useState('');
+  const [term, setTerm] = useState('');
+  const [drill, setDrill] = useState(null);   // { account, accountName, from, to }
+  useEffect(() => {
+    const t = setTimeout(() => setTerm(searchText.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchText]);
+  const searching = term.length >= 2 || !!drill;
+  const closeSearch = () => { setSearchText(''); setTerm(''); setDrill(null); };
+  // The lines behind one account's amount, for what the report is showing.
+  // Balance-type reports (as of a date) drill from the beginning of the books.
+  const drillInto = (accountNo, title) => {
+    if (!accountNo) return;
+    setDrill({ account: accountNo, accountName: title || '', from: def.period === 'asof' ? '' : from, to: def.period === 'asof' ? asof : to });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const def = REPORTS.find((r) => r.key === report);
 
@@ -161,10 +187,22 @@ export default function ReportsTab() {
     <div style={{ display: 'grid', gap: 20 }}>
       {/* Controls */}
       <div style={{ ...card, display: 'grid', gap: 12 }}>
+        <div style={{ position: 'relative' }}>
+          <Search size={16} style={{ position: 'absolute', left: 12, top: 11, color: 'var(--text-muted)' }} />
+          <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} aria-label="Search the ledger"
+            placeholder="Search everything - vendor, customer, invoice number, amount, memo..."
+            style={{ ...input, width: '100%', padding: '9px 36px 9px 36px', fontSize: '0.9rem', boxSizing: 'border-box' }} />
+          {searchText && (
+            <button type="button" onClick={() => setSearchText('')} aria-label="Clear search"
+              style={{ position: 'absolute', right: 10, top: 9, border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}>
+              <X size={16} />
+            </button>
+          )}
+        </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
           <div className="scroll-tabs" style={{ display: 'flex', gap: 6 }}>
             {REPORTS.map((r) => (
-              <button key={r.key} type="button" style={pill(report === r.key)} onClick={() => setReport(r.key)}>{r.label}</button>
+              <button key={r.key} type="button" style={pill(report === r.key)} onClick={() => { setReport(r.key); closeSearch(); }}>{r.label}</button>
             ))}
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
@@ -210,10 +248,15 @@ export default function ReportsTab() {
         </div>
       </div>
 
-      {error && <div style={{ ...card, borderColor: 'var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', fontSize: '0.9rem' }}>{error}</div>}
-      {loading && !data && <SkeletonBlocks count={4} />}
+      {searching && (
+        <LedgerSearch term={term.length >= 2 ? term : ''} entity={entity} entityName={entityName(entity)}
+          drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} />
+      )}
 
-      {data && (
+      {!searching && error && <div style={{ ...card, borderColor: 'var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', fontSize: '0.9rem' }}>{error}</div>}
+      {!searching && loading && !data && <SkeletonBlocks count={4} />}
+
+      {!searching && data && (
         <div style={card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <div>
@@ -240,7 +283,7 @@ export default function ReportsTab() {
                     <tr key={a.gl_code}>
                       <td style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>{a.gl_code}</td>
                       <td>{a.account_name}</td>
-                      <td style={{ textAlign: 'right', color: a.balance < 0 ? 'var(--bad-fg, #dc2626)' : undefined }}>{money(a.balance)}</td>
+                      <td style={{ textAlign: 'right', color: a.balance < 0 ? 'var(--bad-fg, #dc2626)' : undefined }}><DrillAmount onClick={() => drillInto(a.gl_code, a.account_name)}>{money(a.balance)}</DrillAmount></td>
                       <td style={{ color: 'var(--text-secondary)' }}>{a.last_activity ? formatDate(a.last_activity) : '-'}</td>
                     </tr>
                   ))}
@@ -264,7 +307,7 @@ export default function ReportsTab() {
                       <td style={{ textAlign: 'right' }}>{money(r.opening)}</td>
                       <td style={{ textAlign: 'right' }}>{money(r.debit)}</td>
                       <td style={{ textAlign: 'right' }}>{money(r.credit)}</td>
-                      <td style={{ textAlign: 'right' }}>{money(r.closing)}</td>
+                      <td style={{ textAlign: 'right' }}><DrillAmount onClick={() => drillInto(r.account_no, r.title)}>{money(r.closing)}</DrillAmount></td>
                     </tr>
                   ))}
                   <tr style={{ fontWeight: 800, borderTop: '2px solid var(--border-color)' }}>
@@ -280,7 +323,7 @@ export default function ReportsTab() {
               <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
                 <tbody>
                   {data.sections.map((s) => (
-                    <SectionRows key={s.key} section={s} open={showAccounts} />
+                    <SectionRows key={s.key} section={s} open={showAccounts} onDrill={drillInto} />
                   ))}
                   {data.report === 'pnl' ? (
                     <>
@@ -312,7 +355,17 @@ export default function ReportsTab() {
   );
 }
 
-function SectionRows({ section, open }) {
+// An account's amount, clickable: opens the ledger lines that add up to it.
+function DrillAmount({ onClick, children }) {
+  return (
+    <button type="button" onClick={onClick} title="See the lines behind this amount"
+      style={{ border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3 }}>
+      {children}
+    </button>
+  );
+}
+
+function SectionRows({ section, open, onDrill }) {
   if (!section.accounts.length && !section.total) return null;
   return (
     <>
@@ -325,7 +378,9 @@ function SectionRows({ section, open }) {
           <td style={{ paddingLeft: 24, color: 'var(--text-secondary)' }}>
             {a.account_no && <span style={{ fontFamily: 'monospace', fontSize: '0.78rem', marginRight: 8 }}>{a.account_no}</span>}{a.title}
           </td>
-          <td style={{ textAlign: 'right' }}>{money(a.amount)}</td>
+          <td style={{ textAlign: 'right' }}>
+            {a.account_no && onDrill ? <DrillAmount onClick={() => onDrill(a.account_no, a.title)}>{money(a.amount)}</DrillAmount> : money(a.amount)}
+          </td>
         </tr>
       ))}
     </>

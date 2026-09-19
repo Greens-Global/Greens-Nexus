@@ -975,6 +975,13 @@ export const api = {
     req(`/accounting/reports/trial-balance?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
   getAccountingCashPosition: (asof, location) =>
     req(`/accounting/reports/cash-position?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
+  // Global search over the posted ledger, and the report drill-down (same call
+  // with an `account`). Empty / null params are left out of the query string.
+  searchAccountingLedger: (params = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') qs.set(k, v); });
+    return req(`/accounting/search?${qs.toString()}`);
+  },
   // One-time sign-in URL for accounting.greensglobal.com - Nexus is the only
   // way in there (no passwords). Open the returned url immediately.
   launchAccounting: (next) => req(`/accounting/launch${next ? `?next=${encodeURIComponent(next)}` : ""}`, { method: "POST" }),
