@@ -62,6 +62,7 @@ def task_to_dict(t: models.Task) -> dict:
         "ownerId":          _nz(t.owner_email),
         "followerIds":      t.follower_emails or [],
         "likedByIds":       t.liked_by_emails or [],
+        "reactions":        t.reactions if isinstance(t.reactions, dict) else {},
         "accessLevel":      t.access_level or "org",
         "projectId":        _nz(t.project_id),
         "projectIds":       [p for p in (t.project_ids or []) if p],
