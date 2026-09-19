@@ -808,6 +808,13 @@ class NexusEmployee(Base):
     geofence_source   = Column(String, default="")            # last_punch | address | manual
     geofence_set_by   = Column(String, default="")
     geofence_set_at   = Column(String, default="")
+    # Remote (Neil, Sep 19): a person is EITHER remote - may punch from anywhere,
+    # it is a contractual arrangement, not a place - OR must be at ANY company
+    # work site. Replaces the per-person geofence above, which judged someone
+    # against one assigned location ("We're not tagging them to a specific
+    # location. We're tagging them to our locations."). The geofence_* columns
+    # stay for history; nothing judges a punch against them anymore.
+    work_remote       = Column(Integer, default=0)
     # Email signature overrides (Sep 16, Neil): name/role/company email are NOT
     # editable here - they stay pulled live from the directory fields above so
     # the signature can't drift from who someone actually is ("keeps everybody

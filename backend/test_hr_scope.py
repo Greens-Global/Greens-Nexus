@@ -39,7 +39,8 @@ with database.engine.connect() as _conn:
                   "ALTER TABLE nexus_employees ADD COLUMN geofence_label TEXT DEFAULT ''",
                   "ALTER TABLE nexus_employees ADD COLUMN geofence_source TEXT DEFAULT ''",
                   "ALTER TABLE nexus_employees ADD COLUMN geofence_set_by TEXT DEFAULT ''",
-                  "ALTER TABLE nexus_employees ADD COLUMN geofence_set_at TEXT DEFAULT ''"):
+                  "ALTER TABLE nexus_employees ADD COLUMN geofence_set_at TEXT DEFAULT ''",
+                  "ALTER TABLE nexus_employees ADD COLUMN work_remote INTEGER DEFAULT 0"):
         try:
             _conn.execute(_text(_stmt))
             _conn.commit()
@@ -272,37 +273,65 @@ class HrScopeTests(unittest.TestCase):
         _as(SCOPED)
         self.assertEqual(self.client.get(f"/hr/candidates/{CAND_B}/interviews").status_code, 404)
 
-    # ── per-person geofence (Aug 25) ─────────────────────────────────────────
-    def test_geofence_set_get_and_scope(self):
+    # ── work mode: remote, or any company work site (Neil, Sep 19) ───────────
+    def test_work_mode_remote_or_any_site(self):
+        import uuid
+        from models import HrWorkSite
         from routers.timeclock import _geofence
-        _as(UNRESTRICTED)
-        # set a personal geofence on the in-scope employee
-        r = self.client.put(f"/hr/employees/{EMP_A}/geofence",
-                            json={"lat": "33.6846", "lng": "-117.8265", "radius_m": 150,
-                                  "label": "Irvine warehouse", "source": "address"})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["radiusM"], 150)
-        got = self.client.get(f"/hr/employees/{EMP_A}/geofence").json()
-        self.assertEqual(got["geofence"]["label"], "Irvine warehouse")
-        # a punch AT the geofence is in_fence; far away is out_of_fence
+        email = "ava.alpha.hrscope@greensglobal.com"
+        site_id = "site-" + uuid.uuid4().hex[:8]
+        FAR = ("10.0000", "-140.0000")   # open Pacific: inside no work site, whatever this database holds
         db = database.SessionLocal()
         try:
-            near = _geofence(db, "33.6847", "-117.8266", 10, email="ava.alpha.hrscope@greensglobal.com")
-            far = _geofence(db, "34.0522", "-118.2437", 10, email="ava.alpha.hrscope@greensglobal.com")
-            self.assertEqual(near["geo_status"], "in_fence")
-            self.assertEqual(near["work_site_id"], "personal")
-            self.assertEqual(far["geo_status"], "out_of_fence")
+            db.add(HrWorkSite(id=site_id, name="Work mode test site", latitude="12.0000",
+                              longitude="-150.0000", radius_m=150))
+            db.commit()
         finally:
             db.close()
-        # clearing it (radius 0) removes the personal geofence
-        self.client.put(f"/hr/employees/{EMP_A}/geofence", json={"radius_m": 0})
-        self.assertEqual(self.client.get(f"/hr/employees/{EMP_A}/geofence").json()["geofence"]["radiusM"], 0)
+        _as(UNRESTRICTED)
+        try:
+            got = self.client.get(f"/hr/employees/{EMP_A}/geofence").json()
+            self.assertFalse(got["geofence"]["remote"])
+            self.assertIn(site_id, [w["id"] for w in got["workSites"]])
+            db = database.SessionLocal()
+            try:
+                # on-site person: inside ANY work site's fence is fine, elsewhere is flagged
+                self.assertEqual(_geofence(db, "12.0001", "-150.0001", 10, email=email)["geo_status"], "in_fence")
+                self.assertEqual(_geofence(db, FAR[0], FAR[1], 10, email=email)["geo_status"], "out_of_fence")
+            finally:
+                db.close()
+            # a build from before Sep 19 still sends a location: refused, not silently saved
+            self.assertEqual(self.client.put(f"/hr/employees/{EMP_A}/geofence",
+                                             json={"lat": "1", "lng": "1", "radius_m": 100}).status_code, 400)
+            r = self.client.put(f"/hr/employees/{EMP_A}/geofence", json={"remote": True})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertTrue(r.json()["remote"])
+            db = database.SessionLocal()
+            try:
+                # remote: anywhere is accepted and never flagged ...
+                away = _geofence(db, FAR[0], FAR[1], 10, email=email)
+                self.assertEqual(away["geo_status"], "remote")
+                # ... but standing at a work site still attributes the punch to that site
+                at_site = _geofence(db, "12.0001", "-150.0001", 10, email=email)
+                self.assertEqual(at_site["geo_status"], "in_fence")
+                self.assertEqual(at_site["work_site_id"], site_id)
+            finally:
+                db.close()
+            self.client.put(f"/hr/employees/{EMP_A}/geofence", json={"remote": False})
+            self.assertFalse(self.client.get(f"/hr/employees/{EMP_A}/geofence").json()["geofence"]["remote"])
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(HrWorkSite).filter(HrWorkSite.id == site_id).delete()
+                db.commit()
+            finally:
+                db.close()
 
     def test_geofence_out_of_scope_404(self):
         _as(SCOPED)
         self.assertEqual(self.client.get(f"/hr/employees/{EMP_B}/geofence").status_code, 404)
         self.assertEqual(self.client.put(f"/hr/employees/{EMP_B}/geofence",
-                                         json={"lat": "1", "lng": "1", "radius_m": 100}).status_code, 404)
+                                         json={"remote": True}).status_code, 404)
 
     # ── the Time-surface root ────────────────────────────────────────────────
     def test_visible_emails_scoped_set(self):

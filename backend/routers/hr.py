@@ -2592,26 +2592,27 @@ def employee_bod_log(eid: str, start: str = "", end: str = "",
 
 
 # ---------------------------------------------------------------------------
-# Per-person geofence (Aug 25): assign a work location + radius to one person,
-# so their punches are judged against it instead of the shared work sites.
-# Two ways to set it: "use last punch location" (reads their most recent located
-# punch) or an address the admin geocodes on the client. Scope-enforced like
-# every other {eid} endpoint (out-of-company people 404).
+# Work mode (Neil, Sep 19): a person is EITHER remote - may punch from anywhere,
+# a contractual arrangement - OR must be at ANY company work site. HR flips one
+# switch; nobody is assigned a location. This replaces the per-person geofence
+# (Aug 25), which let an admin pin one person to one address. The URL keeps its
+# old name so a browser still running the previous build does not 404; a
+# location sent by that build is ignored. Scope-enforced like every other {eid}
+# endpoint (out-of-company people 404).
 # ---------------------------------------------------------------------------
 
 def _geofence_payload(emp: NexusEmployee) -> dict:
     return {
-        "lat": emp.geofence_lat or "", "lng": emp.geofence_lng or "",
-        "radiusM": int(emp.geofence_radius_m or 0), "label": emp.geofence_label or "",
-        "source": emp.geofence_source or "", "setBy": emp.geofence_set_by or "",
+        "remote": bool(emp.work_remote or 0),
+        "setBy": emp.geofence_set_by or "",
         "setAt": emp.geofence_set_at or "",
     }
 
 
 @router.get("/employees/{eid}/geofence")
 def get_geofence(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    """The person's assigned geofence, plus their most recent LOCATED punch so
-    the UI can offer a one-click 'use last punch location' button."""
+    """Whether the person is remote, the work sites everyone else must punch
+    from, and their most recent LOCATED punch (so HR can look at where it was)."""
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
@@ -2626,16 +2627,22 @@ def get_geofence(eid: str, user: dict = Depends(require_hr_read), db: Session = 
     last_loc = None
     if last:
         last_loc = {"lat": last.lat, "lng": last.lng, "accuracyM": int(last.accuracy_m or 0),
-                    "at": last.at, "workSiteName": last.work_site_name or ""}
-    return {"geofence": _geofence_payload(emp), "lastPunchLocation": last_loc}
+                    "at": last.at, "workSiteName": last.work_site_name or "",
+                    "geoStatus": last.geo_status or ""}
+    sites = [{"id": s.id, "name": s.name or "", "radiusM": int(s.radius_m or 150)}
+             for s in db.query(HrWorkSite).order_by(HrWorkSite.name).all()
+             if (s.latitude or "") and (s.longitude or "")]
+    return {"geofence": _geofence_payload(emp), "lastPunchLocation": last_loc, "workSites": sites}
 
 
 class GeofenceIn(BaseModel):
+    remote:   Optional[bool] = None
+    # Sent by builds older than Sep 19; accepted so they do not 422, never used.
     lat:      Optional[str] = None
     lng:      Optional[str] = None
-    radius_m: Optional[int] = None      # 0 clears the personal geofence
+    radius_m: Optional[int] = None
     label:    Optional[str] = None
-    source:   Optional[str] = None      # last_punch | address | manual
+    source:   Optional[str] = None
 
 
 @router.put("/employees/{eid}/geofence")
@@ -2645,22 +2652,10 @@ def set_geofence(eid: str, body: GeofenceIn, user: dict = Depends(require_hr_wri
     if not emp:
         raise HTTPException(404, "Employee not found")
     _assert_scope(emp, hr_scope(user, db))
-    radius = int(body.radius_m or 0)
-    if radius <= 0:
-        # Clear the personal geofence - punches fall back to the work sites.
-        emp.geofence_lat = ""; emp.geofence_lng = ""; emp.geofence_radius_m = 0
-        emp.geofence_label = ""; emp.geofence_source = ""
-    else:
-        try:
-            lat = float(body.lat); lng = float(body.lng)
-        except (TypeError, ValueError):
-            raise HTTPException(400, "A valid location is required - use last punch or search an address")
-        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
-            raise HTTPException(400, "Location is out of range")
-        emp.geofence_lat = f"{lat:.6f}"; emp.geofence_lng = f"{lng:.6f}"
-        emp.geofence_radius_m = max(25, min(5000, radius))   # 25 m floor, 5 km ceiling
-        emp.geofence_label = (body.label or "").strip()[:200]
-        emp.geofence_source = body.source if body.source in ("last_punch", "address", "manual") else "manual"
+    if body.remote is None:
+        raise HTTPException(400, "Personal work locations were retired - mark the person remote, "
+                                 "or leave them on-site to punch from any company work site.")
+    emp.work_remote = 1 if body.remote else 0
     emp.geofence_set_by = user["email"]
     emp.geofence_set_at = datetime.now(timezone.utc).isoformat()
     emp.updated_at = emp.geofence_set_at
