@@ -2,10 +2,13 @@
 
 Same GET-renders/POST-executes split as routers/mail_actions.py, and reuses
 its confirm-page chrome and "act as the person the token names" helper rather
-than re-deriving either. Only two kinds exist so far - task_approval and
-timeoff_approval - because those are the only Action Required rows that are a
-plain yes/no with no photo or picker attached (see briefing_mail_actions.py's
-module docstring for why the rest stay "Open in Nexus").
+than re-deriving either. Three kinds exist so far - task_approval,
+timeoff_approval, ticket_approval - because those are the only Action
+Required rows that are a plain yes/no decision (see briefing_mail_actions.py's
+module docstring for why the rest stay "Open in Nexus"). ticket_approval's
+reject still needs one text field (Nexus requires a reason when rejecting a
+ticket request) - the confirm page adds it only for that one case rather than
+carrying a note field the other two kinds don't use.
 """
 import asyncio
 from html import escape
@@ -20,10 +23,12 @@ from routers.mail_actions import _BTN, _page, _user_for
 
 router = APIRouter(prefix="/briefing-actions", tags=["Briefing Actions"])
 
-_KIND_LABELS = {"task_approval": "task", "timeoff_approval": "time off request"}
+_KIND_LABELS = {"task_approval": "task", "timeoff_approval": "time off request",
+                "ticket_approval": "ticket"}
 
 
-def _execute(db, bt: BackgroundTasks, *, user: dict, kind: str, entity_id: str, action: str) -> tuple:
+def _execute(db, bt: BackgroundTasks, *, user: dict, kind: str, entity_id: str, action: str,
+            note: str = "") -> tuple:
     """Applies the decision through the SAME endpoint function the app itself
     calls, so permission checks, notifications and activity behave exactly as
     they do in Nexus. Returns (subject, status) for the confirmation line."""
@@ -59,6 +64,24 @@ def _execute(db, bt: BackgroundTasks, *, user: dict, kind: str, entity_id: str, 
         timeclock_router.decide_timeoff(entity_id, timeclock_router.TimeOffDecision(status=status),
                                         user=user, db=db)
         return f"{r.type} request", status
+    if kind == "ticket_approval":
+        from routers import tickets as tickets_router
+        t = db.query(models.TaskTicket).filter(models.TaskTicket.id == entity_id).first()
+        if not t:
+            raise HTTPException(404, "This ticket no longer exists.")
+        if (t.approval_status or "none") != "pending":
+            raise HTTPException(409, f"Already {t.approval_status}.")
+        # decide_approval fully re-checks "only the named approver (or an
+        # administrator) may decide" inside its own body, unlike decide_timeoff
+        # above - it does not lean on its require_ticket_desk DI dependency for
+        # anything the decision itself needs (that dependency gates general
+        # ticket-board access, a different, broader question), so no extra
+        # explicit gate is required here. decide_approval also independently
+        # enforces the reason-required-on-reject rule if the confirm page's own
+        # required-field check is ever bypassed.
+        tickets_router.decide_approval(entity_id, tickets_router.ApprovalBody(decision=action, note=note),
+                                       bt, user=user, db=db)
+        return t.subject or "This ticket", status
     raise HTTPException(400, "Unknown action")
 
 
@@ -69,9 +92,18 @@ def action_page(token: str = ""):
         return _page("Link Expired", "<p>This link has expired. Open Nexus to take this action instead.</p>")
     label = _KIND_LABELS.get(info["kind"], "item")
     verb = "Approve" if info["action"] == "approve" else "Reject"
+    # Ticket rejection is the one decision here that Nexus requires a reason
+    # for (routers/tickets.decide_approval) - task/time-off rejection need
+    # nothing extra, so the field only appears for this one combination.
+    needs_note = info["kind"] == "ticket_approval" and info["action"] == "reject"
+    note_field = ("<textarea name='note' required placeholder='Reason for rejecting (required)' "
+                  "style='width:100%;min-height:80px;margin:4px 0 16px;padding:8px;"
+                  "border:1px solid #d1d5db;border-radius:6px;font:inherit;box-sizing:border-box'>"
+                  "</textarea>") if needs_note else ""
     form = (f"<p style='margin:0 0 16px;font-size:14px'>{escape(verb)} this {escape(label)}?</p>"
             f"<form method='post' action='/briefing-actions/page'>"
             f"<input type='hidden' name='token' value='{escape(token)}'>"
+            f"{note_field}"
             f"<button type='submit' style='{_BTN}'>{escape(verb)}</button></form>")
     return _page(f"{verb} {label.title()}", form)
 
@@ -79,10 +111,11 @@ def action_page(token: str = ""):
 @router.post("/page", response_class=HTMLResponse)
 async def action_page_submit(request: Request):
     form = dict(await request.form())
-    return await asyncio.to_thread(_action_page_submit_sync, request, str(form.get("token") or ""))
+    return await asyncio.to_thread(_action_page_submit_sync, request, str(form.get("token") or ""),
+                                   str(form.get("note") or ""))
 
 
-def _action_page_submit_sync(request: Request, token: str) -> HTMLResponse:
+def _action_page_submit_sync(request: Request, token: str, note: str = "") -> HTMLResponse:
     info = briefing_mail_actions.verify_token(token)
     if not info:
         return _page("Link Expired", "<p>This link has expired. Open Nexus to take this action instead.</p>")
@@ -91,7 +124,8 @@ def _action_page_submit_sync(request: Request, token: str) -> HTMLResponse:
     try:
         user = _user_for(request, info["recipient"], db)
         try:
-            subject, status = _execute(db, bt, user=user, kind=info["kind"], entity_id=info["id"], action=info["action"])
+            subject, status = _execute(db, bt, user=user, kind=info["kind"], entity_id=info["id"],
+                                       action=info["action"], note=note)
         except HTTPException as e:
             return _page("Could Not Save", f"<p style='color:#b91c1c'>{escape(str(e.detail))}</p>")
         resp = _page("Done", f"<p style='font-size:15px;font-weight:600;color:#15803d'>"

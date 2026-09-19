@@ -41,6 +41,7 @@ from database import SessionLocal
 import graph_mail
 import briefing_mail_actions
 import task_mail_actions
+import ticket_mail_templates
 from app_url import app_url
 from routers.task_util import task_assignees
 from routers.timeclock import _shift_start_for, _shift_local_now
@@ -198,6 +199,151 @@ def _item_action_rows(db: Session, email: str, is_manager: bool) -> list:
     return rows
 
 
+def _ticket_url(*, ticket_id: str, for_requester: bool) -> str:
+    return ticket_mail_templates._ticket_url(app_url(), ticket_id, for_requester=for_requester)
+
+
+def _ticket_action_rows(db: Session, email: str) -> list:
+    """Read-only against models.TaskTicket, same pattern as
+    _item_action_rows. Only the approval decision is a plain yes/no with no
+    picker attached - it gets a one-click Approve/Reject (rejecting still
+    lands on the confirm page since a reason is required there, same as
+    Nexus itself - see routers/briefing_actions.py). An assigned, unresolved
+    ticket has no single safe one-click resolution (status change needs a
+    resolution reason) so it stays "Open in Nexus" only, same reasoning as
+    the checkout/assignment rows above (Pranshu, Sep 20)."""
+    rows = []
+    for t in (db.query(models.TaskTicket)
+              .filter(models.TaskTicket.approval_status == "pending",
+                      models.TaskTicket.approver_email == email).all()):
+        rows.append({
+            "title": f"Approve: {t.subject}",
+            "detail": f"{t.code or 'Ticket'} - waiting on your decision",
+            "url": _ticket_url(ticket_id=t.id, for_requester=False),
+            "module": "tickets",
+            "action_kind": "ticket_approval", "action_id": t.id, "action_email": email,
+        })
+    for t in (db.query(models.TaskTicket)
+              .filter(models.TaskTicket.assignee_email == email,
+                      models.TaskTicket.status.notin_(["resolved", "closed"])).all()):
+        rows.append({
+            "title": f"{t.code or 'Ticket'} - {t.subject}",
+            "detail": f"Assigned to you - {(t.status or 'new').replace('_', ' ')}",
+            "url": _ticket_url(ticket_id=t.id, for_requester=False),
+            "module": "tickets",
+        })
+    return rows
+
+
+def _ticket_needs_to_know_rows(db: Session, email: str, since_iso: str) -> list:
+    rows = []
+    for t in (db.query(models.TaskTicket)
+              .filter(models.TaskTicket.requester_email == email,
+                      models.TaskTicket.last_comment_at >= since_iso,
+                      models.TaskTicket.last_comment_at != "",
+                      models.TaskTicket.status.notin_(["resolved", "closed"])).all()):
+        rows.append({
+            "title": f"{t.code or 'Ticket'} - {t.subject}",
+            "detail": "New activity on your ticket",
+            "url": _ticket_url(ticket_id=t.id, for_requester=True),
+            "module": "tickets",
+        })
+    return rows
+
+
+def _ticket_completed_rows(db: Session, email: str, since_iso: str) -> list:
+    rows = []
+    for t in (db.query(models.TaskTicket)
+              .filter(models.TaskTicket.requester_email == email,
+                      models.TaskTicket.status.in_(["resolved", "closed"]),
+                      models.TaskTicket.resolved_at >= since_iso,
+                      models.TaskTicket.resolved_at != "").all()):
+        rows.append({
+            "title": f"{t.code or 'Ticket'} - {t.subject}",
+            "detail": "Resolved" if t.status == "resolved" else "Closed",
+            "url": _ticket_url(ticket_id=t.id, for_requester=True),
+            "module": "tickets",
+        })
+    return rows
+
+
+_ESIGN_URL = "/documents/documents-esign"   # same landing every internal signer's own notification email already uses (esign.py _send_sign_email) - no per-envelope deep link exists for internal parties, so this is not a step down from what they get today.
+
+
+def _esign_action_rows(db: Session, email: str) -> list:
+    """Read-only against HrSignRequest/HrSignParty (Nexus Sign, part of the
+    Documents module). Reuses esign.py's own _its_their_turn rather than
+    re-deriving it - sequential vs parallel routing, acting-role filtering
+    (signer/approver/certified_delivery vs a CC) and the decline/consent
+    edge cases are intricate enough that a second copy would drift (Pranshu,
+    Sep 20). External parties are skipped: they sign via a token link with no
+    Nexus login, so there is no Nexus account to send a briefing to. Signing
+    itself is never a one-click mail action - it is a drawn/typed signature
+    plus ESIGN/UETA consent, which is exactly the kind of thing CLAUDE.md's
+    "photos are evidence" rule already rules out for a bare link."""
+    from routers.esign import _its_their_turn
+    rows = []
+    candidates = (db.query(models.HrSignParty)
+                  .filter(models.HrSignParty.email == email, models.HrSignParty.kind == "internal",
+                          models.HrSignParty.status.in_(["waiting", "notified", "viewed"])).all())
+    if not candidates:
+        return rows
+    req_ids = {p.request_id for p in candidates}
+    reqs = {r.id: r for r in db.query(models.HrSignRequest)
+            .filter(models.HrSignRequest.id.in_(req_ids), models.HrSignRequest.status == "pending").all()}
+    for p in candidates:
+        req = reqs.get(p.request_id)
+        if not req or not _its_their_turn(req, p):
+            continue
+        rows.append({
+            "title": f"Sign: {req.title}",
+            "detail": "Signature required",
+            "url": f"{app_url()}{_ESIGN_URL}",
+            "module": "documents",
+        })
+    return rows
+
+
+def _esign_needs_to_know_rows(db: Session, email: str, since_iso: str) -> list:
+    """Envelopes you sent where a party declined since your last briefing -
+    the one mid-flight esign event that needs your attention without waiting
+    for full completion (a decline usually means re-sending to someone
+    else)."""
+    rows = []
+    declined = (db.query(models.HrSignRequest)
+                .join(models.HrSignEvent, models.HrSignEvent.request_id == models.HrSignRequest.id)
+                .filter(models.HrSignRequest.created_by == email,
+                        models.HrSignEvent.type == "declined",
+                        models.HrSignEvent.at >= since_iso).distinct().all())
+    for req in declined:
+        rows.append({
+            "title": f"Declined: {req.title}",
+            "detail": "A signer declined - review and re-send if needed",
+            "url": f"{app_url()}{_ESIGN_URL}",
+            "module": "documents",
+        })
+    return rows
+
+
+def _esign_completed_rows(db: Session, email: str, since_iso: str) -> list:
+    my_party_reqs = {p.request_id for p in
+                      db.query(models.HrSignParty)
+                      .filter(models.HrSignParty.email == email, models.HrSignParty.kind == "internal").all()}
+    rows = []
+    for req in (db.query(models.HrSignRequest)
+                .filter(models.HrSignRequest.status == "completed",
+                        models.HrSignRequest.completed_at >= since_iso,
+                        (models.HrSignRequest.created_by == email) |
+                        (models.HrSignRequest.id.in_(my_party_reqs))).all()):
+        rows.append({
+            "title": f"Fully executed: {req.title}",
+            "detail": "Completed",
+            "url": f"{app_url()}{_ESIGN_URL}",
+            "module": "documents",
+        })
+    return rows
+
+
 def _red_rows(db: Session, email: str, my_reports: dict) -> list:
     rows = []
     # Filtered in Python rather than SQL: assignee_emails is a JSON list and
@@ -246,20 +392,27 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
             else:
                 types = {r.type for r in reqs}
                 same_type = next(iter(types)) if len(types) == 1 else None
-                detail = "; ".join(
-                    f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}" +
-                    ("" if same_type else f" ({r.type})")
-                    for r in reqs
-                )
                 label = f"({same_type})" if same_type else f"({len(reqs)} requests)"
                 rows.append({
                     "title": f"Approve: {name}'s time off {label}",
-                    "detail": detail,
+                    "detail": f"{len(reqs)} pending requests - decide each below",
                     "url": f"{app_url()}/timeclock",
                     "module": "time_off",
+                    # A bundled card still gets one-click actions - just one
+                    # Approve/Reject pair PER request instead of a single
+                    # ambiguous pair for the whole card (Pranshu, Sep 20 - the
+                    # Sep 15 "one card per employee" change accidentally also
+                    # dropped the one-click actions along with the repetition).
+                    "sub_actions": [{
+                        "detail": f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}" +
+                                  ("" if same_type else f" ({r.type})"),
+                        "action_kind": "timeoff_approval", "action_id": r.id, "action_email": email,
+                    } for r in reqs],
                 })
     rows.extend(_timecard_rows(db, email))
     rows.extend(_item_action_rows(db, email, bool(my_reports)))
+    rows.extend(_ticket_action_rows(db, email))
+    rows.extend(_esign_action_rows(db, email))
     return rows
 
 
@@ -343,6 +496,8 @@ def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> li
             "task_open": not bool(t.completed),
         })
     rows.extend(_item_needs_to_know_rows(db, email, since_iso, bool(my_reports)))
+    rows.extend(_ticket_needs_to_know_rows(db, email, since_iso))
+    rows.extend(_esign_needs_to_know_rows(db, email, since_iso))
     return rows
 
 
@@ -379,6 +534,8 @@ def _green_rows(db: Session, email: str, since_iso: str) -> list:
             "module": "tasks", "task_id": t.id, "action_email": email,
         })
     rows.extend(_item_completed_rows(db, email, since_iso))
+    rows.extend(_ticket_completed_rows(db, email, since_iso))
+    rows.extend(_esign_completed_rows(db, email, since_iso))
     return rows
 
 
@@ -458,12 +615,45 @@ _SUMMARY_NOUN = {"action_required": "need your approval", "needs_to_know": "upda
 # off) before opening any of it.
 _MODULE_META = {
     "tasks":    "Tasks",
+    "tickets":  "Tickets",
+    "documents": "Documents",
     "time_off": "Time Off",
     "timecard": "Time Card",
     "items":    "Items",
     "team":     "Team",
 }
-_MODULE_ORDER = ["tasks", "time_off", "timecard", "items", "team"]
+_MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "items", "team"]
+# A "view all" fallback per module for the "+N more" link (Pranshu, Sep 20 -
+# true click-to-expand only works in clients that honor the checkbox-hack CSS
+# (see _module_group_html); Outlook desktop's Word engine never will, and
+# there is no JS-free way around that. A plain HTML cap+link works identically
+# in every client instead, so it is the actual fix for "the list is too long"
+# rather than a client-dependent nicety.
+_MODULE_VIEW_URL = {
+    "tasks": "/tasks/mine", "tickets": "/tickets", "documents": _ESIGN_URL,
+    "time_off": "/timeclock", "timecard": "/timeclock", "items": "/itemmanagement",
+}
+_MODULE_CARD_CAP = 3
+
+
+def _sub_action_html(accent: str, sub: dict) -> str:
+    """One request's own Approve/Reject pair inside a bundled card (e.g. an
+    employee with several pending time-off requests) - each request still
+    gets a one-click decision, just scoped to that row instead of the whole
+    card (Pranshu, Sep 20)."""
+    sbtn = ("display:inline-block;padding:4px 10px;border-radius:16px;"
+            "font-size:11px;font-weight:700;text-decoration:none;margin:0 6px 0 0;")
+    approve_url = briefing_mail_actions.action_url(sub["action_kind"], sub["action_id"], "approve", sub["action_email"])
+    reject_url = briefing_mail_actions.action_url(sub["action_kind"], sub["action_id"], "reject", sub["action_email"])
+    return f"""
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+          border-top:1px solid rgba(0,0,0,.06);padding:7px 0;margin-top:2px">
+          <span style="font-size:12.5px;color:#3a463e">{escape(sub['detail'])}</span>
+          <span>
+            <a href='{escape(approve_url)}' style='{sbtn}background:#2f8a55;color:#ffffff'>Approve &check;</a>
+            <a href='{escape(reject_url)}' style='{sbtn}background:#ffffff;color:#6b6b6b;border:1px solid #d8ddd6'>Reject</a>
+          </span>
+        </div>"""
 
 
 def _card_html(color: str, row: dict) -> str:
@@ -507,10 +697,12 @@ def _card_html(color: str, row: dict) -> str:
         buttons.append(f"<a href='{escape(row['url'])}' class='nx-btn' "
                         f"style='{btn}background:{accent};color:#ffffff'>Open in Nexus &rarr;</a>")
     link = f"<div style='margin-top:10px'>{''.join(buttons)}</div>" if buttons else ""
+    sub_rows = "".join(_sub_action_html(accent, s) for s in row.get("sub_actions") or [])
     return f"""
         <div style="background:{tint};border-left:3px solid {accent};border-radius:10px;padding:14px 16px;margin-bottom:10px">
           <div style="font-size:14.5px;font-weight:700;color:#26312a;line-height:1.35">{escape(row['title'])}</div>
           <div style="font-size:12.5px;color:#5c6a60;margin-top:3px;line-height:1.45">{escape(row['detail'])}</div>
+          {sub_rows}
           {link}
         </div>"""
 
@@ -525,9 +717,18 @@ def _group_by_module(rows: list) -> list:
     return [(m, _MODULE_META.get(m, m.replace("_", " ").title()), buckets[m]) for m in order]
 
 
-def _module_group_html(color: str, group_id: str, label: str, rows: list) -> str:
+def _module_group_html(color: str, group_id: str, module: str, label: str, rows: list) -> str:
     _, accent, _tint, _icon = _BADGE[color]
-    cards = "".join(_card_html(color, r) for r in rows)
+    shown, hidden = rows[:_MODULE_CARD_CAP], rows[_MODULE_CARD_CAP:]
+    cards = "".join(_card_html(color, r) for r in shown)
+    if hidden:
+        # Plain link, not another accordion layer - this is the part that has
+        # to work identically in every client, so it cannot depend on CSS the
+        # way the outer toggle below does.
+        more_url = (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}"
+        cards += (f"<div style='margin:2px 0 10px'><a href='{escape(more_url)}' "
+                  f"style='font-size:12.5px;font-weight:700;color:{accent};text-decoration:none'>"
+                  f"+{len(hidden)} more &rarr; Open in Nexus</a></div>")
     cid = f"nx-acc-{escape(group_id)}"
     # Checkbox-hack accordion, collapsed by default via the .nx-acc CSS rules
     # below. The content div's OWN inline style is display:block (visible) -
@@ -535,7 +736,8 @@ def _module_group_html(color: str, group_id: str, label: str, rows: list) -> str
     # desktop's Word engine, same gap the @media block above already accepts)
     # just shows every module expanded instead of hiding action items behind
     # a toggle that can never be clicked. Nothing here depends on the CSS
-    # firing; it only makes a supporting client more compact.
+    # firing; it only makes a supporting client more compact. The cap above
+    # (not this toggle) is what actually keeps a long list short everywhere.
     return f"""
         <input type="checkbox" id="{cid}" class="nx-acc" style="display:none">
         <label for="{cid}" class="nx-acc-label" style="display:block;cursor:pointer;padding:9px 12px;
@@ -552,7 +754,7 @@ def _section_html(color: str, rows: list) -> str:
              f"color:#ffffff;font-family:\"Segoe UI\",Arial,sans-serif;font-size:11.5px;letter-spacing:.02em;"
              f"font-weight:700'>{icon} {escape(label)}</span>")
     groups = _group_by_module(rows)
-    body = "".join(_module_group_html(color, f"{color}-{m}", glabel, grows) for m, glabel, grows in groups)
+    body = "".join(_module_group_html(color, f"{color}-{m}", m, glabel, grows) for m, glabel, grows in groups)
     return f"""
       <tr><td class="nx-pad" style="padding:20px 32px 4px">
         <div style="margin-bottom:12px">{badge}</div>
