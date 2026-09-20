@@ -31,6 +31,22 @@ vi.mock('../components/DocumentsBrowser', () => ({ default: () => <div>my docume
 vi.mock('../components/DocumentTemplates', () => ({ default: () => <div>templates tab</div> }));
 
 const Documents = (await import('./Documents')).default;
+const { HeaderTabsProvider, useHeaderTabs } = await import('../components/ModuleTabs');
+
+// Desktop publishes the strip to the header; phones draw it as the bottom bar
+// (MobileNav's DOCUMENT_ACTIONS). Either way it is no longer in the page, so
+// read it from the header slot.
+function PublishedTabs() {
+  const entry = useHeaderTabs();
+  return <div data-testid="published-tabs">{(entry?.tabs || []).map(t => t.label).join('|')}</div>;
+}
+const renderDocs = (activeSub) => render(
+  <HeaderTabsProvider>
+    <Documents activeSub={activeSub} onSubChange={() => {}} />
+    <PublishedTabs />
+  </HeaderTabsProvider>,
+);
+const publishedTabs = () => screen.getByTestId('published-tabs').textContent;
 
 const TABS = [
   ['documents-dashboard', 'dashboard tab'],
@@ -51,15 +67,22 @@ describe('the Documents module header is gone', () => {
 
 describe('what stays', () => {
   it('the tab strip is still there - it is the module navigation now', async () => {
-    render(<Documents activeSub="documents-browse" onSubChange={() => {}} />);
+    renderDocs('documents-browse');
     await waitFor(() => expect(screen.getByText('my documents tab')).toBeTruthy());
-    expect(screen.getAllByText('Nexus Sign').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Templates').length).toBeGreaterThan(0);
+    expect(publishedTabs()).toContain('Nexus Sign');
+    expect(publishedTabs()).toContain('Templates');
+  });
+
+  it('the strip is not drawn in the page - the header has it, phones get the bottom bar', async () => {
+    renderDocs('documents-browse');
+    await waitFor(() => expect(screen.getByText('my documents tab')).toBeTruthy());
+    expect(document.querySelector('.module-tabs-inline')).toBeNull();
   });
 
   it('PDF Tools still drops the tab strip for its full-bleed workspace', async () => {
-    render(<Documents activeSub="documents-pdf" onSubChange={() => {}} />);
+    renderDocs('documents-pdf');
     await waitFor(() => expect(screen.getByText('pdf tools tab')).toBeTruthy());
     expect(screen.queryByText('My Documents')).toBeNull();
+    expect(publishedTabs()).toBe('');
   });
 });

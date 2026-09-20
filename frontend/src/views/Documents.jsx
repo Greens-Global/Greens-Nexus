@@ -100,9 +100,12 @@ export default function Documents({ activeSub, onSubChange }) {
           the module's navigation. This also removed the only caller of
           DocumentsSearchBar (deleted) and of the open-by-id signals. */}
       {/* Tabs */}
-      {/* Desktop: tabs render centered in the top header; phones keep the
-          in-page strip (ModuleTabs handles both) */}
-      {!pdfFullBleed && <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />}
+      {/* Desktop: tabs render centered in the top header. Phones get them as
+          the bottom bar instead (MobileNav.jsx's DOCUMENT_ACTIONS, the same
+          icon-over-label treatment the Task and Item modules use), so the
+          in-page strip is suppressed there - two strips would be the same
+          navigation twice. */}
+      {!pdfFullBleed && <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} mobileInline={false} />}
 
       {sub === 'documents-dashboard' && (
         <DocumentsDashboard
