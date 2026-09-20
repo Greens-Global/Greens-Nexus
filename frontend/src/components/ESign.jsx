@@ -2732,7 +2732,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {/* STEP 0 - Document */}
         {step === 0 && (
-          <div style={{ maxWidth: 980, margin: '0 auto', padding: '26px 18px' }}>
+          <div style={{ maxWidth: 980, margin: '0 auto', padding: isMobile ? '14px 12px' : '26px 18px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 18 }}>
               <div>
                 {/* The company's ONE template library (requirement 25 - Nexus
@@ -2747,7 +2747,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                   <>
                     <label style={FL}>Fill in {pendingTpl.name}</label>
                     <div style={{ border: '1.5px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 11, maxHeight: 420, overflowY: 'auto' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 11, ...(isMobile ? {} : { maxHeight: 420, overflowY: 'auto' }) }}>
                         {askableFields(pendingTpl).map(fd => (
                           <div key={fd.token}>
                             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
@@ -2783,7 +2783,11 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                   <input className="form-input" value={tplQuery} onChange={e => setTplQuery(e.target.value)}
                     placeholder="Search templates…" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }} />
                 </div>
-                <div style={{ display: 'grid', gap: 8, maxHeight: 340, overflowY: 'auto' }}>
+                {/* On a phone this list used to be a 340px scroller that filled the
+                    whole panel, so a drag scrolled the templates and never reached
+                    the upload box or About/Company below it. One scroll surface
+                    there: the panel's own. */}
+                <div style={{ display: 'grid', gap: 8, ...(isMobile ? {} : { maxHeight: 340, overflowY: 'auto' }) }}>
                   {shownDocTemplates.map(t => (
                     <button key={t.id} onClick={() => pickDocTemplate(t)} disabled={generating === t.id}
                       style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderRadius: 12, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif',
