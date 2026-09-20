@@ -1878,7 +1878,17 @@ def list_comments(task_id: str, user: dict = Depends(get_current_user), db: Sess
     # second made a drawer left open on a deleted task look merely empty. POST
     # and PATCH on the same id already 404.
     _wall_task(db, user, task_id)   # company wall
-    rows = db.query(models.TaskComment).filter(models.TaskComment.task_id == task_id).all()
+    # Oldest first, like a chat log - the drawer renders them in the order they
+    # arrive here. Without an ORDER BY this was whatever the database handed
+    # back: on Postgres that is heap order, so editing or pinning a comment
+    # rewrote the row and moved it to the END of the thread, and an Asana-pulled
+    # comment landed wherever its row happened to sit. created_at is an ISO-8601
+    # UTC string, so it sorts chronologically as text; id breaks ties for two
+    # comments written inside the same tick.
+    rows = (db.query(models.TaskComment)
+              .filter(models.TaskComment.task_id == task_id)
+              .order_by(models.TaskComment.created_at.asc(), models.TaskComment.id.asc())
+              .all())
     return [comment_to_dict(c) for c in rows]
 
 

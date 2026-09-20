@@ -302,8 +302,15 @@ export function TasksProvider({ children }) {
   // Comments (loaded on demand, cached)
   const getComments = useCallback(async (taskId) => {
     const rows = await api.getTaskComments(taskId).catch(() => []);
-    commentCache.current[taskId] = rows;
-    return rows;
+    // Oldest first. The API orders them now, but every consumer here (the
+    // drawer's Comments tab, Overview's "latest 3") reads position as time -
+    // Overview literally slices the tail - so sort on arrival rather than
+    // trusting each caller to remember. A comment with no createdAt sorts last,
+    // where a just-written one belongs, rather than to the top of the thread.
+    const at = (c) => String(c?.createdAt || '￿');
+    const sorted = [...rows].sort((a, b) => at(a).localeCompare(at(b)));
+    commentCache.current[taskId] = sorted;
+    return sorted;
   }, []);
   const addComment = useCallback(async (taskId, body) => {
     const c = await api.addTaskComment(taskId, { body });
