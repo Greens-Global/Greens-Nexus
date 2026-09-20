@@ -658,7 +658,7 @@ def _sub_action_html(accent: str, sub: dict) -> str:
           border-top:1px solid rgba(0,0,0,.06);padding:7px 0;margin-top:2px">
           <span style="font-size:12.5px;color:#3a463e">{escape(sub['detail'])}</span>
           <span>
-            <a href='{escape(approve_url)}' style='{sbtn}background:#2f8a55;color:#ffffff'>Approve &check;</a>
+            <a href='{escape(approve_url)}' style='{sbtn}background:#2f8a55;color:#ffffff'>Approve</a>
             <a href='{escape(reject_url)}' style='{sbtn}background:#ffffff;color:#6b6b6b;border:1px solid #d8ddd6'>Reject</a>
           </span>
         </div>"""
@@ -679,7 +679,7 @@ def _card_html(color: str, row: dict) -> str:
         approve_url = briefing_mail_actions.action_url(row["action_kind"], row["action_id"], "approve", row["action_email"])
         reject_url = briefing_mail_actions.action_url(row["action_kind"], row["action_id"], "reject", row["action_email"])
         buttons.append(f"<a href='{escape(approve_url)}' class='nx-btn' "
-                        f"style='{btn}background:#2f8a55;color:#ffffff'>Approve &check;</a>")
+                        f"style='{btn}background:#2f8a55;color:#ffffff'>Approve</a>")
         buttons.append(f"<a href='{escape(reject_url)}' class='nx-btn' "
                         f"style='{btn}background:#ffffff;color:#6b6b6b;border:1px solid #d8ddd6'>Reject</a>")
     if row.get("task_id"):
@@ -763,10 +763,23 @@ def _section_html(color: str, rows: list) -> str:
              f"font-weight:700'>{icon} {escape(label)}</span>")
     groups = _group_by_module(rows)
     body = "".join(_module_group_html(color, f"{color}-{m}", m, glabel, grows) for m, glabel, grows in groups)
+    sid = f"nx-sec-{color}"
+    # Same checkbox-hack accordion as _module_group_html, one level up - the
+    # whole section (not just each module inside it) starts collapsed in a
+    # client that honors the CSS, and safely stays expanded (never stuck
+    # hidden) in one that doesn't, like Outlook desktop classic (Pranshu,
+    # Sep 20: "the sections... should be collapsed - it should only expand
+    # if user clicks on it"). Reuses the exact same .nx-acc/.nx-content CSS
+    # rules - nested accordions each match only their own immediate
+    # siblings, so the module-level toggles inside still work independently.
     return f"""
       <tr><td class="nx-pad" style="padding:20px 32px 4px">
-        <div style="margin-bottom:12px">{badge}</div>
-        {body}
+        <input type="checkbox" id="{sid}" class="nx-acc" style="display:none">
+        <label for="{sid}" class="nx-acc-label" style="display:block;cursor:pointer;margin-bottom:12px">
+          {badge}
+          <span style="float:right;color:{accent};font-size:15px;transition:transform .15s" class="nx-arrow">&#9656;</span>
+        </label>
+        <div class="nx-content" style="display:block">{body}</div>
       </td></tr>"""
 
 
