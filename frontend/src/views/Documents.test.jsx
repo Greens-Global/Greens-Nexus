@@ -38,6 +38,22 @@ vi.mock('../components/DocumentBuilder', () => ({ default: () => <div>document b
 vi.mock('../components/EgnyteBrowser', () => ({ default: () => <div>egnyte</div> }));
 
 const Documents = (await import('./Documents')).default;
+const { HeaderTabsProvider, useHeaderTabs } = await import('../components/ModuleTabs');
+
+// The tab strip is published to the header (and, on phones, drawn by
+// MobileNav's DOCUMENT_ACTIONS) rather than rendered in the page, so read it
+// where TopHeader reads it.
+function PublishedTabs() {
+  const entry = useHeaderTabs();
+  return <div data-testid="published-tabs">{(entry?.tabs || []).map(t => t.label).join('|')}</div>;
+}
+const renderDocs = (activeSub, onSubChange = () => {}) => render(
+  <HeaderTabsProvider>
+    <Documents activeSub={activeSub} onSubChange={onSubChange} />
+    <PublishedTabs />
+  </HeaderTabsProvider>,
+);
+const publishedTabs = () => screen.getByTestId('published-tabs').textContent;
 
 beforeEach(() => {
   getDocuments.mockClear();
@@ -46,11 +62,11 @@ beforeEach(() => {
 
 describe('Documents module', () => {
   it('renders the dashboard tab by default, with the full tab strip', async () => {
-    render(<Documents activeSub="" onSubChange={() => {}} />);
+    renderDocs('');
     // The module title band was removed (Sep 17) - the tab strip is the proof
     // that the shell rendered.
     for (const label of ['Dashboard', 'My Documents', 'Templates', 'Nexus Sign', 'PDF Tools']) {
-      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+      expect(publishedTabs()).toContain(label);
     }
     await waitFor(() => expect(mySignatures).toHaveBeenCalled());
   });
@@ -79,18 +95,19 @@ describe('Documents module', () => {
   });
 
   it('goes full-bleed on PDF Tools - no module title or tab strip', () => {
-    render(<Documents activeSub="documents-pdf" onSubChange={() => {}} />);
+    renderDocs('documents-pdf');
     expect(screen.getByText('pdf tools tab')).toBeTruthy();
     expect(screen.queryByText('Documents')).toBeNull();
     expect(screen.queryByText('My Documents')).toBeNull();
+    expect(publishedTabs()).toBe('');   // nothing published either
   });
 
   it('still renders when every API call fails (403 for a documents-only grant)', async () => {
     getEmployees.mockRejectedValueOnce(new Error('403'));
     getDocuments.mockRejectedValueOnce(new Error('500'));
     mySignatures.mockRejectedValueOnce(new Error('403'));
-    render(<Documents activeSub="documents-dashboard" onSubChange={() => {}} />);
-    expect(screen.getAllByText('Dashboard').length).toBeGreaterThan(0);
+    renderDocs('documents-dashboard');
+    expect(publishedTabs()).toContain('Dashboard');
     await waitFor(() => expect(mySignatures).toHaveBeenCalled());
   });
 });
