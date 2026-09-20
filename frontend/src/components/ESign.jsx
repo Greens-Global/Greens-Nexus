@@ -14,6 +14,7 @@ import { RESERVED_TYPES as RESERVED_FIELD_TYPES, validateFieldValue, formatField
 import TypedFieldInput from './TypedFieldInput';
 import EgnyteBrowser from './EgnyteBrowser';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import { useIsMobile } from '../lib/useIsMobile';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { useRole } from '../contexts/RoleContext';
@@ -2238,6 +2239,7 @@ export function defaultSendEntityId(entities, employees, senderEmail) {
 function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed, onClose, onSent, toastOk, toastErr }) {
   const { myEmail } = useRole() || {};
   const [boxRef, boxH] = useFillHeight();
+  const isMobile = useIsMobile();
   const [step, setStep] = useState(0);
   // Excluded-record acknowledgment (ESIGN 15 U.S.C. 7003 / Cal. Civ. Code
   // 1633.3). The list comes from the server so this checklist and the
@@ -2613,6 +2615,14 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
     if (isPdf && step === 1 && fields.length === 0) return 'Drag at least one field onto the document.';
     return '';
   };
+  // One set of nav actions behind two bars - the desktop top bar and the mobile
+  // bottom bar below it - so a phone can never end up on a step it cannot leave.
+  const goBack = () => setStep(s => s - 1);
+  const goNext = () => (stepOk() ? setStep(s => s + 1) : toastErr(stepHint()));
+  const sendBlocked = busy || !excludedAck || !documentClass || classBlocked;
+  const sendTitle = classBlocked ? 'This document type cannot be signed electronically'
+    : !documentClass ? 'Pick the document type first'
+    : excludedAck ? '' : 'Confirm the document type first';
 
   async function send() {
     if (busy) return; setBusy(true);
@@ -2680,7 +2690,11 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
 
   return (
     <div ref={boxRef} style={fillPanelStyle(boxH)}>
-      {/* Top bar: title + step pills + nav */}
+      {/* Top bar: title + step pills + nav. Desktop only - on a phone the pills
+          wrap into a stack that ate half the screen before the form even
+          started, so mobile gets the slim bottom bar at the end of this panel
+          instead and the envelope title moves into step 0. */}
+      {!isMobile && (
       <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', flexShrink: 0, flexWrap: 'wrap' }}>
         <button onClick={onClose} title="Discard and go back" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><X size={19} /></button>
         <input className="form-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="Envelope title…"
@@ -2699,24 +2713,21 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {step > 0 && <button className="secondary-btn" onClick={() => setStep(s => s - 1)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}><ChevronLeft size={13} /> Back</button>}
+          {step > 0 && <button className="secondary-btn" onClick={goBack} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}><ChevronLeft size={13} /> Back</button>}
           {step < steps.length - 1 ? (
-            <button className="primary-btn" onClick={() => stepOk() ? setStep(s => s + 1) : toastErr(stepHint())}
+            <button className="primary-btn" onClick={goNext}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, opacity: stepOk() ? 1 : 0.55 }}>
               Next <ChevronRight size={13} />
             </button>
           ) : (
-            <button className="primary-btn" onClick={send}
-              disabled={busy || !excludedAck || !documentClass || classBlocked}
-              title={classBlocked ? 'This document type cannot be signed electronically'
-                : !documentClass ? 'Pick the document type first'
-                : excludedAck ? '' : 'Confirm the document type first'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: (busy || !excludedAck || !documentClass || classBlocked) ? 0.6 : 1 }}>
+            <button className="primary-btn" onClick={send} disabled={sendBlocked} title={sendTitle}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: sendBlocked ? 0.6 : 1 }}>
               {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} Send
             </button>
           )}
         </div>
       </div>
+      )}
 
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {/* STEP 0 - Document */}
@@ -2867,6 +2878,15 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                       {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
                     </select>
                   </div>
+                  {/* Phones have no top bar to hold the title input, so it lives
+                      here - below the template/PDF pick that fills it in. */}
+                  {isMobile && (
+                    <div>
+                      <label style={FL}>Envelope Title</label>
+                      <input className="form-input" style={{ width: '100%', fontWeight: 700 }} value={title}
+                        onChange={e => setTitle(e.target.value)} placeholder="Envelope title…" />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -3240,6 +3260,36 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
           </div>
         )}
       </div>
+
+      {/* Mobile nav: the top bar's job in one row that does not wrap. */}
+      {isMobile && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderTop: '1px solid var(--line)', background: 'var(--card)', flexShrink: 0 }}>
+          <button onClick={onClose} title="Discard and go back" aria-label="Close"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4, flexShrink: 0 }}>
+            <X size={19} />
+          </button>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {step + 1}/{steps.length} · {steps[step]}
+          </span>
+          {step > 0 && (
+            <button className="secondary-btn" onClick={goBack} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, flexShrink: 0 }}>
+              <ChevronLeft size={13} /> Back
+            </button>
+          )}
+          {step < steps.length - 1 ? (
+            <button className="primary-btn" onClick={goNext}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, flexShrink: 0, opacity: stepOk() ? 1 : 0.55 }}>
+              Next <ChevronRight size={13} />
+            </button>
+          ) : (
+            <button className="primary-btn" onClick={send} disabled={sendBlocked} title={sendTitle}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, flexShrink: 0, opacity: sendBlocked ? 0.6 : 1 }}>
+              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} Send
+            </button>
+          )}
+        </div>
+      )}
+
       {egnyteOpen && (
         <EgnyteBrowser onClose={() => setEgnyteOpen(false)}
           onPick={(picked) => { setEgnyteOpen(false); pickFile(picked); }} />

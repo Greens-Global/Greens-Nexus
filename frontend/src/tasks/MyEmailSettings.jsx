@@ -1,14 +1,18 @@
-// My Email Settings (Sept 2026) - each person's own control over task emails:
-// when reminders arrive, how often overdue ones repeat, one email per task or
-// one daily summary, which instant emails they get, and muted tasks/projects.
+// Task Emails (Sept 2026) - each person's own control over task emails: when
+// reminders arrive, how often overdue ones repeat, one email per task or one
+// daily summary, which instant emails they get, and muted tasks/projects.
+// Shown by the header menu's "Email Settings" (components/EmailSettingsModal.jsx),
+// which the "Email Settings" link in every task email also opens.
 // Company settings (Manage -> Notifications) stay the default; anything left on
 // "Company default" here follows them. The backend is the real boundary
 // (task_notify_prefs.normalize) - this form only offers valid choices.
+//
+// The header sits OUTSIDE the Task module's provider, so this loads its own
+// project list for "Mute a Project" rather than reading TasksContext.
 import { useEffect, useState } from 'react';
 import { Save, X } from 'lucide-react';
 import { api } from '../api';
-import { useTasks } from './TasksContext';
-import { Modal, SearchSelect } from './components';
+import { SearchSelect } from './components';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 
@@ -45,8 +49,11 @@ function Toggle({ on, onChange, disabled }) {
   );
 }
 
-export default function MyEmailSettings({ onClose }) {
-  const { projects = [] } = useTasks();
+/** `onUnavailable` fires when the account has no Task module access (the
+ *  settings API answers 403) - the modal then says so rather than showing
+ *  controls that can't be saved. */
+export default function EmailSettingsPanel({ onUnavailable }) {
+  const [projects, setProjects] = useState([]);
   const [data, setData] = useState(null);   // server payload: prefs + company + muted lists
   const [prefs, setPrefs] = useState(null);
   const [err, setErr] = useState('');
@@ -56,7 +63,12 @@ export default function MyEmailSettings({ onClose }) {
   useEffect(() => {
     api.getMyTaskNotifyPrefs()
       .then((d) => { setData(d); setPrefs(d.prefs); })
-      .catch((e) => setErr(e.message || 'Could not load your email settings.'));
+      .catch((e) => {
+        if (e?.status === 403) onUnavailable?.();
+        else setErr(e.message || 'Could not load your email settings.');
+      });
+    api.getTaskProjects().then((rows) => setProjects(Array.isArray(rows) ? rows : [])).catch(() => setProjects([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const set = (k, v) => { setPrefs((p) => ({ ...p, [k]: v })); setSaved(false); };
@@ -78,20 +90,7 @@ export default function MyEmailSettings({ onClose }) {
   const mutedProjectName = (id) => data?.mutedProjects?.find((p) => p.id === id)?.name
     || projects.find((p) => p.id === id)?.name || 'A project that no longer exists';
 
-  const footer = (
-    <>
-      {err && <span style={{ fontSize: 12.5, color: NX.red, marginRight: 'auto' }}>{err}</span>}
-      {saved && !dirty && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600, marginRight: 'auto' }}>Saved</span>}
-      <button style={btn('ghost')} onClick={onClose}>Close</button>
-      <button style={{ ...btn('primary'), opacity: saving || !dirty ? 0.6 : 1 }} onClick={save} disabled={saving || !dirty}>
-        <Save size={14} /> {saving ? 'Saving…' : 'Save Settings'}
-      </button>
-    </>
-  );
-
   return (
-    <Modal title="Email Settings" onClose={onClose} footer={footer} width="clamp(420px, 46vw, 640px)"
-      isDirty={dirty} onSave={dirty ? save : undefined}>
       <div style={{ fontFamily: FONT, color: NX.ink }}>
         <p style={{ ...hint, marginBottom: 4 }}>
           Choose which task emails you get and when. Anything left on the company default follows your company&apos;s settings.
@@ -206,9 +205,15 @@ export default function MyEmailSettings({ onClose }) {
                   onPick={(id) => set('mutedProjectIds', [...prefs.mutedProjectIds, id])} />
               </div>
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 4 }}>
+              <button style={{ ...btn('primary'), opacity: saving || !dirty ? 0.6 : 1 }} onClick={save} disabled={saving || !dirty}>
+                <Save size={14} /> {saving ? 'Saving…' : 'Save Email Settings'}
+              </button>
+              {saved && !dirty && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved</span>}
+            </div>
           </>
         )}
+        {err && <div style={{ fontSize: 12.5, color: NX.red, marginTop: 8 }}>{err}</div>}
       </div>
-    </Modal>
   );
 }

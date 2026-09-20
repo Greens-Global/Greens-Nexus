@@ -255,10 +255,12 @@ def fallback_actions_html(*, event_type: str, token: str, done: bool) -> str:
 
 
 def settings_url() -> str:
-    """The recipient's own email settings (MyEmailSettings.jsx) - My Tasks opens
-    the panel when it sees ?emailSettings=1."""
+    """The recipient's own email settings - the header menu's "Email Settings"
+    (EmailSettingsModal.jsx), which TopHeader.jsx opens on ?emailSettings=1 on
+    whatever screen the app lands - the Dashboard here, which every employee
+    can open, unlike a Tasks URL."""
     from app_url import app_url
-    return f"{app_url()}/tasks/mine?emailSettings=1"
+    return f"{app_url()}/dashboard?emailSettings=1"
 
 
 def footer_links_html(*, token: str = "") -> str:

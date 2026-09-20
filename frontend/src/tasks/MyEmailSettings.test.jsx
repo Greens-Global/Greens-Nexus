@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-// Render-smoke + the save round trip for My Email Settings: loads the caller's
+// Render-smoke + the save round trip for the Task Emails panel (in My Profile): loads the caller's
 // own preferences, shows company defaults, keeps assigned/mentioned locked on,
 // and saves what was changed.
 
@@ -20,17 +20,17 @@ const payload = {
 const api = {
   getMyTaskNotifyPrefs: vi.fn(async () => payload),
   saveMyTaskNotifyPrefs: vi.fn(async (prefs) => ({ ...payload, prefs })),
+  getTaskProjects: vi.fn(async () => [{ id: 'p1', name: 'Ops' }]),
 };
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => (...a) => api[k](...a) }) }));
-vi.mock('./TasksContext', () => ({ useTasks: () => ({ projects: [{ id: 'p1', name: 'Ops' }] }) }));
 
-const { default: MyEmailSettings } = await import('./MyEmailSettings');
+const { default: EmailSettingsPanel } = await import('./MyEmailSettings');
 
-describe('MyEmailSettings', () => {
+describe('EmailSettingsPanel', () => {
   beforeEach(() => { api.saveMyTaskNotifyPrefs.mockClear(); });
 
   it('renders the settings with company defaults and locked events', async () => {
-    render(<MyEmailSettings onClose={() => {}} />);
+    render(<EmailSettingsPanel />);
     expect(await screen.findByText('Reminder Time')).toBeTruthy();
     expect(screen.getByText('Company default (2 days before)')).toBeTruthy();
     expect(screen.getByText('Company default (every 3 days)')).toBeTruthy();
@@ -43,16 +43,25 @@ describe('MyEmailSettings', () => {
   });
 
   it('saves the changed preferences', async () => {
-    render(<MyEmailSettings onClose={() => {}} />);
+    render(<EmailSettingsPanel />);
     await screen.findByText('Reminder Time');
     fireEvent.click(screen.getByLabelText(/One daily summary/));
     fireEvent.change(screen.getByLabelText('Overdue reminders'), { target: { value: 'weekly' } });
     fireEvent.click(screen.getByRole('button', { name: /Unmute/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Save Settings/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Save Email Settings/ }));
     await waitFor(() => expect(api.saveMyTaskNotifyPrefs).toHaveBeenCalledTimes(1));
     const sent = api.saveMyTaskNotifyPrefs.mock.calls[0][0];
     expect(sent.reminderDelivery).toBe('digest');
     expect(sent.overdueFrequency).toBe('weekly');
     expect(sent.mutedTaskIds).toEqual([]);
+  });
+
+  it('reports "unavailable" instead of rendering for an account without task access', async () => {
+    const orig = api.getMyTaskNotifyPrefs;
+    api.getMyTaskNotifyPrefs = vi.fn(async () => { const e = new Error('Forbidden'); e.status = 403; throw e; });
+    const onUnavailable = vi.fn();
+    render(<EmailSettingsPanel onUnavailable={onUnavailable} />);
+    await waitFor(() => expect(onUnavailable).toHaveBeenCalledTimes(1));
+    api.getMyTaskNotifyPrefs = orig;
   });
 });
