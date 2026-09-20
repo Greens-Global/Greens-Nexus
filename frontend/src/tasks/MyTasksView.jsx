@@ -3,7 +3,7 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight, Check, Minus, Mail } from 'lucide-react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight, Check, Minus } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle } from './theme';
@@ -13,7 +13,6 @@ import MobileTaskBar from './MobileTaskBar';
 import CreateTaskModal from './CreateTaskModal';
 import QuickCreateTask from './QuickCreateTask';
 import TaskDetailDrawer from './TaskDetailDrawer';
-import MyEmailSettings from './MyEmailSettings';
 import { CalendarView, DashboardView } from './views/extras';
 import { FilesView } from './views/more';
 import BoardView from './views/board';
@@ -263,18 +262,6 @@ export default function MyTasksView({ onNavigate }) {
     [nameOf, store.projectName, store.teamName],
   );
   const [openId, setOpenId] = useState(taskIdFromUrl);
-  // Email Settings: from the button below, or straight in from the "Email
-  // Settings" link in every task email's footer (?emailSettings=1). The param
-  // is dropped once read so a refresh doesn't keep reopening the panel.
-  const [emailSettingsOpen, setEmailSettingsOpen] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    const q = new URLSearchParams(window.location.search);
-    if (q.get('emailSettings') !== '1') return false;
-    q.delete('emailSettings');
-    const rest = q.toString();
-    window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
-    return true;
-  });
   const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
   const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
   const isMobile = useIsMobile();
@@ -393,10 +380,6 @@ export default function MyTasksView({ onNavigate }) {
             columns={MY_TASK_EXPORT_COLS(store, nameOf)}
           />
         )}
-        <button onClick={() => setEmailSettingsOpen(true)} title="Email Settings - choose which task emails you get and when"
-          aria-label="Email Settings" style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12.5 }}>
-          <Mail size={14} />{!isMobile && ' Email Settings'}
-        </button>
       </div>
 
       {/* Desktop: view tabs + toolbar. Mobile: replaced by the floating MobileTaskBar. */}
@@ -508,7 +491,6 @@ export default function MyTasksView({ onNavigate }) {
       {quickCreate && <QuickCreateTask defaults={quickCreate} onClose={() => setQuickCreate(null)} onFullDetails={(d) => { setQuickCreate(null); setCreating({ ...quickCreate, ...d }); }} />}
       {creating && <CreateTaskModal defaults={creating} onClose={() => setCreating(null)} />}
       {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
-      {emailSettingsOpen && <MyEmailSettings onClose={() => setEmailSettingsOpen(false)} />}
     </div>
   );
 }

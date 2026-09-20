@@ -1,11 +1,31 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, Archive, PlayCircle, Eye } from "lucide-react";
+import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, Archive, PlayCircle, Eye, Mail } from "lucide-react";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
 import { useHeaderTabs } from "./ModuleTabs";
 import AccountSettingsModal from "./AccountSettingsModal";
 import MyProfileModal from "./MyProfileModal";
+import EmailSettingsModal from "./EmailSettingsModal";
+
+// ?emailSettings=1 - the "Email Settings" link in task emails. Read when this
+// module LOADS, not when the header mounts: the app's boot (auth, then routing
+// "/dashboard" to its canonical URL) rewrites the address before the header
+// ever renders, and the query went with it - the link opened nothing. Taken
+// once and dropped from the URL so a refresh doesn't reopen Email Settings.
+let EMAIL_SETTINGS_LINK = typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).get('emailSettings') === '1';
+function takeEmailSettingsLink() {
+  if (!EMAIL_SETTINGS_LINK) return false;
+  EMAIL_SETTINGS_LINK = false;
+  const q = new URLSearchParams(window.location.search);
+  if (q.has('emailSettings')) {
+    q.delete('emailSettings');
+    const rest = q.toString();
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+  }
+  return true;
+}
 import { useMsal }        from "@azure/msal-react";
 import { BFF_MODE, bffLogout } from "../bffAuth";
 import { useRole, ROLES, MODULES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
@@ -42,6 +62,10 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     : title;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [myProfileOpen, setMyProfileOpen] = useState(false);
+  // Email Settings (menu item below My Profile). The "Email Settings" link in
+  // every task email lands on ?emailSettings=1 and opens it straight away -
+  // see EMAIL_SETTINGS_LINK above for why that is read at module load.
+  const [emailSettingsOpen, setEmailSettingsOpen] = useState(() => takeEmailSettingsLink());
   // Asana severed (Aug 27). This used to catch the OAuth callback's
   // ?asana=connected|denied|error and reopen Account Settings on it. Nobody can
   // start that flow any more, but a stale bookmark or an in-flight redirect
@@ -549,6 +573,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <button className="hud-item" onClick={() => { setOpen(false); setMyProfileOpen(true); }}>
                 <User size={14} /> My Profile
               </button>
+              <button className="hud-item" onClick={() => { setOpen(false); setEmailSettingsOpen(true); }}>
+                <Mail size={14} /> Email Settings
+              </button>
 {/* Account Settings held ONE thing - the personal Asana connection -
     so with Asana severed (Aug 27) it would open an empty modal. Hidden
     rather than deleted; restore this entry alongside the Manage tab.
@@ -650,6 +677,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         wkTheme={wkTheme} setWkTheme={setWkTheme}
         sidebarPinned={sidebarPinned} onSidebarPinnedChange={onSidebarPinnedChange} />
     )}
+
+    {emailSettingsOpen && <EmailSettingsModal onClose={() => setEmailSettingsOpen(false)} />}
     </>
   );
 }
