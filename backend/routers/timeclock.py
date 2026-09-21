@@ -46,7 +46,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
-                    NexusSetting, NexusNotification)
+                    NexusSetting, NexusNotification, HrCompanyHoliday)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
@@ -4601,6 +4601,24 @@ def _month_bounds(date_str: str):
     return first.isoformat(), (nxt - timedelta(days=1)).isoformat()
 
 
+def _company_holidays_for_employee(db: Session, em: str, start: str, end: str) -> dict:
+    """Dates in [start, end] that are a paid holiday for this employee: on their
+    employer's (NexusEmployee.company) calendar, and - for a holiday picked from a
+    specific country's public holidays (source="public", country_code set) - only
+    when that country matches the employee's own NexusEmployee.country. A
+    manually-typed holiday (no country_code) applies to everyone at that company
+    regardless of country. This is generic across every company/country/employee,
+    not special-cased to any one of them."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == em).first()
+    if not emp or not emp.company:
+        return {}
+    rows = (db.query(HrCompanyHoliday)
+            .filter(HrCompanyHoliday.company_id == emp.company,
+                    HrCompanyHoliday.date >= start, HrCompanyHoliday.date <= end)
+            .all())
+    return {r.date: r.name for r in rows if not r.country_code or r.country_code == emp.country}
+
+
 def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     """Monthly timecard for a FIXED-salary employee. Reuses _compute_timecard for
     the day/segment grid (so inline edit/add, signatures and worked-minutes are
@@ -4670,6 +4688,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         except (ValueError, TypeError):
             late_today = False
 
+    holidays = _company_holidays_for_employee(db, em, m_start, m_end)
     missed_full = missed_half = weekend_worked = 0
     deduction = 0.0
     fixed_days = []
@@ -4680,7 +4699,12 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         has_open = open_by_day.get(ds, False)
         is_weekend = dd.weekday() >= 5      # Sat=5, Sun=6
         deduct = bonus = 0.0
-        if is_weekend:
+        # A company holiday on the employee's own calendar (see
+        # _company_holidays_for_employee) is paid - never deducted - as long as
+        # they didn't happen to also be working (which keeps its own status/credit).
+        if ds in holidays and not is_weekend and not (wm > 0 or has_open):
+            status = "holiday"
+        elif is_weekend:
             if wm > 0 or has_open:
                 status = "weekend_worked"; bonus = weekend_ot; weekend_worked += 1
             else:
@@ -4704,7 +4728,8 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         deduction += deduct
         fixed_days.append({"date": ds, "workedMin": wm, "isWeekend": is_weekend,
                            "future": ds > today,   # can't add a punch for a day that hasn't happened
-                           "status": status, "deduct": round(deduct, 2), "bonus": round(bonus, 2)})
+                           "status": status, "deduct": round(deduct, 2), "bonus": round(bonus, 2),
+                           "holidayName": holidays.get(ds, "")})
 
     weekend_bonus = round(weekend_worked * weekend_ot, 2)
     deduction = round(deduction, 2)
@@ -5252,6 +5277,33 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     dt_pay = round(total_dt / 60 * rate * _DT_MULT, 2)
     worked_min = total_reg + total_ot + total_dt
 
+    # Paid company holidays (see _company_holidays_for_employee): an HOURLY
+    # employee has no "missed day" deduction to exempt (they're only ever paid for
+    # hours actually worked), so a holiday they didn't work would otherwise just
+    # pay $0 - a company holiday is a PAID day off, so credit one full_day_hours'
+    # worth of pay instead. Skipped for any date they already have punches on
+    # (worked the holiday - already paid for those hours, no separate credit).
+    # Fixed-salary employees have their OWN holiday handling in _fixed_card (which
+    # reuses this function only for the day/segment grid) - skip here so their
+    # "days" list doesn't get synthetic zero-work entries on top of that.
+    holiday_pay = 0.0
+    holiday_days = 0
+    if ((getattr(rate_row, "pay_type", None) or "hourly") if rate_row else "hourly") == "hourly":
+        _full_day_hours = float(getattr(rate_row, "full_day_hours", 8) or 8) if rate_row else 8.0
+        for hd, hname in _company_holidays_for_employee(db, em, start, end).items():
+            if hd in day_total or hd < start or (end and hd > end):
+                continue
+            credit = round(_full_day_hours * rate, 2)
+            holiday_pay += credit
+            holiday_days += 1
+            days_out.append({"date": hd, "weekStart": _week_start_str(hd), "segments": [],
+                             "workedMin": 0, "regMin": 0, "otMin": 0, "dtMin": 0,
+                             "breakMin": 0, "paidBreakMin": 0,
+                             "isHoliday": True, "holidayName": hname, "holidayPay": credit})
+        if holiday_days:
+            days_out.sort(key=lambda d: d["date"])
+        holiday_pay = round(holiday_pay, 2)
+
     # Idle estimate for the composition bar (best-effort, from web capture): a
     # frame whose idle-at-capture ≥ 4 min stands in for one capture interval of
     # idle time. Only meaningful while the browser capture was actively sharing;
@@ -5315,7 +5367,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             "pendingRequests": pending_requests,
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
                        "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
-                       "totalPay": round(reg_pay + ot_pay + dt_pay, 2),
+                       "holidayPay": holiday_pay, "holidayDays": holiday_days,
+                       "totalPay": round(reg_pay + ot_pay + dt_pay + holiday_pay, 2),
                        "breakMin": total_break, "paidBreakMin": total_paid_break,
                        "workedMin": worked_min, "deductedMin": total_deducted,
                        "activeMin": active_min, "idleMin": idle_min,
