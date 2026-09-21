@@ -1598,6 +1598,12 @@ class HrSignParty(Base):
     pages_viewed         = Column(Integer, default=0)
     pages_total          = Column(Integer, default=0)
     access_code          = Column(String, default="")         # optional code an external signer must enter to open the link
+    # Text the access code to `phone` when this party is invited (Sagar, Sep 21).
+    # Stored rather than decided at send: a sequential signer is invited days
+    # later, and the code has to travel with THEIR link, not everyone else's.
+    # Never emailed - the code is the second factor on top of the emailed link,
+    # and the certificate says "out-of-band" (services/certificate.py).
+    code_sms             = Column(Boolean, default=False)
     authenticated_at     = Column(String, default="")         # when this party cleared auth - set BEFORE any document is rendered
     org                  = Column(String, default="")         # the company this person signed for
     title                = Column(String, default="")         # their role in it - evidence of capacity to bind
