@@ -3734,11 +3734,17 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
     setSuggestBusy(false);
   }
 
-  const keyOf = h => `${h.date}|${h.name}`;
+  // Keyed by country too (not just date+name): the SAME holiday can be picked
+  // from more than one country's public list for the same company (e.g. New
+  // Year's Day for both US and IN employees) and each is its own row - a
+  // date+name-only key would make adding it for a second country look like
+  // it's already there (and toggling it off would delete the WRONG country's
+  // row instead of adding a new one).
+  const keyOf = h => `${h.date}|${h.name}|${h.countryCode || ''}`;
   const existingByKey = new Map(holidays.map(h => [keyOf(h), h]));
 
   async function toggleSuggestion(s) {
-    const match = existingByKey.get(keyOf(s));
+    const match = existingByKey.get(`${s.date}|${s.name}|${country}`);
     try {
       if (match) await api.deleteCompanyHoliday(entity.id, match.id);
       else await api.createCompanyHoliday(entity.id, { date: s.date, name: s.name, source: 'public', country_code: country });
@@ -3788,7 +3794,7 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
             <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 280, overflowY: 'auto' }}>
               {suggestions.map((s, i) => (
                 <label key={`${s.date}-${s.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 12.5 }}>
-                  <input type="checkbox" checked={existingByKey.has(keyOf(s))} onChange={() => toggleSuggestion(s)} />
+                  <input type="checkbox" checked={existingByKey.has(`${s.date}|${s.name}|${country}`)} onChange={() => toggleSuggestion(s)} />
                   <span style={{ fontWeight: 600, minWidth: 90 }}>{formatDate(s.date)}</span>
                   <span>{s.name}</span>
                 </label>
