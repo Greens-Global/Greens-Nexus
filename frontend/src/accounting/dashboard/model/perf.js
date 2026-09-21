@@ -1,14 +1,19 @@
 // Performance page math: headline tiles against budget and prior year,
 // material variances with a plain-English line each, and year-to-date
 // budget variance. Signed amounts make "favorable" one rule: actual - budget >= 0.
-import { incomeStatement, incomeStatementRange, isRevenue, sumLines } from "./ledger";
+import { incomeStatementRange, incomeStatementWindow, isRevenue, sumLines } from "./ledger";
 import { shiftKey } from "./months";
 import { money, pct } from "./money";
 const rel = (a, b) => (b == null || !b ? null : (a - b) / Math.abs(b));
-export function perfTiles(L, period) {
-    const cur = incomeStatement(L, period);
-    const pyk = shiftKey(period, 12);
-    const py = L.months.includes(pyk) ? incomeStatement(L, pyk) : null;
+/** Same months a year earlier, when the loaded window has them. */
+function lastYear(L, from, to) {
+    const f = shiftKey(from, 12), t = shiftKey(to, 12);
+    return L.months.includes(f) ? incomeStatementWindow(L, f, t) : null;
+}
+/** Headline tiles for [from, period]; a single month when `from` is omitted. */
+export function perfTiles(L, period, from = period) {
+    const cur = incomeStatementWindow(L, from, period);
+    const py = lastYear(L, from, period);
     const rev = (l) => l.group === "Revenue";
     const cor = (l) => l.group === "Cost of Revenue";
     const opx = (l) => l.group === "Operating Expenses";
@@ -33,10 +38,10 @@ export function perfTiles(L, period) {
 export const MATERIAL_ABS = 5000;
 export const MATERIAL_PCT = 0.05;
 /** Every line's variance to budget, ranked by size, with the sentence the page shows. */
-export function variances(L, period) {
-    const cur = incomeStatement(L, period);
-    const pyk = shiftKey(period, 12);
-    const py = L.months.includes(pyk) ? new Map(incomeStatement(L, pyk).map((l) => [l.id, l.actual])) : null;
+export function variances(L, period, from = period) {
+    const cur = incomeStatementWindow(L, from, period);
+    const pyLines = lastYear(L, from, period);
+    const py = pyLines ? new Map(pyLines.map((l) => [l.id, l.actual])) : null;
     return cur
         .map((l) => {
         // A line with no budget has nothing to vary from: it ranks last and is never "material".

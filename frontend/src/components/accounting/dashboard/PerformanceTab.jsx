@@ -20,7 +20,7 @@ const SECTIONS = [
 ];
 
 export default function PerformanceTab({ canEdit }) {
-  const { m, period, loading, act } = useDash();
+  const { m, period, periodLabel, loading, act } = useDash();
   const nav = useDashNav();
   const perf = usePerf();
   const trend = useTrend();
@@ -84,7 +84,7 @@ export default function PerformanceTab({ canEdit }) {
       ) : null}
 
       {section === 'bva' ? (
-        <Panel title={`Budget vs actual vs prior year · ${monthLong(period)}`} bodyStyle={{ padding: 0 }} onOpenReport={() => nav('reports')}>
+        <Panel title={`Budget vs actual vs prior year · ${periodLabel}`} bodyStyle={{ padding: 0 }} onOpenReport={() => nav('reports')}>
           {loading || !perf ? <LoadingBox /> : <BvaTable rows={perf.variances} />}
         </Panel>
       ) : null}

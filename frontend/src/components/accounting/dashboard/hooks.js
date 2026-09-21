@@ -157,8 +157,8 @@ export function useFlux() {
 }
 
 export function usePerf() {
-  const { ledger, period } = useDash();
-  return useMemo(() => (ledger ? { tiles: perfTiles(ledger, period), variances: variances(ledger, period), ytd: ytdVariance(ledger, period) } : null), [ledger, period]);
+  const { ledger, period, fromKey } = useDash();
+  return useMemo(() => (ledger ? { tiles: perfTiles(ledger, period, fromKey), variances: variances(ledger, period, fromKey), ytd: ytdVariance(ledger, period) } : null), [ledger, period, fromKey]);
 }
 
 export function useAttention() {
