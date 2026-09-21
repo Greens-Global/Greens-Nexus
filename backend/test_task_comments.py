@@ -137,6 +137,40 @@ class CreateCommentTests(unittest.TestCase):
         self.assertEqual(c.author_email, "ex.employee@greensglobal.com")
         self.assertEqual(self.db.query(models.TaskActivity).one().actor_email, ACTOR["email"])
 
+    # ── the order they come back in ──────────────────────────────────────
+    def test_comments_come_back_oldest_first_whatever_the_row_order(self):
+        """The thread is read top to bottom - Overview even slices the tail for
+        its "latest 3" - so GET has to order them. It used to take whatever the
+        database handed back."""
+        from routers.tasks import list_comments
+        for at, body in (("2026-03-02T09:00:00+00:00", "second"),
+                         ("2026-03-01T09:00:00+00:00", "first"),
+                         ("2026-03-03T09:00:00+00:00", "third")):
+            self.db.add(models.TaskComment(id=gen_id(), task_id=self.task.id,
+                                           author_email=ACTOR["email"], body=body,
+                                           created_at=at, edited_at="", pinned=False))
+        self.db.commit()
+        rows = list_comments(self.task.id, user=ACTOR, db=self.db)
+        self.assertEqual([r["body"] for r in rows], ["first", "second", "third"])
+
+    def test_editing_a_comment_does_not_move_it_to_the_end(self):
+        """Postgres rewrites an updated row at the end of the heap, which is
+        exactly how an old comment jumped to the bottom of the thread after a
+        pin or an edit."""
+        from routers.tasks import list_comments
+        for at, body in (("2026-03-01T09:00:00+00:00", "first"),
+                         ("2026-03-02T09:00:00+00:00", "second")):
+            self.db.add(models.TaskComment(id=gen_id(), task_id=self.task.id,
+                                           author_email=ACTOR["email"], body=body,
+                                           created_at=at, edited_at="", pinned=False))
+        self.db.commit()
+        oldest = self.db.query(models.TaskComment).filter(
+            models.TaskComment.body == "first").one()
+        oldest.body, oldest.edited_at = "first (edited)", now_iso()
+        self.db.commit()
+        rows = list_comments(self.task.id, user=ACTOR, db=self.db)
+        self.assertEqual([r["body"] for r in rows], ["first (edited)", "second"])
+
     # ── who runs the mail ────────────────────────────────────────────────
     def test_the_endpoint_defers_the_mail_instead_of_sending_it_inline(self):
         """Graph sends are blocking. On a request they belong to BackgroundTasks,

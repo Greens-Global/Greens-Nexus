@@ -614,6 +614,21 @@ export const api = {
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
   updateTaskNotifySettings: (patch) => req("/tasks/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTaskNotifyLog: (params = {}) => req(`/tasks/notify/log?${new URLSearchParams(params).toString()}`),
+  // The signed-in person's OWN task email preferences (MyEmailSettings.jsx).
+  getMyTaskNotifyPrefs: () => req("/tasks/notify/me"),
+  saveMyTaskNotifyPrefs: (prefs) => req("/tasks/notify/me", { method: "PUT", body: JSON.stringify(prefs) }),
+  // Daily Briefing (Sep 2026) - admin settings only, Global-Admin gated on the
+  // backend (require_administrator, not the lower manager bar ticket/task
+  // notify settings use - this flag controls whether every employee starts
+  // receiving a daily email).
+  getDailyBriefingConfig: () => req("/daily-briefing/config"),
+  updateDailyBriefingConfig: (patch) => req("/daily-briefing/config", { method: "PUT", body: JSON.stringify(patch) }),
+  getDailyBriefingLog: (params = {}) => req(`/daily-briefing/log?${new URLSearchParams(params).toString()}`),
+  // Clears one dedupe row AND immediately sends that employee's briefing
+  // right now, bypassing their shift window - a deliberate admin override,
+  // not the automatic per-shift trigger. No effect on any other employee or
+  // on the normal 15-minute scan schedule. Returns {sentNow, mode, hadContent}.
+  forceResendDailyBriefing: (logId) => req(`/daily-briefing/log/${logId}`, { method: "DELETE" }),
   // Replies mailed back to a task notification (manager+). The drain normally
   // runs itself every minute on the deployed API; this triggers one pass now.
   getTaskInboundLog: (params = {}) => req(`/tasks/inbound/log?${new URLSearchParams(params).toString()}`),
@@ -1575,6 +1590,11 @@ export const api = {
   // browser/machine for the same user).
   getToursSeen:  ()      => req("/tours"),
   markTourSeen:  (tour)  => req(`/tours/${encodeURIComponent(tour)}/seen`, { method: "POST" }),
+
+  // Nexus Assistant (Phase 0) - see backend/ai_assistant.py
+  askAssistant:            (data) => req("/assistant/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
+  getAssistantConversations: ()   => req("/assistant/conversations"),
+  getAssistantMessages:    (id)   => req(`/assistant/conversations/${id}/messages`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

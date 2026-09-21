@@ -101,6 +101,7 @@ def task_email_html(*, task_title: str, status: str, heading: str,
     <tr>
       <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
         This is an automated notification from the Task Management System. Use the buttons above, or open the task, to provide updates or responses.
+        <!--NEXUS-MAIL-FOOTER-->
       </td>
     </tr>
   </table>
@@ -323,4 +324,73 @@ def deleted_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
         ],
         cta_label="Go to Tasks", cta_url=(base_url or "#").rstrip("/") + "/tasks/mine", logo_url=logo_url,
     )
+    return subject, html
+
+
+def reminder_digest_email(*, items: list[dict], base_url: str, logo_url: str,
+                          recipient_name: str = "") -> tuple[str, str]:
+    """ONE daily email listing every task that is overdue or due soon for this
+    person (Sept 2026, per-person "daily summary" preference) - instead of one
+    email per task, which is what flooded inboxes with many overdue tasks.
+
+    items: [{"t": task ctx, "days_left": int, "links": html}] - `links` is the
+    per-task action row (task_mail_actions.task_links_html). Overdue first,
+    most overdue at the top; then due soon, soonest first."""
+    overdue = sorted([i for i in items if i["days_left"] < 0], key=lambda i: i["days_left"])
+    soon = sorted([i for i in items if i["days_left"] >= 0], key=lambda i: i["days_left"])
+    counts = []
+    if overdue:
+        counts.append(f"{len(overdue)} Overdue")
+    if soon:
+        counts.append(f"{len(soon)} Due Soon")
+    subject = f"[{COMPANY_NAME}] - Task Reminders - {', '.join(counts) or 'Summary'}"
+
+    def when(i: dict) -> str:
+        d = i["days_left"]
+        if d < 0:
+            return f"Overdue by {-d} day{'s' if d != -1 else ''}"
+        if d == 0:
+            return "Due today"
+        return f"Due in {d} day{'s' if d != 1 else ''}"
+
+    def section(title: str, rows: list[dict], color: str) -> str:
+        if not rows:
+            return ""
+        trs = "".join(
+            "<tr><td style='padding:12px 0;border-bottom:1px solid #f0f1f3'>"
+            f"<a href='{escape(_task_url(base_url, i['t']['id']))}' style='font-size:14px;font-weight:700;"
+            f"color:#111827;text-decoration:none'>{escape(i['t'].get('title') or 'Task')}</a>"
+            f"<div style='font-size:12.5px;color:#6b7280;margin:3px 0 6px'>"
+            f"<span style='color:{color};font-weight:700'>{escape(when(i))}</span>"
+            f" &nbsp;·&nbsp; Due {escape(i['t'].get('dueDateDisplay') or '-')}"
+            f"{' &nbsp;·&nbsp; ' + escape(i['t']['projectName']) if i['t'].get('projectName') else ''}</div>"
+            f"<div>{i['links']}</div></td></tr>"
+            for i in rows)
+        return (f"<h3 style='margin:18px 0 4px;font-size:15px;color:{color}'>{escape(title)} ({len(rows)})</h3>"
+                f"<table width='100%' cellpadding='0' cellspacing='0' style='border-collapse:collapse'>{trs}</table>")
+
+    logo_block = (
+        f"<img src='{escape(logo_url)}' alt='Company logo' height='28' style='display:block' />"
+        if logo_url else
+        "<span style='color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px'>GREENS GLOBAL</span>"
+    )
+    hello = f"Hi {escape(recipient_name.split(' ')[0])}," if recipient_name else "Hi,"
+    html = f"""<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+  <table align="center" width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
+    <tr><td style="background:#0f3d2e;padding:18px 28px">{logo_block}</td></tr>
+    <tr><td style="padding:24px 28px 8px">
+      <h2 style="margin:0 0 8px;font-size:19px;color:#111827">Your task reminders</h2>
+      <p style="margin:0;font-size:13.5px;line-height:1.6;color:#374151">{hello} here is everything that needs your attention today, in one email.</p>
+      {section("Overdue", overdue, "#b91c1c")}
+      {section("Due Soon", soon, "#b45309")}
+    </td></tr>
+    <tr><td style="padding:10px 28px 26px;text-align:center">
+      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:#248f4b;color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open My Tasks</a>
+    </td></tr>
+    <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
+      You get one summary a day because of your email settings. Use the links under each task to act on it without opening Nexus.
+      <!--NEXUS-MAIL-FOOTER-->
+    </td></tr>
+  </table>
+</div>"""
     return subject, html

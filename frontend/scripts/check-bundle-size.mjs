@@ -57,7 +57,33 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // left: the Tasks chunk (295 KB) carries every sub-view statically (see the
 // INEFFECTIVE_DYNAMIC_IMPORT warnings at build time). The next bump should be
 // refused until someone splits it.
-const TOTAL_KB     = 9050;
+//
+// Sep 19, 2026: 9050 -> 9200. Nexus Assistant Phase 0 (AssistantWidget.jsx)
+// added react-markdown + remark-gfm to render the chat widget's replies -
+// CI measured 9179 KB. The parser itself is already lazy-loaded (only
+// fetched once someone opens the widget and gets a reply), but this budget
+// sums every shipped .js file regardless of load timing, so splitting it
+// into its own chunk doesn't move this number - only the real dependency
+// cost does. The widget is mounted globally (every screen, every user), so
+// this is a real ongoing cost, not a one-view feature.
+//
+// Sep 21, 2026: 9200 -> 9300. Documents/Nexus Sign: the template fill form
+// now asks for EVERY {{variable}} a template uses (server-listed tokens), and
+// the Template Fields panel (TemplateFieldsPanel.jsx) lets the author set the
+// type of each one after pasting from Word or importing a .docx - so the form
+// asks for a date as a date. Measured +5 KB here; the total was already 9195
+// after the Assistant bump above, so 5 KB tipped it, exactly the shape of the
+// Aug 18 / Aug 25 / Sep 17 bumps.
+//
+// This bump is taken AGAINST the standing advice above ("refused until someone
+// splits the Tasks chunk"), knowingly and with the owner asked (Sagar, Sep 21).
+// Note the lever that advice names does not move THIS number: the budget sums
+// every shipped .js file, so splitting a chunk changes chunk sizes, not the
+// total. Only dropping a real dependency does. The honest next step is
+// mammoth (vendor-docx, 497 KB) - SOP.jsx and docBuilderImport.js are the two
+// callers left, both already dynamic, so what remains is proving nothing else
+// pulls it statically.
+const TOTAL_KB     = 9300;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

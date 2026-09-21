@@ -45,6 +45,11 @@ class Task(Base):
     owner_email       = Column(String, default="", index=True)
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)
+    # Emoji reactions (Sep 2026 - "add emojis for tasks so we can react",
+    # driven off the Daily Briefing's one-click mail actions). {emoji: [email,
+    # ...]} - a dict rather than one liked_by_emails-style list per emoji so a
+    # task with no reactions yet costs nothing extra to scan.
+    reactions         = Column(JSON, default=dict)
     access_level      = Column(String, default="org")      # org|restricted
     # Multi-company walls (Aug 2026): the HrEntity company this task belongs to,
     # stamped from its creator at creation. The company wall (auth.company_scope
@@ -1593,6 +1598,12 @@ class HrSignParty(Base):
     pages_viewed         = Column(Integer, default=0)
     pages_total          = Column(Integer, default=0)
     access_code          = Column(String, default="")         # optional code an external signer must enter to open the link
+    # Text the access code to `phone` when this party is invited (Sagar, Sep 21).
+    # Stored rather than decided at send: a sequential signer is invited days
+    # later, and the code has to travel with THEIR link, not everyone else's.
+    # Never emailed - the code is the second factor on top of the emailed link,
+    # and the certificate says "out-of-band" (services/certificate.py).
+    code_sms             = Column(Boolean, default=False)
     authenticated_at     = Column(String, default="")         # when this party cleared auth - set BEFORE any document is rendered
     org                  = Column(String, default="")         # the company this person signed for
     title                = Column(String, default="")         # their role in it - evidence of capacity to bind
@@ -4224,3 +4235,48 @@ class ChangelogSeen(Base):
     __tablename__ = "changelog_seen"
     email        = Column(String, primary_key=True)   # lowercased
     last_seen_at = Column(String, default="")          # UTC ISO
+
+
+class AiConversation(Base):
+    """One Nexus Assistant chat thread. Private to `user_email` - no manager or
+    admin override reads another person's conversation (see routers/assistant.py).
+
+    New table - create_all builds it, so no migration line is needed. It DOES
+    need `ALTER TABLE ai_conversations ENABLE ROW LEVEL SECURITY` on dev and
+    prod as part of the release (CLAUDE.md)."""
+    __tablename__ = "ai_conversations"
+    id         = Column(String, primary_key=True)
+    user_email = Column(String, nullable=False, index=True)
+    title      = Column(String, default="")
+    created_at = Column(String)
+    updated_at = Column(String)
+
+
+class AiMessage(Base):
+    """One turn in an AiConversation. `tool_calls` records which ai_assistant.py
+    tools fired for an assistant reply, for audit (which reads a message
+    triggered, not what data came back).
+
+    New table - create_all builds it, so no migration line is needed. It DOES
+    need `ALTER TABLE ai_messages ENABLE ROW LEVEL SECURITY` on dev and prod as
+    part of the release (CLAUDE.md)."""
+    __tablename__ = "ai_messages"
+    id              = Column(String, primary_key=True)
+    conversation_id = Column(String, nullable=False, index=True)
+    role            = Column(String, nullable=False)   # user | assistant
+    content         = Column(Text, nullable=False)
+    tool_calls      = Column(JSON, default=list)
+    created_at      = Column(String, nullable=False)
+
+
+class TaskNotifyPref(Base):
+    """One person's own task-email preferences (Sept 2026): when reminders
+    arrive, how often overdue mails repeat, one email per task vs a daily
+    summary, which instant emails they want, muted tasks/projects. Absent row
+    or absent key = the company default in task_notify's settings, so people
+    who never open the page keep exactly the company behavior. Shape and
+    validation live in task_notify_prefs.py."""
+    __tablename__ = "task_notify_prefs"
+    email      = Column(String, primary_key=True)   # lowercased work email
+    prefs      = Column(JSON, default=dict)
+    updated_at = Column(String, default="")

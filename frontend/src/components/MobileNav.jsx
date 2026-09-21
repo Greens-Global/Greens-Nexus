@@ -4,6 +4,7 @@ import {
   Building2, Plug, ListChecks, FileCheck, Shield, ClipboardCheck, Folder,
   MessageSquare, PackageSearch, Calendar, Circle, Camera,
   Home, CheckCircle2, FolderKanban, Briefcase,
+  LayoutDashboard, LayoutTemplate, FileSignature,
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 
@@ -48,6 +49,17 @@ const TASK_ACTIONS = [
   { sub: 'portfolios', label: 'Portfolios', Icon: Briefcase },
   { sub: 'teams',      label: 'Teams',      Icon: Users },
 ];
+// Documents module tab strip (views/Documents.jsx TABS), same treatment as the
+// Task module's: the swipeable top strip is for desktop, phones get it here as
+// icon-over-label. Same order and icons as the desktop strip; labels are
+// shortened only where the full one would ellipsize in a fifth of a phone.
+const DOCUMENT_ACTIONS = [
+  { sub: 'documents-dashboard', label: 'Dashboard',  Icon: LayoutDashboard },
+  { sub: 'documents-browse',    label: 'My Docs',    Icon: Folder },
+  { sub: 'documents-templates', label: 'Templates',  Icon: LayoutTemplate },
+  { sub: 'documents-esign',     label: 'Sign',       Icon: FileSignature },
+  { sub: 'documents-pdf',       label: 'PDF Tools',  Icon: FileText },
+];
 
 export default function MobileNav({ activeView, activeSub }) {
   const { can } = useRole();
@@ -85,6 +97,13 @@ export default function MobileNav({ activeView, activeSub }) {
       if (!effSub) effSub = 'home';
       else if (effSub === 'tasks') effSub = 'projects';
     }
+  } else if (activeView === 'documents') {
+    actions = DOCUMENT_ACTIONS;
+    // The module opens on its Dashboard before any navigation sets a sub, and
+    // the e-sign deep links ('documents-esign-requests') all live on the Nexus
+    // Sign tab - same mapping Documents.jsx makes for its own strip.
+    if (!effSub) effSub = 'documents-dashboard';
+    else if (String(effSub).startsWith('documents-esign')) effSub = 'documents-esign';
   }
 
   if (!dynActions && !actions) return null;

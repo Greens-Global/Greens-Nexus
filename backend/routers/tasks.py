@@ -62,6 +62,7 @@ def task_to_dict(t: models.Task) -> dict:
         "ownerId":          _nz(t.owner_email),
         "followerIds":      t.follower_emails or [],
         "likedByIds":       t.liked_by_emails or [],
+        "reactions":        t.reactions if isinstance(t.reactions, dict) else {},
         "accessLevel":      t.access_level or "org",
         "projectId":        _nz(t.project_id),
         "projectIds":       [p for p in (t.project_ids or []) if p],
@@ -1877,7 +1878,17 @@ def list_comments(task_id: str, user: dict = Depends(get_current_user), db: Sess
     # second made a drawer left open on a deleted task look merely empty. POST
     # and PATCH on the same id already 404.
     _wall_task(db, user, task_id)   # company wall
-    rows = db.query(models.TaskComment).filter(models.TaskComment.task_id == task_id).all()
+    # Oldest first, like a chat log - the drawer renders them in the order they
+    # arrive here. Without an ORDER BY this was whatever the database handed
+    # back: on Postgres that is heap order, so editing or pinning a comment
+    # rewrote the row and moved it to the END of the thread, and an Asana-pulled
+    # comment landed wherever its row happened to sit. created_at is an ISO-8601
+    # UTC string, so it sorts chronologically as text; id breaks ties for two
+    # comments written inside the same tick.
+    rows = (db.query(models.TaskComment)
+              .filter(models.TaskComment.task_id == task_id)
+              .order_by(models.TaskComment.created_at.asc(), models.TaskComment.id.asc())
+              .all())
     return [comment_to_dict(c) for c in rows]
 
 
@@ -2238,6 +2249,41 @@ def get_task_notify_settings(user: dict = Depends(require_manager), db: Session 
 @router.put("/notify/settings")
 def put_task_notify_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     return _save_task_notify_settings(db, patch, user["email"])
+
+
+# ── My own task email preferences (every user) ──────────────────────────────
+def _my_notify_payload(db: Session, email: str, prefs: dict) -> dict:
+    import task_notify_prefs as tnp
+    cfg = _get_task_notify_settings(db)
+    muted_tasks = (db.query(models.Task).filter(models.Task.id.in_(prefs["mutedTaskIds"])).all()
+                   if prefs["mutedTaskIds"] else [])
+    muted_projects = (db.query(models.TaskProject).filter(models.TaskProject.id.in_(prefs["mutedProjectIds"])).all()
+                      if prefs["mutedProjectIds"] else [])
+    return {
+        "prefs": prefs,
+        "company": {"dueSoonDays": int(cfg.get("dueSoonDays") or 0),
+                    "overdueRepeatDays": int(cfg.get("overdueRepeatDays") or 0),
+                    "allowUserOverdueOff": bool(cfg.get("allowUserOverdueOff")),
+                    "enabledEvents": cfg.get("enabledEvents") or {}},
+        "lockedEvents": list(tnp.LOCKED_EVENTS),
+        "optionalEvents": list(tnp.OPTIONAL_EVENTS),
+        "mutedTasks": [{"id": t.id, "title": t.title} for t in muted_tasks],
+        "mutedProjects": [{"id": p.id, "name": p.name} for p in muted_projects],
+    }
+
+
+@router.get("/notify/me")
+def get_my_task_notify_prefs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import task_notify_prefs as tnp
+    return _my_notify_payload(db, user["email"], tnp.load(db, user["email"]))
+
+
+@router.put("/notify/me")
+def put_my_task_notify_prefs(body: dict, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Replaces the caller's own preferences - only ever their own row, keyed on
+    the authenticated email, never an address from the body."""
+    import task_notify_prefs as tnp
+    return _my_notify_payload(db, user["email"], tnp.save(db, user["email"], body or {}))
 
 
 @router.get("/notify/log")

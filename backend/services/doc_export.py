@@ -67,6 +67,22 @@ _EMPTY_RUN_STYLE = {"color": None, "fontFamily": None, "fontSize": None, "link":
                      "strike": False, "subscript": False, "superscript": False, "highlight": None}
 
 
+# A {{token}} written as ORDINARY TEXT, not as the editor's mergeField node.
+# Both exist: the Document Builder inserts real merge-field nodes, but a
+# template typed by hand, pasted in, or imported from Word carries its tokens
+# as plain text - and those were never substituted, so the generated document
+# showed "Dear {{full_name}}" to the recipient (Sagar, Sep 21 2026). Same
+# taxonomy the resolver accepts (services/merge_fields.is_valid_token), and an
+# unknown token is left exactly as written, like the node path does.
+_TEXT_TOKEN_RE = re.compile(r"\{\{\s*([a-z0-9_]+(?:\.[a-z0-9_]+)*)\s*\}\}")
+
+
+def _fill_text_tokens(text: str, merge: dict) -> str:
+    if not text or "{{" not in text:
+        return text
+    return _TEXT_TOKEN_RE.sub(lambda m: str(merge.get(m.group(1), m.group(0))), text)
+
+
 def _text_runs(nodes, merge: dict) -> list:
     runs = []
     for n in nodes or []:
@@ -77,7 +93,7 @@ def _text_runs(nodes, merge: dict) -> list:
             style_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "textStyle"), {})
             link_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "link"), {})
             highlight_attrs = next((m.get("attrs") or {} for m in marks if m.get("type") == "highlight"), {})
-            runs.append({"text": n.get("text") or "", "bold": "bold" in mark_types,
+            runs.append({"text": _fill_text_tokens(n.get("text") or "", merge), "bold": "bold" in mark_types,
                          "italic": "italic" in mark_types, "underline": "underline" in mark_types,
                          "strike": "strike" in mark_types, "subscript": "subscript" in mark_types,
                          "superscript": "superscript" in mark_types, "highlight": highlight_attrs.get("color"),

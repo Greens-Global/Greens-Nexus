@@ -17,6 +17,7 @@ import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import UpdateBanner from "./components/UpdateBanner";
+import AssistantWidget from "./components/AssistantWidget";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import { onBackendHealth, isBackendDown } from "./api";
 import { applyBrandAccent } from "./lib/brandAccent";
@@ -660,6 +661,7 @@ function MainApp() {
         <StepUpOverlay />
         <TimeclockWidget />
         <GlobalSearch onNavigate={navigate} />
+        <AssistantWidget />
         <PullToRefresh />
         <TaskPrefetch />
         {activeView === 'sso' && activeSub === 'accounting' && (

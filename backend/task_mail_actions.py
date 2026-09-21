@@ -63,6 +63,12 @@ COMMENT_EVENTS = {"commented", "mentioned"}
 BUILTIN_STATUSES = [("not_started", "Not Started"), ("in_progress", "In Progress"),
                     ("completed", "Completed")]
 
+# Preset set for the "React" action (Sep 2026 - "add emojis for tasks so we
+# can react"). Fixed and small on purpose: an open picker needs its own UI,
+# and these six cover the reactions people actually reach for in Teams/Slack.
+REACTION_EMOJIS = ["\U0001F44D", "❤️", "\U0001F389", "\U0001F44F", "\U0001F602", "\U0001F525"]
+# 👍 ❤️ 🎉 👏 😂 🔥
+
 
 def api_base() -> str:
     """Public https base of THIS API - what Outlook and the fallback links call.
@@ -248,9 +254,43 @@ def fallback_actions_html(*, event_type: str, token: str, done: bool) -> str:
     return f"<div style='margin:12px 0 0;text-align:center'>{items}</div>"
 
 
+def settings_url() -> str:
+    """The recipient's own email settings - the header menu's "Email Settings"
+    (EmailSettingsModal.jsx), which TopHeader.jsx opens on ?emailSettings=1 on
+    whatever screen the app lands - the Dashboard here, which every employee
+    can open, unlike a Tasks URL."""
+    from app_url import app_url
+    return f"{app_url()}/dashboard?emailSettings=1"
+
+
+def footer_links_html(*, token: str = "") -> str:
+    """Footer line on every task email: mute this one task (when there is a
+    task to mute) and the way to the person's own email settings - the
+    anti-spam controls have to be reachable from the email that annoyed them."""
+    link = "color:#2563eb;text-decoration:none;font-weight:600"
+    parts = []
+    if token:
+        parts.append(f"<a href='{escape(_page_url(token, 'mute'))}' style='{link}'>Mute This Task</a>")
+    parts.append(f"<a href='{escape(settings_url())}' style='{link}'>Email Settings</a>")
+    return "<br><span style='display:inline-block;margin-top:6px'>" + " &nbsp;·&nbsp; ".join(parts) + "</span>"
+
+
+def task_links_html(task_id: str, recipient: str, *, done: bool = False) -> str:
+    """Compact per-task action links for a row of the daily summary email."""
+    token = sign_token(task_id, recipient)
+    link = "color:#2563eb;text-decoration:none;font-size:12.5px;font-weight:600"
+    items = [("Add Comment", "comment")]
+    if not done:
+        items = [("Mark Complete", "complete"), ("Change Status", "status")] + items
+    items.append(("Mute", "mute"))
+    return " &nbsp;·&nbsp; ".join(f"<a href='{escape(_page_url(token, do))}' style='{link}'>{escape(label)}</a>"
+                                  for label, do in items)
+
+
 # ── Entry point ──────────────────────────────────────────────────────────────
 
 ACTIONS_SLOT = "<!--NEXUS-MAIL-ACTIONS-->"
+FOOTER_SLOT = "<!--NEXUS-MAIL-FOOTER-->"
 
 
 def decorate(html: str, *, event_type: str, t: dict, recipient: str, options: list[tuple[str, str]],
@@ -259,8 +299,12 @@ def decorate(html: str, *, event_type: str, t: dict, recipient: str, options: li
     when an originator is configured, the Outlook card. Events without actions
     (completed, deleted) come back unchanged apart from the empty slot."""
     if event_type not in ACTION_EVENTS or not t.get("id"):
-        return html.replace(ACTIONS_SLOT, "")
+        # No actions - but still the way to mute / manage (a deleted task has
+        # nothing left to mute, only the settings link).
+        mute_token = sign_token(t["id"], recipient) if t.get("id") and event_type != "deleted" else ""
+        return html.replace(ACTIONS_SLOT, "").replace(FOOTER_SLOT, footer_links_html(token=mute_token))
     token = sign_token(t["id"], recipient)
+    html = html.replace(FOOTER_SLOT, footer_links_html(token=token))
     done = t.get("status") == "completed"
     html = html.replace(ACTIONS_SLOT, fallback_actions_html(event_type=event_type, token=token, done=done))
     if not AM_ORIGINATOR:

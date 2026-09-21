@@ -109,6 +109,7 @@ def _run_migrations():
             "ALTER TABLE hr_sign_requests ADD COLUMN routing VARCHAR DEFAULT 'sequential'",
             "ALTER TABLE hr_sign_parties ADD COLUMN party_role VARCHAR DEFAULT 'signer'",
             "ALTER TABLE hr_sign_parties ADD COLUMN access_code VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_parties ADD COLUMN code_sms BOOLEAN DEFAULT 0",
             # E-Sign: Egnyte folder for a copy of the sealed PDF
             "ALTER TABLE hr_sign_templates ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_requests ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
@@ -745,6 +746,8 @@ def _run_migrations():
             # in the same statement, so it matches nothing on any later start.
             "ALTER TABLE nexus_employees ADD COLUMN work_remote INTEGER DEFAULT 0",
             "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
+            # Emoji reactions on tasks - see the matching Postgres migration below.
+            "ALTER TABLE tasks ADD COLUMN reactions JSON DEFAULT '{}'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -936,6 +939,7 @@ def _run_migrations():
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS routing TEXT DEFAULT 'sequential'",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS party_role TEXT DEFAULT 'signer'",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS access_code TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS code_sms BOOLEAN DEFAULT FALSE",
         # E-Sign: Egnyte folder for a copy of the sealed PDF
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS egnyte_folder TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS egnyte_folder TEXT DEFAULT ''",
@@ -1552,6 +1556,16 @@ def _run_migrations():
         # migration above. Same one-shot carry-over.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_remote INTEGER DEFAULT 0",
         "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
+        # Emoji reactions on tasks - same one-shot addition as the SQLite list above.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb",
+        # Nexus Assistant (Phase 0, Sep 2026) - new tables, create_all builds them;
+        # belt-and-suspenders RLS enable (the _enable_rls_everywhere sweep below
+        # would also catch these, per CLAUDE.md's recurring-gap note).
+        "ALTER TABLE ai_conversations ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ai_messages ENABLE ROW LEVEL SECURITY",
+        # Per-person task email preferences (Sept 2026) - new table, same
+        # belt-and-suspenders RLS enable as above.
+        "ALTER TABLE task_notify_prefs ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2194,6 +2208,9 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # own JWT), never by the session cookie - see routers/mail_actions.py.
     "/mail-actions/card",
     "/mail-actions/page",
+    # Daily Briefing one-click actions: authorized by a signed per-decision
+    # token, same reasoning - see routers/briefing_actions.py.
+    "/briefing-actions/page",
 })
 
 
@@ -2463,4 +2480,10 @@ app.include_router(auth_bff.router)        # /auth/login|callback|logout|me - in
 
 from routers import mail_actions           # noqa: E402
 app.include_router(mail_actions.router)    # Task-email actions: Outlook Actionable Message card + signed-link fallback page
+
+from routers import briefing_actions       # noqa: E402
+app.include_router(briefing_actions.router)  # Daily Briefing one-click Approve/Reject: signed-link confirm page
+
+from routers import assistant as assistant_router  # noqa: E402
+app.include_router(assistant_router.router)  # Nexus Assistant (Phase 0) - see ai_assistant.py
 

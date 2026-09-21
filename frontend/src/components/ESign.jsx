@@ -14,8 +14,11 @@ import { RESERVED_TYPES as RESERVED_FIELD_TYPES, validateFieldValue, formatField
 import TypedFieldInput from './TypedFieldInput';
 import EgnyteBrowser from './EgnyteBrowser';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import { useIsMobile } from '../lib/useIsMobile';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import AccessCodeField from './AccessCodeField';
+import { useRole } from '../contexts/RoleContext';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
@@ -2220,8 +2223,44 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
 }
 
 // ── Send wizard - in-shell, DocuSign-style: Doc → Recipients → Fields → Send ──
+/** The company a new envelope defaults to: the SENDER's own company from their
+ *  People record, else Greens Global, else whatever is first. It used to be
+ *  simply the first entity - alphabetically "Aarav Construction" - so every
+ *  request went out under a sister company unless someone noticed and changed
+ *  it (Sagar, Sep 19). Exported for the unit test. */
+export function defaultSendEntityId(entities, employees, senderEmail) {
+  const list = entities || [];
+  const me = (senderEmail || '').toLowerCase();
+  const mine = me && (employees || []).find((e) => (e.workEmail || '').toLowerCase() === me);
+  if (mine?.company && list.some((en) => en.id === mine.company)) return mine.company;
+  const greens = list.find((en) => /^greens global\b/i.test((en.name || '').trim()));
+  return greens?.id || list[0]?.id || '';
+}
+
+/** Everything a template asks a human for, in the order the form shows them:
+ *  its typed field definitions, then any {{token}} in its text that has no
+ *  definition. A template typed by hand, pasted, or imported from Word carries
+ *  tokens but no defs - those were never asked for, so the generated document
+ *  went out saying "Dear {{full_name}}" (Sagar, Sep 21 2026). Signature /
+ *  initials / image / file are placed on the document, never typed, and
+ *  `tokens` (computed server-side, documents._template_tokens) already leaves
+ *  out the self-filling ones (today, template.*).
+ *
+ *  Every answer is optional: a field left blank is filled from the person in
+ *  About and the selected Company when the document is generated. */
+export function templateAskFields(t) {
+  const prettyLabel = (token) => token.replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const defs = (t?.fieldDefs || []).filter(fd => !RESERVED_FIELD_TYPES.includes(fd.type));
+  const declared = new Set((t?.fieldDefs || []).map(fd => fd.token));
+  const loose = (t?.tokens || []).filter(tk => !declared.has(tk))
+    .map(tk => ({ token: tk, label: prettyLabel(tk), type: 'text' }));
+  return [...defs, ...loose];
+}
+
 function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed, onClose, onSent, toastOk, toastErr }) {
+  const { myEmail } = useRole() || {};
   const [boxRef, boxH] = useFillHeight();
+  const isMobile = useIsMobile();
   const [step, setStep] = useState(0);
   // Excluded-record acknowledgment (ESIGN 15 U.S.C. 7003 / Cal. Civ. Code
   // 1633.3). The list comes from the server so this checklist and the
@@ -2247,7 +2286,17 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const [dragOver, setDragOver] = useState(false);
   const [subjectId, setSubjectId] = useState(prefill?.candidateId ? `c:${prefill.candidateId}` : '');
   const [candidates, setCandidates] = useState([]);
-  const [entityId, setEntityId] = useState(entities[0]?.id || '');
+  const [entityId, setEntityIdRaw] = useState(() => defaultSendEntityId(entities, employees, myEmail));
+  // Entities and employees arrive asynchronously (react-query / a separate
+  // fetch), so the first render often has neither. Keep applying the default
+  // as they land - until the sender picks a company themselves.
+  const entityTouched = useRef(false);
+  const setEntityId = (id) => { entityTouched.current = true; setEntityIdRaw(id); };
+  useEffect(() => {
+    if (entityTouched.current) return;
+    const d = defaultSendEntityId(entities, employees, myEmail);
+    if (d) setEntityIdRaw(d);
+  }, [entities, employees, myEmail]);
   const [title, setTitle] = useState(prefill?.title || '');
   const [message, setMessage] = useState('');
   const [expiresOn, setExpiresOn] = useState('');
@@ -2352,7 +2401,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const [pendingTpl, setPendingTpl] = useState(null);
   const [fillValues, setFillValues] = useState({});
   const [fillErrors, setFillErrors] = useState({});
-  const askableFields = (t) => (t?.fieldDefs || []).filter(fd => !RESERVED_FIELD_TYPES.includes(fd.type));
+  const askableFields = templateAskFields;
 
   const pickDocTemplate = async (t) => {
     if (generating) return;
@@ -2384,12 +2433,34 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
     if (ok) setPendingTpl(null);
   };
 
+  // What was generated last, so changing About / Company below regenerates the
+  // same template with the same answers instead of silently leaving a document
+  // whose {{tokens}} were resolved against the old pair.
+  const lastGen = useRef(null);   // { tpl, values }
+
   const generateFromTemplate = async (t, fillValuesPayload) => {
     setGenerating(t.id);
+    lastGen.current = { tpl: t, values: fillValuesPayload };
     try {
+      // The document is born with its subject and company, so the server
+      // resolves {{full_name}}, {{job_title}}, {{company_address}}… while
+      // generating. Without them the PDF keeps the raw tokens.
+      // A candidate is not an employee row, so their details ride along as
+      // fill values (same precedence as any typed-in value).
+      const emp = subjectId.startsWith('e:') ? subjectId.slice(2) : '';
+      const cand = subjectId.startsWith('c:') ? candidates.find(x => x.id === subjectId.slice(2)) : null;
+      const values = { ...fillValuesPayload };
+      if (cand) Object.assign(values, {
+        first_name: cand.firstName || '', last_name: cand.lastName || '',
+        full_name: `${cand.firstName || ''} ${cand.lastName || ''}`.trim(),
+        email: cand.email || '', job_title: cand.roleTitle || '',
+        department: cand.department || '', start_date: cand.expectedStart || '',
+      });
       const doc = await api.createDocument({
         title: t.name, templateId: t.id,
-        ...(Object.keys(fillValuesPayload).length ? { fillValues: fillValuesPayload } : {}) });
+        ...(emp ? { employeeId: emp } : {}),
+        ...(entityId ? { entityId } : {}),
+        ...(Object.keys(values).length ? { fillValues: values } : {}) });
       const { blob, filename } = await api.exportDocumentPdf(doc.id);
       const file = new File([blob], (filename || `${t.name}.pdf`).replace(/\.pdf$/i, '') + '.pdf',
                             { type: 'application/pdf' });
@@ -2409,6 +2480,17 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
       return false;
     } finally { setGenerating(''); }
   };
+
+  // Re-generate when the subject or company changes after a template was
+  // picked - they are chosen beside the template list, usually AFTER it, and
+  // the first document was built without them. Only on the Document step: past
+  // it, fields have been placed on the PDF and replacing it would drop them.
+  useEffect(() => {
+    const gen = lastGen.current;
+    if (!gen || !docTemplateId || step !== 0 || generating) return;
+    generateFromTemplate(gen.tpl, gen.values);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectId, entityId]);
 
   const [egnyteOpen, setEgnyteOpen] = useState(false);
   const [converting, setConverting] = useState(false);
@@ -2587,6 +2669,14 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
     if (isPdf && step === 1 && fields.length === 0) return 'Drag at least one field onto the document.';
     return '';
   };
+  // One set of nav actions behind two bars - the desktop top bar and the mobile
+  // bottom bar below it - so a phone can never end up on a step it cannot leave.
+  const goBack = () => setStep(s => s - 1);
+  const goNext = () => (stepOk() ? setStep(s => s + 1) : toastErr(stepHint()));
+  const sendBlocked = busy || !excludedAck || !documentClass || classBlocked;
+  const sendTitle = classBlocked ? 'This document type cannot be signed electronically'
+    : !documentClass ? 'Pick the document type first'
+    : excludedAck ? '' : 'Confirm the document type first';
 
   async function send() {
     if (busy) return; setBusy(true);
@@ -2600,7 +2690,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
           message, expires_on: expiresOn, routing,
           merge: Object.fromEntries(Object.entries(merge).filter(([, v]) => String(v).trim())),
           excluded_ack: excludedAck, document_class: documentClass, governing_law: governingLaw,
-          parties: withRoles.map(p => ({ role_key: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, party_role: p.party_role || 'signer', access_code: p.access_code || '', org: p.org || '', title: p.title || '', phone: p.phone || '' })),
+          parties: withRoles.map(p => ({ role_key: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, party_role: p.party_role || 'signer', access_code: p.access_code || '', org: p.org || '', title: p.title || '', phone: p.phone || '', code_sms: !!p.code_sms })),
         });
       } else {
         const form = new FormData();
@@ -2654,7 +2744,11 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
 
   return (
     <div ref={boxRef} style={fillPanelStyle(boxH)}>
-      {/* Top bar: title + step pills + nav */}
+      {/* Top bar: title + step pills + nav. Desktop only - on a phone the pills
+          wrap into a stack that ate half the screen before the form even
+          started, so mobile gets the slim bottom bar at the end of this panel
+          instead and the envelope title moves into step 0. */}
+      {!isMobile && (
       <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', flexShrink: 0, flexWrap: 'wrap' }}>
         <button onClick={onClose} title="Discard and go back" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><X size={19} /></button>
         <input className="form-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="Envelope title…"
@@ -2673,29 +2767,26 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {step > 0 && <button className="secondary-btn" onClick={() => setStep(s => s - 1)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}><ChevronLeft size={13} /> Back</button>}
+          {step > 0 && <button className="secondary-btn" onClick={goBack} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}><ChevronLeft size={13} /> Back</button>}
           {step < steps.length - 1 ? (
-            <button className="primary-btn" onClick={() => stepOk() ? setStep(s => s + 1) : toastErr(stepHint())}
+            <button className="primary-btn" onClick={goNext}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, opacity: stepOk() ? 1 : 0.55 }}>
               Next <ChevronRight size={13} />
             </button>
           ) : (
-            <button className="primary-btn" onClick={send}
-              disabled={busy || !excludedAck || !documentClass || classBlocked}
-              title={classBlocked ? 'This document type cannot be signed electronically'
-                : !documentClass ? 'Pick the document type first'
-                : excludedAck ? '' : 'Confirm the document type first'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: (busy || !excludedAck || !documentClass || classBlocked) ? 0.6 : 1 }}>
+            <button className="primary-btn" onClick={send} disabled={sendBlocked} title={sendTitle}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: sendBlocked ? 0.6 : 1 }}>
               {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} Send
             </button>
           )}
         </div>
       </div>
+      )}
 
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {/* STEP 0 - Document */}
         {step === 0 && (
-          <div style={{ maxWidth: 980, margin: '0 auto', padding: '26px 18px' }}>
+          <div style={{ maxWidth: 980, margin: '0 auto', padding: isMobile ? '14px 12px' : '26px 18px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 18 }}>
               <div>
                 {/* The company's ONE template library (requirement 25 - Nexus
@@ -2710,7 +2801,13 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                   <>
                     <label style={FL}>Fill in {pendingTpl.name}</label>
                     <div style={{ border: '1.5px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 11, maxHeight: 420, overflowY: 'auto' }}>
+                      {/* Blank is a real answer: anything left empty is filled
+                          from the person picked in About (and the Company)
+                          when the document is generated. */}
+                      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>
+                        Leave a field blank to fill it from the person in <strong>About</strong> and the selected <strong>Company</strong>.
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 11, ...(isMobile ? {} : { maxHeight: 420, overflowY: 'auto' }) }}>
                         {askableFields(pendingTpl).map(fd => (
                           <div key={fd.token}>
                             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
@@ -2746,7 +2843,11 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                   <input className="form-input" value={tplQuery} onChange={e => setTplQuery(e.target.value)}
                     placeholder="Search templates…" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }} />
                 </div>
-                <div style={{ display: 'grid', gap: 8, maxHeight: 340, overflowY: 'auto' }}>
+                {/* On a phone this list used to be a 340px scroller that filled the
+                    whole panel, so a drag scrolled the templates and never reached
+                    the upload box or About/Company below it. One scroll surface
+                    there: the panel's own. */}
+                <div style={{ display: 'grid', gap: 8, ...(isMobile ? {} : { maxHeight: 340, overflowY: 'auto' }) }}>
                   {shownDocTemplates.map(t => (
                     <button key={t.id} onClick={() => pickDocTemplate(t)} disabled={generating === t.id}
                       style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderRadius: 12, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif',
@@ -2841,6 +2942,15 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                       {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
                     </select>
                   </div>
+                  {/* Phones have no top bar to hold the title input, so it lives
+                      here - below the template/PDF pick that fills it in. */}
+                  {isMobile && (
+                    <div>
+                      <label style={FL}>Envelope Title</label>
+                      <input className="form-input" style={{ width: '100%', fontWeight: 700 }} value={title}
+                        onChange={e => setTitle(e.target.value)} placeholder="Envelope title…" />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2933,10 +3043,10 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                         onChange={e => setParty(i, 'phone', e.target.value)} />
                     )}
                     {p.kind === 'external' && !cc && (
-                      <input className="form-input" style={{ marginTop: 8, width: '100%', fontSize: 12 }}
-                        placeholder="Access code (optional) - share it with them separately; the link will ask for it"
-                        value={p.access_code || ''} maxLength={40}
-                        onChange={e => setParty(i, 'access_code', e.target.value)} />
+                      <AccessCodeField value={p.access_code || ''} phone={p.phone || ''}
+                        codeSms={!!p.code_sms}
+                        onChange={(v) => setParty(i, 'access_code', v)}
+                        onCodeSmsChange={(v) => setParty(i, 'code_sms', v)} />
                     )}
                   </div>
                 </div>
@@ -3025,9 +3135,10 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                               onChange={e => setParty(i, 'phone', e.target.value)} />
                           )}
                           {p.kind === 'external' && !cc && (
-                            <input className="form-input" style={{ marginTop: 6, width: '100%', fontSize: 11.5 }}
-                              placeholder="Access code (optional)" value={p.access_code || ''} maxLength={40}
-                              onChange={e => setParty(i, 'access_code', e.target.value)} />
+                            <AccessCodeField compact value={p.access_code || ''} phone={p.phone || ''}
+                              codeSms={!!p.code_sms}
+                              onChange={(v) => setParty(i, 'access_code', v)}
+                              onCodeSmsChange={(v) => setParty(i, 'code_sms', v)} />
                           )}
                         </div>
                       );
@@ -3214,6 +3325,36 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
           </div>
         )}
       </div>
+
+      {/* Mobile nav: the top bar's job in one row that does not wrap. */}
+      {isMobile && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderTop: '1px solid var(--line)', background: 'var(--card)', flexShrink: 0 }}>
+          <button onClick={onClose} title="Discard and go back" aria-label="Close"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4, flexShrink: 0 }}>
+            <X size={19} />
+          </button>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {step + 1}/{steps.length} · {steps[step]}
+          </span>
+          {step > 0 && (
+            <button className="secondary-btn" onClick={goBack} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, flexShrink: 0 }}>
+              <ChevronLeft size={13} /> Back
+            </button>
+          )}
+          {step < steps.length - 1 ? (
+            <button className="primary-btn" onClick={goNext}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, flexShrink: 0, opacity: stepOk() ? 1 : 0.55 }}>
+              Next <ChevronRight size={13} />
+            </button>
+          ) : (
+            <button className="primary-btn" onClick={send} disabled={sendBlocked} title={sendTitle}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, flexShrink: 0, opacity: sendBlocked ? 0.6 : 1 }}>
+              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} Send
+            </button>
+          )}
+        </div>
+      )}
+
       {egnyteOpen && (
         <EgnyteBrowser onClose={() => setEgnyteOpen(false)}
           onPick={(picked) => { setEgnyteOpen(false); pickFile(picked); }} />
