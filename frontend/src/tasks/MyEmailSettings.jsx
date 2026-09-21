@@ -14,6 +14,7 @@ import { Save, X } from 'lucide-react';
 import { api } from '../api';
 import { SearchSelect } from './components';
 import { SkeletonBlocks } from '../components/AsyncState';
+import { ZONE_GROUPS, LOCAL_TZ, zoneOptionLabel } from '../lib/worldClockZones';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 
 const label = { display: 'block', fontSize: 12.5, fontWeight: 700, color: NX.ink, marginBottom: 4 };
@@ -23,13 +24,6 @@ const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
 
 // 12-hour labels, per the app-wide US time format.
 const hourLabel = (h) => `${h % 12 === 0 ? 12 : h % 12}:00 ${h < 12 ? 'AM' : 'PM'}`;
-
-const US_ZONES = [
-  ['America/Los_Angeles', 'Pacific Time'], ['America/Denver', 'Mountain Time'],
-  ['America/Phoenix', 'Arizona'], ['America/Chicago', 'Central Time'],
-  ['America/New_York', 'Eastern Time'], ['Pacific/Honolulu', 'Hawaii'],
-  ['America/Anchorage', 'Alaska'],
-];
 
 const EVENT_LABELS = {
   assigned: 'Assigned to me', mentioned: 'Mentioned in a comment',
@@ -84,8 +78,13 @@ export default function EmailSettingsPanel({ onUnavailable }) {
   };
 
   const company = data?.company || {};
-  const browserTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return ''; } })();
-  const zones = US_ZONES.some(([z]) => z === browserTz) || !browserTz ? US_ZONES : [...US_ZONES, [browserTz, browserTz]];
+  // The same zone list the rest of Nexus offers (My Profile's World Clock,
+  // shift schedules) - one curated zone per standard offset, grouped by
+  // region, each labeled with its offset. This picker used to carry its own
+  // seven US zones plus whatever the browser reported, which showed up raw as
+  // "Asia/Calcutta" (Sagar, Sep 21).
+  const savedTz = prefs?.timezone || '';
+  const tzInList = Object.values(ZONE_GROUPS).some(zs => zs.includes(savedTz));
   const mutedTaskTitle = (id) => data?.mutedTasks?.find((t) => t.id === id)?.title || 'A task that no longer exists';
   const mutedProjectName = (id) => data?.mutedProjects?.find((p) => p.id === id)?.name
     || projects.find((p) => p.id === id)?.name || 'A project that no longer exists';
@@ -105,7 +104,16 @@ export default function EmailSettingsPanel({ onUnavailable }) {
                   {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
                 </select>
                 <select aria-label="Time zone" value={prefs.timezone} onChange={(e) => set('timezone', e.target.value)} style={{ ...sel, flex: 1, minWidth: 180 }}>
-                  {zones.map(([z, l]) => <option key={z} value={z}>{l}</option>)}
+                  <option value={LOCAL_TZ}>Local - {zoneOptionLabel(LOCAL_TZ)}</option>
+                  {/* A zone saved before this list existed (or from another
+                      device) must still be selectable, or the <select> would
+                      silently show the wrong one. */}
+                  {!tzInList && savedTz && savedTz !== LOCAL_TZ && <option value={savedTz}>{zoneOptionLabel(savedTz)}</option>}
+                  {Object.entries(ZONE_GROUPS).map(([region, zs]) => (
+                    <optgroup key={region} label={region.replace(/_/g, ' ')}>
+                      {zs.filter(z => z !== LOCAL_TZ).map(z => <option key={z} value={z}>{zoneOptionLabel(z)}</option>)}
+                    </optgroup>
+                  ))}
                 </select>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>

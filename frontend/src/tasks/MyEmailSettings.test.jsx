@@ -42,6 +42,19 @@ describe('EmailSettingsPanel', () => {
     expect(screen.getByRole('option', { name: '8:00 AM' })).toBeTruthy();
   });
 
+  it('offers the same time zones the rest of Nexus does, not a hand-rolled list', async () => {
+    render(<EmailSettingsPanel />);
+    await screen.findByText('Reminder Time');
+    const tz = screen.getByLabelText('Time zone');
+    // Local first, then the shared curated list grouped by region - the
+    // picker used to carry seven US zones plus a raw browser id.
+    expect(tz.options[0].text.startsWith('Local - ')).toBe(true);
+    expect(tz.querySelectorAll('optgroup').length).toBeGreaterThan(2);
+    expect(tz.options.length).toBeGreaterThan(20);
+    // Every option is labeled, never a bare IANA identifier like "Asia/Calcutta".
+    expect([...tz.options].every(o => !/^[A-Za-z_]+\/[A-Za-z_]+$/.test(o.text))).toBe(true);
+  });
+
   it('saves the changed preferences', async () => {
     render(<EmailSettingsPanel />);
     await screen.findByText('Reminder Time');

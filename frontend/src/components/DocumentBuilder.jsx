@@ -14,7 +14,7 @@ import {
   Paintbrush, Search, Smile, Bookmark,
   Scissors, ClipboardCopy, ClipboardPaste, Strikethrough, Subscript as SubscriptIcon, Superscript as SuperscriptIcon,
   Highlighter, ArrowDownAZ, ArrowUpZA, RectangleHorizontal, MousePointerSquareDashed, ListTree,
-  Variable, Lock, LockOpen, Wand2,
+  Variable, Lock, LockOpen, Wand2, ListChecks,
 } from 'lucide-react';
 import { api } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
@@ -28,6 +28,7 @@ import { PAGE_SIZES, ORIENTATIONS, MARGIN_PRESETS, DEFAULT_PAGE_SETUP, pageCanva
 import { useIsMobile } from '../lib/useIsMobile';
 import EgnyteBrowser from './EgnyteBrowser';
 import DefineMergeFieldModal from './DefineMergeFieldModal';
+import TemplateFieldsPanel from './TemplateFieldsPanel';
 import VariableLibrary from './VariableLibrary';
 
 const FONT_GROUPS = {
@@ -384,6 +385,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // kind==='template' (Documents generated from one just carry resolved
   // values, not the field metadata itself).
   const [fieldDefs, setFieldDefs] = useState([]);
+  // Template Fields panel: every variable and the type of answer it takes.
+  // `newTokens` are the ones an import/paste just added, marked NEW in the list.
+  const [fieldsPanel, setFieldsPanel] = useState(null);   // null | { newTokens: [] }
   const [mergeFieldModal, setMergeFieldModal] = useState(null); // null | { range?: {from,to}, existingDef?: object, initialLabel?: string }
   const [variableLibraryOpen, setVariableLibraryOpen] = useState(false);
   // Page Setup (Phase 14) - content.pageSetup, a sibling of body/header/footer
@@ -1385,6 +1389,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         if (added.length) {
           setFieldDefs(merged.fieldDefs);
           await apiUpdate(docId, { fieldDefs: merged.fieldDefs });
+          // Pasted from Word, or typed: same reason as the import path - offer
+          // the types straight away rather than leaving the guesses standing.
+          setFieldsPanel({ newTokens: added.map(fd => fd.token) });
         }
       }
       scheduleSave();
@@ -1442,6 +1449,11 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     dom.addEventListener('dblclick', onDblClick);
     return () => dom.removeEventListener('dblclick', onDblClick);
   }, [activeEditor, kind, fieldDefs]);
+
+  const saveFieldDefs = (next) => {
+    setFieldDefs(next);
+    apiUpdate(docId, { fieldDefs: next }).catch((e) => toastErr?.(e.message || 'Could not save the template fields'));
+  };
 
   const saveMergeFieldDef = (def) => {
     if (mergeFieldModal?.range) {
@@ -1580,6 +1592,10 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             .catch(e => toastErr?.(e.message || 'Imported, but the variables could not be saved'));
         }
       }
+      // Straight into the field list when an import brought variables in: the
+      // types are only guesses from the names until somebody says otherwise,
+      // and this is the moment the author is looking at the template.
+      if (added.length) setFieldsPanel({ newTokens: added.map(fd => fd.token) });
       const found = tokens.length
         ? ` ${tokens.length} variable${tokens.length === 1 ? '' : 's'} detected${added.length ? `, ${added.length} added to this template` : ''}.`
         : '';
@@ -2070,6 +2086,12 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             disabled={detecting} onClick={detectVariables}>
             {detecting ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Wand2 size={15} />}
           </ToolbarBtn>
+          {kind === 'template' && (
+            <ToolbarBtn title="Template Fields - set the type of answer each variable takes"
+              active={!!fieldsPanel} onClick={() => setFieldsPanel({ newTokens: [] })}>
+              <ListChecks size={15} />
+            </ToolbarBtn>
+          )}
           <ToolbarBtn title="Variable Library - browse every variable and drag one in"
             active={variableLibraryOpen} onClick={() => setVariableLibraryOpen(o => !o)}>
             <Variable size={15} />
@@ -2594,6 +2616,14 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       <VariableLibrary open={variableLibraryOpen} onClose={() => setVariableLibraryOpen(false)}
         onInsert={insertVariable} localVariables={customVarKeys}
         anchorLabel={kind === 'template' ? 'the template' : 'the document'} />
+
+      {fieldsPanel && kind === 'template' && (
+        <TemplateFieldsPanel
+          fieldDefs={fieldDefs} tokens={fieldsPanel.newTokens} highlight={fieldsPanel.newTokens}
+          onChange={saveFieldDefs}
+          onEdit={(fd) => { setFieldsPanel(null); setMergeFieldModal({ existingDef: fd }); }}
+          onClose={() => setFieldsPanel(null)} />
+      )}
 
       {mergeFieldModal && (
         <DefineMergeFieldModal
