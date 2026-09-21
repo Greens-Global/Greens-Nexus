@@ -1903,7 +1903,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
 # ---------------------------------------------------------------------------
 # HR Section A - Companies/Entities + Work Sites (structural foundation)
 # ---------------------------------------------------------------------------
-from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday, HrManualSignature
+from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday, HrHolidayPolicy, HrManualSignature
 
 
 class EntityIn(BaseModel):
@@ -2667,22 +2667,61 @@ def _fetch_google_holidays(country: str, year: int) -> Optional[list]:
     return out
 
 
+_HOLIDAY_TYPES = ("mandatory", "optional", "half_day")
+
+
 class CompanyHolidayIn(BaseModel):
     date:         str             # YYYY-MM-DD
     name:         str
     source:       Optional[str] = "manual"   # "manual" | "public"
     country_code: Optional[str] = ""
+    type:         Optional[str] = "mandatory"   # "mandatory" | "optional" | "half_day"
+
+
+class CompanyHolidayTypeIn(BaseModel):
+    type: str
 
 
 def _serialize_holiday(h: HrCompanyHoliday) -> dict:
     return {
         "id": h.id, "date": h.date, "name": h.name, "source": h.source,
-        "countryCode": h.country_code, "createdAt": h.created_at,
+        "countryCode": h.country_code, "type": h.type or "mandatory", "createdAt": h.created_at,
     }
 
 
 def _country_codes(country_code: str) -> list:
     return [c for c in (country_code or "").split(",") if c]
+
+
+def _create_or_merge_holiday(db: Session, entity_id: str, *, date_: str, name_: str,
+                             source_: str, code: str, type_: str, actor_email: str) -> HrCompanyHoliday:
+    """The shared "add one holiday to a company" path - used by the single-add
+    endpoint below AND by applying a policy's whole holiday list at once, so
+    the two never drift apart. Same public-holiday-merges-by-country behavior
+    either way (see create_company_holiday)."""
+    now = datetime.now(timezone.utc).isoformat()
+    source_ = source_ if source_ in ("manual", "public") else "manual"
+    type_ = type_ if type_ in _HOLIDAY_TYPES else "mandatory"
+    if source_ == "public" and code:
+        existing = (db.query(HrCompanyHoliday)
+                    .filter(HrCompanyHoliday.company_id == entity_id, HrCompanyHoliday.date == date_,
+                            HrCompanyHoliday.name == name_, HrCompanyHoliday.source == "public").first())
+        if existing:
+            codes = _country_codes(existing.country_code)
+            if code not in codes:
+                codes.append(code)
+                existing.country_code = ",".join(sorted(codes))
+                existing.updated_at = now
+                db.flush()
+            return existing
+    row = HrCompanyHoliday(
+        id=str(uuid.uuid4()), company_id=entity_id, date=date_, name=name_,
+        source=source_, country_code=code, type=type_,
+        created_by=actor_email, created_at=now, updated_at=now,
+    )
+    db.add(row)
+    db.flush()
+    return row
 
 
 @router.get("/entities/{entity_id}/holidays")
@@ -2705,36 +2744,36 @@ def create_company_holiday(entity_id: str, body: CompanyHolidayIn,
         raise HTTPException(400, "date must be YYYY-MM-DD")
     if not body.name.strip():
         raise HTTPException(400, "name is required")
-    now = datetime.now(timezone.utc).isoformat()
-    date_ = body.date.strip()
-    name_ = body.name.strip()
-    source_ = body.source if body.source in ("manual", "public") else "manual"
-    code = (body.country_code or "").strip().upper()
-
     # 1 date, 1 company (Pranshu, Sep 21): the SAME public holiday picked for a
     # second country on this company's calendar merges onto the ONE existing row
     # instead of creating a duplicate - country_code becomes a comma-separated
     # list ("IN,US") rather than a second row. Payroll matching
     # (_company_holidays_for_employee) checks membership in that list.
-    if source_ == "public" and code:
-        existing = (db.query(HrCompanyHoliday)
-                    .filter(HrCompanyHoliday.company_id == entity_id, HrCompanyHoliday.date == date_,
-                            HrCompanyHoliday.name == name_, HrCompanyHoliday.source == "public").first())
-        if existing:
-            codes = _country_codes(existing.country_code)
-            if code not in codes:
-                codes.append(code)
-                existing.country_code = ",".join(sorted(codes))
-                existing.updated_at = now
-                db.commit(); db.refresh(existing)
-            return _serialize_holiday(existing)
+    row = _create_or_merge_holiday(
+        db, entity_id, date_=body.date.strip(), name_=body.name.strip(),
+        source_=body.source or "manual", code=(body.country_code or "").strip().upper(),
+        type_=body.type or "mandatory", actor_email=user["email"])
+    db.commit(); db.refresh(row)
+    return _serialize_holiday(row)
 
-    row = HrCompanyHoliday(
-        id=str(uuid.uuid4()), company_id=entity_id, date=date_, name=name_,
-        source=source_, country_code=code,
-        created_by=user["email"], created_at=now, updated_at=now,
-    )
-    db.add(row); db.commit(); db.refresh(row)
+
+@router.patch("/entities/{entity_id}/holidays/{holiday_id}")
+def update_company_holiday_type(entity_id: str, holiday_id: str, body: CompanyHolidayTypeIn,
+                                user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Only the type (Mandatory/Optional/Half-day) is editable after creation -
+    date/name/country changes go through delete + re-add, same as before."""
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    if body.type not in _HOLIDAY_TYPES:
+        raise HTTPException(400, f"type must be one of {', '.join(_HOLIDAY_TYPES)}")
+    row = db.query(HrCompanyHoliday).filter(HrCompanyHoliday.id == holiday_id,
+                                             HrCompanyHoliday.company_id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Holiday not found")
+    row.type = body.type
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
     return _serialize_holiday(row)
 
 
@@ -2761,6 +2800,108 @@ def delete_company_holiday(entity_id: str, holiday_id: str, country_code: Option
             return _serialize_holiday(row)
         db.delete(row); db.commit()
     return {"ok": True}
+
+
+# ── Holiday Policy library (Sep 22, Neil call: "think that you're making a
+# policy library... you can pull that policy into any other company") - a
+# GLOBAL, named, reusable set of holidays. Not scoped to one company: any
+# admin who can write HR can create/apply/edit one. Applying copies the
+# policy's holidays into the target company's own hr_company_holidays rows
+# (through the same _create_or_merge_holiday path a manual add uses) - a
+# policy is a template you stamp out, not a live link, so editing it later
+# doesn't retroactively change a company that already applied it. ──────────
+
+class HolidayPolicyHolidayIn(BaseModel):
+    date:         str
+    name:         str
+    source:       Optional[str] = "manual"
+    country_code: Optional[str] = ""
+    type:         Optional[str] = "mandatory"
+
+
+class HolidayPolicyIn(BaseModel):
+    name:     str
+    holidays: list[HolidayPolicyHolidayIn] = []
+
+
+def _serialize_policy(p: HrHolidayPolicy) -> dict:
+    return {
+        "id": p.id, "name": p.name, "holidays": p.holidays or [],
+        "createdAt": p.created_at, "updatedAt": p.updated_at,
+    }
+
+
+@router.get("/holiday-policies")
+def list_holiday_policies(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    rows = db.query(HrHolidayPolicy).order_by(HrHolidayPolicy.name).all()
+    return [_serialize_policy(p) for p in rows]
+
+
+@router.post("/holiday-policies")
+def create_holiday_policy(body: HolidayPolicyIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    now = datetime.now(timezone.utc).isoformat()
+    row = HrHolidayPolicy(
+        id=str(uuid.uuid4()), name=body.name.strip(),
+        holidays=[h.model_dump() for h in body.holidays],
+        created_by=user["email"], created_at=now, updated_at=now,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _serialize_policy(row)
+
+
+@router.patch("/holiday-policies/{policy_id}")
+def update_holiday_policy(policy_id: str, body: HolidayPolicyIn,
+                          user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Re-saves the whole holiday list, same as create - the frontend reopens
+    the same picker UI pre-filled with the policy's current holidays (Neil:
+    "the edit comes back into this type of a UI... loads it all again"),
+    checks the public-holiday source fresh, and PATCHes the full result back."""
+    row = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
+    if not row:
+        raise HTTPException(404, "Policy not found")
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    row.name = body.name.strip()
+    row.holidays = [h.model_dump() for h in body.holidays]
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_policy(row)
+
+
+@router.delete("/holiday-policies/{policy_id}")
+def delete_holiday_policy(policy_id: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
+    if row:
+        db.delete(row); db.commit()
+    return {"ok": True}
+
+
+@router.post("/entities/{entity_id}/holidays/apply-policy/{policy_id}")
+def apply_holiday_policy(entity_id: str, policy_id: str,
+                         user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    policy = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
+    if not policy:
+        raise HTTPException(404, "Policy not found")
+    applied = 0
+    for h in (policy.holidays or []):
+        date_ = (h.get("date") or "").strip()
+        name_ = (h.get("name") or "").strip()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_) or not name_:
+            continue   # a malformed row in a hand-edited policy shouldn't 500 the whole apply
+        _create_or_merge_holiday(
+            db, entity_id, date_=date_, name_=name_,
+            source_=h.get("source") or "manual", code=(h.get("country_code") or "").strip().upper(),
+            type_=h.get("type") or "mandatory", actor_email=user["email"])
+        applied += 1
+    db.commit()
+    rows = (db.query(HrCompanyHoliday).filter(HrCompanyHoliday.company_id == entity_id)
+            .order_by(HrCompanyHoliday.date).all())
+    return {"applied": applied, "holidays": [_serialize_holiday(h) for h in rows]}
 
 
 @router.get("/public-holidays")

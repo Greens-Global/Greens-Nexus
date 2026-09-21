@@ -7,7 +7,7 @@ import {
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
-  ChevronDown, Globe, Globe2,
+  ChevronDown, Globe, Globe2, BookMarked,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
@@ -3715,6 +3715,16 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
   );
 }
 
+// Mandatory (everyone off) | Optional (an employee may choose to take it,
+// against a dedicated allowance) | Half-day (shift ends early) - Neil, Sep 22
+// call. Payroll/leave consumption of this is a later piece; today it's just
+// captured and shown.
+const HOLIDAY_TYPE_META = {
+  mandatory: { label: 'Mandatory', fg: 'var(--muted)' },
+  optional:  { label: 'Optional', fg: '#b45309' },
+  half_day:  { label: 'Half-day', fg: '#2563eb' },
+};
+
 // ── Holiday Calendar tab (Sep 18) - country public holidays (admin picks
 // which ones actually apply) plus manual per-company holidays. Every row
 // here shows up on that company's employees' Calendar dashboard
@@ -3723,6 +3733,11 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
 // COUNTRIES set as the Overview tab - not every country has public-holiday
 // data behind it (backend returns a clear 404 for those, not a crash), but
 // the picker itself isn't artificially limited to a handful.
+//
+// Sep 22 (Neil call) also added the Holiday Policy library: a company's
+// current holiday set can be saved as a reusable, named policy and pulled
+// into any other company instead of rebuilding it from scratch each time -
+// see HolidayPolicyPanel below.
 function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
   const [holidays, setHolidays] = useState([]);
   const [country, setCountry] = useState(COUNTRIES.some(c => c.code === entity.country) ? entity.country : 'US');
@@ -3799,6 +3814,27 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
 
+  async function changeType(h, type) {
+    try { await api.updateCompanyHolidayType(entity.id, h.id, type); load(); }
+    catch (e) { toastErr(e?.message || 'Could not update holiday type.'); }
+  }
+
+  const [policyBusy, setPolicyBusy] = useState(false);
+  async function createPolicyFromHolidays() {
+    if (!holidays.length || policyBusy) return;
+    const name = await dialog.prompt('', { title: 'Create a holiday policy', message: `Saves ${entity.name}'s current ${holidays.length} holiday${holidays.length === 1 ? '' : 's'} as a reusable policy other companies can pull in.`, placeholder: `e.g. "${entity.name} standard holidays"` });
+    if (!name || !name.trim()) return;
+    setPolicyBusy(true);
+    try {
+      await api.createHolidayPolicy({
+        name: name.trim(),
+        holidays: holidays.map(h => ({ date: h.date, name: h.name, source: h.source, country_code: h.countryCode, type: h.type })),
+      });
+      toastOk('Policy created.');
+    } catch (e) { toastErr(e?.message || 'Could not create policy.'); }
+    setPolicyBusy(false);
+  }
+
   return (
     <div style={{ padding: '18px 4px', maxWidth: 720 }}>
       <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 20px' }}>
@@ -3844,19 +3880,237 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
         </div>
       </div>
 
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{entity.name}'s holidays ({holidays.length})</div>
+      <div style={{ marginBottom: 26 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{entity.name}'s holidays ({holidays.length})</div>
+          <button className="secondary-btn" onClick={createPolicyFromHolidays} disabled={!holidays.length || policyBusy}
+            title="Save this holiday set as a reusable policy other companies can pull in"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+            {policyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <BookMarked size={12} />} Create policy from these holidays
+          </button>
+        </div>
         {holidays.length === 0 ? (
           <p style={{ fontSize: 12, color: 'var(--muted)' }}>No holidays set yet.</p>
-        ) : holidays.map(h => (
+        ) : holidays.map(h => {
+          const tm = HOLIDAY_TYPE_META[h.type] || HOLIDAY_TYPE_META.mandatory;
+          return (
           <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, minWidth: 90 }}>{formatDate(h.date)}</div>
             <div style={{ flex: 1, fontSize: 12.5 }}>
               {h.name} {h.source === 'public' && <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>· {countriesOf(h).join(', ')} public holiday</span>}
             </div>
+            <select className="form-input" value={h.type || 'mandatory'} onChange={e => changeType(h, e.target.value)}
+              style={{ width: 110, fontSize: 11.5, color: tm.fg, padding: '4px 8px' }}>
+              {Object.entries(HOLIDAY_TYPE_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
             <button onClick={() => remove(h)} title="Remove" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 6 }}><Trash2 size={13} /></button>
           </div>
-        ))}
+          );
+        })}
+      </div>
+
+      <HolidayPolicyPanel entity={entity} onApplied={load} toastOk={toastOk} toastErr={toastErr} />
+    </div>
+  );
+}
+
+// ── Holiday Policy library panel (Sep 22, Neil call) - lives under a
+// company's own Holiday Calendar tab since that's where the workflow starts
+// ("where it says Greens Global's holidays, I want you to establish that as
+// a policy"), but the policies themselves are global: apply one to ANY
+// company, not just the one you created it from.
+function HolidayPolicyPanel({ entity, onApplied, toastOk, toastErr }) {
+  const [policies, setPolicies] = useState([]);
+  const [busyId, setBusyId] = useState('');
+  const [editing, setEditing] = useState(null);   // the policy object being edited, or null
+
+  const load = useCallback(() => {
+    api.getHolidayPolicies().then(setPolicies).catch(() => {});
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function apply(p) {
+    if (!await dialog.confirm(`Apply "${p.name}" (${(p.holidays || []).length} holidays) to ${entity.name}? This adds/merges them onto ${entity.name}'s calendar - it won't remove anything already there.`, { title: 'Apply policy', confirmText: 'Apply' })) return;
+    setBusyId(p.id);
+    try {
+      const res = await api.applyHolidayPolicy(entity.id, p.id);
+      toastOk(`Applied ${res.applied} holiday${res.applied === 1 ? '' : 's'} from "${p.name}".`);
+      onApplied?.();
+    } catch (e) { toastErr(e?.message || 'Could not apply policy.'); }
+    setBusyId('');
+  }
+
+  async function rename(p) {
+    const name = await dialog.prompt(p.name, { title: 'Rename policy', confirmText: 'Save' });
+    if (!name || !name.trim() || name.trim() === p.name) return;
+    try { await api.updateHolidayPolicy(p.id, { name: name.trim(), holidays: p.holidays || [] }); load(); }
+    catch (e) { toastErr(e?.message || 'Could not rename policy.'); }
+  }
+
+  async function remove(p) {
+    if (!await dialog.confirm(`Delete the "${p.name}" policy? Companies that already applied it keep their holidays - this only removes it from the library.`, { title: 'Delete policy', confirmText: 'Delete', danger: true })) return;
+    try { await api.deleteHolidayPolicy(p.id); load(); }
+    catch (e) { toastErr(e?.message || 'Could not delete policy.'); }
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Holiday policy library</div>
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+        Reusable holiday sets, shared across every company - build one once, apply it anywhere.
+      </p>
+      {policies.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'var(--muted)' }}>No policies yet - use "Create policy from these holidays" above to make the first one.</p>
+      ) : policies.map(p => (
+        <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700 }}>{p.name}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{(p.holidays || []).length} holiday{(p.holidays || []).length === 1 ? '' : 's'}</div>
+          </div>
+          <button className="secondary-btn" onClick={() => apply(p)} disabled={busyId === p.id} style={{ fontSize: 11.5, padding: '4px 10px' }}>
+            {busyId === p.id ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : `Apply to ${entity.name}`}
+          </button>
+          <button onClick={() => setEditing(p)} title="Edit holidays" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><Pencil size={13} /></button>
+          <button onClick={() => rename(p)} title="Rename" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><FileText size={13} /></button>
+          <button onClick={() => remove(p)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 6 }}><Trash2 size={13} /></button>
+        </div>
+      ))}
+      {editing && (
+        <HolidayPolicyEditorModal policy={editing} onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); }} toastOk={toastOk} toastErr={toastErr} />
+      )}
+    </div>
+  );
+}
+
+// The policy editor - same country-load/checkbox/manual-add shape as
+// CompanyHolidaysTab's own picker, but working against a local draft (this
+// policy isn't live anywhere until Save) instead of calling the per-company
+// holiday API on every click (Neil: "the edit comes back into this type of a
+// UI... loads it all again. If there's any updates, it should actively go to
+// the internet"). Save PATCHes the whole holiday list back in one call.
+function HolidayPolicyEditorModal({ policy, onClose, onSaved, toastOk, toastErr }) {
+  const [name, setName] = useState(policy.name);
+  const [draft, setDraft] = useState(policy.holidays || []);
+  const [country, setCountry] = useState('US');
+  const [suggestions, setSuggestions] = useState(null);
+  const [noData, setNoData] = useState(false);
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const [manualDate, setManualDate] = useState('');
+  const [manualName, setManualName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function loadSuggestions() {
+    setSuggestBusy(true); setSuggestions(null); setNoData(false);
+    try {
+      const year = new Date().getFullYear();
+      const [a, b] = await Promise.all([api.getPublicHolidays(country, year), api.getPublicHolidays(country, year + 1)]);
+      const nextJanCutoff = `${year + 1}-01-07`;
+      setSuggestions([...(a || []), ...(b || []).filter(h => h.date <= nextJanCutoff)]);
+    } catch (e) {
+      if (e?.status === 404) setNoData(true);
+      else toastErr(e?.message || 'Could not load public holidays.');
+    }
+    setSuggestBusy(false);
+  }
+
+  const countriesOf = h => (h.country_code || '').split(',').filter(Boolean);
+  const findPublic = (date, name_, cc) => draft.find(h => h.source === 'public' && h.date === date && h.name === name_ && countriesOf(h).includes(cc));
+
+  function toggleSuggestion(s) {
+    const match = findPublic(s.date, s.name, country);
+    if (match) {
+      const codes = countriesOf(match).filter(c => c !== country);
+      setDraft(d => codes.length
+        ? d.map(h => h === match ? { ...h, country_code: codes.join(',') } : h)
+        : d.filter(h => h !== match));
+    } else {
+      const existing = draft.find(h => h.source === 'public' && h.date === s.date && h.name === s.name);
+      if (existing) setDraft(d => d.map(h => h === existing ? { ...h, country_code: [...countriesOf(h), country].join(',') } : h));
+      else setDraft(d => [...d, { date: s.date, name: s.name, source: 'public', country_code: country, type: 'mandatory' }]);
+    }
+  }
+
+  function addManual() {
+    if (!manualDate || !manualName.trim()) return;
+    setDraft(d => [...d, { date: manualDate, name: manualName.trim(), source: 'manual', country_code: '', type: 'mandatory' }]);
+    setManualDate(''); setManualName('');
+  }
+  const removeAt = i => setDraft(d => d.filter((_, x) => x !== i));
+  const setTypeAt = (i, type) => setDraft(d => d.map((h, x) => x === i ? { ...h, type } : h));
+
+  async function save() {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    try {
+      await api.updateHolidayPolicy(policy.id, { name: name.trim(), holidays: draft });
+      toastOk('Policy saved.'); onSaved?.();
+    } catch (e) { toastErr(e?.message || 'Could not save policy.'); }
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }} onClick={onClose}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 22, width: 640, maxWidth: '92vw', maxHeight: '86vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <input className="form-input" style={{ flex: 1, fontSize: 14, fontWeight: 700 }} value={name} onChange={e => setName(e.target.value)} />
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Load public holidays</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            <select className="form-input" style={{ width: 200 }} value={country} onChange={e => { setCountry(e.target.value); setSuggestions(null); setNoData(false); }}>
+              {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
+            </select>
+            <button className="secondary-btn" onClick={loadSuggestions} disabled={suggestBusy} style={{ fontSize: 12 }}>
+              {suggestBusy ? 'Loading…' : 'Load holidays'}
+            </button>
+          </div>
+          {noData && <p style={{ fontSize: 11.5, color: 'var(--muted)' }}>No public holiday data available for this country.</p>}
+          {suggestions && (
+            <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 200, overflowY: 'auto' }}>
+              {suggestions.map((s, i) => (
+                <label key={`${s.date}-${s.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 12 }}>
+                  <input type="checkbox" checked={!!findPublic(s.date, s.name, country)} onChange={() => toggleSuggestion(s)} />
+                  <span style={{ fontWeight: 600, minWidth: 84 }}>{formatDate(s.date)}</span>
+                  <span>{s.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Add manually</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input type="date" className="form-input" style={{ width: 160 }} value={manualDate} onChange={e => setManualDate(e.target.value)} />
+            <input className="form-input" style={{ flex: 1 }} placeholder="e.g. Founders' Day" value={manualName} onChange={e => setManualName(e.target.value)} />
+            <button className="secondary-btn" onClick={addManual} disabled={!manualDate || !manualName.trim()}>Add</button>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Holidays in this policy ({draft.length})</div>
+          {draft.length === 0 ? <p style={{ fontSize: 12, color: 'var(--muted)' }}>None yet.</p> : draft.map((h, i) => {
+            const tm = HOLIDAY_TYPE_META[h.type] || HOLIDAY_TYPE_META.mandatory;
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, minWidth: 84 }}>{formatDate(h.date)}</div>
+                <div style={{ flex: 1, fontSize: 12 }}>{h.name} {h.source === 'public' && <span style={{ fontSize: 10, color: 'var(--muted)' }}>· {countriesOf(h).join(', ')}</span>}</div>
+                <select className="form-input" value={h.type || 'mandatory'} onChange={e => setTypeAt(i, e.target.value)} style={{ width: 100, fontSize: 11, color: tm.fg, padding: '3px 6px' }}>
+                  {Object.entries(HOLIDAY_TYPE_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+                <button onClick={() => removeAt(i)} title="Remove" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 4 }}><X size={13} /></button>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={!name.trim() || saving}>{saving ? 'Saving…' : 'Save policy'}</button>
+        </div>
       </div>
     </div>
   );

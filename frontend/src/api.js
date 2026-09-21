@@ -1057,7 +1057,15 @@ export const api = {
   // countryCode: drop just that ONE country off a multi-country merged row
   // (e.g. "IN,US" -> "US") instead of deleting the whole date+company entry.
   deleteCompanyHoliday:  (entityId, id, countryCode) => req(`/hr/entities/${entityId}/holidays/${id}${countryCode ? `?country_code=${encodeURIComponent(countryCode)}` : ''}`, { method: 'DELETE' }),
+  updateCompanyHolidayType: (entityId, id, type) => req(`/hr/entities/${entityId}/holidays/${id}`, { method: 'PATCH', body: JSON.stringify({ type }) }),
   getPublicHolidays:     (country, year)    => req(`/hr/public-holidays?country=${encodeURIComponent(country)}${year ? `&year=${year}` : ''}`),
+  // Holiday Policy library - a global, reusable, named holiday set (Sep 22,
+  // Neil: "pull that policy into any other company").
+  getHolidayPolicies:    ()                 => req('/hr/holiday-policies'),
+  createHolidayPolicy:   (data)             => req('/hr/holiday-policies', { method: 'POST', body: JSON.stringify(data) }),
+  updateHolidayPolicy:   (id, data)         => req(`/hr/holiday-policies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteHolidayPolicy:   (id)               => req(`/hr/holiday-policies/${id}`, { method: 'DELETE' }),
+  applyHolidayPolicy:    (entityId, policyId) => req(`/hr/entities/${entityId}/holidays/apply-policy/${policyId}`, { method: 'POST' }),
 
   // HR - compensation + bank (restricted: hr_comp grant / owner)
   getCompensation:  (id)       => req(`/hr/employees/${id}/compensation`),

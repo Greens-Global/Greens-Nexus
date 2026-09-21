@@ -762,6 +762,9 @@ def _run_migrations():
             "UPDATE hr_entities SET physical_address = registered_address "
             "WHERE (physical_address IS NULL OR physical_address = '') "
             "AND registered_address IS NOT NULL AND registered_address != ''",
+            # Mandatory/optional/half-day holiday types (Neil, Sep 22 call) - see
+            # the matching Postgres migration below for the full reasoning.
+            "ALTER TABLE hr_company_holidays ADD COLUMN type VARCHAR DEFAULT 'mandatory'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1600,6 +1603,18 @@ def _run_migrations():
         "UPDATE hr_entities SET physical_address = registered_address "
         "WHERE (physical_address IS NULL OR physical_address = '') "
         "AND registered_address IS NOT NULL AND registered_address != ''",
+        # Mandatory/optional/half-day holiday types (Neil, Sep 22 call): a holiday
+        # is Mandatory (everyone off, the original behavior), Optional (an
+        # employee may choose to take it against a dedicated allowance instead of
+        # casual/earned leave), or Half-day (shift ends early - Halloween, New
+        # Year's Eve, Christmas Eve in the US). Payroll/leave consumption of this
+        # field is a later, separate piece - today it's just captured and shown.
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'mandatory'",
+        # New table (hr_holiday_policies) - create_all builds it, but with RLS
+        # disabled by default; belt-and-suspenders enable here per CLAUDE.md's
+        # recurring-gap note (the backend bypasses RLS via DATABASE_URL, but a
+        # table without it is fully exposed to anyone holding the public anon key).
+        "ALTER TABLE hr_holiday_policies ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

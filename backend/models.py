@@ -1431,6 +1431,37 @@ class HrCompanyHoliday(Base):
     name          = Column(String, nullable=False)
     source        = Column(String, default="manual")   # "manual" | "public"
     country_code  = Column(String, default="")         # set when source="public"
+    # Mandatory (everyone off, the default/original behavior) | optional (an
+    # employee may choose to take it, against a dedicated optional-holiday
+    # allowance rather than casual/earned leave) | half_day (a normal shift
+    # that ends early, e.g. Halloween/NYE/Christmas Eve in the US) - Neil,
+    # Sep 22 call. Payroll/leave consumption of this field is a separate,
+    # later piece; today it's just captured and shown.
+    type          = Column(String, default="mandatory")
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class HrHolidayPolicy(Base):
+    """A reusable, NAMED set of holidays - a global library entry, not owned by
+    any one company (Neil, Sep 22: "think that you're making a policy
+    library... you can pull that policy into any other company that's added
+    on"). Holidays live as JSON here rather than a child table: a policy is
+    always edited as a whole unit through the same picker UI that creates it
+    (never one holiday at a time), so there's nothing a relational child table
+    would buy beyond what create_company_holiday's per-row model already does
+    for a company's own live calendar. Applying a policy to a company COPIES
+    its holidays into that company's HrCompanyHoliday rows (via the same
+    per-country merge as create_company_holiday) - editing the policy later
+    does not retroactively change a company that already applied it; the
+    company just has a fresh "apply" action available if it wants the update."""
+    __tablename__ = "hr_holiday_policies"
+    id            = Column(String, primary_key=True)   # uuid
+    name          = Column(String, nullable=False)
+    # [{date, name, source, country_code, type}, ...] - same shape as a row in
+    # hr_company_holidays, minus company_id/id (those are assigned on apply).
+    holidays      = Column(JSON, default=list)
     created_by    = Column(String, default="")
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
