@@ -1958,6 +1958,45 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] ticket sla_due_on backfill skipped: {e}")
+    # Company holidays used to get a SEPARATE row per country picked for the
+    # same company+date+name (Sep 21, Pranshu: "it should have 1 date, 1
+    # company... IN, US, GE like this") - the create endpoint now merges onto
+    # one row with a comma-separated country_code, but rows created before
+    # that shipped are still split. One-time, idempotent: collapse every
+    # existing public-holiday group of duplicates onto its oldest row (by
+    # created_at) with every country combined, and drop the rest. A no-op
+    # once nothing is left to merge.
+    try:
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            groups = {}
+            for h in (db.query(models.HrCompanyHoliday)
+                      .filter(models.HrCompanyHoliday.source == "public").all()):
+                groups.setdefault((h.company_id, h.date, h.name), []).append(h)
+            merged_groups = merged_rows = 0
+            for rows_ in groups.values():
+                if len(rows_) < 2:
+                    continue
+                rows_.sort(key=lambda h: h.created_at or "")
+                keep, dupes = rows_[0], rows_[1:]
+                codes = [c for c in (keep.country_code or "").split(",") if c]
+                for d in dupes:
+                    for c in (d.country_code or "").split(","):
+                        if c and c not in codes:
+                            codes.append(c)
+                keep.country_code = ",".join(sorted(codes))
+                for d in dupes:
+                    db.delete(d)
+                merged_groups += 1
+                merged_rows += len(dupes)
+            if merged_groups:
+                db.commit()
+                print(f"[startup] merged {merged_rows} duplicate company-holiday row(s) into {merged_groups} entr(y/ies)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] company-holiday dedupe skipped: {e}")
     # Workforce Analytics Policy goes per-company (Sep 19, Pranshu: "all
     # companies have their different workforce analytics policy"). Was a
     # single shared row (id='default', company_id=''); that row now stays as
