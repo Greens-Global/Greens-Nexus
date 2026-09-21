@@ -3734,19 +3734,22 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
     setSuggestBusy(false);
   }
 
-  // Keyed by country too (not just date+name): the SAME holiday can be picked
-  // from more than one country's public list for the same company (e.g. New
-  // Year's Day for both US and IN employees) and each is its own row - a
-  // date+name-only key would make adding it for a second country look like
-  // it's already there (and toggling it off would delete the WRONG country's
-  // row instead of adding a new one).
-  const keyOf = h => `${h.date}|${h.name}|${h.countryCode || ''}`;
-  const existingByKey = new Map(holidays.map(h => [keyOf(h), h]));
+  // The SAME public holiday picked for more than one country on this company's
+  // calendar is ONE row - "1 date, 1 company" (Pranshu, Sep 21) - with its
+  // countryCode holding a comma-separated list ("IN,US") rather than a row per
+  // country. So "is this suggestion already added" means "does a public row on
+  // this date+name already list this country", not an exact key match.
+  const countriesOf = h => (h.countryCode || '').split(',').filter(Boolean);
+  const findPublic = (date, name, cc) =>
+    holidays.find(h => h.source === 'public' && h.date === date && h.name === name && countriesOf(h).includes(cc));
 
   async function toggleSuggestion(s) {
-    const match = existingByKey.get(`${s.date}|${s.name}|${country}`);
+    const match = findPublic(s.date, s.name, country);
     try {
-      if (match) await api.deleteCompanyHoliday(entity.id, match.id);
+      // Un-checking removes just THIS country - the backend drops it from the
+      // row's list and only deletes the row once its last country is gone.
+      if (match) await api.deleteCompanyHoliday(entity.id, match.id, country);
+      // Adding merges onto the existing date+name row server-side if one exists.
       else await api.createCompanyHoliday(entity.id, { date: s.date, name: s.name, source: 'public', country_code: country });
       load();
     } catch (e) { toastErr(e?.message || 'Could not update holiday.'); }
@@ -3794,7 +3797,7 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
             <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 280, overflowY: 'auto' }}>
               {suggestions.map((s, i) => (
                 <label key={`${s.date}-${s.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 12.5 }}>
-                  <input type="checkbox" checked={existingByKey.has(`${s.date}|${s.name}|${country}`)} onChange={() => toggleSuggestion(s)} />
+                  <input type="checkbox" checked={!!findPublic(s.date, s.name, country)} onChange={() => toggleSuggestion(s)} />
                   <span style={{ fontWeight: 600, minWidth: 90 }}>{formatDate(s.date)}</span>
                   <span>{s.name}</span>
                 </label>
@@ -3821,7 +3824,7 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
           <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, minWidth: 90 }}>{formatDate(h.date)}</div>
             <div style={{ flex: 1, fontSize: 12.5 }}>
-              {h.name} {h.source === 'public' && <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>· {h.countryCode} public holiday</span>}
+              {h.name} {h.source === 'public' && <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>· {countriesOf(h).join(', ')} public holiday</span>}
             </div>
             <button onClick={() => remove(h)} title="Remove" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 6 }}><Trash2 size={13} /></button>
           </div>

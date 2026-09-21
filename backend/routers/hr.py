@@ -2646,6 +2646,10 @@ def _serialize_holiday(h: HrCompanyHoliday) -> dict:
     }
 
 
+def _country_codes(country_code: str) -> list:
+    return [c for c in (country_code or "").split(",") if c]
+
+
 @router.get("/entities/{entity_id}/holidays")
 def list_company_holidays(entity_id: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     scope = hr_scope(user, db)
@@ -2667,10 +2671,32 @@ def create_company_holiday(entity_id: str, body: CompanyHolidayIn,
     if not body.name.strip():
         raise HTTPException(400, "name is required")
     now = datetime.now(timezone.utc).isoformat()
+    date_ = body.date.strip()
+    name_ = body.name.strip()
+    source_ = body.source if body.source in ("manual", "public") else "manual"
+    code = (body.country_code or "").strip().upper()
+
+    # 1 date, 1 company (Pranshu, Sep 21): the SAME public holiday picked for a
+    # second country on this company's calendar merges onto the ONE existing row
+    # instead of creating a duplicate - country_code becomes a comma-separated
+    # list ("IN,US") rather than a second row. Payroll matching
+    # (_company_holidays_for_employee) checks membership in that list.
+    if source_ == "public" and code:
+        existing = (db.query(HrCompanyHoliday)
+                    .filter(HrCompanyHoliday.company_id == entity_id, HrCompanyHoliday.date == date_,
+                            HrCompanyHoliday.name == name_, HrCompanyHoliday.source == "public").first())
+        if existing:
+            codes = _country_codes(existing.country_code)
+            if code not in codes:
+                codes.append(code)
+                existing.country_code = ",".join(sorted(codes))
+                existing.updated_at = now
+                db.commit(); db.refresh(existing)
+            return _serialize_holiday(existing)
+
     row = HrCompanyHoliday(
-        id=str(uuid.uuid4()), company_id=entity_id, date=body.date.strip(), name=body.name.strip(),
-        source=body.source if body.source in ("manual", "public") else "manual",
-        country_code=(body.country_code or "").strip().upper(),
+        id=str(uuid.uuid4()), company_id=entity_id, date=date_, name=name_,
+        source=source_, country_code=code,
         created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row); db.commit(); db.refresh(row)
@@ -2678,7 +2704,7 @@ def create_company_holiday(entity_id: str, body: CompanyHolidayIn,
 
 
 @router.delete("/entities/{entity_id}/holidays/{holiday_id}")
-def delete_company_holiday(entity_id: str, holiday_id: str,
+def delete_company_holiday(entity_id: str, holiday_id: str, country_code: Optional[str] = None,
                            user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
@@ -2686,6 +2712,18 @@ def delete_company_holiday(entity_id: str, holiday_id: str,
     row = db.query(HrCompanyHoliday).filter(HrCompanyHoliday.id == holiday_id,
                                              HrCompanyHoliday.company_id == entity_id).first()
     if row:
+        # Dropping just ONE country off a merged multi-country row ("IN,US" ->
+        # "US") keeps the row; the row is only removed once its last country
+        # goes, or when no specific country was given (the trash icon - remove
+        # the whole date+company entry).
+        codes = _country_codes(row.country_code)
+        cc = (country_code or "").strip().upper()
+        if cc and cc in codes and len(codes) > 1:
+            codes.remove(cc)
+            row.country_code = ",".join(sorted(codes))
+            row.updated_at = datetime.now(timezone.utc).isoformat()
+            db.commit()
+            return _serialize_holiday(row)
         db.delete(row); db.commit()
     return {"ok": True}
 
