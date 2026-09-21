@@ -609,9 +609,14 @@ def build_sections(db: Session, email: str, since_iso: str) -> dict:
 #     the fluid table + inline styles underneath already look correct there
 #     without it, so nothing depends on the media query firing.
 _BADGE = {
-    "action_required": ("Action required",                    "#b8433a", "#faece9", "\U0001F534"),
-    "needs_to_know":   ("Needs to know",                       "#a8721f", "#faf1de", "\U0001F440"),
-    "completed":       ("Completed since your last briefing",  "#3c7a52", "#e9f5ec", "✅"),
+    # Accent colors matched to Nexus Sign's own palette (routers/esign.py
+    # _sign_email_html: header #14532d, button #15803d) so the two email
+    # families read as one brand - and darkened for red/amber to match that
+    # green's weight, rather than the lighter/muted tones this started with
+    # (Pranshu, Sep 21).
+    "action_required": ("Action required",                    "#b91c1c", "#faece9", "\U0001F534"),
+    "needs_to_know":   ("Needs to know",                       "#b45309", "#faf1de", "\U0001F440"),
+    "completed":       ("Completed since your last briefing",  "#15803d", "#e9f5ec", "✅"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
 _SUMMARY_NOUN = {"action_required": "need your approval", "needs_to_know": "updates to check", "completed": "completed"}
@@ -658,7 +663,7 @@ def _sub_action_html(accent: str, sub: dict) -> str:
           border-top:1px solid rgba(0,0,0,.06);padding:7px 0;margin-top:2px">
           <span style="font-size:12.5px;color:#3a463e">{escape(sub['detail'])}</span>
           <span>
-            <a href='{escape(approve_url)}' style='{sbtn}background:#2f8a55;color:#ffffff'>Approve</a>
+            <a href='{escape(approve_url)}' style='{sbtn}background:#15803d;color:#ffffff'>Approve</a>
             <a href='{escape(reject_url)}' style='{sbtn}background:#ffffff;color:#6b6b6b;border:1px solid #d8ddd6'>Reject</a>
           </span>
         </div>"""
@@ -679,7 +684,7 @@ def _card_html(color: str, row: dict) -> str:
         approve_url = briefing_mail_actions.action_url(row["action_kind"], row["action_id"], "approve", row["action_email"])
         reject_url = briefing_mail_actions.action_url(row["action_kind"], row["action_id"], "reject", row["action_email"])
         buttons.append(f"<a href='{escape(approve_url)}' class='nx-btn' "
-                        f"style='{btn}background:#2f8a55;color:#ffffff'>Approve</a>")
+                        f"style='{btn}background:#15803d;color:#ffffff'>Approve</a>")
         buttons.append(f"<a href='{escape(reject_url)}' class='nx-btn' "
                         f"style='{btn}background:#ffffff;color:#6b6b6b;border:1px solid #d8ddd6'>Reject</a>")
     if row.get("task_id"):
