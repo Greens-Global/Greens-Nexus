@@ -1468,8 +1468,10 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                           TimeApproval.period_end <= (end or "9")).all()}
         w.writerow(["Employee", "Email", "Date", "First In", "Last Out",
                     "Worked Hours", "Regular Hours", "OT Hours (1.5x)", "DT Hours (2x)",
+                    "Sick Hours", "Vacation Hours",
                     "Break Minutes", "Flags", "OT Rule", "Rate $/hr",
-                    "Regular Pay", "OT Pay", "DT Pay", "Total Pay", "Approved"])
+                    "Regular Pay", "OT Pay", "DT Pay", "Sick Pay", "Vacation Pay",
+                    "Total Pay", "Approved"])
         for r in rows:
             # Use the overtime engine (respects each person's ca/federal/none rule)
             # for the reg/OT/DT split + pay; first-in/last-out/flags come from the
@@ -1486,15 +1488,20 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                             d["lastOut"][11:16] if d["lastOut"] else "",
                             f"{cd.get('workedMin', d['workedMin']) / 60:.2f}",
                             f"{cd.get('regMin', 0) / 60:.2f}", f"{cd.get('otMin', 0) / 60:.2f}",
-                            f"{cd.get('dtMin', 0) / 60:.2f}", d["breakMin"],
-                            " ".join(d["flags"]), "", "", "", "", "",
+                            f"{cd.get('dtMin', 0) / 60:.2f}",
+                            f"{cd.get('sickMin', 0) / 60:.2f}", f"{cd.get('vacationMin', 0) / 60:.2f}",
+                            d["breakMin"],
+                            " ".join(d["flags"]), "", "", "", "", "", "", "",
                             "yes" if (r["email"], date) in day_ok else ""])
             all_days_ok = bool(r["days"]) and all((r["email"], dt) in day_ok for dt in r["days"])
             w.writerow([r["name"], r["email"], "TOTAL", "", "",
                         f"{T['workedMin'] / 60:.2f}", f"{T['regMin'] / 60:.2f}",
-                        f"{T['otMin'] / 60:.2f}", f"{T['dtMin'] / 60:.2f}", T["breakMin"], "",
+                        f"{T['otMin'] / 60:.2f}", f"{T['dtMin'] / 60:.2f}",
+                        f"{T.get('sickMin', 0) / 60:.2f}", f"{T.get('vacationMin', 0) / 60:.2f}",
+                        T["breakMin"], "",
                         card["overtimeRule"], f"{rate:.2f}",
-                        f"{T['regPay']:.2f}", f"{T['otPay']:.2f}", f"{T['dtPay']:.2f}", f"{T['totalPay']:.2f}",
+                        f"{T['regPay']:.2f}", f"{T['otPay']:.2f}", f"{T['dtPay']:.2f}",
+                        f"{T.get('sickPay', 0):.2f}", f"{T.get('vacationPay', 0):.2f}", f"{T['totalPay']:.2f}",
                         "yes" if (r["email"] in approved or all_days_ok) else "no"])
     buf.seek(0)
     fname = f"timeclock-{mode}-{start or 'all'}-to-{end or 'now'}.csv"
@@ -1513,7 +1520,7 @@ def export_iif(start: str = "", end: str = "",
     in decimal hours from the SAME engine as the timecard, so what QuickBooks
     imports is exactly what was approved. EMP must match the employee's name in
     QuickBooks; the payroll item names (Regular Pay / Overtime Pay / Double-time
-    Pay) must exist in QuickBooks or be mapped at import."""
+    Pay / Sick Pay / Vacation Pay) must exist in QuickBooks or be mapped at import."""
     scope = _visible_emails(db, user)
     rows = _team_rows(db, start, end, only_emails=scope)
 
@@ -1544,7 +1551,9 @@ def export_iif(start: str = "", end: str = "",
             billing = "1" if job else "0"
             for mins, pitem in ((d.get("regMin", 0), "Regular Pay"),
                                 (d.get("otMin", 0), "Overtime Pay"),
-                                (d.get("dtMin", 0), "Double-time Pay")):
+                                (d.get("dtMin", 0), "Double-time Pay"),
+                                (d.get("sickMin", 0), "Sick Pay"),
+                                (d.get("vacationMin", 0), "Vacation Pay")):
                 if mins <= 0:
                     continue
                 lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job}\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t{billing}")
@@ -5010,6 +5019,29 @@ def team_exceptions(start: str = "", end: str = "",
     return sorted(out, key=lambda x: (-(x["missing"] + x["exceptions"]), x["name"]))
 
 
+# Paid leave entered ON the timecard (Charmi, Sep 21): a punch pair whose job
+# category says Sick / Vacation is leave, not work. SwipeClock lists each as its
+# own pay class ("Total Sick hours at $21.50/hr") under the Regular/Overtime
+# lines and keeps those hours out of the overtime computation - so do we.
+# Matched on the category text so "Sick", "Sick Day", "Sick Leave", "Vacation",
+# "PTO", "Annual Leave" all classify without a fixed picklist.
+_LEAVE_CLASSES = (
+    ("sick", re.compile(r"\bsick\b", re.I)),
+    ("vacation", re.compile(r"\b(vacation|pto|paid time off|annual leave)\b", re.I)),
+)
+
+
+def _leave_class(category: str) -> str:
+    """'' for worked time, else 'sick' / 'vacation'."""
+    c = (category or "").strip()
+    if not c:
+        return ""
+    for name, rx in _LEAVE_CLASSES:
+        if rx.search(c):
+            return name
+    return ""
+
+
 def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Optional[int] = None) -> dict:
     """Per-day in/out segments, CA/federal overtime split, and wage totals off
     the HR-set hourly rate over [start, end]. Punch times are rounded per the
@@ -5058,7 +5090,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     _long_min = _bp_eff["longBreakMin"]
 
     days_out = []
-    total_reg = total_ot = total_dt = total_break = total_paid_break = missing_punches = 0
+    total_reg = total_ot = total_dt = total_sick = total_vac = total_break = total_paid_break = missing_punches = 0
     edited_punches = sum(1 for p in punches if p.adjusted_by or p.edit_status == "approved")
     pending_edits = sum(1 for p in punches if p.edit_status == "pending")
 
@@ -5209,7 +5241,10 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     for segs in segs_by_day.values():
         for s in segs:
             ded = 0
-            if al["enabled"] and al["deductMin"] and s.get("out") and \
+            s["payClass"] = _leave_class(s.get("category"))
+            # A leave block (sick / vacation) is entered as a whole - no lunch
+            # was taken out of it, so nothing to deduct.
+            if al["enabled"] and al["deductMin"] and s.get("out") and not s["payClass"] and \
                s["workedMin"] >= al["afterMin"] and int(s.get("_break", 0)) == 0:
                 ded = min(al["deductMin"], s["workedMin"])
                 s["workedMin"] -= ded
@@ -5225,8 +5260,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
         # Auto-held segments (unconfirmed auto clock-out) are 0-paid days - their
         # break windows must not earn a paid-break credit either.
         wins = [w for s in segs if s.get("out") and "auto_clock_out" not in (s.get("flags") or [])
-                for w in s.get("breaks", [])]
-        credit = _paid_break_credit(wins, sum(s["workedMin"] for s in segs), _bp_eff)
+                and not s.get("payClass") for w in s.get("breaks", [])]
+        credit = _paid_break_credit(wins, sum(s["workedMin"] for s in segs if not s.get("payClass")), _bp_eff)
         day_paid_break[d] = credit
         if credit:
             for s in segs:
@@ -5234,11 +5269,18 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
 
     # Per-day worked totals (from the paired segments), then apply the employee's
     # overtime law per workweek.
-    day_total, day_break_m, day_segs = {}, {}, {}
+    day_total, day_break_m, day_segs, day_leave = {}, {}, {}, {}
     for d, segs in segs_by_day.items():
         if end and d > end:      # the extra fetched day only lends its out-punch
             continue
-        day_total[d] = sum(s["workedMin"] for s in segs)
+        # Sick / vacation blocks are paid at the base rate and never feed the
+        # overtime split - only WORKED minutes go through the OT law below.
+        lv = {"sick": 0, "vacation": 0}
+        for s in segs:
+            if s.get("payClass"):
+                lv[s["payClass"]] += s["workedMin"]
+        day_leave[d] = lv
+        day_total[d] = sum(s["workedMin"] for s in segs if not s.get("payClass"))
         day_break_m[d] = sum(s.pop("_break", 0) for s in segs)
         day_segs[d] = segs
 
@@ -5262,23 +5304,37 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
         rr, oo, dd = reg, ot, dt
         for seg in segs:
             wm = seg["workedMin"]
+            if seg.get("payClass"):
+                seg["regMin"], seg["otMin"], seg["dtMin"] = 0, 0, 0
+                seg["leaveMin"] = wm
+                seg["amount"] = round(wm / 60 * rate, 2)
+                continue
             s_reg = min(wm, rr); rr -= s_reg
             s_ot = min(wm - s_reg, oo); oo -= s_ot
             s_dt = min(wm - s_reg - s_ot, dd); dd -= s_dt
             seg["regMin"], seg["otMin"], seg["dtMin"] = s_reg, s_ot, s_dt
             seg["amount"] = round(s_reg / 60 * rate + s_ot / 60 * rate * _OT_MULT
                                   + s_dt / 60 * rate * _DT_MULT, 2)
+        sick_m, vac_m = day_leave[d]["sick"], day_leave[d]["vacation"]
         total_reg += reg; total_ot += ot; total_dt += dt
+        total_sick += sick_m; total_vac += vac_m
         total_break += day_break_m[d]
         total_paid_break += day_paid_break.get(d, 0)
+        # workedMin stays the day's FULL paid minutes (work + leave) - it is the
+        # number the employee attests and the sign-off compares, and SwipeClock's
+        # day total / TOTALS line count leave hours the same way.
         days_out.append({"date": d, "weekStart": _week_start_str(d), "segments": segs,
-                         "workedMin": reg + ot + dt, "regMin": reg, "otMin": ot, "dtMin": dt,
+                         "workedMin": reg + ot + dt + sick_m + vac_m,
+                         "regMin": reg, "otMin": ot, "dtMin": dt,
+                         "sickMin": sick_m, "vacationMin": vac_m,
                          "breakMin": day_break_m[d], "paidBreakMin": day_paid_break.get(d, 0)})
 
     reg_pay = round(total_reg / 60 * rate, 2)
     ot_pay = round(total_ot / 60 * rate * _OT_MULT, 2)
     dt_pay = round(total_dt / 60 * rate * _DT_MULT, 2)
-    worked_min = total_reg + total_ot + total_dt
+    sick_pay = round(total_sick / 60 * rate, 2)
+    vac_pay = round(total_vac / 60 * rate, 2)
+    worked_min = total_reg + total_ot + total_dt + total_sick + total_vac
 
     # Paid company holidays (see _company_holidays_for_employee): an HOURLY
     # employee has no "missed day" deduction to exempt (they're only ever paid for
@@ -5369,9 +5425,11 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             "byCategory": by_category, "byLocation": by_location,
             "pendingRequests": pending_requests,
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
+                       "sickMin": total_sick, "vacationMin": total_vac,
                        "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
                        "holidayPay": holiday_pay, "holidayDays": holiday_days,
-                       "totalPay": round(reg_pay + ot_pay + dt_pay + holiday_pay, 2),
+                       "sickPay": sick_pay, "vacationPay": vac_pay,
+                       "totalPay": round(reg_pay + ot_pay + dt_pay + holiday_pay + sick_pay + vac_pay, 2),
                        "breakMin": total_break, "paidBreakMin": total_paid_break,
                        "workedMin": worked_min, "deductedMin": total_deducted,
                        "activeMin": active_min, "idleMin": idle_min,

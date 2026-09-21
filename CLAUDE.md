@@ -119,6 +119,13 @@ keep the diff minimal.
 - Every image-upload widget must accept Ctrl+V clipboard paste (see
   `imageFromPaste` in `InventoryManagement.jsx` / `filesFromPaste` in
   `tasks/lib.js` for the pattern) with an "or press Ctrl+V…" hint.
+- Time Clock paid leave: a punch pair whose job category says Sick / Vacation
+  (matched by `_leave_class` in `timeclock.py`: "Sick Day", "PTO", "Annual
+  Leave"...) is its own pay class - separate "Total Sick hours" / "Total
+  Vacation hours" line at the base rate, excluded from the overtime split,
+  still counted in `workedMin` (the attested total) - SwipeClock parity
+  (Charmi, Sep 21). No separate leave-hours table; approved time-off
+  requests are NOT auto-punched.
 
 ## Asana sync — the contract (`backend/asana_sync.py`)
 

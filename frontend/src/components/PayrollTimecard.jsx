@@ -669,7 +669,15 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                             style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>) : '-'}
                   </td>
                   <td style={{ ...td, color: r.seg?.deductedMin ? '#b45309' : 'var(--muted)' }}>{r.seg?.deductedMin ? `−${r.seg.deductedMin}m` : '-'}</td>
-                  <td style={{ ...td, textAlign: 'left', color: r.seg?.category ? 'var(--ink)' : 'var(--muted)' }}>{r.seg?.category || '-'}</td>
+                  <td style={{ ...td, textAlign: 'left', color: r.seg?.category ? 'var(--ink)' : 'var(--muted)' }}>
+                    {r.seg?.category || '-'}
+                    {r.seg?.payClass && (
+                      <span title={`${r.seg.payClass === 'sick' ? 'Sick' : 'Vacation'} hours - paid at the base rate, not counted toward overtime`}
+                        style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', padding: '2px 7px', borderRadius: 6 }}>
+                        {r.seg.payClass}
+                      </span>
+                    )}
+                  </td>
                   <td style={td}>{r.seg ? hhmm(r.seg.workedMin) : '-'}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg && byDate[r.ds]
                     ? (r.last ? hhmm(byDate[r.ds].workedMin) : '↓')
@@ -717,8 +725,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td colSpan={3} style={{ ...td, textAlign: 'left' }}>Totals</td>
                   <td style={{ ...td, color: T.deductedMin ? '#b45309' : 'var(--muted)' }}>{T.deductedMin ? `−${T.deductedMin}m` : '-'}</td>
                   <td style={td}></td>
-                  <td style={td}>{hhmm(T.regMin + T.otMin + (T.dtMin || 0))}</td>
-                  <td style={td}>{hhmm(T.regMin + T.otMin + (T.dtMin || 0))}</td>
+                  <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
+                  <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
                   <td style={td}></td>
                   <td style={td}>{hhmm(T.regMin)}</td>
                   <td style={td}>{hhmm(T.otMin)}</td>
@@ -747,8 +755,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 [`Total Regular hours at ${fmtM(rate)}/hr`, hd(T.regMin), fmtM(T.regPay)],
                 [`Total Overtime hours at ${fmtM(rate * 1.5)}/hr`, hd(T.otMin), fmtM(T.otPay)],
                 ...(T.dtMin ? [[`Total Double-time hours at ${fmtM(rate * 2)}/hr`, hd(T.dtMin), fmtM(T.dtPay)]] : []),
+                // Paid leave entered on the card as a Sick / Vacation category punch -
+                // its own line at the base rate, like SwipeClock (Charmi, Sep 21).
+                ...(T.sickMin ? [[`Total Sick hours at ${fmtM(rate)}/hr`, hd(T.sickMin), fmtM(T.sickPay)]] : []),
+                ...(T.vacationMin ? [[`Total Vacation hours at ${fmtM(rate)}/hr`, hd(T.vacationMin), fmtM(T.vacationPay)]] : []),
                 ...(T.holidayDays ? [[`Company holiday${T.holidayDays === 1 ? '' : 's'} (${T.holidayDays} day${T.holidayDays === 1 ? '' : 's'}, not worked)`, '-', fmtM(T.holidayPay)]] : []),
-                ['Totals', hd(T.regMin + T.otMin + (T.dtMin || 0)), fmtM(T.totalPay)],
+                ['Totals', hd(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0))), fmtM(T.totalPay)],
               ];
               const last = rows.length - 1;
               return rows.map(([lbl, hrs, amt], i) => (
@@ -803,7 +815,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             {!self && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="secondary-btn" onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportCsv(start, end, 'punches'); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
-              <button className="secondary-btn" title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time payroll items must match QuickBooks."
+              <button className="secondary-btn" title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time/Sick/Vacation payroll items must match QuickBooks."
                 onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportIif(perStart, perEnd); }}
                 style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
               <button className={mgrAp ? 'secondary-btn' : 'primary-btn'} data-tour="pr-approve" onClick={approve} disabled={busy || !!fin}
@@ -847,7 +859,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
 
       {editDay && (
         <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
-          categories={(data?.byCategory || []).map(c => c.category).filter(c => c && c !== 'Uncategorised')}
+          categories={[...new Set(['Sick Day', 'Vacation', ...(data?.byCategory || []).map(c => c.category).filter(c => c && c !== 'Uncategorised')])]}
           onDone={() => { setEditDay(null); load(); }} onClose={() => setEditDay(null)}
           toastOk={toastOk} toastErr={toastErr} self={self} />
       )}
@@ -1588,6 +1600,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
               <input list="pr-cats" className="form-input" value={cat} onChange={e => setCat(e.target.value)}
                 placeholder="e.g. Operations-GS" style={{ width: '100%', fontSize: 13 }} />
               <datalist id="pr-cats">{categories.map(c => <option key={c} value={c} />)}</datalist>
+              <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>"Sick Day" or "Vacation" makes this block paid leave - base rate, not counted toward overtime.</span>
             </label>
           )}
         </div>
