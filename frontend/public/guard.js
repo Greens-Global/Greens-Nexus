@@ -65,7 +65,7 @@
     } catch (_) { return []; }
   }
   function remember(list) {
-    try { sessionStorage.setItem(KEY, JSON.stringify(list)); } catch (_) {}
+    try { sessionStorage.setItem(KEY, JSON.stringify(list)); } catch (_) { /* storage blocked */ }
   }
   function sameOrigin(url) {
     if (!url) return true;                       // dynamic import() with no url: ours by construction
@@ -93,9 +93,9 @@
         fetch('/api/client-errors/boot', {
           method: 'POST', keepalive: true, credentials: 'omit',
           headers: { 'content-type': 'application/json' }, body: body
-        }).catch(function () {});
+        }).catch(function () { /* the report is best-effort */ });
       }
-    } catch (_) {}
+    } catch (_) { /* never let the beacon add a second failure */ }
   }
 
   // Deliberately dependency-free and style-inline: the app's CSS may be exactly
@@ -152,7 +152,7 @@
         'border-radius:9px;padding:11px 24px;font-size:13.5px;font-weight:700;cursor:pointer;' +
         'box-shadow:0 6px 16px -6px hsla(145,60%,25%,.5)';
       b.onclick = function () {
-        try { sessionStorage.removeItem(KEY); } catch (_) {}
+        try { sessionStorage.removeItem(KEY); } catch (_) { /* storage blocked */ }
         location.reload();
       };
       card.appendChild(b);
