@@ -2820,15 +2820,28 @@ class HolidayPolicyHolidayIn(BaseModel):
 
 
 class HolidayPolicyIn(BaseModel):
-    name:     str
-    holidays: list[HolidayPolicyHolidayIn] = []
+    name:       str
+    holidays:   list[HolidayPolicyHolidayIn] = []
+    company_id: Optional[str] = ""   # required on create; ignored on update - ownership isn't transferable via edit
 
 
 def _serialize_policy(p: HrHolidayPolicy) -> dict:
     return {
-        "id": p.id, "name": p.name, "holidays": p.holidays or [],
+        "id": p.id, "name": p.name, "companyId": p.company_id or "", "holidays": p.holidays or [],
         "createdAt": p.created_at, "updatedAt": p.updated_at,
     }
+
+
+def _require_policy_owner(user: dict, db: Session, policy: HrHolidayPolicy) -> None:
+    """Applying a policy is open to every company - that's the whole point of a
+    shared library. Editing/deleting one is scoped to the company that created
+    it (Pranshu, Sep 22: "should be only editable by the company by which it
+    was created"), the same way hr_scope narrows every other HR-admin surface -
+    an unrestricted admin can still touch any policy, a scoped one only their
+    own company's."""
+    scope = hr_scope(user, db)
+    if scope is not None and (policy.company_id or "") not in scope:
+        raise HTTPException(403, "Only the company that created this policy can edit or delete it")
 
 
 @router.get("/holiday-policies")
@@ -2841,9 +2854,15 @@ def list_holiday_policies(user: dict = Depends(require_hr_read), db: Session = D
 def create_holiday_policy(body: HolidayPolicyIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     if not body.name.strip():
         raise HTTPException(400, "name is required")
+    company_id = (body.company_id or "").strip()
+    if not company_id:
+        raise HTTPException(400, "company_id is required")
+    scope = hr_scope(user, db)
+    if scope is not None and company_id not in scope:
+        raise HTTPException(404, "Company not found")
     now = datetime.now(timezone.utc).isoformat()
     row = HrHolidayPolicy(
-        id=str(uuid.uuid4()), name=body.name.strip(),
+        id=str(uuid.uuid4()), name=body.name.strip(), company_id=company_id,
         holidays=[h.model_dump() for h in body.holidays],
         created_by=user["email"], created_at=now, updated_at=now,
     )
@@ -2861,6 +2880,7 @@ def update_holiday_policy(policy_id: str, body: HolidayPolicyIn,
     row = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
     if not row:
         raise HTTPException(404, "Policy not found")
+    _require_policy_owner(user, db, row)
     if not body.name.strip():
         raise HTTPException(400, "name is required")
     row.name = body.name.strip()
@@ -2874,6 +2894,7 @@ def update_holiday_policy(policy_id: str, body: HolidayPolicyIn,
 def delete_holiday_policy(policy_id: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     row = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
     if row:
+        _require_policy_owner(user, db, row)
         db.delete(row); db.commit()
     return {"ok": True}
 

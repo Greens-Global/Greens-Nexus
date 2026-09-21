@@ -765,6 +765,9 @@ def _run_migrations():
             # Mandatory/optional/half-day holiday types (Neil, Sep 22 call) - see
             # the matching Postgres migration below for the full reasoning.
             "ALTER TABLE hr_company_holidays ADD COLUMN type VARCHAR DEFAULT 'mandatory'",
+            # Policy ownership (Pranshu, Sep 22) - added after hr_holiday_policies
+            # already shipped without it; see the matching Postgres migration below.
+            "ALTER TABLE hr_holiday_policies ADD COLUMN company_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1615,6 +1618,14 @@ def _run_migrations():
         # recurring-gap note (the backend bypasses RLS via DATABASE_URL, but a
         # table without it is fully exposed to anyone holding the public anon key).
         "ALTER TABLE hr_holiday_policies ENABLE ROW LEVEL SECURITY",
+        # Policy ownership (Pranshu, Sep 22): "should be only editable by the
+        # company by which it was created" - hr_holiday_policies already shipped
+        # without this column, so it's a follow-up ADD rather than part of the
+        # table's original create_all shape. Applying a policy stays open to
+        # every company (that's the whole point of a shared library); editing/
+        # deleting one is scoped to its creating company via auth.hr_scope, the
+        # same way every other HR-admin surface is scoped.
+        "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
