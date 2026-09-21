@@ -826,14 +826,27 @@ def _section_html(color: str, rows: list) -> str:
     # if user clicks on it"). Reuses the exact same .nx-acc/.nx-content CSS
     # rules - nested accordions each match only their own immediate
     # siblings, so the module-level toggles inside still work independently.
+    #
+    # Outlook desktop classic (Word engine) never runs that CSS though, so it
+    # always falls back to fully expanded - badge, every module header, every
+    # card, all in a row with nothing marking where one section ends and the
+    # next begins (Pranshu, Sep 21: "confusing for end user"). A single bordered
+    # card AROUND the whole section - white, not the same tint the individual
+    # cards use inside it, so they still stand out against it - makes each
+    # section read as one visual chunk regardless of whether the accordion CSS
+    # fires, the same fallback-safe reasoning as the module cap's plain-text
+    # "+N more" line above.
     return f"""
-      <tr><td class="nx-pad" style="padding:20px 32px 4px">
-        <input type="checkbox" id="{sid}" class="nx-acc" style="display:none">
-        <label for="{sid}" class="nx-acc-label" style="display:block;cursor:pointer;margin-bottom:12px">
-          {badge}
-          <span style="float:right;color:{accent};font-size:15px;transition:transform .15s" class="nx-arrow">&#9656;</span>
-        </label>
-        <div class="nx-content" style="display:block">{body}</div>
+      <tr><td class="nx-pad" style="padding:12px 32px">
+        <div style="background:#ffffff;border:1px solid #e2e5df;border-left:4px solid {accent};
+          border-radius:14px;padding:16px 18px 6px">
+          <input type="checkbox" id="{sid}" class="nx-acc" style="display:none">
+          <label for="{sid}" class="nx-acc-label" style="display:block;cursor:pointer;margin-bottom:12px">
+            {badge}
+            <span style="float:right;color:{accent};font-size:15px;transition:transform .15s" class="nx-arrow">&#9656;</span>
+          </label>
+          <div class="nx-content" style="display:block">{body}</div>
+        </div>
       </td></tr>"""
 
 
