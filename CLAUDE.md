@@ -77,6 +77,23 @@ keep the diff minimal.
   table without it is fully exposed to anyone holding that key. Run
   `get_advisors` after every release — this gap recurs.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
+- **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
+  `return-photos`, `ticket-evidence`, `qa-evidence` have `public = false` on
+  dev and prod. The database still stores the canonical
+  `.../object/public/<bucket>/<path>` URL; browsers open it only through
+  `GET /files/view?u=<url>` (`routers/files.py`, signed-URL redirect, login
+  required). `api.js` rewrites those URLs to the viewer on every response and
+  back to canonical on every JSON request, so screens never see the
+  difference - do not build a second path, and never make a new evidence
+  bucket public. A new protected bucket goes in BOTH `PROTECTED_BUCKETS` lists
+  (`routers/files.py`, `frontend/src/lib/storageView.js`) and gets
+  `update storage.buckets set public = false` on dev and prod.
+- **Rate limiting** (`RequestRateLimit` in `middleware_hardening.py`, Sep 22):
+  per-minute budgets keyed on the session/bearer for signed-in callers, per IP
+  for anonymous ones, tighter on credential-taking routes, plus a per-IP
+  ceiling. In-process per worker, so it is a flood backstop. `/health` and
+  `/version` are exempt; a new public probe endpoint goes in `EXEMPT_PREFIXES`
+  and a new credential-taking route in `SENSITIVE_PREFIXES`.
 
 ## Frontend conventions
 

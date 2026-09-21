@@ -1,6 +1,7 @@
 import { msalInstance, msalReady } from './msalInstance';
 import { apiTokenRequest, loginRequest } from './authConfig';
 import { BFF_MODE, csrfToken, bffLogin } from './bffAuth';
+import { rewriteResponseText, restoreRequestBody } from './lib/storageView';
 
 // Recover a dead session app-wide. When even a FORCE-refreshed token still 401s,
 // MSAL's silent hidden-iframe renewal is failing - modern browsers block the
@@ -209,6 +210,9 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     try {
       res = await fetch(`${BASE}${path}`, {
         ...options,
+        // Evidence photos travel as viewer URLs inside the app; the server only
+        // accepts the canonical storage URL (see lib/storageView.js).
+        ...(typeof options.body === 'string' ? { body: restoreRequestBody(options.body) } : {}),
         signal: controller.signal,
         // BFF mode: send the session cookie; double-submit the CSRF token on writes.
         ...(BFF_MODE ? { credentials: 'include' } : {}),
@@ -285,7 +289,11 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     _queryClient?.invalidateQueries();
   }
   if (res.status === 204) return null;
-  return res.json();
+  // Parse from text so evidence-photo URLs of the private buckets can be
+  // rewritten to the authenticated viewer in one pass (lib/storageView.js).
+  const text = await res.text();
+  if (!text) return null;
+  return JSON.parse(rewriteResponseText(text));
 }
 
 // Short-lived GET cache + in-flight dedup for reference data that rarely changes

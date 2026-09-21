@@ -2307,9 +2307,13 @@ if os.getenv("NEXUS_SENTRY_DSN"):
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 # ETag/304 revalidation + auth-failure throttling (see middleware_hardening.py).
 # Added after GZip so ETags hash the compressed bytes; CORS stays outermost.
-from middleware_hardening import ETagMiddleware, AuthFailureThrottle  # noqa: E402
+from middleware_hardening import ETagMiddleware, AuthFailureThrottle, RequestRateLimit  # noqa: E402
 app.add_middleware(ETagMiddleware)
 app.add_middleware(AuthFailureThrottle)
+# Per-caller request budget (Sep 22): sits inside CORS so a 429 still carries
+# the CORS headers the browser needs to read it, outside ETag so a throttled
+# request never touches a handler.
+app.add_middleware(RequestRateLimit)
 # AuditMiddleware must be added before CORSMiddleware so it wraps the full request
 app.add_middleware(AuditMiddleware)
 _CORS_ORIGINS = [
@@ -2364,8 +2368,16 @@ def root():
 
 @app.get("/health")
 def health():
-    """No-auth liveness probe - used by frontend to detect outages without burning a token."""
-    return {"status": "ok"}
+    """No-auth liveness probe - used by frontend to detect outages without burning a token.
+
+    `secrets` (Sep 22): two booleans so a deployment missing NEXUS_VAULT_KEY or an
+    explicit NEXUS_APP_URL is visible from outside without Azure access - both
+    sat on the security-debt list as "may still be unset on prod" because nobody
+    could tell. No values are exposed, only whether each is configured."""
+    import secret_box
+    return {"status": "ok",
+            "secrets": {"vault_key": secret_box.KEY_CONFIGURED,
+                        "app_url_explicit": bool(os.getenv("NEXUS_APP_URL", "").strip())}}
 
 
 @app.get("/health/ready")
@@ -2512,6 +2524,8 @@ app.include_router(daily_briefing_router.router)  # Daily Briefing admin config 
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
 from routers import client_errors          # noqa: E402
 app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs
+from routers import files as files_router  # noqa: E402
+app.include_router(files_router.router)   # Authenticated viewer for the private evidence buckets (Sep 22)
 
 from routers import task_prefs             # noqa: E402
 app.include_router(task_prefs.router)     # Per-user column arrangement for the Task module's lists

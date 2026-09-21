@@ -44,6 +44,7 @@ import {
 import { SkeletonBlocks } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
 import { buildTicketTourSteps } from './ticketTourSteps';
+import { toViewUrl } from '../lib/storageView';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -1410,7 +1411,7 @@ async function uploadTicketEvidence(file, prefix = 'file') {
   const { data, error } = await supabase.storage.from('ticket-evidence')
     .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false, cacheControl: '31536000' });
   if (error || !data) throw new Error(error?.message || 'Upload failed');
-  return supabase.storage.from('ticket-evidence').getPublicUrl(data.path).data.publicUrl;
+  return toViewUrl(supabase.storage.from('ticket-evidence').getPublicUrl(data.path).data.publicUrl);
 }
 
 function attachmentKindOf(f) {

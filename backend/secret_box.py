@@ -20,9 +20,18 @@ import os
 from cryptography.fernet import Fernet, InvalidToken
 
 _KEY = os.getenv("NEXUS_VAULT_KEY", "").strip()
+# Read by /health so a deployment running on the fallback key is visible from
+# outside (Sep 22). Deliberately NOT fail-closed like credvault: every BFF
+# session row is encrypted with this key, so refusing to start would lock every
+# user out - the fix for a missing key is to set it, which is what /health
+# makes obvious, and then everyone signs in once more.
+KEY_CONFIGURED = bool(_KEY)
 if _KEY:
     _fernet = Fernet(_KEY.encode())
 else:
+    if os.getenv("WEBSITE_SITE_NAME"):
+        print("[secret_box] SECURITY: NEXUS_VAULT_KEY is NOT set on a DEPLOYED API - sessions and "
+              "OAuth tokens are encrypted with the dev fallback key. Set it in App Service configuration.")
     # DEV-ONLY fallback so local SQLite dev works without setup. Anything
     # encrypted with this is NOT protected by a real secret - on Azure set
     # NEXUS_VAULT_KEY. Distinct seed from credvault's so the two stores can't

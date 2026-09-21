@@ -4,6 +4,7 @@ import { useMsal } from '@azure/msal-react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { toViewUrl } from '../lib/storageView';
 
 
 // ── Mappers: API (snake_case) ↔ frontend (camelCase) ─────────────────────────
@@ -318,7 +319,7 @@ export function RequisitionProvider({ children }) {
           .upload(path, photoFile, { contentType: photoFile.type, upsert: false });
         if (!error && uploaded) {
           const { data: urlData } = supabase.storage.from('return-photos').getPublicUrl(uploaded.path);
-          permanentUrl = urlData.publicUrl;
+          permanentUrl = toViewUrl(urlData.publicUrl);
         }
       }
     }
