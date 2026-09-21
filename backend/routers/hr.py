@@ -1911,19 +1911,22 @@ class EntityIn(BaseModel):
     legal_name:         Optional[str] = ""
     country:            Optional[str] = ""
     tax_id:             Optional[str] = ""
-    registered_address: Optional[str] = ""
+    registered_address: Optional[str] = ""   # legacy - the form now writes physical_address instead
+    physical_address:   Optional[str] = ""
+    mailing_address:    Optional[str] = ""
     signatory:          Optional[str] = ""
     logo_url:           Optional[str] = ""
     website:            Optional[str] = ""
     main_phone:         Optional[str] = ""
-    main_phone_type:    Optional[str] = "phone"   # "phone" | "fax" | "telephone"
+    main_phone_type:    Optional[str] = "phone"   # "phone" is the only one the UI offers now; "fax"/"telephone" only exist on rows from before Sep 22
     facebook_url:       Optional[str] = ""
     linkedin_url:       Optional[str] = ""
     twitter_url:        Optional[str] = ""
     instagram_url:      Optional[str] = ""
     notes:              Optional[str] = ""
     domains:            Optional[str] = ""   # comma-separated email domains
-    manager_email:      Optional[str] = ""   # company manager (a Nexus person)
+    manager_email:      Optional[str] = ""   # legacy mirror - kept for callers still reading the single field
+    manager_emails:     Optional[list] = None   # company manager(s) (Nexus people) - source of truth
 
 
 class EntityUpdate(BaseModel):
@@ -1932,6 +1935,8 @@ class EntityUpdate(BaseModel):
     country:            Optional[str] = None
     tax_id:             Optional[str] = None
     registered_address: Optional[str] = None
+    physical_address:   Optional[str] = None
+    mailing_address:    Optional[str] = None
     signatory:          Optional[str] = None
     logo_url:           Optional[str] = None
     website:            Optional[str] = None
@@ -1945,12 +1950,30 @@ class EntityUpdate(BaseModel):
     notes:              Optional[str] = None
     domains:            Optional[str] = None
     manager_email:      Optional[str] = None
+    manager_emails:     Optional[list] = None
+
+
+def _norm_manager_emails(manager_email, manager_emails) -> tuple:
+    """Normalize whichever of manager_email/manager_emails a caller sent into
+    (mirror_email, emails_list) - manager_emails (the list) wins when both are
+    present, same primary-mirror shape as Task.assignee_email/assignee_emails."""
+    if manager_emails is not None:
+        emails = [e.strip().lower() for e in manager_emails if isinstance(e, str) and e.strip()]
+        return (emails[0] if emails else ""), emails
+    single = (manager_email or "").strip().lower()
+    return single, ([single] if single else [])
 
 
 def _serialize_entity(e: HrEntity) -> dict:
     return {
         "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
+        # physicalAddress falls back to the legacy registered_address field for a
+        # row that predates the physical/mailing split - the one-shot startup
+        # backfill already copies it across, this just covers a row written
+        # between deploy and that backfill running.
+        "physicalAddress": e.physical_address or e.registered_address or "",
+        "mailingAddress": e.mailing_address or "",
         "logoUrl": e.logo_url, "website": e.website or "", "mainPhone": e.main_phone or "",
         "mainPhoneType": e.main_phone_type or "phone",
         "facebookUrl": e.facebook_url or "", "linkedinUrl": e.linkedin_url or "",
@@ -1958,6 +1981,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "signatureTemplate": e.signature_template or "classic",
         "notes": e.notes, "domains": e.domains or "",
         "managerEmail": e.manager_email or "",
+        "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
         "createdAt": e.created_at, "updatedAt": e.updated_at,
     }
 
@@ -1978,10 +2002,13 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
     if not body.name.strip():
         raise HTTPException(400, "name is required")
     now = datetime.now(timezone.utc).isoformat()
+    mgr_email, mgr_emails = _norm_manager_emails(body.manager_email, body.manager_emails)
     row = HrEntity(
         id=str(uuid.uuid4()), name=body.name.strip(), legal_name=(body.legal_name or "").strip(),
         country=(body.country or "").strip(), tax_id=(body.tax_id or "").strip(),
-        registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
+        registered_address=(body.registered_address or "").strip(),
+        physical_address=(body.physical_address or "").strip(), mailing_address=(body.mailing_address or "").strip(),
+        signatory=(body.signatory or "").strip(),
         logo_url=(body.logo_url or "").strip(), website=(body.website or "").strip(),
         main_phone=(body.main_phone or "").strip(),
         main_phone_type=(body.main_phone_type or "phone").strip() or "phone",
@@ -1989,7 +2016,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         twitter_url=(body.twitter_url or "").strip(), instagram_url=(body.instagram_url or "").strip(),
         notes=body.notes or "",
         domains=_norm_domains(body.domains or ""),
-        manager_email=(body.manager_email or "").strip().lower(),
+        manager_email=mgr_email, manager_emails=mgr_emails,
         created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
@@ -2019,13 +2046,21 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
         from routers.myhr import SIGNATURE_TEMPLATES
         if body.signature_template not in SIGNATURE_TEMPLATES:
             raise HTTPException(400, "Unknown signature template")
-    for key, value in body.model_dump(exclude_unset=True).items():
-        if value is None:
+    fields = body.model_dump(exclude_unset=True)
+    # manager_emails (the list) is the source of truth whenever the request sends
+    # it - skip the plain manager_email key entirely so processing order can't
+    # make a stale single value win over it (matches _norm_manager_emails).
+    has_manager_emails = "manager_emails" in fields and fields["manager_emails"] is not None
+    for key, value in fields.items():
+        if value is None or (key == "manager_email" and has_manager_emails):
             continue
         if key == "domains":
             value = _norm_domains(value)
         elif key == "manager_email":
             value = value.strip().lower()
+        elif key == "manager_emails":
+            mgr_email, value = _norm_manager_emails(None, value)
+            row.manager_email = mgr_email
         setattr(row, {"legal_name": "legal_name", "tax_id": "tax_id", "registered_address": "registered_address"}.get(key, key),
                 value.strip() if isinstance(value, str) and key != "notes" else value)
     row.updated_at = datetime.now(timezone.utc).isoformat()

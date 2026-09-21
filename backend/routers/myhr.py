@@ -217,7 +217,7 @@ def _signature_fields(e: NexusEmployee, db: Session) -> dict:
         # name/role/email/address/socials/template.
         "logoUrl": (e.signature_logo_url or "").strip() or (company.logo_url if company else "") or "",
         "website": (company.website if company else "") or "",
-        "address": (company.registered_address if company else "") or "",
+        "address": ((company.physical_address or company.registered_address) if company else "") or "",
         "companyPhone": (company.main_phone if company else "") or "",
         "companyName": (company.name if company else "") or "",
         "facebookUrl": (company.facebook_url if company else "") or "",
@@ -550,7 +550,7 @@ def admin_preview_fields(company) -> dict:
         "closing": "",
         "logoUrl": (company.logo_url if company else "") or "",
         "website": (company.website if company else "") or "",
-        "address": (company.registered_address if company else "") or "",
+        "address": ((company.physical_address or company.registered_address) if company else "") or "",
         "companyPhone": (company.main_phone if company else "") or "",
         "companyName": (company.name if company else "") or "",
         "facebookUrl": (company.facebook_url if company else "") or "",

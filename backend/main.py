@@ -748,6 +748,20 @@ def _run_migrations():
             "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
             # Emoji reactions on tasks - see the matching Postgres migration below.
             "ALTER TABLE tasks ADD COLUMN reactions JSON DEFAULT '{}'",
+            # Company Manager goes multi (Neil, Sep 22 call) - see the matching
+            # Postgres migration below for the full reasoning.
+            "ALTER TABLE hr_entities ADD COLUMN manager_emails JSON DEFAULT '[]'",
+            "UPDATE hr_entities SET manager_emails = json_array(manager_email) "
+            "WHERE manager_email IS NOT NULL AND manager_email != '' "
+            "AND (manager_emails IS NULL OR manager_emails = '[]')",
+            # Physical/mailing address split (Neil, Sep 22 call) - registered_address
+            # stays put; physical_address is backfilled from it once so nothing typed
+            # in there is lost, mailing_address starts blank (a genuinely new field).
+            "ALTER TABLE hr_entities ADD COLUMN physical_address VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN mailing_address VARCHAR DEFAULT ''",
+            "UPDATE hr_entities SET physical_address = registered_address "
+            "WHERE (physical_address IS NULL OR physical_address = '') "
+            "AND registered_address IS NOT NULL AND registered_address != ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1566,6 +1580,26 @@ def _run_migrations():
         # Per-person task email preferences (Sept 2026) - new table, same
         # belt-and-suspenders RLS enable as above.
         "ALTER TABLE task_notify_prefs ENABLE ROW LEVEL SECURITY",
+        # Company Manager goes multi (Neil, Sep 22 call: "there can only be
+        # one? ... we need to update that setting where it can be multiple").
+        # manager_emails is the new source of truth (same mirror shape as
+        # tasks.assignee_email/assignee_emails above); manager_email stays as
+        # a mirror of manager_emails[0] for anything still reading the single
+        # column. One-shot backfill carries every existing single manager
+        # across so nobody's company manager silently disappears.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS manager_emails JSONB DEFAULT '[]'::jsonb",
+        "UPDATE hr_entities SET manager_emails = to_jsonb(ARRAY[manager_email]) "
+        "WHERE manager_email IS NOT NULL AND manager_email != '' "
+        "AND (manager_emails IS NULL OR manager_emails = '[]'::jsonb)",
+        # Physical/mailing address split (Neil, Sep 22 call: "add in physical
+        # address, and then add in mailing address"). registered_address is
+        # left as-is; physical_address is backfilled from it once, mailing_address
+        # starts blank as a genuinely new field.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS physical_address VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS mailing_address VARCHAR DEFAULT ''",
+        "UPDATE hr_entities SET physical_address = registered_address "
+        "WHERE (physical_address IS NULL OR physical_address = '') "
+        "AND registered_address IS NOT NULL AND registered_address != ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -2353,7 +2353,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
     const en = entities.find(x => x.id === entityId);
     if (emp) Object.assign(d, { first_name: emp.firstName, last_name: emp.lastName, full_name: `${emp.firstName} ${emp.lastName}`.trim(), email: emp.workEmail || emp.personalEmail, job_title: emp.jobTitle, department: emp.department, start_date: emp.startDate, manager: emp.managerEmail });
     if (cand) Object.assign(d, { first_name: cand.firstName, last_name: cand.lastName, full_name: `${cand.firstName} ${cand.lastName}`.trim(), email: cand.email, job_title: cand.roleTitle, department: cand.department, start_date: cand.expectedStart });
-    if (en) Object.assign(d, { company: en.name, company_legal: en.legalName || en.name, company_address: en.registeredAddress, signatory: en.signatory });
+    if (en) Object.assign(d, { company: en.name, company_legal: en.legalName || en.name, company_address: en.physicalAddress || en.registeredAddress, signatory: en.signatory });
     for (const [k, v] of Object.entries(merge)) if (String(v).trim()) d[k] = v;
     Object.keys(d).forEach(k => { if (!d[k]) delete d[k]; });
     return d;
