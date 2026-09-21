@@ -35,6 +35,8 @@ from pydantic import BaseModel
 from typing import Optional, List
 import httpx
 
+import sentdm
+from services.sign_otp import mask_phone
 from database import get_db
 from auth import get_current_user
 from models import (HrSignTemplate, HrSignRequest, HrSignParty, HrSignEvent,
@@ -1009,7 +1011,35 @@ def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_na
     _log(db, req.id, "sent",
          f"notified {party.name} ({party.kind})" + ("" if ok else f" - email failed: {detail}"),
          party_id=party.id)
+    _send_access_code_sms(db, party, req)
     party.status = "notified"
+
+
+def _send_access_code_sms(db: Session, party: HrSignParty, req: HrSignRequest) -> None:
+    """Text this party their access code, with their invite (Sagar, Sep 21).
+
+    A second channel is the whole point: the link arrives by email, the code by
+    text, which is what lets the certificate say "out-of-band access code".
+    Nexus never emails a code for the same reason. Best-effort, exactly like
+    the invite email - a carrier hiccup must not lose the envelope, and the
+    sender can always read the code off the request and pass it on - but every
+    outcome is written to the event log, because "how did they get the code"
+    is evidence.
+    """
+    if not (party.code_sms and (party.access_code or "").strip() and (party.phone or "").strip()):
+        return
+    masked = mask_phone(party.phone)
+    try:
+        ok, err = sentdm.send_otp(
+            party.phone, party.access_code.strip(),
+            f"{party.access_code.strip()} is your access code for \"{req.title}\" in Nexus Sign. "
+            f"Never share it.")
+    except Exception as e:                      # noqa: BLE001 - never lose the envelope over an SMS
+        ok, err = False, str(e)
+    _log(db, req.id, "access_code_sent" if ok else "access_code_send_failed",
+         (f"access code texted to {masked}" if ok
+          else f"access code text to {masked} failed: {err[:200]}"),
+         party_id=party.id)
 
 
 _FIELD_TYPES = ("sign", "initials", "date", "text", "check", "dropdown", "radio", "name",
@@ -1292,6 +1322,9 @@ class PartyIn(BaseModel):
     # SENDER supplies it - Nexus never looks a number up, because a guessed one
     # delivers a signing credential to a stranger. Blank = email code only.
     phone:       Optional[str] = ""
+    # Text the access code to `phone` when this party is invited. Ignored
+    # without both a code and a number.
+    code_sms:    Optional[bool] = False
 
 
 class SendIn(BaseModel):
@@ -1436,6 +1469,8 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                                 org=(p.org or "").strip()[:200],
                                 title=(p.title or "").strip()[:200],
                                 phone=(p.phone or "").strip()[:40],
+                                code_sms=bool(p.code_sms) and bool((p.access_code or "").strip())
+                                and bool((p.phone or "").strip()),
                                 status="waiting", token=secrets.token_urlsafe(32)))
         db.add(rows[-1])
     _record_packet_at_send(db, req)

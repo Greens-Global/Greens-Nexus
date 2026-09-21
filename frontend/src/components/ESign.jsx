@@ -17,6 +17,7 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import { useIsMobile } from '../lib/useIsMobile';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import AccessCodeField from './AccessCodeField';
 import { useRole } from '../contexts/RoleContext';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
@@ -2689,7 +2690,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
           message, expires_on: expiresOn, routing,
           merge: Object.fromEntries(Object.entries(merge).filter(([, v]) => String(v).trim())),
           excluded_ack: excludedAck, document_class: documentClass, governing_law: governingLaw,
-          parties: withRoles.map(p => ({ role_key: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, party_role: p.party_role || 'signer', access_code: p.access_code || '', org: p.org || '', title: p.title || '', phone: p.phone || '' })),
+          parties: withRoles.map(p => ({ role_key: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, party_role: p.party_role || 'signer', access_code: p.access_code || '', org: p.org || '', title: p.title || '', phone: p.phone || '', code_sms: !!p.code_sms })),
         });
       } else {
         const form = new FormData();
@@ -3042,10 +3043,10 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                         onChange={e => setParty(i, 'phone', e.target.value)} />
                     )}
                     {p.kind === 'external' && !cc && (
-                      <input className="form-input" style={{ marginTop: 8, width: '100%', fontSize: 12 }}
-                        placeholder="Access code (optional) - share it with them separately; the link will ask for it"
-                        value={p.access_code || ''} maxLength={40}
-                        onChange={e => setParty(i, 'access_code', e.target.value)} />
+                      <AccessCodeField value={p.access_code || ''} phone={p.phone || ''}
+                        codeSms={!!p.code_sms}
+                        onChange={(v) => setParty(i, 'access_code', v)}
+                        onCodeSmsChange={(v) => setParty(i, 'code_sms', v)} />
                     )}
                   </div>
                 </div>
@@ -3134,9 +3135,10 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                               onChange={e => setParty(i, 'phone', e.target.value)} />
                           )}
                           {p.kind === 'external' && !cc && (
-                            <input className="form-input" style={{ marginTop: 6, width: '100%', fontSize: 11.5 }}
-                              placeholder="Access code (optional)" value={p.access_code || ''} maxLength={40}
-                              onChange={e => setParty(i, 'access_code', e.target.value)} />
+                            <AccessCodeField compact value={p.access_code || ''} phone={p.phone || ''}
+                              codeSms={!!p.code_sms}
+                              onChange={(v) => setParty(i, 'access_code', v)}
+                              onCodeSmsChange={(v) => setParty(i, 'code_sms', v)} />
                           )}
                         </div>
                       );

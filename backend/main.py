@@ -109,6 +109,7 @@ def _run_migrations():
             "ALTER TABLE hr_sign_requests ADD COLUMN routing VARCHAR DEFAULT 'sequential'",
             "ALTER TABLE hr_sign_parties ADD COLUMN party_role VARCHAR DEFAULT 'signer'",
             "ALTER TABLE hr_sign_parties ADD COLUMN access_code VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_parties ADD COLUMN code_sms BOOLEAN DEFAULT 0",
             # E-Sign: Egnyte folder for a copy of the sealed PDF
             "ALTER TABLE hr_sign_templates ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_requests ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
@@ -938,6 +939,7 @@ def _run_migrations():
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS routing TEXT DEFAULT 'sequential'",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS party_role TEXT DEFAULT 'signer'",
         "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS access_code TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS code_sms BOOLEAN DEFAULT FALSE",
         # E-Sign: Egnyte folder for a copy of the sealed PDF
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS egnyte_folder TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS egnyte_folder TEXT DEFAULT ''",
