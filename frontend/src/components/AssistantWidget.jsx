@@ -1,6 +1,15 @@
 import { useState, useRef, useEffect, Component, lazy, Suspense } from 'react';
 import { X, Send, Loader2, Sparkles } from 'lucide-react';
 import { api } from '../api';
+import { useIsMobile } from '../lib/useIsMobile';
+
+// The phone bottom bar (MobileNav) owns the bottom 64px plus the safe-area
+// inset - the same clearance .main-content and MobileTaskBar reserve. Anything
+// floating bottom-right has to sit above it or it lands on the module's tabs
+// (Sagar, Sep 21: the AI pill covered "PDF Tools" in Documents).
+const NAV_H = 64;
+const aboveNav = (isMobile, gap) => (isMobile ? `calc(${NAV_H}px + env(safe-area-inset-bottom) + ${gap}px)` : gap);
+const phoneWidth = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches;
 
 // react-markdown + remark-gfm only load once someone actually opens the
 // widget and gets a reply - this widget is mounted globally on every screen,
@@ -23,7 +32,7 @@ class AssistantErrorBoundary extends Component {
     if (!this.state.error) return this.props.children;
     return (
       <div style={{
-        position: 'fixed', bottom: 18, right: 18, zIndex: 1190,
+        position: 'fixed', bottom: aboveNav(phoneWidth(), 18), right: 18, zIndex: 1190,
         width: 260, background: 'var(--card)', border: '1px solid var(--line)',
         borderRadius: 14, padding: '14px 16px', fontFamily: 'Inter, sans-serif',
         boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
@@ -47,6 +56,7 @@ function AssistantWidgetInner() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const listRef = useRef(null);
+  const isMobile = useIsMobile('(max-width: 900px)');
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -78,32 +88,37 @@ function AssistantWidgetInner() {
 
   return (
     <>
-      {/* Bubble - bottom-right, a pill badge (not a plain icon circle) so it
-          reads as "AI" at a glance. Fixed position, same on every module -
-          Neil/Pranshu, Sep 19: no per-module repositioning, even on Tasks
-          where it sits close to the module's own floating "+". */}
+      {/* Bubble - bottom-right, a pill badge on desktop (not a plain icon
+          circle) so it reads as "AI" at a glance. Fixed position, same on every
+          module - Neil/Pranshu, Sep 19: no per-module repositioning, even on
+          Tasks where it sits close to the module's own floating "+".
+          On a phone it drops the label for a plain icon circle and rides above
+          the bottom tab bar: the pill was wide enough to cover the bar's last
+          tab, and the label is the first thing that can go. */}
       <button
         onClick={() => setOpen(o => !o)}
         aria-label="Nexus Assistant"
         style={{
-          position: 'fixed', bottom: 18, right: 18, zIndex: 1190,
+          position: 'fixed', bottom: aboveNav(isMobile, 18), right: 18, zIndex: 1190,
           border: 'none', borderRadius: 999, padding: 2, cursor: 'pointer',
           background: 'linear-gradient(135deg, #06b6d4, #22c55e)',
           boxShadow: '0 8px 28px rgba(0,0,0,0.22)',
         }}
       >
         <span style={{
-          display: 'flex', alignItems: 'center', gap: 6,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
           background: 'var(--card)', color: 'var(--ink)', borderRadius: 999,
-          padding: open ? '10px' : '10px 16px',
+          padding: (open || isMobile) ? '11px' : '10px 16px',
         }}>
-          {open ? <X size={16} /> : <><Sparkles size={14} /><span style={{ fontWeight: 700, fontSize: 13 }}>AI</span></>}
+          {open ? <X size={16} />
+            : isMobile ? <Sparkles size={17} />
+              : <><Sparkles size={14} /><span style={{ fontWeight: 700, fontSize: 13 }}>AI</span></>}
         </span>
       </button>
 
       {/* Panel */}
       <div style={{
-        position: 'fixed', bottom: 78, right: 18, zIndex: 1190,
+        position: 'fixed', bottom: aboveNav(isMobile, 78), right: 18, zIndex: 1190,
         width: 'min(380px, 92vw)', height: 'min(560px, 70vh)',
         background: 'var(--card)', border: '1px solid var(--line)',
         borderRadius: 16, boxShadow: '0 24px 70px rgba(17,24,39,0.30)',
