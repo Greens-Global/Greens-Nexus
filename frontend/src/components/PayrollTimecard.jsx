@@ -347,7 +347,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     if (prevWeek && wk !== prevWeek) rows.push({ type: 'wk', week: prevWeek });
     prevWeek = wk;
     const segs = d?.segments || [];
-    if (!segs.length) rows.push({ type: 'day', ds, seg: null });
+    if (!segs.length) {
+      rows.push({ type: 'day', ds, seg: null });
+      // A company holiday this employee didn't work (see _company_holidays_for_employee):
+      // hourly pay has no "missed day" deduction to exempt, so it's credited a paid
+      // day instead of just paying $0 for the day.
+      if (d?.isHoliday) rows.push({ type: 'holiday', ds, name: d.holidayName, pay: d.holidayPay });
+    }
     else {
       segs.forEach((seg, i) => rows.push({ type: 'day', ds, seg, first: i === 0, last: i === segs.length - 1 }));
       // Break punch pairs under their day (Charmi, Aug 21: "are we getting
@@ -622,6 +628,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours and blocks sign-off; {self ? 'tap the Out time to propose the real end of your shift.' : 'set the real Out time to release it for pay.'}
                   </td>
                 </tr>
+              ) : r.type === 'holiday' ? (
+                <tr key={i} style={{ background: 'rgba(37,99,235,0.06)' }}>
+                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(37,99,235,0.12)', color: '#2563eb', marginRight: 6 }}>Holiday</span>
+                    {r.name || 'Company holiday'} - not worked, paid {fmtM(r.pay)}.
+                  </td>
+                </tr>
               ) : r.type === 'note' ? (
                 <tr key={i}>
                   <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
@@ -734,6 +747,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 [`Total Regular hours at ${fmtM(rate)}/hr`, hd(T.regMin), fmtM(T.regPay)],
                 [`Total Overtime hours at ${fmtM(rate * 1.5)}/hr`, hd(T.otMin), fmtM(T.otPay)],
                 ...(T.dtMin ? [[`Total Double-time hours at ${fmtM(rate * 2)}/hr`, hd(T.dtMin), fmtM(T.dtPay)]] : []),
+                ...(T.holidayDays ? [[`Company holiday${T.holidayDays === 1 ? '' : 's'} (${T.holidayDays} day${T.holidayDays === 1 ? '' : 's'}, not worked)`, '-', fmtM(T.holidayPay)]] : []),
                 ['Totals', hd(T.regMin + T.otMin + (T.dtMin || 0)), fmtM(T.totalPay)],
               ];
               const last = rows.length - 1;
@@ -901,6 +915,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
     late: { label: 'Late', bg: 'rgba(217,119,6,0.15)', fg: '#c2410c' },   // shift start passed, not clocked in yet (today only, no deduction)
     half: { label: 'Half day', bg: 'rgba(180,83,9,0.12)', fg: '#b45309' },
     absent: { label: 'Absent', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
+    holiday: { label: 'Holiday', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },   // company holiday on the employee's own calendar - never deducted
     weekend: { label: 'Weekend', bg: 'var(--mist)', fg: 'var(--muted)' },
     weekend_worked: { label: 'Weekend OT', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' },
     upcoming: { label: 'Upcoming', bg: 'transparent', fg: 'var(--muted)' },
@@ -1029,7 +1044,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 : (self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
                     : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : 'Add the missing clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>;
               const addBtn = <button onClick={() => setEditDay({ date: fd.date, seg: null })} title={self ? 'Add a missing punch for this day - goes to your approver' : 'Add a punch for this day'} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.85 }}>+ add</button>;
-              const statusPill = <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>;
+              const statusPill = <span title={fd.holidayName || undefined} style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>;
               const breakCell = (
                 <td style={{ ...td, textAlign: 'right' }}>
                   {dayBreak > 0
