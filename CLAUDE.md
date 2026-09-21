@@ -127,6 +127,16 @@ keep the diff minimal.
   (Charmi, Sep 21). No separate leave-hours table; approved time-off
   requests are NOT auto-punched.
 
+- Accounting dashboard (Sep 22): the Accounting view's Overview / Cash /
+  Performance / Close / Data tabs are the Nexus face of the finance dashboard
+  in Nexus Accounting. Figures come ONLY through `backend/routers/
+  accounting_dashboard.py` -> the accounting app's `/api/internal/dashboard`
+  (internal key), never the accounting database. The calculation modules in
+  `frontend/src/accounting/dashboard/model/` are compiled from the accounting
+  repo's `src/lib/finance/dashboard/*.ts` - change them THERE, then re-emit
+  with tsc (see the accounting repo's CLAUDE.md), never edit the .js by hand.
+  Writes carry the caller's name; each tab shows one section at a time.
+
 ## Asana sync — the contract (`backend/asana_sync.py`)
 
 **One engine, three entry points.** The one-shot Import, the scheduled Pull and
