@@ -1297,7 +1297,20 @@ class HrEntity(Base):
     domains            = Column(String, default="")
     # Who runs this company operationally (a Nexus person's work email) - the
     # escalation target when a worker has no reports-to. Distinct from signatory.
+    # `manager_emails` is the source of truth (Neil, Sep 22: "there can only be
+    # one? ... we need to update that setting where it can be multiple"; same
+    # mirror shape as Task.assignee_email/assignee_emails). `manager_email`
+    # stays a PRIMARY MIRROR of manager_emails[0] so anything still reading the
+    # single column keeps working.
     manager_email      = Column(String, default="")
+    manager_emails     = Column(JSON, default=list)
+    # Split from the old single `registered_address` (Neil, Sep 22: "add in
+    # physical address, and then add in mailing address... two important
+    # fields"). `registered_address` stays for old rows that predate the split -
+    # _serialize_entity falls back to it when physical_address is blank -
+    # rather than a migration silently dropping whatever was typed in there.
+    physical_address   = Column(String, default="")
+    mailing_address    = Column(String, default="")
     # Branding (Sep 16, Neil): company-wide fields the email signature builder
     # and other branded surfaces pull from - set once here, consistent everywhere.
     website            = Column(String, default="")

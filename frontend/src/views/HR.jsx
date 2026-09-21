@@ -3307,7 +3307,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
   // untouched (still rendered in signatures); this form just stops offering
   // a way to view/set it.
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '', domains: '', manager_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', notes: '', domains: '', manager_emails: [], logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const [f, setF] = useState(blank);
@@ -3332,18 +3332,26 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   const formSnapshotRef = useRef(blank);
   const startNew = () => { setF(blank); formSnapshotRef.current = blank; setTab('overview'); setMode('new'); };
   const startEdit = en => {
-    const phoneType = en.mainPhoneType || 'phone';
+    // Fax/telephone are gone from the picker (Neil, Sep 22: "let's not add
+    // bloat... nobody is faxing anymore") - a row saved under one of those
+    // types before the change just gets treated as a plain phone number now,
+    // number and all, rather than the form having to still offer them.
+    const phoneType = 'phone';
     // "phone" numbers store the dial code baked into mainPhone itself
     // ("+1 7003313331") - split it back apart here so the country picker and
     // number box seed correctly. No match just means the stored value
-    // predates this format (or is fax/telephone) - it lands whole in the
-    // number box, country defaults to US.
+    // predates this format, or was fax/telephone (never had a dial code) - it
+    // lands whole in the number box, country defaults to US.
     let phoneCountry = 'US', phoneNumber = en.mainPhone || '';
-    if (phoneType === 'phone' && en.mainPhone) {
+    if (en.mainPhoneType === 'phone' && en.mainPhone) {
       const hit = COUNTRIES.find(c => en.mainPhone.startsWith(c.dial + ' '));
       if (hit) { phoneCountry = hit.code; phoneNumber = en.mainPhone.slice(hit.dial.length + 1); }
     }
-    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '', manager_email: en.managerEmail || '', logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
+    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '',
+      physical_address: en.physicalAddress || '', mailing_address: en.mailingAddress || '',
+      signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '',
+      manager_emails: en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []),
+      logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
     setF(seeded); formSnapshotRef.current = seeded; setTab('overview'); setMode(en.id);
   };
   async function uploadLogo(file) {
@@ -3434,29 +3442,40 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 </div>
                 {field('TAX ID (EIN / GSTIN)', 'tax_id')}
                 {field('AUTHORIZED SIGNATORY', 'signatory', { placeholder: 'name, title' })}
-                <div>
-                  <label style={FL}>COMPANY MANAGER</label>
-                  <select className="form-input" style={{ width: '100%' }} value={f.manager_email} onChange={e => set('manager_email', e.target.value)}>
-                    <option value="">- not set -</option>
-                    {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL}>COMPANY MANAGER(S)</label>
+                  {f.manager_emails.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                      {f.manager_emails.map(em => (
+                        <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--mist)', borderRadius: 999, padding: '4px 6px 4px 10px', fontSize: 12 }}>
+                          {personName(em) || em}
+                          <button type="button" onClick={() => set('manager_emails', f.manager_emails.filter(x => x !== em))}
+                            title="Remove" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <select className="form-input" style={{ width: '100%' }} value=""
+                    onChange={e => { const v = e.target.value; if (v && !f.manager_emails.includes(v)) set('manager_emails', [...f.manager_emails, v]); }}>
+                    <option value="">+ add a manager</option>
+                    {people.filter(p => !f.manager_emails.includes(p.email)).map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
                   </select>
                 </div>
-                <div style={{ gridColumn: '1 / -1' }}>{field('REGISTERED ADDRESS', 'registered_address', { placeholder: 'search or pick a spot on the map, or type it in' })}</div>
+                <div style={{ gridColumn: '1 / -1' }}>{field('PHYSICAL ADDRESS', 'physical_address', { placeholder: 'search or pick a spot on the map, or type it in' })}</div>
+                <div style={{ gridColumn: '1 / -1' }}>{field('MAILING ADDRESS', 'mailing_address', { placeholder: 'if different from the physical address' })}</div>
                 <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 14 }}>
                   <div style={{ flex: '0 1 200px' }}>{field('WEBSITE', 'website', { placeholder: 'e.g. greensglobal.com' })}</div>
                   <div style={{ flex: '1 1 340px' }}>
                     <label style={FL}>MAIN PHONE</label>
+                    {/* Just a phone number now (Neil, Sep 22: "let's not add bloat...
+                        nobody is faxing anymore") - fax/telephone dropped from the
+                        picker; main_phone_type is always sent as "phone". */}
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <select className="form-input" style={{ width: 108, flexShrink: 0 }} value={f.main_phone_type} onChange={e => set('main_phone_type', e.target.value)}>
-                        <option value="phone">Phone</option>
-                        <option value="fax">Fax</option>
-                        <option value="telephone">Telephone</option>
+                      <select className="form-input" style={{ width: 92, flexShrink: 0 }} value={f.main_phone_country} onChange={e => set('main_phone_country', e.target.value)}>
+                        {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.dial}</option>)}
                       </select>
-                      {f.main_phone_type === 'phone' && (
-                        <select className="form-input" style={{ width: 92, flexShrink: 0 }} value={f.main_phone_country} onChange={e => set('main_phone_country', e.target.value)}>
-                          {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.dial}</option>)}
-                        </select>
-                      )}
                       <input className="form-input" style={{ flex: 1, minWidth: 160 }} value={f.main_phone} onChange={e => set('main_phone', e.target.value)} placeholder="company main line" />
                     </div>
                   </div>
@@ -3474,6 +3493,11 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                   </div>
                   {mode === 'new' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>Save the company first, then come back to add a logo.</p>}
                   <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>MP4 or MOV works too - it's converted to an animated GIF (email clients never play video directly), up to 6s. Converting a video can take a few seconds.</p>
+                  {/* Neil, Sep 22: "you should put in some language that please upload
+                      your logo, please upload it transparent" - Nexus doesn't process
+                      the image, so a solid-background logo will look wrong once it's
+                      placed on a colored or dark surface. */}
+                  <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '4px 0 0' }}>Please upload your logo as a transparent PNG at your standard resolution - it's used as-is, not auto-processed, so a transparent background keeps it looking right on any surface, dark mode included.</p>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>SOCIAL LINKS</label>
@@ -3499,7 +3523,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
               </div>
               <div style={{ flex: '1 1 360px', minWidth: 300, position: 'sticky', top: 18 }}>
                 <label style={FL}>PICK LOCATION ON MAP</label>
-                <LocationPickerMap onLocationPicked={address => set('registered_address', address)} />
+                <LocationPickerMap onLocationPicked={address => set('physical_address', address)} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, padding: '14px 4px' }}>
@@ -3561,17 +3585,21 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
           <p style={{ fontSize: 13, marginBottom: 14 }}>No companies yet. Add your legal entities so every worker can be tied to one.</p>
           <button className="secondary-btn" onClick={seedDefaults} disabled={busy} style={{ marginRight: 8 }}>Add Greens · Greens India · MCD · Oversite</button>
         </div>
-      ) : entities.map(en => (
+      ) : entities.map(en => {
+        const mgrEmails = en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []);
+        const mgrNames = mgrEmails.map(personName).filter(Boolean).join(', ');
+        return (
         <div key={en.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
           <CompanyLogo name={en.name} logoUrl={en.logoUrl} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, en.managerEmail && personName(en.managerEmail) && `Manager ${personName(en.managerEmail)}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, mgrNames && `Manager${mgrEmails.length > 1 ? 's' : ''} ${mgrNames}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
           </div>
           <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
           <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
         </div>
-      ))}
+        );
+      })}
       <div style={{ padding: '14px 4px', display: 'flex', justifyContent: 'flex-end' }}>
         <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Company</button>
       </div>
