@@ -46,6 +46,10 @@ KNOWN_PUBLIC = {
     "/auth/logout",                        # only clears the session cookie; harmless without a valid session
     "/branding/config",                    # login screen needs it pre-auth
     "/stepup/config",                      # same posture
+    # Boot-failure beacon from public/guard.js: fired while the app cannot
+    # load, by a user who usually has no session. Per-IP throttled, every
+    # field hard-capped, writes one audit row and nothing else.
+    "/client-errors/boot",
     "/asana-sync/webhook",                 # X-Hook-Signature HMAC verified
     "/webhooks/github",                    # X-Hub-Signature-256 HMAC verified
     "/asana-oauth/callback",               # OAuth redirect from Asana; CSRF-guarded by the state token (consume_state)
