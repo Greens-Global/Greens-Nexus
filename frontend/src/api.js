@@ -1054,7 +1054,9 @@ export const api = {
   // per-company holiday calendar
   getCompanyHolidays:    (entityId)         => req(`/hr/entities/${entityId}/holidays`),
   createCompanyHoliday:  (entityId, data)   => req(`/hr/entities/${entityId}/holidays`, { method: 'POST', body: JSON.stringify(data) }),
-  deleteCompanyHoliday:  (entityId, id)     => req(`/hr/entities/${entityId}/holidays/${id}`, { method: 'DELETE' }),
+  // countryCode: drop just that ONE country off a multi-country merged row
+  // (e.g. "IN,US" -> "US") instead of deleting the whole date+company entry.
+  deleteCompanyHoliday:  (entityId, id, countryCode) => req(`/hr/entities/${entityId}/holidays/${id}${countryCode ? `?country_code=${encodeURIComponent(countryCode)}` : ''}`, { method: 'DELETE' }),
   getPublicHolidays:     (country, year)    => req(`/hr/public-holidays?country=${encodeURIComponent(country)}${year ? `&year=${year}` : ''}`),
 
   // HR - compensation + bank (restricted: hr_comp grant / owner)

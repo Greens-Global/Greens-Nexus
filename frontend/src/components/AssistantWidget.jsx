@@ -201,7 +201,13 @@ function AssistantWidgetInner() {
   );
 }
 
+// Hidden for now (Neil, Sep 21) while it's decided whether the AI Assistant
+// stays - flip back to true when that's settled. Everything below it is left
+// intact on purpose so turning it back on is just this one flag.
+const ASSISTANT_ENABLED = false;
+
 export default function AssistantWidget() {
+  if (!ASSISTANT_ENABLED) return null;
   return (
     <AssistantErrorBoundary>
       <AssistantWidgetInner />

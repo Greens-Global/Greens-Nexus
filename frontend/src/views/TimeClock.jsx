@@ -980,7 +980,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
             const sun = new Date(); sun.setHours(0, 0, 0, 0); sun.setDate(sun.getDate() - sun.getDay());
             const sunKey = new Date(sun.getTime() - sun.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
             const wkMin = clockPeriod
-              ? (clockPeriod.days || []).filter(d => d.date >= sunKey).reduce((a, d) => a + (d.workedMin || 0), 0)
+              ? (clockPeriod.days || []).filter(d => d.date >= sunKey).reduce((a, d) => a + (d.workedMin || 0) - (d.sickMin || 0) - (d.vacationMin || 0), 0)
               : weekTotal;
             const otMin = Math.max(0, wkMin - 40 * 60);
             const pct = Math.min(100, (wkMin / (40 * 60)) * 100);

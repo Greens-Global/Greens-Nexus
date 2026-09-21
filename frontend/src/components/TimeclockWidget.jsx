@@ -374,9 +374,14 @@ export default function TimeclockWidget() {
   // same flag that save bar renders from, and this component re-renders every
   // second, so the offset tracks it closely enough.
   const bottom = editGuard.dirty ? 88 : 18;
+  // Back to the plain corner (Neil, Sep 21: the AI Assistant bubble - the
+  // thing this used to dodge - is hidden for now, see ASSISTANT_ENABLED in
+  // AssistantWidget.jsx). Re-apply the clearance offset alongside re-enabling
+  // that flag if the Assistant comes back.
+  const right = 18;
 
   return (
-    <div ref={wrapRef} style={{ position: 'fixed', bottom, right: 18, zIndex: 1190, display: 'flex',
+    <div ref={wrapRef} style={{ position: 'fixed', bottom, right, zIndex: 1190, display: 'flex',
       flexDirection: 'column', alignItems: 'flex-end', gap: 8, fontFamily: 'var(--wk-font)', transition: 'bottom .18s ease' }}>
       {expanded && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 232,
