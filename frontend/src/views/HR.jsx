@@ -3738,9 +3738,17 @@ const HOLIDAY_TYPE_META = {
 // current holiday set can be saved as a reusable, named policy and pulled
 // into any other company instead of rebuilding it from scratch each time -
 // see HolidayPolicyPanel below.
+// How far ahead the year picker offers (Neil, Sep 22: "you should know next
+// year's Diwali now... everything is already [plannable]" - he runs his own
+// calendar pre-configured "all the way to 2030"). Five years out is plenty of
+// runway without the dropdown growing unbounded every year; it's recomputed
+// from today() on every render, so the window just slides forward on its own.
+const HOLIDAY_YEAR_RANGE = 5;
+
 function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
   const [holidays, setHolidays] = useState([]);
   const [country, setCountry] = useState(COUNTRIES.some(c => c.code === entity.country) ? entity.country : 'US');
+  const [year, setYear] = useState(new Date().getFullYear());
   const [suggestions, setSuggestions] = useState(null); // null = not loaded yet
   const [noData, setNoData] = useState(false);          // true = 404, country has no data source
   const [suggestBusy, setSuggestBusy] = useState(false);
@@ -3758,18 +3766,12 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
     setSuggestions(null);
     setNoData(false);
     try {
-      const year = new Date().getFullYear();
-      const [a, b] = await Promise.all([api.getPublicHolidays(country, year), api.getPublicHolidays(country, year + 1)]);
-      // Current year in full, plus just the first week of next January (Sep
-      // 19, Pranshu: "admin should get the holiday list for only current
-      // year... and 1 week of Jan [next year]" - not the whole next year,
-      // which is what a plain year+year+1 concat showed before). No stored
-      // "which year" state to roll forward - `year` is recomputed from
-      // today() on every load, so the window naturally slides to
-      // year/year+1 on its own once the calendar turns over into January.
-      const nextJanCutoff = `${year + 1}-01-07`;
-      const bFirstWeek = (b || []).filter(h => h.date <= nextJanCutoff);
-      setSuggestions([...(a || []), ...bFirstWeek]);
+      // A full YEAR at a time, picked explicitly (Pranshu, Sep 22: "I want to
+      // set up the holiday list for future years also") - not just the
+      // current year plus a peek at next January anymore. Loading a future
+      // year doesn't touch what's already on the calendar for other years;
+      // this is purely additive.
+      setSuggestions((await api.getPublicHolidays(country, year)) || []);
     } catch (e) {
       if (e?.status === 404) setNoData(true);
       else toastErr(e?.message || 'Could not load public holidays.');
@@ -3846,6 +3848,9 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
           <select className="form-input" style={{ width: 220 }} value={country} onChange={e => { setCountry(e.target.value); setSuggestions(null); setNoData(false); }}>
             {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
+          </select>
+          <select className="form-input" style={{ width: 100 }} value={year} onChange={e => { setYear(Number(e.target.value)); setSuggestions(null); setNoData(false); }}>
+            {Array.from({ length: HOLIDAY_YEAR_RANGE }, (_, i) => new Date().getFullYear() + i).map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button className="secondary-btn" onClick={loadSuggestions} disabled={suggestBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {suggestBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={13} />} Load holidays
@@ -3993,6 +3998,7 @@ function HolidayPolicyEditorModal({ policy, onClose, onSaved, toastOk, toastErr 
   const [name, setName] = useState(policy.name);
   const [draft, setDraft] = useState(policy.holidays || []);
   const [country, setCountry] = useState('US');
+  const [year, setYear] = useState(new Date().getFullYear());
   const [suggestions, setSuggestions] = useState(null);
   const [noData, setNoData] = useState(false);
   const [suggestBusy, setSuggestBusy] = useState(false);
@@ -4003,10 +4009,7 @@ function HolidayPolicyEditorModal({ policy, onClose, onSaved, toastOk, toastErr 
   async function loadSuggestions() {
     setSuggestBusy(true); setSuggestions(null); setNoData(false);
     try {
-      const year = new Date().getFullYear();
-      const [a, b] = await Promise.all([api.getPublicHolidays(country, year), api.getPublicHolidays(country, year + 1)]);
-      const nextJanCutoff = `${year + 1}-01-07`;
-      setSuggestions([...(a || []), ...(b || []).filter(h => h.date <= nextJanCutoff)]);
+      setSuggestions((await api.getPublicHolidays(country, year)) || []);
     } catch (e) {
       if (e?.status === 404) setNoData(true);
       else toastErr(e?.message || 'Could not load public holidays.');
@@ -4060,8 +4063,11 @@ function HolidayPolicyEditorModal({ policy, onClose, onSaved, toastOk, toastErr 
         <div style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Load public holidays</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-            <select className="form-input" style={{ width: 200 }} value={country} onChange={e => { setCountry(e.target.value); setSuggestions(null); setNoData(false); }}>
+            <select className="form-input" style={{ width: 180 }} value={country} onChange={e => { setCountry(e.target.value); setSuggestions(null); setNoData(false); }}>
               {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
+            </select>
+            <select className="form-input" style={{ width: 90 }} value={year} onChange={e => { setYear(Number(e.target.value)); setSuggestions(null); setNoData(false); }}>
+              {Array.from({ length: HOLIDAY_YEAR_RANGE }, (_, i) => new Date().getFullYear() + i).map(y => <option key={y} value={y}>{y}</option>)}
             </select>
             <button className="secondary-btn" onClick={loadSuggestions} disabled={suggestBusy} style={{ fontSize: 12 }}>
               {suggestBusy ? 'Loading…' : 'Load holidays'}
