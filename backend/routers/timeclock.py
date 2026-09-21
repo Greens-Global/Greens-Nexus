@@ -4603,9 +4603,11 @@ def _month_bounds(date_str: str):
 
 def _company_holidays_for_employee(db: Session, em: str, start: str, end: str) -> dict:
     """Dates in [start, end] that are a paid holiday for this employee: on their
-    employer's (NexusEmployee.company) calendar, and - for a holiday picked from a
-    specific country's public holidays (source="public", country_code set) - only
-    when that country matches the employee's own NexusEmployee.country. A
+    employer's (NexusEmployee.company) calendar, and - for a holiday picked from
+    public holidays (source="public") - only when the employee's own
+    NexusEmployee.country is one of the row's countries. One date+company is a
+    SINGLE row even when picked for several countries (Pranshu, Sep 21) - its
+    country_code is a comma-separated list ("IN,US"), not a row per country. A
     manually-typed holiday (no country_code) applies to everyone at that company
     regardless of country. This is generic across every company/country/employee,
     not special-cased to any one of them."""
@@ -4616,7 +4618,8 @@ def _company_holidays_for_employee(db: Session, em: str, start: str, end: str) -
             .filter(HrCompanyHoliday.company_id == emp.company,
                     HrCompanyHoliday.date >= start, HrCompanyHoliday.date <= end)
             .all())
-    return {r.date: r.name for r in rows if not r.country_code or r.country_code == emp.country}
+    return {r.date: r.name for r in rows
+            if not r.country_code or emp.country in r.country_code.split(",")}
 
 
 def _fixed_card(db: Session, em: str, anchor: str) -> dict:
