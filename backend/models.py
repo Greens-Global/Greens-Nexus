@@ -1444,21 +1444,27 @@ class HrCompanyHoliday(Base):
 
 
 class HrHolidayPolicy(Base):
-    """A reusable, NAMED set of holidays - a global library entry, not owned by
-    any one company (Neil, Sep 22: "think that you're making a policy
-    library... you can pull that policy into any other company that's added
-    on"). Holidays live as JSON here rather than a child table: a policy is
-    always edited as a whole unit through the same picker UI that creates it
-    (never one holiday at a time), so there's nothing a relational child table
-    would buy beyond what create_company_holiday's per-row model already does
-    for a company's own live calendar. Applying a policy to a company COPIES
-    its holidays into that company's HrCompanyHoliday rows (via the same
-    per-country merge as create_company_holiday) - editing the policy later
-    does not retroactively change a company that already applied it; the
-    company just has a fresh "apply" action available if it wants the update."""
+    """A reusable, NAMED set of holidays. APPLYING one is global - any company
+    can pull any policy into its own calendar ("you can pull that policy into
+    any other company that's added on"). EDITING one is not: only the company
+    that created it may rename/edit/delete it (Pranshu, Sep 22 - "should be
+    only editable by the company by which it was created"), enforced the same
+    way every other HR-admin surface is scoped (see auth.hr_scope) - a scoped
+    admin limited to one company can't reach into another company's policy,
+    while an unrestricted admin can (same as everywhere else in HR). Holidays
+    live as JSON here rather than a child table: a policy is always edited as
+    a whole unit through the same picker UI that creates it (never one holiday
+    at a time), so there's nothing a relational child table would buy beyond
+    what create_company_holiday's per-row model already does for a company's
+    own live calendar. Applying a policy to a company COPIES its holidays into
+    that company's HrCompanyHoliday rows (via the same per-country merge as
+    create_company_holiday) - editing the policy later does not retroactively
+    change a company that already applied it; the company just has a fresh
+    "apply" action available if it wants the update."""
     __tablename__ = "hr_holiday_policies"
     id            = Column(String, primary_key=True)   # uuid
     name          = Column(String, nullable=False)
+    company_id    = Column(String, default="", index=True)   # HrEntity.id that created it - owns edit/delete
     # [{date, name, source, country_code, type}, ...] - same shape as a row in
     # hr_company_holidays, minus company_id/id (those are assigned on apply).
     holidays      = Column(JSON, default=list)

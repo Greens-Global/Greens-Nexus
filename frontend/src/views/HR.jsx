@@ -3521,10 +3521,6 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                   <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
                 </div>
               </div>
-              <div style={{ flex: '1 1 360px', minWidth: 300, position: 'sticky', top: 18 }}>
-                <label style={FL}>PICK LOCATION ON MAP</label>
-                <LocationPickerMap onLocationPicked={address => set('physical_address', address)} />
-              </div>
             </div>
             <div style={{ display: 'flex', gap: 10, padding: '14px 4px' }}>
               <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
@@ -3557,7 +3553,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
         )}
         {mode !== 'new' && tab === 'holidays' && (
           editingEntity
-            ? <CompanyHolidaysTab entity={editingEntity} toastOk={toastOk} toastErr={toastErr} />
+            ? <CompanyHolidaysTab entity={editingEntity} entities={entities} toastOk={toastOk} toastErr={toastErr} />
             : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
         )}
 
@@ -3745,7 +3741,7 @@ const HOLIDAY_TYPE_META = {
 // from today() on every render, so the window just slides forward on its own.
 const HOLIDAY_YEAR_RANGE = 5;
 
-function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
+function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
   const [holidays, setHolidays] = useState([]);
   const [country, setCountry] = useState(COUNTRIES.some(c => c.code === entity.country) ? entity.country : 'US');
   const [year, setYear] = useState(new Date().getFullYear());
@@ -3829,7 +3825,7 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
     setPolicyBusy(true);
     try {
       await api.createHolidayPolicy({
-        name: name.trim(),
+        name: name.trim(), company_id: entity.id,
         holidays: holidays.map(h => ({ date: h.date, name: h.name, source: h.source, country_code: h.countryCode, type: h.type })),
       });
       toastOk('Policy created.');
@@ -3847,47 +3843,66 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
   // holiday name aren't guaranteed to land on the same date); a manual entry
   // has no such source, so it's a best-effort +1 year on the same month/day.
   const [copyBusy, setCopyBusy] = useState(false);
-  async function copyToNextYear() {
-    if (!holidays.length || copyBusy) return;
+  const [copyPickerOpen, setCopyPickerOpen] = useState(false);
+  const [copyYears, setCopyYears] = useState([]);
+  // Next 5 calendar years, excluding the current one (Pranshu, Sep 22: "the
+  // next 5 years option excluding the current year, and it should be
+  // multiple selectable") - not tied to whatever year the holiday list
+  // happens to already have loaded.
+  const copyYearOptions = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() + 1 + i);
+  const toggleCopyYear = y => setCopyYears(ys => ys.includes(y) ? ys.filter(x => x !== y) : [...ys, y].sort());
+
+  async function copyToYears() {
+    if (!holidays.length || copyBusy || !copyYears.length) return;
+    setCopyPickerOpen(false);
     const fromYear = Math.max(...holidays.map(h => Number(h.date.slice(0, 4))));
-    const toYear = fromYear + 1;
     const fromYearHolidays = holidays.filter(h => h.date.startsWith(String(fromYear)));
-    const alreadyNextYear = new Set(holidays.filter(h => h.date.startsWith(String(toYear))).map(h => h.name));
-    const toCopy = fromYearHolidays.filter(h => !alreadyNextYear.has(h.name));
-    if (!toCopy.length) { toastOk(`Nothing new to copy - ${toYear} already has all of ${fromYear}'s holidays.`); return; }
-    if (!await dialog.confirm(`Copy ${toCopy.length} holiday${toCopy.length === 1 ? '' : 's'} from ${fromYear} to ${toYear}? Movable holidays (Diwali, Good Friday, etc.) get their real ${toYear} date looked up, not just +365 days.`,
-      { title: `Copy holidays to ${toYear}`, confirmText: 'Copy' })) return;
+    if (!fromYearHolidays.length) return;
+    if (!await dialog.confirm(`Copy ${fromYearHolidays.length} holiday${fromYearHolidays.length === 1 ? '' : 's'} from ${fromYear} to ${copyYears.join(', ')}? Movable holidays (Diwali, Good Friday, etc.) get their real date looked up for each year, not just +365 days.`,
+      { title: `Copy holidays to ${copyYears.length} year${copyYears.length === 1 ? '' : 's'}`, confirmText: 'Copy' })) return;
     setCopyBusy(true);
     try {
-      const countries = [...new Set(toCopy.flatMap(h => countriesOf(h)))];
-      const nextYearByCountry = {};
-      for (const cc of countries) {
-        try { nextYearByCountry[cc] = (await api.getPublicHolidays(cc, toYear)) || []; }
-        catch { nextYearByCountry[cc] = []; }
-      }
-      let copied = 0;
-      const missed = [];
-      for (const h of toCopy) {
-        if (h.source === 'public') {
-          const codes = countriesOf(h);
-          let any = false;
-          for (const cc of codes) {
-            const match = (nextYearByCountry[cc] || []).find(x => x.name === h.name);
-            if (match) {
-              await api.createCompanyHoliday(entity.id, { date: match.date, name: h.name, source: 'public', country_code: cc, type: h.type });
-              any = true;
-            }
-          }
-          if (any) copied++; else missed.push(h.name);
-        } else {
-          const [, m, d] = h.date.split('-');
-          await api.createCompanyHoliday(entity.id, { date: `${toYear}-${m}-${d}`, name: h.name, source: 'manual', country_code: '', type: h.type });
-          copied++;
+      let totalCopied = 0;
+      const allMissed = [];
+      // Sequential, not parallel: each pass re-reads `holidays` state (via
+      // load() below) so a year already copied in THIS run is correctly seen
+      // as "already there" by the next one instead of double-copying.
+      let current = holidays;
+      for (const toYear of copyYears) {
+        const alreadyThere = new Set(current.filter(h => h.date.startsWith(String(toYear))).map(h => h.name));
+        const toCopy = fromYearHolidays.filter(h => !alreadyThere.has(h.name));
+        if (!toCopy.length) continue;
+        const countries = [...new Set(toCopy.flatMap(h => countriesOf(h)))];
+        const byCountry = {};
+        for (const cc of countries) {
+          try { byCountry[cc] = (await api.getPublicHolidays(cc, toYear)) || []; }
+          catch { byCountry[cc] = []; }
         }
+        const newRows = [];
+        for (const h of toCopy) {
+          if (h.source === 'public') {
+            const codes = countriesOf(h);
+            let any = false;
+            for (const cc of codes) {
+              const match = (byCountry[cc] || []).find(x => x.name === h.name);
+              if (match) {
+                const row = await api.createCompanyHoliday(entity.id, { date: match.date, name: h.name, source: 'public', country_code: cc, type: h.type });
+                newRows.push(row); any = true;
+              }
+            }
+            if (any) totalCopied++; else allMissed.push(`${h.name} (${toYear})`);
+          } else {
+            const [, m, d] = h.date.split('-');
+            const row = await api.createCompanyHoliday(entity.id, { date: `${toYear}-${m}-${d}`, name: h.name, source: 'manual', country_code: '', type: h.type });
+            newRows.push(row); totalCopied++;
+          }
+        }
+        current = [...current, ...newRows];
       }
       load();
-      toastOk(`Copied ${copied} holiday${copied === 1 ? '' : 's'} to ${toYear}.` + (missed.length ? ` Couldn't find a ${toYear} date for: ${missed.join(', ')} - add manually.` : ''));
-    } catch (e) { toastErr(e?.message || 'Could not copy holidays to next year.'); }
+      toastOk(`Copied ${totalCopied} holiday${totalCopied === 1 ? '' : 's'} across ${copyYears.length} year${copyYears.length === 1 ? '' : 's'}.` + (allMissed.length ? ` Couldn't find a date for: ${allMissed.join(', ')} - add manually.` : ''));
+    } catch (e) { toastErr(e?.message || 'Could not copy holidays.'); }
+    setCopyYears([]);
     setCopyBusy(false);
   }
 
@@ -3942,13 +3957,30 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
       <div style={{ marginBottom: 26 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 700 }}>{entity.name}'s holidays ({holidays.length})</div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
             {holidays.length > 0 && (
-              <button className="secondary-btn" onClick={copyToNextYear} disabled={copyBusy}
-                title={`Copy this holiday set forward to ${Math.max(...holidays.map(h => Number(h.date.slice(0, 4)))) + 1} - looks up the real date for movable holidays instead of just adding a year`}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                {copyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={12} />} Copy to {Math.max(...holidays.map(h => Number(h.date.slice(0, 4)))) + 1}
-              </button>
+              <>
+                <button className="secondary-btn" onClick={() => setCopyPickerOpen(v => !v)} disabled={copyBusy}
+                  title="Copy this holiday set forward to one or more future years - looks up the real date for movable holidays instead of just adding a year"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                  {copyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={12} />} Copy to year(s)
+                </button>
+                {copyPickerOpen && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', padding: 12, minWidth: 180 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>COPY TO</div>
+                    {copyYearOptions.map(y => (
+                      <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 12.5 }}>
+                        <input type="checkbox" checked={copyYears.includes(y)} onChange={() => toggleCopyYear(y)} />
+                        {y}
+                      </label>
+                    ))}
+                    <button className="primary-btn" onClick={copyToYears} disabled={!copyYears.length || copyBusy}
+                      style={{ width: '100%', marginTop: 10, fontSize: 12, padding: '6px 0' }}>
+                      Copy{copyYears.length ? ` to ${copyYears.length} year${copyYears.length === 1 ? '' : 's'}` : ''}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
             <button className="secondary-btn" onClick={createPolicyFromHolidays} disabled={!holidays.length || policyBusy}
               title="Save this holiday set as a reusable policy other companies can pull in"
@@ -3977,7 +4009,7 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
         })}
       </div>
 
-      <HolidayPolicyPanel entity={entity} onApplied={load} toastOk={toastOk} toastErr={toastErr} />
+      <HolidayPolicyPanel entity={entity} entities={entities} onApplied={load} toastOk={toastOk} toastErr={toastErr} />
     </div>
   );
 }
@@ -3987,7 +4019,7 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
 // ("where it says Greens Global's holidays, I want you to establish that as
 // a policy"), but the policies themselves are global: apply one to ANY
 // company, not just the one you created it from.
-function HolidayPolicyPanel({ entity, onApplied, toastOk, toastErr }) {
+function HolidayPolicyPanel({ entity, entities = [], onApplied, toastOk, toastErr }) {
   const [policies, setPolicies] = useState([]);
   const [busyId, setBusyId] = useState('');
   const [editing, setEditing] = useState(null);   // the policy object being edited, or null
@@ -3996,6 +4028,13 @@ function HolidayPolicyPanel({ entity, onApplied, toastOk, toastErr }) {
     api.getHolidayPolicies().then(setPolicies).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // Applying a policy is open to every company; editing/renaming/deleting one
+  // is not (Pranshu, Sep 22: "should be only editable by the company by which
+  // it was created") - the backend enforces this too (403 otherwise), this
+  // just keeps the buttons from being offered in the first place.
+  const ownerName = p => entities.find(e => e.id === p.companyId)?.name || '';
+  const isOwner = p => p.companyId === entity.id;
 
   async function apply(p) {
     if (!await dialog.confirm(`Apply "${p.name}" (${(p.holidays || []).length} holidays) to ${entity.name}? This adds/merges them onto ${entity.name}'s calendar - it won't remove anything already there.`, { title: 'Apply policy', confirmText: 'Apply' })) return;
@@ -4033,14 +4072,21 @@ function HolidayPolicyPanel({ entity, onApplied, toastOk, toastErr }) {
         <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 700 }}>{p.name}</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{(p.holidays || []).length} holiday{(p.holidays || []).length === 1 ? '' : 's'}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+              {(p.holidays || []).length} holiday{(p.holidays || []).length === 1 ? '' : 's'}
+              {ownerName(p) && ` · Created by ${ownerName(p)}`}
+            </div>
           </div>
           <button className="secondary-btn" onClick={() => apply(p)} disabled={busyId === p.id} style={{ fontSize: 11.5, padding: '4px 10px' }}>
             {busyId === p.id ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : `Apply to ${entity.name}`}
           </button>
-          <button onClick={() => setEditing(p)} title="Edit holidays" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><Pencil size={13} /></button>
-          <button onClick={() => rename(p)} title="Rename" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><FileText size={13} /></button>
-          <button onClick={() => remove(p)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 6 }}><Trash2 size={13} /></button>
+          {isOwner(p) && (
+            <>
+              <button onClick={() => setEditing(p)} title="Edit holidays" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><Pencil size={13} /></button>
+              <button onClick={() => rename(p)} title="Rename" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><FileText size={13} /></button>
+              <button onClick={() => remove(p)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 6 }}><Trash2 size={13} /></button>
+            </>
+          )}
         </div>
       ))}
       {editing && (
