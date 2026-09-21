@@ -2236,6 +2236,26 @@ export function defaultSendEntityId(entities, employees, senderEmail) {
   return greens?.id || list[0]?.id || '';
 }
 
+/** Everything a template asks a human for, in the order the form shows them:
+ *  its typed field definitions, then any {{token}} in its text that has no
+ *  definition. A template typed by hand, pasted, or imported from Word carries
+ *  tokens but no defs - those were never asked for, so the generated document
+ *  went out saying "Dear {{full_name}}" (Sagar, Sep 21 2026). Signature /
+ *  initials / image / file are placed on the document, never typed, and
+ *  `tokens` (computed server-side, documents._template_tokens) already leaves
+ *  out the self-filling ones (today, template.*).
+ *
+ *  Every answer is optional: a field left blank is filled from the person in
+ *  About and the selected Company when the document is generated. */
+export function templateAskFields(t) {
+  const prettyLabel = (token) => token.replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const defs = (t?.fieldDefs || []).filter(fd => !RESERVED_FIELD_TYPES.includes(fd.type));
+  const declared = new Set((t?.fieldDefs || []).map(fd => fd.token));
+  const loose = (t?.tokens || []).filter(tk => !declared.has(tk))
+    .map(tk => ({ token: tk, label: prettyLabel(tk), type: 'text' }));
+  return [...defs, ...loose];
+}
+
 function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed, onClose, onSent, toastOk, toastErr }) {
   const { myEmail } = useRole() || {};
   const [boxRef, boxH] = useFillHeight();
@@ -2380,7 +2400,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const [pendingTpl, setPendingTpl] = useState(null);
   const [fillValues, setFillValues] = useState({});
   const [fillErrors, setFillErrors] = useState({});
-  const askableFields = (t) => (t?.fieldDefs || []).filter(fd => !RESERVED_FIELD_TYPES.includes(fd.type));
+  const askableFields = templateAskFields;
 
   const pickDocTemplate = async (t) => {
     if (generating) return;
@@ -2412,12 +2432,34 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
     if (ok) setPendingTpl(null);
   };
 
+  // What was generated last, so changing About / Company below regenerates the
+  // same template with the same answers instead of silently leaving a document
+  // whose {{tokens}} were resolved against the old pair.
+  const lastGen = useRef(null);   // { tpl, values }
+
   const generateFromTemplate = async (t, fillValuesPayload) => {
     setGenerating(t.id);
+    lastGen.current = { tpl: t, values: fillValuesPayload };
     try {
+      // The document is born with its subject and company, so the server
+      // resolves {{full_name}}, {{job_title}}, {{company_address}}… while
+      // generating. Without them the PDF keeps the raw tokens.
+      // A candidate is not an employee row, so their details ride along as
+      // fill values (same precedence as any typed-in value).
+      const emp = subjectId.startsWith('e:') ? subjectId.slice(2) : '';
+      const cand = subjectId.startsWith('c:') ? candidates.find(x => x.id === subjectId.slice(2)) : null;
+      const values = { ...fillValuesPayload };
+      if (cand) Object.assign(values, {
+        first_name: cand.firstName || '', last_name: cand.lastName || '',
+        full_name: `${cand.firstName || ''} ${cand.lastName || ''}`.trim(),
+        email: cand.email || '', job_title: cand.roleTitle || '',
+        department: cand.department || '', start_date: cand.expectedStart || '',
+      });
       const doc = await api.createDocument({
         title: t.name, templateId: t.id,
-        ...(Object.keys(fillValuesPayload).length ? { fillValues: fillValuesPayload } : {}) });
+        ...(emp ? { employeeId: emp } : {}),
+        ...(entityId ? { entityId } : {}),
+        ...(Object.keys(values).length ? { fillValues: values } : {}) });
       const { blob, filename } = await api.exportDocumentPdf(doc.id);
       const file = new File([blob], (filename || `${t.name}.pdf`).replace(/\.pdf$/i, '') + '.pdf',
                             { type: 'application/pdf' });
@@ -2437,6 +2479,17 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
       return false;
     } finally { setGenerating(''); }
   };
+
+  // Re-generate when the subject or company changes after a template was
+  // picked - they are chosen beside the template list, usually AFTER it, and
+  // the first document was built without them. Only on the Document step: past
+  // it, fields have been placed on the PDF and replacing it would drop them.
+  useEffect(() => {
+    const gen = lastGen.current;
+    if (!gen || !docTemplateId || step !== 0 || generating) return;
+    generateFromTemplate(gen.tpl, gen.values);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjectId, entityId]);
 
   const [egnyteOpen, setEgnyteOpen] = useState(false);
   const [converting, setConverting] = useState(false);
@@ -2747,6 +2800,12 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                   <>
                     <label style={FL}>Fill in {pendingTpl.name}</label>
                     <div style={{ border: '1.5px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)' }}>
+                      {/* Blank is a real answer: anything left empty is filled
+                          from the person picked in About (and the Company)
+                          when the document is generated. */}
+                      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>
+                        Leave a field blank to fill it from the person in <strong>About</strong> and the selected <strong>Company</strong>.
+                      </p>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 11, ...(isMobile ? {} : { maxHeight: 420, overflowY: 'auto' }) }}>
                         {askableFields(pendingTpl).map(fd => (
                           <div key={fd.token}>

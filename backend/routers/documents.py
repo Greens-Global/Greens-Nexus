@@ -190,6 +190,13 @@ class DocumentIn(BaseModel):
     content: Optional[dict] = None
     tags: Optional[List[str]] = None
     fillValues: Optional[dict] = None   # Template Builder (Phase 13) - Generate Document fill-form values, keyed by token
+    # Merge-field subject + company, same two ids DocumentUpdate already
+    # carries. Without them a document generated straight from a template
+    # (Nexus Sign's "start from a template") had no person and no company to
+    # resolve {{full_name}} / {{company_address}} against, so the export kept
+    # the raw tokens (Sagar, Sep 21).
+    employeeId: Optional[str] = None
+    entityId: Optional[str] = None
 
 
 class DocumentUpdate(BaseModel):
@@ -329,6 +336,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
     status = "final" if generated else "draft"
     row = Document(id=str(uuid.uuid4()), title=body.title.strip(), folder_id=body.folderId or "",
                     template_id=body.templateId or "",
+                    employee_id=body.employeeId or "", entity_id=body.entityId or "",
                     template_version=(tpl.version or 1) if (generated and tpl) else 0,
                     content=content, letterhead_id=letterhead_id,
                     merge_overrides=merge_overrides,
@@ -383,11 +391,44 @@ def _require_template_manager(db: Session, user: dict, department: str) -> None:
         raise HTTPException(403, f"This template belongs to {department}, not your department")
 
 
+_CONTENT_TOKEN_RE = re.compile(r"\{\{\s*([a-z0-9_]+(?:\.[a-z0-9_]+)*)\s*\}\}")
+
+
+def _template_tokens(t: DocTemplate) -> list:
+    """Every {{variable}} the template actually uses, however it was written -
+    the editor's mergeField nodes AND plain text (typed by hand, pasted, or
+    imported from Word). `template.*` and `today` fill themselves, so they are
+    never asked of anyone. Sorted, so the fill form's order is stable.
+
+    Nexus Sign asks for these when a template is picked, which is why it is
+    computed here rather than re-derived from the editor JSON in two clients."""
+    found = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("type") == "mergeField":
+                token = (node.get("attrs") or {}).get("token") or ""
+                if token:
+                    found.add(token)
+            text = node.get("text")
+            if isinstance(text, str):
+                found.update(_CONTENT_TOKEN_RE.findall(text))
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(t.content if isinstance(t.content, dict) else {})
+    return sorted(tk for tk in found if tk != "today" and not is_auto_token(tk))
+
+
 def _ser_template(t: DocTemplate) -> dict:
     return {"id": t.id, "name": t.name, "category": t.category, "tags": t.tags or [],
             "content": t.content, "requiresLetterhead": t.requires_letterhead,
             "letterheadId": t.letterhead_id, "mergeOverrides": t.merge_overrides or {},
             "fieldDefs": t.field_defs or [],
+            "tokens": _template_tokens(t),
             "department": t.department or "",
             "docType": t.doc_type or "document",
             "signerRoles": t.signer_roles or [],
