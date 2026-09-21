@@ -2250,6 +2250,10 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # Daily Briefing one-click actions: authorized by a signed per-decision
     # token, same reasoning - see routers/briefing_actions.py.
     "/briefing-actions/page",
+    # Boot-failure beacon from public/guard.js: sent with credentials omitted
+    # while the app cannot load, by a user who usually has no session at all -
+    # see routers/client_errors.py.
+    "/client-errors/boot",
 })
 
 

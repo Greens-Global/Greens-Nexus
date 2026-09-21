@@ -34,7 +34,13 @@ installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
 // Act As) without importing React state - keeps api.js framework-agnostic.
 setCacheBridge(queryClient);
 
-sessionStorage.removeItem('nx-entry-retry');  // app booted - re-arm the boot guard (public/guard.js)
+// The boot guard (public/guard.js) used to have its retry counter cleared here
+// on every successful boot. That turned any failure AFTER boot - a lazy view
+// chunk, a stylesheet - into an endless reload loop, because each reload booted
+// far enough to reset the counter before failing again (Neil, prod, Sep 22).
+// The guard now keeps a time-windowed list that ages out on its own; nothing to
+// reset. The old key is removed once so no stale value lingers.
+try { sessionStorage.removeItem('nx-entry-retry'); } catch { /* storage blocked */ }
 // The app booted successfully, so any ?nxcb= cache-buster in the URL (from a
 // ViewErrorBoundary recovery reload) has done its job - strip it so the user
 // never sees an internal-looking query param in their address bar. Cosmetic and
