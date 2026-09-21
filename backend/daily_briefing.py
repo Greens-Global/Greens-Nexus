@@ -850,7 +850,7 @@ def render_email(employee_name: str, briefing_date: str, sections: dict) -> tupl
     counts_row = (f"<table cellpadding='0' cellspacing='0'><tr>{chips}</tr></table>"
                   if chips else "<div style='font-size:13px;color:#5c6a60'>Nothing new since your last briefing</div>")
     body_sections = "".join(_section_html(c, sections[c]) for c in _ORDER if sections.get(c))
-    subject = f"Your Nexus Briefing - {weekday_date}"
+    subject = f"Your Daily Briefing - {weekday_date}"
     html = f"""<div style="background:#eef1ee;padding:32px 14px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <style>
     /* Module accordion - collapsed by default; label click checks the hidden
