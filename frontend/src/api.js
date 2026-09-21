@@ -1004,6 +1004,19 @@ export const api = {
   // One-time sign-in URL for accounting.greensglobal.com - Nexus is the only
   // way in there (no passwords). Open the returned url immediately.
   launchAccounting: (next) => req(`/accounting/launch${next ? `?next=${encodeURIComponent(next)}` : ""}`, { method: "POST" }),
+  // Finance Dashboard (Overview / Cash / Performance / Close) - the same
+  // aggregates and shared tables the accounting app's own dashboard uses,
+  // proxied by backend/routers/accounting_dashboard.py.
+  getAccountingDashLedger: (scope, from, to, book) =>
+    req(`/accounting/dashboard/ledger?scope=${encodeURIComponent(scope)}&from=${from}&to=${to}&book=${book}`),
+  getAccountingDashCashEntities: (scope, asof, book) =>
+    req(`/accounting/dashboard/cash-entities?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}`),
+  getAccountingDashBudget: (from, to, book) => req(`/accounting/dashboard/budget?from=${from}&to=${to}&book=${book}`),
+  getAccountingDashNoi: (from, to, book) => req(`/accounting/dashboard/noi?from=${from}&to=${to}&book=${book}`),
+  getAccountingDashEntities: () => req("/accounting/dashboard/entities"),
+  getAccountingDashTables: (period) => req(`/accounting/dashboard/tables?period=${period}`),
+  accountingDashAction: (op, payload = {}) =>
+    req("/accounting/dashboard/action", { method: "POST", body: JSON.stringify({ op, payload }) }),
 
   // Ops
   getOpsProjects: () => req("/ops-projects"),

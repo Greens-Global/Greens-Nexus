@@ -83,7 +83,14 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // mammoth (vendor-docx, 497 KB) - SOP.jsx and docBuilderImport.js are the two
 // callers left, both already dynamic, so what remains is proving nothing else
 // pulls it statically.
-const TOTAL_KB     = 9300;
+// Sep 22, 2026: 9300 -> 9400. Accounting Dashboard (Visesh): the finance
+// dashboard from Nexus Accounting now lives in the Accounting view as its own
+// tabs (Overview / Cash / Performance / Close / Data) - the shared calculation
+// modules (accounting/dashboard/model, compiled from the accounting app's
+// TypeScript), 29 widgets and four tab screens. Measured +138 KB, total 9331.
+// Taken deliberately for a whole new module, owner asked. The mammoth note
+// above still names the real lever.
+const TOTAL_KB     = 9400;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a
