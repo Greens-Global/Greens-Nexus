@@ -23,8 +23,10 @@ All state is in-process per gunicorn worker (no Redis in this stack) - an
 attacker rotating across all 8 workers gets 8x the thresholds, which still
 collapses abuse by orders of magnitude. See cache.py for the same tradeoff.
 """
+import collections
 import hashlib
 import json
+import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -145,3 +147,92 @@ class AuthFailureThrottle(BaseHTTPMiddleware):
                              f"{len(hits)} auth failures in {self.WINDOW_SEC}s - blocked {self.BLOCK_SEC}s",
                              ip=ip)
         return response
+
+
+class RequestRateLimit(BaseHTTPMiddleware):
+    """Per-caller request budget (Sep 22, 2026 - "no rate limiting" had been on
+    the security-debt list since June).
+
+    Budgets, all per rolling minute:
+      * a signed-in caller (BFF session cookie or Bearer token) - AUTHED_PER_MIN,
+        keyed on a hash of that credential, so one person's runaway tab can never
+        throttle a colleague on the same office NAT;
+      * an anonymous caller - ANON_PER_MIN per IP;
+      * an anonymous caller on a credential-taking route (login, external codes,
+        e-sign public links, the boot beacon) - SENSITIVE_PER_MIN per IP, which
+        is what turns guessing into a slow, logged affair;
+      * everyone - IP_CEILING per IP as a backstop, so rotating fake tokens does
+        not buy unlimited budget.
+
+    Sliding window in process memory: gunicorn runs several workers, so the real
+    ceiling is a few multiples of these numbers - they are a flood backstop,
+    not a fair-use meter. /health and /version are exempt (probes), OPTIONS is
+    exempt (preflights carry no credential). NEXUS_RATE_LIMIT=off disables it.
+    A trip logs once per caller per five minutes as security_rate_limited."""
+    WINDOW = 60
+    AUTHED_PER_MIN = int(os.getenv("NEXUS_RL_AUTHED", "900"))
+    ANON_PER_MIN = int(os.getenv("NEXUS_RL_ANON", "120"))
+    SENSITIVE_PER_MIN = int(os.getenv("NEXUS_RL_SENSITIVE", "30"))
+    IP_CEILING = int(os.getenv("NEXUS_RL_IP", "3000"))
+    SENSITIVE_PREFIXES = ("/auth/login", "/auth/callback", "/external-auth/", "/esign/public/",
+                          "/client-errors/boot", "/stepup/")
+    EXEMPT_PREFIXES = ("/health", "/version")
+    ENABLED = os.getenv("NEXUS_RATE_LIMIT", "on").strip().lower() not in ("off", "0", "false", "no")
+
+    def __init__(self, app):
+        super().__init__(app)
+        self._lock = threading.Lock()
+        self._hits: dict = {}        # key -> deque[timestamp]
+        self._logged: dict = {}      # key -> last security_log timestamp
+
+    @staticmethod
+    def _identity(request, ip: str):
+        auth = request.headers.get("authorization", "")
+        if auth:
+            return "a:" + hashlib.sha1(auth.encode()).hexdigest()[:20], True
+        sid = request.cookies.get("nx_session", "")
+        if sid:
+            return "s:" + hashlib.sha1(sid.encode()).hexdigest()[:20], True
+        return "ip:" + ip, False
+
+    def _count(self, key: str, limit: int, now: float) -> bool:
+        """Record one hit under key; True when the caller is over its budget."""
+        dq = self._hits.get(key)
+        if dq is None:
+            dq = self._hits[key] = collections.deque()
+        while dq and now - dq[0] >= self.WINDOW:
+            dq.popleft()
+        if len(dq) >= limit:
+            return True
+        dq.append(now)
+        return False
+
+    async def dispatch(self, request, call_next):
+        if not self.ENABLED or request.method == "OPTIONS":
+            return await call_next(request)
+        path = request.url.path
+        if path.startswith(self.EXEMPT_PREFIXES):
+            return await call_next(request)
+        ip = _client_ip(request) or "?"
+        key, authed = self._identity(request, ip)
+        if not authed and path.startswith(self.SENSITIVE_PREFIXES):
+            key, limit = "sens:" + ip, self.SENSITIVE_PER_MIN
+        else:
+            limit = self.AUTHED_PER_MIN if authed else self.ANON_PER_MIN
+        now = time.time()
+        with self._lock:
+            over = self._count(key, limit, now) or self._count("ceil:" + ip, self.IP_CEILING, now)
+            if len(self._hits) > 20000:              # bound memory under spoofed floods
+                self._hits.clear()
+            log_it = over and now - self._logged.get(key, 0) > 300
+            if log_it:
+                self._logged[key] = now
+                if len(self._logged) > 5000:
+                    self._logged.clear()
+        if over:
+            if log_it:
+                security_log("rate_limited", f"over {limit}/min on {path[:80]} ({'signed-in' if authed else 'anonymous'})", ip=ip)
+            return Response(content=json.dumps({"detail": "Too many requests - slow down and try again in a moment."}),
+                            status_code=429, media_type="application/json",
+                            headers={"Retry-After": "10"})
+        return await call_next(request)

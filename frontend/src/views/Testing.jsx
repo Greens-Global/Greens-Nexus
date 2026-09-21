@@ -15,6 +15,7 @@ import { replayFlow } from '../lib/flowReplayer';
 import { graphToken, graphJSON, postChatMessage, GRAPH } from '../teamsGraph';
 import { msalInstance } from '../msalInstance';
 import { popupRedirectUri } from '../authConfig';
+import { toViewUrl } from '../lib/storageView';
 
 // ── Testing module - interactive QA runs over the audit test cases, bug
 // reports with recorded steps + AI conversion, assignments with due dates.
@@ -38,7 +39,7 @@ async function uploadEvidence(file, prefix = 'shot') {
   const { data, error } = await supabase.storage.from('qa-evidence')
     .upload(path, file, { contentType: file.type || 'image/png', upsert: false, cacheControl: '31536000' });
   if (error || !data) throw new Error(error?.message || 'Upload failed');
-  return supabase.storage.from('qa-evidence').getPublicUrl(data.path).data.publicUrl;
+  return toViewUrl(supabase.storage.from('qa-evidence').getPublicUrl(data.path).data.publicUrl);
 }
 
 // Plays back a screen recording. MediaRecorder writes live webm with NO duration

@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useMemo, u
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
 import { cleanName } from '../lib/utils';
+import { toViewUrl } from '../lib/storageView';
 
 const InventoryContext = createContext(null);
 
@@ -325,7 +326,7 @@ export function InventoryProvider({ children }) {
         .upload(path, file, { contentType: file.type, upsert: false, cacheControl: '31536000' });
       if (!error && uploaded) {
         const { data: urlData } = supabase.storage.from('return-photos').getPublicUrl(uploaded.path);
-        permanentUrl = urlData.publicUrl;
+        permanentUrl = toViewUrl(urlData.publicUrl);
       } else if (error) {
         photoUploadError = error.message || 'Photo upload failed';
         // Evidence is mandatory unless the item is flagged photo-optional - never

@@ -23,6 +23,7 @@ import { useAssignments, MyPermanentPanel, AssignmentsQueue, AssignItemModal } f
 import { renderNotifBody } from '../components/NotificationBell';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+import { toViewUrl } from '../lib/storageView';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 // Controlled item types - mirror _ITEM_TYPES in backend/routers/items.py. Add/edit
@@ -309,7 +310,7 @@ async function uploadToSupabase(file, bucket, path) {
   const { data: uploaded, error } = await supabase.storage.from(bucket).upload(path, file, { contentType: file.type, upsert: false, cacheControl: '31536000' });
   if (error || !uploaded) return { url: '', error: error?.message || 'Upload failed' };
   const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(uploaded.path);
-  return { url: urlData.publicUrl, error: null };
+  return { url: toViewUrl(urlData.publicUrl), error: null };
 }
 
 // ── Photo upload widget ────────────────────────────────────────────────────────
