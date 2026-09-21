@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { incomeStatement, isPl, isRevenue, plGroup } from '../../../accounting/dashboard/model/ledger';
+import { incomeStatement, incomeStatementWindow, isPl, isRevenue, plGroup, priorRange } from '../../../accounting/dashboard/model/ledger';
 import { monthLabel, monthsBetween, mShort, shiftKey } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
 import { Dot, EmptyBox, Eyebrow, Footnote, LoadingBox, Meter, mono, num, seriesColor, toneColor } from './Bits';
@@ -118,14 +118,15 @@ export function YtdVarianceWidget() {
 }
 
 function useBreakdown(kind) {
-  const { ledger, period } = useDash();
+  const { ledger, period, fromKey } = useDash();
   return useMemo(() => {
     if (!ledger) return null;
     const pick = (ls) => (kind === 'income' ? ls.filter((l) => l.actual > 0) : ls.filter((l) => l.actual < 0));
-    const cur = incomeStatement(ledger, period);
+    // Over the selected range; `prior` is the preceding run of the same length.
+    const cur = incomeStatementWindow(ledger, fromKey, period);
     const pk = shiftKey(period, 1);
-    const prevMap = new Map(ledger.months.includes(pk) ? incomeStatement(ledger, pk).map((l) => [l.id, l.actual]) : []);
-    const rows = pick(cur).map((l) => ({ ...l, amt: Math.abs(l.actual), prev: Math.abs(prevMap.get(l.id) ?? 0) })).sort((a, b) => b.amt - a.amt);
+    const hasPrev = ledger.months.includes(priorRange(fromKey, period).to);
+    const rows = pick(cur).map((l) => ({ ...l, amt: Math.abs(l.actual), prev: hasPrev ? Math.abs(l.prior) : 0 })).sort((a, b) => b.amt - a.amt);
     const tot = rows.reduce((t, r) => t + r.amt, 0);
     const ptot = rows.reduce((t, r) => t + r.prev, 0);
     const keys = monthsBetween(shiftKey(period, 5), period).filter((k) => ledger.months.includes(k));
@@ -139,12 +140,12 @@ function useBreakdown(kind) {
       o.other = other;
       return o;
     });
-    return { rows, tot, ptot, ch: ptot ? (tot - ptot) / ptot : null, top, trend, pk: ledger.months.includes(pk) ? pk : null };
-  }, [ledger, period, kind]);
+    return { rows, tot, ptot, ch: ptot ? (tot - ptot) / ptot : null, top, trend, pk: fromKey === period && ledger.months.includes(pk) ? pk : null, hasPrev };
+  }, [ledger, period, fromKey, kind]);
 }
 
 function Breakdown({ kind }) {
-  const { m, period, noiRows } = useDash();
+  const { m, noiRows, periodLabel } = useDash();
   const d = useBreakdown(kind);
   if (!d) return <LoadingBox />;
   if (!d.rows.length) return <EmptyBox title={kind === 'income' ? 'No income for this scope and month.' : 'No expenses for this scope and month.'} />;
@@ -177,7 +178,7 @@ function Breakdown({ kind }) {
       </div>
       <div className="req-table-wrapper">
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <thead><tr><th>{inc ? 'Income source' : 'Expense'}</th><th style={{ width: 110 }} /><th style={num}>{mShort(period)}</th><th style={num}>% of total</th><th style={num}>{d.pk ? mShort(d.pk) : 'Prior'}</th><th style={num}>Change</th></tr></thead>
+          <thead><tr><th>{inc ? 'Income source' : 'Expense'}</th><th style={{ width: 110 }} /><th style={num}>{periodLabel}</th><th style={num}>% of total</th><th style={num}>{d.pk ? mShort(d.pk) : 'Prior period'}</th><th style={num}>Change</th></tr></thead>
           <tbody>
             {d.rows.map((r, i) => (
               <tr key={r.id}>

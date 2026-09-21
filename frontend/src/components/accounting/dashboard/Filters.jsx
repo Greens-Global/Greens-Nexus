@@ -30,15 +30,49 @@ export function ScopeSelect() {
   );
 }
 
+/** Range presets, all ending at the chosen month. `months` is how many to include; null = custom start. */
+const RANGES = [
+  { id: 'month', label: 'Single month', months: 1 },
+  { id: 'quarter', label: 'Quarter to date', months: null, quarter: true },
+  { id: 'ytd', label: 'Year to date', months: null, ytd: true },
+  { id: 'l3', label: 'Last 3 months', months: 3 },
+  { id: 'l6', label: 'Last 6 months', months: 6 },
+  { id: 't12', label: 'Trailing 12 months', months: 12 },
+  { id: 'custom', label: 'Custom start…', months: null },
+];
+const quarterStart = (k) => `${k.slice(0, 4)}-${String(Math.floor((Number(k.slice(5, 7)) - 1) / 3) * 3 + 1).padStart(2, '0')}`;
+const rangeStart = (preset, to) => {
+  if (preset.quarter) return quarterStart(to);
+  if (preset.ytd) return `${to.slice(0, 4)}-01`;
+  return shiftKey(to, (preset.months ?? 1) - 1);
+};
+const presetOf = (from, to) => RANGES.find((p) => p.id !== 'custom' && rangeStart(p, to) === from)?.id ?? 'custom';
+
+/** Month picker with ranges: pick a preset (or a custom start) and step the end month; the range keeps its length. */
 export function MonthStepper() {
-  const { period, setPeriod, periodOptions, lastClosed } = useDash();
+  const { period, fromKey, setPeriod, setRange, periodOptions, lastClosed } = useDash();
   const options = periodOptions.includes(period) ? periodOptions : [period, ...periodOptions];
   const btn = { ...input, padding: '4px 6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' };
+  const active = { borderColor: 'var(--wk-brand, #2b45e1)', color: 'var(--wk-brand, #2b45e1)', fontWeight: 600 };
+  const preset = presetOf(fromKey, period);
+  const fromOptions = periodOptions.filter((k) => k <= period);
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-      <button type="button" aria-label="Previous month" style={btn} onClick={() => setPeriod(shiftKey(period, 1))}><ChevronLeft size={14} /></button>
+    <div style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
       <CalendarRange size={14} style={{ color: 'var(--text-muted)' }} />
-      <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Month" style={{ ...input, ...(period !== lastClosed ? { borderColor: 'var(--wk-brand, #2b45e1)', color: 'var(--wk-brand, #2b45e1)', fontWeight: 600 } : {}) }}>
+      <select value={preset} aria-label="Period range" style={{ ...input, ...(preset !== 'month' ? active : {}) }}
+        onChange={(e) => { const p = RANGES.find((x) => x.id === e.target.value); if (!p) return; if (p.id === 'custom') setRange(shiftKey(period, 2), period); else setRange(rangeStart(p, period), period); }}>
+        {RANGES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+      </select>
+      {preset !== 'month' ? (
+        <>
+          <select value={fromKey} onChange={(e) => setRange(e.target.value, period)} aria-label="From month" style={{ ...input, ...active }}>
+            {(fromOptions.includes(fromKey) ? fromOptions : [fromKey, ...fromOptions]).map((k) => <option key={k} value={k}>{monthLong(k)}</option>)}
+          </select>
+          <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>through</span>
+        </>
+      ) : null}
+      <button type="button" aria-label="Previous month" style={btn} onClick={() => setPeriod(shiftKey(period, 1))}><ChevronLeft size={14} /></button>
+      <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Month" style={{ ...input, ...(period !== lastClosed ? active : {}) }}>
         {options.map((k) => <option key={k} value={k}>{monthLong(k)}{k === lastClosed ? ' · last closed' : ''}</option>)}
       </select>
       <button type="button" aria-label="Next month" style={{ ...btn, opacity: period >= lastClosed ? 0.4 : 1 }} disabled={period >= lastClosed} onClick={() => setPeriod(shiftKey(period, -1))}><ChevronRight size={14} /></button>

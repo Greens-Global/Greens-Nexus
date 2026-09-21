@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../api';
-import { buildLedger, incomeStatement } from '../../../accounting/dashboard/model/ledger';
-import { lastClosedKey, mEnd, mStart, monthsBetween, shiftKey } from '../../../accounting/dashboard/model/months';
+import { buildLedger, incomeStatementWindow } from '../../../accounting/dashboard/model/ledger';
+import { lastClosedKey, mEnd, monthLong, mShort, mStart, monthsBetween, shiftKey } from '../../../accounting/dashboard/model/months';
 import { FX_INR_DEFAULT, money } from '../../../accounting/dashboard/model/money';
 import { indexEntities, scopeCurrency } from '../../../accounting/dashboard/model/scope';
 import { SCENARIOS } from '../../../accounting/dashboard/model/cash-plan';
@@ -41,7 +41,20 @@ export function DashProvider({ children }) {
   const saved = useMemo(() => readLS(), []);
   const lastClosed = lastClosedKey();
   const [scope, setScopeState] = useState(saved.scope || 'ALL');
-  const [period, setPeriod] = useState(validMonth(saved.period) && saved.period <= lastClosed ? saved.period : lastClosed);
+  // The selected run of months: `to` is the anchor month every monthly figure
+  // (close, cash plan) uses; `from` equals `to` for a single month.
+  const [range, setRangeState] = useState(() => {
+    const to = validMonth(saved.period) && saved.period <= lastClosed ? saved.period : lastClosed;
+    const from = validMonth(saved.from) && saved.from <= to ? saved.from : to;
+    return { from, to };
+  });
+  const period = range.to;
+  const fromKey = range.from;
+  // Moving the end month keeps the range's length (a quarter stays a quarter).
+  const setPeriod = useCallback((k) => setRangeState((r) => ({ from: shiftKey(k, monthsBetween(r.from, r.to).length - 1), to: k })), []);
+  const setRange = useCallback((f, t) => setRangeState({ from: f <= t ? f : t, to: t }), []);
+  const isRange = fromKey !== period;
+  const periodLabel = isRange ? `${mShort(fromKey)} - ${mShort(period)}` : monthLong(period);
   const [book, setBookState] = useState(['accrual', 'cash', 'all'].includes(saved.book) ? saved.book : 'accrual');
   const [scenarioId, setScenarioState] = useState(SCENARIOS[saved.scenario] ? saved.scenario : 'base');
   const [view, setViewState] = useState(saved.view || 'principal');
@@ -49,9 +62,11 @@ export function DashProvider({ children }) {
   const setBook = useCallback((b) => { setBookState(b); writeLS({ book: b }); }, []);
   const setScenario = useCallback((s) => { setScenarioState(s); writeLS({ scenario: s }); }, []);
   const setView = useCallback((v) => { setViewState(v); writeLS({ view: v }); }, []);
-  useEffect(() => { writeLS({ period }); }, [period]);
+  useEffect(() => { writeLS({ period, from: fromKey }); }, [period, fromKey]);
 
-  const from = mStart(shiftKey(period, WINDOW_MONTHS - 1));
+  // Load from a year before the range starts: trailing 12 for the end month,
+  // plus the same months last year for the whole range.
+  const from = mStart(shiftKey(fromKey, WINDOW_MONTHS - 1));
   const to = mEnd(period);
   const periodOptions = useMemo(() => monthsBetween(shiftKey(lastClosed, 23), lastClosed).reverse(), [lastClosed]);
 
@@ -87,7 +102,7 @@ export function DashProvider({ children }) {
 
   const ledger = useMemo(() => (monthlyQ.data ? buildLedger(monthlyQ.data, budgetQ.data ?? []) : null), [monthlyQ.data, budgetQ.data]);
   const ledgerNc = useMemo(() => (wantNc && monthlyNcQ.data ? buildLedger(monthlyNcQ.data, []) : null), [wantNc, monthlyNcQ.data]);
-  const lines = useMemo(() => (ledger ? incomeStatement(ledger, period) : []), [ledger, period]);
+  const lines = useMemo(() => (ledger ? incomeStatementWindow(ledger, fromKey, period) : []), [ledger, fromKey, period]);
 
   const cashEntities = useMemo(() => cashEntitiesQ.data ?? [], [cashEntitiesQ.data]);
   const cashSplit = useMemo(() => {
@@ -129,7 +144,7 @@ export function DashProvider({ children }) {
   }, [qc]);
 
   const value = {
-    scope, period, book, scenarioId, view, setScope, setPeriod, setBook, setScenario, setView, lastClosed, periodOptions,
+    scope, period, fromKey, isRange, periodLabel, book, scenarioId, view, setScope, setPeriod, setRange, setBook, setScenario, setView, lastClosed, periodOptions,
     ix, entities, currency, m,
     monthly: monthlyQ.data, ledger, ledgerNc, lines, cashEntities, cashSplit, noiRows, noiT12ByType,
     tables, tablesLoading: tablesQ.isLoading,

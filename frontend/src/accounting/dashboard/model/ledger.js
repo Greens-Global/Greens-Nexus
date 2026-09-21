@@ -94,6 +94,24 @@ export function incomeStatementRange(L, from, to) {
     }
     return [...acc.values()].sort((x, y) => PL_GROUPS.indexOf(x.group) - PL_GROUPS.indexOf(y.group) || x.gl.localeCompare(y.gl, "en-US", { numeric: true }));
 }
+/** The equal-length run of months just before [from, to]: the "prior period" for a range. */
+export function priorRange(from, to) {
+    const n = monthsBetween(from, to).length;
+    return { from: shiftKey(from, n), to: shiftKey(to, n) };
+}
+/**
+ * Income statement over [from, to] where `prior` is the PRECEDING run of the
+ * same length (a quarter compares to the quarter before it), not the sum of
+ * each month's previous month. For a single month it equals incomeStatement.
+ */
+export function incomeStatementWindow(L, from, to) {
+    if (from === to)
+        return incomeStatement(L, to);
+    const cur = incomeStatementRange(L, from, to);
+    const p = priorRange(from, to);
+    const prev = new Map(incomeStatementRange(L, p.from, p.to).map((l) => [l.id, l.actual]));
+    return cur.map((l) => ({ ...l, prior: prev.get(l.id) ?? 0 }));
+}
 export const sumLines = (ls, f = () => true, key = "actual") => ls.reduce((t, l) => (f(l) ? t + l[key] : t), 0);
 /** Revenue / expense / net income per month across the loaded window, plus month-end cash. */
 export function monthTotals(L) {

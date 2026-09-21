@@ -40,12 +40,12 @@ export function KpiCashNcWidget() {
 }
 
 export function KpiNiWidget() {
-  const { lines, m, loading } = useDash();
+  const { lines, m, loading, isRange, periodLabel } = useDash();
   const trend = useTrend();
   if (loading) return <LoadingBox height={80} />;
   const a = sumLines(lines);
   const p = sumLines(lines, () => true, 'prior');
-  return <Kpi value={m(a, { compact: true })} note="vs prior month" delta={<Delta v={p ? (a - p) / Math.abs(p) : null} />} spark={trend.map((t) => t.net)} sparkColor="#0998c3" />;
+  return <Kpi value={m(a, { compact: true })} note={isRange ? `${periodLabel} · vs prior period` : 'vs prior month'} delta={<Delta v={p ? (a - p) / Math.abs(p) : null} />} spark={trend.map((t) => t.net)} sparkColor="#0998c3" />;
 }
 
 export function KpiMarginWidget() {
