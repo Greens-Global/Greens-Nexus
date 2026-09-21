@@ -732,11 +732,17 @@ def _module_group_html(color: str, group_id: str, module: str, label: str, rows:
     if hidden:
         # Plain link, not another accordion layer - this is the part that has
         # to work identically in every client, so it cannot depend on CSS the
-        # way the outer toggle below does.
+        # way the outer toggle below does. But a bare "+N more -> Open in
+        # Nexus" told the reader nothing about what those N things actually
+        # WERE before making them leave the email to find out (Pranshu, Sep
+        # 21) - listing the titles as plain text needs no interactivity at
+        # all, so it's exactly as universal as the link itself.
         more_url = (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}"
-        cards += (f"<div style='margin:2px 0 10px'><a href='{escape(more_url)}' "
-                  f"style='font-size:12.5px;font-weight:700;color:{accent};text-decoration:none'>"
-                  f"+{len(hidden)} more &rarr; Open in Nexus</a></div>")
+        titles = "; ".join(escape(h["title"]) for h in hidden)
+        cards += (f"<div style='margin:2px 0 10px;font-size:12.5px;color:#5c6a60'>"
+                  f"<b style='color:#26312a'>+{len(hidden)} more:</b> {titles} &mdash; "
+                  f"<a href='{escape(more_url)}' style='font-weight:700;color:{accent};text-decoration:none'>"
+                  f"Open in Nexus &rarr;</a></div>")
     cid = f"nx-acc-{escape(group_id)}"
     # Checkbox-hack accordion, collapsed by default via the .nx-acc CSS rules
     # below. The content div's OWN inline style is display:block (visible) -
