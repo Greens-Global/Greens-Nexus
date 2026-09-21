@@ -6,7 +6,6 @@ import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 import { replayPendingBods } from '../lib/bodQueue';
-import { useIsMobile } from '../lib/useIsMobile';
 
 // Whether a desktop agent covers THIS machine is detected per-machine by asking
 // the local agent directly over localhost. The agent serves a no-side-effect
@@ -57,7 +56,6 @@ export default function TimeclockWidget() {
   const [lostOut, setLostOut] = useState(false);   // the quick punch-out did not record
   const [expanded, setExpanded] = useState(false); // capsule collapsed by default; expands upward
   const [localAgent, setLocalAgent] = useState(false); // /nexus/ping answered on THIS machine
-  const isMobile = useIsMobile('(max-width: 900px)');
   const wrapRef = useRef(null);
   const [, setTick] = useState(0);
   const streamsRef = useRef([]);                   // one MediaStream per shared screen
@@ -376,14 +374,11 @@ export default function TimeclockWidget() {
   // same flag that save bar renders from, and this component re-renders every
   // second, so the offset tracks it closely enough.
   const bottom = editGuard.dirty ? 88 : 18;
-  // The AI Assistant bubble (AssistantWidget.jsx) is pinned to the exact same
-  // fixed bottom-right corner on every module, by design - it never moves per
-  // module (Neil/Pranshu, Sep 19). Its desktop pill runs ~90px wide, so the
-  // clock capsule sits further left to clear it instead (Pranshu, Sep 21: the
-  // clocked-in time was getting covered by the AI button). On a phone the
-  // Assistant drops to a small icon circle and rides above the bottom nav bar,
-  // clear of this capsule's own position without extra room.
-  const right = isMobile ? 18 : 116;
+  // Back to the plain corner (Neil, Sep 21: the AI Assistant bubble - the
+  // thing this used to dodge - is hidden for now, see ASSISTANT_ENABLED in
+  // AssistantWidget.jsx). Re-apply the clearance offset alongside re-enabling
+  // that flag if the Assistant comes back.
+  const right = 18;
 
   return (
     <div ref={wrapRef} style={{ position: 'fixed', bottom, right, zIndex: 1190, display: 'flex',
