@@ -3837,6 +3837,60 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
     setPolicyBusy(false);
   }
 
+  // Roll the current holiday set forward one year (Pranshu, Sep 22: "I want
+  // the same holiday for next year also... I don't want to select again").
+  // Naively adding 365 days to every date would be WRONG for a movable
+  // holiday (Diwali, Good Friday, MLK Day - "3rd Monday of January") - only a
+  // FIXED calendar date (New Year's Day) survives that. So: for a public
+  // holiday, look up next year's REAL date from the same public-holiday
+  // source by matching on name (per country, since two countries sharing a
+  // holiday name aren't guaranteed to land on the same date); a manual entry
+  // has no such source, so it's a best-effort +1 year on the same month/day.
+  const [copyBusy, setCopyBusy] = useState(false);
+  async function copyToNextYear() {
+    if (!holidays.length || copyBusy) return;
+    const fromYear = Math.max(...holidays.map(h => Number(h.date.slice(0, 4))));
+    const toYear = fromYear + 1;
+    const fromYearHolidays = holidays.filter(h => h.date.startsWith(String(fromYear)));
+    const alreadyNextYear = new Set(holidays.filter(h => h.date.startsWith(String(toYear))).map(h => h.name));
+    const toCopy = fromYearHolidays.filter(h => !alreadyNextYear.has(h.name));
+    if (!toCopy.length) { toastOk(`Nothing new to copy - ${toYear} already has all of ${fromYear}'s holidays.`); return; }
+    if (!await dialog.confirm(`Copy ${toCopy.length} holiday${toCopy.length === 1 ? '' : 's'} from ${fromYear} to ${toYear}? Movable holidays (Diwali, Good Friday, etc.) get their real ${toYear} date looked up, not just +365 days.`,
+      { title: `Copy holidays to ${toYear}`, confirmText: 'Copy' })) return;
+    setCopyBusy(true);
+    try {
+      const countries = [...new Set(toCopy.flatMap(h => countriesOf(h)))];
+      const nextYearByCountry = {};
+      for (const cc of countries) {
+        try { nextYearByCountry[cc] = (await api.getPublicHolidays(cc, toYear)) || []; }
+        catch { nextYearByCountry[cc] = []; }
+      }
+      let copied = 0;
+      const missed = [];
+      for (const h of toCopy) {
+        if (h.source === 'public') {
+          const codes = countriesOf(h);
+          let any = false;
+          for (const cc of codes) {
+            const match = (nextYearByCountry[cc] || []).find(x => x.name === h.name);
+            if (match) {
+              await api.createCompanyHoliday(entity.id, { date: match.date, name: h.name, source: 'public', country_code: cc, type: h.type });
+              any = true;
+            }
+          }
+          if (any) copied++; else missed.push(h.name);
+        } else {
+          const [, m, d] = h.date.split('-');
+          await api.createCompanyHoliday(entity.id, { date: `${toYear}-${m}-${d}`, name: h.name, source: 'manual', country_code: '', type: h.type });
+          copied++;
+        }
+      }
+      load();
+      toastOk(`Copied ${copied} holiday${copied === 1 ? '' : 's'} to ${toYear}.` + (missed.length ? ` Couldn't find a ${toYear} date for: ${missed.join(', ')} - add manually.` : ''));
+    } catch (e) { toastErr(e?.message || 'Could not copy holidays to next year.'); }
+    setCopyBusy(false);
+  }
+
   return (
     <div style={{ padding: '18px 4px', maxWidth: 720 }}>
       <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 20px' }}>
@@ -3886,13 +3940,22 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
       </div>
 
       <div style={{ marginBottom: 26 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 700 }}>{entity.name}'s holidays ({holidays.length})</div>
-          <button className="secondary-btn" onClick={createPolicyFromHolidays} disabled={!holidays.length || policyBusy}
-            title="Save this holiday set as a reusable policy other companies can pull in"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-            {policyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <BookMarked size={12} />} Create policy from these holidays
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {holidays.length > 0 && (
+              <button className="secondary-btn" onClick={copyToNextYear} disabled={copyBusy}
+                title={`Copy this holiday set forward to ${Math.max(...holidays.map(h => Number(h.date.slice(0, 4)))) + 1} - looks up the real date for movable holidays instead of just adding a year`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                {copyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={12} />} Copy to {Math.max(...holidays.map(h => Number(h.date.slice(0, 4)))) + 1}
+              </button>
+            )}
+            <button className="secondary-btn" onClick={createPolicyFromHolidays} disabled={!holidays.length || policyBusy}
+              title="Save this holiday set as a reusable policy other companies can pull in"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              {policyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <BookMarked size={12} />} Create policy from these holidays
+            </button>
+          </div>
         </div>
         {holidays.length === 0 ? (
           <p style={{ fontSize: 12, color: 'var(--muted)' }}>No holidays set yet.</p>
