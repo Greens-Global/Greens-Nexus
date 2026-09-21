@@ -2057,6 +2057,38 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] company-holiday dedupe skipped: {e}")
+    # Holiday policy ownership backfill (Pranshu, Sep 22: "atleast it should
+    # say who is the policy owner and only they can edit the policy") -
+    # hr_holiday_policies shipped before company_id was added to it, so every
+    # policy created in that window has no recorded owner and nobody can edit
+    # it. There's no stored "which company was this made from," but every
+    # policy DOES record who made it (created_by) - the best available proxy
+    # is that person's own company. One-time, idempotent: only touches rows
+    # whose company_id is still blank, and only where the creator can still
+    # be resolved to a company.
+    try:
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            orphans = (db.query(models.HrHolidayPolicy)
+                       .filter((models.HrHolidayPolicy.company_id == None) |  # noqa: E711
+                               (models.HrHolidayPolicy.company_id == "")).all())
+            fixed = 0
+            for p in orphans:
+                if not p.created_by:
+                    continue
+                creator = (db.query(models.NexusEmployee)
+                           .filter(models.NexusEmployee.work_email.ilike(p.created_by)).first())
+                if creator and creator.company:
+                    p.company_id = creator.company
+                    fixed += 1
+            if fixed:
+                db.commit()
+                print(f"[startup] backfilled an owner on {fixed} holiday {'policy' if fixed == 1 else 'policies'}")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] holiday policy ownership backfill skipped: {e}")
     # Workforce Analytics Policy goes per-company (Sep 19, Pranshu: "all
     # companies have their different workforce analytics policy"). Was a
     # single shared row (id='default', company_id=''); that row now stays as
