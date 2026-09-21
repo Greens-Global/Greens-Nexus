@@ -506,6 +506,7 @@ def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> li
     rows.extend(_item_needs_to_know_rows(db, email, since_iso, bool(my_reports)))
     rows.extend(_ticket_needs_to_know_rows(db, email, since_iso))
     rows.extend(_esign_needs_to_know_rows(db, email, since_iso))
+    rows.extend(_manager_task_completion_rows(db, email, since_iso, my_reports))
     return rows
 
 
@@ -530,10 +531,16 @@ def _item_completed_rows(db: Session, email: str, since_iso: str) -> list:
 
 def _green_rows(db: Session, email: str, since_iso: str) -> list:
     rows = []
+    # Completed is "you did this" - only the person actually ASSIGNED the task
+    # belongs here (Pranshu, Sep 21). An owner/follower who never did the work
+    # is still a collaborator and still needs to know it's done, but that's an
+    # FYI, not their own accomplishment - _amber_rows' own activity-feed loop
+    # already covers them (a "completed" TaskActivity fires there for every
+    # non-actor collaborator), so nothing extra is needed here for that case.
     for t in (db.query(models.Task)
               .filter(models.Task.completed == True,  # noqa: E712
                       models.Task.completed_at >= since_iso).all()):
-        if email.lower() not in _collaborator_emails(t):
+        if email.lower() not in task_assignees(t):
             continue
         rows.append({
             "title": f"{t.code or 'Task'} - {t.title}",
@@ -544,6 +551,42 @@ def _green_rows(db: Session, email: str, since_iso: str) -> list:
     rows.extend(_item_completed_rows(db, email, since_iso))
     rows.extend(_ticket_completed_rows(db, email, since_iso))
     rows.extend(_esign_completed_rows(db, email, since_iso))
+    return rows
+
+
+def _manager_task_completion_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> list:
+    """A manager gets ONE card per direct report summarizing everything that
+    report finished since the manager's last briefing - not one row per task
+    (Pranshu, Sep 21: "suppose Aarav completed 5 tasks today it should not
+    come in large rows"). Mirrors the same "one card per employee" bundling
+    _red_rows already does for a report's pending time-off requests. The
+    manager just needs to know it happened, not act on each one, so this is
+    plain text (titles capped, "+N more" past that) rather than the module
+    accordion's own per-card cap - that cap only kicks in ACROSS separate
+    cards, and one card per report is already the compact form here."""
+    if not my_reports:
+        return []
+    report_emails = set(my_reports)
+    by_report: dict = {}
+    for t in (db.query(models.Task)
+              .filter(models.Task.completed == True,  # noqa: E712
+                      models.Task.completed_at >= since_iso).all()):
+        for rep in set(task_assignees(t)) & report_emails:
+            by_report.setdefault(rep, []).append(t)
+    rows = []
+    for rep_email, tasks in by_report.items():
+        emp = my_reports.get(rep_email)
+        name = f"{emp.first_name} {emp.last_name}".strip() if emp else rep_email
+        titles = [f"{t.code or 'Task'} - {t.title}" for t in tasks]
+        shown, hidden = titles[:3], titles[3:]
+        detail = "; ".join(shown) + (f"; and {len(hidden)} more" if hidden else "")
+        n = len(tasks)
+        rows.append({
+            "title": f"{name} completed {n} task{'' if n == 1 else 's'}",
+            "detail": detail,
+            "url": f"{app_url()}/tasks/mine?task={tasks[0].id}",
+            "module": "tasks",
+        })
     return rows
 
 
@@ -807,7 +850,7 @@ def render_email(employee_name: str, briefing_date: str, sections: dict) -> tupl
     counts_row = (f"<table cellpadding='0' cellspacing='0'><tr>{chips}</tr></table>"
                   if chips else "<div style='font-size:13px;color:#5c6a60'>Nothing new since your last briefing</div>")
     body_sections = "".join(_section_html(c, sections[c]) for c in _ORDER if sections.get(c))
-    subject = f"Your Nexus Briefing - {weekday_date}"
+    subject = f"Your Daily Briefing - {weekday_date}"
     html = f"""<div style="background:#eef1ee;padding:32px 14px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <style>
     /* Module accordion - collapsed by default; label click checks the hidden
