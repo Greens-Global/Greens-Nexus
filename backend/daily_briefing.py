@@ -970,7 +970,7 @@ def _stat_chip_html(count: int, noun: str) -> str:
             f"white-space:nowrap'><b style='color:#173328'>{count}</b> {escape(noun)}</div></td>")
 
 
-def render_email(employee_name: str, briefing_date: str, sections: dict, recipient: str = "") -> tuple:
+def render_email(employee_name: str, briefing_date: str, sections: dict) -> tuple:
     _d = datetime.strptime(briefing_date, "%Y-%m-%d")
     weekday_date = f"{_d.strftime('%A, %B')} {_d.day}"  # avoid %-d/%#d (platform-specific strftime flags)
     chips = "".join(_stat_chip_html(len(sections[c]), _SUMMARY_NOUN[c]) for c in _ORDER if sections.get(c))
@@ -1015,21 +1015,6 @@ def render_email(employee_name: str, briefing_date: str, sections: dict, recipie
     </tr>
   </table>
 </div>"""
-    # Outlook Actionable Message card (Sep 23, Pranshu: "how to set this
-    # actionable buttons working for daily briefing mail") - one consolidated
-    # card for the whole Action Required section (briefing_mail_actions.
-    # build_card), embedded the same way task_mail_actions.decorate() does
-    # for task emails. hideOriginalBody is False in that card, so the plain
-    # HTML above still renders underneath in clients that show both - only
-    # gated on recipient/am_enabled/having anything actionable at all, so an
-    # unregistered deployment or an empty Action Required section never pays
-    # for a card nobody will see.
-    if recipient and task_mail_actions.am_enabled() and sections.get("action_required"):
-        card = briefing_mail_actions.build_card(sections["action_required"], recipient)
-        card_json = json.dumps(card, ensure_ascii=False).replace("</", "<\\/")
-        html = ("<html><head><meta http-equiv='Content-Type' content='text/html; charset=utf-8'>"
-                f"<script type='application/adaptivecard+json'>{card_json}</script>"
-                f"</head><body>{html}</body></html>")
     return subject, html
 
 
@@ -1045,7 +1030,7 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
 
     sections = build_sections(db, emp.work_email, since_iso, briefing_date)
     name = f"{emp.first_name} {emp.last_name}".strip()
-    subject, html = render_email(name, briefing_date, sections, emp.work_email)
+    subject, html = render_email(name, briefing_date, sections)
 
     mode = cfg.get("mode", "off")
     sent_at = ""

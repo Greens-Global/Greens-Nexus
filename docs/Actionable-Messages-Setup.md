@@ -15,17 +15,6 @@ one-time registration is done. Every other mail client keeps the signed
 fallback links, which already work today, so nothing breaks while this is
 pending.
 
-**Sep 23 addition:** the Daily Briefing's own Action Required section (task
-approvals, time-off approvals, ticket approvals, plus the same Comment/Mark
-Complete actions as above) also renders as one consolidated interactive card
-once registration is done - see `briefing_mail_actions.build_card` and
-`routers/briefing_actions.py`'s `/card` endpoint. Same two env vars gate it
-(`task_mail_actions.am_enabled()`), no separate registration needed. Unlike
-the single-task card, `hideOriginalBody` is `false` here - the rest of the
-digest (Needs to know/Completed) still renders as plain HTML underneath the
-card in clients that show both, since losing the whole digest just to show
-one actionable card would be a worse trade than a little visual redundancy.
-
 ## What changed on Sep 22
 
 Microsoft retired the legacy Actionable Messages token on June 8, 2026.
