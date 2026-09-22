@@ -2402,6 +2402,33 @@ async def upload_manual_signature_logo(entity_id: str, sig_id: str, file: Upload
     return _serialize_manual_signature(row, company)
 
 
+@router.post("/entities/{entity_id}/signature-sender-overrides/logo")
+async def upload_sender_override_logo(entity_id: str, file: UploadFile = File(...),
+                                      user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Upload-and-return-a-URL only (Sep 22, Pranshu: "should be same as we
+    upload in for normal employee") - a sender override isn't its own DB row
+    (it lives inside HrEntity.signature_sender_overrides, only written on the
+    section's whole-list Save), so unlike upload_manual_signature_logo above
+    there's no row here to attach the URL to; the frontend puts the returned
+    URL straight into the in-progress override's fields.logoUrl."""
+    _get_entity_or_404(entity_id, user, db)
+    ext = _IMAGE_TYPES.get(file.content_type or "")
+    if not ext:
+        raise HTTPException(400, "Logo must be JPEG, PNG, WebP, or GIF")
+    data = await file.read()
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise HTTPException(400, "Logo must be under 5 MB")
+    path = f"entities/{entity_id}/sender-override-logo-{uuid.uuid4()}.{ext}"
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": file.content_type, "cache-control": "max-age=31536000"},
+        content=data, timeout=60,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    return {"logoUrl": f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"}
+
+
 # ── Group manager - one person overseeing ALL companies (the escalation step
 # above each company's manager). A singleton, stored in nexus_settings.
 
