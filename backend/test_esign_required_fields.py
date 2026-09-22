@@ -20,6 +20,12 @@ import os
 import unittest
 
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
+# The flood backstop is not what this suite tests, and it counts: a packet this
+# size takes four /esign/public/ calls to open, so fourteen envelopes in two
+# seconds go straight past the 30/min anonymous budget and every assertion
+# reads 429 instead of the thing under test. Must be set before main imports -
+# the middleware reads it at class-definition time.
+os.environ.setdefault("NEXUS_RATE_LIMIT", "off")
 
 from fastapi.testclient import TestClient
 
