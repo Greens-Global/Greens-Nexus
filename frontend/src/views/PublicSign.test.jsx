@@ -83,10 +83,17 @@ describe('Nexus Sign external signing page', () => {
     expect(screen.queryByText(/Sign here/i)).toBeNull();
   });
 
+  it('shows the expiry as a US date, not an ISO one', async () => {
+    queue.push({ ...consentPayload, expiresOn: '2026-09-25' });
+    render(<PublicSign token="tok" />);
+    expect(await screen.findByText('09/25/2026')).toBeTruthy();
+    expect(screen.queryByText('2026-09-25')).toBeNull();
+  });
+
   it('offers paper signing without letting it compete with the primary action', async () => {
     queue.push(consentPayload);
     render(<PublicSign token="tok" />);
-    const primary = await screen.findByRole('button', { name: /Sign Electronically/i });
+    const primary = await screen.findByRole('button', { name: /^I Agree$/i });
     const paper = screen.getByRole('button', { name: /I would rather sign on paper/i });
     expect(primary.className).toContain('primary-btn');
     expect(paper.className).not.toContain('primary-btn');
@@ -103,7 +110,7 @@ describe('Nexus Sign external signing page', () => {
     fireEvent.click(screen.getByRole('checkbox'));
     queue.push({ ok: true, gate: 'otp', otpChannels: otpPayload.otpChannels });  // POST /consent
     queue.push(otpPayload);                                                      // reload
-    fireEvent.click(screen.getByRole('button', { name: /Sign Electronically/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^I Agree$/i }));
 
     expect(await screen.findByText("Verify It's You")).toBeTruthy();
     const consentCall = calls.find(c => c.url.endsWith('/consent'));
@@ -162,16 +169,61 @@ describe('Nexus Sign external signing page', () => {
     expect(screen.queryByRole('button', { name: /Legal entity name/ })).toBeNull();
   });
 
+  it('guides field by field: START first, then NEXT naming where it goes', async () => {
+    queue.push(openPayload);
+    render(<PublicSign token="tok" />);
+    // Before it is used it says only START - the signer has not been anywhere
+    // yet, so there is no "next" to name.
+    const start = await screen.findByRole('button', { name: /Start signing/i });
+    expect(start.textContent.replace(/\s+/g, ' ').trim()).toBe('START');
+
+    fireEvent.click(start);
+    // Now it names the field it will take them to, and keeps naming the one
+    // that is still outstanding as they go.
+    const next = await screen.findByRole('button', { name: /Next field:/i });
+    expect(next.textContent).toMatch(/NEXT/);
+    expect(next.textContent).toMatch(/Insurance confirmed/);
+
+    // Filling that one moves the tab on to whatever is still outstanding.
+    fireEvent.click(screen.getByRole('checkbox', { name: /Insurance confirmed/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Next field:/i }).textContent)
+      .toMatch(/Signature/i));
+  });
+
   it('will not let the signer finish while a required field is empty', async () => {
     queue.push(openPayload);
     render(<PublicSign token="tok" />);
-    const finish = await screen.findByRole('button', { name: /Finish/i });
-    expect(finish.disabled).toBe(true);
+    // Two of them now: the bar at the top and the one that follows the signer
+    // down the page - neither may be live while a field is empty.
+    const finishAll = await screen.findAllByRole('button', { name: /Finish/i });
+    expect(finishAll.length).toBe(2);
+    expect(finishAll.every(b => b.disabled)).toBe(true);
 
     // Ticking the checkbox clears one of the two, and the count follows.
     fireEvent.click(screen.getByRole('checkbox', { name: /Insurance confirmed/i }));
     expect(await screen.findByTitle(/1 required field left/i)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Finish/i }).disabled).toBe(true);
+    expect(screen.getAllByRole('button', { name: /Finish/i }).every(b => b.disabled)).toBe(true);
+  });
+
+  it('a rejected action says what went wrong without closing the document', async () => {
+    // A 400 off an action used to be shown with the SAME screen as a dead
+    // link - "Can't open this document" - so a signer whose Finish was
+    // rejected lost the document they were signing (Sagar, Sep 22 2026).
+    queue.push({ ...openPayload, status: 'completed' });
+    render(<PublicSign token="tok" />);
+    const download = await screen.findByRole('button', { name: /Download Signed Copy/i });
+
+    global.fetch = vi.fn(async () => ({
+      ok: false, status: 400,
+      json: async () => ({ detail: 'These required fields are still empty: Date, Name' }),
+    }));
+    fireEvent.click(download);
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.getByText(/These required fields are still empty/i)).toBeTruthy();
+    // Still the document, not the dead-link screen.
+    expect(screen.getByText('Subcontract Agreement')).toBeTruthy();
+    expect(screen.queryByText(/Can't open this document/i)).toBeNull();
   });
 
   it('explains an invalid link instead of rendering nothing', async () => {

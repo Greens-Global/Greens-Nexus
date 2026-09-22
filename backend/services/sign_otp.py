@@ -25,6 +25,7 @@ import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -42,6 +43,16 @@ RESEND_COOLDOWN_SEC = 30
 VERIFY_TTL_SEC = 1800
 
 _ON_AZURE = bool(os.getenv("WEBSITE_SITE_NAME"))
+
+
+def _api_base() -> str:
+    """This API's own public origin - where the copy page lives."""
+    for var in ("NEXUS_API_URL", "NEXUS_API_BASE"):
+        val = os.getenv(var, "").strip().rstrip("/")
+        if val:
+            return val
+    host = os.getenv("WEBSITE_HOSTNAME", "").strip()
+    return f"https://{host}" if host else "http://localhost:8000"
 
 
 def _now() -> datetime:
@@ -99,8 +110,24 @@ def channels_for(party) -> list[dict]:
 # signature must never be authorized by a code that was only ever printed to a
 # log.
 
+def copy_code_url(code: str) -> str:
+    """Link behind the Copy button in the email.
+
+    An email client cannot copy anything: every one of them strips JavaScript,
+    so a button in the message body can never reach the clipboard (Sagar,
+    Sep 22 2026 asked for a copy icon - this is the only shape that works).
+    The link opens a one-screen page on this API that does the copying.
+
+    The code rides in the URL FRAGMENT, never the query string: fragments are
+    not sent to the server, so the code stays out of access logs, proxies and
+    the Referer header, exactly as it does today.
+    """
+    return f"{_api_base()}/esign/public/copy-code#{quote(code)}"
+
+
 def _otp_email_html(code: str, title: str, sender_name: str) -> str:
     from html import escape
+    copy_url = copy_code_url(code)
     return f"""<div style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#f3f4f6;padding:28px 12px">
   <table style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border-collapse:collapse;width:100%">
     <tr><td style="background:#14532d;padding:24px 34px">
@@ -111,7 +138,20 @@ def _otp_email_html(code: str, title: str, sender_name: str) -> str:
       <p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6">
         Use this code to verify your identity and sign
         <strong>{escape(title)}</strong>{(' from ' + escape(sender_name)) if sender_name else ''}.</p>
-      <p style="margin:0 0 18px;font-size:32px;font-weight:800;letter-spacing:8px;color:#111827">{escape(code)}</p>
+      <table role="presentation" style="border-collapse:collapse;width:100%;margin:0 0 10px">
+        <tr><td style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:12px 10px 12px 18px">
+          <table role="presentation" style="border-collapse:collapse;width:100%">
+            <tr>
+              <td style="font-family:Consolas,Menlo,Courier New,monospace;font-size:30px;font-weight:800;letter-spacing:7px;color:#111827">{escape(code)}</td>
+              <td align="right" style="white-space:nowrap">
+                <a href="{escape(copy_url)}" style="display:inline-block;background:#ffffff;border:1px solid #d1d5db;border-radius:8px;padding:7px 12px;font-size:12.5px;font-weight:700;color:#14532d;text-decoration:none">&#128203; Copy</a>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+      </table>
+      <p style="margin:0 0 18px;font-size:11.5px;color:#9ca3af;line-height:1.5">
+        Copy opens a page that puts the code on your clipboard. You can also select the code above and copy it.</p>
       <p style="margin:0;font-size:12.5px;color:#6b7280;line-height:1.6">
         This code expires in 10 minutes and can be used once.
         If you were not expecting it, you can ignore this email - nothing is signed without it.</p>
@@ -122,6 +162,78 @@ def _otp_email_html(code: str, title: str, sender_name: str) -> str:
   </table>
 </div>"""
 
+
+# The page copy_code_url() points at. Self-contained on purpose: it is opened
+# from a phone's mail app on whatever connection that phone has, and it must
+# not depend on the SPA bundle, a font or an icon loading first.
+COPY_CODE_PAGE = """<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Copy Your Code</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#f3f4f6;font-family:Inter,Segoe UI,Arial,sans-serif;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+  .card{background:#fff;border-radius:16px;max-width:380px;width:100%;overflow:hidden;
+        box-shadow:0 10px 30px rgba(0,0,0,.08)}
+  .head{background:#14532d;color:#fff;padding:18px 24px;font-size:17px;font-weight:800}
+  .head span{display:block;color:#bbf7d0;font-size:12px;font-weight:600;margin-top:3px}
+  .body{padding:24px}
+  .code{font-family:Consolas,Menlo,monospace;font-size:34px;font-weight:800;letter-spacing:8px;
+        color:#111827;text-align:center;background:#f9fafb;border:1px solid #e5e7eb;
+        border-radius:12px;padding:16px 10px;user-select:all;-webkit-user-select:all}
+  button{width:100%;margin-top:14px;padding:13px;border:0;border-radius:10px;background:#14532d;
+         color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
+  button.done{background:#15803d}
+  p{margin:12px 0 0;font-size:12.5px;color:#6b7280;line-height:1.6;text-align:center}
+</style></head>
+<body>
+  <div class="card">
+    <div class="head">Nexus Sign<span>Verification Code</span></div>
+    <div class="body">
+      <div class="code" id="code">------</div>
+      <button id="btn" type="button">Copy Code</button>
+      <p id="hint">Tap Copy Code, then paste it on the signing page.</p>
+    </div>
+  </div>
+<script>
+(function(){
+  var raw = (location.hash || '').slice(1);
+  try { raw = decodeURIComponent(raw); } catch (e) {}
+  var code = raw.replace(/[^0-9A-Za-z-]/g, '').slice(0, 12);
+  var el = document.getElementById('code'), btn = document.getElementById('btn'),
+      hint = document.getElementById('hint');
+  if (!code) {
+    el.textContent = '------';
+    btn.style.display = 'none';
+    hint.textContent = 'This link is missing the code. Go back to the email and copy the code from there.';
+    return;
+  }
+  el.textContent = code;
+  function copy() {
+    var done = function () {
+      btn.textContent = 'Copied';
+      btn.className = 'done';
+      hint.textContent = 'The code is on your clipboard. Paste it on the signing page - it expires in 10 minutes.';
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(code).then(done, function () {});
+      return;
+    }
+    // Older mobile Safari and in-app browsers: select the code so one long
+    // press is all that is left to do.
+    var r = document.createRange();
+    r.selectNodeContents(el);
+    var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    try { if (document.execCommand('copy')) done(); } catch (e) {}
+  }
+  btn.addEventListener('click', copy);
+  copy();   // browsers that allow it copy on open; the rest still have the button
+})();
+</script>
+</body></html>"""
 
 def _send_email(to_email: str, code: str, title: str, sender_name: str) -> str:
     if graph_mail.graph_configured():

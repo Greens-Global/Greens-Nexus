@@ -156,7 +156,11 @@ class CertificateTests(unittest.TestCase):
     def test_the_disclosure_text_behind_the_cited_version_is_still_retrievable(self):
         for heading, _ in esign._disclosures():
             self.assertIn(heading, esign._disclosure_text())
-        for must in ("paper copy", "withdraw", "Scope of your consent", "Hardware and software"):
+        # The 7001(c) topics themselves, not the headings that carry them -
+        # the wording is the company's to change (version 3.0 renumbered every
+        # section); what may never drop out is what the law requires be said.
+        for must in ("paper copy", "withdraw", "Scope of Your Consent",
+                     "Hardware and Software", "Accessing and Retaining"):
             self.assertIn(must, esign._disclosure_text())
 
     def test_carries_attribution_evidence_for_each_signer(self):

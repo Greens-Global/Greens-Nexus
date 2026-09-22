@@ -12,11 +12,27 @@ Two layers, both added to a finished email by `decorate()`:
    answers with a refreshed card, so the email updates in place ("Marked
    complete").
 
-   Only rendered when NEXUS_AM_ORIGINATOR is set: that id comes from registering
-   this sender at https://outlook.office.com/connectors/oam/publish (scope
-   "Organization", approved by an Exchange admin). Without it Outlook ignores
-   the card, so it is simply not emitted - and it cannot work from a laptop at
-   all, because Outlook has to reach the action URL over public HTTPS.
+   Only rendered when NEXUS_AM_ORIGINATOR is set. Getting that id, and making
+   the actions work, is a one-time setup at https://aka.ms/ActionableMessagesPortal
+   (the Actionable Email Developer Dashboard - open outlook.office.com first,
+   or it renders blank):
+
+     1. Register an app in Entra ID for this API, "Expose an API", and set its
+        Application ID URI to the AppIdUri the provider registration generates
+        (api://auth-am-<guid>/<guid>). Preauthorize the Actions app id
+        48af08dc-f6d2-435f-b2a7-069abd99c086 on that scope.
+     2. Register the provider: sender mailbox, the API's base URL as the target,
+        scope "Organization", and the MsEntra Auth section from step 1. An
+        Exchange admin approves it, and grants tenant consent from the
+        dashboard's AAD Consent page.
+     3. Set NEXUS_AM_ORIGINATOR (the id it issues) and NEXUS_AM_AUDIENCE (that
+        same AppIdUri) on the API.
+
+   Microsoft retired the legacy (EAT) token on June 8, 2026 - action requests
+   now carry an Entra ID token, which is what routers/mail_actions validates.
+   Without the originator Outlook ignores the card, so it is simply not
+   emitted; and none of this can work from a laptop, because Outlook has to
+   reach the action URL over public HTTPS.
 
 2. **Signed action links** in the HTML body, for every other client (and for
    Outlook before the registration is approved): "Mark Complete", "Change

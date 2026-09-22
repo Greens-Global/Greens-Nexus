@@ -30,6 +30,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, Header, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
@@ -194,42 +195,80 @@ _MAX_SIG_BYTES = 200 * 1024          # decoded PNG cap for drawn signatures
 # stamped on each party is what the Certificate of Completion cites.
 # Bump the version whenever any wording below changes - old envelopes keep
 # citing the version their signers actually saw.
-_CONSENT_VERSION = "2.0-2026-09"
+# 3.0 (Sagar, Sep 22 2026): the disclosure below is the company's own
+# approved wording, replacing the summarized 2.0 text. Numbered sections, and
+# it names the company. The version only ever goes UP - an envelope signed
+# under 2.0 keeps citing 2.0, because the certificate must describe what that
+# signer actually read.
+_CONSENT_VERSION = "3.0-2026-09"
 _CONSENT_TEXT = (
-    "I agree to use electronic records and signatures for this document, and I "
-    "confirm that I can access and retain a copy of it. My electronic signature "
-    "is the legal equivalent of my handwritten signature."
+    "By checking the box below and selecting \"I Agree,\" I confirm that I have read "
+    "and understood this Electronic Records and Signatures Disclosure, that I can "
+    "access and retain a copy of it, and that I consent to use electronic records "
+    "and signatures for this document through Nexus Sign."
 )
 # (heading, body) - rendered in the signing UI above the consent checkbox and
 # reproduced verbatim on the Certificate of Completion.
 _ESIGN_DISCLOSURES = [
-    ("Right to a paper copy",
-     "You may request a paper copy of any record provided or made available to you "
-     "electronically. We do not charge a fee for a paper copy. Contact the sender "
-     "of this document, or {support}, to request one."),
-    ("Withdrawing your consent",
-     "You may withdraw your consent to use electronic records and signatures at any "
-     "time before you sign, at no cost, by declining this document or by contacting "
-     "{support}. If you withdraw consent, this document cannot be completed "
-     "electronically and the sender will have to make other arrangements with you; "
-     "withdrawal does not affect the validity of records you signed electronically "
-     "before you withdrew."),
-    ("Scope of your consent",
-     "Your consent applies to this document and its attachments, and to the notices "
-     "and copies we send you about it. It is not a consent to receive other, "
-     "unrelated records electronically."),
-    ("Getting copies and updating your contact details",
-     "When signing finishes, every party is emailed the completed document with "
-     "this certificate attached - or, if it is too large to attach, a link to "
-     "download it. It also stays available at the verification link printed on "
-     "the certificate. To update the email address we use for you, contact the "
-     "sender of the document."),
-    ("Hardware and software you need",
-     "A current version of a web browser that supports HTTPS and JavaScript "
-     "(Chrome, Edge, Safari or Firefox), a device that can display and print PDF "
-     "files, an active email account, and enough storage to save a PDF. If these "
-     "requirements change in a way that creates a material risk that you could not "
-     "access or retain your records, we will tell you."),
+    ("About This Disclosure",
+     "From time to time, Greens Global, LLC (\"we,\" \"us,\" or \"Company\") may be "
+     "required to provide you with certain notices, disclosures, records, or other "
+     "documents in writing. This disclosure explains how those materials may be "
+     "provided to you electronically through the Nexus Sign electronic signing "
+     "system. Please read this disclosure carefully. If you can access and retain "
+     "this information electronically and agree to receive and sign this document "
+     "electronically, please confirm your consent by selecting \"I Agree.\""),
+    ("1. Right to a Paper Copy",
+     "You may request a paper copy of any record that has been provided or made "
+     "available to you electronically. We do not charge a fee for providing a paper "
+     "copy. To request a paper copy, contact the sender of the document or email "
+     "{support}."),
+    ("2. Withdrawing Your Consent",
+     "You may withdraw your consent to receive and sign this document electronically "
+     "at any time before completing the signing process. You may withdraw your "
+     "consent by declining the document within your Nexus Sign signing session or by "
+     "contacting {support}. If you withdraw your consent, the document cannot be "
+     "completed electronically through Nexus Sign, and the sender will need to make "
+     "alternative arrangements with you. Withdrawal of consent does not affect the "
+     "validity of electronic records or signatures that you completed before "
+     "withdrawing your consent."),
+    ("3. Scope of Your Consent",
+     "Your consent applies to this document and its attachments; notices and "
+     "communications related to this document; and copies of the completed and "
+     "signed document. Your consent does not constitute consent to receive "
+     "unrelated documents or communications electronically."),
+    ("4. Receiving Your Completed Document",
+     "After all required parties have completed signing, Nexus Sign will provide the "
+     "completed document to the parties through the email address associated with "
+     "the signing process. Where applicable, the completed document will include or "
+     "be accompanied by a signature certificate and audit information documenting "
+     "the electronic signing process. The completed document and its associated "
+     "signing information may also remain available through the Nexus Sign "
+     "verification system."),
+    ("5. Updating Your Email Address",
+     "If your email address changes, you should notify the sender of the document so "
+     "that your contact information can be updated. You may also contact {support} "
+     "to request an update to your email address."),
+    ("6. Hardware and Software Requirements",
+     "To use Nexus Sign, you should have: a current web browser that supports HTTPS "
+     "and JavaScript, such as Chrome, Edge, Safari, or Firefox; a device capable of "
+     "displaying PDF documents; the ability to print or electronically save PDF "
+     "documents; an active email account; and sufficient storage to retain "
+     "electronic documents. If changes to these requirements create a material risk "
+     "that you will no longer be able to access or retain your electronic records, "
+     "we will provide appropriate notice where required."),
+    ("7. Accessing and Retaining Electronic Records",
+     "Before providing your consent, you should confirm that you are able to: access "
+     "and read this disclosure electronically; save or print this disclosure for "
+     "your records; and access and retain electronic copies of documents provided to "
+     "you through Nexus Sign."),
+    ("8. Electronic Signature",
+     "By selecting \"I Agree\" and proceeding with the signing process, you confirm "
+     "that: you agree to use electronic records and signatures for this document; "
+     "you can access and retain a copy of the electronic records provided to you; "
+     "you understand that your electronic signature is intended to authenticate your "
+     "approval of the document; and you intend to be bound by the document you "
+     "electronically sign, to the extent permitted by applicable law."),
 ]
 
 
@@ -735,12 +774,17 @@ def _sender_identity(db: Session, req: HrSignRequest) -> dict:
         name, title, phone = "", "", ""
     if not name:
         name = email.split("@")[0].replace(".", " ").title() if email else "A Nexus user"
-    entity = ""
+    entity, entity_address = "", ""
     if req.entity_id:
         ent = db.query(HrEntity).filter(HrEntity.id == req.entity_id).first()
         entity = (ent.name if ent else "") or ""
+        # The footer prints a postal address next to the copyright, the way a
+        # signature-service mail is expected to (Sagar, Sep 22, matching
+        # DocuSign's). The sending entity's registered address is the right one
+        # - it is the company actually asking for the signature.
+        entity_address = ((ent.registered_address or "").strip() if ent else "")
     return {"name": name, "email": email, "title": title, "phone": phone,
-            "entity": entity or _SOR_OPERATOR}
+            "entity": entity or _SOR_OPERATOR, "entityAddress": entity_address}
 
 
 def _from_display(sender_name: str) -> str:
@@ -751,9 +795,98 @@ def _from_display(sender_name: str) -> str:
     the person is, my chance of clicking on it is a lot higher." The address
     stays our sending mailbox (it has to; we are the ones authorized to send),
     so the display name is the only place the human's name can appear.
+
+    Getting it into the inbox takes _graph_send_mail's MIME path - Graph's JSON
+    message object carries a display name that Exchange then overwrites.
     """
     who = (sender_name or "").strip() or "A colleague"
     return f"{who} via {_SOR_NAME}"
+
+
+def _html_to_text(html: str) -> str:
+    """Crude HTML -> text for the plain-text alternative part. Not a renderer:
+    a multipart/alternative with a text half is what keeps an HTML-only mail
+    out of the spam heuristics, and what a text-only client shows."""
+    from html import unescape
+    txt = re.sub(r"(?is)<(script|style).*?</\1>", " ", html or "")
+    txt = re.sub(r"(?i)<br\s*/?>|</p>|</tr>|</div>", "\n", txt)
+    txt = re.sub(r"<[^>]+>", " ", txt)
+    txt = unescape(txt)
+    txt = re.sub(r"[ \t ]+", " ", txt)
+    return re.sub(r"\n\s*\n\s*\n+", "\n\n", txt).strip()
+
+
+def _graph_send_mail(*, from_addr: str, display_name: str, to_email: str, subject: str,
+                     html: str, reply_to: str = "", pdf: Optional[tuple] = None,
+                     timeout: float = 20.0) -> tuple:
+    """Send through Graph, as raw MIME first so the From display name survives.
+
+    Sagar, Sep 22: every request arrived in the inbox as plain "Nexus". The
+    JSON message object's from.emailAddress.name is accepted by Graph and then
+    replaced by Exchange with the sending MAILBOX's directory display name, so
+    "<sender> via Nexus Sign" never reached anyone. A finished MIME part makes
+    the From header ours. The address is still the authorized mailbox, so this
+    stays the "<person> via <service>" convention DocuSign uses, not a spoof.
+
+    /sendMail takes MIME as the base64 of the whole message in the request
+    BODY with Content-Type: text/plain - not the JSON envelope. If that call
+    fails for any reason (a tenant that refuses MIME submission, a malformed
+    part), it falls back to the JSON shape that has always worked rather than
+    dropping the mail: a request that arrives with the wrong From beats one
+    that never arrives. The returned detail says which path sent it.
+
+    `pdf` is an optional (filename, bytes) attachment.
+    """
+    from email.message import EmailMessage
+    from email.utils import formataddr
+    token = _graph_token()
+    url = f"https://graph.microsoft.com/v1.0/users/{from_addr}/sendMail"
+    mime_err = ""
+    try:
+        msg = EmailMessage()
+        msg["From"] = formataddr((display_name, from_addr))
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        if reply_to:
+            msg["Reply-To"] = reply_to
+        msg.set_content(_html_to_text(html))
+        msg.add_alternative(html, subtype="html")
+        if pdf:
+            name, data = pdf
+            msg.add_attachment(data, maintype="application", subtype="pdf", filename=name)
+        resp = httpx.post(url, headers={"Authorization": f"Bearer {token}",
+                                        "Content-Type": "text/plain"},
+                          content=base64.b64encode(msg.as_bytes()), timeout=timeout)
+        if resp.is_success:
+            return True, ""
+        mime_err = f"mime send failed ({resp.status_code}): {resp.text[:160]}"
+    except Exception as e:
+        mime_err = f"mime send raised: {str(getattr(e, 'detail', e))[:160]}"
+
+    message = {
+        "subject": subject,
+        "body": {"contentType": "HTML", "content": html},
+        "toRecipients": [{"emailAddress": {"address": to_email}}],
+        "from": {"emailAddress": {"address": from_addr, "name": display_name}},
+    }
+    if reply_to:
+        message["replyTo"] = [{"emailAddress": {"address": reply_to}}]
+    if pdf:
+        name, data = pdf
+        message["attachments"] = [{
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": name, "contentType": "application/pdf",
+            "contentBytes": base64.b64encode(data).decode(),
+        }]
+    try:
+        resp = httpx.post(url, headers={"Authorization": f"Bearer {token}"},
+                          json={"message": message, "saveToSentItems": False}, timeout=timeout)
+        # Sent, but as "Nexus" rather than the sender - say so, so the envelope
+        # log carries why the From looked wrong instead of leaving it a mystery.
+        return resp.is_success, (f"sent via json fallback - {mime_err}" if resp.is_success
+                                 else f"{mime_err}; json also failed: {resp.text[:140]}")
+    except Exception as e:
+        return False, f"{mime_err}; json also raised: {str(getattr(e, 'detail', e))[:140]}"
 
 
 def _contact_sender_mailto(party: HrSignParty, req: HrSignRequest, sender: dict) -> str:
@@ -781,37 +914,73 @@ def _contact_sender_mailto(party: HrSignParty, req: HrSignRequest, sender: dict)
         f"Sent to: {party.email or ''}\n"
         f"Requested by: {sender.get('name') or ''} <{sender.get('email') or ''}>\n"
         f"Envelope ID: {req.id}\n"
-        f"Date sent: {_us_date(req.created_at or '')}\n\n"
+        f"Date sent: {_us_date_slash(req.created_at or '')}\n\n"
         f"Could you confirm you sent this?\n\n"
         "Thank you."
     )
     return f"mailto:{quote(to)}?subject={quote(subject)}&body={quote(body)}"
 
 
+def _report_email_mailto(party: HrSignParty, req: HrSignRequest) -> str:
+    """Report Email - the escape hatch for a recipient who believes the request
+    is not genuine. Goes to IT (the service operator), not to the sender: if
+    the mail really is forged, the "sender" is exactly who must not receive the
+    report. Carries the envelope so IT can find it without a reply."""
+    from urllib.parse import quote
+    subject = f"Report suspicious {_SOR_NAME} email: {req.title}"
+    body = (
+        "I believe this signature request may not be genuine.\n\n"
+        f"Document: {req.title}\n"
+        f"Envelope ID: {req.id}\n"
+        f"Sent to: {party.email or ''}\n"
+        f"Date sent: {_us_date_slash(req.created_at or '')}\n\n"
+        "Please look into it."
+    )
+    return f"mailto:{quote(_SUPPORT_CONTACT)}?subject={quote(subject)}&body={quote(body)}"
+
+
 def _email_legal_footer(party: HrSignParty, req: HrSignRequest, sender: dict) -> str:
     """The strip every Nexus Sign email ends with.
 
-    Carries the three things the review asked for in one place so the request
-    and the completion notice cannot drift: who really sent it (the line that
-    lets a stranger believe the email), a Contact Us that reaches that person,
-    and the standard legal links."""
+    Carries what the review asked for in one place so the request and the
+    completion notice cannot drift: the do-not-share warning as its own titled
+    section, who really sent it (the line that lets a stranger believe the
+    email) with the opt-out sentence, the operator's copyright and postal
+    address, and the standard links - Contact Us reaching the sender, Support
+    and Report Email reaching IT.
+
+    Sagar, Sep 22: modeled on DocuSign's footer, minus its "Alternate Signing
+    Method" block. That block exists because DocuSign has a portal where a
+    security code fetches the document; Nexus Sign has no such door - the
+    tokenized link IS the only way in - so printing one would send a recipient
+    somewhere that cannot help them."""
     from html import escape
     who = escape(sender.get("name") or "a colleague")
     app = _app_url_fn()
     link = ("color:#15803d;text-decoration:none;font-weight:600")
-    return f"""<tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 36px">
-      <p style="margin:0 0 10px;font-size:11.5px;color:#4b5563;line-height:1.6">
+    address = escape((sender.get("entityAddress") or "").strip())
+    support = escape(_SUPPORT_CONTACT)
+    return f"""<tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:18px 36px">
+      <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#374151">Do Not Share This Email</p>
+      <p style="margin:0 0 14px;font-size:11.5px;color:#4b5563;line-height:1.6">
+        This email contains a secure link to {escape(_SOR_NAME)}. Please do not share this email,
+        link, or access code with others.</p>
+      <p style="margin:0 0 12px;font-size:11.5px;color:#4b5563;line-height:1.6">
         This message was sent to you by <strong>{who}</strong>, who is using the
-        {escape(_SOR_NAME)} electronic signature service.</p>
-      <p style="margin:0 0 10px;font-size:11.5px;color:#6b7280;line-height:1.6">
+        {escape(_SOR_NAME)} Electronic Signature Service. If you would rather not receive email
+        from this sender you may contact the sender with your request.</p>
+      <p style="margin:0 0 12px;font-size:11.5px;color:#6b7280;line-height:1.6">
         <a href="{_contact_sender_mailto(party, req, sender)}" style="{link}">Contact Us</a>
         &nbsp;&middot;&nbsp;
         <a href="{app}/terms" style="{link}">Terms of Use</a>
         &nbsp;&middot;&nbsp;
-        <a href="{app}/privacy" style="{link}">Privacy Policy</a></p>
+        <a href="{app}/privacy" style="{link}">Privacy</a>
+        &nbsp;&middot;&nbsp;
+        <a href="mailto:{support}" style="{link}">Support</a>
+        &nbsp;&middot;&nbsp;
+        <a href="{_report_email_mailto(party, req)}" style="{link}">Report Email</a></p>
       <p style="margin:0;font-size:11px;color:#9ca3af;line-height:1.55">
-        This is an automated message. Please do not reply.<br/>
-        &copy; {datetime.now(timezone.utc).year} {escape(_SOR_OPERATOR)}. All rights reserved.</p>
+        &copy; {datetime.now(timezone.utc).year} {escape(_SOR_OPERATOR)}. All rights reserved.{f' {address}' if address else ''}</p>
     </td></tr>"""
 
 
@@ -869,9 +1038,8 @@ def _sign_email_html(party: HrSignParty, req: HrSignRequest, sender: dict, link:
         style="background:#15803d;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:13px 32px;border-radius:9px;display:inline-block">
         Review &amp; Sign</a></p>
       <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.6">
-        <strong style="color:#374151">Do not share this email.</strong>
         The link above is unique to you and lets whoever holds it sign in your name.
-        {('This request expires on ' + escape(req.expires_on) + '. ') if req.expires_on else ''}
+        {('This request expires on ' + escape(_us_date_slash(req.expires_on)) + '. ') if req.expires_on else ''}
         You will be asked to confirm a one-time code before signing.</p>
     </td></tr>
     {_email_legal_footer(party, req, sender)}
@@ -888,32 +1056,18 @@ def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender: dict) -> tu
     # document was I asked about?" step.
     link = (f"{_app_url_fn()}/sign/{party.token}" if party.kind == "external"
             else f"{_app_url_fn()}/documents/documents-esign")
-    try:
-        message = {
-            # "Action needed" first, the document named after it - the subject
-            # line the review pointed at, which says what is wanted before it
-            # says what it is about.
-            "subject": f"Action needed: Please sign {req.title}",
-            "body": {"contentType": "HTML", "content": _sign_email_html(party, req, sender, link)},
-            "toRecipients": [{"emailAddress": {"address": party.email}}],
-            # The address stays our authorized sending mailbox; only the
-            # DISPLAY name carries the human. Graph accepts this on sendMail as
-            # the mailbox owner - it is not a From spoof, it is the same
-            # "<person> via <service>" convention DocuSign uses.
-            "from": {"emailAddress": {"address": from_addr,
-                                      "name": _from_display(sender.get("name") or "")}},
-        }
-        # The mailbox really is unmonitored, so a reply must land somewhere a
-        # person reads: the sender. This is also the cheapest legitimacy check
-        # the recipient has - hitting Reply reaches the human who asked.
-        if sender.get("email"):
-            message["replyTo"] = [{"emailAddress": {"address": sender["email"]}}]
-        resp = httpx.post(f"https://graph.microsoft.com/v1.0/users/{from_addr}/sendMail",
-                          headers={"Authorization": f"Bearer {_graph_token()}"},
-                          json={"message": message, "saveToSentItems": False}, timeout=20)
-        return resp.is_success, ("" if resp.is_success else resp.text[:300])
-    except Exception as e:
-        return False, str(getattr(e, "detail", e))[:300]
+    # "Action needed" first, the document named after it - the subject line
+    # the review pointed at, which says what is wanted before it says what it
+    # is about. The mailbox really is unmonitored, so Reply-To is the sender:
+    # also the cheapest legitimacy check the recipient has.
+    return _graph_send_mail(
+        from_addr=from_addr,
+        display_name=_from_display(sender.get("name") or ""),
+        to_email=party.email,
+        subject=f"Action needed: Please sign {req.title}",
+        html=_sign_email_html(party, req, sender, link),
+        reply_to=(sender.get("email") or ""),
+    )
 
 
 _ATTACH_MAX = 3_000_000  # Graph simple sendMail caps the whole message at ~4 MB
@@ -972,30 +1126,20 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
      'Please do not reply.</td></tr>'}
   </table>
 </div>"""
-    message = {
-        # Same shape as the request: what happened, then which document.
-        "subject": f"Completed: All parties have signed {req.title}",
-        "body": {"contentType": "HTML", "content": html},
-        "toRecipients": [{"emailAddress": {"address": to_email}}],
-    }
-    if sender and sender.get("name"):
-        message["from"] = {"emailAddress": {"address": from_addr,
-                                            "name": _from_display(sender["name"])}}
-    if attach:
-        safe = re.sub(r'[\\/:*?"<>|]+', " ", req.title or "Document").strip()[:80] or "Document"
-        message["attachments"] = [{
-            "@odata.type": "#microsoft.graph.fileAttachment",
-            "name": f"{safe} (signed).pdf",
-            "contentType": "application/pdf",
-            "contentBytes": base64.b64encode(pdf).decode(),
-        }]
-    try:
-        resp = httpx.post(f"https://graph.microsoft.com/v1.0/users/{from_addr}/sendMail",
-                          headers={"Authorization": f"Bearer {_graph_token()}"},
-                          json={"message": message, "saveToSentItems": False}, timeout=30)
-        return resp.is_success, ("" if resp.is_success else resp.text[:300])
-    except Exception as e:
-        return False, str(getattr(e, "detail", e))[:300]
+    safe = re.sub(r'[\/:*?"<>|]+', " ", req.title or "Document").strip()[:80] or "Document"
+    # Same shape as the request: what happened, then which document - and the
+    # same MIME path, so the completion notice and the request agree on who
+    # sent them.
+    return _graph_send_mail(
+        from_addr=from_addr,
+        display_name=_from_display(sender["name"]) if (sender and sender.get("name")) else _SOR_NAME,
+        to_email=to_email,
+        subject=f"Completed: All parties have signed {req.title}",
+        html=html,
+        reply_to=((sender or {}).get("email") or ""),
+        pdf=((f"{safe} (signed).pdf", pdf) if attach else None),
+        timeout=30.0,
+    )
 
 
 def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_name: str) -> None:
@@ -2200,6 +2344,15 @@ def _missing_required(req: HrSignRequest, party: HrSignParty,
             if not signed:
                 missing.append(name)
             return
+        if ftype in ("name", "date"):
+            # Auto-filled, never typed: _finalize draws the party's own name
+            # and signed_at into these boxes, and the signing screen renders
+            # them read-only for the same reason. They can therefore never be
+            # "empty" once there is a signature - demanding a submitted value
+            # made Finish impossible on every envelope that had one
+            # (Sagar, Sep 22 2026: "it's already populating while signing but
+            # can't submit with that").
+            return
         if ftype == "upload":
             # Satisfied by a stored file, not by anything in `values` - checked
             # against HrSignUpload below, once, for every upload field at once.
@@ -2798,6 +2951,27 @@ def _apply_otp_verify(db: Session, req: HrSignRequest, party: HrSignParty,
     return {"ok": True, "gate": _gate_state(db, req, party)}
 
 
+@router.get("/public/copy-code", response_class=HTMLResponse)
+def public_copy_code():
+    """One screen whose only job is to put a verification code on the clipboard.
+
+    Declared ABOVE /public/{token} on purpose - that route would otherwise
+    swallow this path as a token.
+
+    The code is never in the request: the email links to
+    .../copy-code#123456, and a fragment never leaves the browser, so this
+    endpoint receives nothing, logs nothing and stores nothing. The page is
+    self-contained (no bundle, no network) so it opens instantly on a phone.
+    """
+    return HTMLResponse(sign_otp.COPY_CODE_PAGE, headers={
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+        "X-Robots-Tag": "noindex, nofollow",
+        "Content-Security-Policy":
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'",
+    })
+
+
 @router.get("/public/{token}")
 def public_render(token: str, request: Request, code: str = "",
                   x_access_code: str = Header(""), db: Session = Depends(get_db)):
@@ -3269,7 +3443,11 @@ def public_copy(token: str, request: Request, code: str = "",
         resp = _storage_signed_url(_DOC_BUCKET, req.final_pdf_path)
         if not resp.is_success:
             raise HTTPException(502, "Could not create download link")
-        return resp.json()
+        # A REDIRECT, not the signed URL as JSON: the signing page points a
+        # plain <a download> at this endpoint, so returning JSON saved the
+        # browser a file containing {"url": ...} instead of the document
+        # (Sagar, Sep 22 2026: "downloading an empty html doc").
+        return RedirectResponse(resp.json()["url"], status_code=302)
     if req.source == "template":
         pdf = _build_template_pdf(req, _parties(db, req.id))
         return Response(content=pdf, media_type="application/pdf", headers={
@@ -3277,7 +3455,7 @@ def public_copy(token: str, request: Request, code: str = "",
     resp = _storage_signed_url(_DOC_BUCKET, req.pdf_storage_path)
     if not resp.is_success:
         raise HTTPException(502, "Could not create download link")
-    return resp.json()
+    return RedirectResponse(resp.json()["url"], status_code=302)
 
 
 def _ser_seal(db: Session, request_id: str) -> dict:

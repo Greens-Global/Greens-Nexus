@@ -56,6 +56,8 @@ KNOWN_PUBLIC = {
     "/egnyte-oauth/callback",              # same posture: Egnyte redirects a bare browser here, identity comes from the single-use state row (consume_state), never a bearer token
     "/qa/ci-results", "/qa/e2e-specs",     # X-QA-CI-Token header checked inline
     "/esign/local-file/{bucket}/{path:path}",  # local-dev only; 404s when storage configured
+    "/esign/public/copy-code",             # static page; the code is in the URL fragment,
+                                           # which the browser never sends to us
     "/esign/public/{token}",               # 43-char token is the credential
     "/esign/public/{token}/sign",          # + access-code lockout
     "/esign/public/{token}/decline",       # + per-IP guessing throttle
