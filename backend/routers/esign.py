@@ -2622,8 +2622,9 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
     if req.status != "pending":
         raise HTTPException(409, f"This document is {req.status}")
     if not _signs(party):
-        raise HTTPException(400, f"A {_ROLE_LABELS[_role_of(party)].lower()} does not sign this "
-                                 f"document - use the approve or acknowledge action instead")
+        label = _ROLE_LABELS[_role_of(party)].lower()
+        raise HTTPException(400, f"{'An' if label[0] in 'aeiou' else 'A'} {label} does not sign "
+                                 f"this document - use the approve or acknowledge action instead")
     if not _its_their_turn(req, party):
         raise HTTPException(409, "It is not your turn to sign yet" if party.status != "signed"
                             else "You have already signed")

@@ -146,6 +146,17 @@ export default function PublicSign({ token }) {
     } catch (e) { setActionError(e.message); }
     setBusy(false);
   }
+  // Approver / certified delivery: they do not sign, they act. Same endpoint
+  // family, same advancement of the envelope.
+  async function act(data) {
+    setBusy(true);
+    setActionError('');
+    try {
+      const r = await post('/act', data);
+      setDone(r.status === 'completed' ? 'signed-final' : 'signed');
+    } catch (e) { setActionError(e.message); }
+    setBusy(false);
+  }
   async function decline(reason) {
     setBusy(true);
     setActionError('');
@@ -370,7 +381,7 @@ export default function PublicSign({ token }) {
           </button>
         </div>
       )}
-      <SigningDoc payload={payload} busy={busy} onSubmit={submit} onDecline={decline}
+      <SigningDoc payload={payload} busy={busy} onSubmit={submit} onAct={act} onDecline={decline}
         gateApi={gateApi} onCleared={() => load()} uploadApi={uploadApi} paperApi={paperApi}
         historyApi={historyApi} copyApi={copyApi} />
     </>,

@@ -277,6 +277,25 @@ describe('Nexus Sign external signing page', () => {
     expect(screen.getAllByRole('button', { name: /Finish/i }).length).toBe(1);
   });
 
+  it('an approver gets Approve, not Finish, and it posts to /act', async () => {
+    // The server has always refused a signature from an approver ("an approver
+    // does not sign this document"), but the screen only ever offered Finish -
+    // so approvers were stuck with no way through (Sagar, Sep 22 2026).
+    queue.push({ ...openPayload, myPartyRole: 'approver' });
+    render(<PublicSign token="tok" />);
+    // Two of them, the same way Finish appears twice: the opening bar and the
+    // bar under the document.
+    const approve = (await screen.findAllByRole('button', { name: /^Approve$/i }))[0];
+    expect(approve.disabled).toBe(false);
+    expect(screen.queryByRole('button', { name: /^Finish$/i })).toBeNull();
+
+    queue.push({ ok: true, status: 'completed' });
+    fireEvent.click(approve);
+    await waitFor(() => expect(calls.some(c => c.url.endsWith('/act'))).toBe(true));
+    // Never the signing endpoint.
+    expect(calls.some(c => c.url.endsWith('/sign'))).toBe(false);
+  });
+
   it('a rejected action says what went wrong without closing the document', async () => {
     // A 400 off an action used to be shown with the SAME screen as a dead
     // link - "Can't open this document" - so a signer whose Finish was

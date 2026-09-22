@@ -1021,7 +1021,7 @@ function UploadField({ field, style, innerRef, record, busy, disabled, error,
   );
 }
 
-export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi, copyApi }) {
+export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi, copyApi }) {
   // Phone widths: the action bar's one row of controls does not fit, and the
   // signer should never have to scroll back up to finish (Sagar, Sep 22 2026).
   const narrow = useIsMobile('(max-width: 720px)');
@@ -1113,8 +1113,12 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
       try { await run(url); } finally { setTimeout(() => URL.revokeObjectURL(url), 60000); }
     } catch (e) {
       setCopyErr(e.message || 'That did not work - try again in a moment.');
+    } finally {
+      // finally, not a trailing statement: the no-blob path above RETURNS, and
+      // without this the internal viewer's Print button sat on "Preparing…"
+      // for ever (Sagar, Sep 22 2026).
+      setCopyBusy('');
     }
-    setCopyBusy('');
   };
   const downloadDoc = () => withCopy('download', (url) => {
     const a = document.createElement('a');
@@ -1251,6 +1255,21 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
     setCursorId(nextTarget?.id || '');
     jumpTo(nextTarget);
   };
+  // Not every party signs. An approver approves and a certified-delivery
+  // recipient acknowledges: the server has always refused a signature from
+  // them ("an approver does not sign this document"), but the screen offered
+  // Finish anyway, so those parties were simply stuck (Sagar, Sep 22 2026).
+  const partyRole = payload.myPartyRole || 'signer';
+  const actsNotSigns = partyRole === 'approver' || partyRole === 'certified_delivery';
+  const actLabel = partyRole === 'approver' ? 'Approve' : 'Acknowledge';
+  const primaryLabel = actsNotSigns ? actLabel : 'Finish';
+  // An approver has no fields and no signature to give - consent and their
+  // turn are the whole of it.
+  const canAct = payload.myTurn && consent && (actsNotSigns || allDone);
+  const submitAct = () => onAct?.({ consent, note: '',
+    format_demonstrated: formatDemonstrated });
+  const primaryAction = () => (actsNotSigns ? submitAct() : submitSigned());
+
   // One definition of "finish", used by the bar at the top and the one that
   // follows the signer down the page.
   const submitSigned = () => onSubmit({
@@ -1647,7 +1666,9 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, flex: 1, minWidth: narrow ? 0 : 240, color: 'var(--muted)' }}>
             <ShieldCheck size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
-            <span>Consent recorded and identity verified. Complete the highlighted fields, then Finish.</span>
+            <span>{actsNotSigns
+              ? `Consent recorded and identity verified. Review the document, then ${actLabel}.`
+              : 'Consent recorded and identity verified. Complete the highlighted fields, then Finish.'}</span>
           </span>
           <ConsentDisclosures payload={payload} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1721,10 +1742,10 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
               </button>
             )}
             <button onClick={() => setDeclineOpen(true)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Decline</button>
-            <button className="primary-btn" disabled={!canFinish || busy}
-              onClick={submitSigned}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canFinish && !busy ? 1 : 0.5, fontSize: 13 }}>
-              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Finish
+            <button className="primary-btn" disabled={!canAct || busy}
+              onClick={primaryAction}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canAct && !busy ? 1 : 0.5, fontSize: 13 }}>
+              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} {primaryLabel}
             </button>
           </div>
         </div>
@@ -1774,21 +1795,15 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
             <ArrowRight size={13} />
           </button>
         )}
+        {/* Document actions: a plain row above the page, NOT a bar that sticks
+            to the top of the viewport - it was covering the document as the
+            signer scrolled (Sagar, Sep 22 2026). The zoom controls move to
+            their own floating cluster in the bottom right, where they are to
+            hand without standing between the reader and the page. */}
         {!isTemplate && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 12px', marginBottom: 8,
-            border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', position: 'sticky',
-            top: 'calc(env(safe-area-inset-top, 0px) + 8px)', zIndex: 16 }}>
-            <button className="secondary-btn" title="Zoom out" aria-label="Zoom out"
-              onClick={() => setZoom(z => Math.max(0.6, +(z - 0.15).toFixed(2)))}
-              style={{ padding: '5px 9px' }}><ZoomOut size={13} /></button>
-            <span style={{ fontSize: 12, fontWeight: 700, minWidth: 44, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-              {Math.round(zoom * 100)}%
-            </span>
-            <button className="secondary-btn" title="Zoom in" aria-label="Zoom in"
-              onClick={() => setZoom(z => Math.min(2, +(z + 0.15).toFixed(2)))}
-              style={{ padding: '5px 9px' }}><ZoomIn size={13} /></button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
             {docPages > 0 && (
-              <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginLeft: 4 }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
                 {docPages} page{docPages === 1 ? '' : 's'}
               </span>
             )}
@@ -1806,8 +1821,24 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
               <Printer size={13} /> {copyBusy === 'print' ? 'Preparing…' : 'Print'}
             </button>
             {copyErr && (
-              <span role="alert" style={{ fontSize: 11.5, color: 'hsl(350,62%,42%)', width: '100%' }}>{copyErr}</span>
+              <span role="alert" style={{ fontSize: 11.5, color: 'hsl(350,62%,42%)', width: '100%', textAlign: 'right' }}>{copyErr}</span>
             )}
+          </div>
+        )}
+        {!isTemplate && (
+          <div style={{ position: 'fixed', right: 18, bottom: 'calc(18px + env(safe-area-inset-bottom, 0px))',
+            zIndex: 24, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px',
+            border: '1px solid var(--line)', borderRadius: 999, background: 'var(--card)',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.16)' }}>
+            <button className="secondary-btn" title="Zoom out" aria-label="Zoom out"
+              onClick={() => setZoom(z => Math.max(0.6, +(z - 0.15).toFixed(2)))}
+              style={{ padding: '5px 9px' }}><ZoomOut size={13} /></button>
+            <span style={{ fontSize: 12, fontWeight: 700, minWidth: 44, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+              {Math.round(zoom * 100)}%
+            </span>
+            <button className="secondary-btn" title="Zoom in" aria-label="Zoom in"
+              onClick={() => setZoom(z => Math.min(2, +(z + 0.15).toFixed(2)))}
+              style={{ padding: '5px 9px' }}><ZoomIn size={13} /></button>
           </div>
         )}
         <div ref={docRef} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: isTemplate ? '30px 38px' : '24px 12px', background: isTemplate ? '#fff' : 'var(--mist)', color: '#111827' }}>
@@ -1854,7 +1885,8 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
           padding: narrow ? '10px 12px calc(10px + env(safe-area-inset-bottom, 0px))' : '10px 16px',
           boxShadow: '0 -2px 10px rgba(0,0,0,0.08)' }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
-            {allDone ? 'All fields complete' : `${doneCount}/${required.length} fields`}
+            {actsNotSigns ? 'Nothing to fill in - this document is yours to review'
+              : allDone ? 'All fields complete' : `${doneCount}/${required.length} fields`}
           </span>
           {!allDone && nextTask && (
             <button onClick={jumpNext}
@@ -1868,9 +1900,9 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
             style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
             Decline
           </button>
-          <button className="primary-btn" disabled={!canFinish || busy} onClick={submitSigned}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canFinish && !busy ? 1 : 0.5, fontSize: 13 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Finish
+          <button className="primary-btn" disabled={!canAct || busy} onClick={primaryAction}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canAct && !busy ? 1 : 0.5, fontSize: 13 }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} {primaryLabel}
           </button>
         </div>
       )}
@@ -1916,6 +1948,17 @@ function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
       onDone();
     } catch (e) { toastErr(e?.message || 'Could not sign.'); setBusy(false); }
   }
+  // Approvers and certified-delivery recipients do not sign - they act, and
+  // the envelope advances exactly the same way.
+  async function act(data) {
+    setBusy(true);
+    try {
+      const r = await api.mySignAct(partyId, data);
+      toastOk(r.status === 'completed' ? 'Recorded - all parties done, document sealed.'
+        : `Recorded. Next: ${r.next}.`);
+      onDone();
+    } catch (e) { toastErr(e?.message || 'Could not record that.'); setBusy(false); }
+  }
   async function decline(reason) {
     setBusy(true);
     try { await api.mySignDecline(partyId, { reason }); toastOk('Declined.'); onDone(); }
@@ -1943,7 +1986,7 @@ function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
         <div style={{ maxWidth: 1180, margin: '0 auto' }}>
           {!payload
             ? <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} /></div>
-            : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onDecline={decline}
+            : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onAct={act} onDecline={decline}
                 gateApi={gateApi} onCleared={() => load().catch(() => {})} uploadApi={uploadApi}
                 historyApi={historyApi} />}
         </div>
