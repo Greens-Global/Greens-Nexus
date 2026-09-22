@@ -30,7 +30,7 @@ guessing the employee's zone from their last punch's browser offset.
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone, timedelta, date
+from datetime import datetime, timezone, timedelta
 from html import escape
 
 from sqlalchemy import func, text
@@ -590,10 +590,19 @@ def _manager_task_completion_rows(db: Session, email: str, since_iso: str, my_re
     return rows
 
 
-def _blue_rows_manager(db: Session, email: str, my_reports: dict) -> list:
+def _blue_rows_manager(db: Session, email: str, my_reports: dict, briefing_date: str) -> list:
     """Manager add-on only - direct reports out today, plus the day-before
     nudge for anyone whose leave STARTS tomorrow (Neil, 8/21: 'I want the
-    e-mail on the prior today')."""
+    e-mail on the prior today').
+
+    Anchored on `briefing_date` - the SAME shift-local "today" _trigger_due
+    already worked out for this manager - not the server process's own
+    date.today() (Sep 22 fix). Those two dates can legitimately differ: a
+    manager whose trigger time (shift start minus 2.5h) falls in their own
+    early-morning hours can have a local calendar date that's already rolled
+    over relative to the container's UTC clock, which silently shifted this
+    whole check by a day for exactly the shift-timezone edge cases
+    _trigger_due was built to handle in the first place."""
     reports = list(my_reports.values())
     if not reports:
         return []
@@ -601,8 +610,8 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict) -> list:
     if not report_emails:
         return []
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip() for e in reports}
-    today = date.today().isoformat()
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    today = briefing_date
+    tomorrow = (datetime.strptime(briefing_date, "%Y-%m-%d").date() + timedelta(days=1)).isoformat()
     rows = []
     for r in (db.query(models.TimeOffRequest)
               .filter(models.TimeOffRequest.employee_email.in_(report_emails),
@@ -626,13 +635,13 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict) -> list:
     return rows
 
 
-def build_sections(db: Session, email: str, since_iso: str) -> dict:
+def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) -> dict:
     my_reports = {(e.work_email or "").lower(): e for e in
                   db.query(models.NexusEmployee)
                   .filter(func.lower(models.NexusEmployee.manager_email) == email.lower()).all()}
     sections = {
         "action_required": _red_rows(db, email, my_reports),
-        "needs_to_know":   _amber_rows(db, email, since_iso, my_reports) + _blue_rows_manager(db, email, my_reports),
+        "needs_to_know":   _amber_rows(db, email, since_iso, my_reports) + _blue_rows_manager(db, email, my_reports, briefing_date),
         "completed":       _green_rows(db, email, since_iso),
     }
     return {k: v for k, v in sections.items() if v}
@@ -924,7 +933,7 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
     if not since_iso:
         since_iso = (datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS_FIRST_RUN)).strftime("%Y-%m-%dT%H:%M:%S")
 
-    sections = build_sections(db, emp.work_email, since_iso)
+    sections = build_sections(db, emp.work_email, since_iso, briefing_date)
     name = f"{emp.first_name} {emp.last_name}".strip()
     subject, html = render_email(name, briefing_date, sections)
 
