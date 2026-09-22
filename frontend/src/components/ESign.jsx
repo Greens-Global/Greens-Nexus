@@ -604,10 +604,13 @@ function ConsentGate({ payload, busy, onAccept, onDecline }) {
           <StepRail current={1} />
           <h2 style={{ fontSize: 17, fontWeight: 800, margin: '10px 0 4px' }}>Before You Sign</h2>
           <p style={{ fontSize: 12.5, color: 'var(--muted, #6b7280)', margin: 0, lineHeight: 1.55 }}>
-            Signing electronically is something you agree to separately from the agreement
-            itself.{' '}
-            Please read the disclosure below. Agreeing is your choice - if you would rather sign on
-            paper, say so and we will arrange it. The agreement itself is not affected either way.
+            Electronic signing is a separate choice from agreeing to the document itself. Please
+            read the disclosure below carefully.
+          </p>
+          <p style={{ fontSize: 12.5, color: 'var(--muted, #6b7280)', margin: '8px 0 0', lineHeight: 1.55 }}>
+            Choosing electronic signing is optional. If you prefer to sign on paper, you can
+            decline electronic signing and contact the sender to arrange an alternative. Your
+            choice of signing method does not change the terms of the underlying agreement.
           </p>
         </div>
 
@@ -624,7 +627,7 @@ function ConsentGate({ payload, busy, onAccept, onDecline }) {
             </div>
           ))}
           <div style={{ fontSize: 12, lineHeight: 1.6, borderTop: '1px solid var(--line, #e5e7eb)', paddingTop: 10 }}>
-            <b>What you are agreeing to:</b> {payload.consentText}
+            <b>Consent:</b> {payload.consentText}
           </div>
         </div>
 
@@ -634,8 +637,7 @@ function ConsentGate({ payload, busy, onAccept, onDecline }) {
               onChange={e => setAgreed(e.target.checked)}
               style={{ width: 15, height: 15, marginTop: 1, flexShrink: 0, accentColor: 'var(--pine, #166534)' }} />
             <span style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-              I have read the disclosure and I agree to use electronic records and signatures for
-              this document.
+              I Agree to use electronic records and signatures for this document.
             </span>
           </label>
           {!read && (
@@ -649,7 +651,7 @@ function ConsentGate({ payload, busy, onAccept, onDecline }) {
             <button className="primary-btn" disabled={!agreed || busy} onClick={onAccept}
               style={{ opacity: agreed && !busy ? 1 : 0.5, fontSize: 13.5, padding: '11px 26px', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
               {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : null}
-              Sign Electronically
+              I Agree
             </button>
             <button onClick={onDecline}
               style={{ background: 'none', border: 'none', padding: 0, color: 'var(--muted, #6b7280)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif', textDecoration: 'underline' }}>
@@ -979,6 +981,9 @@ function UploadField({ field, style, innerRef, record, busy, disabled, error,
 }
 
 export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi }) {
+  // Phone widths: the action bar's one row of controls does not fit, and the
+  // signer should never have to scroll back up to finish (Sagar, Sep 22 2026).
+  const narrow = useIsMobile('(max-width: 720px)');
   const [sig, setSig] = useState(null);
   const [padOpen, setPadOpen] = useState(false);
   // Consent is no longer a checkbox beside the contract - it is step 1, taken
@@ -1119,12 +1124,50 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
   const jumpTo = (task) => {
     const el = task && fieldRefs.current[task.id];
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
       el.animate?.([{ transform: 'scale(1)' }, { transform: 'scale(1.07)' }, { transform: 'scale(1)' }], { duration: 380 });
       el.focus?.({ preventScroll: true });
     }
   };
-  const jumpNext = () => jumpTo(nextTask);
+  const jumpNext = () => { setStarted(true); jumpTo(nextTask); };
+  // One definition of "finish", used by the bar at the top and the one that
+  // follows the signer down the page.
+  const submitSigned = () => onSubmit({
+    consent, signature_kind: sig?.kind === 'drawn' ? 'drawn' : 'typed',
+    signature_data: sig?.data || payload.myName, field_values: values,
+    format_demonstrated: formatDemonstrated, pages_viewed: seenPages.current.size,
+    pages_total: pagesTotal,
+  });
+
+  // The guide tab rides alongside the field it points at, instead of sitting
+  // at the top of the document (Sagar, Sep 22 2026: "make sure I don't have to
+  // scroll to the top again and again"). Fixed to the viewport's left edge and
+  // moved to the next field's own row as the page scrolls, clamped inside the
+  // viewport so it is always reachable - the way DocuSign's tab behaves.
+  const [started, setStarted] = useState(false);
+  const [tabTop, setTabTop] = useState(null);
+  useEffect(() => {
+    if (!payload.myTurn || !nextTask) { setTabTop(null); return undefined; }
+    let raf = 0;
+    const place = () => {
+      raf = 0;
+      const el = fieldRefs.current[nextTask.id];
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const min = 84;                                   // clear of the sticky action bar
+      const max = Math.max(min, window.innerHeight - 110);   // clear of the bottom bar
+      setTabTop(Math.max(min, Math.min(max, r.top + r.height / 2 - 17)));
+    };
+    place();
+    const onMove = () => { if (!raf) raf = requestAnimationFrame(place); };
+    window.addEventListener('scroll', onMove, { passive: true });
+    window.addEventListener('resize', onMove);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener('scroll', onMove);
+      window.removeEventListener('resize', onMove);
+    };
+  }, [payload.myTurn, nextTask, zoom]);
 
   const sigPreview = (h = 40) => sig?.kind === 'drawn'
     ? <img src={sig.data} alt="signature" style={{ maxHeight: h, maxWidth: '100%', display: 'block' }} />
@@ -1438,7 +1481,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
       {/* Sticky action bar - consent + progress + Finish, DocuSign style */}
       {payload.myTurn && (
         <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, flex: 1, minWidth: 240, color: 'var(--muted)' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, flex: 1, minWidth: narrow ? 0 : 240, color: 'var(--muted)' }}>
             <ShieldCheck size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
             <span>Consent recorded and identity verified. Complete the highlighted fields, then Finish.</span>
           </span>
@@ -1515,7 +1558,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
             )}
             <button onClick={() => setDeclineOpen(true)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Decline</button>
             <button className="primary-btn" disabled={!canFinish || busy}
-              onClick={() => onSubmit({ consent, signature_kind: sig?.kind === 'drawn' ? 'drawn' : 'typed', signature_data: sig?.data || payload.myName, field_values: values, format_demonstrated: formatDemonstrated, pages_viewed: seenPages.current.size, pages_total: pagesTotal })}
+              onClick={submitSigned}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canFinish && !busy ? 1 : 0.5, fontSize: 13 }}>
               {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Finish
             </button>
@@ -1550,14 +1593,18 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
       )}
 
       <div style={{ position: 'relative' }}>
-        {/* Floating START / NEXT guide tab */}
+        {/* The guide tab: plain START until it is first used, then NEXT with
+            the name of the field it will take you to. Fixed to the left edge,
+            level with that field's own row (see the effect above). */}
         {payload.myTurn && nextTask && (
-          <button onClick={jumpNext}
-            style={{ position: 'sticky', top: 76, zIndex: 15, float: 'left', marginLeft: -14, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 12, padding: '8px 14px 8px 10px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', borderRadius: '0 8px 8px 0', boxShadow: '0 2px 8px rgba(245,158,11,0.5)' }}>
-            {doneCount === 0 ? 'START' : 'NEXT'}
-            <span style={{ fontWeight: 600, opacity: .85, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {taskName(nextTask)}
-            </span>
+          <button onClick={jumpNext} aria-label={started ? `Next field: ${taskName(nextTask)}` : 'Start signing'}
+            style={{ position: 'fixed', left: 0, top: tabTop ?? 120, zIndex: 25, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 12, padding: '8px 14px 8px 10px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', borderRadius: '0 8px 8px 0', boxShadow: '0 2px 10px rgba(245,158,11,0.55)', maxWidth: '62vw' }}>
+            {started ? 'NEXT' : 'START'}
+            {started && (
+              <span style={{ fontWeight: 600, opacity: .85, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {taskName(nextTask)}
+              </span>
+            )}
             <ArrowRight size={13} />
           </button>
         )}
@@ -1624,6 +1671,38 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
             </span>);
         })}
       </div>
+
+      {/* The same finish, kept under the signer's thumb: a signer who reaches
+          the end of a three-page packet should not have to scroll back to the
+          top to submit it. Sticks to the bottom of the viewport while there is
+          still something to do. */}
+      {payload.myTurn && (
+        <div style={{ position: 'sticky', bottom: 0, zIndex: 20, marginTop: 14,
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+          padding: narrow ? '10px 12px calc(10px + env(safe-area-inset-bottom, 0px))' : '10px 16px',
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.08)' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
+            {allDone ? 'All fields complete' : `${doneCount}/${required.length} fields`}
+          </span>
+          {!allDone && nextTask && (
+            <button onClick={jumpNext}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                fontSize: 12, fontWeight: 700, color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              Go to {taskName(nextTask)} <ArrowRight size={12} />
+            </button>
+          )}
+          <span style={{ flex: 1 }} />
+          <button onClick={() => setDeclineOpen(true)} disabled={busy}
+            style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+            Decline
+          </button>
+          <button className="primary-btn" disabled={!canFinish || busy} onClick={submitSigned}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canFinish && !busy ? 1 : 0.5, fontSize: 13 }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Finish
+          </button>
+        </div>
+      )}
 
       {padOpen && <SignaturePad name={payload.myName} onClose={() => setPadOpen(false)}
         onAdopt={(s) => { setSig(s); setPadOpen(false); }} />}
@@ -2248,6 +2327,28 @@ export function defaultSendEntityId(entities, employees, senderEmail) {
  *
  *  Every answer is optional: a field left blank is filled from the person in
  *  About and the selected Company when the document is generated. */
+/** A number typed as ten bare digits is ambiguous - 9876543210 is a valid
+ *  Indian mobile AND a plausible North American one - and the server has to
+ *  assume a country for it (sentdm.normalize_phone). Rather than guess on the
+ *  person's behalf and text a verification code to a stranger in another
+ *  country, the field asks for the country code (Sagar, Sep 22 2026). */
+export function needsCountryCode(phone) {
+  const s = String(phone || '').trim();
+  if (!s || s.startsWith('+')) return false;
+  return s.replace(/\D/g, '').length >= 10;
+}
+
+const COUNTRY_CODE_HINT = 'Add the country code, e.g. +1 949 400 3330 or +91 98765 43210.';
+
+function PhoneHint({ phone }) {
+  if (!needsCountryCode(phone)) return null;
+  return (
+    <p style={{ margin: '4px 0 0', fontSize: 11, color: 'hsl(var(--color-amber, 38 92% 40%))' }}>
+      {COUNTRY_CODE_HINT}
+    </p>
+  );
+}
+
 export function templateAskFields(t) {
   const prettyLabel = (token) => token.replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   const defs = (t?.fieldDefs || []).filter(fd => !RESERVED_FIELD_TYPES.includes(fd.type));
@@ -3037,10 +3138,13 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                          one the signing link arrived on. Nexus never looks a
                          number up - a guessed one would text a signing
                          credential to a stranger. */
-                      <input className="form-input" style={{ marginTop: 8, width: '100%', fontSize: 12 }}
-                        placeholder="Mobile number (optional) - lets them get their verification code by text"
-                        value={p.phone || ''} maxLength={40}
-                        onChange={e => setParty(i, 'phone', e.target.value)} />
+                      <>
+                        <input className="form-input" style={{ marginTop: 8, width: '100%', fontSize: 12 }}
+                          placeholder="Mobile with country code (optional) - e.g. +1 949 400 3330 - lets them get their code by text"
+                          value={p.phone || ''} maxLength={40}
+                          onChange={e => setParty(i, 'phone', e.target.value)} />
+                        <PhoneHint phone={p.phone} />
+                      </>
                     )}
                     {p.kind === 'external' && !cc && (
                       <AccessCodeField value={p.access_code || ''} phone={p.phone || ''}
@@ -3130,9 +3234,13 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                           <input className="form-input" placeholder="email@…" value={p.email}
                             onChange={e => setParty(i, 'email', e.target.value)} style={{ width: '100%', marginTop: 6, fontSize: 12 }} />
                           {!cc && (
-                            <input className="form-input" style={{ marginTop: 6, width: '100%', fontSize: 11.5 }}
-                              placeholder="Mobile (optional) - for the code by text" value={p.phone || ''} maxLength={40}
-                              onChange={e => setParty(i, 'phone', e.target.value)} />
+                            <>
+                              <input className="form-input" style={{ marginTop: 6, width: '100%', fontSize: 11.5 }}
+                                placeholder="Mobile with country code (optional) - e.g. +91 98765 43210"
+                                value={p.phone || ''} maxLength={40}
+                                onChange={e => setParty(i, 'phone', e.target.value)} />
+                              <PhoneHint phone={p.phone} />
+                            </>
                           )}
                           {p.kind === 'external' && !cc && (
                             <AccessCodeField compact value={p.access_code || ''} phone={p.phone || ''}
