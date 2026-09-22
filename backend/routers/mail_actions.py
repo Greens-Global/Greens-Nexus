@@ -22,7 +22,6 @@ recurrence roll-forward apply as in the app.
 from __future__ import annotations
 
 import asyncio
-import os
 from html import escape
 
 import jwt as pyjwt
