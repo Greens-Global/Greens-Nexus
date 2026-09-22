@@ -1341,6 +1341,22 @@ class HrEntity(Base):
     # the employee too (NexusEmployee.signature_closing): "Admin should not
     # have the control of Sign off... it should be employee specific."
     signature_closing  = Column(String, default="")
+    # Recipient targeting (Sep 22, Pranshu): "all" inserts the signature on
+    # every outgoing email (unchanged default); "internal"/"external" suppress
+    # it entirely unless the recipient mix matches - domain check against
+    # `domains` above, done in myhr._recipient_scope_ok. A company-wide
+    # switch, same tier as signature_template, not a per-employee choice.
+    signature_recipient_scope = Column(String, default="all")
+    # Sender template overrides (Sep 22, Pranshu: "add few emails of company
+    # and add a template for that emails so whenever we do a mail from that
+    # email the signature will be different... I could choose multiple
+    # email"). A list of {id, label, emails: [...], template} groups - the
+    # SENDER's own address picks a different template than this company's
+    # default, same fields/directory data otherwise (myhr._sender_template_override).
+    # JSON on the entity, not a new table: admin-managed, few rows, saved
+    # whole on each edit - a dedicated table would only add an RLS-enable
+    # step for no real benefit at this size.
+    signature_sender_overrides = Column(JSON, default=list)
 
 
 class NexusSetting(Base):

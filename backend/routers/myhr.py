@@ -601,17 +601,71 @@ def render_manual_signature(row, company) -> dict:
     return {"fields": fields, "html": SIGNATURE_TEMPLATES[tid][1](esc), "template": tid}
 
 
+def _sender_template_override(email: str, company) -> str:
+    """First {id, label, emails, template} group (Settings - Sep 22, Pranshu:
+    "add few emails of company and add a template for that emails... I could
+    choose multiple email") whose emails list contains this sender's own
+    address - '' if none match. Checked ahead of the company-wide default so
+    a handful of specific addresses (the CEO's, a shared sales mailbox) can
+    render with a different template while everyone else keeps using the
+    company's pick; first match wins if an address somehow ended up in more
+    than one group, in Settings' list order."""
+    email = (email or "").strip().lower()
+    if not email:
+        return ""
+    for grp in ((company.signature_sender_overrides if company else None) or []):
+        if email in (grp.get("emails") or []):
+            return grp.get("template") or ""
+    return ""
+
+
 def _render_signature(e: NexusEmployee, db: Session, template: str = None) -> dict:
     company = db.query(HrEntity).filter(HrEntity.id == e.company).first() if e.company else None
     fields = _signature_fields(e, db)
     esc = {k: html_lib.escape(v) if isinstance(v, str) else v for k, v in fields.items()}
     # Template is a company-wide admin choice (Settings), not personal - an
     # employee's own signature always uses their employer's default, never a
-    # per-person pick (Pranshu, Sep 16).
-    tid = template or (company.signature_template if company else "") or _DEFAULT_TEMPLATE
+    # per-person pick (Pranshu, Sep 16) - except a sender-override match
+    # (Sep 22), which is still an admin choice, just keyed to specific
+    # addresses instead of the whole company.
+    tid = (template or _sender_template_override(e.work_email, company)
+           or (company.signature_template if company else "") or _DEFAULT_TEMPLATE)
     if tid not in SIGNATURE_TEMPLATES:
         tid = _DEFAULT_TEMPLATE
     return {"fields": fields, "html": SIGNATURE_TEMPLATES[tid][1](esc), "template": tid}
+
+
+# Recipient targeting (Sep 22, Pranshu): "different treatment for internal
+# vs external recipients" - kept to the smallest useful shape (suppress the
+# whole signature, no separate internal/external content) rather than adding
+# a disclaimer feature that doesn't exist yet. Company-wide, same tier as
+# SIGNATURE_TEMPLATES.
+SIGNATURE_RECIPIENT_SCOPES = ("all", "internal", "external")
+
+
+def _company_domains(company) -> set:
+    return {d for d in ((company.domains if company else "") or "").split(",") if d}
+
+
+def _is_internal_recipient(email: str, domains: set) -> bool:
+    return "@" in email and email.rsplit("@", 1)[-1].strip().lower() in domains
+
+
+def recipient_scope_ok(scope: str, company, recipients: list) -> bool:
+    """True if this signature should be inserted for this recipient list.
+    Empty `recipients` (nothing typed yet, e.g. a brand-new compose the
+    instant it opens) always passes - there's nothing to judge yet, and the
+    Outlook add-in re-checks with the final list right before send
+    (OnMessageSend), which is what actually has to be correct."""
+    if scope == "all" or not recipients:
+        return True
+    domains = _company_domains(company)
+    all_internal = all(_is_internal_recipient(r, domains) for r in recipients)
+    if scope == "internal":
+        return all_internal
+    if scope == "external":
+        return not all_internal
+    return True
 
 
 def _signature_dict(e: NexusEmployee, db: Session) -> dict:

@@ -77,6 +77,9 @@
                 <!-- OnNewMessageCompose already covers reply/reply-all/forward;
                      there is no separate "OnMessageReplyCompose" event type. -->
                 <LaunchEvent Type="OnNewMessageCompose" FunctionName="onNewMessageComposeHandler" SendMode="SoftBlock" />
+                <!-- Recipient targeting (Sep 22) - see manifest.xml for the full
+                     reasoning; this re-checks with the final To/Cc list at Send. -->
+                <LaunchEvent Type="OnMessageSend" FunctionName="onMessageSendHandler" SendMode="SoftBlock" />
               </LaunchEvents>
               <SourceLocation resid="Runtime.Url" />
             </ExtensionPoint>

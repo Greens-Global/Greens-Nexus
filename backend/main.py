@@ -772,6 +772,12 @@ def _run_migrations():
             # Policy ownership (Pranshu, Sep 22) - added after hr_holiday_policies
             # already shipped without it; see the matching Postgres migration below.
             "ALTER TABLE hr_holiday_policies ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # Signature recipient targeting (Pranshu, Sep 22) - see the matching
+            # Postgres migration below for the full reasoning.
+            "ALTER TABLE hr_entities ADD COLUMN signature_recipient_scope VARCHAR DEFAULT 'all'",
+            # Signature sender template overrides (Pranshu, Sep 22) - see the
+            # matching Postgres migration below for the full reasoning.
+            "ALTER TABLE hr_entities ADD COLUMN signature_sender_overrides JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1634,6 +1640,20 @@ def _run_migrations():
         # deleting one is scoped to its creating company via auth.hr_scope, the
         # same way every other HR-admin surface is scoped.
         "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        # Signature recipient targeting (Pranshu, Sep 22): admin picks All
+        # Recipients / Internal Only / External Only per company (Outlook
+        # add-in - routers/outlook_addin.py, myhr._recipient_scope_ok).
+        # Internal/external is decided against this company's own `domains`
+        # column, already used for auto-assigning employees by email domain -
+        # no new domain source needed.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_recipient_scope VARCHAR DEFAULT 'all'",
+        # Signature sender template overrides (Pranshu, Sep 22): a company-picked
+        # list of {id, label, emails, template} groups so a handful of specific
+        # sender addresses (e.g. the CEO's, a shared sales mailbox) get a
+        # different template than everyone else at that company - see
+        # myhr._sender_template_override. JSONB on the entity rather than a new
+        # table: admin-managed, few rows, saved whole on each edit.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_sender_overrides JSONB DEFAULT '[]'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

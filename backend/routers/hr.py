@@ -1972,6 +1972,8 @@ class EntityUpdate(BaseModel):
     twitter_url:        Optional[str] = None
     instagram_url:      Optional[str] = None
     signature_template: Optional[str] = None
+    signature_recipient_scope: Optional[str] = None
+    signature_sender_overrides: Optional[list] = None
     notes:              Optional[str] = None
     domains:            Optional[str] = None
     manager_email:      Optional[str] = None
@@ -2004,6 +2006,8 @@ def _serialize_entity(e: HrEntity) -> dict:
         "facebookUrl": e.facebook_url or "", "linkedinUrl": e.linkedin_url or "",
         "twitterUrl": e.twitter_url or "", "instagramUrl": e.instagram_url or "",
         "signatureTemplate": e.signature_template or "classic",
+        "signatureRecipientScope": e.signature_recipient_scope or "all",
+        "signatureSenderOverrides": e.signature_sender_overrides or [],
         "notes": e.notes, "domains": e.domains or "",
         "managerEmail": e.manager_email or "",
         "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
@@ -2071,6 +2075,29 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
         from routers.myhr import SIGNATURE_TEMPLATES
         if body.signature_template not in SIGNATURE_TEMPLATES:
             raise HTTPException(400, "Unknown signature template")
+    if body.signature_recipient_scope is not None:
+        from routers.myhr import SIGNATURE_RECIPIENT_SCOPES
+        if body.signature_recipient_scope not in SIGNATURE_RECIPIENT_SCOPES:
+            raise HTTPException(400, "Unknown signature recipient scope")
+    if body.signature_sender_overrides is not None:
+        from routers.myhr import SIGNATURE_TEMPLATES
+        cleaned = []
+        for grp in body.signature_sender_overrides:
+            if not isinstance(grp, dict):
+                continue
+            tmpl = grp.get("template")
+            if tmpl not in SIGNATURE_TEMPLATES:
+                raise HTTPException(400, "Unknown signature template in sender override")
+            emails = sorted({str(x).strip().lower() for x in (grp.get("emails") or []) if str(x).strip()})
+            if not emails:
+                continue
+            cleaned.append({
+                "id": str(grp.get("id") or uuid.uuid4()),
+                "label": str(grp.get("label") or "").strip()[:80],
+                "emails": emails,
+                "template": tmpl,
+            })
+        body.signature_sender_overrides = cleaned
     fields = body.model_dump(exclude_unset=True)
     # manager_emails (the list) is the source of truth whenever the request sends
     # it - skip the plain manager_email key entirely so processing order can't
@@ -2185,6 +2212,8 @@ def entity_signature_templates(entity_id: str,
     return {
         "templates": admin_preview_templates(row),
         "template": row.signature_template or "classic",
+        "recipientScope": row.signature_recipient_scope or "all",
+        "senderOverrides": row.signature_sender_overrides or [],
     }
 
 

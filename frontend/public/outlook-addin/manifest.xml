@@ -96,6 +96,15 @@
                      is what the validator flagged as "Autorun LaunchEvent Type is
                      not valid"). -->
                 <LaunchEvent Type="OnNewMessageCompose" FunctionName="onNewMessageComposeHandler" SendMode="SoftBlock" />
+                <!-- Recipient targeting (Sep 22): the compose-time pass above can't
+                     see recipients not yet typed into a brand-new message, and this
+                     add-in has no persistent runtime to react as they're added (a
+                     LaunchEvent's runtime is short-lived, torn down once
+                     event.completed() runs). OnMessageSend fires with the final,
+                     complete To/Cc list regardless of how the message started, so
+                     it's the authoritative re-check - SoftBlock briefly holds the
+                     send while it runs, same grace-period behavior as compose. -->
+                <LaunchEvent Type="OnMessageSend" FunctionName="onMessageSendHandler" SendMode="SoftBlock" />
               </LaunchEvents>
               <SourceLocation resid="Runtime.Url" />
             </ExtensionPoint>
