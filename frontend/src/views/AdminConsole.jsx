@@ -505,6 +505,7 @@ function EmailSignatureSection({ toastOk, toastErr }) {
             setOverrides(rows => overrideModal === 'new' ? [...rows, next] : rows.map((r, i) => i === overrideModal ? next : r));
             setOverrideModal(null);
           }}
+          toastOk={toastOk} toastErr={toastErr}
         />
       )}
       {manualModal && (
@@ -698,13 +699,16 @@ function reconcileOrder(order, customCount) {
 const _OVERRIDE_FIELD_DEFS = [
   ['name', 'Name'], ['role', 'Role'], ['phone', 'Phone'], ['email', 'Email'],
   ['website', 'Website'], ['address', 'Address'],
-  ['companyName', 'Company Name'], ['companyPhone', 'Company Phone'], ['logoUrl', 'Logo URL'],
+  ['companyName', 'Company Name'], ['companyPhone', 'Company Phone'],
   ['facebookUrl', 'Facebook URL'], ['linkedinUrl', 'LinkedIn URL'], ['twitterUrl', 'Twitter URL'], ['instagramUrl', 'Instagram URL'],
   ['closing', 'Sign-Off'],
 ];
-const _EMPTY_OVERRIDE_FIELDS = Object.fromEntries(_OVERRIDE_FIELD_DEFS.map(([k]) => [k, '']));
+// logoUrl isn't in _OVERRIDE_FIELD_DEFS (it gets its own upload widget, not a
+// plain text input) but still needs a default in `fields` - the backend's
+// _OVERRIDE_FIELD_KEYS and every render function expect the key to exist.
+const _EMPTY_OVERRIDE_FIELDS = { logoUrl: '', ...Object.fromEntries(_OVERRIDE_FIELD_DEFS.map(([k]) => [k, ''])) };
 
-function SenderOverrideModal({ companyId, templates, grp, onClose, onSaved }) {
+function SenderOverrideModal({ companyId, templates, grp, onClose, onSaved, toastOk, toastErr }) {
   const [label, setLabel] = useState(grp?.label || '');
   const [emails, setEmails] = useState(grp?.emails || []);
   const [emailDraft, setEmailDraft] = useState('');
@@ -714,9 +718,23 @@ function SenderOverrideModal({ companyId, templates, grp, onClose, onSaved }) {
   const [fieldOrder, setFieldOrder] = useState(() => reconcileOrder(grp?.fieldOrder, grp?.customFields?.length || 0));
   const [dragKey, setDragKey] = useState(null);
   const [previewHtml, setPreviewHtml] = useState(grp?.previewHtml || '');
+  const [logoBusy, setLogoBusy] = useState(false);
   const debounceRef = useRef(null);
 
   function setFieldValue(key, val) { setFields(f => ({ ...f, [key]: val })); }
+
+  async function uploadLogo(file) {
+    if (!file) return;
+    setLogoBusy(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const { logoUrl } = await api.uploadSenderOverrideLogo(companyId, form);
+      setFieldValue('logoUrl', logoUrl);
+      toastOk?.('Logo uploaded.');
+    } catch (e) { toastErr?.(e?.message || 'Could not upload logo.'); }
+    setLogoBusy(false);
+  }
 
   function addCustomField() {
     const next = [...customFields, { label: '', value: '' }];
@@ -783,7 +801,7 @@ function SenderOverrideModal({ companyId, templates, grp, onClose, onSaved }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 12, maxWidth: 620, width: '100%', maxHeight: '90vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 12, width: '60vw', minWidth: 340, maxWidth: '96vw', maxHeight: '90vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{grp ? 'Edit Override' : 'Add Override'}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
@@ -820,6 +838,25 @@ function SenderOverrideModal({ companyId, templates, grp, onClose, onSaved }) {
             <select className="form-input" style={inputStyle} value={template} onChange={e => setTemplate(e.target.value)}>
               {templates.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Logo</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {fields.logoUrl && <img src={fields.logoUrl} alt="" style={{ height: 32, maxWidth: 120, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid var(--line)' }} />}
+              <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', opacity: logoBusy ? 0.6 : 1 }}>
+                {logoBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={13} />}
+                {fields.logoUrl ? 'Replace' : 'Upload'}
+                <input type="file" accept="image/*" style={{ display: 'none' }} disabled={logoBusy}
+                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadLogo(f); }} />
+              </label>
+              {fields.logoUrl && (
+                <button type="button" onClick={() => setFieldValue('logoUrl', '')}
+                  style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', alignItems: 'center', padding: '4px 8px' }}>
+                  <X size={13} />
+                </button>
+              )}
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
