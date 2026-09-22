@@ -800,8 +800,16 @@ def _module_group_html(color: str, group_id: str, module: str, label: str, rows:
     # a toggle that can never be clicked. Nothing here depends on the CSS
     # firing; it only makes a supporting client more compact. The cap above
     # (not this toggle) is what actually keeps a long list short everywhere.
+    #
+    # `mso-hide:all` alongside display:none (Pranshu, Sep 22 - screenshot from
+    # Outlook classic): plain display:none does NOT hide an <input> from
+    # Word's rendering engine - it rendered the checkbox as a literal "[ ]"
+    # sitting in front of every badge/module header, not just failing open to
+    # expanded. mso-hide:all is the actual Outlook-specific directive for
+    # "don't render this element at all"; every other client ignores an
+    # unrecognized mso-* property and still sees the ordinary display:none.
     return f"""
-        <input type="checkbox" id="{cid}" class="nx-acc" style="display:none">
+        <input type="checkbox" id="{cid}" class="nx-acc" style="display:none;mso-hide:all">
         <label for="{cid}" class="nx-acc-label" style="display:block;cursor:pointer;padding:9px 12px;
           margin:10px 0 6px;background:#f4f6f3;border-radius:8px;font-size:13px;font-weight:700;color:#26312a">
           <span style="float:right;color:{accent};transition:transform .15s" class="nx-arrow">&#9656;</span>
@@ -825,7 +833,9 @@ def _section_html(color: str, rows: list) -> str:
     # Sep 20: "the sections... should be collapsed - it should only expand
     # if user clicks on it"). Reuses the exact same .nx-acc/.nx-content CSS
     # rules - nested accordions each match only their own immediate
-    # siblings, so the module-level toggles inside still work independently.
+    # siblings, so the module-level toggles inside still work independently -
+    # including the mso-hide:all fix (see _module_group_html) so this
+    # checkbox doesn't render as a literal "[ ]" in Outlook either.
     #
     # Outlook desktop classic (Word engine) never runs that CSS though, so it
     # always falls back to fully expanded - badge, every module header, every
@@ -840,7 +850,7 @@ def _section_html(color: str, rows: list) -> str:
       <tr><td class="nx-pad" style="padding:12px 32px">
         <div style="background:#ffffff;border:1px solid #e2e5df;border-left:4px solid {accent};
           border-radius:14px;padding:16px 18px 6px">
-          <input type="checkbox" id="{sid}" class="nx-acc" style="display:none">
+          <input type="checkbox" id="{sid}" class="nx-acc" style="display:none;mso-hide:all">
           <label for="{sid}" class="nx-acc-label" style="display:block;cursor:pointer;margin-bottom:12px">
             {badge}
             <span style="float:right;color:{accent};font-size:15px;transition:transform .15s" class="nx-arrow">&#9656;</span>
