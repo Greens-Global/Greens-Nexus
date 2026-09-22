@@ -635,10 +635,18 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               ) : r.type === 'holiday' ? (
                 <tr key={i} style={{ background: 'rgba(37,99,235,0.06)' }}>
                   <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(37,99,235,0.12)', color: '#2563eb', marginRight: 6 }}>{r.holidayType === 'half_day' ? 'Half-day holiday' : 'Holiday'}</span>
-                    {r.name || 'Company holiday'}{r.worked
-                      ? <> - worked the half day, plus {fmtM(r.pay)} credited for the other half.</>
-                      : <> - not worked, paid {fmtM(r.pay)}{r.holidayType === 'half_day' ? ' (half day)' : ''}.</>}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <span>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(37,99,235,0.12)', color: '#2563eb', marginRight: 6 }}>{r.holidayType === 'half_day' ? 'Half-day holiday' : 'Holiday'}</span>
+                        {r.name || 'Company holiday'}{r.worked
+                          ? <> - worked the half day, plus {fmtM(r.pay)} credited for the other half.</>
+                          : <> - not worked, paid {fmtM(r.pay)}{r.holidayType === 'half_day' ? ' (half day)' : ''}.</>}
+                      </span>
+                      {/* The pay figure under its own text was easy to miss (Pranshu,
+                          Sep 22) - repeat it where the Wage column reads for every
+                          other row, so it scans the same way. */}
+                      <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{fmtM(r.pay)}</span>
+                    </div>
                   </td>
                 </tr>
               ) : r.type === 'note' ? (
