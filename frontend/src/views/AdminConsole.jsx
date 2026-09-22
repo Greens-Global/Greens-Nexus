@@ -252,8 +252,11 @@ function EmailSignatureSection({ toastOk, toastErr }) {
   const [entities, setEntities] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [companyId, setCompanyId] = useState('');
-  const [data, setData] = useState(null);       // { templates, template }
+  const [data, setData] = useState(null);       // { templates, template, recipientScope, senderOverrides }
   const [selectedTemplate, setSelectedTemplate] = useState('classic');
+  const [selectedScope, setSelectedScope] = useState('all');
+  const [overrides, setOverrides] = useState([]);   // [{ id, label, emails: [...], template }]
+  const [companyPeople, setCompanyPeople] = useState([]);   // [{ email, name }] - this company's people, for the override picker
   const [previewBusy, setPreviewBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [zoomTemplate, setZoomTemplate] = useState(null);   // { label, html } | null - full-size eye-icon preview
@@ -264,9 +267,19 @@ function EmailSignatureSection({ toastOk, toastErr }) {
     if (!id) return;
     setPreviewBusy(true);
     api.getEntitySignatureTemplates(id)
-      .then(d => { setData(d); setSelectedTemplate(d.template); })
+      .then(d => {
+        setData(d);
+        setSelectedTemplate(d.template);
+        setSelectedScope(d.recipientScope || 'all');
+        setOverrides(d.senderOverrides || []);
+      })
       .catch(() => {})
       .finally(() => setPreviewBusy(false));
+  }, []);
+
+  const loadCompanyPeople = useCallback((id) => {
+    if (!id) return;
+    api.getPeopleDirectory().then(rows => setCompanyPeople((rows || []).filter(p => p.company === id))).catch(() => {});
   }, []);
 
   const loadManualSigs = useCallback((id) => {
@@ -279,24 +292,41 @@ function EmailSignatureSection({ toastOk, toastErr }) {
     setLoaded(true);
     api.getEntities().then(rows => {
       setEntities(rows || []);
-      if (rows?.length) { setCompanyId(rows[0].id); loadPreview(rows[0].id); loadManualSigs(rows[0].id); }
+      if (rows?.length) { setCompanyId(rows[0].id); loadPreview(rows[0].id); loadManualSigs(rows[0].id); loadCompanyPeople(rows[0].id); }
     }).catch(() => {});
-  }, [loaded, loadPreview, loadManualSigs]);
+  }, [loaded, loadPreview, loadManualSigs, loadCompanyPeople]);
 
   function pickCompany(id) {
     setCompanyId(id);
     setData(null);
     setManualSigs([]);
+    setCompanyPeople([]);
     loadPreview(id);
     loadManualSigs(id);
+    loadCompanyPeople(id);
+  }
+
+  function addOverride() {
+    setOverrides(rows => [...rows, { id: '', label: '', emails: [], template: data?.templates?.[0]?.id || 'classic' }]);
+  }
+  function updateOverride(idx, patch) {
+    setOverrides(rows => rows.map((r, i) => i === idx ? { ...r, ...patch } : r));
+  }
+  function removeOverride(idx) {
+    setOverrides(rows => rows.filter((_, i) => i !== idx));
   }
 
   async function save() {
     if (!companyId || saveBusy) return;
     setSaveBusy(true);
     try {
-      await api.updateEntity(companyId, { signature_template: selectedTemplate });
-      toastOk('Company signature template updated - every employee at this company picks it up automatically.');
+      await api.updateEntity(companyId, {
+        signature_template: selectedTemplate,
+        signature_recipient_scope: selectedScope,
+        signature_sender_overrides: overrides,
+      });
+      toastOk('Company signature settings updated - every employee at this company picks it up automatically.');
+      loadPreview(companyId);      // re-normalizes overrides (ids assigned, empty groups dropped)
       loadManualSigs(companyId);   // manual signatures render with this template too
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
     setSaveBusy(false);
@@ -357,6 +387,64 @@ function EmailSignatureSection({ toastOk, toastErr }) {
                   );
                 })}
               </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
+                  Insert For
+                </label>
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                  {[
+                    ['all', 'All Recipients'],
+                    ['internal', 'Internal Only'],
+                    ['external', 'External Only'],
+                  ].map(([value, label]) => (
+                    <label key={value} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer' }}>
+                      <input type="radio" name="signatureRecipientScope" value={value}
+                        checked={selectedScope === value} onChange={() => setSelectedScope(value)} />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+                  Internal/external is decided by matching each recipient's domain against this company's email domains (Company Setup). Applies to every employee's Outlook add-in automatically.
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
+                  Sender Template Overrides
+                </label>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>
+                  A handful of specific senders (the CEO, a shared sales inbox) get a different template than the company default above - everything else about their signature (name, role, phone, logo) still comes from their own record.
+                </div>
+                {overrides.map((grp, idx) => (
+                  <div key={idx} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10, padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
+                    <div style={{ flex: '0 0 150px' }}>
+                      <input className="form-input" placeholder="Label (optional)" value={grp.label}
+                        onChange={e => updateOverride(idx, { label: e.target.value })}
+                        style={{ width: '100%', marginBottom: 6 }} />
+                      <select className="form-input" style={{ width: '100%' }} value={grp.template}
+                        onChange={e => updateOverride(idx, { template: e.target.value })}>
+                        {(data.templates || []).map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                      </select>
+                    </div>
+                    <select multiple className="form-input" style={{ flex: 1, minHeight: 84 }}
+                      value={grp.emails}
+                      onChange={e => updateOverride(idx, { emails: Array.from(e.target.selectedOptions, o => o.value) })}>
+                      {companyPeople.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
+                    </select>
+                    <button type="button" title="Remove this override" onClick={() => removeOverride(idx)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 6 }}>
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))}
+                <button type="button" className="secondary-btn" onClick={addOverride}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Plus size={14} /> Add Override
+                </button>
+              </div>
+
               <button className="primary-btn" onClick={save} disabled={saveBusy}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: saveBusy ? 0.6 : 1 }}>
                 {saveBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} Save
