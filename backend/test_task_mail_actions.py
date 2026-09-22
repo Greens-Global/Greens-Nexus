@@ -24,7 +24,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 os.environ["NEXUS_SKIP_AUTH"] = "true"
 os.environ["NEXUS_DEV_EMAIL"] = "sagar@greensglobal.com"
 
-from fastapi import BackgroundTasks, FastAPI            # noqa: E402
+from fastapi import BackgroundTasks, FastAPI, HTTPException   # noqa: E402
 from fastapi.testclient import TestClient               # noqa: E402
 
 import database                                          # noqa: E402
@@ -140,6 +140,62 @@ class _DBCase(unittest.TestCase):
         self.db.add(t)
         self.db.commit()
         return t
+
+
+class EntraTokenClaimTests(unittest.TestCase):
+    """Who a click is attributed to, from a verified Entra ID token's claims.
+
+    Microsoft retired the legacy (EAT) token on June 8 2026; action requests
+    now carry an Entra token, where the user is `preferred_username` and `sub`
+    is an opaque pairwise id - reading `sub` as an address (the EAT rule) would
+    attribute every click to nobody.
+    """
+    SENDERS = {"nexus@greensglobal.com"}
+    BASE = {"azp": mail_actions.AM_APP_ID, "tid": __import__("auth").TENANT_ID,
+            "preferred_username": "Sagar@GreensGlobal.com",
+            "sub": "AUCeKGQXBnSqpWfTYEk0li8TyNul1QSuSxcPplBAwaQ"}
+
+    def _who(self, **over):
+        return mail_actions.performer_from_claims({**self.BASE, **over}, self.SENDERS)
+
+    def test_the_user_comes_from_preferred_username_not_sub(self):
+        self.assertEqual(self._who(), "sagar@greensglobal.com")
+
+    def test_it_falls_back_through_the_other_address_claims(self):
+        for claim in ("upn", "email", "unique_name"):
+            with self.subTest(claim=claim):
+                c = {k: v for k, v in self.BASE.items() if k != "preferred_username"}
+                c[claim] = "neil@greensglobal.com"
+                self.assertEqual(mail_actions.performer_from_claims(c, self.SENDERS),
+                                 "neil@greensglobal.com")
+
+    def test_a_token_naming_no_address_is_refused(self):
+        c = {k: v for k, v in self.BASE.items() if k != "preferred_username"}
+        with self.assertRaises(HTTPException) as e:
+            mail_actions.performer_from_claims(c, self.SENDERS)
+        self.assertEqual(e.exception.status_code, 401)
+
+    def test_only_the_actions_app_may_call(self):
+        with self.assertRaises(HTTPException):
+            self._who(azp="some-other-app")
+        # The EAT-era spelling still passes, for a token that carries it.
+        c = {k: v for k, v in self.BASE.items() if k != "azp"}
+        c["appid"] = mail_actions.AM_APP_ID
+        self.assertEqual(mail_actions.performer_from_claims(c, self.SENDERS), "sagar@greensglobal.com")
+
+    def test_another_tenant_is_refused(self):
+        with self.assertRaises(HTTPException):
+            self._who(tid="00000000-0000-0000-0000-000000000000")
+
+    def test_a_sender_claim_must_be_one_of_our_mailboxes(self):
+        self.assertEqual(self._who(sender="Nexus@greensglobal.com"), "sagar@greensglobal.com")
+        with self.assertRaises(HTTPException):
+            self._who(sender="attacker@example.com")
+
+    def test_no_sender_claim_is_fine(self):
+        """Entra tokens do not carry `sender`; the signed per-task token in the
+        URL is what ties the call to an email we sent."""
+        self.assertEqual(self._who(), "sagar@greensglobal.com")
 
 
 class MailActionEndpointTests(_DBCase):
