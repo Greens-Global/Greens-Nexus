@@ -14,12 +14,15 @@ import asyncio
 from html import escape
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from sqlalchemy import func
 
+import auth
 import briefing_mail_actions
+import daily_briefing
 import models
 from database import SessionLocal
-from routers.mail_actions import _BTN, _page, _user_for
+from routers.mail_actions import _BTN, _page, _user_for, am_performer
 
 router = APIRouter(prefix="/briefing-actions", tags=["Briefing Actions"])
 
@@ -85,6 +88,56 @@ def _execute(db, bt: BackgroundTasks, *, user: dict, kind: str, entity_id: str, 
     raise HTTPException(400, "Unknown action")
 
 
+# ── Outlook Actionable Message card ──────────────────────────────────────
+# See briefing_mail_actions.build_card - one consolidated card covering
+# every Action Required row, refreshed to whatever is STILL pending after
+# each click (not just a confirmation of the one thing just decided).
+
+def _card_error(message: str, status: int) -> JSONResponse:
+    return JSONResponse({"detail": message}, status_code=status,
+                        headers={"CARD-ACTION-STATUS": message[:200]})
+
+
+@router.post("/card")
+async def card_action(request: Request, token: str = ""):
+    info = briefing_mail_actions.verify_token(token)
+    if not info:
+        return _card_error("This link has expired. Open Nexus to take this action instead.", 400)
+    text = (await request.body()).decode("utf-8", "replace")
+    # Everything below is blocking (JWKS fetch, DB, the task/timeoff/ticket
+    # routers) - off the event loop, per CLAUDE.md, so one click can never
+    # stall the worker.
+    return await asyncio.to_thread(_card_action_sync, request, info, text)
+
+
+def _card_action_sync(request: Request, info: dict, text: str):
+    db = SessionLocal()
+    bt = BackgroundTasks()
+    try:
+        if auth.SKIP_AUTH:
+            performer = info["recipient"]   # laptop only: no Outlook to sign the call
+        else:
+            performer = am_performer(request.headers.get("authorization", ""), db)
+        user = _user_for(request, performer, db)
+        subject, status = _execute(db, bt, user=user, kind=info["kind"], entity_id=info["id"],
+                                   action=info["action"], note=text)
+        outcome = f"{subject} {status}."
+        # Rebuild the FULL remaining list for this recipient, not just this
+        # one outcome - a manager with several pending items who acts on one
+        # should still see the others in the refreshed card, not lose them.
+        my_reports = {(e.work_email or "").lower(): e for e in
+                      db.query(models.NexusEmployee)
+                      .filter(func.lower(models.NexusEmployee.manager_email) == info["recipient"].lower()).all()}
+        rows = daily_briefing._red_rows(db, info["recipient"], my_reports)
+        card = briefing_mail_actions.build_card(rows, info["recipient"], outcome=outcome)
+    except HTTPException as e:
+        return _card_error(str(e.detail), e.status_code)
+    finally:
+        db.close()
+    return JSONResponse(card, background=bt, headers={
+        "CARD-UPDATE-IN-BODY": "true", "CARD-ACTION-STATUS": outcome})
+
+
 @router.get("/page", response_class=HTMLResponse)
 def action_page(token: str = ""):
     info = briefing_mail_actions.verify_token(token)
@@ -138,4 +191,4 @@ def _action_page_submit_sync(request: Request, token: str, note: str = "") -> HT
 
 
 # Kept for main.py's CSRF exemption list.
-PUBLIC_PATHS = ("/briefing-actions/page",)
+PUBLIC_PATHS = ("/briefing-actions/page", "/briefing-actions/card")

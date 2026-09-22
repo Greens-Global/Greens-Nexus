@@ -66,3 +66,106 @@ def verify_token(token: str, *, now: float | None = None) -> dict | None:
 def action_url(kind: str, entity_id: str, action: str, recipient: str) -> str:
     token = sign_token(kind, entity_id, action, recipient)
     return f"{task_mail_actions.api_base()}/briefing-actions/page?token={token}"
+
+
+# ── Outlook Actionable Message card (Sep 23, Pranshu: full in-mail action
+# buttons for Daily Briefing, not just task emails) ─────────────────────────
+#
+# Outlook's Actionable Message spec is built around ONE card per email
+# (task_mail_actions.build_card: one task, one card). Daily Briefing is a
+# digest of many unrelated decisions, so this rolls every Action Required
+# row into ONE card body instead, each item with its own Action.Http
+# button(s) POSTing to /briefing-actions/card (approvals) or the EXISTING
+# /mail-actions/card (task comment/complete - reusing that endpoint and its
+# token, not a second copy of task-update logic). hideOriginalBody is False:
+# the rest of the digest (Needs to know/Completed) keeps rendering as plain
+# HTML underneath in clients that show both - losing the whole rest of the
+# briefing just to show an actionable card would be a worse trade than a
+# little visual redundancy with the plain-link fallback buttons.
+
+def _approve_reject_actions(kind: str, entity_id: str, recipient: str) -> list:
+    approve_tok = sign_token(kind, entity_id, "approve", recipient)
+    reject_tok = sign_token(kind, entity_id, "reject", recipient)
+    base = task_mail_actions.api_base()
+    approve_btn = {"type": "Action.Http", "title": "Approve", "method": "POST",
+                   "url": f"{base}/briefing-actions/card?token={approve_tok}",
+                   "headers": [{"name": "Content-Type", "value": "text/plain"}]}
+    if kind == "ticket_approval":
+        # Ticket rejection needs a reason (Nexus requires one on reject) -
+        # nested ShowCard with a required text box, same as the fallback
+        # page's own note field for this one kind+action combination.
+        note_id = f"note_{entity_id}"
+        reject_btn = {"type": "Action.ShowCard", "title": "Reject", "card": {
+            "type": "AdaptiveCard",
+            "body": [{"type": "Input.Text", "id": note_id, "isMultiline": True,
+                      "placeholder": "Reason for rejecting (required)"}],
+            "actions": [{"type": "Action.Http", "title": "Confirm Reject", "method": "POST",
+                        "url": f"{base}/briefing-actions/card?token={reject_tok}",
+                        "body": f"{{{{{note_id}.value}}}}",
+                        "headers": [{"name": "Content-Type", "value": "text/plain"}]}],
+        }}
+    else:
+        reject_btn = {"type": "Action.Http", "title": "Reject", "method": "POST",
+                      "url": f"{base}/briefing-actions/card?token={reject_tok}",
+                      "headers": [{"name": "Content-Type", "value": "text/plain"}]}
+    return [approve_btn, reject_btn]
+
+
+def build_card(rows: list, recipient: str, *, outcome: str = "") -> dict:
+    """The consolidated Action Required card for one recipient. `outcome` is
+    shown at the top after an action, when the endpoint refreshes the card
+    with whatever is STILL pending (not just a confirmation of the one
+    thing just decided) - a manager with 3 pending items who acts on 1
+    should still see the other 2, not lose them from view."""
+    body: list = []
+    if outcome:
+        body.append({"type": "TextBlock", "text": outcome, "weight": "bolder",
+                     "color": "good", "wrap": True})
+    if not rows:
+        body.append({"type": "TextBlock", "text": "Nothing needs your decision right now.",
+                     "wrap": True, "isSubtle": True})
+    for row in rows:
+        item_body = [{"type": "TextBlock", "text": row["title"], "weight": "bolder",
+                      "wrap": True, "separator": True, "spacing": "medium"}]
+        item_actions = []
+        if row.get("sub_actions"):
+            # Bundled multi-request card (several time-off requests for one
+            # employee, one card, Sep 20) - one Approve/Reject pair PER
+            # request, same as the plain-link version's per-row buttons.
+            for sub in row["sub_actions"]:
+                if sub.get("detail"):
+                    item_body.append({"type": "TextBlock", "text": sub["detail"], "wrap": True, "spacing": "small"})
+                item_actions.extend(_approve_reject_actions(sub["action_kind"], sub["action_id"], sub["action_email"]))
+        elif row.get("action_kind"):
+            if row.get("detail"):
+                item_body.append({"type": "TextBlock", "text": row["detail"], "isSubtle": True,
+                                  "wrap": True, "spacing": "none"})
+            item_actions.extend(_approve_reject_actions(row["action_kind"], row["action_id"], row["action_email"]))
+        elif row.get("task_id"):
+            # An approval-type task assigned to the recipient still carries
+            # task_id - reuse the EXISTING per-task action set + the EXISTING
+            # /mail-actions/card endpoint (its own token), not a second copy
+            # of task-update logic.
+            if row.get("detail"):
+                item_body.append({"type": "TextBlock", "text": row["detail"], "isSubtle": True,
+                                  "wrap": True, "spacing": "none"})
+            tok = task_mail_actions.sign_token(row["task_id"], row.get("action_email", ""))
+            comment_id = f"c_{row['task_id']}"
+            item_actions.append({"type": "Action.ShowCard", "title": "Comment", "card": {
+                "type": "AdaptiveCard",
+                "body": [{"type": "Input.Text", "id": comment_id, "isMultiline": True,
+                          "placeholder": "Write a comment…"}],
+                "actions": [task_mail_actions._http("Post Comment", "comment", tok, f"{{{{{comment_id}.value}}}}")],
+            }})
+            if row.get("task_open"):
+                item_actions.append(task_mail_actions._http("Mark Complete", "complete", tok))
+        if row.get("url"):
+            item_actions.append({"type": "Action.OpenUrl", "title": "Open in Nexus", "url": row["url"]})
+        if item_actions:
+            item_body.append({"type": "ActionSet", "actions": item_actions})
+        body.extend(item_body)
+    return {
+        "type": "AdaptiveCard", "version": "1.0", "originator": task_mail_actions.AM_ORIGINATOR,
+        "hideOriginalBody": False,
+        "body": body, "actions": [],
+    }

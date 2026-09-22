@@ -131,6 +131,9 @@ KNOWN_PUBLIC = {
     # Same shape as /mail-actions/page: an HMAC-signed, expiring token binds
     # one decision to one recipient. GET only ever renders the confirm page.
     "/briefing-actions/page",
+    # Same shape as /mail-actions/card above (Sep 23) - Outlook calls it with a
+    # Microsoft-signed Actionable Message JWT, verified the same way.
+    "/briefing-actions/card",
 }
 
 _AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device", "get_addin_user")
