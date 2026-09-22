@@ -2481,7 +2481,12 @@ def health():
     import secret_box
     return {"status": "ok",
             "secrets": {"vault_key": secret_box.KEY_CONFIGURED,
-                        "app_url_explicit": bool(os.getenv("NEXUS_APP_URL", "").strip())}}
+                        "app_url_explicit": bool(os.getenv("NEXUS_APP_URL", "").strip()),
+                        # Outlook Actionable Messages registration wired in
+                        # (NEXUS_AM_ORIGINATOR + NEXUS_AM_AUDIENCE) - the
+                        # task-email card is only emitted when this is true.
+                        "actionable_messages": bool(os.getenv("NEXUS_AM_ORIGINATOR", "").strip()
+                                                    and os.getenv("NEXUS_AM_AUDIENCE", "").strip())}}
 
 
 @app.get("/health/ready")
