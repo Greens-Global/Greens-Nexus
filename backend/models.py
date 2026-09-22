@@ -211,11 +211,15 @@ class ExternalLink(Base):
     created_by = Column(String, default="")
     created_at = Column(String, default="")
     updated_at = Column(String, default="")
-    # Company filter (Aug 12) - HrEntity.id, same "" = every company / a named
-    # id scopes it convention as department above. Free-standing from
-    # department on purpose: a link can be company-wide but department-
-    # specific (e.g. Accounting at Greens India) or vice versa.
+    # Company filter (Aug 12). Legacy single-value column, same story as
+    # category/department above - superseded by `companies` (Sep 22, Neil:
+    # "that should be a checkbox for multiselect not a dropdown for single
+    # select. Same links may apply to different companies"). [] = every
+    # company, same convention as departments. Free-standing from department
+    # on purpose: a link can be company-wide but department-specific (e.g.
+    # Accounting at Greens India) or vice versa.
     company = Column(String, default="")
+    companies = Column(JSON, default=list)
     # Which IT service area a ticket raised against this app belongs to
     # (Aug 2026 ticket intake). One place classifies an app - the same screen
     # where the app is added - and a ticket copies the value at intake.

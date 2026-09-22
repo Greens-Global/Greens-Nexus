@@ -135,7 +135,7 @@ function entryActions(entry, itemsById, ctx) {
   };
 }
 
-const emptyForm = { name: '', url: '', categories: [], description: '', departments: [], company: '', icon: 'Link2', is_pinned: false, service_area: '' };
+const emptyForm = { name: '', url: '', categories: [], description: '', departments: [], companies: [], icon: 'Link2', is_pinned: false, service_area: '' };
 
 export default function ExternalLinks() {
   const { canAccessModule, myEmail } = useRole();
@@ -338,7 +338,7 @@ export default function ExternalLinks() {
   // links"). Company stays independent of department (AND'd).
   const deptFiltered = useMemo(() => all.filter(l => {
     const deptOk = !department || (l.departments || []).includes(department);
-    const coOk = !companyFilter || l.company === companyFilter || !l.company;
+    const coOk = !companyFilter || !(l.companies || []).length || l.companies.includes(companyFilter);
     return deptOk && coOk;
   }), [all, department, companyFilter]);
 
@@ -532,21 +532,21 @@ export default function ExternalLinks() {
     }
   };
 
-  const openAdd = () => setModal({ mode: 'add', id: null, form: { ...emptyForm, departments: department ? [department] : [], company: companyFilter, categories: category ? [category] : [] } });
+  const openAdd = () => setModal({ mode: 'add', id: null, form: { ...emptyForm, departments: department ? [department] : [], companies: companyFilter ? [companyFilter] : [], categories: category ? [category] : [] } });
   const openAddForDept = (dept) => setModal({ mode: 'add', id: null, form: { ...emptyForm, departments: [dept] } });
   const openEdit = (link) => setModal({
     mode: 'edit', id: link.id,
     form: {
       name: link.name, url: link.url, categories: link.categories || [], description: link.description || '',
-      departments: link.departments || [], company: link.company || '', icon: link.icon || 'Link2', is_pinned: !!link.is_pinned,
+      departments: link.departments || [], companies: link.companies || [], icon: link.icon || 'Link2', is_pinned: !!link.is_pinned,
       service_area: link.service_area || '',
     },
   });
 
   const save = async () => {
     const f = modal.form;
-    if (!f.name.trim() || !f.url.trim() || f.categories.length === 0) {
-      setBanner({ kind: 'err', text: 'Name, URL, and at least one category are required.' });
+    if (!f.name.trim() || !f.url.trim()) {
+      setBanner({ kind: 'err', text: 'Name and URL are required.' });
       return;
     }
     const url = /^https?:\/\//i.test(f.url.trim()) ? f.url.trim() : `https://${f.url.trim()}`;
@@ -577,7 +577,7 @@ export default function ExternalLinks() {
   };
 
   const remove = async (link) => {
-    if (!window.confirm(`Remove "${link.name}" from External Links? This cannot be undone.`)) return;
+    if (!window.confirm(`Remove "${link.name}" from Links? This cannot be undone.`)) return;
     try {
       await api.deleteExternalLink(link.id);
       setLinks(prev => (prev || []).filter(l => l.id !== link.id));
@@ -616,7 +616,7 @@ export default function ExternalLinks() {
   // cancelled confirm instead of clearing it as if something happened.
   const bulkDeleteLinks = async (ids) => {
     if (!ids.length) return false;
-    if (!window.confirm(`Remove ${ids.length} link${ids.length === 1 ? '' : 's'} from External Links? This cannot be undone.`)) return false;
+    if (!window.confirm(`Remove ${ids.length} link${ids.length === 1 ? '' : 's'} from Links? This cannot be undone.`)) return false;
     const results = await Promise.allSettled(ids.map(id => api.deleteExternalLink(id)));
     const removed = new Set();
     let failed = 0;
@@ -755,7 +755,7 @@ export default function ExternalLinks() {
     <div>
       <div className="view-header">
         <div className="view-title-group">
-          <h2>External Links</h2>
+          <h2>Links</h2>
           <p>
             Every tool the company runs on, one launchpad.
             {all.length > 0 && ` ${all.length} apps across ${categoriesInUse.length || meta.categories.length} categories, ${totalClicks.toLocaleString()} launches all-time.`}
@@ -2026,7 +2026,7 @@ function IconBtn({ children, onClick, title, danger, disabled }) {
 // beyond the curated taxonomy list, the same way its old free-text+datalist
 // input could; Department stays picker-only (no free text), matching how
 // it worked before this was a checkbox list.
-function CheckboxMultiSelect({ options, selected, onChange, placeholder, allowCustom, customPlaceholder }) {
+function CheckboxMultiSelect({ options, selected, onChange, placeholder, allowCustom, customPlaceholder, labelFor }) {
   const [open, setOpen] = useState(false);
   const [customValue, setCustomValue] = useState('');
   const ref = useRef(null);
@@ -2043,17 +2043,22 @@ function CheckboxMultiSelect({ options, selected, onChange, placeholder, allowCu
     if (v && !selected.includes(v)) onChange([...selected, v]);
     setCustomValue('');
   };
+  // labelFor lets the underlying value be an opaque id (e.g. a company's
+  // HrEntity.id) while what's shown/sorted is its human name - options and
+  // selected still operate on the id, unchanged for every existing caller
+  // (categories/departments) that doesn't pass it.
+  const labelOf = labelFor || (v => v);
   // Union with `selected` so a value picked earlier (e.g. a custom one
   // typed in, or a department that's since been removed from the curated
   // taxonomy) still shows up checked rather than silently disappearing.
-  const allOptions = [...new Set([...options, ...selected])].sort();
+  const allOptions = [...new Set([...options, ...selected])].sort((a, b) => labelOf(a).localeCompare(labelOf(b)));
 
   return (
     <div style={{ position: 'relative' }} ref={ref}>
       <button type="button" className="form-select" onClick={() => setOpen(o => !o)}
         style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
         <span style={{ color: selected.length ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {selected.length ? selected.join(', ') : placeholder}
+          {selected.length ? selected.map(labelOf).join(', ') : placeholder}
         </span>
       </button>
       {open && (
@@ -2066,7 +2071,7 @@ function CheckboxMultiSelect({ options, selected, onChange, placeholder, allowCu
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
               onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
               <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} />
-              {opt}
+              {labelOf(opt)}
             </label>
           ))}
           {allowCustom && (
@@ -2167,11 +2172,11 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div className="form-group">
-              <label>Company</label>
-              <select className="form-select" value={form.company} onChange={e => setForm({ company: e.target.value })}>
-                <option value="">All Companies</option>
-                {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <label>Company <span style={{ fontWeight: 500, color: 'var(--muted)', textTransform: 'none' }}>(blank = all)</span></label>
+              <CheckboxMultiSelect
+                options={companies.map(c => c.id)} selected={form.companies} onChange={v => setForm({ companies: v })}
+                placeholder="All Companies" labelFor={id => companies.find(c => c.id === id)?.name || id}
+              />
             </div>
             {/* Classifies the app for the IT desk: a ticket raised against it
                 copies this at intake and is triaged by it. Set here because
@@ -2436,7 +2441,7 @@ function ManageModal({
                             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flexShrink: 0 }}>{l.name}</span>
                             {l.is_pinned && <Star size={11} style={{ color: 'hsl(var(--color-gold))', flexShrink: 0 }} fill="hsl(var(--color-gold))" />}
                             <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {(l.departments && l.departments.length) ? l.departments.join(', ') : 'All departments'}{l.company ? ` · ${companyName(l.company)}` : ''}
+                              {(l.departments && l.departments.length) ? l.departments.join(', ') : 'All departments'}{(l.companies && l.companies.length) ? ` · ${l.companies.map(companyName).join(', ')}` : ''}
                             </span>
                             <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>{l.clicks || 0} uses</span>
                             <IconBtn onClick={() => doRefreshOne(l)} title="Re-fetch and shorten this link's description" disabled={refreshingId === l.id}>
