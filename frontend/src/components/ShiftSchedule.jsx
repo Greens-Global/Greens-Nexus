@@ -64,6 +64,18 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   }, [data]);
   const openCount = (data?.scheduled || []).reduce((a, s) => a + (!s.email ? (s.openSlots || 1) : 0), 0);
   const offOn = (email, ds) => (data?.timeoff || []).find(t => t.email === email && t.startDate <= ds && ds <= t.endDate);
+  // Per-employee, not per-column (Pranshu, Sep 22: "fetch the holiday in
+  // shifts so HR is aware") - two rows on the same grid can be different
+  // companies/countries with different calendars, so a date can be a holiday
+  // for one row and an ordinary workday for another.
+  const holOn = (email, ds) => data?.holidays?.[email]?.[ds];
+  // Which dates in the visible week are ANYONE's holiday - drives the small
+  // marker in the day header so HR notices without scanning every row.
+  const holidayDates = useMemo(() => {
+    const s = new Set();
+    Object.values(data?.holidays || {}).forEach(byDate => Object.keys(byDate).forEach(d => s.add(d)));
+    return s;
+  }, [data]);
 
   // group employees by shift group; the rest go under "Everyone else"
   const groupsView = useMemo(() => {
@@ -210,14 +222,17 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
               <div style={{ padding: '8px 12px', fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Schedule</div>
               {days.map((d, i) => {
                 const st = dayStats(d);
-                const today = isoDate(d) === isoDate(new Date());
+                const ds = isoDate(d);
+                const today = ds === isoDate(new Date());
+                const isHolDay = holidayDates.has(ds);
                 return (
-                  <div key={i} style={{ padding: '8px 10px', borderLeft: '1px solid var(--line)', background: today ? 'hsla(var(--color-green),0.06)' : 'transparent' }}>
+                  <div key={i} style={{ padding: '8px 10px', borderLeft: '1px solid var(--line)', background: today ? 'hsla(var(--color-green),0.06)' : isHolDay ? 'rgba(37,99,235,0.06)' : 'transparent' }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
                       <span style={{ fontSize: 16, fontWeight: 800, color: today ? 'hsl(var(--color-green))' : 'var(--ink)' }}>{d.getDate()}</span>
                       <span style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>{d.toLocaleDateString([], { weekday: 'short' })}</span>
                     </div>
                     <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 1 }}>{st.people} · {fmtHrs(st.min)}</div>
+                    {isHolDay && <div style={{ fontSize: 10, fontWeight: 700, color: '#2563eb', marginTop: 2 }}>Holiday</div>}
                   </div>
                 );
               })}
@@ -291,14 +306,23 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                       const ds = isoDate(d);
                       const items = byCell[`${emp.email}|${ds}`] || [];
                       const off = offOn(emp.email, ds);
+                      const hol = !off ? holOn(emp.email, ds) : null;
                       return (
-                        <div key={di} onClick={() => { if (!items.length) { copied ? pasteInto(emp.email, ds) : (!off && setCell({ email: emp.email, date: ds })); } }}
+                        <div key={di} onClick={() => { if (!items.length) { copied ? pasteInto(emp.email, ds) : (!off && !hol && setCell({ email: emp.email, date: ds })); } }}
                           style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 54, cursor: items.length ? 'default' : 'pointer', position: 'relative' }}
                           className="sched-cell">
                           {off && !items.length && (
                             <div style={{ background: TYPE_TINT[off.type] || TYPE_TINT.other, borderRadius: 6, padding: '6px 8px', height: '100%' }}>
                               <div style={{ fontSize: 11, fontWeight: 700, color: '#9f1239' }}>{off.status === 'approved' ? 'Off' : 'Requested off'}</div>
                               <div style={{ fontSize: 10, color: '#9f1239' }}>All Day</div>
+                            </div>
+                          )}
+                          {hol && !items.length && (
+                            <div title={hol.name} style={{ background: 'rgba(37,99,235,0.1)', borderRadius: 6, padding: '6px 8px', height: '100%' }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: '#2563eb' }}>
+                                {hol.type === 'half_day' ? 'Half-day holiday' : 'Holiday'}
+                              </div>
+                              <div style={{ fontSize: 10, color: '#2563eb', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{hol.name}</div>
                             </div>
                           )}
                           {items.map(s => (
@@ -314,7 +338,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                               {s.label && <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>}
                             </div>
                           ))}
-                          {!items.length && !off && (
+                          {!items.length && !off && !hol && (
                             <div className="sched-add" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--line)', opacity: 0 }}>
                               <Plus size={16} />
                             </div>

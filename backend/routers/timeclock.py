@@ -4187,8 +4187,21 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
     timeoff = [{"email": t.employee_email, "startDate": t.start_date, "endDate": t.end_date,
                 "type": t.type, "status": t.status} for t in tq.all()]
 
+    # Company holidays, per visible employee (Pranshu, Sep 22: "fetch the
+    # holiday in shifts so that HR is aware of the holiday through shifts
+    # also") - reuses the exact same company+country match payroll already
+    # uses (_company_holidays_for_employee), so a holiday only shows against
+    # the employees it actually applies to, not the whole schedule at once
+    # (two teams on this grid can be on different companies/countries with
+    # different calendars).
+    holidays = {}
+    for em in emails:
+        h = _company_holidays_for_employee(db, em, start, end)
+        if h:
+            holidays[em] = h
+
     return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
-            "groups": groups, "scheduled": scheduled, "timeoff": timeoff,
+            "groups": groups, "scheduled": scheduled, "timeoff": timeoff, "holidays": holidays,
             "canManage": can_write}
 
 
