@@ -146,10 +146,10 @@ class RequiredFieldTests(unittest.TestCase):
         finally:
             db.close()
 
-    def _open_envelope(self):
+    def _open_envelope(self, extra=()):
         """Send the six-page packet and clear both gates, returning the token."""
         fields = []
-        for i, f in enumerate(FIELDS):
+        for i, f in enumerate([*FIELDS, *extra]):
             fields.append({**f, "role": "a", **_geom(i)})
         payload = {
             "title": "Services Agreement", "routing": "sequential", "excludedAck": True,
@@ -238,6 +238,20 @@ class RequiredFieldTests(unittest.TestCase):
         r = self._sign(token, {**COMPLETE, "tax_id": "   "})
         self.assertEqual(r.status_code, 400, r.text)
         self.assertIn("Tax ID", r.json()["detail"])
+
+    def test_auto_filled_name_and_date_boxes_never_block_finish(self):
+        """A name or date box is drawn by _finalize from the party row and
+        signed_at, and the signing screen shows it read-only - so the signer
+        has nothing to type and these can never be "still empty". Demanding a
+        submitted value made Finish impossible on every envelope carrying one
+        (Sagar, Sep 22 2026)."""
+        _, token = self._open_envelope(extra=[
+            {"id": "printed_name", "type": "name", "page": 0, "label": "Name"},
+            {"id": "signed_on", "type": "date", "page": 0, "label": "Date"},
+        ])
+        r = self._sign(token, COMPLETE)   # no value for either of them
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["status"], "completed")
 
     def test_optional_fields_never_block(self):
         _, token = self._open_envelope()
