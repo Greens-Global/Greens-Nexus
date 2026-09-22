@@ -509,6 +509,10 @@ def _run_migrations():
             "ALTER TABLE external_links ADD COLUMN departments JSON DEFAULT '[]'",
             "UPDATE external_links SET categories = json_array(category) WHERE (categories IS NULL OR categories = '[]') AND category IS NOT NULL AND category != ''",
             "UPDATE external_links SET departments = json_array(department) WHERE (departments IS NULL OR departments = '[]') AND department IS NOT NULL AND department != ''",
+            # Company goes multi-select (Sep 22, Neil) - same story as
+            # categories/departments above, same backfill shape.
+            "ALTER TABLE external_links ADD COLUMN companies JSON DEFAULT '[]'",
+            "UPDATE external_links SET companies = json_array(company) WHERE (companies IS NULL OR companies = '[]') AND company IS NOT NULL AND company != ''",
             "ALTER TABLE nexus_roles ADD COLUMN tier_pinned BOOLEAN DEFAULT 0",
             # Attended remote control (IT support) - consent + audit fields on the
             # live-view session row.
@@ -1359,6 +1363,10 @@ def _run_migrations():
         "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS departments JSONB DEFAULT '[]'::jsonb",
         "UPDATE external_links SET categories = jsonb_build_array(category) WHERE (categories IS NULL OR categories = '[]'::jsonb) AND category IS NOT NULL AND category != ''",
         "UPDATE external_links SET departments = jsonb_build_array(department) WHERE (departments IS NULL OR departments = '[]'::jsonb) AND department IS NOT NULL AND department != ''",
+        # Company goes multi-select (Sep 22, Neil: "that should be a checkbox
+        # for multiselect not a dropdown for single select") - same shape.
+        "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS companies JSONB DEFAULT '[]'::jsonb",
+        "UPDATE external_links SET companies = jsonb_build_array(company) WHERE (companies IS NULL OR companies = '[]'::jsonb) AND company IS NOT NULL AND company != ''",
         # Personal Link -> Credential Vault personal credential pointer (Aug 13)
         "ALTER TABLE personal_links ADD COLUMN IF NOT EXISTS vault_cred_id VARCHAR DEFAULT ''",
         # Personal Links department/category (Aug 14)

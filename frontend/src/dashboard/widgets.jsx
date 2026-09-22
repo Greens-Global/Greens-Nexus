@@ -73,7 +73,7 @@ export const SHORTCUT_TARGETS = [
   { view: 'operations',       label: 'Operations' },
   { view: 'development',      label: 'Development' },
   { view: 'ops',              label: 'Construction' },
-  { view: 'external-links',   label: 'External Links' },
+  { view: 'external-links',   label: 'Links' },
   { view: 'support',          label: 'Support' },
 ];
 

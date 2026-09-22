@@ -77,7 +77,7 @@ const PERMISSION_MATRIX = [
       { feature: 'Knowledge Base',  owner: true, administrator: true, manager: true, supervisor: true, employee: true },
       { feature: 'Tasks',           owner: true, administrator: true, manager: true, supervisor: true, employee: true },
       { feature: 'Support',         owner: true, administrator: true, manager: true, supervisor: true, employee: true },
-      { feature: 'External Links',  owner: true, administrator: true, manager: true, supervisor: true, employee: true },
+      { feature: 'Links',           owner: true, administrator: true, manager: true, supervisor: true, employee: true },
     ],
   },
   {
