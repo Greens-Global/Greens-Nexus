@@ -1193,6 +1193,8 @@ export const api = {
   mySignOtpVerify:    (pid, data) => req(`/esign/mine/${pid}/otp/verify`, { method: 'POST', body: JSON.stringify(data) }),
   mySignSubmit:       (pid, data) => req(`/esign/mine/${pid}/sign`, { method: 'POST', body: JSON.stringify(data) }),
   mySignDecline:      (pid, data) => req(`/esign/mine/${pid}/decline`, { method: 'POST', body: JSON.stringify(data) }),
+  // Approvers and certified-delivery recipients do NOT sign - they act.
+  mySignAct:          (pid, data) => req(`/esign/mine/${pid}/act`, { method: 'POST', body: JSON.stringify(data) }),
   // Upload fields. FormData, so no JSON Content-Type - req() leaves the
   // boundary to the browser when the body is a FormData.
   mySignUpload:       (pid, form) => req(`/esign/mine/${pid}/upload`, { method: 'POST', body: form }),

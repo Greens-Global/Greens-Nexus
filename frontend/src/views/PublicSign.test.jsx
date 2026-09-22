@@ -190,16 +190,31 @@ describe('Nexus Sign external signing page', () => {
     expect(start.textContent.replace(/\s+/g, ' ').trim()).toBe('START');
 
     fireEvent.click(start);
-    // Now it names the field it will take them to, and keeps naming the one
-    // that is still outstanding as they go.
+    // The tab is now standing AT the first field, so its label names the one a
+    // click would take them to next - not the box beside it. "NEXT Signature"
+    // has to be a promise about the click (Sagar, Sep 22 2026).
     const next = await screen.findByRole('button', { name: /Next field:/i });
     expect(next.textContent).toMatch(/NEXT/);
-    expect(next.textContent).toMatch(/Insurance confirmed/);
+    expect(next.textContent).toMatch(/Signature/i);
+    expect(next.textContent).not.toMatch(/Insurance confirmed/);
+  });
 
-    // Filling that one moves the tab on to whatever is still outstanding.
-    fireEvent.click(screen.getByRole('checkbox', { name: /Insurance confirmed/i }));
-    await waitFor(() => expect(screen.getByRole('button', { name: /Next field:/i }).textContent)
-      .toMatch(/Signature/i));
+  it('reads END at the last field, and goes to the finish bar', async () => {
+    queue.push(openPayload);
+    render(<PublicSign token="tok" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Start signing/i }));
+    // Step on to the last field: from there nothing follows, so the tab stops
+    // promising a next field and offers the end of the document instead.
+    fireEvent.click(await screen.findByRole('button', { name: /Next field:/i }));
+    const end = await screen.findByRole('button', { name: /Go to the end of the document/i });
+    expect(end.textContent.replace(/\s+/g, ' ').trim()).toBe('END');
+
+    window.scrollTo = vi.fn();
+    fireEvent.click(end);
+    // The foot of the page, which is where the finish bar lives. (jsdom
+    // reports a zero-height body, so this checks the target, not the number.)
+    expect(window.scrollTo).toHaveBeenCalledWith(
+      { top: document.body.scrollHeight, behavior: 'smooth' });
   });
 
   it('will not let the signer finish while a required field is empty', async () => {
@@ -260,6 +275,25 @@ describe('Nexus Sign external signing page', () => {
       expect(screen.queryByText(/Consent recorded and identity verified/i)).toBeNull());
     // The bar under the document is what carries Finish from here on.
     expect(screen.getAllByRole('button', { name: /Finish/i }).length).toBe(1);
+  });
+
+  it('an approver gets Approve, not Finish, and it posts to /act', async () => {
+    // The server has always refused a signature from an approver ("an approver
+    // does not sign this document"), but the screen only ever offered Finish -
+    // so approvers were stuck with no way through (Sagar, Sep 22 2026).
+    queue.push({ ...openPayload, myPartyRole: 'approver' });
+    render(<PublicSign token="tok" />);
+    // Two of them, the same way Finish appears twice: the opening bar and the
+    // bar under the document.
+    const approve = (await screen.findAllByRole('button', { name: /^Approve$/i }))[0];
+    expect(approve.disabled).toBe(false);
+    expect(screen.queryByRole('button', { name: /^Finish$/i })).toBeNull();
+
+    queue.push({ ok: true, status: 'completed' });
+    fireEvent.click(approve);
+    await waitFor(() => expect(calls.some(c => c.url.endsWith('/act'))).toBe(true));
+    // Never the signing endpoint.
+    expect(calls.some(c => c.url.endsWith('/sign'))).toBe(false);
   });
 
   it('a rejected action says what went wrong without closing the document', async () => {

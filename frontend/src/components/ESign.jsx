@@ -1021,7 +1021,7 @@ function UploadField({ field, style, innerRef, record, busy, disabled, error,
   );
 }
 
-export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi, copyApi }) {
+export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi, copyApi }) {
   // Phone widths: the action bar's one row of controls does not fit, and the
   // signer should never have to scroll back up to finish (Sagar, Sep 22 2026).
   const narrow = useIsMobile('(max-width: 720px)');
@@ -1113,8 +1113,12 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
       try { await run(url); } finally { setTimeout(() => URL.revokeObjectURL(url), 60000); }
     } catch (e) {
       setCopyErr(e.message || 'That did not work - try again in a moment.');
+    } finally {
+      // finally, not a trailing statement: the no-blob path above RETURNS, and
+      // without this the internal viewer's Print button sat on "Preparing…"
+      // for ever (Sagar, Sep 22 2026).
+      setCopyBusy('');
     }
-    setCopyBusy('');
   };
   const downloadDoc = () => withCopy('download', (url) => {
     const a = document.createElement('a');
@@ -1220,7 +1224,52 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
       el.focus?.({ preventScroll: true });
     }
   };
-  const jumpNext = () => { setStarted(true); setBarHidden(true); jumpTo(nextTask); };
+  // Declared here, not beside the other tab state further down: cursorId is
+  // read during render just below, and a const used above its declaration is
+  // a ReferenceError.
+  const [started, setStarted] = useState(false);
+  const [cursorId, setCursorId] = useState('');
+  // Where the tab is standing, and where a click would take the signer. They
+  // are NOT the same field: the tab sits level with the field you are on and
+  // is labelled with the one it will jump to, so "NEXT Signature" reads as a
+  // promise about the click rather than a label for the box beside it
+  // (Sagar, Sep 22 2026). Before START it is parked at the top of the page,
+  // and at the last field it becomes END, which goes to the finish bar.
+  const cursorTask = required.find(t => t.id === cursorId) || null;
+  const cursorIdx = cursorTask ? required.indexOf(cursorTask) : -1;
+  // Strictly what comes AFTER the tab, in document order. No wrapping back to
+  // a field above: at the last field the tab reads END, and anything skipped
+  // is still named by the counter and by the bar under the document.
+  const nextTarget = started
+    ? required.slice(cursorIdx + 1).find(t => !isDone(t)) || null
+    : outstanding[0] || null;
+  const atEnd = started && !nextTarget;
+
+  const jumpNext = () => {
+    setBarHidden(true);
+    if (atEnd) {                       // nothing left above - go to the finish bar
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      return;
+    }
+    setStarted(true);
+    setCursorId(nextTarget?.id || '');
+    jumpTo(nextTarget);
+  };
+  // Not every party signs. An approver approves and a certified-delivery
+  // recipient acknowledges: the server has always refused a signature from
+  // them ("an approver does not sign this document"), but the screen offered
+  // Finish anyway, so those parties were simply stuck (Sagar, Sep 22 2026).
+  const partyRole = payload.myPartyRole || 'signer';
+  const actsNotSigns = partyRole === 'approver' || partyRole === 'certified_delivery';
+  const actLabel = partyRole === 'approver' ? 'Approve' : 'Acknowledge';
+  const primaryLabel = actsNotSigns ? actLabel : 'Finish';
+  // An approver has no fields and no signature to give - consent and their
+  // turn are the whole of it.
+  const canAct = payload.myTurn && consent && (actsNotSigns || allDone);
+  const submitAct = () => onAct?.({ consent, note: '',
+    format_demonstrated: formatDemonstrated });
+  const primaryAction = () => (actsNotSigns ? submitAct() : submitSigned());
+
   // One definition of "finish", used by the bar at the top and the one that
   // follows the signer down the page.
   const submitSigned = () => onSubmit({
@@ -1235,7 +1284,6 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
   // scroll to the top again and again"). Fixed to the viewport's left edge and
   // moved to the next field's own row as the page scrolls, clamped inside the
   // viewport so it is always reachable - the way DocuSign's tab behaves.
-  const [started, setStarted] = useState(false);
   const [tabTop, setTabTop] = useState(null);
   // The tab hangs off the DOCUMENT's left edge, not the window's: pinned to the
   // window it floated in the empty margin far from the page (Sagar, Sep 22
@@ -1253,20 +1301,24 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
     return () => window.removeEventListener('scroll', onScroll);
   }, [payload.myTurn, barHidden]);
   useEffect(() => {
-    if (!payload.myTurn || !nextTask) { setTabTop(null); return undefined; }
+    if (!payload.myTurn || (!nextTask && !started)) { setTabTop(null); return undefined; }
     let raf = 0;
     const place = () => {
       raf = 0;
-      const el = fieldRefs.current[nextTask.id];
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const min = 12;
-      const max = Math.max(min, window.innerHeight - 110);
-      setTabTop(Math.max(min, Math.min(max, r.top + r.height / 2 - 17)));
       const doc = docRef.current?.getBoundingClientRect();
       // Just outside the page when there is room for it, otherwise overlapping
       // its edge - never off-screen, and never adrift in the margin.
       if (doc) setTabLeft(Math.max(0, Math.min(window.innerWidth - 70, doc.left - 46)));
+      const min = 12;
+      const max = Math.max(min, window.innerHeight - 110);
+      // Until START is pressed the tab waits at the TOP of the document, where
+      // the signer's eye already is - not beside a field further down that
+      // they have not been introduced to yet.
+      const el = started ? fieldRefs.current[(cursorTask || nextTarget || {}).id] : null;
+      const anchor = el ? el.getBoundingClientRect() : doc;
+      if (!anchor) return;
+      const y = el ? anchor.top + anchor.height / 2 - 17 : anchor.top + 10;
+      setTabTop(Math.max(min, Math.min(max, y)));
     };
     place();
     const onMove = () => { if (!raf) raf = requestAnimationFrame(place); };
@@ -1277,7 +1329,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
       window.removeEventListener('scroll', onMove);
       window.removeEventListener('resize', onMove);
     };
-  }, [payload.myTurn, nextTask, zoom]);
+  }, [payload.myTurn, started, cursorTask, nextTarget, nextTask, zoom]);
 
   const sigPreview = (h = 40) => sig?.kind === 'drawn'
     ? <img src={sig.data} alt="signature" style={{ maxHeight: h, maxWidth: '100%', display: 'block' }} />
@@ -1614,7 +1666,9 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, flex: 1, minWidth: narrow ? 0 : 240, color: 'var(--muted)' }}>
             <ShieldCheck size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
-            <span>Consent recorded and identity verified. Complete the highlighted fields, then Finish.</span>
+            <span>{actsNotSigns
+              ? `Consent recorded and identity verified. Review the document, then ${actLabel}.`
+              : 'Consent recorded and identity verified. Complete the highlighted fields, then Finish.'}</span>
           </span>
           <ConsentDisclosures payload={payload} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1688,10 +1742,10 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
               </button>
             )}
             <button onClick={() => setDeclineOpen(true)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Decline</button>
-            <button className="primary-btn" disabled={!canFinish || busy}
-              onClick={submitSigned}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canFinish && !busy ? 1 : 0.5, fontSize: 13 }}>
-              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Finish
+            <button className="primary-btn" disabled={!canAct || busy}
+              onClick={primaryAction}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canAct && !busy ? 1 : 0.5, fontSize: 13 }}>
+              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} {primaryLabel}
             </button>
           </div>
         </div>
@@ -1727,33 +1781,29 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
         {/* The guide tab: plain START until it is first used, then NEXT with
             the name of the field it will take you to. Fixed to the left edge,
             level with that field's own row (see the effect above). */}
-        {payload.myTurn && nextTask && (
-          <button onClick={jumpNext} aria-label={started ? `Next field: ${taskName(nextTask)}` : 'Start signing'}
+        {payload.myTurn && (nextTask || started) && (
+          <button onClick={jumpNext}
+            aria-label={!started ? 'Start signing'
+              : atEnd ? 'Go to the end of the document' : `Next field: ${taskName(nextTarget)}`}
             style={{ position: 'fixed', left: tabLeft, top: tabTop ?? 120, zIndex: 25, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 12, padding: '8px 14px 8px 10px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', borderRadius: '0 8px 8px 0', boxShadow: '0 2px 10px rgba(245,158,11,0.55)', maxWidth: '62vw' }}>
-            {started ? 'NEXT' : 'START'}
-            {started && (
+            {!started ? 'START' : atEnd ? 'END' : 'NEXT'}
+            {started && !atEnd && (
               <span style={{ fontWeight: 600, opacity: .85, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {taskName(nextTask)}
+                {taskName(nextTarget)}
               </span>
             )}
             <ArrowRight size={13} />
           </button>
         )}
+        {/* Document actions: a plain row above the page, NOT a bar that sticks
+            to the top of the viewport - it was covering the document as the
+            signer scrolled (Sagar, Sep 22 2026). The zoom controls move to
+            their own floating cluster in the bottom right, where they are to
+            hand without standing between the reader and the page. */}
         {!isTemplate && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 12px', marginBottom: 8,
-            border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', position: 'sticky',
-            top: 'calc(env(safe-area-inset-top, 0px) + 8px)', zIndex: 16 }}>
-            <button className="secondary-btn" title="Zoom out" aria-label="Zoom out"
-              onClick={() => setZoom(z => Math.max(0.6, +(z - 0.15).toFixed(2)))}
-              style={{ padding: '5px 9px' }}><ZoomOut size={13} /></button>
-            <span style={{ fontSize: 12, fontWeight: 700, minWidth: 44, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-              {Math.round(zoom * 100)}%
-            </span>
-            <button className="secondary-btn" title="Zoom in" aria-label="Zoom in"
-              onClick={() => setZoom(z => Math.min(2, +(z + 0.15).toFixed(2)))}
-              style={{ padding: '5px 9px' }}><ZoomIn size={13} /></button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
             {docPages > 0 && (
-              <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginLeft: 4 }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
                 {docPages} page{docPages === 1 ? '' : 's'}
               </span>
             )}
@@ -1771,8 +1821,24 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
               <Printer size={13} /> {copyBusy === 'print' ? 'Preparing…' : 'Print'}
             </button>
             {copyErr && (
-              <span role="alert" style={{ fontSize: 11.5, color: 'hsl(350,62%,42%)', width: '100%' }}>{copyErr}</span>
+              <span role="alert" style={{ fontSize: 11.5, color: 'hsl(350,62%,42%)', width: '100%', textAlign: 'right' }}>{copyErr}</span>
             )}
+          </div>
+        )}
+        {!isTemplate && (
+          <div style={{ position: 'fixed', right: 18, bottom: 'calc(18px + env(safe-area-inset-bottom, 0px))',
+            zIndex: 24, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px',
+            border: '1px solid var(--line)', borderRadius: 999, background: 'var(--card)',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.16)' }}>
+            <button className="secondary-btn" title="Zoom out" aria-label="Zoom out"
+              onClick={() => setZoom(z => Math.max(0.6, +(z - 0.15).toFixed(2)))}
+              style={{ padding: '5px 9px' }}><ZoomOut size={13} /></button>
+            <span style={{ fontSize: 12, fontWeight: 700, minWidth: 44, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+              {Math.round(zoom * 100)}%
+            </span>
+            <button className="secondary-btn" title="Zoom in" aria-label="Zoom in"
+              onClick={() => setZoom(z => Math.min(2, +(z + 0.15).toFixed(2)))}
+              style={{ padding: '5px 9px' }}><ZoomIn size={13} /></button>
           </div>
         )}
         <div ref={docRef} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: isTemplate ? '30px 38px' : '24px 12px', background: isTemplate ? '#fff' : 'var(--mist)', color: '#111827' }}>
@@ -1819,13 +1885,14 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
           padding: narrow ? '10px 12px calc(10px + env(safe-area-inset-bottom, 0px))' : '10px 16px',
           boxShadow: '0 -2px 10px rgba(0,0,0,0.08)' }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: allDone ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
-            {allDone ? 'All fields complete' : `${doneCount}/${required.length} fields`}
+            {actsNotSigns ? 'Nothing to fill in - this document is yours to review'
+              : allDone ? 'All fields complete' : `${doneCount}/${required.length} fields`}
           </span>
           {!allDone && nextTask && (
             <button onClick={jumpNext}
               style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
                 fontSize: 12, fontWeight: 700, color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              Go to {taskName(nextTask)} <ArrowRight size={12} />
+              Go to {taskName(nextTarget || nextTask)} <ArrowRight size={12} />
             </button>
           )}
           <span style={{ flex: 1 }} />
@@ -1833,9 +1900,9 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
             style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
             Decline
           </button>
-          <button className="primary-btn" disabled={!canFinish || busy} onClick={submitSigned}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canFinish && !busy ? 1 : 0.5, fontSize: 13 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Finish
+          <button className="primary-btn" disabled={!canAct || busy} onClick={primaryAction}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canAct && !busy ? 1 : 0.5, fontSize: 13 }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} {primaryLabel}
           </button>
         </div>
       )}
@@ -1881,6 +1948,17 @@ function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
       onDone();
     } catch (e) { toastErr(e?.message || 'Could not sign.'); setBusy(false); }
   }
+  // Approvers and certified-delivery recipients do not sign - they act, and
+  // the envelope advances exactly the same way.
+  async function act(data) {
+    setBusy(true);
+    try {
+      const r = await api.mySignAct(partyId, data);
+      toastOk(r.status === 'completed' ? 'Recorded - all parties done, document sealed.'
+        : `Recorded. Next: ${r.next}.`);
+      onDone();
+    } catch (e) { toastErr(e?.message || 'Could not record that.'); setBusy(false); }
+  }
   async function decline(reason) {
     setBusy(true);
     try { await api.mySignDecline(partyId, { reason }); toastOk('Declined.'); onDone(); }
@@ -1908,7 +1986,7 @@ function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
         <div style={{ maxWidth: 1180, margin: '0 auto' }}>
           {!payload
             ? <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} /></div>
-            : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onDecline={decline}
+            : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onAct={act} onDecline={decline}
                 gateApi={gateApi} onCleared={() => load().catch(() => {})} uploadApi={uploadApi}
                 historyApi={historyApi} />}
         </div>

@@ -1032,14 +1032,18 @@ def _sign_email_html(party: HrSignParty, req: HrSignRequest, sender: dict, link:
         rows.append(escape(sender["entity"]))
     subtitle = " &middot; ".join(rows)
     # Glyphs, not images: Outlook blocks remote images by default and drops
-    # SVG entirely, so an <img> icon would be an empty box for most readers.
+    # SVG entirely, so the app's own lucide icons cannot travel in a mail -
+    # an <img> would be an empty box for most readers. These are the closest
+    # characters to them that every client can draw: an open envelope and a
+    # modern handset, rather than the flat 1960s dial phone at U+260E
+    # (Sagar, Sep 22 2026: "use the same icon for the phone number on emails").
     contact = []
     if sender.get("email"):
-        contact.append(f'<span style="color:#6b7280">&#9993;</span> '
+        contact.append(f'<span style="color:#6b7280">&#128231;</span> '
                        f'<a href="mailto:{escape(sender["email"])}" '
                        f'style="color:#15803d;text-decoration:none">{escape(sender["email"])}</a>')
     if sender.get("phone"):
-        contact.append(f'<span style="color:#6b7280">&#9742;</span> '
+        contact.append(f'<span style="color:#6b7280">&#128222;</span> '
                        f'<a href="tel:{escape(re.sub(r"[^+0-9]", "", sender["phone"]))}" '
                        f'style="color:#374151;text-decoration:none">{escape(sender["phone"])}</a>')
     return f"""<div style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#f3f4f6;padding:28px 12px">
@@ -2618,8 +2622,9 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
     if req.status != "pending":
         raise HTTPException(409, f"This document is {req.status}")
     if not _signs(party):
-        raise HTTPException(400, f"A {_ROLE_LABELS[_role_of(party)].lower()} does not sign this "
-                                 f"document - use the approve or acknowledge action instead")
+        label = _ROLE_LABELS[_role_of(party)].lower()
+        raise HTTPException(400, f"{'An' if label[0] in 'aeiou' else 'A'} {label} does not sign "
+                                 f"this document - use the approve or acknowledge action instead")
     if not _its_their_turn(req, party):
         raise HTTPException(409, "It is not your turn to sign yet" if party.status != "signed"
                             else "You have already signed")
