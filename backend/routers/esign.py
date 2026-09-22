@@ -43,7 +43,7 @@ from auth import get_current_user
 from models import (HrSignTemplate, HrSignRequest, HrSignParty, HrSignEvent,
                     HrDocument, HrEntity, HrCandidate, NexusEmployee,
                     HrDocumentClass, HrSignConsent, HrSignRetentionHold,
-                    HrSignDocument, HrSignSeal, HrSignUpload)
+                    HrSignDocument, HrSignSeal, HrSignUpload, HrSignDraft)
 # Reuse the HR module's storage/Graph/notification plumbing - same bucket, same
 # service key, same bell. hr.py owns those constants; do not duplicate them.
 from services.seal import (seal_pdf, policy_sentence as seal_policy_sentence,
@@ -2256,6 +2256,98 @@ def verify_final(rid: str, user: dict = Depends(require_hr_read), db: Session = 
 
 # ── My signatures (any logged-in employee) ────────────────────────────────────
 
+# ── Drafts: a Send for Signature that was started and not finished ───────────
+# Filling one in is twenty minutes of work - recipients, field placement, a
+# message, an expiry - and closing the wizard used to throw all of it away
+# (Sagar, Sep 22 2026). Private to the owner, source PDF and all: nobody else's
+# business what someone was drafting.
+
+
+def _ser_draft(d: HrSignDraft) -> dict:
+    payload = d.payload or {}
+    return {"id": d.id, "title": d.title or "Untitled", "payload": payload,
+            "fileName": d.file_name or "", "hasFile": bool(d.file_path),
+            "recipients": len(payload.get("parties") or []),
+            "createdAt": d.created_at or "", "updatedAt": d.updated_at or ""}
+
+
+@router.get("/drafts")
+def list_drafts(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (db.query(HrSignDraft)
+            .filter(HrSignDraft.owner_email == user["email"].lower())
+            .order_by(HrSignDraft.updated_at.desc()).all())
+    return [_ser_draft(d) for d in rows]
+
+
+@router.post("/drafts")
+async def save_draft(request: Request, user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Create or update one.
+
+    Multipart so the source PDF can ride along: a draft that could not hand
+    back the exact file the fields were placed on would be worse than none,
+    because the field coordinates would no longer mean anything.
+    """
+    form = await request.form()
+    try:
+        payload = json.loads(str(form.get("payload") or "{}"))
+    except ValueError:
+        payload = None
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Draft payload was not valid JSON")
+    email = user["email"].lower()
+    draft_id = str(form.get("id") or "").strip()
+    now = _now_iso()
+    row = None
+    if draft_id:
+        row = db.query(HrSignDraft).filter(HrSignDraft.id == draft_id,
+                                           HrSignDraft.owner_email == email).first()
+    if row is None:
+        row = HrSignDraft(id=str(uuid.uuid4()), owner_email=email, created_at=now)
+        db.add(row)
+    row.title = (str(payload.get("title") or "").strip() or "Untitled")[:200]
+    row.payload = payload
+    row.updated_at = now
+
+    upload = form.get("file")
+    if upload is not None and hasattr(upload, "read"):
+        blob = await upload.read()
+        if len(blob) > _ATTACH_MAX * 4:
+            raise HTTPException(413, "That document is too large to keep as a draft")
+        path = f"esign/drafts/{row.id}/{uuid.uuid4()}.pdf"
+        if not _storage_put(_DOC_BUCKET, path, blob, "application/pdf").is_success:
+            raise HTTPException(502, "Could not store the draft document")
+        row.file_path = path
+        row.file_name = getattr(upload, "filename", "") or "document.pdf"
+    db.commit()
+    return _ser_draft(row)
+
+
+@router.get("/drafts/{draft_id}/file")
+def draft_file(draft_id: str, user: dict = Depends(get_current_user),
+               db: Session = Depends(get_db)):
+    row = db.query(HrSignDraft).filter(HrSignDraft.id == draft_id,
+                                       HrSignDraft.owner_email == user["email"].lower()).first()
+    if not row or not row.file_path:
+        raise HTTPException(404, "Not found")
+    resp = _storage_signed_url(_DOC_BUCKET, row.file_path)
+    if not resp.is_success:
+        raise HTTPException(502, "Could not open the draft document")
+    return RedirectResponse(resp.json()["url"], status_code=302)
+
+
+@router.delete("/drafts/{draft_id}")
+def delete_draft(draft_id: str, user: dict = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    row = db.query(HrSignDraft).filter(HrSignDraft.id == draft_id,
+                                       HrSignDraft.owner_email == user["email"].lower()).first()
+    if not row:
+        raise HTTPException(404, "Not found")
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/mine")
 def my_signatures(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Inbox: everything awaiting me (my turn) + queued behind others."""
@@ -3439,6 +3531,33 @@ def request_upload_url(rid: str, upload_id: str, request: Request,
          party_id=row.party_id, ip=ip, user_agent=ua)
     db.commit()
     return {**resp.json(), "name": row.name}
+
+
+@router.get("/mine/{party_id}/final")
+def my_final_copy(party_id: str, request: Request,
+                  user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """This party's executed copy of a completed envelope.
+
+    Scoped to the PARTY, not to a permission: everyone on the envelope - signer,
+    approver, certified delivery, CC - is emailed the sealed PDF when it
+    completes, so everyone on it can fetch that same file again from My
+    Documents. It carries the Certificate of Completion, exactly as the mailed
+    copy does.
+    """
+    party = db.query(HrSignParty).filter(HrSignParty.id == party_id).first()
+    if not party or (party.email or "").lower() != user["email"].lower():
+        raise HTTPException(404, "Not found")
+    req = db.query(HrSignRequest).filter(HrSignRequest.id == party.request_id).first()
+    if not req or req.status != "completed" or not req.final_pdf_path:
+        raise HTTPException(409, "This document is not completed yet")
+    resp = _storage_signed_url(_DOC_BUCKET, req.final_pdf_path)
+    if not resp.is_success:
+        raise HTTPException(502, "Could not create download link")
+    ip, ua = _client_meta(request)
+    _log(db, req.id, "downloaded", f"by {party.name} (My Documents)", party_id=party.id,
+         ip=ip, user_agent=ua)
+    db.commit()
+    return RedirectResponse(resp.json()["url"], status_code=302)
 
 
 @router.post("/mine/{party_id}/act")

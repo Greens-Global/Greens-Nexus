@@ -1514,6 +1514,29 @@ class HrSignTemplate(Base):
     body_locked   = Column(Boolean, default=False)      # statutory form (CA lien waiver, TX release) - body text is not editable
 
 
+class HrSignDraft(Base):
+    """A Send for Signature that was started and not finished.
+
+    Filling one of these in is twenty minutes of work - recipients, field
+    placement, a message, an expiry - and until now closing the wizard threw
+    all of it away (Sagar, Sep 22 2026). The draft is the wizard's own state,
+    stored as it serializes it, plus the source PDF: a draft that could not
+    hand back the exact file the fields were placed on would be worse than
+    none, because the coordinates would no longer mean anything.
+
+    Private to its owner. Nobody else's business what someone was drafting.
+    """
+    __tablename__ = "hr_sign_drafts"
+    id          = Column(String, primary_key=True)     # uuid
+    owner_email = Column(String, default="")           # the only person who can see it
+    title       = Column(String, default="")           # for the list, so it need not parse payload
+    payload     = Column(JSON, default=dict)           # the wizard's state, verbatim
+    file_path   = Column(String, default="")           # hr-docs path of the source PDF, when there is one
+    file_name   = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
 class HrSignSeal(Base):
     """What was ACTUALLY applied to a completed packet, read back off the
     signed PDF rather than copied from configuration.
@@ -1914,6 +1937,11 @@ class Document(Base):
     tags             = Column(JSON, default=list)
     current_version  = Column(Integer, default=1)
     sign_request_id  = Column(String, default="")          # set once sent for signature (HrSignRequest.id)
+    # "esign-send" = plumbing, not a document: the Send for Signature wizard
+    # generates one of these purely to render the PDF it attaches to an
+    # envelope, so it is kept (the envelope cites it) but never listed in My
+    # Documents (Sagar, Sep 22 2026).
+    source           = Column(String, default="")
     created_by       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_by       = Column(String, default="")

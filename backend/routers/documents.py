@@ -117,6 +117,71 @@ def _ser_document(d: Document, sign_status: str = "") -> dict:
             "updatedBy": d.updated_by, "updatedAt": d.updated_at, "archivedAt": d.archived_at}
 
 
+def _executed_entries(db: Session, email: str) -> list:
+    """Envelopes this person was part of that are now fully executed.
+
+    My Documents is where someone looks for "the signed copy", and until now
+    it held only authored documents - so a fully executed envelope lived
+    nowhere they would think to look (Sagar, Sep 22 2026). These are not
+    `documents` rows and are deliberately not made into any: the artifact is a
+    sealed PDF in storage, and inventing a builder document for it would offer
+    an Edit button over a signed record.
+
+    Any role counts - signer, approver, certified delivery, CC - because
+    everyone on the envelope receives the executed copy anyway.
+    """
+    email = (email or "").strip().lower()
+    if not email:
+        return []
+    parties = (db.query(HrSignParty)
+               .filter(HrSignParty.email == email).all())
+    if not parties:
+        return []
+    by_request: dict = {}
+    for p in parties:
+        by_request.setdefault(p.request_id, p)
+    reqs = (db.query(HrSignRequest)
+            .filter(HrSignRequest.id.in_(list(by_request)),
+                    HrSignRequest.status == "completed").all())
+    out = []
+    for r in reqs:
+        signers = [p.name for p in
+                   db.query(HrSignParty).filter(HrSignParty.request_id == r.id)
+                   .order_by(HrSignParty.ordinal).all()
+                   if (p.party_role or "signer") in ("signer", "countersigner", "witness")
+                   and (p.name or "").strip()]
+        when = _us_date(r.completed_at or r.updated_at or "")
+        who = ", ".join(signers)
+        title = f"{r.title} Signed"
+        if who:
+            title += f" - {who}"
+        if when:
+            title += f" - {when}"
+        party = by_request[r.id]
+        out.append({
+            "id": f"sign:{r.id}", "title": title, "folderId": "", "templateId": "",
+            "templateVersion": 0, "content": None, "letterheadId": "", "status": "final",
+            "employeeId": r.employee_id or "", "entityId": r.entity_id or "",
+            "mergeOverrides": {}, "ownerEmail": r.created_by or "", "tags": [],
+            "currentVersion": 1, "signRequestId": r.id, "signStatus": "completed",
+            "createdBy": r.created_by or "", "createdAt": r.created_at or "",
+            "updatedBy": "", "updatedAt": r.completed_at or r.updated_at or "",
+            "archivedAt": "",
+            # What tells the browser to offer Download instead of Edit.
+            "kind": "signed", "partyId": party.id,
+        })
+    return out
+
+
+def _us_date(iso: str) -> str:
+    """MM/DD/YYYY, the app-wide format (CLAUDE.md). Never the raw ISO string."""
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat((iso or "").replace("Z", "+00:00")).strftime("%m/%d/%Y")
+    except (TypeError, ValueError):
+        return ""
+
+
 def _sign_statuses(db: Session, docs: list) -> dict:
     """Read-only batch lookup of HrSignRequest.status for whichever documents
     have a sign_request_id - no polling/webhook sync needed, always accurate
@@ -197,6 +262,11 @@ class DocumentIn(BaseModel):
     # the raw tokens (Sagar, Sep 21).
     employeeId: Optional[str] = None
     entityId: Optional[str] = None
+    # Set by the Send for Signature wizard. What it generates is the PDF that
+    # goes into an envelope, not a document someone authored, so it is kept
+    # out of My Documents instead of filling it with one "Final" row per send
+    # attempt (Sagar, Sep 22 2026).
+    forSignature: Optional[bool] = False
 
 
 class DocumentUpdate(BaseModel):
@@ -243,7 +313,8 @@ def create_folder(body: FolderIn, user: dict = Depends(get_current_user), db: Se
 @router.get("")
 def list_documents(folder_id: str = "", status: str = "", q: str = "", mine: bool = False,
                     limit: int = 0, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    query = db.query(Document)
+    # The wizard's own generated PDFs are plumbing, never listed.
+    query = db.query(Document).filter((Document.source == "") | (Document.source.is_(None)))
     if folder_id:
         query = query.filter(Document.folder_id == folder_id)
     if status:
@@ -265,7 +336,17 @@ def list_documents(folder_id: str = "", status: str = "", q: str = "", mine: boo
         _emp = auth.company_of_email_map(db)
         rows = [d for d in rows if auth.company_ok(_emp.get((d.owner_email or "").lower(), ""), _scope)]
     statuses = _sign_statuses(db, rows)
-    return [_ser_document(d, statuses.get(d.sign_request_id, "")) for d in rows]
+    out = [_ser_document(d, statuses.get(d.sign_request_id, "")) for d in rows]
+    # Fully executed envelopes this person was on, filed alongside. Folder and
+    # tag filters do not apply to them - they live in no folder - and a title
+    # search does.
+    if not folder_id and status in ("", "final"):
+        signed = _executed_entries(db, user["email"])
+        if q:
+            needle = q.strip().lower()
+            signed = [s for s in signed if needle in s["title"].lower()]
+        out = sorted(out + signed, key=lambda d: d.get("updatedAt") or "", reverse=True)
+    return out
 
 
 @router.post("")
@@ -341,6 +422,7 @@ def create_document(body: DocumentIn, user: dict = Depends(get_current_user), db
                     content=content, letterhead_id=letterhead_id,
                     merge_overrides=merge_overrides,
                     status=status, owner_email=user["email"].lower(), tags=_clean_tags(body.tags or []), current_version=1,
+                    source="esign-send" if body.forSignature else "",
                     created_by=user["email"], created_at=now, updated_by=user["email"], updated_at=now)
     db.add(row); db.flush()
     db.add(DocumentVersion(id=str(uuid.uuid4()), document_id=row.id, version_no=1, content=content,
