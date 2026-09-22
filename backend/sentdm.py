@@ -57,12 +57,28 @@ def configured() -> bool:
     return bool(api_key())
 
 
-def normalize_phone(raw: str, default_country: str = "1") -> str:
-    """E.164 for sent.dm. HR stores phones however they were typed -
-    "(949) 400-3330", "949.400.3330", "+1 949 400 3330" - and the API wants
-    +19494003330. Ten digits are taken as North American; 11 starting with 1
-    likewise; anything already carrying '+' keeps its country code. Returns ''
-    when there is no usable number, so callers fall back cleanly."""
+def default_country() -> str:
+    """Country code assumed for a LOCAL-looking number typed without one.
+    Set NEXUS_SMS_DEFAULT_COUNTRY per deployment (e.g. 91 for India); defaults
+    to 1, which is what every number in this system was assumed to be before
+    this existed."""
+    return re.sub(r"\D", "", os.getenv("NEXUS_SMS_DEFAULT_COUNTRY", "1") or "1") or "1"
+
+
+def normalize_phone(raw: str, default_country_code: str = "") -> str:
+    """E.164 for sent.dm. Phones are stored however they were typed -
+    "(949) 400-3330", "949.400.3330", "+1 949 400 3330", "+91 98765 43210" -
+    and the API wants +19494003330 / +919876543210.
+
+    A number carrying '+' (or a country code and enough digits) is taken at its
+    word. A bare 10-digit number cannot be told apart - 9876543210 is a valid
+    Indian mobile AND a plausible North American number - so it takes the
+    deployment's default country (see default_country). Getting that wrong
+    sends a verification code to a stranger in another country, which is why
+    every field that collects a number for texting asks for the country code
+    (Sagar, Sep 22 2026: Indian numbers were becoming +1 numbers).
+
+    Returns '' when there is no usable number, so callers fall back cleanly."""
     s = (raw or "").strip()
     if not s:
         return ""
@@ -72,8 +88,13 @@ def normalize_phone(raw: str, default_country: str = "1") -> str:
         return ""
     if plus:
         return "+" + digits
+    cc = re.sub(r"\D", "", default_country_code) or default_country()
     if len(digits) == 10:
-        return f"+{default_country}{digits}"
+        return f"+{cc}{digits}"
+    # A local number typed with its own country code but no '+' - e.g. an
+    # Indian mobile as 919876543210, a US one as 19494003330.
+    if digits.startswith(cc) and len(digits) == len(cc) + 10:
+        return "+" + digits
     if len(digits) == 11 and digits.startswith("1"):
         return "+" + digits
     if len(digits) > 11:          # typed with a country code but no '+'
