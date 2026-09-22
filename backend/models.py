@@ -1341,22 +1341,6 @@ class HrEntity(Base):
     # the employee too (NexusEmployee.signature_closing): "Admin should not
     # have the control of Sign off... it should be employee specific."
     signature_closing  = Column(String, default="")
-    # Recipient targeting (Sep 22, Pranshu): "all" inserts the signature on
-    # every outgoing email (unchanged default); "internal"/"external" suppress
-    # it entirely unless the recipient mix matches - domain check against
-    # `domains` above, done in myhr._recipient_scope_ok. A company-wide
-    # switch, same tier as signature_template, not a per-employee choice.
-    signature_recipient_scope = Column(String, default="all")
-    # Sender template overrides (Sep 22, Pranshu: "add few emails of company
-    # and add a template for that emails so whenever we do a mail from that
-    # email the signature will be different... I could choose multiple
-    # email"). A list of {id, label, emails: [...], template} groups - the
-    # SENDER's own address picks a different template than this company's
-    # default, same fields/directory data otherwise (myhr._sender_template_override).
-    # JSON on the entity, not a new table: admin-managed, few rows, saved
-    # whole on each edit - a dedicated table would only add an RLS-enable
-    # step for no real benefit at this size.
-    signature_sender_overrides = Column(JSON, default=list)
 
 
 class NexusSetting(Base):
@@ -1488,32 +1472,6 @@ class HrHolidayPolicy(Base):
     # [{date, name, source, country_code, type}, ...] - same shape as a row in
     # hr_company_holidays, minus company_id/id (those are assigned on apply).
     holidays      = Column(JSON, default=list)
-    created_by    = Column(String, default="")
-    created_at    = Column(String, default="")
-    updated_at    = Column(String, default="")
-
-
-class HrManualSignature(Base):
-    """A hand-filled signature that isn't tied to any NexusEmployee record
-    (Sep 19, Pranshu: "if the email is not integrated in NEXUS but we want
-    the same sig for that sender email") - a shared mailbox, an external
-    partner, or anyone Nexus doesn't have a directory row for yet. Rendered
-    with the SAME template the company has picked for everyone else
-    (myhr.SIGNATURE_TEMPLATES), just fed from these typed-in fields instead
-    of a directory record. New table - create_all builds it, no migration
-    line needed."""
-    __tablename__ = "hr_manual_signatures"
-    id            = Column(String, primary_key=True)   # uuid
-    company_id    = Column(String, nullable=False, index=True)   # HrEntity.id
-    name          = Column(String, nullable=False)      # e.g. "Sales Inbox"
-    title         = Column(String, default="")
-    company_name  = Column(String, default="")
-    address       = Column(String, default="")
-    url           = Column(String, default="")
-    logo_url      = Column(String, default="")
-    # Free-form extra rows (Sep 19: "custom addable field so we can add
-    # custom fields of how much we want") - [{"label": "...", "value": "..."}].
-    custom_fields = Column(JSON, default=list)
     created_by    = Column(String, default="")
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
