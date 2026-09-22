@@ -838,12 +838,21 @@ def _graph_send_mail(*, from_addr: str, display_name: str, to_email: str, subjec
     `pdf` is an optional (filename, bytes) attachment.
     """
     from email.message import EmailMessage
+    from email.policy import SMTP
     from email.utils import formataddr
     token = _graph_token()
     url = f"https://graph.microsoft.com/v1.0/users/{from_addr}/sendMail"
     mime_err = ""
     try:
-        msg = EmailMessage()
+        # policy=SMTP, not the default: the default policy serializes with bare
+        # LF, and a MIME message on the wire must use CRLF. With LF the
+        # quoted-printable SOFT LINE BREAKS ("=\r\n") lose their newline
+        # downstream and the "=" is left sitting in the text, eating the
+        # character next to it - "Signature Requested" arrived as "Signature
+        # =equested", "Hi Test Sagar" as "Hi Test Sag=r", "</div>" as "<=div>"
+        # (Sagar, Sep 22 2026). One replaced character per 76 columns, through
+        # the whole mail.
+        msg = EmailMessage(policy=SMTP)
         msg["From"] = formataddr((display_name, from_addr))
         msg["To"] = to_email
         msg["Subject"] = subject
