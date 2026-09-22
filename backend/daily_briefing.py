@@ -699,6 +699,11 @@ _MODULE_VIEW_URL = {
     "time_off": "/timeclock", "timecard": "/timeclock", "items": "/itemmanagement",
 }
 _MODULE_CARD_CAP = 3
+# Distinct titles shown in a module's "+N more" list before IT ALSO collapses
+# to a "+K more distinct" line - a second, independent cap so a project with
+# many genuinely different overflow items (not just duplicates of the same
+# title) still can't make one email unboundedly long.
+_OVERFLOW_GROUP_CAP = 15
 
 
 def _sub_action_html(accent: str, sub: dict) -> str:
@@ -787,19 +792,49 @@ def _module_group_html(color: str, group_id: str, module: str, label: str, rows:
     shown, hidden = rows[:_MODULE_CARD_CAP], rows[_MODULE_CARD_CAP:]
     cards = "".join(_card_html(color, r) for r in shown)
     if hidden:
-        # Plain link, not another accordion layer - this is the part that has
+        # Plain lines, not another accordion layer - this is the part that has
         # to work identically in every client, so it cannot depend on CSS the
         # way the outer toggle below does. But a bare "+N more -> Open in
         # Nexus" told the reader nothing about what those N things actually
         # WERE before making them leave the email to find out (Pranshu, Sep
         # 21) - listing the titles as plain text needs no interactivity at
         # all, so it's exactly as universal as the link itself.
+        #
+        # Sep 22 redesign, after a duplicate-task data bug (two Asana-pull
+        # workers racing on the same recurring series, see routers/tasks.py's
+        # _next_code fix) put ~15 rows all reading the identical title into
+        # one briefing: the OLD version joined every hidden row into a single
+        # semicolon-separated run-on paragraph, which made a genuine data bug
+        # look even worse than it was and was unreadable regardless of cause.
+        # Now: (1) rows are grouped by exact title first, so N rows sharing
+        # one title become ONE line with a "x N" count, not N repeats - this
+        # helps even before anyone runs the sync-dedupe cleanup, and keeps
+        # helping afterward for a genuinely busy recurring series; (2) each
+        # remaining group gets its OWN line, not folded into one paragraph;
+        # (3) the group LIST ITSELF is capped, so a single flooded project
+        # can never make one email unboundedly long even in the worst case.
         more_url = (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}"
-        titles = "; ".join(escape(h["title"]) for h in hidden)
-        cards += (f"<div style='margin:2px 0 10px;font-size:12.5px;color:#5c6a60'>"
-                  f"<b style='color:#26312a'>+{len(hidden)} more:</b> {titles} &mdash; "
-                  f"<a href='{escape(more_url)}' style='font-weight:700;color:{accent};text-decoration:none'>"
-                  f"Open in Nexus &rarr;</a></div>")
+        groups: dict = {}
+        for r in hidden:
+            g = groups.setdefault(r["title"], {"count": 0, "url": r.get("url") or ""})
+            g["count"] += 1
+        by_title = list(groups.items())
+        listed, overflow = by_title[:_OVERFLOW_GROUP_CAP], by_title[_OVERFLOW_GROUP_CAP:]
+        lines = []
+        for title, g in listed:
+            count_tag = f" <span style='color:#8a9389'>&times;{g['count']}</span>" if g["count"] > 1 else ""
+            open_link = (f" &mdash; <a href='{escape(g['url'])}' style='font-weight:700;color:{accent};"
+                         f"text-decoration:none'>Open &rarr;</a>") if g["url"] else ""
+            lines.append(f"<div style='padding:2px 0'>{escape(title)}{count_tag}{open_link}</div>")
+        if overflow:
+            overflow_total = sum(g["count"] for _, g in overflow)
+            lines.append(f"<div style='padding:2px 0;color:#8a9389'>+{len(overflow)} more distinct "
+                         f"({overflow_total} total)</div>")
+        cards += (f"<div style='margin:4px 0 10px;font-size:12.5px;color:#5c6a60;line-height:1.6'>"
+                  f"<div style='font-weight:700;color:#26312a;margin-bottom:3px'>+{len(hidden)} more:</div>"
+                  f"{''.join(lines)}"
+                  f"<a href='{escape(more_url)}' style='font-weight:700;color:{accent};text-decoration:none;"
+                  f"display:inline-block;margin-top:4px'>Open in Nexus &rarr;</a></div>")
     cid = f"nx-acc-{escape(group_id)}"
     # Checkbox-hack accordion, collapsed by default via the .nx-acc CSS rules
     # below. The content div's OWN inline style is display:block (visible) -
