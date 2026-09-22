@@ -512,8 +512,13 @@ def _attach_task_comment_previews(db: Session, rows: list) -> None:
             continue
         r["comments"] = [{
             "author": names.get((c.author_email or "").lower()) or c.author_email or "Someone",
-            "body": (c.body or "")[:_TASK_COMMENT_PREVIEW_CHARS] +
-                    ("…" if len(c.body or "") > _TASK_COMMENT_PREVIEW_CHARS else ""),
+            # A comment's body is rich HTML (the editor wraps every line in
+            # <p>, same shape task_mail_actions.comment_html produces) - raw-
+            # truncating it left the literal "<p>...</p>" tags visible in the
+            # email (Sep 23 screenshot). task_mail_actions._plain already
+            # exists for exactly this - HTML -> plain text for a text-only
+            # summary - so reuse it instead of a second strip-tags implementation.
+            "body": task_mail_actions._plain(c.body or "", _TASK_COMMENT_PREVIEW_CHARS),
         } for c in bucket]
 
 
