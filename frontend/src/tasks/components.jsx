@@ -14,6 +14,7 @@ import PersonHover from '../components/PersonHoverCard';
 // Photos live in lib/peoplePhotos so the header avatar shares this one cache.
 import { usePhotoMap } from '../lib/peoplePhotos';
 import { useIsMobile } from '../lib/useIsMobile';
+import { toDownloadUrl } from '../lib/storageView';
 
 // `card={false}` opts a call site out of the hover card - for avatars that are
 // already inside an interactive row (menu items, pickers), where a second click
@@ -1229,7 +1230,7 @@ export function AttachmentViewer({ att, onClose }) {
       <Paperclip size={30} style={{ color: NX.faint }} />
       <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
       <div style={{ fontSize: 12.5, color: NX.dim }}>No inline preview for this file type.</div>
-      <a href={att.url} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <a href={toDownloadUrl(att.url)} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
         <Download size={14} /> Download
       </a>
     </div>
@@ -1240,7 +1241,7 @@ export function AttachmentViewer({ att, onClose }) {
         <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
         <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
         <span style={{ flex: 1 }} />
-        {att.url && <a href={att.url} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
+        {att.url && <a href={toDownloadUrl(att.url)} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
         <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
       </div>
       <div onClick={(e) => e.stopPropagation()}>{body}</div>

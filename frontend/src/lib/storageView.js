@@ -21,7 +21,7 @@
 // Keep PROTECTED_BUCKETS in step with backend/routers/files.py.
 import { BFF_MODE } from '../bffAuth';
 
-export const PROTECTED_BUCKETS = ['checkout-photos', 'item-photos', 'return-photos', 'ticket-evidence', 'qa-evidence'];
+export const PROTECTED_BUCKETS = ['checkout-photos', 'item-photos', 'return-photos', 'ticket-evidence', 'qa-evidence', 'task-files', 'ir-documents'];
 
 const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/+$/, '');
 const API = BFF_MODE ? '/api' : (import.meta.env.VITE_API_BASE ?? 'http://localhost:8000');

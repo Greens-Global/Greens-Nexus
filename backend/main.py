@@ -748,6 +748,26 @@ def _run_migrations():
             "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
             # Emoji reactions on tasks - see the matching Postgres migration below.
             "ALTER TABLE tasks ADD COLUMN reactions JSON DEFAULT '{}'",
+            # Company Manager goes multi (Neil, Sep 22 call) - see the matching
+            # Postgres migration below for the full reasoning.
+            "ALTER TABLE hr_entities ADD COLUMN manager_emails JSON DEFAULT '[]'",
+            "UPDATE hr_entities SET manager_emails = json_array(manager_email) "
+            "WHERE manager_email IS NOT NULL AND manager_email != '' "
+            "AND (manager_emails IS NULL OR manager_emails = '[]')",
+            # Physical/mailing address split (Neil, Sep 22 call) - registered_address
+            # stays put; physical_address is backfilled from it once so nothing typed
+            # in there is lost, mailing_address starts blank (a genuinely new field).
+            "ALTER TABLE hr_entities ADD COLUMN physical_address VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN mailing_address VARCHAR DEFAULT ''",
+            "UPDATE hr_entities SET physical_address = registered_address "
+            "WHERE (physical_address IS NULL OR physical_address = '') "
+            "AND registered_address IS NOT NULL AND registered_address != ''",
+            # Mandatory/optional/half-day holiday types (Neil, Sep 22 call) - see
+            # the matching Postgres migration below for the full reasoning.
+            "ALTER TABLE hr_company_holidays ADD COLUMN type VARCHAR DEFAULT 'mandatory'",
+            # Policy ownership (Pranshu, Sep 22) - added after hr_holiday_policies
+            # already shipped without it; see the matching Postgres migration below.
+            "ALTER TABLE hr_holiday_policies ADD COLUMN company_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1566,6 +1586,46 @@ def _run_migrations():
         # Per-person task email preferences (Sept 2026) - new table, same
         # belt-and-suspenders RLS enable as above.
         "ALTER TABLE task_notify_prefs ENABLE ROW LEVEL SECURITY",
+        # Company Manager goes multi (Neil, Sep 22 call: "there can only be
+        # one? ... we need to update that setting where it can be multiple").
+        # manager_emails is the new source of truth (same mirror shape as
+        # tasks.assignee_email/assignee_emails above); manager_email stays as
+        # a mirror of manager_emails[0] for anything still reading the single
+        # column. One-shot backfill carries every existing single manager
+        # across so nobody's company manager silently disappears.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS manager_emails JSONB DEFAULT '[]'::jsonb",
+        "UPDATE hr_entities SET manager_emails = to_jsonb(ARRAY[manager_email]) "
+        "WHERE manager_email IS NOT NULL AND manager_email != '' "
+        "AND (manager_emails IS NULL OR manager_emails = '[]'::jsonb)",
+        # Physical/mailing address split (Neil, Sep 22 call: "add in physical
+        # address, and then add in mailing address"). registered_address is
+        # left as-is; physical_address is backfilled from it once, mailing_address
+        # starts blank as a genuinely new field.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS physical_address VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS mailing_address VARCHAR DEFAULT ''",
+        "UPDATE hr_entities SET physical_address = registered_address "
+        "WHERE (physical_address IS NULL OR physical_address = '') "
+        "AND registered_address IS NOT NULL AND registered_address != ''",
+        # Mandatory/optional/half-day holiday types (Neil, Sep 22 call): a holiday
+        # is Mandatory (everyone off, the original behavior), Optional (an
+        # employee may choose to take it against a dedicated allowance instead of
+        # casual/earned leave), or Half-day (shift ends early - Halloween, New
+        # Year's Eve, Christmas Eve in the US). Payroll/leave consumption of this
+        # field is a later, separate piece - today it's just captured and shown.
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'mandatory'",
+        # New table (hr_holiday_policies) - create_all builds it, but with RLS
+        # disabled by default; belt-and-suspenders enable here per CLAUDE.md's
+        # recurring-gap note (the backend bypasses RLS via DATABASE_URL, but a
+        # table without it is fully exposed to anyone holding the public anon key).
+        "ALTER TABLE hr_holiday_policies ENABLE ROW LEVEL SECURITY",
+        # Policy ownership (Pranshu, Sep 22): "should be only editable by the
+        # company by which it was created" - hr_holiday_policies already shipped
+        # without this column, so it's a follow-up ADD rather than part of the
+        # table's original create_all shape. Applying a policy stays open to
+        # every company (that's the whole point of a shared library); editing/
+        # deleting one is scoped to its creating company via auth.hr_scope, the
+        # same way every other HR-admin surface is scoped.
+        "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -1997,6 +2057,38 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] company-holiday dedupe skipped: {e}")
+    # Holiday policy ownership backfill (Pranshu, Sep 22: "atleast it should
+    # say who is the policy owner and only they can edit the policy") -
+    # hr_holiday_policies shipped before company_id was added to it, so every
+    # policy created in that window has no recorded owner and nobody can edit
+    # it. There's no stored "which company was this made from," but every
+    # policy DOES record who made it (created_by) - the best available proxy
+    # is that person's own company. One-time, idempotent: only touches rows
+    # whose company_id is still blank, and only where the creator can still
+    # be resolved to a company.
+    try:
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            orphans = (db.query(models.HrHolidayPolicy)
+                       .filter((models.HrHolidayPolicy.company_id == None) |  # noqa: E711
+                               (models.HrHolidayPolicy.company_id == "")).all())
+            fixed = 0
+            for p in orphans:
+                if not p.created_by:
+                    continue
+                creator = (db.query(models.NexusEmployee)
+                           .filter(models.NexusEmployee.work_email.ilike(p.created_by)).first())
+                if creator and creator.company:
+                    p.company_id = creator.company
+                    fixed += 1
+            if fixed:
+                db.commit()
+                print(f"[startup] backfilled an owner on {fixed} holiday {'policy' if fixed == 1 else 'policies'}")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] holiday policy ownership backfill skipped: {e}")
     # Workforce Analytics Policy goes per-company (Sep 19, Pranshu: "all
     # companies have their different workforce analytics policy"). Was a
     # single shared row (id='default', company_id=''); that row now stays as

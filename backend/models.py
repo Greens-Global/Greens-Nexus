@@ -1297,7 +1297,20 @@ class HrEntity(Base):
     domains            = Column(String, default="")
     # Who runs this company operationally (a Nexus person's work email) - the
     # escalation target when a worker has no reports-to. Distinct from signatory.
+    # `manager_emails` is the source of truth (Neil, Sep 22: "there can only be
+    # one? ... we need to update that setting where it can be multiple"; same
+    # mirror shape as Task.assignee_email/assignee_emails). `manager_email`
+    # stays a PRIMARY MIRROR of manager_emails[0] so anything still reading the
+    # single column keeps working.
     manager_email      = Column(String, default="")
+    manager_emails     = Column(JSON, default=list)
+    # Split from the old single `registered_address` (Neil, Sep 22: "add in
+    # physical address, and then add in mailing address... two important
+    # fields"). `registered_address` stays for old rows that predate the split -
+    # _serialize_entity falls back to it when physical_address is blank -
+    # rather than a migration silently dropping whatever was typed in there.
+    physical_address   = Column(String, default="")
+    mailing_address    = Column(String, default="")
     # Branding (Sep 16, Neil): company-wide fields the email signature builder
     # and other branded surfaces pull from - set once here, consistent everywhere.
     website            = Column(String, default="")
@@ -1418,6 +1431,43 @@ class HrCompanyHoliday(Base):
     name          = Column(String, nullable=False)
     source        = Column(String, default="manual")   # "manual" | "public"
     country_code  = Column(String, default="")         # set when source="public"
+    # Mandatory (everyone off, the default/original behavior) | optional (an
+    # employee may choose to take it, against a dedicated optional-holiday
+    # allowance rather than casual/earned leave) | half_day (a normal shift
+    # that ends early, e.g. Halloween/NYE/Christmas Eve in the US) - Neil,
+    # Sep 22 call. Payroll/leave consumption of this field is a separate,
+    # later piece; today it's just captured and shown.
+    type          = Column(String, default="mandatory")
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class HrHolidayPolicy(Base):
+    """A reusable, NAMED set of holidays. APPLYING one is global - any company
+    can pull any policy into its own calendar ("you can pull that policy into
+    any other company that's added on"). EDITING one is not: only the company
+    that created it may rename/edit/delete it (Pranshu, Sep 22 - "should be
+    only editable by the company by which it was created"), enforced the same
+    way every other HR-admin surface is scoped (see auth.hr_scope) - a scoped
+    admin limited to one company can't reach into another company's policy,
+    while an unrestricted admin can (same as everywhere else in HR). Holidays
+    live as JSON here rather than a child table: a policy is always edited as
+    a whole unit through the same picker UI that creates it (never one holiday
+    at a time), so there's nothing a relational child table would buy beyond
+    what create_company_holiday's per-row model already does for a company's
+    own live calendar. Applying a policy to a company COPIES its holidays into
+    that company's HrCompanyHoliday rows (via the same per-country merge as
+    create_company_holiday) - editing the policy later does not retroactively
+    change a company that already applied it; the company just has a fresh
+    "apply" action available if it wants the update."""
+    __tablename__ = "hr_holiday_policies"
+    id            = Column(String, primary_key=True)   # uuid
+    name          = Column(String, nullable=False)
+    company_id    = Column(String, default="", index=True)   # HrEntity.id that created it - owns edit/delete
+    # [{date, name, source, country_code, type}, ...] - same shape as a row in
+    # hr_company_holidays, minus company_id/id (those are assigned on apply).
+    holidays      = Column(JSON, default=list)
     created_by    = Column(String, default="")
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")

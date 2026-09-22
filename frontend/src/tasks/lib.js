@@ -4,6 +4,7 @@ import { NX, PRIORITY_ORDER, PRIORITY_META, STATUS_ORDER, STATUS_META } from './
 import { api } from '../api';
 import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
+import { toViewUrl } from '../lib/storageView';
 
 export const EMPTY_FILTER = {
   // collaboratorIds = people in a task's follower list (Asana "collaborators").
@@ -600,7 +601,7 @@ async function storeTaskFile(file, onProgress) {
     xhr.onerror = () => reject(new Error('upload failed'));
     xhr.send(file);
   });
-  return supabase.storage.from('task-files').getPublicUrl(path).data.publicUrl;
+  return toViewUrl(supabase.storage.from('task-files').getPublicUrl(path).data.publicUrl);
 }
 /** A data: URL as a File, for re-uploading an inline image. */
 export function dataUrlToFile(dataUrl, name) {

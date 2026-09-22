@@ -7,6 +7,7 @@ import { api } from '../../api';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
 import { Avatar, EmptyState, AttachmentViewer } from '../components';
 import { fmtDate, taskAssignees } from '../lib';
+import { toDownloadUrl } from '../../lib/storageView';
 
 const DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -172,7 +173,7 @@ export function FilesView({ tasks, onOpen, nameOf }) {
                 <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, padding: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     {iconFor(a.kind)}
-                    {href && <a href={href} download={a.name} title="Download" style={{ color: NX.faint }}><Download size={14} /></a>}
+                    {href && <a href={toDownloadUrl(href)} download={a.name} title="Download" style={{ color: NX.faint }}><Download size={14} /></a>}
                   </div>
                   {href ? (
                     // Opens the in-app viewer - never a new tab.

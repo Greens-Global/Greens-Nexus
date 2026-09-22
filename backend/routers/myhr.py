@@ -217,7 +217,7 @@ def _signature_fields(e: NexusEmployee, db: Session) -> dict:
         # name/role/email/address/socials/template.
         "logoUrl": (e.signature_logo_url or "").strip() or (company.logo_url if company else "") or "",
         "website": (company.website if company else "") or "",
-        "address": (company.registered_address if company else "") or "",
+        "address": ((company.physical_address or company.registered_address) if company else "") or "",
         "companyPhone": (company.main_phone if company else "") or "",
         "companyName": (company.name if company else "") or "",
         "facebookUrl": (company.facebook_url if company else "") or "",
@@ -550,7 +550,7 @@ def admin_preview_fields(company) -> dict:
         "closing": "",
         "logoUrl": (company.logo_url if company else "") or "",
         "website": (company.website if company else "") or "",
-        "address": (company.registered_address if company else "") or "",
+        "address": ((company.physical_address or company.registered_address) if company else "") or "",
         "companyPhone": (company.main_phone if company else "") or "",
         "companyName": (company.name if company else "") or "",
         "facebookUrl": (company.facebook_url if company else "") or "",
@@ -755,8 +755,20 @@ def people_directory(include_external: bool = False,
     `external: true`. Off by default, because this list is what every picker in
     the app loads: an external belongs in a task's Assignee and Collaborators
     (Sagar, Sept 2 2026 - they do the work), not in an approver list, a service
-    desk agent list or an HR picker. Callers opt in one at a time."""
+    desk agent list or an HR picker. Callers opt in one at a time.
+
+    Who may see externals (Sep 22, 2026): an external's "work email" is the
+    personal address they were invited with (often Gmail), so the opt-in is
+    honored only for callers who can actually assign work to them - managers
+    and above, or anyone with an editor-or-better grant on the Tasks module.
+    Everyone else gets the same list as if they had not asked (Neil's
+    security-debt list: the whole company could pull those addresses)."""
     import cache, auth
+    if include_external:
+        can_assign = (int(user.get("level") or 0) >= auth._LEVELS["manager"]
+                      or auth._module_level(user["email"], "tasks", db) >= auth._MODULE_LEVEL_RANK["editor"])
+        if not can_assign:
+            include_external = False
     scope = auth.company_scope(user, db)
     key = "all" if scope is None else ("co:" + ",".join(sorted(scope)) if scope else "co:none")
     # Separate cache entry: the two lists differ in content, and the default one

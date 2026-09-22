@@ -1903,7 +1903,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
 # ---------------------------------------------------------------------------
 # HR Section A - Companies/Entities + Work Sites (structural foundation)
 # ---------------------------------------------------------------------------
-from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday, HrManualSignature
+from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday, HrHolidayPolicy, HrManualSignature
 
 
 class EntityIn(BaseModel):
@@ -1911,19 +1911,22 @@ class EntityIn(BaseModel):
     legal_name:         Optional[str] = ""
     country:            Optional[str] = ""
     tax_id:             Optional[str] = ""
-    registered_address: Optional[str] = ""
+    registered_address: Optional[str] = ""   # legacy - the form now writes physical_address instead
+    physical_address:   Optional[str] = ""
+    mailing_address:    Optional[str] = ""
     signatory:          Optional[str] = ""
     logo_url:           Optional[str] = ""
     website:            Optional[str] = ""
     main_phone:         Optional[str] = ""
-    main_phone_type:    Optional[str] = "phone"   # "phone" | "fax" | "telephone"
+    main_phone_type:    Optional[str] = "phone"   # "phone" is the only one the UI offers now; "fax"/"telephone" only exist on rows from before Sep 22
     facebook_url:       Optional[str] = ""
     linkedin_url:       Optional[str] = ""
     twitter_url:        Optional[str] = ""
     instagram_url:      Optional[str] = ""
     notes:              Optional[str] = ""
     domains:            Optional[str] = ""   # comma-separated email domains
-    manager_email:      Optional[str] = ""   # company manager (a Nexus person)
+    manager_email:      Optional[str] = ""   # legacy mirror - kept for callers still reading the single field
+    manager_emails:     Optional[list] = None   # company manager(s) (Nexus people) - source of truth
 
 
 class EntityUpdate(BaseModel):
@@ -1932,6 +1935,8 @@ class EntityUpdate(BaseModel):
     country:            Optional[str] = None
     tax_id:             Optional[str] = None
     registered_address: Optional[str] = None
+    physical_address:   Optional[str] = None
+    mailing_address:    Optional[str] = None
     signatory:          Optional[str] = None
     logo_url:           Optional[str] = None
     website:            Optional[str] = None
@@ -1945,12 +1950,30 @@ class EntityUpdate(BaseModel):
     notes:              Optional[str] = None
     domains:            Optional[str] = None
     manager_email:      Optional[str] = None
+    manager_emails:     Optional[list] = None
+
+
+def _norm_manager_emails(manager_email, manager_emails) -> tuple:
+    """Normalize whichever of manager_email/manager_emails a caller sent into
+    (mirror_email, emails_list) - manager_emails (the list) wins when both are
+    present, same primary-mirror shape as Task.assignee_email/assignee_emails."""
+    if manager_emails is not None:
+        emails = [e.strip().lower() for e in manager_emails if isinstance(e, str) and e.strip()]
+        return (emails[0] if emails else ""), emails
+    single = (manager_email or "").strip().lower()
+    return single, ([single] if single else [])
 
 
 def _serialize_entity(e: HrEntity) -> dict:
     return {
         "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
+        # physicalAddress falls back to the legacy registered_address field for a
+        # row that predates the physical/mailing split - the one-shot startup
+        # backfill already copies it across, this just covers a row written
+        # between deploy and that backfill running.
+        "physicalAddress": e.physical_address or e.registered_address or "",
+        "mailingAddress": e.mailing_address or "",
         "logoUrl": e.logo_url, "website": e.website or "", "mainPhone": e.main_phone or "",
         "mainPhoneType": e.main_phone_type or "phone",
         "facebookUrl": e.facebook_url or "", "linkedinUrl": e.linkedin_url or "",
@@ -1958,6 +1981,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "signatureTemplate": e.signature_template or "classic",
         "notes": e.notes, "domains": e.domains or "",
         "managerEmail": e.manager_email or "",
+        "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
         "createdAt": e.created_at, "updatedAt": e.updated_at,
     }
 
@@ -1978,10 +2002,13 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
     if not body.name.strip():
         raise HTTPException(400, "name is required")
     now = datetime.now(timezone.utc).isoformat()
+    mgr_email, mgr_emails = _norm_manager_emails(body.manager_email, body.manager_emails)
     row = HrEntity(
         id=str(uuid.uuid4()), name=body.name.strip(), legal_name=(body.legal_name or "").strip(),
         country=(body.country or "").strip(), tax_id=(body.tax_id or "").strip(),
-        registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
+        registered_address=(body.registered_address or "").strip(),
+        physical_address=(body.physical_address or "").strip(), mailing_address=(body.mailing_address or "").strip(),
+        signatory=(body.signatory or "").strip(),
         logo_url=(body.logo_url or "").strip(), website=(body.website or "").strip(),
         main_phone=(body.main_phone or "").strip(),
         main_phone_type=(body.main_phone_type or "phone").strip() or "phone",
@@ -1989,7 +2016,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         twitter_url=(body.twitter_url or "").strip(), instagram_url=(body.instagram_url or "").strip(),
         notes=body.notes or "",
         domains=_norm_domains(body.domains or ""),
-        manager_email=(body.manager_email or "").strip().lower(),
+        manager_email=mgr_email, manager_emails=mgr_emails,
         created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
@@ -2019,13 +2046,21 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
         from routers.myhr import SIGNATURE_TEMPLATES
         if body.signature_template not in SIGNATURE_TEMPLATES:
             raise HTTPException(400, "Unknown signature template")
-    for key, value in body.model_dump(exclude_unset=True).items():
-        if value is None:
+    fields = body.model_dump(exclude_unset=True)
+    # manager_emails (the list) is the source of truth whenever the request sends
+    # it - skip the plain manager_email key entirely so processing order can't
+    # make a stale single value win over it (matches _norm_manager_emails).
+    has_manager_emails = "manager_emails" in fields and fields["manager_emails"] is not None
+    for key, value in fields.items():
+        if value is None or (key == "manager_email" and has_manager_emails):
             continue
         if key == "domains":
             value = _norm_domains(value)
         elif key == "manager_email":
             value = value.strip().lower()
+        elif key == "manager_emails":
+            mgr_email, value = _norm_manager_emails(None, value)
+            row.manager_email = mgr_email
         setattr(row, {"legal_name": "legal_name", "tax_id": "tax_id", "registered_address": "registered_address"}.get(key, key),
                 value.strip() if isinstance(value, str) and key != "notes" else value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
@@ -2632,22 +2667,61 @@ def _fetch_google_holidays(country: str, year: int) -> Optional[list]:
     return out
 
 
+_HOLIDAY_TYPES = ("mandatory", "optional", "half_day")
+
+
 class CompanyHolidayIn(BaseModel):
     date:         str             # YYYY-MM-DD
     name:         str
     source:       Optional[str] = "manual"   # "manual" | "public"
     country_code: Optional[str] = ""
+    type:         Optional[str] = "mandatory"   # "mandatory" | "optional" | "half_day"
+
+
+class CompanyHolidayTypeIn(BaseModel):
+    type: str
 
 
 def _serialize_holiday(h: HrCompanyHoliday) -> dict:
     return {
         "id": h.id, "date": h.date, "name": h.name, "source": h.source,
-        "countryCode": h.country_code, "createdAt": h.created_at,
+        "countryCode": h.country_code, "type": h.type or "mandatory", "createdAt": h.created_at,
     }
 
 
 def _country_codes(country_code: str) -> list:
     return [c for c in (country_code or "").split(",") if c]
+
+
+def _create_or_merge_holiday(db: Session, entity_id: str, *, date_: str, name_: str,
+                             source_: str, code: str, type_: str, actor_email: str) -> HrCompanyHoliday:
+    """The shared "add one holiday to a company" path - used by the single-add
+    endpoint below AND by applying a policy's whole holiday list at once, so
+    the two never drift apart. Same public-holiday-merges-by-country behavior
+    either way (see create_company_holiday)."""
+    now = datetime.now(timezone.utc).isoformat()
+    source_ = source_ if source_ in ("manual", "public") else "manual"
+    type_ = type_ if type_ in _HOLIDAY_TYPES else "mandatory"
+    if source_ == "public" and code:
+        existing = (db.query(HrCompanyHoliday)
+                    .filter(HrCompanyHoliday.company_id == entity_id, HrCompanyHoliday.date == date_,
+                            HrCompanyHoliday.name == name_, HrCompanyHoliday.source == "public").first())
+        if existing:
+            codes = _country_codes(existing.country_code)
+            if code not in codes:
+                codes.append(code)
+                existing.country_code = ",".join(sorted(codes))
+                existing.updated_at = now
+                db.flush()
+            return existing
+    row = HrCompanyHoliday(
+        id=str(uuid.uuid4()), company_id=entity_id, date=date_, name=name_,
+        source=source_, country_code=code, type=type_,
+        created_by=actor_email, created_at=now, updated_at=now,
+    )
+    db.add(row)
+    db.flush()
+    return row
 
 
 @router.get("/entities/{entity_id}/holidays")
@@ -2670,36 +2744,36 @@ def create_company_holiday(entity_id: str, body: CompanyHolidayIn,
         raise HTTPException(400, "date must be YYYY-MM-DD")
     if not body.name.strip():
         raise HTTPException(400, "name is required")
-    now = datetime.now(timezone.utc).isoformat()
-    date_ = body.date.strip()
-    name_ = body.name.strip()
-    source_ = body.source if body.source in ("manual", "public") else "manual"
-    code = (body.country_code or "").strip().upper()
-
     # 1 date, 1 company (Pranshu, Sep 21): the SAME public holiday picked for a
     # second country on this company's calendar merges onto the ONE existing row
     # instead of creating a duplicate - country_code becomes a comma-separated
     # list ("IN,US") rather than a second row. Payroll matching
     # (_company_holidays_for_employee) checks membership in that list.
-    if source_ == "public" and code:
-        existing = (db.query(HrCompanyHoliday)
-                    .filter(HrCompanyHoliday.company_id == entity_id, HrCompanyHoliday.date == date_,
-                            HrCompanyHoliday.name == name_, HrCompanyHoliday.source == "public").first())
-        if existing:
-            codes = _country_codes(existing.country_code)
-            if code not in codes:
-                codes.append(code)
-                existing.country_code = ",".join(sorted(codes))
-                existing.updated_at = now
-                db.commit(); db.refresh(existing)
-            return _serialize_holiday(existing)
+    row = _create_or_merge_holiday(
+        db, entity_id, date_=body.date.strip(), name_=body.name.strip(),
+        source_=body.source or "manual", code=(body.country_code or "").strip().upper(),
+        type_=body.type or "mandatory", actor_email=user["email"])
+    db.commit(); db.refresh(row)
+    return _serialize_holiday(row)
 
-    row = HrCompanyHoliday(
-        id=str(uuid.uuid4()), company_id=entity_id, date=date_, name=name_,
-        source=source_, country_code=code,
-        created_by=user["email"], created_at=now, updated_at=now,
-    )
-    db.add(row); db.commit(); db.refresh(row)
+
+@router.patch("/entities/{entity_id}/holidays/{holiday_id}")
+def update_company_holiday_type(entity_id: str, holiday_id: str, body: CompanyHolidayTypeIn,
+                                user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Only the type (Mandatory/Optional/Half-day) is editable after creation -
+    date/name/country changes go through delete + re-add, same as before."""
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    if body.type not in _HOLIDAY_TYPES:
+        raise HTTPException(400, f"type must be one of {', '.join(_HOLIDAY_TYPES)}")
+    row = db.query(HrCompanyHoliday).filter(HrCompanyHoliday.id == holiday_id,
+                                             HrCompanyHoliday.company_id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Holiday not found")
+    row.type = body.type
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
     return _serialize_holiday(row)
 
 
@@ -2726,6 +2800,129 @@ def delete_company_holiday(entity_id: str, holiday_id: str, country_code: Option
             return _serialize_holiday(row)
         db.delete(row); db.commit()
     return {"ok": True}
+
+
+# ── Holiday Policy library (Sep 22, Neil call: "think that you're making a
+# policy library... you can pull that policy into any other company") - a
+# GLOBAL, named, reusable set of holidays. Not scoped to one company: any
+# admin who can write HR can create/apply/edit one. Applying copies the
+# policy's holidays into the target company's own hr_company_holidays rows
+# (through the same _create_or_merge_holiday path a manual add uses) - a
+# policy is a template you stamp out, not a live link, so editing it later
+# doesn't retroactively change a company that already applied it. ──────────
+
+class HolidayPolicyHolidayIn(BaseModel):
+    date:         str
+    name:         str
+    source:       Optional[str] = "manual"
+    country_code: Optional[str] = ""
+    type:         Optional[str] = "mandatory"
+
+
+class HolidayPolicyIn(BaseModel):
+    name:       str
+    holidays:   list[HolidayPolicyHolidayIn] = []
+    company_id: Optional[str] = ""   # required on create; ignored on update - ownership isn't transferable via edit
+
+
+def _serialize_policy(p: HrHolidayPolicy) -> dict:
+    return {
+        "id": p.id, "name": p.name, "companyId": p.company_id or "", "holidays": p.holidays or [],
+        "createdAt": p.created_at, "updatedAt": p.updated_at,
+    }
+
+
+def _require_policy_owner(user: dict, db: Session, policy: HrHolidayPolicy) -> None:
+    """Applying a policy is open to every company - that's the whole point of a
+    shared library. Editing/deleting one is scoped to the company that created
+    it (Pranshu, Sep 22: "should be only editable by the company by which it
+    was created"), the same way hr_scope narrows every other HR-admin surface -
+    an unrestricted admin can still touch any policy, a scoped one only their
+    own company's."""
+    scope = hr_scope(user, db)
+    if scope is not None and (policy.company_id or "") not in scope:
+        raise HTTPException(403, "Only the company that created this policy can edit or delete it")
+
+
+@router.get("/holiday-policies")
+def list_holiday_policies(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    rows = db.query(HrHolidayPolicy).order_by(HrHolidayPolicy.name).all()
+    return [_serialize_policy(p) for p in rows]
+
+
+@router.post("/holiday-policies")
+def create_holiday_policy(body: HolidayPolicyIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    company_id = (body.company_id or "").strip()
+    if not company_id:
+        raise HTTPException(400, "company_id is required")
+    scope = hr_scope(user, db)
+    if scope is not None and company_id not in scope:
+        raise HTTPException(404, "Company not found")
+    now = datetime.now(timezone.utc).isoformat()
+    row = HrHolidayPolicy(
+        id=str(uuid.uuid4()), name=body.name.strip(), company_id=company_id,
+        holidays=[h.model_dump() for h in body.holidays],
+        created_by=user["email"], created_at=now, updated_at=now,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _serialize_policy(row)
+
+
+@router.patch("/holiday-policies/{policy_id}")
+def update_holiday_policy(policy_id: str, body: HolidayPolicyIn,
+                          user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Re-saves the whole holiday list, same as create - the frontend reopens
+    the same picker UI pre-filled with the policy's current holidays (Neil:
+    "the edit comes back into this type of a UI... loads it all again"),
+    checks the public-holiday source fresh, and PATCHes the full result back."""
+    row = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
+    if not row:
+        raise HTTPException(404, "Policy not found")
+    _require_policy_owner(user, db, row)
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    row.name = body.name.strip()
+    row.holidays = [h.model_dump() for h in body.holidays]
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_policy(row)
+
+
+@router.delete("/holiday-policies/{policy_id}")
+def delete_holiday_policy(policy_id: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
+    if row:
+        _require_policy_owner(user, db, row)
+        db.delete(row); db.commit()
+    return {"ok": True}
+
+
+@router.post("/entities/{entity_id}/holidays/apply-policy/{policy_id}")
+def apply_holiday_policy(entity_id: str, policy_id: str,
+                         user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    policy = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
+    if not policy:
+        raise HTTPException(404, "Policy not found")
+    applied = 0
+    for h in (policy.holidays or []):
+        date_ = (h.get("date") or "").strip()
+        name_ = (h.get("name") or "").strip()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_) or not name_:
+            continue   # a malformed row in a hand-edited policy shouldn't 500 the whole apply
+        _create_or_merge_holiday(
+            db, entity_id, date_=date_, name_=name_,
+            source_=h.get("source") or "manual", code=(h.get("country_code") or "").strip().upper(),
+            type_=h.get("type") or "mandatory", actor_email=user["email"])
+        applied += 1
+    db.commit()
+    rows = (db.query(HrCompanyHoliday).filter(HrCompanyHoliday.company_id == entity_id)
+            .order_by(HrCompanyHoliday.date).all())
+    return {"applied": applied, "holidays": [_serialize_holiday(h) for h in rows]}
 
 
 @router.get("/public-holidays")

@@ -49,7 +49,16 @@ PROTECTED_BUCKETS = frozenset({
     "return-photos",
     "ticket-evidence",
     "qa-evidence",
+    "task-files",       # task and ticket attachments, inbound email attachments, inline images
+    "ir-documents",     # investor relations documents and signed commitments
 })
+# Still public on purpose: `avatars` and company logos (shown to everyone,
+# embedded in email), `agent-dist` (installer downloads), and
+# `document-images` - letterheads and artwork inside e-sign documents, which
+# external signers open from a token link with NO Nexus login, so a private
+# bucket would blank every logo on every document they sign. Making that one
+# private means the e-sign public route has to rewrite image URLs to signed
+# ones on the way out; not done yet.
 
 _SIGN_TTL_SEC = 3600            # signature lifetime
 _REUSE_SEC = 2700               # hand out a cached signature for 45 min of that hour
