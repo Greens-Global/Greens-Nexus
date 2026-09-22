@@ -1589,6 +1589,7 @@ class HrSignRequest(Base):
     certificate_html = Column(Text, default="")           # the certificate of record - deterministic, regenerable from the snapshot
     certificate_sha256 = Column(String, default="")       # digest of certificate_html as issued
     certificate_snapshot = Column(JSON, default=dict)     # the frozen inputs; re-render must reproduce certificate_html byte for byte
+    content_pages    = Column(Integer, default=0)         # pages of final_pdf that are the DOCUMENT; the rest is the certificate
     document_class   = Column(String, default="")         # hr_document_classes.code - gates electronic signing
     governing_law    = Column(String, default="")         # 'CA', 'TX', ... - routes the consent flow (Cal. Civ. Code 1633.5(b))
 

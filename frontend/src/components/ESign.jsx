@@ -930,6 +930,47 @@ function HistoryPanel({ loadHistory, onClose }) {
   );
 }
 
+// A box belonging to ANOTHER party, drawn over the document. Filled or signed
+// by them, it shows what they put there, read-only and tinted; still empty, it
+// stays a faint placeholder carrying their name.
+function OtherPartyField({ field: f, style, payload }) {
+  const who = (payload.parties || []).find(p => p.roleKey === f.role);
+  const signed = (payload.signedByRole || {})[f.role];
+  const filled = payload.filledByOthers || {};
+  const tint = { ...style, border: '1px solid rgba(21,128,61,0.28)', background: 'rgba(16,185,129,0.07)',
+    borderRadius: 4, color: '#374151', display: 'flex', alignItems: 'center', overflow: 'hidden' };
+  const label = (text, extra = {}) => (
+    <span style={{ ...tint, padding: '0 5px', fontSize: 10.5, whiteSpace: 'nowrap', ...extra }}
+      title={`${who?.name || 'Another signer'}`}>{text}</span>
+  );
+
+  if (f.type === 'sign' || f.type === 'initials') {
+    if (!signed) return <span style={{ ...style, border: '1px dashed #d1d5db', borderRadius: 4, background: 'rgba(0,0,0,0.03)' }} title={`Awaiting ${who?.name || 'the other signer'}`} />;
+    if (f.type === 'initials') {
+      return label(initialsOf(signed.name), { justifyContent: 'center', fontFamily: '"Segoe Script",cursive', fontSize: 12 });
+    }
+    return signed.signatureKind === 'drawn' && String(signed.signatureData || '').startsWith('data:image')
+      ? <span style={tint}><img src={signed.signatureData} alt={`${signed.name} signature`}
+          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} /></span>
+      : label(signed.signatureData || signed.name, { fontFamily: '"Segoe Script",cursive', fontSize: 13, justifyContent: 'center' });
+  }
+  if (f.type === 'date') {
+    return signed?.signedAt
+      ? label(formatDate(signed.signedAt))
+      : <span style={{ ...style, border: '1px dashed #d1d5db', borderRadius: 4, background: 'rgba(0,0,0,0.03)' }} title="Date signed" />;
+  }
+  if (f.type === 'name') return label(who?.name || '');
+  const val = filled[f.id];
+  if (f.type === 'check') {
+    return label(val ? '✓' : '☐', { justifyContent: 'center', fontSize: 12, fontWeight: 700 });
+  }
+  if (val === undefined || val === null || String(val).trim() === '') {
+    return <span style={{ ...style, border: '1px dashed #d1d5db', borderRadius: 4, background: 'rgba(0,0,0,0.03)' }}
+      title={`${f.type} - ${who?.name || 'other signer'}`} />;
+  }
+  return label(String(val), { whiteSpace: 'normal', lineHeight: 1.25 });
+}
+
 function UploadField({ field, style, innerRef, record, busy, disabled, error,
                       accept, hint, onFile }) {
   const inputRef = useRef(null);
@@ -980,11 +1021,16 @@ function UploadField({ field, style, innerRef, record, busy, disabled, error,
   );
 }
 
-export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi }) {
+export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onCleared, uploadApi, paperApi, historyApi, copyApi }) {
   // Phone widths: the action bar's one row of controls does not fit, and the
   // signer should never have to scroll back up to finish (Sagar, Sep 22 2026).
   const narrow = useIsMobile('(max-width: 720px)');
-  const [sig, setSig] = useState(null);
+  // Seeded from the server for a party who has already signed: View on the
+  // completion mail re-opens this same screen, and it has to show the document
+  // as they signed it, not empty boxes (Sagar, Sep 22 2026).
+  const [sig, setSig] = useState(payload.mySignature
+    ? { kind: payload.mySignature.kind, data: payload.mySignature.data }
+    : null);
   const [padOpen, setPadOpen] = useState(false);
   // Consent is no longer a checkbox beside the contract - it is step 1, taken
   // on its own screen and recorded server-side before the document is sent to
@@ -1005,7 +1051,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
     seenPages.current.add(index);
     setPagesTotal(t => (total > t ? total : t));
   }, []);
-  const [values, setValues] = useState({});
+  const [values, setValues] = useState(payload.myValues || {});
   // Upload fields, keyed by field id. Seeded from the server so a signer who
   // comes back to the link sees what they already attached rather than an
   // empty box they would dutifully fill again; the server row is the truth,
@@ -1045,12 +1091,53 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
   // external signer is reading a contract, often on a laptop screen at 100%.
   const [zoom, setZoom] = useState(1);
   const [docPages, setDocPages] = useState(0);
-  const printDoc = () => {
-    // Print the SOURCE pdf, not the screen: the browser's print of a canvas
-    // stack is unreliable and drops the overlay anyway.
-    const target = payload.copyUrl || payload.pdfUrl;
-    if (target) window.open(target, '_blank', 'noopener');
+  // Download and Print both want the same bytes: the document itself, without
+  // the Certificate of Completion (that one is behind Download Signed Copy).
+  // Fetched through copyApi rather than pointed at with an <a href>, because
+  // the link needs the access code in a header, and because the server-built
+  // URL can be relative - which is how "Download a copy to read or print"
+  // came back as a blank .htm from the SPA origin (Sagar, Sep 22 2026).
+  const [copyBusy, setCopyBusy] = useState('');
+  const [copyErr, setCopyErr] = useState('');
+  const withCopy = async (what, run) => {
+    setCopyBusy(what);
+    setCopyErr('');
+    try {
+      const blob = copyApi ? await copyApi() : null;
+      if (!blob) {                       // internal viewer: no public copy link
+        const target = payload.copyUrl || payload.pdfUrl;
+        if (target) window.open(target, '_blank', 'noopener');
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      try { await run(url); } finally { setTimeout(() => URL.revokeObjectURL(url), 60000); }
+    } catch (e) {
+      setCopyErr(e.message || 'That did not work - try again in a moment.');
+    }
+    setCopyBusy('');
   };
+  const downloadDoc = () => withCopy('download', (url) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(payload.title || 'document').replace(/[^\w .-]/g, '')}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+  // A blob URL is same-origin, so this really can open the print dialog -
+  // an <a> to the storage URL could only ever open a tab and hope.
+  const printDoc = () => withCopy('print', (url) => new Promise((done) => {
+    const frame = document.createElement('iframe');
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    frame.src = url;
+    frame.onload = () => {
+      try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+      catch { window.open(url, '_blank', 'noopener'); }
+      setTimeout(() => frame.remove(), 60000);
+      done();
+    };
+    document.body.appendChild(frame);
+  }));
 
   const [listOpen, setListOpen] = useState(false);   // outstanding-fields popover
   const [declineOpen, setDeclineOpen] = useState(false);
@@ -1061,6 +1148,10 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
   const declineGuard = useUnsavedGuard(!!declineReason.trim(), () => setDeclineOpen(false), undefined);
   const fieldRefs = useRef({});
   const myRole = payload.myRole;
+  // What the other parties have already put in - read-only here, but shown:
+  // this signer is agreeing to the document as it stands (Sagar, Sep 22 2026).
+  const othersFilled = payload.filledByOthers || {};
+  const othersSigned = payload.signedByRole || {};
   const isTemplate = payload.source === 'template';
   const setVal = (k, v) => setValues(p => ({ ...p, [k]: v }));
 
@@ -1129,7 +1220,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
       el.focus?.({ preventScroll: true });
     }
   };
-  const jumpNext = () => { setStarted(true); jumpTo(nextTask); };
+  const jumpNext = () => { setStarted(true); setBarHidden(true); jumpTo(nextTask); };
   // One definition of "finish", used by the bar at the top and the one that
   // follows the signer down the page.
   const submitSigned = () => onSubmit({
@@ -1146,6 +1237,21 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
   // viewport so it is always reachable - the way DocuSign's tab behaves.
   const [started, setStarted] = useState(false);
   const [tabTop, setTabTop] = useState(null);
+  // The tab hangs off the DOCUMENT's left edge, not the window's: pinned to the
+  // window it floated in the empty margin far from the page (Sagar, Sep 22
+  // 2026). It still tracks the current field's row vertically.
+  const [tabLeft, setTabLeft] = useState(0);
+  const docRef = useRef(null);
+  // The opening bar stands down as soon as the signer engages with the
+  // document - by scrolling past its first screen, or by pressing START.
+  const [barHidden, setBarHidden] = useState(false);
+  useEffect(() => {
+    if (!payload.myTurn || barHidden) return undefined;
+    const onScroll = () => { if (window.scrollY > 120) setBarHidden(true); };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [payload.myTurn, barHidden]);
   useEffect(() => {
     if (!payload.myTurn || !nextTask) { setTabTop(null); return undefined; }
     let raf = 0;
@@ -1154,9 +1260,13 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
       const el = fieldRefs.current[nextTask.id];
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const min = 84;                                   // clear of the sticky action bar
-      const max = Math.max(min, window.innerHeight - 110);   // clear of the bottom bar
+      const min = 12;
+      const max = Math.max(min, window.innerHeight - 110);
       setTabTop(Math.max(min, Math.min(max, r.top + r.height / 2 - 17)));
+      const doc = docRef.current?.getBoundingClientRect();
+      // Just outside the page when there is room for it, otherwise overlapping
+      // its edge - never off-screen, and never adrift in the margin.
+      if (doc) setTabLeft(Math.max(0, Math.min(window.innerWidth - 70, doc.left - 46)));
     };
     place();
     const onMove = () => { if (!raf) raf = requestAnimationFrame(place); };
@@ -1204,6 +1314,13 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
                   <span style={{ display: 'block', borderTop: '1px solid #111827', marginTop: 5, paddingTop: 3, fontSize: 10, color: 'var(--muted)', fontFamily: 'Inter,sans-serif' }}>{payload.myName}</span>
                 </button>
               ) : signHereTab(`sig-${pi}-${m.index}`)
+            ) : othersSigned[role] ? (
+              <span style={{ display: 'inline-block', minWidth: 200, padding: '8px 16px', borderRadius: 8, border: '1.5px solid rgba(21,128,61,0.3)', background: 'rgba(16,185,129,0.07)' }}>
+                {othersSigned[role].signatureKind === 'drawn' && String(othersSigned[role].signatureData || '').startsWith('data:image')
+                  ? <img src={othersSigned[role].signatureData} alt={`${othersSigned[role].name} signature`} style={{ height: 44, maxWidth: 240, objectFit: 'contain', display: 'block' }} />
+                  : <span style={{ fontFamily: '"Segoe Script",cursive', fontSize: 22 }}>{othersSigned[role].signatureData || othersSigned[role].name}</span>}
+                <span style={{ display: 'block', borderTop: '1px solid #111827', marginTop: 5, paddingTop: 3, fontSize: 10, color: 'var(--muted)', fontFamily: 'Inter,sans-serif' }}>{othersSigned[role].name}</span>
+              </span>
             ) : (
               <span style={{ display: 'inline-block', padding: '9px 18px', borderRadius: 8, border: '1.5px dashed var(--line)', color: 'var(--muted)', fontSize: 12, background: 'var(--mist)' }}>
                 <Clock size={11} style={{ verticalAlign: 'middle', marginRight: 6 }} />
@@ -1212,9 +1329,12 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
             )}
           </span>);
       } else if (type === 'date') {
-        parts.push(<span key={key} style={{ color: 'var(--muted)', fontSize: 12.5, fontStyle: 'italic', borderBottom: '1px dotted var(--line)' }}>{mine && sig ? new Date().toISOString().slice(0, 10) : 'date signed'}</span>);
+        parts.push(<span key={key} style={{ color: 'var(--muted)', fontSize: 12.5, fontStyle: mine ? 'italic' : 'normal', borderBottom: '1px dotted var(--line)' }}>
+          {mine ? (sig ? formatDate(new Date()) : 'date signed')
+            : (othersSigned[role]?.signedAt ? formatDate(othersSigned[role].signedAt) : 'date signed')}</span>);
       } else if (type === 'initials') {
-        parts.push(<span key={key} style={{ fontFamily: '"Segoe Script",cursive', fontWeight: 700, padding: '0 4px', borderBottom: '1px solid var(--line)' }}>{mine ? initialsOf(payload.myName) : '··'}</span>);
+        parts.push(<span key={key} style={{ fontFamily: '"Segoe Script",cursive', fontWeight: 700, padding: '0 4px', borderBottom: '1px solid var(--line)' }}>
+          {mine ? initialsOf(payload.myName) : (othersSigned[role] ? initialsOf(othersSigned[role].name) : '··')}</span>);
       } else if (type === 'check') {
         const k = `check:${label}`;
         parts.push(
@@ -1222,7 +1342,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
             style={{ display: 'flex', alignItems: 'flex-start', gap: 10, margin: '10px 0', cursor: mine && payload.myTurn ? 'pointer' : 'default', fontSize: 14,
               padding: '8px 12px', borderRadius: 8, background: mine ? (values[k] ? 'rgba(16,185,129,0.07)' : 'rgba(251,191,36,0.12)') : 'transparent',
               border: mine ? `1.5px solid ${values[k] ? '#10b981' : '#fbbf24'}` : '1px solid transparent' }}>
-            <input type="checkbox" disabled={!mine || !payload.myTurn} checked={!!values[k]}
+            <input type="checkbox" disabled={!mine || !payload.myTurn} checked={mine ? !!values[k] : !!othersFilled[k]}
               onChange={e => setVal(k, e.target.checked)} style={{ width: 17, height: 17, marginTop: 2, accentColor: '#10b981' }} />
             <span>{label}{mine && !values[k] && <span style={{ color: '#b45309', fontWeight: 700, fontSize: 11, marginLeft: 8, fontFamily: 'Inter,sans-serif' }}>REQUIRED</span>}</span>
           </label>);
@@ -1231,7 +1351,10 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
         parts.push(mine
           ? <input key={key} ref={el => { fieldRefs.current[k] = el; }} className="form-input" placeholder={label} value={values[k] || ''} disabled={!payload.myTurn}
               onChange={e => setVal(k, e.target.value)} style={{ display: 'inline-block', width: 220, margin: '2px 0', borderColor: '#fbbf24' }} />
-          : <span key={key} style={{ borderBottom: '1px solid var(--line)', minWidth: 130, display: 'inline-block', color: 'var(--muted)', fontSize: 12 }}>{label}</span>);
+          : <span key={key} title={`${(payload.parties || []).find(p => p.roleKey === role)?.name || 'Another signer'}`}
+              style={{ borderBottom: '1px solid var(--line)', minWidth: 130, display: 'inline-block', fontSize: othersFilled[k] ? 14 : 12,
+                color: othersFilled[k] ? '#374151' : 'var(--muted)', background: othersFilled[k] ? 'rgba(16,185,129,0.07)' : 'transparent',
+                borderRadius: othersFilled[k] ? 4 : 0, padding: othersFilled[k] ? '1px 5px' : 0 }}>{othersFilled[k] || label}</span>);
       }
       last = m.index + m[0].length;
     }
@@ -1304,7 +1427,12 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
         if (f.type === 'initials' && mine) {
           return <span key={f.id} style={{ ...st, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '"Segoe Script",cursive', fontSize: 12, border: '1px dotted #d1d5db', borderRadius: 4, background: 'rgba(255,255,255,0.6)' }}>{initialsOf(payload.myName)}</span>;
         }
-        return <span key={f.id} style={{ ...st, border: '1px dashed #d1d5db', borderRadius: 4, background: 'rgba(0,0,0,0.03)' }} title={`${f.type} - ${(payload.parties || []).find(p => p.roleKey === f.role)?.name || 'other signer'}`} />;
+        // Another party's box. If they have already filled or signed it, that
+        // is shown - read-only, in a light tint - because this signer is
+        // agreeing to the document AS IT STANDS, and an empty box reads as an
+        // unagreed term (Sagar, Sep 22 2026). Only still-outstanding boxes
+        // stay as an empty placeholder.
+        return <OtherPartyField key={f.id} field={f} style={st} payload={payload} />;
       })}
     </>
   );
@@ -1373,11 +1501,11 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
                 Download the document, print it, and sign it by hand. Come back to this page when
                 you have a scan ready - this link stays valid.
               </p>
-              {payload.copyUrl && (
-                <a className="primary-btn" href={payload.copyUrl} target="_blank" rel="noreferrer" download
-                  style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
+              {(payload.copyUrl || copyApi) && (
+                <button className="primary-btn" onClick={downloadDoc} disabled={!!copyBusy}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
                   <Download size={14} /> Download the Document
-                </a>
+                </button>
               )}
             </div>
             <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -1478,9 +1606,12 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
 
   return (
     <div>
-      {/* Sticky action bar - consent + progress + Finish, DocuSign style */}
-      {payload.myTurn && (
-        <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>
+      {/* The opening bar: what has been done so far and what is left. It is an
+          INTRODUCTION, not furniture - once the signer starts, or scrolls into
+          the document, it gets out of the way and the tab plus the bar under
+          the document carry the rest (Sagar, Sep 22 2026). */}
+      {payload.myTurn && !barHidden && (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, flex: 1, minWidth: narrow ? 0 : 240, color: 'var(--muted)' }}>
             <ShieldCheck size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
             <span>Consent recorded and identity verified. Complete the highlighted fields, then Finish.</span>
@@ -1536,11 +1667,11 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
             {/* UETA section 8: the signer must be able to keep a copy of what
                 they are being asked to sign, while they are deciding - not
                 only after everyone has signed. Never gated on consent. */}
-            {payload.copyUrl && (
-              <a href={payload.copyUrl} target="_blank" rel="noreferrer" download
-                style={{ color: 'var(--muted)', fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {(payload.copyUrl || copyApi) && (
+              <button onClick={downloadDoc} disabled={!!copyBusy}
+                style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', fontFamily: 'Inter,sans-serif', color: 'var(--muted)', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                 <Download size={12} /> Download a copy
-              </a>
+              </button>
             )}
             {historyApi && (
               <button onClick={() => setHistoryOpen(true)} disabled={busy}
@@ -1598,7 +1729,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
             level with that field's own row (see the effect above). */}
         {payload.myTurn && nextTask && (
           <button onClick={jumpNext} aria-label={started ? `Next field: ${taskName(nextTask)}` : 'Start signing'}
-            style={{ position: 'fixed', left: 0, top: tabTop ?? 120, zIndex: 25, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 12, padding: '8px 14px 8px 10px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', borderRadius: '0 8px 8px 0', boxShadow: '0 2px 10px rgba(245,158,11,0.55)', maxWidth: '62vw' }}>
+            style={{ position: 'fixed', left: tabLeft, top: tabTop ?? 120, zIndex: 25, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 12, padding: '8px 14px 8px 10px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', borderRadius: '0 8px 8px 0', boxShadow: '0 2px 10px rgba(245,158,11,0.55)', maxWidth: '62vw' }}>
             {started ? 'NEXT' : 'START'}
             {started && (
               <span style={{ fontWeight: 600, opacity: .85, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1627,20 +1758,24 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
               </span>
             )}
             <span style={{ flex: 1 }} />
-            {payload.copyUrl && (
-              <a className="secondary-btn" href={payload.copyUrl} target="_blank" rel="noreferrer" download
-                title="Download a copy of this document"
-                style={{ padding: '5px 11px', fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                <Download size={13} /> Download
-              </a>
+            {(payload.copyUrl || copyApi) && (
+              <button className="secondary-btn" onClick={downloadDoc} disabled={!!copyBusy}
+                title="Download the document, without the Certificate of Completion"
+                style={{ padding: '5px 11px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <Download size={13} /> {copyBusy === 'download' ? 'Preparing…' : 'Download'}
+              </button>
             )}
-            <button className="secondary-btn" onClick={printDoc} title="Open a printable copy"
+            <button className="secondary-btn" onClick={printDoc} disabled={!!copyBusy}
+              title="Print the document, without the Certificate of Completion"
               style={{ padding: '5px 11px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <Printer size={13} /> Print
+              <Printer size={13} /> {copyBusy === 'print' ? 'Preparing…' : 'Print'}
             </button>
+            {copyErr && (
+              <span role="alert" style={{ fontSize: 11.5, color: 'hsl(350,62%,42%)', width: '100%' }}>{copyErr}</span>
+            )}
           </div>
         )}
-        <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: isTemplate ? '30px 38px' : '24px 12px', background: isTemplate ? '#fff' : 'var(--mist)', color: '#111827' }}>
+        <div ref={docRef} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: isTemplate ? '30px 38px' : '24px 12px', background: isTemplate ? '#fff' : 'var(--mist)', color: '#111827' }}>
           {isTemplate
             ? (payload.body || []).map(renderPara)
             : <PdfDoc url={payload.pdfUrl} zoom={zoom} onPageCount={setDocPages}
@@ -1672,12 +1807,13 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
         })}
       </div>
 
-      {/* The same finish, kept under the signer's thumb: a signer who reaches
-          the end of a three-page packet should not have to scroll back to the
-          top to submit it. Sticks to the bottom of the viewport while there is
-          still something to do. */}
+      {/* The same finish, at the end of the document: a signer who reaches the
+          last page should not have to scroll back to the top to submit it.
+          Deliberately NOT pinned to the viewport - it belongs under the
+          document, and appears when the signer gets there (Sagar, Sep 22
+          2026). The tab is what follows them down the page. */}
       {payload.myTurn && (
-        <div style={{ position: 'sticky', bottom: 0, zIndex: 20, marginTop: 14,
+        <div style={{ marginTop: 14,
           display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
           background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
           padding: narrow ? '10px 12px calc(10px + env(safe-area-inset-bottom, 0px))' : '10px 16px',

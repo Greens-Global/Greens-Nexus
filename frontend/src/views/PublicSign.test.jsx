@@ -135,10 +135,22 @@ describe('Nexus Sign external signing page', () => {
   });
 
   it('keeps the copy-to-read link available while gated (UETA section 8)', async () => {
-    queue.push(consentPayload);
+    // Fetched, not linked: the server's copyUrl can be relative, and a
+    // relative link resolves against the SPA origin - which is how this
+    // saved a blank .htm off Cloudflare instead of the document (Sagar,
+    // Sep 22 2026). The access code has to travel as a header too.
+    queue.push({ ...consentPayload, locked: false });
     render(<PublicSign token="tok" />);
-    const link = await screen.findByText(/Download a copy to read or print/i);
-    expect(link.closest('a').getAttribute('href')).toBe('/esign/public/tok/copy');
+    const btn = await screen.findByRole('button', { name: /Download a copy to read or print/i });
+
+    const copyFetch = vi.fn(async () => ({ ok: true, blob: async () => new Blob(['%PDF-1.4']) }));
+    global.fetch = copyFetch;
+    global.URL.createObjectURL = vi.fn(() => 'blob:copy');
+    global.URL.revokeObjectURL = vi.fn();
+    fireEvent.click(btn);
+
+    await waitFor(() => expect(copyFetch).toHaveBeenCalled());
+    expect(String(copyFetch.mock.calls[0][0])).toBe('/esign/public/tok/copy');
   });
 
   // Past both gates. Uses a TEMPLATE-source envelope deliberately: it renders
@@ -203,6 +215,51 @@ describe('Nexus Sign external signing page', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /Insurance confirmed/i }));
     expect(await screen.findByTitle(/1 required field left/i)).toBeTruthy();
     expect(screen.getAllByRole('button', { name: /Finish/i }).every(b => b.disabled)).toBe(true);
+  });
+
+  it('shows what the other party already filled in and signed', async () => {
+    // A signer is agreeing to the document AS IT STANDS, so a co-signer's
+    // answers cannot render as empty boxes (Sagar, Sep 22 2026).
+    queue.push({
+      ...openPayload,
+      body: ['[[text:b:Employer name]]', '[[sign:b]]', '[[check:a:Insurance confirmed]]', '[[sign:a]]'],
+      parties: [{ name: 'Dana Fields', status: 'viewed', roleKey: 'a' },
+                { name: 'Maria Ortiz', status: 'signed', roleKey: 'b' }],
+      filledByOthers: { 'text:Employer name': 'Greens Global, LLC' },
+      signedByRole: { b: { name: 'Maria Ortiz', signedAt: '2026-09-21T10:00:00+00:00',
+                           signatureKind: 'typed', signatureData: 'Maria Ortiz' } },
+    });
+    render(<PublicSign token="tok" />);
+    expect(await screen.findByText('Greens Global, LLC')).toBeTruthy();
+    // Their signature, not a "signs here" placeholder. Matched on the script
+    // face, because the sender block carries the same name as plain text.
+    const signature = screen.getAllByText('Maria Ortiz')
+      .find(el => /Segoe Script/.test(el.getAttribute('style') || ''));
+    expect(signature).toBeTruthy();
+    expect(screen.queryByText(/signs here/i)).toBeNull();
+  });
+
+  it('brings back the signer own answers when the link is re-opened', async () => {
+    // View on the completion mail re-opens this screen; it showed blank boxes.
+    queue.push({
+      ...openPayload,
+      myValues: { 'text:Legal entity name': 'Coastline Concrete', 'check:Insurance confirmed': true },
+    });
+    render(<PublicSign token="tok" />);
+    const text = await screen.findByDisplayValue('Coastline Concrete');
+    expect(text).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: /Insurance confirmed/i }).checked).toBe(true);
+  });
+
+  it('the opening bar stands down once the signer presses START', async () => {
+    queue.push(openPayload);
+    render(<PublicSign token="tok" />);
+    expect(await screen.findByText(/Consent recorded and identity verified/i)).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: /Start signing/i }));
+    await waitFor(() =>
+      expect(screen.queryByText(/Consent recorded and identity verified/i)).toBeNull());
+    // The bar under the document is what carries Finish from here on.
+    expect(screen.getAllByRole('button', { name: /Finish/i }).length).toBe(1);
   });
 
   it('a rejected action says what went wrong without closing the document', async () => {
