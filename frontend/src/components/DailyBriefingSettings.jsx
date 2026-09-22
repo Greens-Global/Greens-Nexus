@@ -27,6 +27,9 @@ export default function DailyBriefingSettings() {
   const { can } = useRole();
   const [tab, setTab] = useState('settings');   // settings | log
   const [cfg, setCfg] = useState(null);
+  const [savedMode, setSavedMode] = useState(null);   // mode as last persisted - distinguishes an
+                                                       // actual off/test -> live transition from just
+                                                       // re-saving while already live
   const [recipientsInput, setRecipientsInput] = useState('');
   const [confirmLive, setConfirmLive] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -34,7 +37,7 @@ export default function DailyBriefingSettings() {
   const [err, setErr] = useState('');
 
   const load = () => api.getDailyBriefingConfig()
-    .then((c) => { setCfg(c); setRecipientsInput((c.test_recipients || []).join(', ')); })
+    .then((c) => { setCfg(c); setSavedMode(c.mode); setRecipientsInput((c.test_recipients || []).join(', ')); })
     .catch((e) => setErr(e.message || String(e)));
   useEffect(() => { load(); }, []);
 
@@ -52,8 +55,12 @@ export default function DailyBriefingSettings() {
   // the company the moment it saves - everything else (off/test, editing the
   // test list) is reversible with no visible side effect to anyone but the
   // admin. The extra tick is a speed bump for that one transition, not a
-  // permission check (the backend already gates the whole endpoint).
-  const switchingToLive = goingLive && !confirmLive;
+  // permission check (the backend already gates the whole endpoint) - so it
+  // only applies while actually switching FROM off/test INTO live. Once live
+  // is already the saved mode, re-saving (e.g. just to refresh the page)
+  // must not force the checkbox to be re-ticked every time - that read as
+  // "the checkbox does nothing" (Pranshu, Sep 23).
+  const switchingToLive = goingLive && savedMode !== 'live' && !confirmLive;
 
   const save = async () => {
     if (switchingToLive) return;
@@ -65,6 +72,7 @@ export default function DailyBriefingSettings() {
       };
       const next = await api.updateDailyBriefingConfig(patch);
       setCfg(next);
+      setSavedMode(next.mode);
       setRecipientsInput((next.test_recipients || []).join(', '));
       setConfirmLive(false);
       setSaved(true);
@@ -137,10 +145,12 @@ export default function DailyBriefingSettings() {
               Each person gets their own briefing at their own shift trigger - no dry run once this saves.
               Confirm test mode has already been checked for a few real people before turning this on.
             </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12.5, cursor: 'pointer' }}>
-              <input type="checkbox" checked={confirmLive} onChange={(e) => setConfirmLive(e.target.checked)} />
-              I understand this goes out to every employee company-wide.
-            </label>
+            {savedMode !== 'live' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12.5, cursor: 'pointer' }}>
+                <input type="checkbox" checked={confirmLive} onChange={(e) => setConfirmLive(e.target.checked)} />
+                I understand this goes out to every employee company-wide.
+              </label>
+            )}
           </div>
         </div>
       )}
