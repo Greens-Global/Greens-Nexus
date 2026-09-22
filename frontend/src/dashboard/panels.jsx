@@ -671,12 +671,18 @@ function addMonths(d, n) { return new Date(d.getFullYear(), d.getMonth() + n, 1)
 // all the employees in NEXUS... helps us prepare any celebration prior").
 const monthDay = (m, d) => `${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
+// Sep 22, Pranshu: "it should show in calendar Company Holiday and in
+// bracket either its mandatory or optional" - so an employee glancing at the
+// agenda knows without opening Settings whether it's a given day off or one
+// they'd need to request.
+const HOLIDAY_TYPE_LABEL = { mandatory: 'Mandatory', optional: 'Optional', half_day: 'Half-day' };
+
 export function CalendarPanel() {
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selected, setSelected] = useState(agendaDay(new Date()));
   const [state, setState] = useState({ loading: true, available: true, events: [] });
   const [birthdays, setBirthdays] = useState([]);   // [{name, month, day}] - whole roster, fetched once
-  const [holidays, setHolidays] = useState([]);      // [{date, name}] - caller's own company, fetched once
+  const [holidays, setHolidays] = useState([]);      // [{date, name, type}] - caller's own company, fetched once
 
   useEffect(() => {
     let alive = true;
@@ -746,7 +752,7 @@ export function CalendarPanel() {
   // exact YYYY-MM-DD the admin set in Settings -> Company Setup, not a
   // repeating key.
   const holidaysByDate = {};
-  for (const h of holidays) (holidaysByDate[h.date] ||= []).push(h.name);
+  for (const h of holidays) (holidaysByDate[h.date] ||= []).push({ name: h.name, type: h.type || 'mandatory' });
 
   const today = agendaDay(new Date());
   const selDate = new Date(selected + 'T00:00:00');
@@ -755,7 +761,7 @@ export function CalendarPanel() {
   // Holidays and birthdays sort first (they're all-day, same as Outlook
   // all-day events), then the real agenda in start-time order.
   const dayEvents = [
-    ...selHolidays.map(name => ({ isHoliday: true, isAllDay: true, subject: name })),
+    ...selHolidays.map(h => ({ isHoliday: true, isAllDay: true, subject: h.name, holidayType: h.type })),
     ...selBirthdays.map(name => ({ isBirthday: true, isAllDay: true, subject: `${name}'s Birthday` })),
     ...(byDay[selected] || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || '')),
   ];
@@ -870,6 +876,9 @@ export function CalendarPanel() {
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="task-title" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.subject}</div>
+                      {ev.isHoliday && (
+                        <div className="task-dept">Company Holiday ({HOLIDAY_TYPE_LABEL[ev.holidayType] || 'Mandatory'})</div>
+                      )}
                       {(ev.location || ev.joinUrl) && (
                         <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {ev.joinUrl ? (
