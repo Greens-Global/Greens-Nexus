@@ -1220,7 +1220,37 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
       el.focus?.({ preventScroll: true });
     }
   };
-  const jumpNext = () => { setStarted(true); setBarHidden(true); jumpTo(nextTask); };
+  // Declared here, not beside the other tab state further down: cursorId is
+  // read during render just below, and a const used above its declaration is
+  // a ReferenceError.
+  const [started, setStarted] = useState(false);
+  const [cursorId, setCursorId] = useState('');
+  // Where the tab is standing, and where a click would take the signer. They
+  // are NOT the same field: the tab sits level with the field you are on and
+  // is labelled with the one it will jump to, so "NEXT Signature" reads as a
+  // promise about the click rather than a label for the box beside it
+  // (Sagar, Sep 22 2026). Before START it is parked at the top of the page,
+  // and at the last field it becomes END, which goes to the finish bar.
+  const cursorTask = required.find(t => t.id === cursorId) || null;
+  const cursorIdx = cursorTask ? required.indexOf(cursorTask) : -1;
+  // Strictly what comes AFTER the tab, in document order. No wrapping back to
+  // a field above: at the last field the tab reads END, and anything skipped
+  // is still named by the counter and by the bar under the document.
+  const nextTarget = started
+    ? required.slice(cursorIdx + 1).find(t => !isDone(t)) || null
+    : outstanding[0] || null;
+  const atEnd = started && !nextTarget;
+
+  const jumpNext = () => {
+    setBarHidden(true);
+    if (atEnd) {                       // nothing left above - go to the finish bar
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      return;
+    }
+    setStarted(true);
+    setCursorId(nextTarget?.id || '');
+    jumpTo(nextTarget);
+  };
   // One definition of "finish", used by the bar at the top and the one that
   // follows the signer down the page.
   const submitSigned = () => onSubmit({
@@ -1235,7 +1265,6 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
   // scroll to the top again and again"). Fixed to the viewport's left edge and
   // moved to the next field's own row as the page scrolls, clamped inside the
   // viewport so it is always reachable - the way DocuSign's tab behaves.
-  const [started, setStarted] = useState(false);
   const [tabTop, setTabTop] = useState(null);
   // The tab hangs off the DOCUMENT's left edge, not the window's: pinned to the
   // window it floated in the empty margin far from the page (Sagar, Sep 22
@@ -1253,20 +1282,24 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
     return () => window.removeEventListener('scroll', onScroll);
   }, [payload.myTurn, barHidden]);
   useEffect(() => {
-    if (!payload.myTurn || !nextTask) { setTabTop(null); return undefined; }
+    if (!payload.myTurn || (!nextTask && !started)) { setTabTop(null); return undefined; }
     let raf = 0;
     const place = () => {
       raf = 0;
-      const el = fieldRefs.current[nextTask.id];
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const min = 12;
-      const max = Math.max(min, window.innerHeight - 110);
-      setTabTop(Math.max(min, Math.min(max, r.top + r.height / 2 - 17)));
       const doc = docRef.current?.getBoundingClientRect();
       // Just outside the page when there is room for it, otherwise overlapping
       // its edge - never off-screen, and never adrift in the margin.
       if (doc) setTabLeft(Math.max(0, Math.min(window.innerWidth - 70, doc.left - 46)));
+      const min = 12;
+      const max = Math.max(min, window.innerHeight - 110);
+      // Until START is pressed the tab waits at the TOP of the document, where
+      // the signer's eye already is - not beside a field further down that
+      // they have not been introduced to yet.
+      const el = started ? fieldRefs.current[(cursorTask || nextTarget || {}).id] : null;
+      const anchor = el ? el.getBoundingClientRect() : doc;
+      if (!anchor) return;
+      const y = el ? anchor.top + anchor.height / 2 - 17 : anchor.top + 10;
+      setTabTop(Math.max(min, Math.min(max, y)));
     };
     place();
     const onMove = () => { if (!raf) raf = requestAnimationFrame(place); };
@@ -1277,7 +1310,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
       window.removeEventListener('scroll', onMove);
       window.removeEventListener('resize', onMove);
     };
-  }, [payload.myTurn, nextTask, zoom]);
+  }, [payload.myTurn, started, cursorTask, nextTarget, nextTask, zoom]);
 
   const sigPreview = (h = 40) => sig?.kind === 'drawn'
     ? <img src={sig.data} alt="signature" style={{ maxHeight: h, maxWidth: '100%', display: 'block' }} />
@@ -1727,13 +1760,15 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
         {/* The guide tab: plain START until it is first used, then NEXT with
             the name of the field it will take you to. Fixed to the left edge,
             level with that field's own row (see the effect above). */}
-        {payload.myTurn && nextTask && (
-          <button onClick={jumpNext} aria-label={started ? `Next field: ${taskName(nextTask)}` : 'Start signing'}
+        {payload.myTurn && (nextTask || started) && (
+          <button onClick={jumpNext}
+            aria-label={!started ? 'Start signing'
+              : atEnd ? 'Go to the end of the document' : `Next field: ${taskName(nextTarget)}`}
             style={{ position: 'fixed', left: tabLeft, top: tabTop ?? 120, zIndex: 25, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fbbf24', color: '#78350f', border: 'none', fontWeight: 800, fontSize: 12, padding: '8px 14px 8px 10px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', borderRadius: '0 8px 8px 0', boxShadow: '0 2px 10px rgba(245,158,11,0.55)', maxWidth: '62vw' }}>
-            {started ? 'NEXT' : 'START'}
-            {started && (
+            {!started ? 'START' : atEnd ? 'END' : 'NEXT'}
+            {started && !atEnd && (
               <span style={{ fontWeight: 600, opacity: .85, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {taskName(nextTask)}
+                {taskName(nextTarget)}
               </span>
             )}
             <ArrowRight size={13} />
@@ -1825,7 +1860,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline, gateApi, onClea
             <button onClick={jumpNext}
               style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
                 fontSize: 12, fontWeight: 700, color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              Go to {taskName(nextTask)} <ArrowRight size={12} />
+              Go to {taskName(nextTarget || nextTask)} <ArrowRight size={12} />
             </button>
           )}
           <span style={{ flex: 1 }} />

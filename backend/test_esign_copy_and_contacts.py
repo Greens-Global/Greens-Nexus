@@ -133,8 +133,11 @@ class SenderContactTests(unittest.TestCase):
             SimpleNamespace(id="env-1", title="Joining Letter", message="",
                             expires_on="", created_at="2026-09-22T10:00:00+00:00"),
             SENDER, "https://nexus.example/sign/tok")
-        self.assertIn("&#9993;", html)                    # envelope, before the address
-        self.assertIn("&#9742;", html)                    # handset, before the number
+        self.assertIn("&#128231;", html)                  # envelope, before the address
+        self.assertIn("&#128222;", html)                  # handset, before the number
+        # Not the flat dial phone - it draws as a 1960s handset next to the
+        # app's own icon.
+        self.assertNotIn("&#9742;", html)
         self.assertIn("+91 9431556836", html)
         self.assertIn('href="tel:+919431556836"', html)
 
