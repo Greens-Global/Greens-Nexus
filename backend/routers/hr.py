@@ -2080,7 +2080,7 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
         if body.signature_recipient_scope not in SIGNATURE_RECIPIENT_SCOPES:
             raise HTTPException(400, "Unknown signature recipient scope")
     if body.signature_sender_overrides is not None:
-        from routers.myhr import SIGNATURE_TEMPLATES
+        from routers.myhr import SIGNATURE_TEMPLATES, _OVERRIDE_FIELD_KEYS
         cleaned = []
         for grp in body.signature_sender_overrides:
             if not isinstance(grp, dict):
@@ -2088,14 +2088,29 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             tmpl = grp.get("template")
             if tmpl not in SIGNATURE_TEMPLATES:
                 raise HTTPException(400, "Unknown signature template in sender override")
-            emails = sorted({str(x).strip().lower() for x in (grp.get("emails") or []) if str(x).strip()})
+            # Free-typed (Sep 22, Pranshu: "admin should have the control to
+            # type down the email id") - not restricted to Nexus employees,
+            # since this is exactly how a shared mailbox with no HR record
+            # gets covered. Only a bare "contains @" sanity check, no
+            # directory lookup.
+            emails = sorted({str(x).strip().lower() for x in (grp.get("emails") or []) if "@" in str(x).strip()})
             if not emails:
                 continue
+            raw_fields = grp.get("fields") or {}
+            fields = {k: str(raw_fields.get(k) or "").strip()[:300] for k in _OVERRIDE_FIELD_KEYS}
+            custom_fields = _clean_custom_fields(grp.get("customFields"))
+            # Whatever order the admin last dragged into - only ever read
+            # back key-by-key (myhr._ordered_row_values skips anything
+            # unrecognized), so no validation needed beyond "is a list".
+            field_order = [str(k) for k in (grp.get("fieldOrder") or []) if isinstance(k, str)]
             cleaned.append({
                 "id": str(grp.get("id") or uuid.uuid4()),
                 "label": str(grp.get("label") or "").strip()[:80],
                 "emails": emails,
                 "template": tmpl,
+                "fields": fields,
+                "customFields": custom_fields,
+                "fieldOrder": field_order,
             })
         body.signature_sender_overrides = cleaned
     fields = body.model_dump(exclude_unset=True)
@@ -2208,13 +2223,49 @@ def entity_signature_templates(entity_id: str,
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Entity not found")
-    from routers.myhr import admin_preview_templates
+    from routers.myhr import admin_preview_templates, _render_override_signature
+    overrides = row.signature_sender_overrides or []
     return {
         "templates": admin_preview_templates(row),
         "template": row.signature_template or "classic",
         "recipientScope": row.signature_recipient_scope or "all",
-        "senderOverrides": row.signature_sender_overrides or [],
+        # previewHtml is the SAVED state, re-rendered on every load (Sep 22) -
+        # not live while the admin is still typing in the modal, that's what
+        # /signature-sender-overrides/preview below is for.
+        "senderOverrides": [{**grp, "previewHtml": _render_override_signature(grp)["html"]} for grp in overrides],
     }
+
+
+class SenderOverridePreviewIn(BaseModel):
+    template: str = "classic"
+    fields: Optional[dict] = None
+    custom_fields: Optional[list] = None
+    field_order: Optional[list] = None
+
+
+@router.post("/entities/{entity_id}/signature-sender-overrides/preview")
+def preview_sender_override(entity_id: str, body: SenderOverridePreviewIn,
+                            user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Live preview while the admin is still editing an override in the
+    modal - nothing here is persisted. Reuses the exact same render path a
+    real send would take (myhr._render_override_signature), so what's shown
+    here is guaranteed to match what actually goes out."""
+    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Entity not found")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Entity not found")
+    from routers.myhr import SIGNATURE_TEMPLATES, _render_override_signature, _OVERRIDE_FIELD_KEYS
+    tmpl = body.template if body.template in SIGNATURE_TEMPLATES else "classic"
+    raw_fields = body.fields or {}
+    grp = {
+        "template": tmpl,
+        "fields": {k: str(raw_fields.get(k) or "") for k in _OVERRIDE_FIELD_KEYS},
+        "customFields": _clean_custom_fields(body.custom_fields),
+        "fieldOrder": [str(k) for k in (body.field_order or []) if isinstance(k, str)],
+    }
+    return _render_override_signature(grp)
 
 
 # ── Manual (non-directory) signatures - a hand-filled signature for a sender
