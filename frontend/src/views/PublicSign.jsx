@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { FileSignature, Loader2, CheckCircle, XCircle, AlertTriangle, Lock, Download, Clock, Mail, Phone } from 'lucide-react';
 import { API_BASE } from '../api';
 import { SigningDoc } from '../components/ESign';
+// US date format everywhere in user-facing copy (CLAUDE.md) - the expiry read
+// as 2026-09-25 to the signer.
+import { formatDate } from '../lib/datetime';
+import { useIsMobile } from '../lib/useIsMobile';
 
 // ── Nexus Sign - public signing page, /sign/{token} ───────────────────────────
 // Renders OUTSIDE the MSAL gate (external signers have no login); the URL token
@@ -29,8 +33,15 @@ async function pfetch(path, opts = {}) {
 }
 
 export default function PublicSign({ token }) {
+  const narrow = useIsMobile('(max-width: 720px)');
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState('');
+  // A failed ACTION is not an unopenable document. `error` replaces the whole
+  // page ("Can't open this document"), which is right for a dead link and
+  // wrong for a 400 off Finish - that one has to leave the signing screen
+  // standing so the person can fix what it names and try again (Sagar,
+  // Sep 22 2026).
+  const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState('');       // '' | 'signed' | 'signed-final' | 'declined'
   const [code, setCode] = useState('');       // access code (kept for sign/decline/download)
@@ -71,6 +82,38 @@ export default function PublicSign({ token }) {
     return out;
   };
 
+  // The retention copy, fetched rather than linked: the access code rides in a
+  // header (never a query string), and the bytes come back as a blob the page
+  // can hand to a download or to the print dialog. The old plain <a href> went
+  // to whatever the server put in copyUrl, which can be relative - and a
+  // relative link resolves against the SPA origin, so Cloudflare answered with
+  // index.html and the signer saved a blank .htm (Sagar, Sep 22 2026).
+  const copyApi = useCallback(async () => {
+    const r = await fetch(`${API_BASE}/esign/public/${token}/copy`,
+      { headers: code ? { 'X-Access-Code': code } : {} });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.detail || `Error ${r.status}`);
+    }
+    return r.blob();
+  }, [token, code]);
+
+  async function downloadCopy() {
+    setBusy(true);
+    setActionError('');
+    try {
+      const url = URL.createObjectURL(await copyApi());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(payload?.title || 'document').replace(/[^\w .-]/g, '')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) { setActionError(e.message); }
+    setBusy(false);
+  }
+
   const uploadApi = async (fieldId, file) => {
     const fd = new FormData();
     fd.append('field_id', fieldId);
@@ -96,24 +139,38 @@ export default function PublicSign({ token }) {
 
   async function submit(data) {
     setBusy(true);
+    setActionError('');
     try {
       const r = await post('/sign', data);
       setDone(r.status === 'completed' ? 'signed-final' : 'signed');
-    } catch (e) { setError(e.message); }
+    } catch (e) { setActionError(e.message); }
+    setBusy(false);
+  }
+  // Approver / certified delivery: they do not sign, they act. Same endpoint
+  // family, same advancement of the envelope.
+  async function act(data) {
+    setBusy(true);
+    setActionError('');
+    try {
+      const r = await post('/act', data);
+      setDone(r.status === 'completed' ? 'signed-final' : 'signed');
+    } catch (e) { setActionError(e.message); }
     setBusy(false);
   }
   async function decline(reason) {
     setBusy(true);
+    setActionError('');
     try { await post('/decline', { reason }); setDone('declined'); }
-    catch (e) { setError(e.message); }
+    catch (e) { setActionError(e.message); }
     setBusy(false);
   }
   async function download() {
     setBusy(true);
+    setActionError('');
     try {
       const r = await pfetch(`/esign/public/${token}/download`, { code });
       window.open(r.url, '_blank', 'noopener');
-    } catch (e) { setError(e.message); }
+    } catch (e) { setActionError(e.message); }
     setBusy(false);
   }
 
@@ -121,7 +178,11 @@ export default function PublicSign({ token }) {
   // not fit in 780px, and the gates are centered within this by their own
   // max-width rather than by squeezing the shell.
   const shell = (children, width = 1140) => (
-    <div style={{ minHeight: '100dvh', background: 'var(--bg, #f3f4f6)', fontFamily: 'Inter,sans-serif', padding: '28px 16px' }}>
+    // Phones give the document every pixel there is: the old 16px page gutter
+    // plus 26px of card padding cost ~84px of a 390px screen, so the page
+    // itself rendered small with white space either side (Sagar, Sep 22 2026).
+    <div style={{ minHeight: '100dvh', background: 'var(--bg, #f3f4f6)', fontFamily: 'Inter,sans-serif',
+      padding: narrow ? '12px 6px' : '28px 16px' }}>
       <div style={{ maxWidth: width, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: '#14532d', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15 }}>G</div>
@@ -130,7 +191,8 @@ export default function PublicSign({ token }) {
             <div style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)' }}>Secure electronic signature</div>
           </div>
         </div>
-        <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 16, padding: '24px 26px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+        <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 16,
+          padding: narrow ? '14px 10px' : '24px 26px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
           {children}
         </div>
         {/* The legal strip DocuSign carries bottom-left and the review asked
@@ -287,7 +349,7 @@ export default function PublicSign({ token }) {
           <dd style={{ margin: 0 }}>{payload.myName}</dd>
           {payload.expiresOn && (<>
             <dt style={{ fontWeight: 600 }}>Expires</dt>
-            <dd style={{ margin: 0 }}>{payload.expiresOn}</dd>
+            <dd style={{ margin: 0 }}>{formatDate(payload.expiresOn)}</dd>
           </>)}
         </dl>
       </details>
@@ -295,14 +357,33 @@ export default function PublicSign({ token }) {
           gated on consent or on the code, so it is offered on the gates too. */}
       {gated && payload.copyUrl && (
         <p style={{ textAlign: 'center', margin: '0 0 8px' }}>
-          <a href={payload.copyUrl} target="_blank" rel="noreferrer" download
-            style={{ color: 'var(--muted, #6b7280)', fontSize: 12.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <button onClick={downloadCopy} disabled={busy}
+            style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+              color: 'var(--muted, #6b7280)', fontSize: 12.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Download size={13} /> Download a copy to read or print
-          </a>
+          </button>
         </p>
       )}
-      <SigningDoc payload={payload} busy={busy} onSubmit={submit} onDecline={decline}
-        gateApi={gateApi} onCleared={() => load()} uploadApi={uploadApi} paperApi={paperApi} historyApi={historyApi} />
+      {/* Pinned, not inline: Finish sits at the foot of a long document, and a
+          banner scrolled far above it would be a silent failure. */}
+      {actionError && (
+        <div role="alert" style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 86, zIndex: 60,
+          width: 'min(520px, calc(100vw - 24px))', display: 'flex', alignItems: 'flex-start', gap: 10,
+          background: '#fef2f2', border: '1px solid hsl(350,70%,82%)', color: 'hsl(350,62%,32%)',
+          borderRadius: 10, padding: '11px 13px', fontSize: 13, lineHeight: 1.5,
+          boxShadow: '0 10px 26px rgba(0,0,0,0.16)' }}>
+          <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span style={{ flex: 1 }}>{actionError}</span>
+          <button type="button" onClick={() => setActionError('')} aria-label="Dismiss"
+            style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'inherit',
+              fontSize: 16, fontWeight: 700, lineHeight: 1 }}>
+            &times;
+          </button>
+        </div>
+      )}
+      <SigningDoc payload={payload} busy={busy} onSubmit={submit} onAct={act} onDecline={decline}
+        gateApi={gateApi} onCleared={() => load()} uploadApi={uploadApi} paperApi={paperApi}
+        historyApi={historyApi} copyApi={copyApi} />
     </>,
     gated ? 760 : 1140);
 }

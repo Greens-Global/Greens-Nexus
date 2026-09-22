@@ -30,7 +30,7 @@ guessing the employee's zone from their last punch's browser offset.
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone, timedelta, date
+from datetime import datetime, timezone, timedelta
 from html import escape
 
 from sqlalchemy import func, text
@@ -590,10 +590,19 @@ def _manager_task_completion_rows(db: Session, email: str, since_iso: str, my_re
     return rows
 
 
-def _blue_rows_manager(db: Session, email: str, my_reports: dict) -> list:
+def _blue_rows_manager(db: Session, email: str, my_reports: dict, briefing_date: str) -> list:
     """Manager add-on only - direct reports out today, plus the day-before
     nudge for anyone whose leave STARTS tomorrow (Neil, 8/21: 'I want the
-    e-mail on the prior today')."""
+    e-mail on the prior today').
+
+    Anchored on `briefing_date` - the SAME shift-local "today" _trigger_due
+    already worked out for this manager - not the server process's own
+    date.today() (Sep 22 fix). Those two dates can legitimately differ: a
+    manager whose trigger time (shift start minus 2.5h) falls in their own
+    early-morning hours can have a local calendar date that's already rolled
+    over relative to the container's UTC clock, which silently shifted this
+    whole check by a day for exactly the shift-timezone edge cases
+    _trigger_due was built to handle in the first place."""
     reports = list(my_reports.values())
     if not reports:
         return []
@@ -601,8 +610,8 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict) -> list:
     if not report_emails:
         return []
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip() for e in reports}
-    today = date.today().isoformat()
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    today = briefing_date
+    tomorrow = (datetime.strptime(briefing_date, "%Y-%m-%d").date() + timedelta(days=1)).isoformat()
     rows = []
     for r in (db.query(models.TimeOffRequest)
               .filter(models.TimeOffRequest.employee_email.in_(report_emails),
@@ -626,13 +635,13 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict) -> list:
     return rows
 
 
-def build_sections(db: Session, email: str, since_iso: str) -> dict:
+def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) -> dict:
     my_reports = {(e.work_email or "").lower(): e for e in
                   db.query(models.NexusEmployee)
                   .filter(func.lower(models.NexusEmployee.manager_email) == email.lower()).all()}
     sections = {
         "action_required": _red_rows(db, email, my_reports),
-        "needs_to_know":   _amber_rows(db, email, since_iso, my_reports) + _blue_rows_manager(db, email, my_reports),
+        "needs_to_know":   _amber_rows(db, email, since_iso, my_reports) + _blue_rows_manager(db, email, my_reports, briefing_date),
         "completed":       _green_rows(db, email, since_iso),
     }
     return {k: v for k, v in sections.items() if v}
@@ -800,8 +809,16 @@ def _module_group_html(color: str, group_id: str, module: str, label: str, rows:
     # a toggle that can never be clicked. Nothing here depends on the CSS
     # firing; it only makes a supporting client more compact. The cap above
     # (not this toggle) is what actually keeps a long list short everywhere.
+    #
+    # `mso-hide:all` alongside display:none (Pranshu, Sep 22 - screenshot from
+    # Outlook classic): plain display:none does NOT hide an <input> from
+    # Word's rendering engine - it rendered the checkbox as a literal "[ ]"
+    # sitting in front of every badge/module header, not just failing open to
+    # expanded. mso-hide:all is the actual Outlook-specific directive for
+    # "don't render this element at all"; every other client ignores an
+    # unrecognized mso-* property and still sees the ordinary display:none.
     return f"""
-        <input type="checkbox" id="{cid}" class="nx-acc" style="display:none">
+        <input type="checkbox" id="{cid}" class="nx-acc" style="display:none;mso-hide:all">
         <label for="{cid}" class="nx-acc-label" style="display:block;cursor:pointer;padding:9px 12px;
           margin:10px 0 6px;background:#f4f6f3;border-radius:8px;font-size:13px;font-weight:700;color:#26312a">
           <span style="float:right;color:{accent};transition:transform .15s" class="nx-arrow">&#9656;</span>
@@ -825,7 +842,9 @@ def _section_html(color: str, rows: list) -> str:
     # Sep 20: "the sections... should be collapsed - it should only expand
     # if user clicks on it"). Reuses the exact same .nx-acc/.nx-content CSS
     # rules - nested accordions each match only their own immediate
-    # siblings, so the module-level toggles inside still work independently.
+    # siblings, so the module-level toggles inside still work independently -
+    # including the mso-hide:all fix (see _module_group_html) so this
+    # checkbox doesn't render as a literal "[ ]" in Outlook either.
     #
     # Outlook desktop classic (Word engine) never runs that CSS though, so it
     # always falls back to fully expanded - badge, every module header, every
@@ -840,7 +859,7 @@ def _section_html(color: str, rows: list) -> str:
       <tr><td class="nx-pad" style="padding:12px 32px">
         <div style="background:#ffffff;border:1px solid #e2e5df;border-left:4px solid {accent};
           border-radius:14px;padding:16px 18px 6px">
-          <input type="checkbox" id="{sid}" class="nx-acc" style="display:none">
+          <input type="checkbox" id="{sid}" class="nx-acc" style="display:none;mso-hide:all">
           <label for="{sid}" class="nx-acc-label" style="display:block;cursor:pointer;margin-bottom:12px">
             {badge}
             <span style="float:right;color:{accent};font-size:15px;transition:transform .15s" class="nx-arrow">&#9656;</span>
@@ -914,7 +933,7 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
     if not since_iso:
         since_iso = (datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS_FIRST_RUN)).strftime("%Y-%m-%dT%H:%M:%S")
 
-    sections = build_sections(db, emp.work_email, since_iso)
+    sections = build_sections(db, emp.work_email, since_iso, briefing_date)
     name = f"{emp.first_name} {emp.last_name}".strip()
     subject, html = render_email(name, briefing_date, sections)
 

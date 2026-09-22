@@ -35,12 +35,12 @@
 // (Pranshu, Sep 11) - unused. Workforce Analytics Policy (the old Policy tab
 // under Employee Tracking) moved in as its replacement in the Company
 // Settings list.
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronDown, Tag, Shield, SlidersHorizontal,
   Headset, Bell, Mail, Building2, RefreshCw, Loader2, Timer,
   UserCog, Activity, DoorOpen, Signature, Check, Eye, X,
-  Plus, Pencil, Trash2, Upload, Copy,
+  Plus, Pencil, Trash2, Upload, GripVertical,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -252,13 +252,22 @@ function EmailSignatureSection({ toastOk, toastErr }) {
   const [entities, setEntities] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [companyId, setCompanyId] = useState('');
-  const [data, setData] = useState(null);       // { templates, template }
+  const [data, setData] = useState(null);       // { templates (with html), template }
   const [selectedTemplate, setSelectedTemplate] = useState('classic');
   const [previewBusy, setPreviewBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [zoomTemplate, setZoomTemplate] = useState(null);   // { label, html } | null - full-size eye-icon preview
-  const [manualSigs, setManualSigs] = useState([]);
-  const [manualModal, setManualModal] = useState(null);     // 'new' | sig object | null
+
+  // Sender Template Overrides - global, not per-company (Sep 22, Pranshu:
+  // "it will be for all whom email id we are adding so it should not be
+  // company specific"), so this block loads/saves independently of the
+  // Company picker above. `overrideTemplates` is just {id,label} - no
+  // company branding to render a sample against, unlike `data.templates`.
+  const [overrideTemplates, setOverrideTemplates] = useState([]);
+  const [overrides, setOverrides] = useState([]);
+  const [overridesLoaded, setOverridesLoaded] = useState(false);
+  const [overrideModal, setOverrideModal] = useState(null);   // 'new' | index into `overrides` | null
+  const [overridesSaveBusy, setOverridesSaveBusy] = useState(false);
 
   const loadPreview = useCallback((id) => {
     if (!id) return;
@@ -269,46 +278,54 @@ function EmailSignatureSection({ toastOk, toastErr }) {
       .finally(() => setPreviewBusy(false));
   }, []);
 
-  const loadManualSigs = useCallback((id) => {
-    if (!id) return;
-    api.getManualSignatures(id).then(setManualSigs).catch(() => {});
-  }, []);
+  const loadOverrides = useCallback(() => {
+    if (overridesLoaded) return;
+    setOverridesLoaded(true);
+    api.getSignatureSenderOverrides()
+      .then(d => { setOverrideTemplates(d.templates || []); setOverrides(d.senderOverrides || []); })
+      .catch(() => {});
+  }, [overridesLoaded]);
 
   const load = useCallback(() => {
     if (loaded) return;
     setLoaded(true);
     api.getEntities().then(rows => {
       setEntities(rows || []);
-      if (rows?.length) { setCompanyId(rows[0].id); loadPreview(rows[0].id); loadManualSigs(rows[0].id); }
+      if (rows?.length) { setCompanyId(rows[0].id); loadPreview(rows[0].id); }
     }).catch(() => {});
-  }, [loaded, loadPreview, loadManualSigs]);
+    loadOverrides();
+  }, [loaded, loadPreview, loadOverrides]);
 
   function pickCompany(id) {
     setCompanyId(id);
     setData(null);
-    setManualSigs([]);
     loadPreview(id);
-    loadManualSigs(id);
   }
 
-  async function save() {
+  function removeOverride(idx) {
+    setOverrides(rows => rows.filter((_, i) => i !== idx));
+  }
+
+  async function saveTemplate() {
     if (!companyId || saveBusy) return;
     setSaveBusy(true);
     try {
       await api.updateEntity(companyId, { signature_template: selectedTemplate });
       toastOk('Company signature template updated - every employee at this company picks it up automatically.');
-      loadManualSigs(companyId);   // manual signatures render with this template too
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
     setSaveBusy(false);
   }
 
-  async function deleteManualSig(sig) {
-    if (!window.confirm(`Delete the "${sig.name}" signature?`)) return;
+  async function saveOverrides() {
+    if (overridesSaveBusy) return;
+    setOverridesSaveBusy(true);
     try {
-      await api.deleteManualSignature(companyId, sig.id);
-      setManualSigs(rows => rows.filter(r => r.id !== sig.id));
-      toastOk('Signature deleted.');
-    } catch (e) { toastErr(e?.message || 'Could not delete.'); }
+      const d = await api.saveSignatureSenderOverrides(overrides);
+      setOverrideTemplates(d.templates || []);
+      setOverrides(d.senderOverrides || []);
+      toastOk('Sender template overrides updated.');
+    } catch (e) { toastErr(e?.message || 'Could not save.'); }
+    setOverridesSaveBusy(false);
   }
 
   return (
@@ -357,70 +374,75 @@ function EmailSignatureSection({ toastOk, toastErr }) {
                   );
                 })}
               </div>
-              <button className="primary-btn" onClick={save} disabled={saveBusy}
+
+              <button className="primary-btn" onClick={saveTemplate} disabled={saveBusy}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: saveBusy ? 0.6 : 1 }}>
                 {saveBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} Save
               </button>
-
-              <div style={{ marginTop: 22, marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>
-                  Manual Signatures
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  For a sender email that isn't a Nexus employee - a shared inbox, an external contact, anyone without a directory record. Uses this company's template above.
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
-                {manualSigs.map(sig => (
-                  <div key={sig.id} style={{ textAlign: 'left', padding: 10, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', position: 'relative' }}>
-                    <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4, zIndex: 1 }}>
-                      <button type="button" title={`Preview ${sig.name} full-size`} onClick={() => setZoomTemplate({ label: sig.name, html: sig.html })}
-                        style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'var(--muted)' }}>
-                        <Eye size={13} />
-                      </button>
-                      <button type="button" title="Edit" onClick={() => setManualModal(sig)}
-                        style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'var(--muted)' }}>
-                        <Pencil size={13} />
-                      </button>
-                      <button type="button" title="Delete" onClick={() => deleteManualSig(sig)}
-                        style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'hsl(var(--color-red))' }}>
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', marginBottom: 6, paddingRight: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {sig.name}
-                    </div>
-                    <SignaturePaper html={sig.html} />
-                  </div>
-                ))}
-                <div role="button" tabIndex={0} onClick={() => setManualModal('new')}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setManualModal('new'); } }}
-                  style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
-                    minHeight: 92, cursor: 'pointer', borderRadius: 8, border: '1.5px dashed var(--line)',
-                    background: 'transparent', color: 'var(--muted)',
-                  }}>
-                  <Plus size={18} />
-                  <span style={{ fontSize: 11.5, fontWeight: 600 }}>Add Signature</span>
-                </div>
-              </div>
             </>
           )}
         </>
       )}
+
+      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--line)' }}>
+        <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
+          Sender Template Overrides
+        </label>
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>
+          Applies across every company, regardless of which one is selected above. Type in any email address (a real employee's, or a shared inbox with no Nexus record at all) and fully author its signature - its own fields, its own template, its own field order. Nothing here is pulled from the directory.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+          {overrides.map((grp, idx) => (
+            <div key={grp.id || idx} style={{ textAlign: 'left', padding: 10, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4, zIndex: 1 }}>
+                <button type="button" title="Edit" onClick={() => setOverrideModal(idx)}
+                  style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'var(--muted)' }}>
+                  <Pencil size={13} />
+                </button>
+                <button type="button" title="Remove" onClick={() => removeOverride(idx)}
+                  style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, color: 'hsl(var(--color-red))' }}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', marginBottom: 4, paddingRight: 50, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {grp.label || grp.emails?.[0] || 'Untitled'}
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--muted)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {(grp.emails || []).join(', ') || 'No addresses yet'}
+              </div>
+              {grp.previewHtml ? <SignaturePaper html={grp.previewHtml} /> : (
+                <div style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>Not saved yet</div>
+              )}
+            </div>
+          ))}
+          <div role="button" tabIndex={0} onClick={() => setOverrideModal('new')}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOverrideModal('new'); } }}
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
+              minHeight: 92, cursor: 'pointer', borderRadius: 8, border: '1.5px dashed var(--line)',
+              background: 'transparent', color: 'var(--muted)',
+            }}>
+            <Plus size={18} />
+            <span style={{ fontSize: 11.5, fontWeight: 600 }}>Add Override</span>
+          </div>
+        </div>
+        <button className="primary-btn" onClick={saveOverrides} disabled={overridesSaveBusy}
+          style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: overridesSaveBusy ? 0.6 : 1 }}>
+          {overridesSaveBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} Save
+        </button>
+      </div>
+
       {zoomTemplate && (
         <SignatureZoomModal title={zoomTemplate.label} html={zoomTemplate.html} onClose={() => setZoomTemplate(null)} />
       )}
-      {manualModal && (
-        <ManualSignatureModal
-          companyId={companyId}
-          sig={manualModal === 'new' ? null : manualModal}
-          onClose={() => setManualModal(null)}
-          onSaved={updated => {
-            setManualSigs(rows => {
-              const exists = rows.some(r => r.id === updated.id);
-              return exists ? rows.map(r => (r.id === updated.id ? updated : r)) : [...rows, updated];
-            });
+      {overrideModal !== null && (
+        <SenderOverrideModal
+          templates={overrideTemplates}
+          grp={overrideModal === 'new' ? null : overrides[overrideModal]}
+          onClose={() => setOverrideModal(null)}
+          onSaved={next => {
+            setOverrides(rows => overrideModal === 'new' ? [...rows, next] : rows.map((r, i) => i === overrideModal ? next : r));
+            setOverrideModal(null);
           }}
           toastOk={toastOk} toastErr={toastErr}
         />
@@ -429,152 +451,268 @@ function EmailSignatureSection({ toastOk, toastErr }) {
   );
 }
 
-function ManualSignatureModal({ companyId, sig, onClose, onSaved, toastOk, toastErr }) {
-  const [name, setName] = useState(sig?.name || '');
-  const [title, setTitle] = useState(sig?.title || '');
-  const [companyName, setCompanyName] = useState(sig?.companyName || '');
-  const [address, setAddress] = useState(sig?.address || '');
-  const [url, setUrl] = useState(sig?.url || '');
-  const [customFields, setCustomFields] = useState(sig?.customFields?.length ? sig.customFields : []);
-  const [row, setRow] = useState(sig || null);   // saved row (has an id/logoUrl/html once created)
-  const [busy, setBusy] = useState(false);
+// Reorderable "detail rows" a sender override can show, in whatever order the
+// admin drags them into (Sep 22, Pranshu: "i should drag and make the layout
+// of template as needed"). Name/logo/social/closing keep each template's own
+// fixed position - only this group is reorderable (backend: myhr._ordered_row_values).
+const OVERRIDE_ROW_KEYS = ['role', 'phone', 'email', 'website', 'address'];
+const OVERRIDE_ROW_LABELS = { role: 'Role', phone: 'Phone', email: 'Email', website: 'Website', address: 'Address' };
+
+// Keeps `order` valid as custom fields are added/removed: drops any key that
+// no longer exists (a stale "custom:N" past the end of the list), then
+// appends anything valid that's missing (a freshly added custom field, or
+// the initial default order for a brand-new override) - nothing is ever
+// silently dropped from view just because the admin hasn't dragged it yet.
+function reconcileOrder(order, customCount) {
+  const valid = [...OVERRIDE_ROW_KEYS, ...Array.from({ length: customCount }, (_, i) => `custom:${i}`)];
+  const validSet = new Set(valid);
+  const kept = (order || []).filter(k => validSet.has(k));
+  const missing = valid.filter(k => !kept.includes(k));
+  return [...kept, ...missing];
+}
+
+const _OVERRIDE_FIELD_DEFS = [
+  ['name', 'Name'], ['role', 'Role'], ['phone', 'Phone'], ['email', 'Email'],
+  ['website', 'Website'], ['address', 'Address'],
+  ['companyName', 'Company Name'], ['companyPhone', 'Company Phone'],
+  ['facebookUrl', 'Facebook URL'], ['linkedinUrl', 'LinkedIn URL'], ['twitterUrl', 'Twitter URL'], ['instagramUrl', 'Instagram URL'],
+  ['closing', 'Sign-Off'],
+];
+// logoUrl isn't in _OVERRIDE_FIELD_DEFS (it gets its own upload widget, not a
+// plain text input) but still needs a default in `fields` - the backend's
+// _OVERRIDE_FIELD_KEYS and every render function expect the key to exist.
+const _EMPTY_OVERRIDE_FIELDS = { logoUrl: '', ...Object.fromEntries(_OVERRIDE_FIELD_DEFS.map(([k]) => [k, ''])) };
+
+function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastErr }) {
+  const [label, setLabel] = useState(grp?.label || '');
+  const [emails, setEmails] = useState(grp?.emails || []);
+  const [emailDraft, setEmailDraft] = useState('');
+  const [template, setTemplate] = useState(grp?.template || templates?.[0]?.id || 'classic');
+  const [fields, setFields] = useState({ ..._EMPTY_OVERRIDE_FIELDS, ...(grp?.fields || {}) });
+  const [customFields, setCustomFields] = useState(grp?.customFields?.length ? grp.customFields : []);
+  const [fieldOrder, setFieldOrder] = useState(() => reconcileOrder(grp?.fieldOrder, grp?.customFields?.length || 0));
+  const [dragKey, setDragKey] = useState(null);
+  const [previewHtml, setPreviewHtml] = useState(grp?.previewHtml || '');
   const [logoBusy, setLogoBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+  const debounceRef = useRef(null);
 
-  function addField() { setCustomFields(f => [...f, { label: '', value: '' }]); }
-  function setField(i, key, val) { setCustomFields(f => f.map((r, idx) => (idx === i ? { ...r, [key]: val } : r))); }
-  function removeField(i) { setCustomFields(f => f.filter((_, idx) => idx !== i)); }
-
-  async function save() {
-    if (!name.trim() || busy) return;
-    setBusy(true);
-    try {
-      const body = { name: name.trim(), title, company_name: companyName, address, url, custom_fields: customFields };
-      const saved = row
-        ? await api.updateManualSignature(companyId, row.id, body)
-        : await api.createManualSignature(companyId, body);
-      setRow(saved);
-      onSaved(saved);
-      toastOk('Signature saved.');
-    } catch (e) { toastErr(e?.message || 'Could not save.'); }
-    setBusy(false);
-  }
+  function setFieldValue(key, val) { setFields(f => ({ ...f, [key]: val })); }
 
   async function uploadLogo(file) {
-    if (!file || !row) return;
+    if (!file) return;
     setLogoBusy(true);
     try {
       const form = new FormData();
       form.append('file', file);
-      const updated = await api.uploadManualSignatureLogo(companyId, row.id, form);
-      setRow(updated);
-      onSaved(updated);
-      toastOk('Logo uploaded.');
-    } catch (e) { toastErr(e?.message || 'Could not upload logo.'); }
+      const { logoUrl } = await api.uploadSenderOverrideLogo(form);
+      setFieldValue('logoUrl', logoUrl);
+      toastOk?.('Logo uploaded.');
+    } catch (e) { toastErr?.(e?.message || 'Could not upload logo.'); }
     setLogoBusy(false);
   }
 
-  async function copySignature() {
-    if (!row?.html) return;
-    try {
-      if (navigator.clipboard?.write && window.ClipboardItem) {
-        const blob = new Blob([row.html], { type: 'text/html' });
-        await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })]);
-      } else {
-        await navigator.clipboard.writeText(row.html);
-      }
-      setCopied(true); setTimeout(() => setCopied(false), 2000);
-    } catch { toastErr('Could not copy - open the preview and copy manually.'); }
+  function addCustomField() {
+    const next = [...customFields, { label: '', value: '' }];
+    setCustomFields(next);
+    setFieldOrder(o => reconcileOrder(o, next.length));
+  }
+  function setCustomField(i, key, val) {
+    setCustomFields(cf => cf.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
+  }
+  function removeCustomField(i) {
+    const next = customFields.filter((_, idx) => idx !== i);
+    setCustomFields(next);
+    // Indices shift on removal - remap "custom:N" keys onto the new array,
+    // then reconcile so nothing stale or out-of-range survives.
+    setFieldOrder(o => reconcileOrder(
+      o.filter(k => k !== `custom:${i}`).map(k => {
+        if (!k.startsWith('custom:')) return k;
+        const n = Number(k.slice(7));
+        return n > i ? `custom:${n - 1}` : k;
+      }),
+      next.length,
+    ));
+  }
+
+  function commitEmailDraft() {
+    const v = emailDraft.trim().toLowerCase();
+    setEmailDraft('');
+    if (v && v.includes('@') && !emails.includes(v)) setEmails(e => [...e, v]);
+  }
+  function removeEmail(email) { setEmails(e => e.filter(x => x !== email)); }
+
+  function reorderRow(from, to) {
+    if (!from || from === to) return;
+    setFieldOrder(order => {
+      const next = order.filter(k => k !== from);
+      const idx = next.indexOf(to);
+      next.splice(idx >= 0 ? idx : next.length, 0, from);
+      return next;
+    });
+  }
+
+  // Live preview - debounced, never persisted; mirrors the exact render path
+  // a real send takes (backend reuses myhr._render_override_signature).
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      api.previewSenderOverride({ template, fields, custom_fields: customFields, field_order: fieldOrder })
+        .then(r => setPreviewHtml(r.html))
+        .catch(() => {});
+    }, 400);
+    return () => clearTimeout(debounceRef.current);
+  }, [template, fields, customFields, fieldOrder]);
+
+  function save() {
+    onSaved({
+      id: grp?.id || '', label, emails, template, fields, customFields, fieldOrder, previewHtml,
+    });
   }
 
   const inputStyle = { width: '100%' };
-  const label = { fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 5 };
+  const labelStyle = { fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: 5 };
+  const rowKeys = reconcileOrder(fieldOrder, customFields.length);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 12, maxWidth: 480, width: '100%', maxHeight: '86vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 12, width: '60vw', minWidth: 340, maxWidth: '96vw', maxHeight: '90vh', overflow: 'auto', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{row ? 'Edit Signature' : 'Add Signature'}</span>
+          <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{grp ? 'Edit Override' : 'Add Override'}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
             <X size={18} />
           </button>
         </div>
         <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label style={label}>Name</label>
-            <input className="form-input" style={inputStyle} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Sales Inbox" />
-          </div>
-          <div>
-            <label style={label}>Title</label>
-            <input className="form-input" style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Sales Team" />
-          </div>
-          <div>
-            <label style={label}>Company Name</label>
-            <input className="form-input" style={inputStyle} value={companyName} onChange={e => setCompanyName(e.target.value)} />
-          </div>
-          <div>
-            <label style={label}>Company Address</label>
-            <input className="form-input" style={inputStyle} value={address} onChange={e => setAddress(e.target.value)} />
-          </div>
-          <div>
-            <label style={label}>Company URL</label>
-            <input className="form-input" style={inputStyle} value={url} onChange={e => setUrl(e.target.value)} placeholder="example.com" />
-          </div>
-          <div>
-            <label style={label}>Company Logo</label>
-            {row ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {row.logoUrl && <img src={row.logoUrl} alt="" style={{ height: 32, maxWidth: 120, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid var(--line)' }} />}
-                <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', opacity: logoBusy ? 0.6 : 1 }}>
-                  {logoBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={13} />}
-                  {row.logoUrl ? 'Replace' : 'Upload'}
-                  <input type="file" accept="image/*" style={{ display: 'none' }} disabled={logoBusy}
-                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadLogo(f); }} />
-                </label>
-              </div>
-            ) : (
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Save once first, then upload a logo.</div>
-            )}
+            <label style={labelStyle}>Label (Optional)</label>
+            <input className="form-input" style={inputStyle} value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Sales Team" />
           </div>
 
           <div>
-            <label style={label}>Custom Fields</label>
+            <label style={labelStyle}>Applies To</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+              {emails.map(email => (
+                <span key={email} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 20, padding: '3px 6px 3px 10px' }}>
+                  {email}
+                  <button type="button" onClick={() => removeEmail(email)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <input className="form-input" style={inputStyle} value={emailDraft} placeholder="Type an email, press Enter or comma to add"
+              onChange={e => setEmailDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ',' || e.key === 'Tab') { e.preventDefault(); commitEmailDraft(); } }}
+              onBlur={commitEmailDraft} />
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Any address - a real employee's or a shared inbox with no Nexus record.</div>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Template</label>
+            <select className="form-input" style={inputStyle} value={template} onChange={e => setTemplate(e.target.value)}>
+              {templates.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Logo</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {fields.logoUrl && <img src={fields.logoUrl} alt="" style={{ height: 32, maxWidth: 120, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid var(--line)' }} />}
+              <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', opacity: logoBusy ? 0.6 : 1 }}>
+                {logoBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={13} />}
+                {fields.logoUrl ? 'Replace' : 'Upload'}
+                <input type="file" accept="image/*" style={{ display: 'none' }} disabled={logoBusy}
+                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadLogo(f); }} />
+              </label>
+              {fields.logoUrl && (
+                <button type="button" onClick={() => setFieldValue('logoUrl', '')}
+                  style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', alignItems: 'center', padding: '4px 8px' }}>
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {_OVERRIDE_FIELD_DEFS.map(([key, fieldLabel]) => (
+              <div key={key}>
+                <label style={labelStyle}>{fieldLabel}</label>
+                <input className="form-input" style={inputStyle} value={fields[key] || ''} onChange={e => setFieldValue(key, e.target.value)} />
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <label style={labelStyle}>Custom Fields</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {customFields.map((f, i) => (
                 <div key={i} style={{ display: 'flex', gap: 6 }}>
-                  <input className="form-input" style={{ flex: 1 }} placeholder="Label" value={f.label} onChange={e => setField(i, 'label', e.target.value)} />
-                  <input className="form-input" style={{ flex: 1 }} placeholder="Value" value={f.value} onChange={e => setField(i, 'value', e.target.value)} />
-                  <button type="button" onClick={() => removeField(i)}
+                  <input className="form-input" style={{ flex: 1 }} placeholder="Label" value={f.label} onChange={e => setCustomField(i, 'label', e.target.value)} />
+                  <input className="form-input" style={{ flex: 1 }} placeholder="Value" value={f.value} onChange={e => setCustomField(i, 'value', e.target.value)} />
+                  <button type="button" onClick={() => removeCustomField(i)}
                     style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', alignItems: 'center', padding: '0 8px' }}>
                     <X size={14} />
                   </button>
                 </div>
               ))}
-              <button type="button" className="secondary-btn" onClick={addField}
+              <button type="button" className="secondary-btn" onClick={addCustomField}
+                disabled={customFields.length >= 12}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }}>
                 <Plus size={13} /> Add Field
               </button>
             </div>
           </div>
 
-          {row?.html && (
-            <div>
-              <label style={label}>Preview</label>
-              <SignaturePaper html={row.html} height={90} scale={0.85} />
-              <button className="secondary-btn" onClick={copySignature}
-                style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy Signature'}
-              </button>
+          <div>
+            <label style={labelStyle}>Field Order</label>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Drag to change which fields show and in what order (a blank field never shows, regardless of position).</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {rowKeys.map(key => {
+                const rowLabel = key.startsWith('custom:')
+                  ? (customFields[Number(key.slice(7))]?.label || `Custom Field ${Number(key.slice(7)) + 1}`)
+                  : OVERRIDE_ROW_LABELS[key];
+                return (
+                  <div key={key} draggable
+                    onDragStart={() => setDragKey(key)}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => { e.preventDefault(); reorderRow(dragKey, key); setDragKey(null); }}
+                    onDragEnd={() => setDragKey(null)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 6,
+                      border: '1px solid var(--line)', background: 'var(--paper)', cursor: 'grab',
+                      opacity: dragKey === key ? 0.45 : 1, fontSize: 12.5, color: 'var(--ink)',
+                    }}>
+                    <GripVertical size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                    {rowLabel}
+                  </div>
+                );
+              })}
             </div>
-          )}
+          </div>
 
-          <button className="primary-btn" onClick={save} disabled={busy || !name.trim()}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1, alignSelf: 'flex-start' }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} Save
+          <div>
+            <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
+              Preview
+              <button type="button" title="Preview full-size" onClick={() => setZoomed(true)}
+                style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 3, color: 'var(--muted)' }}>
+                <Eye size={12} />
+              </button>
+            </label>
+            <SignaturePaper html={previewHtml} height={90} scale={0.85} />
+          </div>
+
+          <button className="primary-btn" onClick={save} disabled={!emails.length}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }}>
+            <Check size={14} /> Save
           </button>
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>Staged only - click Save in the Email Signature section below to apply.</div>
         </div>
       </div>
+      {zoomed && (
+        <SignatureZoomModal title={label || 'Preview'} html={previewHtml} onClose={() => setZoomed(false)} />
+      )}
     </div>
   );
 }

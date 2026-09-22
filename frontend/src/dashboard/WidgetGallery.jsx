@@ -54,7 +54,7 @@ function LinksFolderFields({ config, onChange }) {
         <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading your folders…</p>
       ) : state.folders.length === 0 ? (
         <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-          You don't have any folders yet - open External Links, drag a couple of apps together (or hit "New Folder" on either tab), then come back here.
+          You don't have any folders yet - open Links, drag a couple of apps together (or hit "New Folder" on either tab), then come back here.
         </p>
       ) : (
         <select className="form-input" value={cur} style={{ width: '100%' }}

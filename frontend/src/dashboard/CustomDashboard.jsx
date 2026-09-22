@@ -10,6 +10,7 @@ import DeskHome, { DeskGreeting } from './DeskHome';
 import { WidgetGallery, ConfigModal } from './WidgetGallery';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+import { useIsMobile } from '../lib/useIsMobile';
 
 // Small, reliable name dialog (replaces window.prompt, which wouldn't let the
 // user type / was silently blocked). Auto-focuses; Enter submits, Esc cancels.
@@ -73,6 +74,11 @@ export default function CustomDashboard() {
   const [gallery, setGallery] = useState(false);
   const [configItem, setConfigItem] = useState(null);
   const [menu, setMenu] = useState(false);
+  // View picker + Customize crowded/overlapped the session chip on a phone
+  // (Pranshu, Sep 22: "fix the customize and view area for mobile") - the
+  // fixed-width select plus a right-justified row wrapped into a jagged
+  // staircase instead of a clean stack at narrow widths.
+  const isMobile = useIsMobile();
   const [nameModal, setNameModal] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -215,11 +221,11 @@ export default function CustomDashboard() {
         // (Pranshu, Sep 15) while the view picker/Customize keep their own
         // group with normal spacing.
         const controls = (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: isMobile ? 'flex-start' : 'flex-end', width: isMobile ? '100%' : 'auto' }}>
             <select value={d.activeId || ''}
               onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
               className="form-input" title="Switch dashboard view"
-              style={{ fontSize: 12.5, fontWeight: 600, width: 170, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto' }}>
+              style={{ fontSize: 12.5, fontWeight: 600, width: isMobile ? '100%' : 170, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto' }}>
               <option value="">Home</option>
               {d.views.filter(v => v.scope === 'personal').length > 0 && (
                 <optgroup label="My views">

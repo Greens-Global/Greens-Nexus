@@ -1055,11 +1055,12 @@ export const api = {
   // a slow conversion well before the server even times out.
   uploadEntityLogo: (id, form) => req(`/hr/entities/${id}/logo`, { method: 'POST', body: form, timeoutMs: 90_000 }),
   getEntitySignatureTemplates: (id) => req(`/hr/entities/${id}/signature-templates`),
-  getManualSignatures: (id) => req(`/hr/entities/${id}/manual-signatures`),
-  createManualSignature: (id, data) => req(`/hr/entities/${id}/manual-signatures`, { method: 'POST', body: JSON.stringify(data) }),
-  updateManualSignature: (id, sigId, data) => req(`/hr/entities/${id}/manual-signatures/${sigId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteManualSignature: (id, sigId) => req(`/hr/entities/${id}/manual-signatures/${sigId}`, { method: 'DELETE' }),
-  uploadManualSignatureLogo: (id, sigId, form) => req(`/hr/entities/${id}/manual-signatures/${sigId}/logo`, { method: 'POST', body: form, timeoutMs: 90_000 }),
+  // Sender template overrides - global, not per-company (Sep 22: an override
+  // email can belong to any company or none at all).
+  getSignatureSenderOverrides: () => req('/hr/signature-sender-overrides'),
+  saveSignatureSenderOverrides: (overrides) => req('/hr/signature-sender-overrides', { method: 'PUT', body: JSON.stringify({ overrides }) }),
+  previewSenderOverride: (data) => req('/hr/signature-sender-overrides/preview', { method: 'POST', body: JSON.stringify(data) }),
+  uploadSenderOverrideLogo: (form) => req('/hr/signature-sender-overrides/logo', { method: 'POST', body: form, timeoutMs: 90_000 }),
   getGroupManager: ()        => req('/hr/group-manager'),
   setGroupManager: (email)   => req('/hr/group-manager', { method: 'PUT', body: JSON.stringify({ email }) }),
   deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),
@@ -1192,6 +1193,8 @@ export const api = {
   mySignOtpVerify:    (pid, data) => req(`/esign/mine/${pid}/otp/verify`, { method: 'POST', body: JSON.stringify(data) }),
   mySignSubmit:       (pid, data) => req(`/esign/mine/${pid}/sign`, { method: 'POST', body: JSON.stringify(data) }),
   mySignDecline:      (pid, data) => req(`/esign/mine/${pid}/decline`, { method: 'POST', body: JSON.stringify(data) }),
+  // Approvers and certified-delivery recipients do NOT sign - they act.
+  mySignAct:          (pid, data) => req(`/esign/mine/${pid}/act`, { method: 'POST', body: JSON.stringify(data) }),
   // Upload fields. FormData, so no JSON Content-Type - req() leaves the
   // boundary to the browser when the body is a FormData.
   mySignUpload:       (pid, form) => req(`/esign/mine/${pid}/upload`, { method: 'POST', body: form }),

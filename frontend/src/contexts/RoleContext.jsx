@@ -34,7 +34,7 @@ export const MODULES = [
   { id: 'hr_comp',             label: 'People - Compensation (salary/bank)' },
   { id: 'documents',           label: 'Documents' },
   { id: 'marketing',           label: 'Marketing' },
-  { id: 'external-links',      label: 'External Links' },
+  { id: 'external-links',      label: 'Links' },
   { id: 'inventory',           label: 'Item Management' },
   { id: 'admin',               label: 'Nexus Access Manager' },
   { id: 'admin-console',       label: 'Settings' },
