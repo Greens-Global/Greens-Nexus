@@ -22,6 +22,7 @@ import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateFi
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import ProjectPicker from './ProjectPicker';
+import { toDownloadUrl } from '../lib/storageView';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -1470,7 +1471,7 @@ function AttachmentsTab({ task, refresh }) {
                       </span>
                     )}
                     <span style={{ color: NX.faint }}>{a.size}</span>
-                    {href && <a href={href} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
+                    {href && <a href={toDownloadUrl(href)} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
                     <button onClick={() => del(a)} title="Remove" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
                   </div>
                 );

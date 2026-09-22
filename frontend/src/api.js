@@ -1,6 +1,7 @@
 import { msalInstance, msalReady } from './msalInstance';
 import { apiTokenRequest, loginRequest } from './authConfig';
 import { BFF_MODE, csrfToken, bffLogin } from './bffAuth';
+import { rewriteResponseText, restoreRequestBody } from './lib/storageView';
 
 // Recover a dead session app-wide. When even a FORCE-refreshed token still 401s,
 // MSAL's silent hidden-iframe renewal is failing - modern browsers block the
@@ -209,6 +210,9 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     try {
       res = await fetch(`${BASE}${path}`, {
         ...options,
+        // Evidence photos travel as viewer URLs inside the app; the server only
+        // accepts the canonical storage URL (see lib/storageView.js).
+        ...(typeof options.body === 'string' ? { body: restoreRequestBody(options.body) } : {}),
         signal: controller.signal,
         // BFF mode: send the session cookie; double-submit the CSRF token on writes.
         ...(BFF_MODE ? { credentials: 'include' } : {}),
@@ -285,7 +289,11 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     _queryClient?.invalidateQueries();
   }
   if (res.status === 204) return null;
-  return res.json();
+  // Parse from text so evidence-photo URLs of the private buckets can be
+  // rewritten to the authenticated viewer in one pass (lib/storageView.js).
+  const text = await res.text();
+  if (!text) return null;
+  return JSON.parse(rewriteResponseText(text));
 }
 
 // Short-lived GET cache + in-flight dedup for reference data that rarely changes
@@ -1004,6 +1012,19 @@ export const api = {
   // One-time sign-in URL for accounting.greensglobal.com - Nexus is the only
   // way in there (no passwords). Open the returned url immediately.
   launchAccounting: (next) => req(`/accounting/launch${next ? `?next=${encodeURIComponent(next)}` : ""}`, { method: "POST" }),
+  // Finance Dashboard (Overview / Cash / Performance / Close) - the same
+  // aggregates and shared tables the accounting app's own dashboard uses,
+  // proxied by backend/routers/accounting_dashboard.py.
+  getAccountingDashLedger: (scope, from, to, book) =>
+    req(`/accounting/dashboard/ledger?scope=${encodeURIComponent(scope)}&from=${from}&to=${to}&book=${book}`),
+  getAccountingDashCashEntities: (scope, asof, book) =>
+    req(`/accounting/dashboard/cash-entities?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}`),
+  getAccountingDashBudget: (from, to, book) => req(`/accounting/dashboard/budget?from=${from}&to=${to}&book=${book}`),
+  getAccountingDashNoi: (from, to, book) => req(`/accounting/dashboard/noi?from=${from}&to=${to}&book=${book}`),
+  getAccountingDashEntities: () => req("/accounting/dashboard/entities"),
+  getAccountingDashTables: (period) => req(`/accounting/dashboard/tables?period=${period}`),
+  accountingDashAction: (op, payload = {}) =>
+    req("/accounting/dashboard/action", { method: "POST", body: JSON.stringify({ op, payload }) }),
 
   // Ops
   getOpsProjects: () => req("/ops-projects"),
@@ -1034,6 +1055,8 @@ export const api = {
   // a slow conversion well before the server even times out.
   uploadEntityLogo: (id, form) => req(`/hr/entities/${id}/logo`, { method: 'POST', body: form, timeoutMs: 90_000 }),
   getEntitySignatureTemplates: (id) => req(`/hr/entities/${id}/signature-templates`),
+  previewSenderOverride: (id, data) => req(`/hr/entities/${id}/signature-sender-overrides/preview`, { method: 'POST', body: JSON.stringify(data) }),
+  uploadSenderOverrideLogo: (id, form) => req(`/hr/entities/${id}/signature-sender-overrides/logo`, { method: 'POST', body: form, timeoutMs: 90_000 }),
   getManualSignatures: (id) => req(`/hr/entities/${id}/manual-signatures`),
   createManualSignature: (id, data) => req(`/hr/entities/${id}/manual-signatures`, { method: 'POST', body: JSON.stringify(data) }),
   updateManualSignature: (id, sigId, data) => req(`/hr/entities/${id}/manual-signatures/${sigId}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -1054,8 +1077,18 @@ export const api = {
   // per-company holiday calendar
   getCompanyHolidays:    (entityId)         => req(`/hr/entities/${entityId}/holidays`),
   createCompanyHoliday:  (entityId, data)   => req(`/hr/entities/${entityId}/holidays`, { method: 'POST', body: JSON.stringify(data) }),
-  deleteCompanyHoliday:  (entityId, id)     => req(`/hr/entities/${entityId}/holidays/${id}`, { method: 'DELETE' }),
+  // countryCode: drop just that ONE country off a multi-country merged row
+  // (e.g. "IN,US" -> "US") instead of deleting the whole date+company entry.
+  deleteCompanyHoliday:  (entityId, id, countryCode) => req(`/hr/entities/${entityId}/holidays/${id}${countryCode ? `?country_code=${encodeURIComponent(countryCode)}` : ''}`, { method: 'DELETE' }),
+  updateCompanyHolidayType: (entityId, id, type) => req(`/hr/entities/${entityId}/holidays/${id}`, { method: 'PATCH', body: JSON.stringify({ type }) }),
   getPublicHolidays:     (country, year)    => req(`/hr/public-holidays?country=${encodeURIComponent(country)}${year ? `&year=${year}` : ''}`),
+  // Holiday Policy library - a global, reusable, named holiday set (Sep 22,
+  // Neil: "pull that policy into any other company").
+  getHolidayPolicies:    ()                 => req('/hr/holiday-policies'),
+  createHolidayPolicy:   (data)             => req('/hr/holiday-policies', { method: 'POST', body: JSON.stringify(data) }),
+  updateHolidayPolicy:   (id, data)         => req(`/hr/holiday-policies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteHolidayPolicy:   (id)               => req(`/hr/holiday-policies/${id}`, { method: 'DELETE' }),
+  applyHolidayPolicy:    (entityId, policyId) => req(`/hr/entities/${entityId}/holidays/apply-policy/${policyId}`, { method: 'POST' }),
 
   // HR - compensation + bank (restricted: hr_comp grant / owner)
   getCompensation:  (id)       => req(`/hr/employees/${id}/compensation`),

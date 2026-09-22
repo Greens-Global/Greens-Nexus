@@ -101,18 +101,32 @@ def get_directory(
     db:   Session = Depends(get_db),
 ):
     """People picker for on-behalf flows - names and emails only, no roles.
-    Open to every authenticated user (it's the same data as the Outlook GAL).
+    Open to every authenticated user.
+
+    Curated (Sep 22, 2026): only people on the Nexus People list - current staff
+    with a work mailbox, never guest/external identities. nexus_roles holds a
+    row for EVERY account that ever received access, external contacts and
+    their personal Gmail addresses included, and this endpoint used to hand
+    that whole table to any signed-in user (Neil's security-debt list). The
+    same rule /myhr/directory applies: offboarded and external stay out.
+
     Company wall (Aug 2026): once armed, narrowed to people in the caller's own
     companies, like /myhr/directory - so no cross-company picker leaks here either."""
     import auth
+    from models import NexusEmployee
     rows = db.query(NexusRole).order_by(NexusRole.email).all()
     scope = auth.company_scope(user, db)
-    if scope is not None:
-        from models import NexusEmployee
-        allowed = {(e.work_email or "").lower()
-                   for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all()
-                   if (e.company or "") in scope} if scope else set()
-        rows = [r for r in rows if (r.email or "").lower() in allowed]
+    people = db.query(NexusEmployee.work_email, NexusEmployee.company,
+                      NexusEmployee.status, NexusEmployee.identity_type).all()
+    allowed = {(e.work_email or "").lower()
+               for e in people
+               if (e.work_email or "").strip()
+               and (e.status or "") != "offboarded"
+               and (e.identity_type or "") not in ("guest", "external")
+               and (scope is None or (e.company or "") in scope)}
+    if scope is not None and not scope:
+        allowed = set()          # walls armed, caller in no company: fail closed
+    rows = [r for r in rows if (r.email or "").lower() in allowed]
     return [
         {
             "email": r.email,

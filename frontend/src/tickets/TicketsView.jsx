@@ -44,6 +44,7 @@ import {
 import { SkeletonBlocks } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
 import { buildTicketTourSteps } from './ticketTourSteps';
+import { toViewUrl, toDownloadUrl } from '../lib/storageView';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -1410,7 +1411,7 @@ async function uploadTicketEvidence(file, prefix = 'file') {
   const { data, error } = await supabase.storage.from('ticket-evidence')
     .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false, cacheControl: '31536000' });
   if (error || !data) throw new Error(error?.message || 'Upload failed');
-  return supabase.storage.from('ticket-evidence').getPublicUrl(data.path).data.publicUrl;
+  return toViewUrl(supabase.storage.from('ticket-evidence').getPublicUrl(data.path).data.publicUrl);
 }
 
 function attachmentKindOf(f) {
@@ -3006,7 +3007,7 @@ function AttachmentViewer({ att, onClose }) {
       <Paperclip size={30} style={{ color: NX.faint }} />
       <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
       <div style={{ fontSize: 12.5, color: NX.dim }}>No inline preview for this file type.</div>
-      <a href={att.url} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <a href={toDownloadUrl(att.url)} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
         <Download size={14} /> Download
       </a>
     </div>
@@ -3017,7 +3018,7 @@ function AttachmentViewer({ att, onClose }) {
         <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
         <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
         <span style={{ flex: 1 }} />
-        {att.url && <a href={att.url} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
+        {att.url && <a href={toDownloadUrl(att.url)} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
         <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
       </div>
       <div onClick={(e) => e.stopPropagation()}>{body}</div>
@@ -3139,7 +3140,7 @@ function TicketAttachments({ ticketId, ticketType }) {
                 </button>
                 {showActions && (
                   <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', gap: 4 }}>
-                    {a.url && <a href={a.url} download={a.name} title="Download" style={actionBtn}><Download size={12} /></a>}
+                    {a.url && <a href={toDownloadUrl(a.url)} download={a.name} title="Download" style={actionBtn}><Download size={12} /></a>}
                     <button onClick={() => del(a.id)} title="Remove" style={actionBtn}><X size={12} /></button>
                   </div>
                 )}

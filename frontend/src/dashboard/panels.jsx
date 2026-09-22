@@ -13,6 +13,7 @@ import TimeAdmin            from '../components/TimeAdmin';
 import { navigate }         from './widgets.jsx';
 import { formatDateTime }   from '../lib/datetime';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { useIsMobile }      from '../lib/useIsMobile';
 
 const Card = ({ title, sub, action, children }) => (
   <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
@@ -671,12 +672,24 @@ function addMonths(d, n) { return new Date(d.getFullYear(), d.getMonth() + n, 1)
 // all the employees in NEXUS... helps us prepare any celebration prior").
 const monthDay = (m, d) => `${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
+// Sep 22, Pranshu: "it should show in calendar Company Holiday and in
+// bracket either its mandatory or optional" - so an employee glancing at the
+// agenda knows without opening Settings whether it's a given day off or one
+// they'd need to request.
+const HOLIDAY_TYPE_LABEL = { mandatory: 'Mandatory', optional: 'Optional', half_day: 'Half-day' };
+
 export function CalendarPanel() {
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selected, setSelected] = useState(agendaDay(new Date()));
   const [state, setState] = useState({ loading: true, available: true, events: [] });
   const [birthdays, setBirthdays] = useState([]);   // [{name, month, day}] - whole roster, fetched once
-  const [holidays, setHolidays] = useState([]);      // [{date, name}] - caller's own company, fetched once
+  const [holidays, setHolidays] = useState([]);      // [{date, name, type}] - caller's own company, fetched once
+  // Side-by-side (month grid | My Agenda) only makes sense with room for
+  // both - on a phone the grid should run full width, agenda stacked below
+  // (Pranshu, Sep 22: "this calendar should be full and the agenda below
+  // it"), not the flex-wrap fallback that left a stray divider line hanging
+  // off the now-wrapped agenda pane with nothing to its left anymore.
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     let alive = true;
@@ -746,7 +759,7 @@ export function CalendarPanel() {
   // exact YYYY-MM-DD the admin set in Settings -> Company Setup, not a
   // repeating key.
   const holidaysByDate = {};
-  for (const h of holidays) (holidaysByDate[h.date] ||= []).push(h.name);
+  for (const h of holidays) (holidaysByDate[h.date] ||= []).push({ name: h.name, type: h.type || 'mandatory' });
 
   const today = agendaDay(new Date());
   const selDate = new Date(selected + 'T00:00:00');
@@ -755,7 +768,7 @@ export function CalendarPanel() {
   // Holidays and birthdays sort first (they're all-day, same as Outlook
   // all-day events), then the real agenda in start-time order.
   const dayEvents = [
-    ...selHolidays.map(name => ({ isHoliday: true, isAllDay: true, subject: name })),
+    ...selHolidays.map(h => ({ isHoliday: true, isAllDay: true, subject: h.name, holidayType: h.type })),
     ...selBirthdays.map(name => ({ isBirthday: true, isAllDay: true, subject: `${name}'s Birthday` })),
     ...(byDay[selected] || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || '')),
   ];
@@ -806,7 +819,7 @@ export function CalendarPanel() {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, height: '100%' }}>
           {/* Left pane: the month grid. Fixed width - only the agenda pane
               should grow when the widget is resized wider. */}
-          <div style={{ flex: '0 0 220px', minWidth: 210 }}>
+          <div style={isMobile ? { flex: '1 1 100%', width: '100%' } : { flex: '0 0 220px', minWidth: 210 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center', marginBottom: 4 }}>
               {MONTH_WEEKDAYS.map((w, i) => (
                 <div key={i} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '2px 0' }}>{w}</div>
@@ -852,7 +865,9 @@ export function CalendarPanel() {
           {/* Right pane: My Agenda, for whichever day is selected in the grid -
               same `state.events` fetch, just filtered to `selected`, so it can
               never disagree with the dots on the left. */}
-          <div style={{ flex: '1 1 240px', minWidth: 220, borderLeft: '1px solid var(--line)', paddingLeft: 18, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div style={isMobile
+            ? { flex: '1 1 100%', width: '100%', marginTop: 10, display: 'flex', flexDirection: 'column', minHeight: 0 }
+            : { flex: '1 1 240px', minWidth: 220, borderLeft: '1px solid var(--line)', paddingLeft: 18, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', padding: '0 2px 8px' }}>
               My Agenda
             </div>
@@ -870,6 +885,9 @@ export function CalendarPanel() {
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="task-title" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.subject}</div>
+                      {ev.isHoliday && (
+                        <div className="task-dept">Company Holiday ({HOLIDAY_TYPE_LABEL[ev.holidayType] || 'Mandatory'})</div>
+                      )}
                       {(ev.location || ev.joinUrl) && (
                         <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {ev.joinUrl ? (

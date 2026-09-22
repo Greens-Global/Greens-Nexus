@@ -69,10 +69,10 @@ def _clean_service_area(value: str) -> str:
 class ExternalLinkCreate(BaseModel):
     name: str
     url: str
-    categories: list[str] = []  # at least one required - validated below, not by Pydantic, so the 422 detail can be specific
+    categories: list[str] = []  # optional (Sep 22, Pranshu: "I don't want that" mandatory)
     description: str = ""
     departments: list[str] = []  # [] = shown to every department (company-wide)
-    company: str = ""         # "" = shown to every company; else an HrEntity.id
+    companies: list[str] = []  # [] = shown to every company; else HrEntity.id(s) - a link can apply to several (Sep 22, Neil)
     icon: str = "Link2"       # lucide-react icon key, resolved client-side
     is_pinned: bool = False
     service_area: str = ""    # SERVICE_AREA_KEYS; "" reads as "general" at intake
@@ -84,7 +84,7 @@ class ExternalLinkUpdate(BaseModel):
     categories: Optional[list[str]] = None
     description: Optional[str] = None
     departments: Optional[list[str]] = None
-    company: Optional[str] = None
+    companies: Optional[list[str]] = None
     icon: Optional[str] = None
     is_pinned: Optional[bool] = None
     service_area: Optional[str] = None
@@ -127,7 +127,8 @@ def _now() -> str:
 
 
 def _audit(db: Session, user: dict, action: str, link: "models.ExternalLink", extra: dict | None = None):
-    details = {"name": link.name, "url": link.url, "categories": link.categories, "departments": link.departments}
+    details = {"name": link.name, "url": link.url, "categories": link.categories, "departments": link.departments,
+               "companies": link.companies}
     if extra:
         details.update(extra)
     db.add(models.AuditLog(
@@ -444,21 +445,24 @@ def create_external_link(link: ExternalLinkCreate, user: dict = Depends(require_
     )
     if existing:
         raise HTTPException(status_code=409, detail=f'This link is already added as "{existing.name}".')
+    # Category is no longer required (Sep 22, Pranshu: "I see the category
+    # field as mandatory field. I don't want that") - an uncategorized link
+    # just won't appear under any category filter, same as a link with no
+    # department shows for every department.
     categories = _clean_list(link.categories)
-    if not categories:
-        raise HTTPException(status_code=422, detail="Pick at least one category.")
     departments = _clean_list(link.departments)
+    companies = _clean_list(link.companies)
     now = _now()
-    data = link.model_dump(exclude={"categories", "departments", "service_area"})
+    data = link.model_dump(exclude={"categories", "departments", "companies", "service_area"})
     data["service_area"] = _clean_service_area(link.service_area)
     db_link = models.ExternalLink(
-        **data, categories=categories, departments=departments,
+        **data, categories=categories, departments=departments, companies=companies,
         # Legacy singular columns kept in sync on write, best-effort, purely
         # so nothing that still reads them (there's nothing left in this
-        # codebase that does, but the columns are NOT NULL on `category`)
-        # sees a stale/empty value - first pick wins, same as any "primary"
-        # tag would.
-        category=categories[0], department=departments[0] if departments else "",
+        # codebase that does, but `category`/`company` are NOT NULL) sees a
+        # stale/empty value - first pick wins, same as any "primary" tag would.
+        category=categories[0] if categories else "", department=departments[0] if departments else "",
+        company=companies[0] if companies else "",
         created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(db_link)
@@ -491,11 +495,11 @@ def update_external_link(link_id: int, patch: ExternalLinkUpdate, user: dict = D
         raise HTTPException(status_code=404, detail="Link not found")
     changes = patch.model_dump(exclude_unset=True)
     if "categories" in changes:
-        changes["categories"] = _clean_list(changes["categories"])
-        if not changes["categories"]:
-            raise HTTPException(status_code=422, detail="Pick at least one category.")
+        changes["categories"] = _clean_list(changes["categories"])   # optional - see create_external_link
     if "departments" in changes:
         changes["departments"] = _clean_list(changes["departments"])
+    if "companies" in changes:
+        changes["companies"] = _clean_list(changes["companies"])
     if "service_area" in changes:
         changes["service_area"] = _clean_service_area(changes["service_area"])
     for field, value in changes.items():
@@ -503,9 +507,11 @@ def update_external_link(link_id: int, patch: ExternalLinkUpdate, user: dict = D
     # Legacy singular columns kept in sync - see create_external_link's
     # comment for why.
     if "categories" in changes:
-        db_link.category = changes["categories"][0]
+        db_link.category = changes["categories"][0] if changes["categories"] else ""
     if "departments" in changes:
         db_link.department = changes["departments"][0] if changes["departments"] else ""
+    if "companies" in changes:
+        db_link.company = changes["companies"][0] if changes["companies"] else ""
     db_link.updated_at = _now()
     _audit(db, user, "Updated external link", db_link, {"changed_fields": list(changes.keys())})
     db.commit()
@@ -838,10 +844,11 @@ def import_external_links(payload: ImportRequest, user: dict = Depends(require_l
             url = f"https://{url}"
         categories = _clean_list(row.categories) or ["Imported"]
         departments = _clean_list(row.departments)
+        company_id = company_by_name.get(row.company.strip().lower(), "")
         db_link = models.ExternalLink(
             name=name, url=url, category=categories[0], description=row.description.strip(),
             department=departments[0] if departments else "", categories=categories, departments=departments,
-            company=company_by_name.get(row.company.strip().lower(), ""),
+            company=company_id, companies=[company_id] if company_id else [],
             icon=row.icon or "Link2", is_pinned=row.is_pinned,
             created_by=user["email"], created_at=now, updated_at=now,
         )

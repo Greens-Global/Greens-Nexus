@@ -1,4 +1,5 @@
 import { supabase } from '../../lib/supabase';
+import { toViewUrl } from '../../lib/storageView';
 
 // Single storage bucket for all Investor Relations files (subscription docs,
 // K-1s, PPMs, notices). Paths namespace the content, e.g. commitments/<fundId>/…
@@ -32,5 +33,5 @@ export async function uploadToSupabase(file, bucket, path, allowedTypes = DEFAUL
   const { data: uploaded, error } = await supabase.storage.from(bucket).upload(path, file, { contentType: file.type, upsert: false, cacheControl: '31536000' });
   if (error || !uploaded) return { url: '', error: error?.message || 'Upload failed' };
   const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(uploaded.path);
-  return { url: urlData.publicUrl, error: null };
+  return { url: toViewUrl(urlData.publicUrl), error: null };
 }

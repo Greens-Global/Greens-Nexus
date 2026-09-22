@@ -347,7 +347,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     if (prevWeek && wk !== prevWeek) rows.push({ type: 'wk', week: prevWeek });
     prevWeek = wk;
     const segs = d?.segments || [];
-    if (!segs.length) rows.push({ type: 'day', ds, seg: null });
+    if (!segs.length) {
+      rows.push({ type: 'day', ds, seg: null });
+      // A company holiday this employee didn't work (see _company_holidays_for_employee):
+      // hourly pay has no "missed day" deduction to exempt, so it's credited a paid
+      // day instead of just paying $0 for the day.
+      if (d?.isHoliday) rows.push({ type: 'holiday', ds, name: d.holidayName, pay: d.holidayPay, holidayType: d.holidayType });
+    }
     else {
       segs.forEach((seg, i) => rows.push({ type: 'day', ds, seg, first: i === 0, last: i === segs.length - 1 }));
       // Break punch pairs under their day (Charmi, Aug 21: "are we getting
@@ -365,6 +371,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       // notes + punch notes, visible in the card (not only on the hover Info dot).
       // Internal markers like "payroll edit" are filtered out (segReasons).
       const notes = segs.flatMap(segReasons);
+      // Worked a half-day holiday: the OTHER half is credited on top of the
+      // punches above, not instead of them (Pranshu, Sep 22 - "half from
+      // holiday and half they worked").
+      if (d?.holidayPay) rows.push({ type: 'holiday', ds, name: d.holidayName, pay: d.holidayPay, holidayType: d.holidayType, worked: true });
       if (notes.length) rows.push({ type: 'note', text: notes.join('  ·  ') });
     }
   });
@@ -622,6 +632,23 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours and blocks sign-off; {self ? 'tap the Out time to propose the real end of your shift.' : 'set the real Out time to release it for pay.'}
                   </td>
                 </tr>
+              ) : r.type === 'holiday' ? (
+                <tr key={i} style={{ background: 'rgba(37,99,235,0.06)' }}>
+                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <span>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(37,99,235,0.12)', color: '#2563eb', marginRight: 6 }}>{r.holidayType === 'half_day' ? 'Half-day holiday' : 'Holiday'}</span>
+                        {r.name || 'Company holiday'}{r.worked
+                          ? <> - worked the half day, plus {fmtM(r.pay)} credited for the other half.</>
+                          : <> - not worked, paid {fmtM(r.pay)}{r.holidayType === 'half_day' ? ' (half day)' : ''}.</>}
+                      </span>
+                      {/* The pay figure under its own text was easy to miss (Pranshu,
+                          Sep 22) - repeat it where the Wage column reads for every
+                          other row, so it scans the same way. */}
+                      <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{fmtM(r.pay)}</span>
+                    </div>
+                  </td>
+                </tr>
               ) : r.type === 'note' ? (
                 <tr key={i}>
                   <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
@@ -656,7 +683,15 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                             style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>) : '-'}
                   </td>
                   <td style={{ ...td, color: r.seg?.deductedMin ? '#b45309' : 'var(--muted)' }}>{r.seg?.deductedMin ? `−${r.seg.deductedMin}m` : '-'}</td>
-                  <td style={{ ...td, textAlign: 'left', color: r.seg?.category ? 'var(--ink)' : 'var(--muted)' }}>{r.seg?.category || '-'}</td>
+                  <td style={{ ...td, textAlign: 'left', color: r.seg?.category ? 'var(--ink)' : 'var(--muted)' }}>
+                    {r.seg?.category || '-'}
+                    {r.seg?.payClass && (
+                      <span title={`${r.seg.payClass === 'sick' ? 'Sick' : 'Vacation'} hours - paid at the base rate, not counted toward overtime`}
+                        style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', padding: '2px 7px', borderRadius: 6 }}>
+                        {r.seg.payClass}
+                      </span>
+                    )}
+                  </td>
                   <td style={td}>{r.seg ? hhmm(r.seg.workedMin) : '-'}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg && byDate[r.ds]
                     ? (r.last ? hhmm(byDate[r.ds].workedMin) : '↓')
@@ -704,8 +739,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td colSpan={3} style={{ ...td, textAlign: 'left' }}>Totals</td>
                   <td style={{ ...td, color: T.deductedMin ? '#b45309' : 'var(--muted)' }}>{T.deductedMin ? `−${T.deductedMin}m` : '-'}</td>
                   <td style={td}></td>
-                  <td style={td}>{hhmm(T.regMin + T.otMin + (T.dtMin || 0))}</td>
-                  <td style={td}>{hhmm(T.regMin + T.otMin + (T.dtMin || 0))}</td>
+                  <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
+                  <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
                   <td style={td}></td>
                   <td style={td}>{hhmm(T.regMin)}</td>
                   <td style={td}>{hhmm(T.otMin)}</td>
@@ -734,7 +769,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 [`Total Regular hours at ${fmtM(rate)}/hr`, hd(T.regMin), fmtM(T.regPay)],
                 [`Total Overtime hours at ${fmtM(rate * 1.5)}/hr`, hd(T.otMin), fmtM(T.otPay)],
                 ...(T.dtMin ? [[`Total Double-time hours at ${fmtM(rate * 2)}/hr`, hd(T.dtMin), fmtM(T.dtPay)]] : []),
-                ['Totals', hd(T.regMin + T.otMin + (T.dtMin || 0)), fmtM(T.totalPay)],
+                // Paid leave entered on the card as a Sick / Vacation category punch -
+                // its own line at the base rate, like SwipeClock (Charmi, Sep 21).
+                ...(T.sickMin ? [[`Total Sick hours at ${fmtM(rate)}/hr`, hd(T.sickMin), fmtM(T.sickPay)]] : []),
+                ...(T.vacationMin ? [[`Total Vacation hours at ${fmtM(rate)}/hr`, hd(T.vacationMin), fmtM(T.vacationPay)]] : []),
+                ...(T.holidayDays ? [[`Company holiday${T.holidayDays === 1 ? '' : 's'} (${T.holidayDays} day${T.holidayDays === 1 ? '' : 's'}, not worked)`, '-', fmtM(T.holidayPay)]] : []),
+                ['Totals', hd(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0))), fmtM(T.totalPay)],
               ];
               const last = rows.length - 1;
               return rows.map(([lbl, hrs, amt], i) => (
@@ -789,7 +829,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             {!self && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="secondary-btn" onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportCsv(start, end, 'punches'); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
-              <button className="secondary-btn" title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time payroll items must match QuickBooks."
+              <button className="secondary-btn" title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time/Sick/Vacation payroll items must match QuickBooks."
                 onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportIif(perStart, perEnd); }}
                 style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
               <button className={mgrAp ? 'secondary-btn' : 'primary-btn'} data-tour="pr-approve" onClick={approve} disabled={busy || !!fin}
@@ -833,7 +873,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
 
       {editDay && (
         <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
-          categories={(data?.byCategory || []).map(c => c.category).filter(c => c && c !== 'Uncategorised')}
+          categories={[...new Set(['Sick Day', 'Vacation', ...(data?.byCategory || []).map(c => c.category).filter(c => c && c !== 'Uncategorised')])]}
           onDone={() => { setEditDay(null); load(); }} onClose={() => setEditDay(null)}
           toastOk={toastOk} toastErr={toastErr} self={self} />
       )}
@@ -901,6 +941,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
     late: { label: 'Late', bg: 'rgba(217,119,6,0.15)', fg: '#c2410c' },   // shift start passed, not clocked in yet (today only, no deduction)
     half: { label: 'Half day', bg: 'rgba(180,83,9,0.12)', fg: '#b45309' },
     absent: { label: 'Absent', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
+    holiday: { label: 'Holiday', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },   // company holiday on the employee's own calendar - never deducted
+    holiday_half: { label: 'Half-day holiday', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },   // didn't work at all - half a day's pay
+    holiday_half_worked: { label: 'Half-day holiday', bg: 'hsla(var(--color-green),0.12)', fg: 'hsl(var(--color-green))' },   // worked their half - full pay, no deduction
     weekend: { label: 'Weekend', bg: 'var(--mist)', fg: 'var(--muted)' },
     weekend_worked: { label: 'Weekend OT', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' },
     upcoming: { label: 'Upcoming', bg: 'transparent', fg: 'var(--muted)' },
@@ -1029,7 +1072,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 : (self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
                     : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : 'Add the missing clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>;
               const addBtn = <button onClick={() => setEditDay({ date: fd.date, seg: null })} title={self ? 'Add a missing punch for this day - goes to your approver' : 'Add a punch for this day'} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.85 }}>+ add</button>;
-              const statusPill = <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>;
+              const statusPill = <span title={fd.holidayName || undefined} style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>;
               const breakCell = (
                 <td style={{ ...td, textAlign: 'right' }}>
                   {dayBreak > 0
@@ -1573,6 +1616,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
               <input list="pr-cats" className="form-input" value={cat} onChange={e => setCat(e.target.value)}
                 placeholder="e.g. Operations-GS" style={{ width: '100%', fontSize: 13 }} />
               <datalist id="pr-cats">{categories.map(c => <option key={c} value={c} />)}</datalist>
+              <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>"Sick Day" or "Vacation" makes this block paid leave - base rate, not counted toward overtime.</span>
             </label>
           )}
         </div>

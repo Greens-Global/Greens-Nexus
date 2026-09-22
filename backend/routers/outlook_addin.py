@@ -23,14 +23,30 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import get_addin_user
-from routers.myhr import _me, _render_signature
+from models import HrEntity
+from routers.myhr import _me, _render_signature, recipient_scope_ok
 
 router = APIRouter(prefix="/outlook-addin", tags=["Outlook Add-in"])
 
 
 @router.get("/signature")
-def addin_signature(user: dict = Depends(get_addin_user), db: Session = Depends(get_db)):
+def addin_signature(recipients: str = "", user: dict = Depends(get_addin_user),
+                     db: Session = Depends(get_db)):
     """HTML only - the add-in just inserts it into the compose body via
-    Office.js's setSignatureAsync, no other fields needed."""
+    Office.js's setSignatureAsync, no other fields needed.
+
+    `recipients` (comma-separated To+Cc addresses, Sep 22) drives the
+    company's recipient-scope setting: empty html here means "suppress the
+    signature", not "nothing to insert yet" - the add-in must call
+    setSignatureAsync("") in that case to actively clear a previously
+    inserted signature (e.g. all recipients just became internal-only on an
+    external-only company). Called twice per email: once at compose-open
+    (recipients may still be empty on a brand-new message) and once more at
+    OnMessageSend with the final list, which is what has to be right."""
     e = _me(db, user["email"])
+    company = db.query(HrEntity).filter(HrEntity.id == e.company).first() if e.company else None
+    scope = (company.signature_recipient_scope if company else "") or "all"
+    to_list = [r.strip().lower() for r in recipients.split(",") if r.strip()]
+    if not recipient_scope_ok(scope, company, to_list):
+        return {"html": ""}
     return {"html": _render_signature(e, db)["html"]}

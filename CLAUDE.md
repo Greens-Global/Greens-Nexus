@@ -77,6 +77,24 @@ keep the diff minimal.
   table without it is fully exposed to anyone holding that key. Run
   `get_advisors` after every release — this gap recurs.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
+- **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
+  `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,
+  `ir-documents` have `public = false` on dev and prod (`document-images`
+  stays public: e-sign signers load it with no login). The database still stores the canonical
+  `.../object/public/<bucket>/<path>` URL; browsers open it only through
+  `GET /files/view?u=<url>` (`routers/files.py`, signed-URL redirect, login
+  required). `api.js` rewrites those URLs to the viewer on every response and
+  back to canonical on every JSON request, so screens never see the
+  difference - do not build a second path, and never make a new evidence
+  bucket public. A new protected bucket goes in BOTH `PROTECTED_BUCKETS` lists
+  (`routers/files.py`, `frontend/src/lib/storageView.js`) and gets
+  `update storage.buckets set public = false` on dev and prod.
+- **Rate limiting** (`RequestRateLimit` in `middleware_hardening.py`, Sep 22):
+  per-minute budgets keyed on the session/bearer for signed-in callers, per IP
+  for anonymous ones, tighter on credential-taking routes, plus a per-IP
+  ceiling. In-process per worker, so it is a flood backstop. `/health` and
+  `/version` are exempt; a new public probe endpoint goes in `EXEMPT_PREFIXES`
+  and a new credential-taking route in `SENSITIVE_PREFIXES`.
 
 ## Frontend conventions
 
@@ -119,6 +137,23 @@ keep the diff minimal.
 - Every image-upload widget must accept Ctrl+V clipboard paste (see
   `imageFromPaste` in `InventoryManagement.jsx` / `filesFromPaste` in
   `tasks/lib.js` for the pattern) with an "or press Ctrl+V…" hint.
+- Time Clock paid leave: a punch pair whose job category says Sick / Vacation
+  (matched by `_leave_class` in `timeclock.py`: "Sick Day", "PTO", "Annual
+  Leave"...) is its own pay class - separate "Total Sick hours" / "Total
+  Vacation hours" line at the base rate, excluded from the overtime split,
+  still counted in `workedMin` (the attested total) - SwipeClock parity
+  (Charmi, Sep 21). No separate leave-hours table; approved time-off
+  requests are NOT auto-punched.
+
+- Accounting dashboard (Sep 22): the Accounting view's Overview / Cash /
+  Performance / Close / Data tabs are the Nexus face of the finance dashboard
+  in Nexus Accounting. Figures come ONLY through `backend/routers/
+  accounting_dashboard.py` -> the accounting app's `/api/internal/dashboard`
+  (internal key), never the accounting database. The calculation modules in
+  `frontend/src/accounting/dashboard/model/` are compiled from the accounting
+  repo's `src/lib/finance/dashboard/*.ts` - change them THERE, then re-emit
+  with tsc (see the accounting repo's CLAUDE.md), never edit the .js by hand.
+  Writes carry the caller's name; each tab shows one section at a time.
 
 ## Asana sync — the contract (`backend/asana_sync.py`)
 

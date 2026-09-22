@@ -250,6 +250,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     if body.first_name is not None and not body.first_name.strip():
         raise HTTPException(400, "first_name cannot be empty")
     fields = body.model_dump(exclude_unset=True)
+    changes: dict = {}
     for key, value in fields.items():
         if value is None:
             continue
@@ -257,10 +258,34 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
             value = value.strip().lower()
         elif isinstance(value, str) and key != "notes":
             value = value.strip()
+        before = getattr(row, key, None)
+        if before != value:
+            changes[key] = (before, value)
         setattr(row, key, value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     db.refresh(row)
+    # Field-level audit (Sep 22, 2026). The request-level audit row only says
+    # "Updated an employee profile" - when Amy Bolanos's manager silently became
+    # someone else, the log could name who saved her record on which day but not
+    # WHAT changed, and the question went to the whole team. Record old -> new
+    # per field, with pay/identity values masked so the log itself never leaks.
+    if changes:
+        try:
+            import json as _json
+            from models import AuditLog
+            _mask = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation", "account")
+            shown = {k: ("(changed)" if any(m in k.lower() for m in _mask)
+                         else [None if v[0] is None else str(v[0])[:120], None if v[1] is None else str(v[1])[:120]])
+                     for k, v in changes.items()}
+            db.add(AuditLog(timestamp=datetime.now(timezone.utc).isoformat(), user_email=user["email"],
+                            user_role=str(user.get("role") or ""), action="Changed employee fields",
+                            resource_type="employee", resource_id=row.id,
+                            details=_json.dumps({"employee": row.work_email, "changes": shown})[:4000]))
+            db.commit()
+        except Exception as e:   # the audit row must never fail the save
+            db.rollback()
+            print(f"[hr] field audit skipped: {e}")
     out = _serialize(row)
     # Nexus is the source of truth for profile edits - mirror them onto the
     # linked Entra account automatically (best-effort: a Graph hiccup must never
@@ -1903,7 +1928,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
 # ---------------------------------------------------------------------------
 # HR Section A - Companies/Entities + Work Sites (structural foundation)
 # ---------------------------------------------------------------------------
-from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday, HrManualSignature
+from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday, HrHolidayPolicy, HrManualSignature
 
 
 class EntityIn(BaseModel):
@@ -1911,19 +1936,22 @@ class EntityIn(BaseModel):
     legal_name:         Optional[str] = ""
     country:            Optional[str] = ""
     tax_id:             Optional[str] = ""
-    registered_address: Optional[str] = ""
+    registered_address: Optional[str] = ""   # legacy - the form now writes physical_address instead
+    physical_address:   Optional[str] = ""
+    mailing_address:    Optional[str] = ""
     signatory:          Optional[str] = ""
     logo_url:           Optional[str] = ""
     website:            Optional[str] = ""
     main_phone:         Optional[str] = ""
-    main_phone_type:    Optional[str] = "phone"   # "phone" | "fax" | "telephone"
+    main_phone_type:    Optional[str] = "phone"   # "phone" is the only one the UI offers now; "fax"/"telephone" only exist on rows from before Sep 22
     facebook_url:       Optional[str] = ""
     linkedin_url:       Optional[str] = ""
     twitter_url:        Optional[str] = ""
     instagram_url:      Optional[str] = ""
     notes:              Optional[str] = ""
     domains:            Optional[str] = ""   # comma-separated email domains
-    manager_email:      Optional[str] = ""   # company manager (a Nexus person)
+    manager_email:      Optional[str] = ""   # legacy mirror - kept for callers still reading the single field
+    manager_emails:     Optional[list] = None   # company manager(s) (Nexus people) - source of truth
 
 
 class EntityUpdate(BaseModel):
@@ -1932,6 +1960,8 @@ class EntityUpdate(BaseModel):
     country:            Optional[str] = None
     tax_id:             Optional[str] = None
     registered_address: Optional[str] = None
+    physical_address:   Optional[str] = None
+    mailing_address:    Optional[str] = None
     signatory:          Optional[str] = None
     logo_url:           Optional[str] = None
     website:            Optional[str] = None
@@ -1942,22 +1972,45 @@ class EntityUpdate(BaseModel):
     twitter_url:        Optional[str] = None
     instagram_url:      Optional[str] = None
     signature_template: Optional[str] = None
+    signature_recipient_scope: Optional[str] = None
+    signature_sender_overrides: Optional[list] = None
     notes:              Optional[str] = None
     domains:            Optional[str] = None
     manager_email:      Optional[str] = None
+    manager_emails:     Optional[list] = None
+
+
+def _norm_manager_emails(manager_email, manager_emails) -> tuple:
+    """Normalize whichever of manager_email/manager_emails a caller sent into
+    (mirror_email, emails_list) - manager_emails (the list) wins when both are
+    present, same primary-mirror shape as Task.assignee_email/assignee_emails."""
+    if manager_emails is not None:
+        emails = [e.strip().lower() for e in manager_emails if isinstance(e, str) and e.strip()]
+        return (emails[0] if emails else ""), emails
+    single = (manager_email or "").strip().lower()
+    return single, ([single] if single else [])
 
 
 def _serialize_entity(e: HrEntity) -> dict:
     return {
         "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
+        # physicalAddress falls back to the legacy registered_address field for a
+        # row that predates the physical/mailing split - the one-shot startup
+        # backfill already copies it across, this just covers a row written
+        # between deploy and that backfill running.
+        "physicalAddress": e.physical_address or e.registered_address or "",
+        "mailingAddress": e.mailing_address or "",
         "logoUrl": e.logo_url, "website": e.website or "", "mainPhone": e.main_phone or "",
         "mainPhoneType": e.main_phone_type or "phone",
         "facebookUrl": e.facebook_url or "", "linkedinUrl": e.linkedin_url or "",
         "twitterUrl": e.twitter_url or "", "instagramUrl": e.instagram_url or "",
         "signatureTemplate": e.signature_template or "classic",
+        "signatureRecipientScope": e.signature_recipient_scope or "all",
+        "signatureSenderOverrides": e.signature_sender_overrides or [],
         "notes": e.notes, "domains": e.domains or "",
         "managerEmail": e.manager_email or "",
+        "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
         "createdAt": e.created_at, "updatedAt": e.updated_at,
     }
 
@@ -1978,10 +2031,13 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
     if not body.name.strip():
         raise HTTPException(400, "name is required")
     now = datetime.now(timezone.utc).isoformat()
+    mgr_email, mgr_emails = _norm_manager_emails(body.manager_email, body.manager_emails)
     row = HrEntity(
         id=str(uuid.uuid4()), name=body.name.strip(), legal_name=(body.legal_name or "").strip(),
         country=(body.country or "").strip(), tax_id=(body.tax_id or "").strip(),
-        registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
+        registered_address=(body.registered_address or "").strip(),
+        physical_address=(body.physical_address or "").strip(), mailing_address=(body.mailing_address or "").strip(),
+        signatory=(body.signatory or "").strip(),
         logo_url=(body.logo_url or "").strip(), website=(body.website or "").strip(),
         main_phone=(body.main_phone or "").strip(),
         main_phone_type=(body.main_phone_type or "phone").strip() or "phone",
@@ -1989,7 +2045,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         twitter_url=(body.twitter_url or "").strip(), instagram_url=(body.instagram_url or "").strip(),
         notes=body.notes or "",
         domains=_norm_domains(body.domains or ""),
-        manager_email=(body.manager_email or "").strip().lower(),
+        manager_email=mgr_email, manager_emails=mgr_emails,
         created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
@@ -2019,13 +2075,59 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
         from routers.myhr import SIGNATURE_TEMPLATES
         if body.signature_template not in SIGNATURE_TEMPLATES:
             raise HTTPException(400, "Unknown signature template")
-    for key, value in body.model_dump(exclude_unset=True).items():
-        if value is None:
+    if body.signature_recipient_scope is not None:
+        from routers.myhr import SIGNATURE_RECIPIENT_SCOPES
+        if body.signature_recipient_scope not in SIGNATURE_RECIPIENT_SCOPES:
+            raise HTTPException(400, "Unknown signature recipient scope")
+    if body.signature_sender_overrides is not None:
+        from routers.myhr import SIGNATURE_TEMPLATES, _OVERRIDE_FIELD_KEYS
+        cleaned = []
+        for grp in body.signature_sender_overrides:
+            if not isinstance(grp, dict):
+                continue
+            tmpl = grp.get("template")
+            if tmpl not in SIGNATURE_TEMPLATES:
+                raise HTTPException(400, "Unknown signature template in sender override")
+            # Free-typed (Sep 22, Pranshu: "admin should have the control to
+            # type down the email id") - not restricted to Nexus employees,
+            # since this is exactly how a shared mailbox with no HR record
+            # gets covered. Only a bare "contains @" sanity check, no
+            # directory lookup.
+            emails = sorted({str(x).strip().lower() for x in (grp.get("emails") or []) if "@" in str(x).strip()})
+            if not emails:
+                continue
+            raw_fields = grp.get("fields") or {}
+            fields = {k: str(raw_fields.get(k) or "").strip()[:300] for k in _OVERRIDE_FIELD_KEYS}
+            custom_fields = _clean_custom_fields(grp.get("customFields"))
+            # Whatever order the admin last dragged into - only ever read
+            # back key-by-key (myhr._ordered_row_values skips anything
+            # unrecognized), so no validation needed beyond "is a list".
+            field_order = [str(k) for k in (grp.get("fieldOrder") or []) if isinstance(k, str)]
+            cleaned.append({
+                "id": str(grp.get("id") or uuid.uuid4()),
+                "label": str(grp.get("label") or "").strip()[:80],
+                "emails": emails,
+                "template": tmpl,
+                "fields": fields,
+                "customFields": custom_fields,
+                "fieldOrder": field_order,
+            })
+        body.signature_sender_overrides = cleaned
+    fields = body.model_dump(exclude_unset=True)
+    # manager_emails (the list) is the source of truth whenever the request sends
+    # it - skip the plain manager_email key entirely so processing order can't
+    # make a stale single value win over it (matches _norm_manager_emails).
+    has_manager_emails = "manager_emails" in fields and fields["manager_emails"] is not None
+    for key, value in fields.items():
+        if value is None or (key == "manager_email" and has_manager_emails):
             continue
         if key == "domains":
             value = _norm_domains(value)
         elif key == "manager_email":
             value = value.strip().lower()
+        elif key == "manager_emails":
+            mgr_email, value = _norm_manager_emails(None, value)
+            row.manager_email = mgr_email
         setattr(row, {"legal_name": "legal_name", "tax_id": "tax_id", "registered_address": "registered_address"}.get(key, key),
                 value.strip() if isinstance(value, str) and key != "notes" else value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
@@ -2121,11 +2223,49 @@ def entity_signature_templates(entity_id: str,
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Entity not found")
-    from routers.myhr import admin_preview_templates
+    from routers.myhr import admin_preview_templates, _render_override_signature
+    overrides = row.signature_sender_overrides or []
     return {
         "templates": admin_preview_templates(row),
         "template": row.signature_template or "classic",
+        "recipientScope": row.signature_recipient_scope or "all",
+        # previewHtml is the SAVED state, re-rendered on every load (Sep 22) -
+        # not live while the admin is still typing in the modal, that's what
+        # /signature-sender-overrides/preview below is for.
+        "senderOverrides": [{**grp, "previewHtml": _render_override_signature(grp)["html"]} for grp in overrides],
     }
+
+
+class SenderOverridePreviewIn(BaseModel):
+    template: str = "classic"
+    fields: Optional[dict] = None
+    custom_fields: Optional[list] = None
+    field_order: Optional[list] = None
+
+
+@router.post("/entities/{entity_id}/signature-sender-overrides/preview")
+def preview_sender_override(entity_id: str, body: SenderOverridePreviewIn,
+                            user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Live preview while the admin is still editing an override in the
+    modal - nothing here is persisted. Reuses the exact same render path a
+    real send would take (myhr._render_override_signature), so what's shown
+    here is guaranteed to match what actually goes out."""
+    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Entity not found")
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Entity not found")
+    from routers.myhr import SIGNATURE_TEMPLATES, _render_override_signature, _OVERRIDE_FIELD_KEYS
+    tmpl = body.template if body.template in SIGNATURE_TEMPLATES else "classic"
+    raw_fields = body.fields or {}
+    grp = {
+        "template": tmpl,
+        "fields": {k: str(raw_fields.get(k) or "") for k in _OVERRIDE_FIELD_KEYS},
+        "customFields": _clean_custom_fields(body.custom_fields),
+        "fieldOrder": [str(k) for k in (body.field_order or []) if isinstance(k, str)],
+    }
+    return _render_override_signature(grp)
 
 
 # ── Manual (non-directory) signatures - a hand-filled signature for a sender
@@ -2260,6 +2400,33 @@ async def upload_manual_signature_logo(entity_id: str, sig_id: str, file: Upload
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit(); db.refresh(row)
     return _serialize_manual_signature(row, company)
+
+
+@router.post("/entities/{entity_id}/signature-sender-overrides/logo")
+async def upload_sender_override_logo(entity_id: str, file: UploadFile = File(...),
+                                      user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Upload-and-return-a-URL only (Sep 22, Pranshu: "should be same as we
+    upload in for normal employee") - a sender override isn't its own DB row
+    (it lives inside HrEntity.signature_sender_overrides, only written on the
+    section's whole-list Save), so unlike upload_manual_signature_logo above
+    there's no row here to attach the URL to; the frontend puts the returned
+    URL straight into the in-progress override's fields.logoUrl."""
+    _get_entity_or_404(entity_id, user, db)
+    ext = _IMAGE_TYPES.get(file.content_type or "")
+    if not ext:
+        raise HTTPException(400, "Logo must be JPEG, PNG, WebP, or GIF")
+    data = await file.read()
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise HTTPException(400, "Logo must be under 5 MB")
+    path = f"entities/{entity_id}/sender-override-logo-{uuid.uuid4()}.{ext}"
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": file.content_type, "cache-control": "max-age=31536000"},
+        content=data, timeout=60,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    return {"logoUrl": f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"}
 
 
 # ── Group manager - one person overseeing ALL companies (the escalation step
@@ -2632,18 +2799,61 @@ def _fetch_google_holidays(country: str, year: int) -> Optional[list]:
     return out
 
 
+_HOLIDAY_TYPES = ("mandatory", "optional", "half_day")
+
+
 class CompanyHolidayIn(BaseModel):
     date:         str             # YYYY-MM-DD
     name:         str
     source:       Optional[str] = "manual"   # "manual" | "public"
     country_code: Optional[str] = ""
+    type:         Optional[str] = "mandatory"   # "mandatory" | "optional" | "half_day"
+
+
+class CompanyHolidayTypeIn(BaseModel):
+    type: str
 
 
 def _serialize_holiday(h: HrCompanyHoliday) -> dict:
     return {
         "id": h.id, "date": h.date, "name": h.name, "source": h.source,
-        "countryCode": h.country_code, "createdAt": h.created_at,
+        "countryCode": h.country_code, "type": h.type or "mandatory", "createdAt": h.created_at,
     }
+
+
+def _country_codes(country_code: str) -> list:
+    return [c for c in (country_code or "").split(",") if c]
+
+
+def _create_or_merge_holiday(db: Session, entity_id: str, *, date_: str, name_: str,
+                             source_: str, code: str, type_: str, actor_email: str) -> HrCompanyHoliday:
+    """The shared "add one holiday to a company" path - used by the single-add
+    endpoint below AND by applying a policy's whole holiday list at once, so
+    the two never drift apart. Same public-holiday-merges-by-country behavior
+    either way (see create_company_holiday)."""
+    now = datetime.now(timezone.utc).isoformat()
+    source_ = source_ if source_ in ("manual", "public") else "manual"
+    type_ = type_ if type_ in _HOLIDAY_TYPES else "mandatory"
+    if source_ == "public" and code:
+        existing = (db.query(HrCompanyHoliday)
+                    .filter(HrCompanyHoliday.company_id == entity_id, HrCompanyHoliday.date == date_,
+                            HrCompanyHoliday.name == name_, HrCompanyHoliday.source == "public").first())
+        if existing:
+            codes = _country_codes(existing.country_code)
+            if code not in codes:
+                codes.append(code)
+                existing.country_code = ",".join(sorted(codes))
+                existing.updated_at = now
+                db.flush()
+            return existing
+    row = HrCompanyHoliday(
+        id=str(uuid.uuid4()), company_id=entity_id, date=date_, name=name_,
+        source=source_, country_code=code, type=type_,
+        created_by=actor_email, created_at=now, updated_at=now,
+    )
+    db.add(row)
+    db.flush()
+    return row
 
 
 @router.get("/entities/{entity_id}/holidays")
@@ -2666,19 +2876,41 @@ def create_company_holiday(entity_id: str, body: CompanyHolidayIn,
         raise HTTPException(400, "date must be YYYY-MM-DD")
     if not body.name.strip():
         raise HTTPException(400, "name is required")
-    now = datetime.now(timezone.utc).isoformat()
-    row = HrCompanyHoliday(
-        id=str(uuid.uuid4()), company_id=entity_id, date=body.date.strip(), name=body.name.strip(),
-        source=body.source if body.source in ("manual", "public") else "manual",
-        country_code=(body.country_code or "").strip().upper(),
-        created_by=user["email"], created_at=now, updated_at=now,
-    )
-    db.add(row); db.commit(); db.refresh(row)
+    # 1 date, 1 company (Pranshu, Sep 21): the SAME public holiday picked for a
+    # second country on this company's calendar merges onto the ONE existing row
+    # instead of creating a duplicate - country_code becomes a comma-separated
+    # list ("IN,US") rather than a second row. Payroll matching
+    # (_company_holidays_for_employee) checks membership in that list.
+    row = _create_or_merge_holiday(
+        db, entity_id, date_=body.date.strip(), name_=body.name.strip(),
+        source_=body.source or "manual", code=(body.country_code or "").strip().upper(),
+        type_=body.type or "mandatory", actor_email=user["email"])
+    db.commit(); db.refresh(row)
+    return _serialize_holiday(row)
+
+
+@router.patch("/entities/{entity_id}/holidays/{holiday_id}")
+def update_company_holiday_type(entity_id: str, holiday_id: str, body: CompanyHolidayTypeIn,
+                                user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Only the type (Mandatory/Optional/Half-day) is editable after creation -
+    date/name/country changes go through delete + re-add, same as before."""
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    if body.type not in _HOLIDAY_TYPES:
+        raise HTTPException(400, f"type must be one of {', '.join(_HOLIDAY_TYPES)}")
+    row = db.query(HrCompanyHoliday).filter(HrCompanyHoliday.id == holiday_id,
+                                             HrCompanyHoliday.company_id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Holiday not found")
+    row.type = body.type
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
     return _serialize_holiday(row)
 
 
 @router.delete("/entities/{entity_id}/holidays/{holiday_id}")
-def delete_company_holiday(entity_id: str, holiday_id: str,
+def delete_company_holiday(entity_id: str, holiday_id: str, country_code: Optional[str] = None,
                            user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
@@ -2686,8 +2918,143 @@ def delete_company_holiday(entity_id: str, holiday_id: str,
     row = db.query(HrCompanyHoliday).filter(HrCompanyHoliday.id == holiday_id,
                                              HrCompanyHoliday.company_id == entity_id).first()
     if row:
+        # Dropping just ONE country off a merged multi-country row ("IN,US" ->
+        # "US") keeps the row; the row is only removed once its last country
+        # goes, or when no specific country was given (the trash icon - remove
+        # the whole date+company entry).
+        codes = _country_codes(row.country_code)
+        cc = (country_code or "").strip().upper()
+        if cc and cc in codes and len(codes) > 1:
+            codes.remove(cc)
+            row.country_code = ",".join(sorted(codes))
+            row.updated_at = datetime.now(timezone.utc).isoformat()
+            db.commit()
+            return _serialize_holiday(row)
         db.delete(row); db.commit()
     return {"ok": True}
+
+
+# ── Holiday Policy library (Sep 22, Neil call: "think that you're making a
+# policy library... you can pull that policy into any other company") - a
+# GLOBAL, named, reusable set of holidays. Not scoped to one company: any
+# admin who can write HR can create/apply/edit one. Applying copies the
+# policy's holidays into the target company's own hr_company_holidays rows
+# (through the same _create_or_merge_holiday path a manual add uses) - a
+# policy is a template you stamp out, not a live link, so editing it later
+# doesn't retroactively change a company that already applied it. ──────────
+
+class HolidayPolicyHolidayIn(BaseModel):
+    date:         str
+    name:         str
+    source:       Optional[str] = "manual"
+    country_code: Optional[str] = ""
+    type:         Optional[str] = "mandatory"
+
+
+class HolidayPolicyIn(BaseModel):
+    name:       str
+    holidays:   list[HolidayPolicyHolidayIn] = []
+    company_id: Optional[str] = ""   # required on create; ignored on update - ownership isn't transferable via edit
+
+
+def _serialize_policy(p: HrHolidayPolicy) -> dict:
+    return {
+        "id": p.id, "name": p.name, "companyId": p.company_id or "", "holidays": p.holidays or [],
+        "createdAt": p.created_at, "updatedAt": p.updated_at,
+    }
+
+
+def _require_policy_owner(user: dict, db: Session, policy: HrHolidayPolicy) -> None:
+    """Applying a policy is open to every company - that's the whole point of a
+    shared library. Editing/deleting one is scoped to the company that created
+    it (Pranshu, Sep 22: "should be only editable by the company by which it
+    was created"), the same way hr_scope narrows every other HR-admin surface -
+    an unrestricted admin can still touch any policy, a scoped one only their
+    own company's."""
+    scope = hr_scope(user, db)
+    if scope is not None and (policy.company_id or "") not in scope:
+        raise HTTPException(403, "Only the company that created this policy can edit or delete it")
+
+
+@router.get("/holiday-policies")
+def list_holiday_policies(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    rows = db.query(HrHolidayPolicy).order_by(HrHolidayPolicy.name).all()
+    return [_serialize_policy(p) for p in rows]
+
+
+@router.post("/holiday-policies")
+def create_holiday_policy(body: HolidayPolicyIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    company_id = (body.company_id or "").strip()
+    if not company_id:
+        raise HTTPException(400, "company_id is required")
+    scope = hr_scope(user, db)
+    if scope is not None and company_id not in scope:
+        raise HTTPException(404, "Company not found")
+    now = datetime.now(timezone.utc).isoformat()
+    row = HrHolidayPolicy(
+        id=str(uuid.uuid4()), name=body.name.strip(), company_id=company_id,
+        holidays=[h.model_dump() for h in body.holidays],
+        created_by=user["email"], created_at=now, updated_at=now,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _serialize_policy(row)
+
+
+@router.patch("/holiday-policies/{policy_id}")
+def update_holiday_policy(policy_id: str, body: HolidayPolicyIn,
+                          user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Re-saves the whole holiday list, same as create - the frontend reopens
+    the same picker UI pre-filled with the policy's current holidays (Neil:
+    "the edit comes back into this type of a UI... loads it all again"),
+    checks the public-holiday source fresh, and PATCHes the full result back."""
+    row = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
+    if not row:
+        raise HTTPException(404, "Policy not found")
+    _require_policy_owner(user, db, row)
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    row.name = body.name.strip()
+    row.holidays = [h.model_dump() for h in body.holidays]
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_policy(row)
+
+
+@router.delete("/holiday-policies/{policy_id}")
+def delete_holiday_policy(policy_id: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
+    if row:
+        _require_policy_owner(user, db, row)
+        db.delete(row); db.commit()
+    return {"ok": True}
+
+
+@router.post("/entities/{entity_id}/holidays/apply-policy/{policy_id}")
+def apply_holiday_policy(entity_id: str, policy_id: str,
+                         user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    policy = db.query(HrHolidayPolicy).filter(HrHolidayPolicy.id == policy_id).first()
+    if not policy:
+        raise HTTPException(404, "Policy not found")
+    applied = 0
+    for h in (policy.holidays or []):
+        date_ = (h.get("date") or "").strip()
+        name_ = (h.get("name") or "").strip()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_) or not name_:
+            continue   # a malformed row in a hand-edited policy shouldn't 500 the whole apply
+        _create_or_merge_holiday(
+            db, entity_id, date_=date_, name_=name_,
+            source_=h.get("source") or "manual", code=(h.get("country_code") or "").strip().upper(),
+            type_=h.get("type") or "mandatory", actor_email=user["email"])
+        applied += 1
+    db.commit()
+    rows = (db.query(HrCompanyHoliday).filter(HrCompanyHoliday.company_id == entity_id)
+            .order_by(HrCompanyHoliday.date).all())
+    return {"applied": applied, "holidays": [_serialize_holiday(h) for h in rows]}
 
 
 @router.get("/public-holidays")
@@ -2704,7 +3071,19 @@ def public_holidays(country: str = "US", year: Optional[int] = None, user: dict 
         result = _fetch_google_holidays(country, yr)
     if result is None:
         raise HTTPException(404, "No public holiday data available for this country yet - add holidays manually instead")
-    return result
+    # Nager returns one row per subdivision/county a holiday is observed in
+    # (e.g. Good Friday, county-specific in the US) - same date+name repeated,
+    # which read as visible duplicates in the picker (Pranshu, Sep 22) since
+    # the county detail itself is never surfaced or used. Dedupe by (date,
+    # name), keeping first-seen order.
+    seen, deduped = set(), []
+    for h in result:
+        key = (h.get("date"), h.get("name"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(h)
+    return deduped
 
 
 # ---------------------------------------------------------------------------

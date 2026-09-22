@@ -42,7 +42,7 @@ export default function Dashboard({ activeSub, onSubChange }) {
 
   const tabs = [
     { key: 'dashboard', label: 'Dashboard' },
-    { key: 'external-links', label: 'External Links' },
+    { key: 'external-links', label: 'Links' },
   ];
 
   return (

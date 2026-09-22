@@ -7,7 +7,7 @@ import {
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
-  ChevronDown, Globe, Globe2,
+  ChevronDown, Globe, Globe2, BookMarked,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
@@ -3307,7 +3307,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
   // untouched (still rendered in signatures); this form just stops offering
   // a way to view/set it.
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '', domains: '', manager_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', notes: '', domains: '', manager_emails: [], logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const [f, setF] = useState(blank);
@@ -3332,18 +3332,26 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   const formSnapshotRef = useRef(blank);
   const startNew = () => { setF(blank); formSnapshotRef.current = blank; setTab('overview'); setMode('new'); };
   const startEdit = en => {
-    const phoneType = en.mainPhoneType || 'phone';
+    // Fax/telephone are gone from the picker (Neil, Sep 22: "let's not add
+    // bloat... nobody is faxing anymore") - a row saved under one of those
+    // types before the change just gets treated as a plain phone number now,
+    // number and all, rather than the form having to still offer them.
+    const phoneType = 'phone';
     // "phone" numbers store the dial code baked into mainPhone itself
     // ("+1 7003313331") - split it back apart here so the country picker and
     // number box seed correctly. No match just means the stored value
-    // predates this format (or is fax/telephone) - it lands whole in the
-    // number box, country defaults to US.
+    // predates this format, or was fax/telephone (never had a dial code) - it
+    // lands whole in the number box, country defaults to US.
     let phoneCountry = 'US', phoneNumber = en.mainPhone || '';
-    if (phoneType === 'phone' && en.mainPhone) {
+    if (en.mainPhoneType === 'phone' && en.mainPhone) {
       const hit = COUNTRIES.find(c => en.mainPhone.startsWith(c.dial + ' '));
       if (hit) { phoneCountry = hit.code; phoneNumber = en.mainPhone.slice(hit.dial.length + 1); }
     }
-    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '', manager_email: en.managerEmail || '', logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
+    const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '',
+      physical_address: en.physicalAddress || '', mailing_address: en.mailingAddress || '',
+      signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '',
+      manager_emails: en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []),
+      logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
     setF(seeded); formSnapshotRef.current = seeded; setTab('overview'); setMode(en.id);
   };
   async function uploadLogo(file) {
@@ -3434,29 +3442,40 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 </div>
                 {field('TAX ID (EIN / GSTIN)', 'tax_id')}
                 {field('AUTHORIZED SIGNATORY', 'signatory', { placeholder: 'name, title' })}
-                <div>
-                  <label style={FL}>COMPANY MANAGER</label>
-                  <select className="form-input" style={{ width: '100%' }} value={f.manager_email} onChange={e => set('manager_email', e.target.value)}>
-                    <option value="">- not set -</option>
-                    {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL}>COMPANY MANAGER(S)</label>
+                  {f.manager_emails.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                      {f.manager_emails.map(em => (
+                        <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--mist)', borderRadius: 999, padding: '4px 6px 4px 10px', fontSize: 12 }}>
+                          {personName(em) || em}
+                          <button type="button" onClick={() => set('manager_emails', f.manager_emails.filter(x => x !== em))}
+                            title="Remove" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <select className="form-input" style={{ width: '100%' }} value=""
+                    onChange={e => { const v = e.target.value; if (v && !f.manager_emails.includes(v)) set('manager_emails', [...f.manager_emails, v]); }}>
+                    <option value="">+ add a manager</option>
+                    {people.filter(p => !f.manager_emails.includes(p.email)).map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
                   </select>
                 </div>
-                <div style={{ gridColumn: '1 / -1' }}>{field('REGISTERED ADDRESS', 'registered_address', { placeholder: 'search or pick a spot on the map, or type it in' })}</div>
+                <div style={{ gridColumn: '1 / -1' }}>{field('PHYSICAL ADDRESS', 'physical_address', { placeholder: 'search or pick a spot on the map, or type it in' })}</div>
+                <div style={{ gridColumn: '1 / -1' }}>{field('MAILING ADDRESS', 'mailing_address', { placeholder: 'if different from the physical address' })}</div>
                 <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 14 }}>
                   <div style={{ flex: '0 1 200px' }}>{field('WEBSITE', 'website', { placeholder: 'e.g. greensglobal.com' })}</div>
                   <div style={{ flex: '1 1 340px' }}>
                     <label style={FL}>MAIN PHONE</label>
+                    {/* Just a phone number now (Neil, Sep 22: "let's not add bloat...
+                        nobody is faxing anymore") - fax/telephone dropped from the
+                        picker; main_phone_type is always sent as "phone". */}
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <select className="form-input" style={{ width: 108, flexShrink: 0 }} value={f.main_phone_type} onChange={e => set('main_phone_type', e.target.value)}>
-                        <option value="phone">Phone</option>
-                        <option value="fax">Fax</option>
-                        <option value="telephone">Telephone</option>
+                      <select className="form-input" style={{ width: 92, flexShrink: 0 }} value={f.main_phone_country} onChange={e => set('main_phone_country', e.target.value)}>
+                        {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.dial}</option>)}
                       </select>
-                      {f.main_phone_type === 'phone' && (
-                        <select className="form-input" style={{ width: 92, flexShrink: 0 }} value={f.main_phone_country} onChange={e => set('main_phone_country', e.target.value)}>
-                          {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.dial}</option>)}
-                        </select>
-                      )}
                       <input className="form-input" style={{ flex: 1, minWidth: 160 }} value={f.main_phone} onChange={e => set('main_phone', e.target.value)} placeholder="company main line" />
                     </div>
                   </div>
@@ -3474,6 +3493,11 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                   </div>
                   {mode === 'new' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>Save the company first, then come back to add a logo.</p>}
                   <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>MP4 or MOV works too - it's converted to an animated GIF (email clients never play video directly), up to 6s. Converting a video can take a few seconds.</p>
+                  {/* Neil, Sep 22: "you should put in some language that please upload
+                      your logo, please upload it transparent" - Nexus doesn't process
+                      the image, so a solid-background logo will look wrong once it's
+                      placed on a colored or dark surface. */}
+                  <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '4px 0 0' }}>Please upload your logo as a transparent PNG at your standard resolution - it's used as-is, not auto-processed, so a transparent background keeps it looking right on any surface, dark mode included.</p>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>SOCIAL LINKS</label>
@@ -3496,10 +3520,6 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                   <label style={FL}>NOTES</label>
                   <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
                 </div>
-              </div>
-              <div style={{ flex: '1 1 360px', minWidth: 300, position: 'sticky', top: 18 }}>
-                <label style={FL}>PICK LOCATION ON MAP</label>
-                <LocationPickerMap onLocationPicked={address => set('registered_address', address)} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, padding: '14px 4px' }}>
@@ -3533,7 +3553,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
         )}
         {mode !== 'new' && tab === 'holidays' && (
           editingEntity
-            ? <CompanyHolidaysTab entity={editingEntity} toastOk={toastOk} toastErr={toastErr} />
+            ? <CompanyHolidaysTab entity={editingEntity} entities={entities} toastOk={toastOk} toastErr={toastErr} />
             : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
         )}
 
@@ -3561,17 +3581,21 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
           <p style={{ fontSize: 13, marginBottom: 14 }}>No companies yet. Add your legal entities so every worker can be tied to one.</p>
           <button className="secondary-btn" onClick={seedDefaults} disabled={busy} style={{ marginRight: 8 }}>Add Greens · Greens India · MCD · Oversite</button>
         </div>
-      ) : entities.map(en => (
+      ) : entities.map(en => {
+        const mgrEmails = en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []);
+        const mgrNames = mgrEmails.map(personName).filter(Boolean).join(', ');
+        return (
         <div key={en.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
           <CompanyLogo name={en.name} logoUrl={en.logoUrl} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, en.managerEmail && personName(en.managerEmail) && `Manager ${personName(en.managerEmail)}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, mgrNames && `Manager${mgrEmails.length > 1 ? 's' : ''} ${mgrNames}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '-'}</div>
           </div>
           <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
           <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
         </div>
-      ))}
+        );
+      })}
       <div style={{ padding: '14px 4px', display: 'flex', justifyContent: 'flex-end' }}>
         <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Company</button>
       </div>
@@ -3687,6 +3711,16 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
   );
 }
 
+// Mandatory (everyone off) | Optional (an employee may choose to take it,
+// against a dedicated allowance) | Half-day (shift ends early) - Neil, Sep 22
+// call. Payroll/leave consumption of this is a later piece; today it's just
+// captured and shown.
+const HOLIDAY_TYPE_META = {
+  mandatory: { label: 'Mandatory', fg: 'var(--muted)' },
+  optional:  { label: 'Optional', fg: '#b45309' },
+  half_day:  { label: 'Half-day', fg: '#2563eb' },
+};
+
 // ── Holiday Calendar tab (Sep 18) - country public holidays (admin picks
 // which ones actually apply) plus manual per-company holidays. Every row
 // here shows up on that company's employees' Calendar dashboard
@@ -3695,9 +3729,22 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
 // COUNTRIES set as the Overview tab - not every country has public-holiday
 // data behind it (backend returns a clear 404 for those, not a crash), but
 // the picker itself isn't artificially limited to a handful.
-function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
+//
+// Sep 22 (Neil call) also added the Holiday Policy library: a company's
+// current holiday set can be saved as a reusable, named policy and pulled
+// into any other company instead of rebuilding it from scratch each time -
+// see HolidayPolicyPanel below.
+// How far ahead the year picker offers (Neil, Sep 22: "you should know next
+// year's Diwali now... everything is already [plannable]" - he runs his own
+// calendar pre-configured "all the way to 2030"). Five years out is plenty of
+// runway without the dropdown growing unbounded every year; it's recomputed
+// from today() on every render, so the window just slides forward on its own.
+const HOLIDAY_YEAR_RANGE = 5;
+
+function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
   const [holidays, setHolidays] = useState([]);
   const [country, setCountry] = useState(COUNTRIES.some(c => c.code === entity.country) ? entity.country : 'US');
+  const [year, setYear] = useState(new Date().getFullYear());
   const [suggestions, setSuggestions] = useState(null); // null = not loaded yet
   const [noData, setNoData] = useState(false);          // true = 404, country has no data source
   const [suggestBusy, setSuggestBusy] = useState(false);
@@ -3715,18 +3762,12 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
     setSuggestions(null);
     setNoData(false);
     try {
-      const year = new Date().getFullYear();
-      const [a, b] = await Promise.all([api.getPublicHolidays(country, year), api.getPublicHolidays(country, year + 1)]);
-      // Current year in full, plus just the first week of next January (Sep
-      // 19, Pranshu: "admin should get the holiday list for only current
-      // year... and 1 week of Jan [next year]" - not the whole next year,
-      // which is what a plain year+year+1 concat showed before). No stored
-      // "which year" state to roll forward - `year` is recomputed from
-      // today() on every load, so the window naturally slides to
-      // year/year+1 on its own once the calendar turns over into January.
-      const nextJanCutoff = `${year + 1}-01-07`;
-      const bFirstWeek = (b || []).filter(h => h.date <= nextJanCutoff);
-      setSuggestions([...(a || []), ...bFirstWeek]);
+      // A full YEAR at a time, picked explicitly (Pranshu, Sep 22: "I want to
+      // set up the holiday list for future years also") - not just the
+      // current year plus a peek at next January anymore. Loading a future
+      // year doesn't touch what's already on the calendar for other years;
+      // this is purely additive.
+      setSuggestions((await api.getPublicHolidays(country, year)) || []);
     } catch (e) {
       if (e?.status === 404) setNoData(true);
       else toastErr(e?.message || 'Could not load public holidays.');
@@ -3734,13 +3775,22 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
     setSuggestBusy(false);
   }
 
-  const keyOf = h => `${h.date}|${h.name}`;
-  const existingByKey = new Map(holidays.map(h => [keyOf(h), h]));
+  // The SAME public holiday picked for more than one country on this company's
+  // calendar is ONE row - "1 date, 1 company" (Pranshu, Sep 21) - with its
+  // countryCode holding a comma-separated list ("IN,US") rather than a row per
+  // country. So "is this suggestion already added" means "does a public row on
+  // this date+name already list this country", not an exact key match.
+  const countriesOf = h => (h.countryCode || '').split(',').filter(Boolean);
+  const findPublic = (date, name, cc) =>
+    holidays.find(h => h.source === 'public' && h.date === date && h.name === name && countriesOf(h).includes(cc));
 
   async function toggleSuggestion(s) {
-    const match = existingByKey.get(keyOf(s));
+    const match = findPublic(s.date, s.name, country);
     try {
-      if (match) await api.deleteCompanyHoliday(entity.id, match.id);
+      // Un-checking removes just THIS country - the backend drops it from the
+      // row's list and only deletes the row once its last country is gone.
+      if (match) await api.deleteCompanyHoliday(entity.id, match.id, country);
+      // Adding merges onto the existing date+name row server-side if one exists.
       else await api.createCompanyHoliday(entity.id, { date: s.date, name: s.name, source: 'public', country_code: country });
       load();
     } catch (e) { toastErr(e?.message || 'Could not update holiday.'); }
@@ -3762,6 +3812,100 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
 
+  async function changeType(h, type) {
+    try { await api.updateCompanyHolidayType(entity.id, h.id, type); load(); }
+    catch (e) { toastErr(e?.message || 'Could not update holiday type.'); }
+  }
+
+  const [policyBusy, setPolicyBusy] = useState(false);
+  async function createPolicyFromHolidays() {
+    if (!holidays.length || policyBusy) return;
+    const name = await dialog.prompt('', { title: 'Create a holiday policy', message: `Saves ${entity.name}'s current ${holidays.length} holiday${holidays.length === 1 ? '' : 's'} as a reusable policy other companies can pull in.`, placeholder: `e.g. "${entity.name} standard holidays"` });
+    if (!name || !name.trim()) return;
+    setPolicyBusy(true);
+    try {
+      await api.createHolidayPolicy({
+        name: name.trim(), company_id: entity.id,
+        holidays: holidays.map(h => ({ date: h.date, name: h.name, source: h.source, country_code: h.countryCode, type: h.type })),
+      });
+      toastOk('Policy created.');
+    } catch (e) { toastErr(e?.message || 'Could not create policy.'); }
+    setPolicyBusy(false);
+  }
+
+  // Roll the current holiday set forward one year (Pranshu, Sep 22: "I want
+  // the same holiday for next year also... I don't want to select again").
+  // Naively adding 365 days to every date would be WRONG for a movable
+  // holiday (Diwali, Good Friday, MLK Day - "3rd Monday of January") - only a
+  // FIXED calendar date (New Year's Day) survives that. So: for a public
+  // holiday, look up next year's REAL date from the same public-holiday
+  // source by matching on name (per country, since two countries sharing a
+  // holiday name aren't guaranteed to land on the same date); a manual entry
+  // has no such source, so it's a best-effort +1 year on the same month/day.
+  const [copyBusy, setCopyBusy] = useState(false);
+  const [copyPickerOpen, setCopyPickerOpen] = useState(false);
+  const [copyYears, setCopyYears] = useState([]);
+  // Next 5 calendar years, excluding the current one (Pranshu, Sep 22: "the
+  // next 5 years option excluding the current year, and it should be
+  // multiple selectable") - not tied to whatever year the holiday list
+  // happens to already have loaded.
+  const copyYearOptions = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() + 1 + i);
+  const toggleCopyYear = y => setCopyYears(ys => ys.includes(y) ? ys.filter(x => x !== y) : [...ys, y].sort());
+
+  async function copyToYears() {
+    if (!holidays.length || copyBusy || !copyYears.length) return;
+    setCopyPickerOpen(false);
+    const fromYear = Math.max(...holidays.map(h => Number(h.date.slice(0, 4))));
+    const fromYearHolidays = holidays.filter(h => h.date.startsWith(String(fromYear)));
+    if (!fromYearHolidays.length) return;
+    if (!await dialog.confirm(`Copy ${fromYearHolidays.length} holiday${fromYearHolidays.length === 1 ? '' : 's'} from ${fromYear} to ${copyYears.join(', ')}? Movable holidays (Diwali, Good Friday, etc.) get their real date looked up for each year, not just +365 days.`,
+      { title: `Copy holidays to ${copyYears.length} year${copyYears.length === 1 ? '' : 's'}`, confirmText: 'Copy' })) return;
+    setCopyBusy(true);
+    try {
+      let totalCopied = 0;
+      const allMissed = [];
+      // Sequential, not parallel: each pass re-reads `holidays` state (via
+      // load() below) so a year already copied in THIS run is correctly seen
+      // as "already there" by the next one instead of double-copying.
+      let current = holidays;
+      for (const toYear of copyYears) {
+        const alreadyThere = new Set(current.filter(h => h.date.startsWith(String(toYear))).map(h => h.name));
+        const toCopy = fromYearHolidays.filter(h => !alreadyThere.has(h.name));
+        if (!toCopy.length) continue;
+        const countries = [...new Set(toCopy.flatMap(h => countriesOf(h)))];
+        const byCountry = {};
+        for (const cc of countries) {
+          try { byCountry[cc] = (await api.getPublicHolidays(cc, toYear)) || []; }
+          catch { byCountry[cc] = []; }
+        }
+        const newRows = [];
+        for (const h of toCopy) {
+          if (h.source === 'public') {
+            const codes = countriesOf(h);
+            let any = false;
+            for (const cc of codes) {
+              const match = (byCountry[cc] || []).find(x => x.name === h.name);
+              if (match) {
+                const row = await api.createCompanyHoliday(entity.id, { date: match.date, name: h.name, source: 'public', country_code: cc, type: h.type });
+                newRows.push(row); any = true;
+              }
+            }
+            if (any) totalCopied++; else allMissed.push(`${h.name} (${toYear})`);
+          } else {
+            const [, m, d] = h.date.split('-');
+            const row = await api.createCompanyHoliday(entity.id, { date: `${toYear}-${m}-${d}`, name: h.name, source: 'manual', country_code: '', type: h.type });
+            newRows.push(row); totalCopied++;
+          }
+        }
+        current = [...current, ...newRows];
+      }
+      load();
+      toastOk(`Copied ${totalCopied} holiday${totalCopied === 1 ? '' : 's'} across ${copyYears.length} year${copyYears.length === 1 ? '' : 's'}.` + (allMissed.length ? ` Couldn't find a date for: ${allMissed.join(', ')} - add manually.` : ''));
+    } catch (e) { toastErr(e?.message || 'Could not copy holidays.'); }
+    setCopyYears([]);
+    setCopyBusy(false);
+  }
+
   return (
     <div style={{ padding: '18px 4px', maxWidth: 720 }}>
       <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 20px' }}>
@@ -3773,6 +3917,9 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
           <select className="form-input" style={{ width: 220 }} value={country} onChange={e => { setCountry(e.target.value); setSuggestions(null); setNoData(false); }}>
             {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
+          </select>
+          <select className="form-input" style={{ width: 100 }} value={year} onChange={e => { setYear(Number(e.target.value)); setSuggestions(null); setNoData(false); }}>
+            {Array.from({ length: HOLIDAY_YEAR_RANGE }, (_, i) => new Date().getFullYear() + i).map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button className="secondary-btn" onClick={loadSuggestions} disabled={suggestBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {suggestBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={13} />} Load holidays
@@ -3788,7 +3935,7 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
             <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 280, overflowY: 'auto' }}>
               {suggestions.map((s, i) => (
                 <label key={`${s.date}-${s.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 12.5 }}>
-                  <input type="checkbox" checked={existingByKey.has(keyOf(s))} onChange={() => toggleSuggestion(s)} />
+                  <input type="checkbox" checked={!!findPublic(s.date, s.name, country)} onChange={() => toggleSuggestion(s)} />
                   <span style={{ fontWeight: 600, minWidth: 90 }}>{formatDate(s.date)}</span>
                   <span>{s.name}</span>
                 </label>
@@ -3807,19 +3954,278 @@ function CompanyHolidaysTab({ entity, toastOk, toastErr }) {
         </div>
       </div>
 
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{entity.name}'s holidays ({holidays.length})</div>
+      <div style={{ marginBottom: 26 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{entity.name}'s holidays ({holidays.length})</div>
+          <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
+            {holidays.length > 0 && (
+              <>
+                <button className="secondary-btn" onClick={() => setCopyPickerOpen(v => !v)} disabled={copyBusy}
+                  title="Copy this holiday set forward to one or more future years - looks up the real date for movable holidays instead of just adding a year"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                  {copyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={12} />} Copy to year(s)
+                </button>
+                {copyPickerOpen && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', padding: 12, minWidth: 180 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>COPY TO</div>
+                    {copyYearOptions.map(y => (
+                      <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 12.5 }}>
+                        <input type="checkbox" checked={copyYears.includes(y)} onChange={() => toggleCopyYear(y)} />
+                        {y}
+                      </label>
+                    ))}
+                    <button className="primary-btn" onClick={copyToYears} disabled={!copyYears.length || copyBusy}
+                      style={{ width: '100%', marginTop: 10, fontSize: 12, padding: '6px 0' }}>
+                      Copy{copyYears.length ? ` to ${copyYears.length} year${copyYears.length === 1 ? '' : 's'}` : ''}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+            <button className="secondary-btn" onClick={createPolicyFromHolidays} disabled={!holidays.length || policyBusy}
+              title="Save this holiday set as a reusable policy other companies can pull in"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              {policyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <BookMarked size={12} />} Create policy from these holidays
+            </button>
+          </div>
+        </div>
         {holidays.length === 0 ? (
           <p style={{ fontSize: 12, color: 'var(--muted)' }}>No holidays set yet.</p>
-        ) : holidays.map(h => (
+        ) : holidays.map(h => {
+          const tm = HOLIDAY_TYPE_META[h.type] || HOLIDAY_TYPE_META.mandatory;
+          return (
           <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, minWidth: 90 }}>{formatDate(h.date)}</div>
             <div style={{ flex: 1, fontSize: 12.5 }}>
-              {h.name} {h.source === 'public' && <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>· {h.countryCode} public holiday</span>}
+              {h.name} {h.source === 'public' && <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>· {countriesOf(h).join(', ')} public holiday</span>}
             </div>
+            <select className="form-input" value={h.type || 'mandatory'} onChange={e => changeType(h, e.target.value)}
+              style={{ width: 110, fontSize: 11.5, color: tm.fg, padding: '4px 8px' }}>
+              {Object.entries(HOLIDAY_TYPE_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
             <button onClick={() => remove(h)} title="Remove" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 6 }}><Trash2 size={13} /></button>
           </div>
-        ))}
+          );
+        })}
+      </div>
+
+      <HolidayPolicyPanel entity={entity} entities={entities} onApplied={load} toastOk={toastOk} toastErr={toastErr} />
+    </div>
+  );
+}
+
+// ── Holiday Policy library panel (Sep 22, Neil call) - lives under a
+// company's own Holiday Calendar tab since that's where the workflow starts
+// ("where it says Greens Global's holidays, I want you to establish that as
+// a policy"), but the policies themselves are global: apply one to ANY
+// company, not just the one you created it from.
+function HolidayPolicyPanel({ entity, entities = [], onApplied, toastOk, toastErr }) {
+  const [policies, setPolicies] = useState([]);
+  const [busyId, setBusyId] = useState('');
+  const [editing, setEditing] = useState(null);   // the policy object being edited, or null
+
+  const load = useCallback(() => {
+    api.getHolidayPolicies().then(setPolicies).catch(() => {});
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  // Applying a policy is open to every company; editing/renaming/deleting one
+  // is not (Pranshu, Sep 22: "should be only editable by the company by which
+  // it was created") - the backend enforces this too (403 otherwise), this
+  // just keeps the buttons from being offered in the first place.
+  const ownerName = p => entities.find(e => e.id === p.companyId)?.name || '';
+  const isOwner = p => p.companyId === entity.id;
+
+  async function apply(p) {
+    if (!await dialog.confirm(`Apply "${p.name}" (${(p.holidays || []).length} holidays) to ${entity.name}? This adds/merges them onto ${entity.name}'s calendar - it won't remove anything already there.`, { title: 'Apply policy', confirmText: 'Apply' })) return;
+    setBusyId(p.id);
+    try {
+      const res = await api.applyHolidayPolicy(entity.id, p.id);
+      toastOk(`Applied ${res.applied} holiday${res.applied === 1 ? '' : 's'} from "${p.name}".`);
+      onApplied?.();
+    } catch (e) { toastErr(e?.message || 'Could not apply policy.'); }
+    setBusyId('');
+  }
+
+  async function rename(p) {
+    const name = await dialog.prompt(p.name, { title: 'Rename policy', confirmText: 'Save' });
+    if (!name || !name.trim() || name.trim() === p.name) return;
+    try { await api.updateHolidayPolicy(p.id, { name: name.trim(), holidays: p.holidays || [] }); load(); }
+    catch (e) { toastErr(e?.message || 'Could not rename policy.'); }
+  }
+
+  async function remove(p) {
+    if (!await dialog.confirm(`Delete the "${p.name}" policy? Companies that already applied it keep their holidays - this only removes it from the library.`, { title: 'Delete policy', confirmText: 'Delete', danger: true })) return;
+    try { await api.deleteHolidayPolicy(p.id); load(); }
+    catch (e) { toastErr(e?.message || 'Could not delete policy.'); }
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Holiday policy library</div>
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+        Reusable holiday sets, shared across every company - build one once, apply it anywhere.
+      </p>
+      {policies.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'var(--muted)' }}>No policies yet - use "Create policy from these holidays" above to make the first one.</p>
+      ) : policies.map(p => (
+        <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700 }}>{p.name}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+              {(p.holidays || []).length} holiday{(p.holidays || []).length === 1 ? '' : 's'}
+              {ownerName(p) && ` · Created by ${ownerName(p)}`}
+            </div>
+          </div>
+          <button className="secondary-btn" onClick={() => apply(p)} disabled={busyId === p.id} style={{ fontSize: 11.5, padding: '4px 10px' }}>
+            {busyId === p.id ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : `Apply to ${entity.name}`}
+          </button>
+          {isOwner(p) && (
+            <>
+              <button onClick={() => setEditing(p)} title="Edit holidays" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><Pencil size={13} /></button>
+              <button onClick={() => rename(p)} title="Rename" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><FileText size={13} /></button>
+              <button onClick={() => remove(p)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 6 }}><Trash2 size={13} /></button>
+            </>
+          )}
+        </div>
+      ))}
+      {editing && (
+        <HolidayPolicyEditorModal policy={editing} onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); }} toastOk={toastOk} toastErr={toastErr} />
+      )}
+    </div>
+  );
+}
+
+// The policy editor - same country-load/checkbox/manual-add shape as
+// CompanyHolidaysTab's own picker, but working against a local draft (this
+// policy isn't live anywhere until Save) instead of calling the per-company
+// holiday API on every click (Neil: "the edit comes back into this type of a
+// UI... loads it all again. If there's any updates, it should actively go to
+// the internet"). Save PATCHes the whole holiday list back in one call.
+function HolidayPolicyEditorModal({ policy, onClose, onSaved, toastOk, toastErr }) {
+  const [name, setName] = useState(policy.name);
+  const [draft, setDraft] = useState(policy.holidays || []);
+  const [country, setCountry] = useState('US');
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [suggestions, setSuggestions] = useState(null);
+  const [noData, setNoData] = useState(false);
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const [manualDate, setManualDate] = useState('');
+  const [manualName, setManualName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function loadSuggestions() {
+    setSuggestBusy(true); setSuggestions(null); setNoData(false);
+    try {
+      setSuggestions((await api.getPublicHolidays(country, year)) || []);
+    } catch (e) {
+      if (e?.status === 404) setNoData(true);
+      else toastErr(e?.message || 'Could not load public holidays.');
+    }
+    setSuggestBusy(false);
+  }
+
+  const countriesOf = h => (h.country_code || '').split(',').filter(Boolean);
+  const findPublic = (date, name_, cc) => draft.find(h => h.source === 'public' && h.date === date && h.name === name_ && countriesOf(h).includes(cc));
+
+  function toggleSuggestion(s) {
+    const match = findPublic(s.date, s.name, country);
+    if (match) {
+      const codes = countriesOf(match).filter(c => c !== country);
+      setDraft(d => codes.length
+        ? d.map(h => h === match ? { ...h, country_code: codes.join(',') } : h)
+        : d.filter(h => h !== match));
+    } else {
+      const existing = draft.find(h => h.source === 'public' && h.date === s.date && h.name === s.name);
+      if (existing) setDraft(d => d.map(h => h === existing ? { ...h, country_code: [...countriesOf(h), country].join(',') } : h));
+      else setDraft(d => [...d, { date: s.date, name: s.name, source: 'public', country_code: country, type: 'mandatory' }]);
+    }
+  }
+
+  function addManual() {
+    if (!manualDate || !manualName.trim()) return;
+    setDraft(d => [...d, { date: manualDate, name: manualName.trim(), source: 'manual', country_code: '', type: 'mandatory' }]);
+    setManualDate(''); setManualName('');
+  }
+  const removeAt = i => setDraft(d => d.filter((_, x) => x !== i));
+  const setTypeAt = (i, type) => setDraft(d => d.map((h, x) => x === i ? { ...h, type } : h));
+
+  async function save() {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    try {
+      await api.updateHolidayPolicy(policy.id, { name: name.trim(), holidays: draft });
+      toastOk('Policy saved.'); onSaved?.();
+    } catch (e) { toastErr(e?.message || 'Could not save policy.'); }
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }} onClick={onClose}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 22, width: 640, maxWidth: '92vw', maxHeight: '86vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <input className="form-input" style={{ flex: 1, fontSize: 14, fontWeight: 700 }} value={name} onChange={e => setName(e.target.value)} />
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Load public holidays</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            <select className="form-input" style={{ width: 180 }} value={country} onChange={e => { setCountry(e.target.value); setSuggestions(null); setNoData(false); }}>
+              {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
+            </select>
+            <select className="form-input" style={{ width: 90 }} value={year} onChange={e => { setYear(Number(e.target.value)); setSuggestions(null); setNoData(false); }}>
+              {Array.from({ length: HOLIDAY_YEAR_RANGE }, (_, i) => new Date().getFullYear() + i).map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <button className="secondary-btn" onClick={loadSuggestions} disabled={suggestBusy} style={{ fontSize: 12 }}>
+              {suggestBusy ? 'Loading…' : 'Load holidays'}
+            </button>
+          </div>
+          {noData && <p style={{ fontSize: 11.5, color: 'var(--muted)' }}>No public holiday data available for this country.</p>}
+          {suggestions && (
+            <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 200, overflowY: 'auto' }}>
+              {suggestions.map((s, i) => (
+                <label key={`${s.date}-${s.name}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 12 }}>
+                  <input type="checkbox" checked={!!findPublic(s.date, s.name, country)} onChange={() => toggleSuggestion(s)} />
+                  <span style={{ fontWeight: 600, minWidth: 84 }}>{formatDate(s.date)}</span>
+                  <span>{s.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Add manually</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input type="date" className="form-input" style={{ width: 160 }} value={manualDate} onChange={e => setManualDate(e.target.value)} />
+            <input className="form-input" style={{ flex: 1 }} placeholder="e.g. Founders' Day" value={manualName} onChange={e => setManualName(e.target.value)} />
+            <button className="secondary-btn" onClick={addManual} disabled={!manualDate || !manualName.trim()}>Add</button>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Holidays in this policy ({draft.length})</div>
+          {draft.length === 0 ? <p style={{ fontSize: 12, color: 'var(--muted)' }}>None yet.</p> : draft.map((h, i) => {
+            const tm = HOLIDAY_TYPE_META[h.type] || HOLIDAY_TYPE_META.mandatory;
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, minWidth: 84 }}>{formatDate(h.date)}</div>
+                <div style={{ flex: 1, fontSize: 12 }}>{h.name} {h.source === 'public' && <span style={{ fontSize: 10, color: 'var(--muted)' }}>· {countriesOf(h).join(', ')}</span>}</div>
+                <select className="form-input" value={h.type || 'mandatory'} onChange={e => setTypeAt(i, e.target.value)} style={{ width: 100, fontSize: 11, color: tm.fg, padding: '3px 6px' }}>
+                  {Object.entries(HOLIDAY_TYPE_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+                <button onClick={() => removeAt(i)} title="Remove" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 4 }}><X size={13} /></button>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={!name.trim() || saving}>{saving ? 'Saving…' : 'Save policy'}</button>
+        </div>
       </div>
     </div>
   );

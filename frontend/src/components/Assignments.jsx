@@ -9,6 +9,7 @@ import { emailToName } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { usePeopleDirectory } from '../lib/queries';
+import { toViewUrl } from '../lib/storageView';
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
@@ -81,7 +82,7 @@ async function uploadPhoto(file, prefix) {
   const { data, error } = await supabase.storage.from('item-photos').upload(path, file, { contentType: file.type, upsert: false, cacheControl: '31536000' });
   if (error || !data) throw new Error(error?.message || 'Photo upload failed');
   const { data: urlData } = supabase.storage.from('item-photos').getPublicUrl(data.path);
-  return { url: urlData.publicUrl, name: file.name };
+  return { url: toViewUrl(urlData.publicUrl), name: file.name };
 }
 
 function PhotoField({ file, setFile, required = true }) {

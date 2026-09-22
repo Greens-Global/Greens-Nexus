@@ -217,7 +217,7 @@ def _signature_fields(e: NexusEmployee, db: Session) -> dict:
         # name/role/email/address/socials/template.
         "logoUrl": (e.signature_logo_url or "").strip() or (company.logo_url if company else "") or "",
         "website": (company.website if company else "") or "",
-        "address": (company.registered_address if company else "") or "",
+        "address": ((company.physical_address or company.registered_address) if company else "") or "",
         "companyPhone": (company.main_phone if company else "") or "",
         "companyName": (company.name if company else "") or "",
         "facebookUrl": (company.facebook_url if company else "") or "",
@@ -345,24 +345,46 @@ def _role_company_line(f: dict) -> str:
     return f["role"] or f["companyName"]
 
 
-def _extra_rows(f: dict, color: str = "#333333") -> str:
-    """Manual (non-directory) signatures can carry arbitrary label/value pairs
-    (Sep 19: "custom addable field") - rendered as extra table rows in the
-    same style as phone/email/website/address. Directory-backed employee
-    signatures never set "extraFields", so this is a no-op for them."""
-    return "".join(
-        f'<tr><td style="padding:2px 0;color:{color};">{item["label"]}: {item["value"]}</td></tr>'
-        for item in (f.get("extraFields") or []) if item.get("value")
-    )
+# Reorderable detail-row fields (Sep 22 - sender override drag-to-reorder:
+# "i should drag and make the layout of template as needed"). Name/logo/
+# social/closing keep each template's own fixed position - only this "which
+# fields, in what order" group is reorderable, and only for a sender
+# override (a directory employee's signature never sets field_order, so
+# `_ordered_row_values` falls back to each template's original hardcoded
+# order below and renders byte-identical to before this existed).
+_ROW_FIELD_RENDERERS = {
+    "role": lambda f: f["role"],
+    "phone": _phone_text,
+    "email": _email_text,
+    "website": _website_text,
+    "address": lambda f: f["address"],
+}
 
 
-def _extra_inline(f: dict) -> str:
-    """Same as `_extra_rows`, for the single-line templates (Modern/Minimal)
-    that join their fields with a separator instead of a table."""
-    return " &nbsp;|&nbsp; ".join(
-        f'{item["label"]}: {item["value"]}'
-        for item in (f.get("extraFields") or []) if item.get("value")
-    )
+def _ordered_row_values(f: dict, default_order: tuple, field_order=None) -> list:
+    """Non-empty rendered values for role/phone/email/website/address/custom
+    fields, in `field_order` when given, else `default_order` with any
+    custom fields appended at the end (manual signatures' "custom addable
+    field", Sep 19 - the original, non-reorderable behavior). An unknown key
+    (one this template doesn't offer, or a stale "custom:N" past the end of
+    the list) is silently skipped, not an error."""
+    extra = f.get("extraFields") or []
+    order = list(field_order) if field_order else list(default_order) + [f"custom:{i}" for i in range(len(extra))]
+    out = []
+    for key in order:
+        if key in _ROW_FIELD_RENDERERS:
+            v = _ROW_FIELD_RENDERERS[key](f)
+        elif key.startswith("custom:"):
+            try:
+                item = extra[int(key.split(":", 1)[1])]
+            except (ValueError, IndexError):
+                item = None
+            v = f'{item["label"]}: {item["value"]}' if item and item.get("value") else ""
+        else:
+            v = ""
+        if v:
+            out.append(v)
+    return out
 
 
 def _closing_line(f: dict, style: str) -> str:
@@ -377,12 +399,11 @@ def _closing_line(f: dict, style: str) -> str:
     return f'<div style="{style}">{closing},</div>' if closing else ""
 
 
-def _render_classic(f: dict) -> str:
+def _render_classic(f: dict, field_order=None) -> str:
     rows = "".join(
         f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
-        for v in (f["role"], _phone_text(f), _email_text(f), _website_text(f), f["address"])
-        if v
-    ) + _extra_rows(f)
+        for v in _ordered_row_values(f, ("role", "phone", "email", "website", "address"), field_order)
+    )
     logo_cell = (f'<td style="padding-right:14px;vertical-align:top;">'
                  f'{_logo_img(f, "max-height:60px;max-width:160px;")}</td>'
                  if f["logoUrl"] else "")
@@ -400,11 +421,8 @@ def _render_classic(f: dict) -> str:
     )
 
 
-def _render_modern(f: dict) -> str:
-    contact = " &nbsp;|&nbsp; ".join(v for v in (_phone_text(f), _email_text(f), _website_text(f)) if v)
-    extra_inline = _extra_inline(f)
-    if extra_inline:
-        contact = f"{contact} &nbsp;|&nbsp; {extra_inline}" if contact else extra_inline
+def _render_modern(f: dict, field_order=None) -> str:
+    contact = " &nbsp;|&nbsp; ".join(_ordered_row_values(f, ("phone", "email", "website"), field_order))
     logo_row = (f'<tr><td colspan="2" style="padding-top:8px;">{_logo_img(f, "max-height:44px;max-width:150px;")}</td></tr>'
                 if f["logoUrl"] else "")
     social = _social_icons(f)
@@ -421,11 +439,8 @@ def _render_modern(f: dict) -> str:
     )
 
 
-def _render_minimal(f: dict) -> str:
-    line = " &middot; ".join(v for v in (f["role"], _phone_text(f), _email_text(f)) if v)
-    extra_inline = _extra_inline(f)
-    if extra_inline:
-        line = f"{line} &middot; {extra_inline}" if line else extra_inline
+def _render_minimal(f: dict, field_order=None) -> str:
+    line = " &middot; ".join(_ordered_row_values(f, ("role", "phone", "email"), field_order))
     tail = f" &nbsp;&mdash;&nbsp; {line}" if line else ""
     social = _social_icons(f)
     social_block = f'<div style="margin-top:4px;">{social}</div>' if social else ""
@@ -440,14 +455,13 @@ def _render_minimal(f: dict) -> str:
     )
 
 
-def _render_bold(f: dict) -> str:
+def _render_bold(f: dict, field_order=None) -> str:
     logo_cell = (f'<td style="padding-right:16px;">{_logo_img(f, "max-height:52px;max-width:150px;")}</td>'
                  if f["logoUrl"] else "")
     rows = "".join(
         f'<tr><td style="padding:1px 0;color:#444444;font-size:12.5px;">{v}</td></tr>'
-        for v in (_phone_text(f), _email_text(f), _website_text(f), f["address"])
-        if v
-    ) + _extra_rows(f, "#444444")
+        for v in _ordered_row_values(f, ("phone", "email", "website", "address"), field_order)
+    )
     role_span = (f'<span style="color:#eafff2;font-size:12.5px;"> &nbsp;&middot;&nbsp; {f["role"]}</span>'
                  if f["role"] else "")
     social = _social_icons(f)
@@ -468,16 +482,15 @@ def _render_bold(f: dict) -> str:
     )
 
 
-def _render_sincerely(f: dict) -> str:
+def _render_sincerely(f: dict, field_order=None) -> str:
     closing = f["closing"] or "Sincerely"
     logo_cell = (f'<td style="padding-right:14px;vertical-align:top;">'
                  f'{_logo_img(f, "max-height:56px;max-width:120px;")}</td>'
                  if f["logoUrl"] else "")
     rows = "".join(
         f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
-        for v in (_phone_text(f), _email_text(f), _website_text(f))
-        if v
-    ) + _extra_rows(f)
+        for v in _ordered_row_values(f, ("phone", "email", "website"), field_order)
+    )
     social = _social_icons(f)
     social_row = f'<tr><td colspan="2" style="padding-top:10px;">{social}</td></tr>' if social else ""
     role_line = _role_company_line(f)
@@ -495,7 +508,7 @@ def _render_sincerely(f: dict) -> str:
     )
 
 
-def _render_kind_regards(f: dict) -> str:
+def _render_kind_regards(f: dict, field_order=None) -> str:
     closing = f["closing"] or "Kind regards"
     logo_cell = (f'<td style="padding-right:12px;vertical-align:top;">'
                  f'{_logo_img(f, "max-height:52px;max-width:110px;")}'
@@ -503,9 +516,8 @@ def _render_kind_regards(f: dict) -> str:
                  + '</td>' if f["logoUrl"] else "")
     rows = "".join(
         f'<tr><td style="padding:2px 0;color:#333333;">{v}</td></tr>'
-        for v in (_phone_text(f), _email_text(f), _website_text(f))
-        if v
-    ) + _extra_rows(f)
+        for v in _ordered_row_values(f, ("phone", "email", "website"), field_order)
+    )
     # No logo -> the social row still needs somewhere to live.
     social = _social_icons(f)
     fallback_social = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if not f["logoUrl"] and social else ""
@@ -550,7 +562,7 @@ def admin_preview_fields(company) -> dict:
         "closing": "",
         "logoUrl": (company.logo_url if company else "") or "",
         "website": (company.website if company else "") or "",
-        "address": (company.registered_address if company else "") or "",
+        "address": ((company.physical_address or company.registered_address) if company else "") or "",
         "companyPhone": (company.main_phone if company else "") or "",
         "companyName": (company.name if company else "") or "",
         "facebookUrl": (company.facebook_url if company else "") or "",
@@ -601,8 +613,61 @@ def render_manual_signature(row, company) -> dict:
     return {"fields": fields, "html": SIGNATURE_TEMPLATES[tid][1](esc), "template": tid}
 
 
+# Sender template overrides (Settings - Sep 22, Pranshu: "admin should have
+# the control to type down the email id for which they want different
+# email... all the fields that can be editable and also should have custom
+# field addition"). Each group fully replaces the sender's signature content
+# - not just its template skin - so it covers a shared mailbox with no Nexus
+# employee record exactly as well as a real employee's address whose content
+# an admin wants to fully author instead of pulling from the directory.
+_OVERRIDE_FIELD_KEYS = (
+    "name", "role", "phone", "email", "website", "address",
+    "companyName", "companyPhone", "logoUrl",
+    "facebookUrl", "linkedinUrl", "twitterUrl", "instagramUrl", "closing",
+)
+
+
+def _find_sender_override(email: str, company) -> Optional[dict]:
+    """First {id, label, emails, template, fields, customFields, fieldOrder}
+    group whose emails list contains this sender's own address (case-
+    insensitive) - None if none match. First match wins if an address
+    somehow ended up in more than one group, in Settings' list order."""
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+    for grp in ((company.signature_sender_overrides if company else None) or []):
+        if email in (grp.get("emails") or []):
+            return grp
+    return None
+
+
+def _render_override_signature(grp: dict) -> dict:
+    raw = grp.get("fields") or {}
+    fields = {k: (raw.get(k) or "") for k in _OVERRIDE_FIELD_KEYS}
+    fields["photoUrl"] = ""
+    fields["extraFields"] = [
+        {"label": (cf.get("label") or ""), "value": (cf.get("value") or "")}
+        for cf in (grp.get("customFields") or [])
+    ]
+    esc = {
+        k: html_lib.escape(v) if isinstance(v, str) else
+           [{"label": html_lib.escape(i.get("label", "")), "value": html_lib.escape(i.get("value", ""))} for i in v]
+        for k, v in fields.items()
+    }
+    tid = grp.get("template") or _DEFAULT_TEMPLATE
+    if tid not in SIGNATURE_TEMPLATES:
+        tid = _DEFAULT_TEMPLATE
+    field_order = grp.get("fieldOrder") or None
+    html = SIGNATURE_TEMPLATES[tid][1](esc, field_order)
+    return {"fields": fields, "html": html, "template": tid}
+
+
 def _render_signature(e: NexusEmployee, db: Session, template: str = None) -> dict:
     company = db.query(HrEntity).filter(HrEntity.id == e.company).first() if e.company else None
+    if template is None:
+        override = _find_sender_override(e.work_email, company)
+        if override:
+            return _render_override_signature(override)
     fields = _signature_fields(e, db)
     esc = {k: html_lib.escape(v) if isinstance(v, str) else v for k, v in fields.items()}
     # Template is a company-wide admin choice (Settings), not personal - an
@@ -612,6 +677,39 @@ def _render_signature(e: NexusEmployee, db: Session, template: str = None) -> di
     if tid not in SIGNATURE_TEMPLATES:
         tid = _DEFAULT_TEMPLATE
     return {"fields": fields, "html": SIGNATURE_TEMPLATES[tid][1](esc), "template": tid}
+
+
+# Recipient targeting (Sep 22, Pranshu): "different treatment for internal
+# vs external recipients" - kept to the smallest useful shape (suppress the
+# whole signature, no separate internal/external content) rather than adding
+# a disclaimer feature that doesn't exist yet. Company-wide, same tier as
+# SIGNATURE_TEMPLATES.
+SIGNATURE_RECIPIENT_SCOPES = ("all", "internal", "external")
+
+
+def _company_domains(company) -> set:
+    return {d for d in ((company.domains if company else "") or "").split(",") if d}
+
+
+def _is_internal_recipient(email: str, domains: set) -> bool:
+    return "@" in email and email.rsplit("@", 1)[-1].strip().lower() in domains
+
+
+def recipient_scope_ok(scope: str, company, recipients: list) -> bool:
+    """True if this signature should be inserted for this recipient list.
+    Empty `recipients` (nothing typed yet, e.g. a brand-new compose the
+    instant it opens) always passes - there's nothing to judge yet, and the
+    Outlook add-in re-checks with the final list right before send
+    (OnMessageSend), which is what actually has to be correct."""
+    if scope == "all" or not recipients:
+        return True
+    domains = _company_domains(company)
+    all_internal = all(_is_internal_recipient(r, domains) for r in recipients)
+    if scope == "internal":
+        return all_internal
+    if scope == "external":
+        return not all_internal
+    return True
 
 
 def _signature_dict(e: NexusEmployee, db: Session) -> dict:
@@ -755,8 +853,20 @@ def people_directory(include_external: bool = False,
     `external: true`. Off by default, because this list is what every picker in
     the app loads: an external belongs in a task's Assignee and Collaborators
     (Sagar, Sept 2 2026 - they do the work), not in an approver list, a service
-    desk agent list or an HR picker. Callers opt in one at a time."""
+    desk agent list or an HR picker. Callers opt in one at a time.
+
+    Who may see externals (Sep 22, 2026): an external's "work email" is the
+    personal address they were invited with (often Gmail), so the opt-in is
+    honored only for callers who can actually assign work to them - managers
+    and above, or anyone with an editor-or-better grant on the Tasks module.
+    Everyone else gets the same list as if they had not asked (Neil's
+    security-debt list: the whole company could pull those addresses)."""
     import cache, auth
+    if include_external:
+        can_assign = (int(user.get("level") or 0) >= auth._LEVELS["manager"]
+                      or auth._module_level(user["email"], "tasks", db) >= auth._MODULE_LEVEL_RANK["editor"])
+        if not can_assign:
+            include_external = False
     scope = auth.company_scope(user, db)
     key = "all" if scope is None else ("co:" + ",".join(sorted(scope)) if scope else "co:none")
     # Separate cache entry: the two lists differ in content, and the default one

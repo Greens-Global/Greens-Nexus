@@ -618,7 +618,7 @@ def _merge_data(db: Session, employee_id: str, candidate_id: str, entity_id: str
         en = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
         if en:
             data.update({"company": en.name, "company_legal": en.legal_name or en.name,
-                         "company_address": en.registered_address, "signatory": en.signatory})
+                         "company_address": en.physical_address or en.registered_address, "signatory": en.signatory})
     for k, v in (overrides or {}).items():
         if isinstance(v, (str, int, float)) and re.fullmatch(r"[a-z0-9_]+", str(k)):
             data[str(k)] = str(v)

@@ -17,7 +17,7 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
@@ -509,6 +509,10 @@ def _run_migrations():
             "ALTER TABLE external_links ADD COLUMN departments JSON DEFAULT '[]'",
             "UPDATE external_links SET categories = json_array(category) WHERE (categories IS NULL OR categories = '[]') AND category IS NOT NULL AND category != ''",
             "UPDATE external_links SET departments = json_array(department) WHERE (departments IS NULL OR departments = '[]') AND department IS NOT NULL AND department != ''",
+            # Company goes multi-select (Sep 22, Neil) - same story as
+            # categories/departments above, same backfill shape.
+            "ALTER TABLE external_links ADD COLUMN companies JSON DEFAULT '[]'",
+            "UPDATE external_links SET companies = json_array(company) WHERE (companies IS NULL OR companies = '[]') AND company IS NOT NULL AND company != ''",
             "ALTER TABLE nexus_roles ADD COLUMN tier_pinned BOOLEAN DEFAULT 0",
             # Attended remote control (IT support) - consent + audit fields on the
             # live-view session row.
@@ -748,6 +752,32 @@ def _run_migrations():
             "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
             # Emoji reactions on tasks - see the matching Postgres migration below.
             "ALTER TABLE tasks ADD COLUMN reactions JSON DEFAULT '{}'",
+            # Company Manager goes multi (Neil, Sep 22 call) - see the matching
+            # Postgres migration below for the full reasoning.
+            "ALTER TABLE hr_entities ADD COLUMN manager_emails JSON DEFAULT '[]'",
+            "UPDATE hr_entities SET manager_emails = json_array(manager_email) "
+            "WHERE manager_email IS NOT NULL AND manager_email != '' "
+            "AND (manager_emails IS NULL OR manager_emails = '[]')",
+            # Physical/mailing address split (Neil, Sep 22 call) - registered_address
+            # stays put; physical_address is backfilled from it once so nothing typed
+            # in there is lost, mailing_address starts blank (a genuinely new field).
+            "ALTER TABLE hr_entities ADD COLUMN physical_address VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN mailing_address VARCHAR DEFAULT ''",
+            "UPDATE hr_entities SET physical_address = registered_address "
+            "WHERE (physical_address IS NULL OR physical_address = '') "
+            "AND registered_address IS NOT NULL AND registered_address != ''",
+            # Mandatory/optional/half-day holiday types (Neil, Sep 22 call) - see
+            # the matching Postgres migration below for the full reasoning.
+            "ALTER TABLE hr_company_holidays ADD COLUMN type VARCHAR DEFAULT 'mandatory'",
+            # Policy ownership (Pranshu, Sep 22) - added after hr_holiday_policies
+            # already shipped without it; see the matching Postgres migration below.
+            "ALTER TABLE hr_holiday_policies ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # Signature recipient targeting (Pranshu, Sep 22) - see the matching
+            # Postgres migration below for the full reasoning.
+            "ALTER TABLE hr_entities ADD COLUMN signature_recipient_scope VARCHAR DEFAULT 'all'",
+            # Signature sender template overrides (Pranshu, Sep 22) - see the
+            # matching Postgres migration below for the full reasoning.
+            "ALTER TABLE hr_entities ADD COLUMN signature_sender_overrides JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1339,6 +1369,10 @@ def _run_migrations():
         "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS departments JSONB DEFAULT '[]'::jsonb",
         "UPDATE external_links SET categories = jsonb_build_array(category) WHERE (categories IS NULL OR categories = '[]'::jsonb) AND category IS NOT NULL AND category != ''",
         "UPDATE external_links SET departments = jsonb_build_array(department) WHERE (departments IS NULL OR departments = '[]'::jsonb) AND department IS NOT NULL AND department != ''",
+        # Company goes multi-select (Sep 22, Neil: "that should be a checkbox
+        # for multiselect not a dropdown for single select") - same shape.
+        "ALTER TABLE external_links ADD COLUMN IF NOT EXISTS companies JSONB DEFAULT '[]'::jsonb",
+        "UPDATE external_links SET companies = jsonb_build_array(company) WHERE (companies IS NULL OR companies = '[]'::jsonb) AND company IS NOT NULL AND company != ''",
         # Personal Link -> Credential Vault personal credential pointer (Aug 13)
         "ALTER TABLE personal_links ADD COLUMN IF NOT EXISTS vault_cred_id VARCHAR DEFAULT ''",
         # Personal Links department/category (Aug 14)
@@ -1566,6 +1600,60 @@ def _run_migrations():
         # Per-person task email preferences (Sept 2026) - new table, same
         # belt-and-suspenders RLS enable as above.
         "ALTER TABLE task_notify_prefs ENABLE ROW LEVEL SECURITY",
+        # Company Manager goes multi (Neil, Sep 22 call: "there can only be
+        # one? ... we need to update that setting where it can be multiple").
+        # manager_emails is the new source of truth (same mirror shape as
+        # tasks.assignee_email/assignee_emails above); manager_email stays as
+        # a mirror of manager_emails[0] for anything still reading the single
+        # column. One-shot backfill carries every existing single manager
+        # across so nobody's company manager silently disappears.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS manager_emails JSONB DEFAULT '[]'::jsonb",
+        "UPDATE hr_entities SET manager_emails = to_jsonb(ARRAY[manager_email]) "
+        "WHERE manager_email IS NOT NULL AND manager_email != '' "
+        "AND (manager_emails IS NULL OR manager_emails = '[]'::jsonb)",
+        # Physical/mailing address split (Neil, Sep 22 call: "add in physical
+        # address, and then add in mailing address"). registered_address is
+        # left as-is; physical_address is backfilled from it once, mailing_address
+        # starts blank as a genuinely new field.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS physical_address VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS mailing_address VARCHAR DEFAULT ''",
+        "UPDATE hr_entities SET physical_address = registered_address "
+        "WHERE (physical_address IS NULL OR physical_address = '') "
+        "AND registered_address IS NOT NULL AND registered_address != ''",
+        # Mandatory/optional/half-day holiday types (Neil, Sep 22 call): a holiday
+        # is Mandatory (everyone off, the original behavior), Optional (an
+        # employee may choose to take it against a dedicated allowance instead of
+        # casual/earned leave), or Half-day (shift ends early - Halloween, New
+        # Year's Eve, Christmas Eve in the US). Payroll/leave consumption of this
+        # field is a later, separate piece - today it's just captured and shown.
+        "ALTER TABLE hr_company_holidays ADD COLUMN IF NOT EXISTS type VARCHAR DEFAULT 'mandatory'",
+        # New table (hr_holiday_policies) - create_all builds it, but with RLS
+        # disabled by default; belt-and-suspenders enable here per CLAUDE.md's
+        # recurring-gap note (the backend bypasses RLS via DATABASE_URL, but a
+        # table without it is fully exposed to anyone holding the public anon key).
+        "ALTER TABLE hr_holiday_policies ENABLE ROW LEVEL SECURITY",
+        # Policy ownership (Pranshu, Sep 22): "should be only editable by the
+        # company by which it was created" - hr_holiday_policies already shipped
+        # without this column, so it's a follow-up ADD rather than part of the
+        # table's original create_all shape. Applying a policy stays open to
+        # every company (that's the whole point of a shared library); editing/
+        # deleting one is scoped to its creating company via auth.hr_scope, the
+        # same way every other HR-admin surface is scoped.
+        "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        # Signature recipient targeting (Pranshu, Sep 22): admin picks All
+        # Recipients / Internal Only / External Only per company (Outlook
+        # add-in - routers/outlook_addin.py, myhr._recipient_scope_ok).
+        # Internal/external is decided against this company's own `domains`
+        # column, already used for auto-assigning employees by email domain -
+        # no new domain source needed.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_recipient_scope VARCHAR DEFAULT 'all'",
+        # Signature sender template overrides (Pranshu, Sep 22): a company-picked
+        # list of {id, label, emails, template} groups so a handful of specific
+        # sender addresses (e.g. the CEO's, a shared sales mailbox) get a
+        # different template than everyone else at that company - see
+        # myhr._sender_template_override. JSONB on the entity rather than a new
+        # table: admin-managed, few rows, saved whole on each edit.
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_sender_overrides JSONB DEFAULT '[]'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -1958,6 +2046,77 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] ticket sla_due_on backfill skipped: {e}")
+    # Company holidays used to get a SEPARATE row per country picked for the
+    # same company+date+name (Sep 21, Pranshu: "it should have 1 date, 1
+    # company... IN, US, GE like this") - the create endpoint now merges onto
+    # one row with a comma-separated country_code, but rows created before
+    # that shipped are still split. One-time, idempotent: collapse every
+    # existing public-holiday group of duplicates onto its oldest row (by
+    # created_at) with every country combined, and drop the rest. A no-op
+    # once nothing is left to merge.
+    try:
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            groups = {}
+            for h in (db.query(models.HrCompanyHoliday)
+                      .filter(models.HrCompanyHoliday.source == "public").all()):
+                groups.setdefault((h.company_id, h.date, h.name), []).append(h)
+            merged_groups = merged_rows = 0
+            for rows_ in groups.values():
+                if len(rows_) < 2:
+                    continue
+                rows_.sort(key=lambda h: h.created_at or "")
+                keep, dupes = rows_[0], rows_[1:]
+                codes = [c for c in (keep.country_code or "").split(",") if c]
+                for d in dupes:
+                    for c in (d.country_code or "").split(","):
+                        if c and c not in codes:
+                            codes.append(c)
+                keep.country_code = ",".join(sorted(codes))
+                for d in dupes:
+                    db.delete(d)
+                merged_groups += 1
+                merged_rows += len(dupes)
+            if merged_groups:
+                db.commit()
+                print(f"[startup] merged {merged_rows} duplicate company-holiday row(s) into {merged_groups} entr(y/ies)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] company-holiday dedupe skipped: {e}")
+    # Holiday policy ownership backfill (Pranshu, Sep 22: "atleast it should
+    # say who is the policy owner and only they can edit the policy") -
+    # hr_holiday_policies shipped before company_id was added to it, so every
+    # policy created in that window has no recorded owner and nobody can edit
+    # it. There's no stored "which company was this made from," but every
+    # policy DOES record who made it (created_by) - the best available proxy
+    # is that person's own company. One-time, idempotent: only touches rows
+    # whose company_id is still blank, and only where the creator can still
+    # be resolved to a company.
+    try:
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            orphans = (db.query(models.HrHolidayPolicy)
+                       .filter((models.HrHolidayPolicy.company_id == None) |  # noqa: E711
+                               (models.HrHolidayPolicy.company_id == "")).all())
+            fixed = 0
+            for p in orphans:
+                if not p.created_by:
+                    continue
+                creator = (db.query(models.NexusEmployee)
+                           .filter(models.NexusEmployee.work_email.ilike(p.created_by)).first())
+                if creator and creator.company:
+                    p.company_id = creator.company
+                    fixed += 1
+            if fixed:
+                db.commit()
+                print(f"[startup] backfilled an owner on {fixed} holiday {'policy' if fixed == 1 else 'policies'}")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] holiday policy ownership backfill skipped: {e}")
     # Workforce Analytics Policy goes per-company (Sep 19, Pranshu: "all
     # companies have their different workforce analytics policy"). Was a
     # single shared row (id='default', company_id=''); that row now stays as
@@ -2211,6 +2370,10 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # Daily Briefing one-click actions: authorized by a signed per-decision
     # token, same reasoning - see routers/briefing_actions.py.
     "/briefing-actions/page",
+    # Boot-failure beacon from public/guard.js: sent with credentials omitted
+    # while the app cannot load, by a user who usually has no session at all -
+    # see routers/client_errors.py.
+    "/client-errors/boot",
 })
 
 
@@ -2264,9 +2427,13 @@ if os.getenv("NEXUS_SENTRY_DSN"):
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 # ETag/304 revalidation + auth-failure throttling (see middleware_hardening.py).
 # Added after GZip so ETags hash the compressed bytes; CORS stays outermost.
-from middleware_hardening import ETagMiddleware, AuthFailureThrottle  # noqa: E402
+from middleware_hardening import ETagMiddleware, AuthFailureThrottle, RequestRateLimit  # noqa: E402
 app.add_middleware(ETagMiddleware)
 app.add_middleware(AuthFailureThrottle)
+# Per-caller request budget (Sep 22): sits inside CORS so a 429 still carries
+# the CORS headers the browser needs to read it, outside ETag so a throttled
+# request never touches a handler.
+app.add_middleware(RequestRateLimit)
 # AuditMiddleware must be added before CORSMiddleware so it wraps the full request
 app.add_middleware(AuditMiddleware)
 _CORS_ORIGINS = [
@@ -2321,8 +2488,16 @@ def root():
 
 @app.get("/health")
 def health():
-    """No-auth liveness probe - used by frontend to detect outages without burning a token."""
-    return {"status": "ok"}
+    """No-auth liveness probe - used by frontend to detect outages without burning a token.
+
+    `secrets` (Sep 22): two booleans so a deployment missing NEXUS_VAULT_KEY or an
+    explicit NEXUS_APP_URL is visible from outside without Azure access - both
+    sat on the security-debt list as "may still be unset on prod" because nobody
+    could tell. No values are exposed, only whether each is configured."""
+    import secret_box
+    return {"status": "ok",
+            "secrets": {"vault_key": secret_box.KEY_CONFIGURED,
+                        "app_url_explicit": bool(os.getenv("NEXUS_APP_URL", "").strip())}}
 
 
 @app.get("/health/ready")
@@ -2423,6 +2598,7 @@ app.include_router(link_layouts.router) # Per-user Links Module layout (folders/
 app.include_router(assets.router)
 app.include_router(property_assets.router)
 app.include_router(accounting.router)
+app.include_router(accounting_dashboard.router)
 app.include_router(operations.router)
 app.include_router(unifi.router)
 app.include_router(dashboard.router)
@@ -2468,6 +2644,8 @@ app.include_router(daily_briefing_router.router)  # Daily Briefing admin config 
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
 from routers import client_errors          # noqa: E402
 app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs
+from routers import files as files_router  # noqa: E402
+app.include_router(files_router.router)   # Authenticated viewer for the private evidence buckets (Sep 22)
 
 from routers import task_prefs             # noqa: E402
 app.include_router(task_prefs.router)     # Per-user column arrangement for the Task module's lists
