@@ -1067,4 +1067,12 @@ def company_holidays(user: dict = Depends(get_current_user), db: Session = Depen
         return {"holidays": []}
     rows = (db.query(models.HrCompanyHoliday).filter(models.HrCompanyHoliday.company_id == company_id)
             .order_by(models.HrCompanyHoliday.date).all())
-    return {"holidays": [{"date": h.date, "name": h.name} for h in rows]}
+    # Same country match payroll uses (timeclock._company_holidays_for_employee):
+    # a public holiday picked for a specific country only shows to that
+    # country's employees - a US employee was seeing India-only holidays
+    # (Diwali etc.) on their calendar before this. A manual, no-country
+    # holiday still applies company-wide. `type` (Sep 22, Pranshu: "in bracket
+    # either its mandatory or optional") lets the widget label each one.
+    country = (emp.country or "") if emp else ""
+    return {"holidays": [{"date": h.date, "name": h.name, "type": h.type or "mandatory"} for h in rows
+                         if not h.country_code or country in h.country_code.split(",")]}
