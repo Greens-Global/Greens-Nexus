@@ -250,6 +250,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     if body.first_name is not None and not body.first_name.strip():
         raise HTTPException(400, "first_name cannot be empty")
     fields = body.model_dump(exclude_unset=True)
+    changes: dict = {}
     for key, value in fields.items():
         if value is None:
             continue
@@ -257,10 +258,34 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
             value = value.strip().lower()
         elif isinstance(value, str) and key != "notes":
             value = value.strip()
+        before = getattr(row, key, None)
+        if before != value:
+            changes[key] = (before, value)
         setattr(row, key, value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     db.refresh(row)
+    # Field-level audit (Sep 22, 2026). The request-level audit row only says
+    # "Updated an employee profile" - when Amy Bolanos's manager silently became
+    # someone else, the log could name who saved her record on which day but not
+    # WHAT changed, and the question went to the whole team. Record old -> new
+    # per field, with pay/identity values masked so the log itself never leaks.
+    if changes:
+        try:
+            import json as _json
+            from models import AuditLog
+            _mask = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation", "account")
+            shown = {k: ("(changed)" if any(m in k.lower() for m in _mask)
+                         else [None if v[0] is None else str(v[0])[:120], None if v[1] is None else str(v[1])[:120]])
+                     for k, v in changes.items()}
+            db.add(AuditLog(timestamp=datetime.now(timezone.utc).isoformat(), user_email=user["email"],
+                            user_role=str(user.get("role") or ""), action="Changed employee fields",
+                            resource_type="employee", resource_id=row.id,
+                            details=_json.dumps({"employee": row.work_email, "changes": shown})[:4000]))
+            db.commit()
+        except Exception as e:   # the audit row must never fail the save
+            db.rollback()
+            print(f"[hr] field audit skipped: {e}")
     out = _serialize(row)
     # Nexus is the source of truth for profile edits - mirror them onto the
     # linked Entra account automatically (best-effort: a Graph hiccup must never
