@@ -371,6 +371,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       // notes + punch notes, visible in the card (not only on the hover Info dot).
       // Internal markers like "payroll edit" are filtered out (segReasons).
       const notes = segs.flatMap(segReasons);
+      // Worked a half-day holiday: the OTHER half is credited on top of the
+      // punches above, not instead of them (Pranshu, Sep 22 - "half from
+      // holiday and half they worked").
+      if (d?.holidayPay) rows.push({ type: 'holiday', ds, name: d.holidayName, pay: d.holidayPay, holidayType: d.holidayType, worked: true });
       if (notes.length) rows.push({ type: 'note', text: notes.join('  ·  ') });
     }
   });
@@ -632,7 +636,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <tr key={i} style={{ background: 'rgba(37,99,235,0.06)' }}>
                   <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(37,99,235,0.12)', color: '#2563eb', marginRight: 6 }}>{r.holidayType === 'half_day' ? 'Half-day holiday' : 'Holiday'}</span>
-                    {r.name || 'Company holiday'} - not worked, paid {fmtM(r.pay)}{r.holidayType === 'half_day' ? ' (half day)' : ''}.
+                    {r.name || 'Company holiday'}{r.worked
+                      ? <> - worked the half day, plus {fmtM(r.pay)} credited for the other half.</>
+                      : <> - not worked, paid {fmtM(r.pay)}{r.holidayType === 'half_day' ? ' (half day)' : ''}.</>}
                   </td>
                 </tr>
               ) : r.type === 'note' ? (
@@ -928,7 +934,8 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
     half: { label: 'Half day', bg: 'rgba(180,83,9,0.12)', fg: '#b45309' },
     absent: { label: 'Absent', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
     holiday: { label: 'Holiday', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },   // company holiday on the employee's own calendar - never deducted
-    holiday_half: { label: 'Half-day holiday', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },   // half a day's pay, flat - not conditioned on hours worked
+    holiday_half: { label: 'Half-day holiday', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },   // didn't work at all - half a day's pay
+    holiday_half_worked: { label: 'Half-day holiday', bg: 'hsla(var(--color-green),0.12)', fg: 'hsl(var(--color-green))' },   // worked their half - full pay, no deduction
     weekend: { label: 'Weekend', bg: 'var(--mist)', fg: 'var(--muted)' },
     weekend_worked: { label: 'Weekend OT', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' },
     upcoming: { label: 'Upcoming', bg: 'transparent', fg: 'var(--muted)' },

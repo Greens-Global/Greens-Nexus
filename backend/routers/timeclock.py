@@ -4721,16 +4721,26 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         is_weekend = dd.weekday() >= 5      # Sat=5, Sun=6
         deduct = bonus = 0.0
         hol = holidays.get(ds)
-        # A HALF-DAY holiday is exactly half a day's pay, period - not
-        # conditioned on hours actually worked (Pranshu, Sep 22: "that day
-        # only half day salary counts not full"), so it overrides whatever
-        # the attendance bands below would otherwise say. A full (mandatory/
-        # optional) holiday on the employee's own calendar (see
-        # _company_holidays_for_employee) is paid - never deducted - as long
-        # as they didn't happen to also be working (which keeps its own
+        half_holiday = bool(hol) and hol.get("type") == "half_day" and not is_weekend
+        # A HALF-DAY holiday pays for the half they weren't required to work,
+        # not the whole day flat (Pranshu, Sep 22): work the expected half and
+        # it's a FULL day's pay (half from the holiday, half from actually
+        # working - no deduction at all, same as showing up on a normal day);
+        # do no work at all and it's HALF a day's pay, but only once the day
+        # has actually passed - never deduct a day that hasn't happened yet.
+        # A full (mandatory/optional) holiday on the employee's own calendar
+        # (see _company_holidays_for_employee) is paid - never deducted - as
+        # long as they didn't happen to also be working (which keeps its own
         # status/credit instead).
-        if hol and hol.get("type") == "half_day" and not is_weekend:
-            status = "holiday_half"; deduct = daily / 2.0
+        if half_holiday:
+            if wm > 0 or has_open:
+                status = "holiday_half_worked"     # worked their half - full pay
+            elif ds < today:
+                status = "holiday_half"; deduct = daily / 2.0   # day's over, no work at all
+            elif ds > today:
+                status = "upcoming"
+            else:   # today, in progress - never deduct before the day is over
+                status = "late" if late_today else "upcoming"
         elif hol and not is_weekend and not (wm > 0 or has_open):
             status = "holiday"
         elif is_weekend:
@@ -5366,20 +5376,36 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     holiday_days = 0
     if ((getattr(rate_row, "pay_type", None) or "hourly") if rate_row else "hourly") == "hourly":
         _full_day_hours = float(getattr(rate_row, "full_day_hours", 8) or 8) if rate_row else 8.0
+        _days_by_date = {d["date"]: d for d in days_out}
         for hd, hol in _company_holidays_for_employee(db, em, start, end).items():
-            if hd in day_total or hd < start or (end and hd > end):
+            if hd < start or (end and hd > end):
                 continue
-            # Half-day holiday = exactly half a day's pay (Pranshu, Sep 22) -
-            # same unworked-day credit as a full holiday, just scaled by half.
-            frac = 0.5 if hol.get("type") == "half_day" else 1.0
-            credit = round(_full_day_hours * frac * rate, 2)
+            is_half = hol.get("type") == "half_day"
+            worked = hd in day_total
+            if worked and not is_half:
+                continue   # mandatory + worked: already paid for the hours, no separate credit
+            # Half-day pays for the half they weren't required to work, not the
+            # whole day flat (Pranshu, Sep 22): work the expected half and it's
+            # a full day (half from the holiday, half from what they earned via
+            # their actual punches - added on TOP, not swapped for, since
+            # normal wages already cover the hours worked); do no work at all
+            # and it's half a day, same as a full holiday scaled down.
+            credit = round(_full_day_hours * (0.5 if is_half else 1.0) * rate, 2)
             holiday_pay += credit
             holiday_days += 1
-            days_out.append({"date": hd, "weekStart": _week_start_str(hd), "segments": [],
-                             "workedMin": 0, "regMin": 0, "otMin": 0, "dtMin": 0,
-                             "breakMin": 0, "paidBreakMin": 0,
-                             "isHoliday": True, "holidayName": hol.get("name", ""),
-                             "holidayType": hol.get("type", "mandatory"), "holidayPay": credit})
+            if worked:
+                # A real day entry already exists (they punched in) - tag it
+                # with the extra credit instead of pushing a second, conflicting
+                # entry for the same date.
+                _days_by_date[hd]["holidayType"] = hol.get("type", "mandatory")
+                _days_by_date[hd]["holidayName"] = hol.get("name", "")
+                _days_by_date[hd]["holidayPay"] = credit
+            else:
+                days_out.append({"date": hd, "weekStart": _week_start_str(hd), "segments": [],
+                                 "workedMin": 0, "regMin": 0, "otMin": 0, "dtMin": 0,
+                                 "breakMin": 0, "paidBreakMin": 0,
+                                 "isHoliday": True, "holidayName": hol.get("name", ""),
+                                 "holidayType": hol.get("type", "mandatory"), "holidayPay": credit})
         if holiday_days:
             days_out.sort(key=lambda d: d["date"])
         holiday_pay = round(holiday_pay, 2)
