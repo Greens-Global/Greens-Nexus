@@ -16,7 +16,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -203,7 +203,27 @@ class TaskUpdate(BaseModel):
     completed:        Optional[bool] = None
 
 
+# Single-bigint-arg advisory lock, its own keyspace entirely separate from
+# asana_sync._acquire_pull_lock's two-int-arg lock and daily_briefing's
+# two-int-arg employee lock - the single-arg and two-arg forms can never
+# collide regardless of which constants any of them picks (same reasoning
+# daily_briefing.py's own lock comment already documents).
+_TASK_CODE_LOCK_NS = 741852963
+
+
 def _next_code(db: Session) -> str:
+    """COUNT(*)+1 with no lock let two callers (e.g. two Asana-pull worker
+    processes creating tasks for the same recurring series at nearly the
+    same instant) both read the same count before either committed, handing
+    out the identical code to two genuinely separate Task rows (Sep 22,
+    surfaced as an Asana-synced "Weather Report" series where every
+    duplicate landed on the same TASK-#### number). The advisory lock
+    serializes concurrent numbering across processes - held until THIS
+    transaction commits/rolls back, so a second caller blocked here re-reads
+    the count fresh, after the first caller's row is already in it. No-op on
+    local SQLite, where there's only one process."""
+    if db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:ns)"), {"ns": _TASK_CODE_LOCK_NS})
     n = db.query(models.Task).count() + 1
     return f"TASK-{n:03d}"
 
