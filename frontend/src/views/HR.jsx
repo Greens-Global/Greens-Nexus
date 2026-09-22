@@ -7,7 +7,7 @@ import {
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
-  ChevronDown, Globe, Globe2, BookMarked,
+  ChevronDown, Globe, Globe2, BookMarked, Download,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
@@ -3852,6 +3852,46 @@ function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
   const copyYearOptions = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() + 1 + i);
   const toggleCopyYear = y => setCopyYears(ys => ys.includes(y) ? ys.filter(x => x !== y) : [...ys, y].sort());
 
+  // Export holidays as CSV (Pranshu, Sep 22: "give us the list of holiday our
+  // company set up for that year... not only for 1 year, option to export
+  // holidays list from last 15 years"). Purely client-side - `holidays`
+  // already holds every year the company has ever set up (load() above
+  // fetches the whole list, not just one year), so this just filters and
+  // downloads what's already on screen; nothing to fetch from the server.
+  const EXPORT_YEARS_BACK = 15;
+  const [exportPickerOpen, setExportPickerOpen] = useState(false);
+  const [exportYears, setExportYears] = useState([]);
+  const exportYearOptions = Array.from({ length: EXPORT_YEARS_BACK + 1 }, (_, i) => new Date().getFullYear() - i);
+  const toggleExportYear = y => setExportYears(ys => ys.includes(y) ? ys.filter(x => x !== y) : [...ys, y].sort((a, b) => b - a));
+  const selectAllExportYears = () => setExportYears(exportYearOptions);
+
+  function exportHolidaysCsv() {
+    if (!exportYears.length) return;
+    const rows = holidays
+      .filter(h => exportYears.includes(Number(h.date.slice(0, 4))))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const esc = v => { v = v == null ? '' : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const lines = [
+      ['Date', 'Holiday', 'Type', 'Source', 'Countries'],
+      ...rows.map(h => [
+        formatDate(h.date), h.name, (HOLIDAY_TYPE_META[h.type] || HOLIDAY_TYPE_META.mandatory).label,
+        h.source === 'public' ? 'Public' : 'Manual',
+        h.source === 'public' ? countriesOf(h).join('/') : '',
+      ]),
+    ].map(r => r.map(esc).join(',')).join('\n');
+    const blob = new Blob([lines], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const sortedYears = exportYears.slice().sort((x, y) => x - y);
+    const label = sortedYears.length > 1 ? `${sortedYears[0]}-${sortedYears[sortedYears.length - 1]}` : `${sortedYears[0]}`;
+    a.href = url;
+    a.download = `${(entity.name || 'company').replace(/[^\w-]+/g, '-')}-holidays-${label}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setExportPickerOpen(false);
+    toastOk(`Exported ${rows.length} holiday${rows.length === 1 ? '' : 's'}.`);
+  }
+
   async function copyToYears() {
     if (!holidays.length || copyBusy || !copyYears.length) return;
     setCopyPickerOpen(false);
@@ -3987,6 +4027,38 @@ function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
               {policyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <BookMarked size={12} />} Create policy from these holidays
             </button>
+            {holidays.length > 0 && (
+              <>
+                <button className="secondary-btn" onClick={() => setExportPickerOpen(v => !v)}
+                  title="Export this company's holiday list as a CSV file, for one or more years"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                  <Download size={12} /> Export holidays
+                </button>
+                {exportPickerOpen && (
+                  <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', padding: 12, minWidth: 180 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>EXPORT YEAR(S)</div>
+                      <button type="button" onClick={selectAllExportYears}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-green))', fontSize: 11, fontWeight: 600 }}>
+                        Last {EXPORT_YEARS_BACK} yrs
+                      </button>
+                    </div>
+                    <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                      {exportYearOptions.map(y => (
+                        <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 12.5 }}>
+                          <input type="checkbox" checked={exportYears.includes(y)} onChange={() => toggleExportYear(y)} />
+                          {y}
+                        </label>
+                      ))}
+                    </div>
+                    <button className="primary-btn" onClick={exportHolidaysCsv} disabled={!exportYears.length}
+                      style={{ width: '100%', marginTop: 10, fontSize: 12, padding: '6px 0' }}>
+                      Export{exportYears.length ? ` ${exportYears.length} year${exportYears.length === 1 ? '' : 's'}` : ''}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
         {holidays.length === 0 ? (
