@@ -20,17 +20,12 @@ import os
 import unittest
 
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
-# The flood backstop is not what this suite tests, and it counts: a packet this
-# size takes four /esign/public/ calls to open, so fourteen envelopes in two
-# seconds go straight past the 30/min anonymous budget and every assertion
-# reads 429 instead of the thing under test. Must be set before main imports -
-# the middleware reads it at class-definition time.
-os.environ.setdefault("NEXUS_RATE_LIMIT", "off")
 
 from fastapi.testclient import TestClient
 
 import auth
 import cache
+import middleware_hardening
 import database
 import main
 import models
@@ -92,6 +87,15 @@ def _geom(i):
 class RequiredFieldTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(main.app)
+        # The flood backstop is not what this suite tests, and it counts:
+        # opening one of these six-page packets takes four /esign/public/
+        # calls, so fourteen envelopes in two seconds run past the 30/min
+        # anonymous budget and every assertion reads 429 instead of the thing
+        # under test. Toggled on the class rather than through the environment
+        # because the middleware reads the env once, at import - which is too
+        # early when another suite imported main first.
+        self._rl = middleware_hardening.RequestRateLimit.ENABLED
+        middleware_hardening.RequestRateLimit.ENABLED = False
         self._skip, auth.SKIP_AUTH = auth.SKIP_AUTH, True
         self._email = os.environ.get("NEXUS_DEV_EMAIL")
         os.environ["NEXUS_DEV_EMAIL"] = SENDER
@@ -122,6 +126,7 @@ class RequiredFieldTests(unittest.TestCase):
         esign._egnyte_push = lambda *a, **k: (True, "")
 
     def tearDown(self):
+        middleware_hardening.RequestRateLimit.ENABLED = self._rl
         esign.sign_otp._send_email = self._real_send
         esign._send_sign_email = self._real_sign_mail
         esign._send_sealed_email = self._real_sealed_mail

@@ -82,6 +82,38 @@ export default function PublicSign({ token }) {
     return out;
   };
 
+  // The retention copy, fetched rather than linked: the access code rides in a
+  // header (never a query string), and the bytes come back as a blob the page
+  // can hand to a download or to the print dialog. The old plain <a href> went
+  // to whatever the server put in copyUrl, which can be relative - and a
+  // relative link resolves against the SPA origin, so Cloudflare answered with
+  // index.html and the signer saved a blank .htm (Sagar, Sep 22 2026).
+  const copyApi = useCallback(async () => {
+    const r = await fetch(`${API_BASE}/esign/public/${token}/copy`,
+      { headers: code ? { 'X-Access-Code': code } : {} });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.detail || `Error ${r.status}`);
+    }
+    return r.blob();
+  }, [token, code]);
+
+  async function downloadCopy() {
+    setBusy(true);
+    setActionError('');
+    try {
+      const url = URL.createObjectURL(await copyApi());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(payload?.title || 'document').replace(/[^\w .-]/g, '')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) { setActionError(e.message); }
+    setBusy(false);
+  }
+
   const uploadApi = async (fieldId, file) => {
     const fd = new FormData();
     fd.append('field_id', fieldId);
@@ -314,10 +346,11 @@ export default function PublicSign({ token }) {
           gated on consent or on the code, so it is offered on the gates too. */}
       {gated && payload.copyUrl && (
         <p style={{ textAlign: 'center', margin: '0 0 8px' }}>
-          <a href={payload.copyUrl} target="_blank" rel="noreferrer" download
-            style={{ color: 'var(--muted, #6b7280)', fontSize: 12.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <button onClick={downloadCopy} disabled={busy}
+            style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+              color: 'var(--muted, #6b7280)', fontSize: 12.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Download size={13} /> Download a copy to read or print
-          </a>
+          </button>
         </p>
       )}
       {/* Pinned, not inline: Finish sits at the foot of a long document, and a
@@ -338,7 +371,8 @@ export default function PublicSign({ token }) {
         </div>
       )}
       <SigningDoc payload={payload} busy={busy} onSubmit={submit} onDecline={decline}
-        gateApi={gateApi} onCleared={() => load()} uploadApi={uploadApi} paperApi={paperApi} historyApi={historyApi} />
+        gateApi={gateApi} onCleared={() => load()} uploadApi={uploadApi} paperApi={paperApi}
+        historyApi={historyApi} copyApi={copyApi} />
     </>,
     gated ? 760 : 1140);
 }

@@ -783,8 +783,30 @@ def _sender_identity(db: Session, req: HrSignRequest) -> dict:
         # DocuSign's). The sending entity's registered address is the right one
         # - it is the company actually asking for the signature.
         entity_address = ((ent.registered_address or "").strip() if ent else "")
-    return {"name": name, "email": email, "title": title, "phone": phone,
+    return {"name": name, "email": email, "title": title, "phone": _display_phone(phone),
             "entity": entity or _SOR_OPERATOR, "entityAddress": entity_address}
+
+
+def _display_phone(raw: str) -> str:
+    """"9431556836" -> "+91 9431556836" - a number a stranger can actually dial.
+
+    The point of the sender block is that someone who has never seen this
+    domain can check the request out of band, and a bare national number is
+    not dialable from anywhere else (Sagar, Sep 22 2026). A number already
+    carrying its country code is only re-spaced; one without borrows the
+    deployment's NEXUS_SMS_DEFAULT_COUNTRY, the same assumption the SMS sender
+    makes, so the two can never disagree. Anything unparseable is left exactly
+    as the directory has it rather than guessed at.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    e164 = sentdm.normalize_phone(raw, sentdm.default_country())
+    if not e164:
+        return raw
+    cc = sentdm.default_country() if not raw.lstrip().startswith("+") else ""
+    cc = cc or next((c for c in ("1", "91", "44", "61", "971") if e164[1:].startswith(c)), "")
+    return f"+{cc} {e164[1 + len(cc):]}".strip() if cc else e164
 
 
 def _from_display(sender_name: str) -> str:
@@ -1009,12 +1031,17 @@ def _sign_email_html(party: HrSignParty, req: HrSignRequest, sender: dict, link:
     if sender.get("entity"):
         rows.append(escape(sender["entity"]))
     subtitle = " &middot; ".join(rows)
+    # Glyphs, not images: Outlook blocks remote images by default and drops
+    # SVG entirely, so an <img> icon would be an empty box for most readers.
     contact = []
     if sender.get("email"):
-        contact.append(f'<a href="mailto:{escape(sender["email"])}" '
+        contact.append(f'<span style="color:#6b7280">&#9993;</span> '
+                       f'<a href="mailto:{escape(sender["email"])}" '
                        f'style="color:#15803d;text-decoration:none">{escape(sender["email"])}</a>')
     if sender.get("phone"):
-        contact.append(escape(sender["phone"]))
+        contact.append(f'<span style="color:#6b7280">&#9742;</span> '
+                       f'<a href="tel:{escape(re.sub(r"[^+0-9]", "", sender["phone"]))}" '
+                       f'style="color:#374151;text-decoration:none">{escape(sender["phone"])}</a>')
     return f"""<div style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#f3f4f6;padding:28px 12px">
   <table style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border-collapse:collapse;width:100%">
     <tr><td style="background:#14532d;padding:26px 36px">
@@ -1110,10 +1137,15 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
         actions.append(f'<a href="{view_link}" style="{btn};background:#15803d;color:#ffffff">View</a>')
         actions.append(f'<a href="{view_link}" style="{btn};background:#ffffff;color:#14532d;'
                        f'border:1.5px solid #15803d">Download</a>')
-    actions.append(f'<a href="{open_link}" style="{btn};background:'
-                   f'{"#ffffff" if view_link else "#15803d"};color:'
-                   f'{"#14532d" if view_link else "#ffffff"}'
-                   f'{";border:1.5px solid #15803d" if view_link else ""}">Open in Nexus</a>')
+    # "Open in Nexus" only for someone who HAS a Nexus login. An external
+    # signer has no account, so the button could only ever take them to a sign-in
+    # screen they cannot pass (Sagar, Sep 22 2026) - View and Download are their
+    # copy, and those need no account.
+    if not (party is not None and (party.kind or "") == "external"):
+        actions.append(f'<a href="{open_link}" style="{btn};background:'
+                       f'{"#ffffff" if view_link else "#15803d"};color:'
+                       f'{"#14532d" if view_link else "#ffffff"}'
+                       f'{";border:1.5px solid #15803d" if view_link else ""}">Open in Nexus</a>')
     html = f"""<div style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#f3f4f6;padding:28px 12px">
   <table style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border-collapse:collapse;width:100%">
     <tr><td style="background:#14532d;padding:26px 36px">
@@ -2244,12 +2276,40 @@ def my_signatures(user: dict = Depends(get_current_user), db: Session = Depends(
 
 def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict:
     """What a signer needs to render + sign. Never exposes other parties' emails."""
-    others = [_ser_party(p, include_email=False) for p in _parties(db, req.id)]
+    all_parties = _parties(db, req.id)
+    others = [_ser_party(p, include_email=False) for p in all_parties]
+    # What the OTHER parties have already filled in and signed. A signer is
+    # being asked to sign the agreement AS IT STANDS, so the boxes their
+    # co-signers completed cannot read as empty - they render read-only, in a
+    # light tint (Sagar, Sep 22 2026). It is the same content they receive in
+    # the sealed copy either way; only their email addresses stay private.
+    filled: dict = {}
+    signed_by_role: dict = {}
+    for p in all_parties:
+        if p.id == party.id:
+            continue
+        for key, val in (p.field_values or {}).items():
+            filled[str(key)] = val
+        if p.status == "signed":
+            signed_by_role[p.role_key] = {
+                "name": p.name, "signedAt": p.signed_at,
+                "signatureKind": p.signature_kind or "typed",
+                "signatureData": p.signature_data or "",
+            }
     payload = {"partyId": party.id, "requestId": req.id, "title": req.title,
                "message": req.message, "status": req.status, "source": req.source,
                "myTurn": _its_their_turn(req, party), "myRole": party.role_key,
                "myPartyRole": party.party_role or "signer",
                "myName": party.name, "myStatus": party.status, "parties": others,
+               "filledByOthers": filled, "signedByRole": signed_by_role,
+               # This signer's OWN answers, so re-opening the link (or the
+               # View button on the completed mail) shows the document as they
+               # filled it in rather than blank boxes (Sagar, Sep 22 2026).
+               "myValues": party.field_values or {},
+               "mySignature": ({"kind": party.signature_kind or "typed",
+                                "data": party.signature_data or "",
+                                "signedAt": party.signed_at or ""}
+                               if party.status == "signed" else None),
                "consentText": _CONSENT_TEXT, "consentVersion": _CONSENT_VERSION,
                # 15 U.S.C. 7001(c) requires these to be given BEFORE consent,
                # so they ship with the payload the signing screen renders -
@@ -3427,6 +3487,45 @@ def public_download(token: str, request: Request, code: str = "",
     return resp.json()
 
 
+def _document_without_certificate(req: HrSignRequest) -> bytes:
+    """The sealed PDF with the Certificate of Completion pages removed.
+
+    Returns b"" when it cannot be done safely - the caller then falls back to
+    the full sealed copy, because a reading copy that is the whole record is a
+    smaller failure than no copy at all.
+
+    Envelopes finalized before content_pages existed do not carry the split
+    point, so it is re-derived by rendering their stored certificate snapshot
+    and counting its pages: the certificate is deterministic from the
+    snapshot, which is the same property the verification page relies on.
+
+    Splitting drops the document seal, which only covers the file as a whole.
+    That is correct here: this copy is for reading and printing, and the
+    sealed record stays the one behind Download Signed Copy.
+    """
+    from pypdf import PdfReader, PdfWriter
+    got = _storage_fetch(_DOC_BUCKET, req.final_pdf_path)
+    if not got.is_success or not got.content:
+        return b""
+    try:
+        reader = PdfReader(io.BytesIO(got.content))
+        keep = int(req.content_pages or 0)
+        if keep <= 0 and req.certificate_snapshot:
+            cert_pages = len(PdfReader(io.BytesIO(_certificate_pdf(req.certificate_snapshot))).pages)
+            keep = len(reader.pages) - cert_pages
+        if keep <= 0 or keep >= len(reader.pages):
+            return b""                      # nothing to trim, or the count is not trustworthy
+        writer = PdfWriter()
+        for page in reader.pages[:keep]:
+            writer.add_page(page)
+        out = io.BytesIO()
+        writer.write(out)
+        return out.getvalue()
+    except Exception as e:                  # noqa: BLE001 - a reading copy must not 500
+        print(f"[nexus-sign] could not split the certificate off {req.id}: {e}")
+        return b""
+
+
 @router.get("/public/{token}/copy")
 def public_copy(token: str, request: Request, code: str = "",
                 x_access_code: str = Header(""), db: Session = Depends(get_db)):
@@ -3449,6 +3548,13 @@ def public_copy(token: str, request: Request, code: str = "",
          party_id=party.id, ip=ip, user_agent=ua)
     db.commit()
     if req.status == "completed" and req.final_pdf_path:
+        # The DOCUMENT, not the whole sealed record: this button is "download a
+        # copy to read or print", and "Download Signed Copy" is the one that
+        # carries the Certificate of Completion (Sagar, Sep 22 2026).
+        doc_only = _document_without_certificate(req)
+        if doc_only:
+            return Response(content=doc_only, media_type="application/pdf", headers={
+                "Content-Disposition": f'attachment; filename="{_safe_filename(req.title)}.pdf"'})
         resp = _storage_signed_url(_DOC_BUCKET, req.final_pdf_path)
         if not resp.is_success:
             raise HTTPException(502, "Could not create download link")
@@ -3931,8 +4037,19 @@ _FORMAT_LABELS = {
 def _api_base() -> str:
     """This API's own public origin (NOT the frontend origin _app_url_fn
     returns) - the signing page fetches the retention copy straight from
-    the API, the same base the page was served its payload from."""
-    return os.getenv("NEXUS_API_URL", "").rstrip("/")
+    the API, the same base the page was served its payload from.
+
+    Falls back to the Azure host when NEXUS_API_URL is not set, because an
+    EMPTY base is worse than a wrong one: it makes copyUrl relative, the
+    browser resolves it against the SPA origin, Cloudflare answers with
+    index.html, and "Download a copy to read or print" saves a blank .htm
+    (Sagar, Sep 22 2026). The client absolutizes what it gets as well.
+    """
+    override = os.getenv("NEXUS_API_URL", "").strip().rstrip("/")
+    if override:
+        return override
+    host = os.getenv("WEBSITE_HOSTNAME", "").strip()
+    return f"https://{host}" if host else ""
 
 
 def _safe_filename(title: str) -> str:
@@ -4528,7 +4645,12 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     # carries the envelope ID in every page margin; the certificate stamps its
     # own pages through its page furniture, so it is merged in untouched.
     writer = PdfWriter()
-    for page in PdfReader(io.BytesIO(_stamp_envelope_id(content, req.id))).pages:
+    doc_pages = PdfReader(io.BytesIO(_stamp_envelope_id(content, req.id))).pages
+    # Where the document ends and the certificate begins, recorded rather than
+    # re-derived: "Download" hands back the document alone, "Download Signed
+    # Copy" the whole sealed record (Sagar, Sep 22 2026).
+    req.content_pages = len(doc_pages)
+    for page in doc_pages:
         writer.add_page(page)
     for page in PdfReader(io.BytesIO(cert)).pages:
         writer.add_page(page)

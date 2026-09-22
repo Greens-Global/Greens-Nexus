@@ -156,6 +156,9 @@ def _run_migrations():
             "ALTER TABLE hr_sign_events ADD COLUMN hash_version INTEGER DEFAULT 1",
             "ALTER TABLE hr_sign_requests ADD COLUMN certificate_html TEXT DEFAULT ''",
             "ALTER TABLE hr_sign_requests ADD COLUMN certificate_sha256 VARCHAR DEFAULT ''",
+            # How many pages of the sealed PDF are the DOCUMENT - the rest is
+            # the certificate. Lets "Download" hand back the document alone.
+            "ALTER TABLE hr_sign_requests ADD COLUMN content_pages INTEGER DEFAULT 0",
             "ALTER TABLE hr_sign_requests ADD COLUMN certificate_snapshot JSON",
             "ALTER TABLE hr_sign_requests ADD COLUMN document_class VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_requests ADD COLUMN governing_law VARCHAR DEFAULT ''",
@@ -1012,6 +1015,7 @@ def _run_migrations():
         "ALTER TABLE hr_sign_events ADD COLUMN IF NOT EXISTS hash_version INTEGER DEFAULT 1",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS certificate_html TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS certificate_sha256 TEXT DEFAULT ''",
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS content_pages INTEGER DEFAULT 0",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS certificate_snapshot JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS document_class TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS governing_law TEXT DEFAULT ''",
