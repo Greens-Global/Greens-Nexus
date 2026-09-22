@@ -13,6 +13,7 @@ import TimeAdmin            from '../components/TimeAdmin';
 import { navigate }         from './widgets.jsx';
 import { formatDateTime }   from '../lib/datetime';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { useIsMobile }      from '../lib/useIsMobile';
 
 const Card = ({ title, sub, action, children }) => (
   <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
@@ -683,6 +684,12 @@ export function CalendarPanel() {
   const [state, setState] = useState({ loading: true, available: true, events: [] });
   const [birthdays, setBirthdays] = useState([]);   // [{name, month, day}] - whole roster, fetched once
   const [holidays, setHolidays] = useState([]);      // [{date, name, type}] - caller's own company, fetched once
+  // Side-by-side (month grid | My Agenda) only makes sense with room for
+  // both - on a phone the grid should run full width, agenda stacked below
+  // (Pranshu, Sep 22: "this calendar should be full and the agenda below
+  // it"), not the flex-wrap fallback that left a stray divider line hanging
+  // off the now-wrapped agenda pane with nothing to its left anymore.
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     let alive = true;
@@ -812,7 +819,7 @@ export function CalendarPanel() {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, height: '100%' }}>
           {/* Left pane: the month grid. Fixed width - only the agenda pane
               should grow when the widget is resized wider. */}
-          <div style={{ flex: '0 0 220px', minWidth: 210 }}>
+          <div style={isMobile ? { flex: '1 1 100%', width: '100%' } : { flex: '0 0 220px', minWidth: 210 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center', marginBottom: 4 }}>
               {MONTH_WEEKDAYS.map((w, i) => (
                 <div key={i} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '2px 0' }}>{w}</div>
@@ -858,7 +865,9 @@ export function CalendarPanel() {
           {/* Right pane: My Agenda, for whichever day is selected in the grid -
               same `state.events` fetch, just filtered to `selected`, so it can
               never disagree with the dots on the left. */}
-          <div style={{ flex: '1 1 240px', minWidth: 220, borderLeft: '1px solid var(--line)', paddingLeft: 18, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div style={isMobile
+            ? { flex: '1 1 100%', width: '100%', marginTop: 10, display: 'flex', flexDirection: 'column', minHeight: 0 }
+            : { flex: '1 1 240px', minWidth: 220, borderLeft: '1px solid var(--line)', paddingLeft: 18, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', padding: '0 2px 8px' }}>
               My Agenda
             </div>
