@@ -24,6 +24,9 @@ import email
 from routers import esign as esign_mod
 from routers.esign import _from_display, _sign_email_html, _graph_send_mail
 
+CRLF = bytes([13, 10])
+LF = bytes([10])
+
 SENDER = {"name": "Sagar Shoundik", "email": "sagar.shoundik@greensglobal.com",
           "title": "Software Engineer", "phone": "", "entity": "Greens Global"}
 
@@ -122,6 +125,24 @@ class GraphSendTests(unittest.TestCase):
         self.assertEqual(addr, "nexus@greensglobal.com")
         self.assertEqual(msg["Reply-To"], SENDER["email"])
         self.assertEqual(msg["To"], "jane@example.com")
+
+    def test_the_mime_uses_crlf_so_soft_line_breaks_survive(self):
+        """The one that reached real inboxes: Python's default policy
+        serializes with bare LF, and a MIME message on the wire must use CRLF.
+        With LF the quoted-printable soft line breaks lost their newline
+        somewhere downstream and the "=" was left sitting in the text, eating
+        the character beside it - "Signature Requested" arrived as "Signature
+        =equested" and "</div>" as "<=div>", once every 76 columns through the
+        whole mail (Sagar, Sep 22 2026)."""
+        long_line = "<p>" + ("Sagar Kumar Shoundik has asked you to review and sign "
+                             "the Joining Letter. ") * 4 + "</p>"
+        fake, (ok, _) = self._send(html=long_line)
+        self.assertTrue(ok)
+        raw = base64.b64decode(fake.calls[0][1]["content"])
+        self.assertNotIn(LF, raw.replace(CRLF, b""), "bare LF in the MIME")
+        # And the body really is long enough to be wrapped, so the assertion
+        # above is testing something.
+        self.assertIn(b"=" + CRLF, raw, "no soft line break to check")
 
     def test_mime_is_posted_as_base64_text_not_the_json_envelope(self):
         fake, _ = self._send()
