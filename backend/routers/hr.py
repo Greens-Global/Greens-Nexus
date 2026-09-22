@@ -1928,7 +1928,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
 # ---------------------------------------------------------------------------
 # HR Section A - Companies/Entities + Work Sites (structural foundation)
 # ---------------------------------------------------------------------------
-from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday, HrHolidayPolicy, HrManualSignature
+from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday, HrHolidayPolicy
 
 
 class EntityIn(BaseModel):
@@ -1972,8 +1972,6 @@ class EntityUpdate(BaseModel):
     twitter_url:        Optional[str] = None
     instagram_url:      Optional[str] = None
     signature_template: Optional[str] = None
-    signature_recipient_scope: Optional[str] = None
-    signature_sender_overrides: Optional[list] = None
     notes:              Optional[str] = None
     domains:            Optional[str] = None
     manager_email:      Optional[str] = None
@@ -2006,8 +2004,6 @@ def _serialize_entity(e: HrEntity) -> dict:
         "facebookUrl": e.facebook_url or "", "linkedinUrl": e.linkedin_url or "",
         "twitterUrl": e.twitter_url or "", "instagramUrl": e.instagram_url or "",
         "signatureTemplate": e.signature_template or "classic",
-        "signatureRecipientScope": e.signature_recipient_scope or "all",
-        "signatureSenderOverrides": e.signature_sender_overrides or [],
         "notes": e.notes, "domains": e.domains or "",
         "managerEmail": e.manager_email or "",
         "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
@@ -2075,44 +2071,6 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
         from routers.myhr import SIGNATURE_TEMPLATES
         if body.signature_template not in SIGNATURE_TEMPLATES:
             raise HTTPException(400, "Unknown signature template")
-    if body.signature_recipient_scope is not None:
-        from routers.myhr import SIGNATURE_RECIPIENT_SCOPES
-        if body.signature_recipient_scope not in SIGNATURE_RECIPIENT_SCOPES:
-            raise HTTPException(400, "Unknown signature recipient scope")
-    if body.signature_sender_overrides is not None:
-        from routers.myhr import SIGNATURE_TEMPLATES, _OVERRIDE_FIELD_KEYS
-        cleaned = []
-        for grp in body.signature_sender_overrides:
-            if not isinstance(grp, dict):
-                continue
-            tmpl = grp.get("template")
-            if tmpl not in SIGNATURE_TEMPLATES:
-                raise HTTPException(400, "Unknown signature template in sender override")
-            # Free-typed (Sep 22, Pranshu: "admin should have the control to
-            # type down the email id") - not restricted to Nexus employees,
-            # since this is exactly how a shared mailbox with no HR record
-            # gets covered. Only a bare "contains @" sanity check, no
-            # directory lookup.
-            emails = sorted({str(x).strip().lower() for x in (grp.get("emails") or []) if "@" in str(x).strip()})
-            if not emails:
-                continue
-            raw_fields = grp.get("fields") or {}
-            fields = {k: str(raw_fields.get(k) or "").strip()[:300] for k in _OVERRIDE_FIELD_KEYS}
-            custom_fields = _clean_custom_fields(grp.get("customFields"))
-            # Whatever order the admin last dragged into - only ever read
-            # back key-by-key (myhr._ordered_row_values skips anything
-            # unrecognized), so no validation needed beyond "is a list".
-            field_order = [str(k) for k in (grp.get("fieldOrder") or []) if isinstance(k, str)]
-            cleaned.append({
-                "id": str(grp.get("id") or uuid.uuid4()),
-                "label": str(grp.get("label") or "").strip()[:80],
-                "emails": emails,
-                "template": tmpl,
-                "fields": fields,
-                "customFields": custom_fields,
-                "fieldOrder": field_order,
-            })
-        body.signature_sender_overrides = cleaned
     fields = body.model_dump(exclude_unset=True)
     # manager_emails (the list) is the source of truth whenever the request sends
     # it - skip the plain manager_email key entirely so processing order can't
@@ -2223,17 +2181,91 @@ def entity_signature_templates(entity_id: str,
     scope = hr_scope(user, db)
     if scope is not None and entity_id not in scope:
         raise HTTPException(404, "Entity not found")
-    from routers.myhr import admin_preview_templates, _render_override_signature
-    overrides = row.signature_sender_overrides or []
+    from routers.myhr import admin_preview_templates
     return {
         "templates": admin_preview_templates(row),
         "template": row.signature_template or "classic",
-        "recipientScope": row.signature_recipient_scope or "all",
-        # previewHtml is the SAVED state, re-rendered on every load (Sep 22) -
-        # not live while the admin is still typing in the modal, that's what
-        # /signature-sender-overrides/preview below is for.
+    }
+
+
+# ── Sender template overrides - global, not tied to any company (Sep 22,
+# Pranshu: "it will be for all whom email id we are adding so it should not
+# be company specific"). Storage/validation logic lives in myhr.py
+# (get_sender_overrides, SENDER_OVERRIDES_SETTING_KEY) since myhr.py is what
+# actually renders them; this router only exposes the admin CRUD surface.
+_MAX_SENDER_OVERRIDE_CUSTOM_FIELDS = 12
+
+
+def _clean_custom_fields(raw) -> list:
+    out = []
+    for item in (raw or [])[:_MAX_SENDER_OVERRIDE_CUSTOM_FIELDS]:
+        label = str((item or {}).get("label", "")).strip()[:60]
+        value = str((item or {}).get("value", "")).strip()[:200]
+        if label or value:
+            out.append({"label": label, "value": value})
+    return out
+
+
+class SenderOverridesIn(BaseModel):
+    overrides: list
+
+
+@router.get("/signature-sender-overrides")
+def get_signature_sender_overrides(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    from routers.myhr import get_sender_overrides, _render_override_signature, SIGNATURE_TEMPLATES
+    overrides = get_sender_overrides(db)
+    return {
+        "templates": [{"id": tid, "label": label} for tid, (label, _) in SIGNATURE_TEMPLATES.items()],
+        # previewHtml is the SAVED state, re-rendered on every load - not live
+        # while the admin is still typing, that's what the /preview endpoint
+        # below is for.
         "senderOverrides": [{**grp, "previewHtml": _render_override_signature(grp)["html"]} for grp in overrides],
     }
+
+
+@router.put("/signature-sender-overrides")
+def save_signature_sender_overrides(body: SenderOverridesIn,
+                                    user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    from routers.myhr import SIGNATURE_TEMPLATES, _OVERRIDE_FIELD_KEYS, SENDER_OVERRIDES_SETTING_KEY
+    cleaned = []
+    for grp in body.overrides:
+        if not isinstance(grp, dict):
+            continue
+        tmpl = grp.get("template")
+        if tmpl not in SIGNATURE_TEMPLATES:
+            raise HTTPException(400, "Unknown signature template in sender override")
+        # Free-typed (Sep 22, Pranshu: "admin should have the control to type
+        # down the email id") - not restricted to Nexus employees, since this
+        # is exactly how a shared mailbox with no HR record gets covered.
+        # Only a bare "contains @" sanity check, no directory lookup.
+        emails = sorted({str(x).strip().lower() for x in (grp.get("emails") or []) if "@" in str(x).strip()})
+        if not emails:
+            continue
+        raw_fields = grp.get("fields") or {}
+        fields = {k: str(raw_fields.get(k) or "").strip()[:300] for k in _OVERRIDE_FIELD_KEYS}
+        custom_fields = _clean_custom_fields(grp.get("customFields"))
+        # Whatever order the admin last dragged into - only ever read back
+        # key-by-key (myhr._ordered_row_values skips anything unrecognized),
+        # so no validation needed beyond "is a list".
+        field_order = [str(k) for k in (grp.get("fieldOrder") or []) if isinstance(k, str)]
+        cleaned.append({
+            "id": str(grp.get("id") or uuid.uuid4()),
+            "label": str(grp.get("label") or "").strip()[:80],
+            "emails": emails,
+            "template": tmpl,
+            "fields": fields,
+            "customFields": custom_fields,
+            "fieldOrder": field_order,
+        })
+    row = db.query(NexusSetting).filter(NexusSetting.key == SENDER_OVERRIDES_SETTING_KEY).first()
+    if not row:
+        row = NexusSetting(key=SENDER_OVERRIDES_SETTING_KEY)
+        db.add(row)
+    row.value = json.dumps(cleaned)
+    row.updated_by = user["email"]
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    return get_signature_sender_overrides(user=user, db=db)
 
 
 class SenderOverridePreviewIn(BaseModel):
@@ -2243,19 +2275,13 @@ class SenderOverridePreviewIn(BaseModel):
     field_order: Optional[list] = None
 
 
-@router.post("/entities/{entity_id}/signature-sender-overrides/preview")
-def preview_sender_override(entity_id: str, body: SenderOverridePreviewIn,
+@router.post("/signature-sender-overrides/preview")
+def preview_sender_override(body: SenderOverridePreviewIn,
                             user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """Live preview while the admin is still editing an override in the
     modal - nothing here is persisted. Reuses the exact same render path a
     real send would take (myhr._render_override_signature), so what's shown
     here is guaranteed to match what actually goes out."""
-    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
-    if not row:
-        raise HTTPException(404, "Entity not found")
-    scope = hr_scope(user, db)
-    if scope is not None and entity_id not in scope:
-        raise HTTPException(404, "Entity not found")
     from routers.myhr import SIGNATURE_TEMPLATES, _render_override_signature, _OVERRIDE_FIELD_KEYS
     tmpl = body.template if body.template in SIGNATURE_TEMPLATES else "classic"
     raw_fields = body.fields or {}
@@ -2268,157 +2294,22 @@ def preview_sender_override(entity_id: str, body: SenderOverridePreviewIn,
     return _render_override_signature(grp)
 
 
-# ── Manual (non-directory) signatures - a hand-filled signature for a sender
-# email Nexus doesn't have an employee record for (Sep 19, Pranshu: "if the
-# email is not integrated in NEXUS but we want the same sig for that sender
-# email"). Rendered with the company's own picked template, same as everyone
-# else's, just fed from typed-in fields instead of NexusEmployee.
-_MAX_MANUAL_SIG_CUSTOM_FIELDS = 12
-
-
-class ManualSignatureIn(BaseModel):
-    name:          str
-    title:         Optional[str] = ""
-    company_name:  Optional[str] = ""
-    address:       Optional[str] = ""
-    url:           Optional[str] = ""
-    custom_fields: Optional[list] = None   # [{"label": "...", "value": "..."}]
-
-
-def _clean_custom_fields(raw) -> list:
-    out = []
-    for item in (raw or [])[:_MAX_MANUAL_SIG_CUSTOM_FIELDS]:
-        label = str((item or {}).get("label", "")).strip()[:60]
-        value = str((item or {}).get("value", "")).strip()[:200]
-        if label or value:
-            out.append({"label": label, "value": value})
-    return out
-
-
-def _serialize_manual_signature(row: HrManualSignature, company: HrEntity) -> dict:
-    from routers.myhr import render_manual_signature
-    rendered = render_manual_signature(row, company)
-    return {
-        "id": row.id, "name": row.name, "title": row.title, "companyName": row.company_name,
-        "address": row.address, "url": row.url, "logoUrl": row.logo_url,
-        "customFields": row.custom_fields or [], "html": rendered["html"],
-    }
-
-
-def _get_entity_or_404(entity_id: str, user: dict, db: Session) -> HrEntity:
-    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
-    if not row:
-        raise HTTPException(404, "Entity not found")
-    scope = hr_scope(user, db)
-    if scope is not None and entity_id not in scope:
-        raise HTTPException(404, "Entity not found")
-    return row
-
-
-@router.get("/entities/{entity_id}/manual-signatures")
-def list_manual_signatures(entity_id: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    company = _get_entity_or_404(entity_id, user, db)
-    rows = (db.query(HrManualSignature).filter(HrManualSignature.company_id == entity_id)
-            .order_by(HrManualSignature.created_at).all())
-    return [_serialize_manual_signature(r, company) for r in rows]
-
-
-@router.post("/entities/{entity_id}/manual-signatures")
-def create_manual_signature(entity_id: str, body: ManualSignatureIn,
-                            user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    company = _get_entity_or_404(entity_id, user, db)
-    if not body.name.strip():
-        raise HTTPException(400, "name is required")
-    now = datetime.now(timezone.utc).isoformat()
-    row = HrManualSignature(
-        id=str(uuid.uuid4()), company_id=entity_id, name=body.name.strip()[:120],
-        title=(body.title or "").strip()[:120], company_name=(body.company_name or "").strip()[:200],
-        address=(body.address or "").strip()[:300], url=(body.url or "").strip()[:300],
-        custom_fields=_clean_custom_fields(body.custom_fields),
-        created_by=user["email"], created_at=now, updated_at=now,
-    )
-    db.add(row); db.commit(); db.refresh(row)
-    return _serialize_manual_signature(row, company)
-
-
-@router.put("/entities/{entity_id}/manual-signatures/{sig_id}")
-def update_manual_signature(entity_id: str, sig_id: str, body: ManualSignatureIn,
-                            user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    company = _get_entity_or_404(entity_id, user, db)
-    row = db.query(HrManualSignature).filter(HrManualSignature.id == sig_id,
-                                              HrManualSignature.company_id == entity_id).first()
-    if not row:
-        raise HTTPException(404, "Signature not found")
-    if not body.name.strip():
-        raise HTTPException(400, "name is required")
-    row.name = body.name.strip()[:120]
-    row.title = (body.title or "").strip()[:120]
-    row.company_name = (body.company_name or "").strip()[:200]
-    row.address = (body.address or "").strip()[:300]
-    row.url = (body.url or "").strip()[:300]
-    row.custom_fields = _clean_custom_fields(body.custom_fields)
-    row.updated_at = datetime.now(timezone.utc).isoformat()
-    db.commit(); db.refresh(row)
-    return _serialize_manual_signature(row, company)
-
-
-@router.delete("/entities/{entity_id}/manual-signatures/{sig_id}")
-def delete_manual_signature(entity_id: str, sig_id: str,
-                            user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    _get_entity_or_404(entity_id, user, db)
-    row = db.query(HrManualSignature).filter(HrManualSignature.id == sig_id,
-                                              HrManualSignature.company_id == entity_id).first()
-    if row:
-        db.delete(row); db.commit()
-    return {"ok": True}
-
-
-@router.post("/entities/{entity_id}/manual-signatures/{sig_id}/logo")
-async def upload_manual_signature_logo(entity_id: str, sig_id: str, file: UploadFile = File(...),
-                                       user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    company = _get_entity_or_404(entity_id, user, db)
-    row = db.query(HrManualSignature).filter(HrManualSignature.id == sig_id,
-                                              HrManualSignature.company_id == entity_id).first()
-    if not row:
-        raise HTTPException(404, "Signature not found")
-    content_type = file.content_type or ""
-    ext = _IMAGE_TYPES.get(content_type)
-    if not ext:
-        raise HTTPException(400, "Logo must be JPEG, PNG, WebP, or GIF")
-    data = await file.read()
-    if len(data) > _MAX_AVATAR_BYTES:
-        raise HTTPException(400, "Logo must be under 5 MB")
-    path = f"manual-signatures/{sig_id}/{uuid.uuid4()}.{ext}"
-    resp = httpx.post(
-        f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
-        headers={**_storage_headers(), "Content-Type": content_type, "cache-control": "max-age=31536000"},
-        content=data, timeout=60,
-    )
-    if not resp.is_success:
-        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
-    row.logo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
-    row.updated_at = datetime.now(timezone.utc).isoformat()
-    db.commit(); db.refresh(row)
-    return _serialize_manual_signature(row, company)
-
-
-@router.post("/entities/{entity_id}/signature-sender-overrides/logo")
-async def upload_sender_override_logo(entity_id: str, file: UploadFile = File(...),
+@router.post("/signature-sender-overrides/logo")
+async def upload_sender_override_logo(file: UploadFile = File(...),
                                       user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """Upload-and-return-a-URL only (Sep 22, Pranshu: "should be same as we
-    upload in for normal employee") - a sender override isn't its own DB row
-    (it lives inside HrEntity.signature_sender_overrides, only written on the
-    section's whole-list Save), so unlike upload_manual_signature_logo above
-    there's no row here to attach the URL to; the frontend puts the returned
-    URL straight into the in-progress override's fields.logoUrl."""
-    _get_entity_or_404(entity_id, user, db)
+    upload in for normal employee") - an override isn't its own DB row (it
+    lives inside the global signature-sender-overrides setting, only written
+    on the section's whole-list Save), so there's no row here to attach the
+    URL to; the frontend puts the returned URL straight into the in-progress
+    override's fields.logoUrl."""
     ext = _IMAGE_TYPES.get(file.content_type or "")
     if not ext:
         raise HTTPException(400, "Logo must be JPEG, PNG, WebP, or GIF")
     data = await file.read()
     if len(data) > _MAX_AVATAR_BYTES:
         raise HTTPException(400, "Logo must be under 5 MB")
-    path = f"entities/{entity_id}/sender-override-logo-{uuid.uuid4()}.{ext}"
+    path = f"signature-sender-overrides/{uuid.uuid4()}.{ext}"
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
         headers={**_storage_headers(), "Content-Type": file.content_type, "cache-control": "max-age=31536000"},

@@ -8,6 +8,7 @@ the HR team; this router is the scoped-to-self counterpart:
 Leave (time off) reuses the existing /timeclock/timeoff endpoints.
 """
 import html as html_lib
+import json
 import re
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -581,38 +582,6 @@ def admin_preview_templates(company) -> list:
             for tid, (label, render_fn) in SIGNATURE_TEMPLATES.items()]
 
 
-def manual_signature_fields(row, company) -> dict:
-    """Field dict for a HrManualSignature row - same shape `_signature_fields`
-    builds for a directory employee, so it can reuse the exact same
-    SIGNATURE_TEMPLATES render functions (Sep 19: "the same sig for that
-    sender email"). No phone/email/social slots (nothing in the manual form
-    collects them) - anything extra goes through `extraFields` instead."""
-    return {
-        "name": row.name, "role": row.title or "", "phone": "", "email": "",
-        "photoUrl": "", "closing": "",
-        "logoUrl": row.logo_url or "",
-        "website": row.url or "",
-        "address": row.address or "",
-        "companyPhone": "",
-        "companyName": row.company_name or "",
-        "facebookUrl": "", "linkedinUrl": "", "twitterUrl": "", "instagramUrl": "",
-        "extraFields": row.custom_fields or [],
-    }
-
-
-def render_manual_signature(row, company) -> dict:
-    fields = manual_signature_fields(row, company)
-    esc = {
-        k: html_lib.escape(v) if isinstance(v, str) else
-           [{"label": html_lib.escape(i.get("label", "")), "value": html_lib.escape(i.get("value", ""))} for i in v]
-        for k, v in fields.items()
-    }
-    tid = (company.signature_template if company else "") or _DEFAULT_TEMPLATE
-    if tid not in SIGNATURE_TEMPLATES:
-        tid = _DEFAULT_TEMPLATE
-    return {"fields": fields, "html": SIGNATURE_TEMPLATES[tid][1](esc), "template": tid}
-
-
 # Sender template overrides (Settings - Sep 22, Pranshu: "admin should have
 # the control to type down the email id for which they want different
 # email... all the fields that can be editable and also should have custom
@@ -620,14 +589,34 @@ def render_manual_signature(row, company) -> dict:
 # - not just its template skin - so it covers a shared mailbox with no Nexus
 # employee record exactly as well as a real employee's address whose content
 # an admin wants to fully author instead of pulling from the directory.
+#
+# Global, not per-company (Sep 22, Pranshu: "it will be for all whom email id
+# we are adding so it should not be company specific") - a typed-in email can
+# belong to any company or none at all, so unlike signature_template (a real
+# company-wide default) this doesn't belong on HrEntity. Stored as a single
+# row in NexusSetting (existing key-value table, same tier as the HR group
+# manager singleton below) rather than a new table - admin-managed, saved
+# whole on each edit, no per-row queries needed.
 _OVERRIDE_FIELD_KEYS = (
     "name", "role", "phone", "email", "website", "address",
     "companyName", "companyPhone", "logoUrl",
     "facebookUrl", "linkedinUrl", "twitterUrl", "instagramUrl", "closing",
 )
+SENDER_OVERRIDES_SETTING_KEY = "signature.sender_overrides"
 
 
-def _find_sender_override(email: str, company) -> Optional[dict]:
+def get_sender_overrides(db: Session) -> list:
+    from models import NexusSetting
+    row = db.query(NexusSetting).filter(NexusSetting.key == SENDER_OVERRIDES_SETTING_KEY).first()
+    if not row or not row.value:
+        return []
+    try:
+        return json.loads(row.value) or []
+    except (TypeError, ValueError):
+        return []
+
+
+def _find_sender_override(email: str, db: Session) -> Optional[dict]:
     """First {id, label, emails, template, fields, customFields, fieldOrder}
     group whose emails list contains this sender's own address (case-
     insensitive) - None if none match. First match wins if an address
@@ -635,7 +624,7 @@ def _find_sender_override(email: str, company) -> Optional[dict]:
     email = (email or "").strip().lower()
     if not email:
         return None
-    for grp in ((company.signature_sender_overrides if company else None) or []):
+    for grp in get_sender_overrides(db):
         if email in (grp.get("emails") or []):
             return grp
     return None
@@ -665,7 +654,7 @@ def _render_override_signature(grp: dict) -> dict:
 def _render_signature(e: NexusEmployee, db: Session, template: str = None) -> dict:
     company = db.query(HrEntity).filter(HrEntity.id == e.company).first() if e.company else None
     if template is None:
-        override = _find_sender_override(e.work_email, company)
+        override = _find_sender_override(e.work_email, db)
         if override:
             return _render_override_signature(override)
     fields = _signature_fields(e, db)
@@ -677,39 +666,6 @@ def _render_signature(e: NexusEmployee, db: Session, template: str = None) -> di
     if tid not in SIGNATURE_TEMPLATES:
         tid = _DEFAULT_TEMPLATE
     return {"fields": fields, "html": SIGNATURE_TEMPLATES[tid][1](esc), "template": tid}
-
-
-# Recipient targeting (Sep 22, Pranshu): "different treatment for internal
-# vs external recipients" - kept to the smallest useful shape (suppress the
-# whole signature, no separate internal/external content) rather than adding
-# a disclaimer feature that doesn't exist yet. Company-wide, same tier as
-# SIGNATURE_TEMPLATES.
-SIGNATURE_RECIPIENT_SCOPES = ("all", "internal", "external")
-
-
-def _company_domains(company) -> set:
-    return {d for d in ((company.domains if company else "") or "").split(",") if d}
-
-
-def _is_internal_recipient(email: str, domains: set) -> bool:
-    return "@" in email and email.rsplit("@", 1)[-1].strip().lower() in domains
-
-
-def recipient_scope_ok(scope: str, company, recipients: list) -> bool:
-    """True if this signature should be inserted for this recipient list.
-    Empty `recipients` (nothing typed yet, e.g. a brand-new compose the
-    instant it opens) always passes - there's nothing to judge yet, and the
-    Outlook add-in re-checks with the final list right before send
-    (OnMessageSend), which is what actually has to be correct."""
-    if scope == "all" or not recipients:
-        return True
-    domains = _company_domains(company)
-    all_internal = all(_is_internal_recipient(r, domains) for r in recipients)
-    if scope == "internal":
-        return all_internal
-    if scope == "external":
-        return not all_internal
-    return True
 
 
 def _signature_dict(e: NexusEmployee, db: Session) -> dict:

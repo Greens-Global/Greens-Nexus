@@ -16,51 +16,29 @@ function withTimeout(promise, ms) {
   ]);
 }
 
-function getRecipientEmails() {
-  const item = Office.context.mailbox.item;
-  const getField = (field) => new Promise(resolve => {
-    field.getAsync(r => resolve(r.status === Office.AsyncResultStatus.Succeeded ? r.value : []));
-  });
-  return Promise.all([getField(item.to), getField(item.cc)])
-    .then(([to, cc]) => [...to, ...cc].map(p => p.emailAddress).filter(Boolean));
-}
-
-function fetchSignatureHtml(recipients) {
+function fetchSignatureHtml() {
   return new Promise((resolve, reject) => {
     Office.auth.getAccessToken({ allowSignInPrompt: true, allowConsentPrompt: true })
-      .then(token => fetch(
-        `${NEXUS_API_BASE}/outlook-addin/signature?recipients=${encodeURIComponent(recipients.join(","))}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      ))
+      .then(token => fetch(`${NEXUS_API_BASE}/outlook-addin/signature`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }))
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(data => resolve(data.html || ""))
       .catch(reject);
   });
 }
 
-function applySignature() {
-  return getRecipientEmails()
-    .then(recipients => withTimeout(fetchSignatureHtml(recipients), FETCH_TIMEOUT_MS))
-    .then(html => new Promise(resolve => {
+function onNewMessageComposeHandler(event) {
+  withTimeout(fetchSignatureHtml(), FETCH_TIMEOUT_MS)
+    .then(html => {
+      if (!html) { event.completed(); return; }
       Office.context.mailbox.item.body.setSignatureAsync(
         html,
         { coercionType: Office.CoercionType.Html },
-        () => resolve(),
+        () => event.completed(),
       );
-    }));
-}
-
-function onNewMessageComposeHandler(event) {
-  applySignature()
-    .catch(() => {})
-    .then(() => event.completed());
-}
-
-function onMessageSendHandler(event) {
-  applySignature()
-    .catch(() => {})
-    .then(() => event.completed({ allowEvent: true }));
+    })
+    .catch(() => event.completed());
 }
 
 Office.actions.associate("onNewMessageComposeHandler", onNewMessageComposeHandler);
-Office.actions.associate("onMessageSendHandler", onMessageSendHandler);
