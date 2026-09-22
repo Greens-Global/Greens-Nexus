@@ -78,8 +78,9 @@ keep the diff minimal.
   `get_advisors` after every release — this gap recurs.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
-  `return-photos`, `ticket-evidence`, `qa-evidence` have `public = false` on
-  dev and prod. The database still stores the canonical
+  `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,
+  `ir-documents` have `public = false` on dev and prod (`document-images`
+  stays public: e-sign signers load it with no login). The database still stores the canonical
   `.../object/public/<bucket>/<path>` URL; browsers open it only through
   `GET /files/view?u=<url>` (`routers/files.py`, signed-URL redirect, login
   required). `api.js` rewrites those URLs to the viewer on every response and
