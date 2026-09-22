@@ -2964,7 +2964,19 @@ def public_holidays(country: str = "US", year: Optional[int] = None, user: dict 
         result = _fetch_google_holidays(country, yr)
     if result is None:
         raise HTTPException(404, "No public holiday data available for this country yet - add holidays manually instead")
-    return result
+    # Nager returns one row per subdivision/county a holiday is observed in
+    # (e.g. Good Friday, county-specific in the US) - same date+name repeated,
+    # which read as visible duplicates in the picker (Pranshu, Sep 22) since
+    # the county detail itself is never surfaced or used. Dedupe by (date,
+    # name), keeping first-seen order.
+    seen, deduped = set(), []
+    for h in result:
+        key = (h.get("date"), h.get("name"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(h)
+    return deduped
 
 
 # ---------------------------------------------------------------------------
