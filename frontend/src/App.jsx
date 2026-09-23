@@ -388,9 +388,12 @@ function parsePath() {
   // page just land on plain Dashboard, where any manager-tier widgets they had
   // now live alongside everything else.
   if (raw === 'manager-dashboard') return { view: 'dashboard', sub: null };
-  // External Links folded into Dashboard as a tab (Sep 3) - old
-  // bookmarks/links to the standalone /external-links page land on that tab.
-  if (raw === 'external-links') return { view: 'dashboard', sub: 'external-links' };
+  // Links is a Dashboard tab (folded in Sep 3) that keeps its own short
+  // address, /links (Sep 22) - the tab key is 'links' and the address-bar
+  // effect below writes it as /links rather than /dashboard/links. The old
+  // /external-links and /dashboard/external-links forms still land there.
+  if (raw === 'links' || raw === 'external-links') return { view: 'dashboard', sub: 'links' };
+  if (raw === 'dashboard' && segs[1] === 'external-links') return { view: 'dashboard', sub: 'links' };
   return { view: PATH_TO_VIEW[raw] || raw, sub: segs[1] || null };
 }
 
@@ -588,8 +591,10 @@ function MainApp() {
     // search results, the Sidebar) lands correctly without each one having
     // to know the view was merged elsewhere.
     if (view === 'manager-dashboard') { view = 'dashboard'; sub = sub ?? null; }
-    // 'external-links' folded into Dashboard as a tab (Sep 3) - same reasoning.
-    if (view === 'external-links') { view = 'dashboard'; sub = sub ?? 'external-links'; }
+    // 'external-links' folded into Dashboard as a tab (Sep 3) - same
+    // reasoning. The tab key is 'links' (Sep 22); the old key still maps.
+    if (view === 'external-links' || view === 'links') { view = 'dashboard'; sub = 'links'; }
+    if (view === 'dashboard' && sub === 'external-links') sub = 'links';
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);
@@ -633,9 +638,12 @@ function MainApp() {
   useEffect(() => {
     if (fromPopstate.current) { fromPopstate.current = false; prevLocRef.current = { view: activeView, sub: activeSub }; return; }
     const seg = VIEW_TO_PATH[activeView] || activeView;
+    // The Links tab gets the short /links address (Sep 22) - see parsePath.
     const path = activeView === 'dashboard' && !activeSub
       ? '/'
-      : `/${seg}${activeSub ? `/${activeSub}` : ''}`;
+      : activeView === 'dashboard' && activeSub === 'links'
+        ? '/links'
+        : `/${seg}${activeSub ? `/${activeSub}` : ''}`;
     if (window.location.pathname !== path) {
       const depth = (window.history.state?.depth || 0) + 1;
       const fromLabel = viewLabel(prevLocRef.current.view);

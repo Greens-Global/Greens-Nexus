@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Settings, ArrowLeft, Pencil, Search } from 'lucide-react';
+import { Settings2, ArrowLeft, Pencil, Search } from 'lucide-react';
 
 import { PT } from './lib/propertyFields.js';
 import { ASSET_SCHEMAS, inferAssetKind } from './lib/vehicleFields.js';
@@ -635,7 +635,7 @@ export default function App() {
             {loading && !visibleProperties.length ? '…' : `${pulse.assets}${pulse.assets === 1 ? ' Asset' : ' Assets'}`}
           </span>
           <button className="primary-btn" onClick={() => navigate('manage')} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Settings size={14} /> Manage
+            <Settings2 size={14} /> Manage
             {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
           </button>
         </div>
@@ -661,7 +661,7 @@ export default function App() {
             <HealthStrip p={active} store={store} logs={store.logs} />
           </div>
           <button className="primary-btn" onClick={() => navigate('manage')} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexShrink: 0 }}>
-            <Settings size={14} /> Manage
+            <Settings2 size={14} /> Manage
             {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
           </button>
         </div>
