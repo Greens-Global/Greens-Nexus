@@ -4351,6 +4351,101 @@ button, [role="button"], select { touch-action: manipulation; }
 .folder-picker-item:hover { background: var(--mist); }
 .folder-picker-new { color: var(--wk-brand); font-weight: 600; }
 
+/* ── Links: phone-style drag and drop (Sep 22) ─────────────────────────────
+   The gesture lives in views/useTileDrag.js; this is what it looks like:
+   the Customize-mode jiggle, the lifted ghost that follows the pointer, the
+   tile that opens up to receive a fold, tiles gliding to new places after a
+   commit, and the folder panel growing out of its own tile. */
+.app-tile { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.app-tile img { -webkit-user-drag: none; user-drag: none; pointer-events: none; }
+/* One wrapper carries the jiggle (a transform animation) so it never fights
+   the slide-over transform the drag puts on .app-tile itself. z-index: 0
+   makes it a stacking context, which is what lets the fold ring below sit
+   behind the icon without falling behind the page. */
+.app-tile-body { display: flex; flex-direction: column; align-items: center; width: 100%; position: relative; z-index: 0; }
+@keyframes tile-jiggle {
+  0%   { transform: rotate(-1.4deg) translate(.4px, -.3px); }
+  100% { transform: rotate(1.4deg) translate(-.4px, .3px); }
+}
+.app-grid.jiggle .app-tile:not(.app-tile-add) .app-tile-body {
+  animation: tile-jiggle .42s ease-in-out infinite alternate;
+  animation-delay: var(--jiggle-phase, 0ms);
+}
+.app-grid.jiggle .app-tile:not(.app-tile-add) { cursor: grab; }
+.app-tile-icon-wrap { transition: transform .18s cubic-bezier(.2,.8,.2,1); }
+/* Pressed and waiting for the hold to lift it. */
+.app-tile-holding .app-tile-icon-wrap { transform: scale(.94); }
+/* The tile being dragged stays in the flow as an invisible placeholder -
+   the ghost is what the person sees moving. */
+.app-tile-dragging { visibility: hidden; }
+body.links-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+body.links-dragging .app-tile:hover { transform: none; background: transparent; }
+body.links-dragging .app-tile-actions { opacity: 0 !important; pointer-events: none !important; }
+body.links-dragging .app-tile-tooltip { opacity: 0 !important; visibility: hidden !important; }
+
+#links-drag-layer { position: fixed; inset: 0; pointer-events: none; z-index: 3000; }
+.app-tile-ghost {
+  pointer-events: none; will-change: transform;
+  background: var(--card); border-radius: 18px;
+  box-shadow: 0 2px 6px rgba(17,24,39,.08);
+  transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, opacity .2s ease;
+}
+.app-tile-ghost.lifted { box-shadow: 0 22px 46px rgba(17,24,39,.30), 0 4px 12px rgba(17,24,39,.14); }
+.app-tile-ghost.following { transition: box-shadow .2s ease, opacity .2s ease; }
+.app-tile-ghost .app-tile-body { animation: none !important; }
+
+/* The tile the ghost is resting on: its icon swells and a soft ring appears
+   behind it - "let go and these two become a folder" (or "…join this
+   folder"). */
+.app-tile-fold-target .app-tile-icon-wrap { transform: scale(1.14); }
+.app-tile-fold-target .app-tile-body::before {
+  content: ''; position: absolute; left: 50%; top: 30px; width: 86px; height: 86px; margin: -43px 0 0 -43px;
+  border-radius: 26px; background: var(--wk-brand-tint); box-shadow: inset 0 0 0 2px var(--wk-brand);
+  animation: fold-ring .22s cubic-bezier(.2,.8,.2,1) both; z-index: -1;
+}
+@keyframes fold-ring { from { transform: scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (hover: none) {
+  /* The always-visible action row sits above the icon here (24px + 2px),
+     so the ring moves down to stay centered on the icon. */
+  .app-tile-fold-target .app-tile-body::before { top: 56px; }
+}
+/* The receiving tile takes the drop with a small pulse. */
+@keyframes tile-absorb { 0% { transform: scale(1.14); } 55% { transform: scale(.9); } 100% { transform: scale(1); } }
+.app-tile-absorb .app-tile-icon-wrap { animation: tile-absorb .34s cubic-bezier(.2,.8,.2,1) both; }
+/* A tile that just appeared (a folder made by a fold). */
+@keyframes tile-enter { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
+.app-tile-enter { animation: tile-enter .36s cubic-bezier(.2,.8,.2,1) both; }
+
+/* Folder panel: grows out of its tile over a blurred page, shrinks back
+   into it on close, and fades away under the pointer when an app is
+   dragged out (ejecting - it stays mounted, invisible, until the drop). */
+.folder-overlay {
+  background: rgba(17,24,39,.32);
+  backdrop-filter: blur(12px) saturate(1.15); -webkit-backdrop-filter: blur(12px) saturate(1.15);
+  animation: folder-fade-in .2s ease both;
+}
+.folder-overlay.closing { animation: folder-fade-out .18s ease both; pointer-events: none; }
+.folder-overlay.ejecting { animation: folder-fade-out .24s ease both; pointer-events: none; }
+@keyframes folder-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes folder-fade-out { from { opacity: 1; } to { opacity: 0; } }
+.modal-content.folder-panel { animation: folder-open .36s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes folder-open {
+  from { transform: translate(var(--from-x, 0px), var(--from-y, 0px)) scale(.3); opacity: 0; }
+  55%  { opacity: 1; }
+  to   { transform: none; opacity: 1; }
+}
+.folder-overlay.closing .modal-content.folder-panel { animation: folder-close .2s ease-in both; }
+@keyframes folder-close { to { transform: translate(var(--from-x, 0px), var(--from-y, 0px)) scale(.3); opacity: 0; } }
+.folder-overlay.ejecting .modal-content.folder-panel { animation: folder-eject .24s ease-in both; }
+@keyframes folder-eject { to { transform: scale(.92); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-grid.jiggle .app-tile .app-tile-body { animation: none; }
+  .app-tile-ghost, .app-tile-icon-wrap { transition: none; }
+  .app-tile-fold-target .app-tile-body::before, .app-tile-enter, .app-tile-absorb .app-tile-icon-wrap { animation: none; }
+  .modal-content.folder-panel, .folder-overlay { animation-duration: .01s; }
+}
+
 @media (max-width: 480px) {
   .app-grid { gap: 16px 10px; }
   .app-tile { width: 74px; }

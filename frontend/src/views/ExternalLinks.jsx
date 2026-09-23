@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { PersonalLockGate } from '../credvault/vaultShared';
 import { LinkIcon } from '../components/LinkIcon.jsx';
 import { useLinkViews } from './useLinkViews';
+import { useTileDrag } from './useTileDrag';
 // The IT desk's triage taxonomy - a link carries one so a ticket raised
 // against this app lands in the right queue. Defined by the Ticket module.
 import { SERVICE_AREAS } from '../tickets/ticketMeta';
@@ -881,7 +882,7 @@ export default function ExternalLinks() {
         <PersonalLinksSection
           layout={layout} itemsById={personalItemsById} actionCtx={actionCtx}
           mutate={seededPersonalMutate} immediateMutate={seededPersonalMutateNow} allLinks={personalLinks || []}
-          onAdd={openAddPersonal} editable={editing}
+          onAdd={openAddPersonal} editable={editing} onRequestEdit={() => setEditing(true)}
         />
         {showPersonalTaxonomy && (
           <TaxonomyModal taxonomy={taxonomy} onAdd={addTaxonomy} onRename={renameTaxonomy} onDelete={deleteTaxonomy}
@@ -963,7 +964,7 @@ export default function ExternalLinks() {
             <LinksLayoutSection
               sourceType="external" layout={layout} itemsById={unifiedItemsById} actionCtx={actionCtx}
               mutate={seededMutate} immediateMutate={seededMutateNow} allLinks={all} editable={editing}
-              view={gridView}
+              view={gridView} onRequestEdit={() => setEditing(true)}
             />
           </Section>
         </AsyncSection>
@@ -1104,7 +1105,7 @@ const PERSONAL_COLOR = { fg: 'hsl(var(--color-purple))', bg: 'hsla(var(--color-p
 // reuse the exact same LinksLayoutSection Company Links already uses, just
 // pointed at item_type: "personal" - see that component's own docstring for
 // how one layout document stays split cleanly between the two tabs.
-function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, onAdd, editable }) {
+function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, onAdd, editable, onRequestEdit }) {
   return (
     <div style={{ marginBottom: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -1118,7 +1119,7 @@ function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, immediateM
       <LinksLayoutSection
         sourceType="personal" layout={layout} itemsById={itemsById} actionCtx={actionCtx}
         mutate={mutate} immediateMutate={immediateMutate} allLinks={allLinks} editable={editable}
-        extraAddTile={{ label: 'Add Link', onClick: onAdd }}
+        extraAddTile={{ label: 'Add Link', onClick: onAdd }} onRequestEdit={onRequestEdit}
       />
     </div>
   );
@@ -1281,14 +1282,28 @@ function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
 // .app-grid is a plain flex-wrap for the same reason (easy to wrap in a DnD
 // context or split into folder sub-grids later, unlike a CSS Grid with fixed
 // track counts).
-function AppGrid({ children }) {
-  return <div className="app-grid">{children}</div>;
+function AppGrid({ children, jiggle, gridRef }) {
+  return <div ref={gridRef} className={`app-grid${jiggle ? ' jiggle' : ''}`}>{children}</div>;
 }
 
+// A stable per-tile phase offset for the Customize-mode jiggle, so the grid
+// wobbles organically rather than as one synchronized block - derived from
+// the key, not Math.random, so it never changes between renders.
+function jigglePhase(key) {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return `-${h % 400}ms`;
+}
+
+// `drag` / `dragStyle` / `dragging` / `foldTarget` come from useTileDrag via
+// LinksLayoutSection (Sep 22): the pointer handlers and registration ref,
+// the live slide-over transform while another tile is being dragged, the
+// invisible-in-place state of the tile that IS being dragged, and the
+// "opening up to receive" state when the dragged tile rests on this one.
 function AppTile({
   link, color, canManage, canDelete, isFavorite, onToggleFavorite, onOpen, onEdit, onDelete,
   iconSize = 60, iconGradient = true, vaultLinked = false, sourceType,
-  dragHandleProps, dropProps, moveControls,
+  drag, dragStyle, dragging, foldTarget, phase, moveControls,
 }) {
   const [showTip, setShowTip] = useState(false);
   const tipTimer = useRef(null);
@@ -1304,7 +1319,7 @@ function AppTile({
   };
 
   const description = link.description || '';
-  const hasActions = !!(onToggleFavorite || (canManage && (onEdit || onDelete)) || moveControls || dragHandleProps);
+  const hasActions = !!(onToggleFavorite || (canManage && (onEdit || onDelete)) || moveControls);
   // Stable per-link id (not React's own, which isn't guaranteed unique
   // across a whole page) so aria-describedby can point at this tile's own
   // tooltip specifically - undefined (no attribute at all) when there's
@@ -1332,58 +1347,55 @@ function AppTile({
 
   return (
     <div
-      className="app-tile" onClick={onOpen} data-link-id={link.id} data-item-type={sourceType || 'external'}
+      className={`app-tile${dragging ? ' app-tile-dragging' : ''}${foldTarget ? ' app-tile-fold-target' : ''}`}
+      onClick={onOpen} data-link-id={link.id} data-item-type={sourceType || 'external'}
       role="button" tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
       title={plainTitle}
       aria-describedby={tooltipId}
-      // Press-and-hold anywhere on the tile to drag it, not just the tiny
-      // grip icon - matches the phone-launcher gesture this is modeled on.
-      // HTML5 drag-and-drop already disambiguates this from a plain click on
-      // its own: dragstart only fires once the browser sees real pointer
-      // movement while the button is held, so a quick tap still opens the
-      // link as normal. The grip icon stays as a visual "this is
-      // draggable" hint, it's no longer the only place that works.
-      draggable={!!dragHandleProps} {...(dragHandleProps || {})}
-      {...dropProps}
+      style={{ ...(dragStyle || {}), '--jiggle-phase': phase }}
+      {...(drag || {})}
     >
-      <div className="app-tile-icon-wrap">
-        <LinkIcon url={link.url} iconKey={link.icon} size={iconSize} radius={Math.round(iconSize * 0.28)} fg={color.fg} bg={color.bg} gradient={iconGradient} />
-        {link.is_pinned && <span className="app-tile-pin" title="Pinned"><Star size={9} fill="currentColor" /></span>}
-        {!link.is_pinned && isPersonal && <span className="app-tile-pin app-tile-personal-badge" title="Personal Link - only visible to you"><Lock size={8} /></span>}
-        {isFavorite && <span className="app-tile-fav-badge"><Bookmark size={9} fill="currentColor" /></span>}
-        {vaultLinked && <span className="app-tile-key-badge" title="Copies its saved password when opened"><KeyRound size={9} /></span>}
-        {hasActions && (
-          <div className="app-tile-actions" draggable={false} onClick={e => e.stopPropagation()} onDragStart={e => e.stopPropagation()}>
-            {dragHandleProps && (
-              <span className="app-tile-grip" title="Drag to reorder">
-                <GripVertical size={11} />
-              </span>
-            )}
-            {onToggleFavorite && (
-              <IconBtn onClick={onToggleFavorite} title={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}>
-                <Bookmark size={11} fill={isFavorite ? 'hsl(var(--color-blue))' : 'none'} style={{ color: isFavorite ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
-              </IconBtn>
-            )}
-            {canManage && onEdit && <IconBtn onClick={onEdit} title="Edit link"><Pencil size={11} /></IconBtn>}
-            {canManage && canDelete && onDelete && <IconBtn onClick={onDelete} title="Delete link" danger><Trash2 size={11} /></IconBtn>}
-            {moveControls?.extra}
-          </div>
-        )}
-        {description && (
-          <>
-            <div id={tooltipId} role="tooltip" className={`app-tile-tooltip${showTip ? ' show' : ''}`}>{tooltipText}</div>
-            <button
-              type="button" className="app-tile-info-btn" onClick={toggleTip}
-              title="Show description" aria-label={showTip ? 'Hide description' : 'Show description'}
-              aria-expanded={showTip} aria-controls={tooltipId}
-            >
-              <Info size={10} />
-            </button>
-          </>
-        )}
+      <div className="app-tile-body">
+        <div className="app-tile-icon-wrap">
+          <LinkIcon url={link.url} iconKey={link.icon} size={iconSize} radius={Math.round(iconSize * 0.28)} fg={color.fg} bg={color.bg} gradient={iconGradient} />
+          {link.is_pinned && <span className="app-tile-pin" title="Pinned"><Star size={9} fill="currentColor" /></span>}
+          {!link.is_pinned && isPersonal && <span className="app-tile-pin app-tile-personal-badge" title="Personal Link - only visible to you"><Lock size={8} /></span>}
+          {isFavorite && <span className="app-tile-fav-badge"><Bookmark size={9} fill="currentColor" /></span>}
+          {vaultLinked && <span className="app-tile-key-badge" title="Copies its saved password when opened"><KeyRound size={9} /></span>}
+          {hasActions && (
+            <div className="app-tile-actions"
+              // Only the buttons themselves claim a tap or a press; the
+              // strip's gaps (always visible on touch, in the flow beside
+              // the icon) still open the link or start a drag of the tile
+              // underneath, so the middle of a tile is never a dead zone.
+              onClick={e => { if (e.target.closest('button')) e.stopPropagation(); }}
+              onPointerDown={e => { if (e.target.closest('button')) e.stopPropagation(); }}>
+              {onToggleFavorite && (
+                <IconBtn onClick={onToggleFavorite} title={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}>
+                  <Bookmark size={11} fill={isFavorite ? 'hsl(var(--color-blue))' : 'none'} style={{ color: isFavorite ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
+                </IconBtn>
+              )}
+              {canManage && onEdit && <IconBtn onClick={onEdit} title="Edit link"><Pencil size={11} /></IconBtn>}
+              {canManage && canDelete && onDelete && <IconBtn onClick={onDelete} title="Delete link" danger><Trash2 size={11} /></IconBtn>}
+              {moveControls?.extra}
+            </div>
+          )}
+          {description && (
+            <>
+              <div id={tooltipId} role="tooltip" className={`app-tile-tooltip${showTip ? ' show' : ''}`}>{tooltipText}</div>
+              <button
+                type="button" className="app-tile-info-btn" onClick={toggleTip} onPointerDown={e => e.stopPropagation()}
+                title="Show description" aria-label={showTip ? 'Hide description' : 'Show description'}
+                aria-expanded={showTip} aria-controls={tooltipId}
+              >
+                <Info size={10} />
+              </button>
+            </>
+          )}
+        </div>
+        <span className="app-tile-name">{link.name}</span>
       </div>
-      <span className="app-tile-name">{link.name}</span>
     </div>
   );
 }
@@ -1443,94 +1455,115 @@ function FolderPicker({ folders, currentFolderId, onMove, onCreateNew }) {
   );
 }
 
-function FolderTile({ folder, memberLinks, onOpen, dragHandleProps, dropProps, isDropTarget }) {
+function FolderTile({ folder, memberLinks, onOpen, drag, dragStyle, dragging, foldTarget, phase }) {
   const preview = memberLinks.slice(0, 4);
   return (
     <div
-      className={`app-tile app-tile-folder${isDropTarget ? ' app-tile-drop-target' : ''}`} onClick={onOpen} data-folder-id={folder.id}
+      className={`app-tile app-tile-folder${dragging ? ' app-tile-dragging' : ''}${foldTarget ? ' app-tile-fold-target' : ''}`}
+      onClick={onOpen} data-folder-id={folder.id}
       role="button" tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
       title={folder.name}
-      draggable={!!dragHandleProps} {...(dragHandleProps || {})}
-      {...dropProps}
+      style={{ ...(dragStyle || {}), '--jiggle-phase': phase }}
+      {...(drag || {})}
     >
-      <div className="app-tile-icon-wrap">
-        <div className="app-folder-preview">
-          {preview.length === 0
-            ? <FolderOpen size={22} style={{ color: 'var(--muted)' }} />
-            : preview.map(l => (
-              <div key={l.id} className="app-folder-preview-cell">
-                <LinkIcon url={l.url} iconKey={l.icon} size={24} radius={6} fg="var(--muted)" bg="var(--mist)" gradient={false} />
-              </div>
-            ))}
-        </div>
-        {dragHandleProps && (
-          <div className="app-tile-actions" draggable={false} onClick={e => e.stopPropagation()} onDragStart={e => e.stopPropagation()}>
-            <span className="app-tile-grip" title="Drag to reorder">
-              <GripVertical size={11} />
-            </span>
+      <div className="app-tile-body">
+        <div className="app-tile-icon-wrap">
+          <div className="app-folder-preview">
+            {preview.length === 0
+              ? <FolderOpen size={22} style={{ color: 'var(--muted)' }} />
+              : preview.map(l => (
+                <div key={l.id} className="app-folder-preview-cell">
+                  <LinkIcon url={l.url} iconKey={l.icon} size={24} radius={6} fg="var(--muted)" bg="var(--mist)" gradient={false} />
+                </div>
+              ))}
           </div>
-        )}
+        </div>
+        <span className="app-tile-name">{folder.name}</span>
       </div>
-      <span className="app-tile-name">{folder.name}</span>
     </div>
   );
 }
 
-// Opens a folder's contents - inline-renamable title, delete (unfolds
-// members back to top-level, never deletes the underlying links), and each
-// member gets the same reorder/move-out controls as the top-level grid.
+// The name a folder made by dropping one app onto another starts with: the
+// category the two share, when they share one (a real one, not the import
+// placeholder), otherwise "New Folder". The panel opens straight into rename
+// either way, so it is only ever a starting point.
+function autoFolderName(a, b) {
+  const cat = (l) => (l ? (l.categories ? primaryCategory(l) : l.category) : '');
+  const ca = cat(a), cb = cat(b);
+  return (ca && ca === cb && ca !== IMPORT_PLACEHOLDER_CATEGORY) ? ca : 'New Folder';
+}
+const newFolderId = () => `f_${Math.random().toString(36).slice(2, 8)}`;
+
+// An open folder - the phone's folder view (Sep 22): it grows out of its own
+// tile over a blurred page, its title is renamable in place, and its apps
+// are dragged with the same gesture as the main grid. Drag one past the
+// panel's edge and the panel fades away under the pointer while the drag
+// carries on over the main grid - see useTileDrag's eject path. Organizing
+// inside a folder is always live (immediateMutate), never gated behind
+// Customize - unchanged from Aug 14.
 function FolderModal({
-  folder, memberEntries, itemsById, actionCtx, editable,
-  onClose, onRename, onDeleteFolder, onReorderWithin, onMoveOut,
-  allFolders, onCreateFolder,
+  folder, memberEntries, itemsById, actionCtx, editable, jiggle,
+  onClose, onRename, onDeleteFolder, onMoveOut, allFolders, onCreateFolder,
+  drag, scope, scopesRef, ejecting, startRenaming, originRect,
 }) {
   const [nameDraft, setNameDraft] = useState(folder.name);
-  const [renaming, setRenaming] = useState(false);
-  // Own small drag state for reordering within this folder - separate DnD
-  // context from the background grid (this is a modal on top of it), so it
-  // doesn't share LinksLayoutSection's dragKind/dragId. Composite key
-  // (item_type:item_id) since Company and Personal Links share the same
-  // autoincrement id space (separate tables).
-  const [dragKey, setDragKey] = useState(null);
+  const [renaming, setRenaming] = useState(!!startRenaming);
+  const [closing, setClosing] = useState(false);
+  const contentRef = useRef(null);
+  const gridRef = useRef(null);
   const entryKey = (entry) => `${entry.item_type}:${entry.item_id}`;
+
+  // This folder's grid is a drag scope of its own; the panel box is the
+  // boundary a drag has to cross to eject back onto the main grid.
+  useLayoutEffect(() => {
+    scopesRef.current[scope] = {
+      keys: memberEntries.map(entryKey), folderCount: 0,
+      container: gridRef.current, bounds: contentRef.current, ejectTo: 'top',
+    };
+  });
+  useEffect(() => () => { delete scopesRef.current[scope]; }, [scope, scopesRef]);
+
+  const requestClose = () => {
+    if (closing) return;
+    setClosing(true);
+    setTimeout(onClose, 200);
+  };
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape' && !drag.active && !renaming) requestClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
   const commitRename = () => {
     const trimmed = nameDraft.trim();
     if (trimmed && trimmed !== folder.name) onRename(trimmed);
     setRenaming(false);
   };
-  // Drag a member out onto the dimmed backdrop (outside the folder's own
-  // content box) to pull it back to the main grid - the drag-and-drop
-  // equivalent of the "Remove from folder" option already in the picker,
-  // for the "grab it and pull it out" gesture users expect from a phone
-  // folder. onDrop/onDragOver on modal-content stop propagation so a drop
-  // that lands ON another tile (within-folder reorder) never also bubbles
-  // up and gets misread as a drag-to-backdrop.
-  const onBackdropDragOver = (e) => { if (dragKey != null) e.preventDefault(); };
-  const onBackdropDrop = (e) => {
-    e.preventDefault();
-    if (dragKey == null) return;
-    const entry = memberEntries.find(x => entryKey(x) === dragKey);
-    setDragKey(null);
-    if (entry) onMoveOut(entry, null);
-  };
+  // Where the panel grows from / shrinks back to: its own tile's center,
+  // expressed as an offset from the viewport center the panel sits at.
+  const fromX = originRect ? `${Math.round(originRect.left + originRect.width / 2 - window.innerWidth / 2)}px` : '0px';
+  const fromY = originRect ? `${Math.round(originRect.top + originRect.height / 2 - window.innerHeight / 2)}px` : '0px';
+  const draggingHere = drag.active && drag.ui?.scope === scope && !ejecting;
 
   return (
-    // Same centered popup every other modal in this file uses, just wider -
-    // 60% of the screen width (Aug 14), not the usual ~480-520px cap. Kept
-    // as an inline override rather than touching the shared .modal-content
-    // class every other modal still relies on for its normal size.
-    <div className="modal-overlay" onClick={onClose} onDragOver={onBackdropDragOver} onDrop={onBackdropDrop}>
+    <div
+      className={`modal-overlay folder-overlay${closing ? ' closing' : ''}${ejecting ? ' ejecting' : ''}`}
+      style={{ '--from-x': fromX, '--from-y': fromY }}
+      // The tail of a drop that ended over the backdrop arrives as a click
+      // here too - that must not close the folder the person just organized.
+      onClick={() => { if (!drag.recentlyDropped()) requestClose(); }}
+    >
       <div
-        className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }}
-        onClick={e => e.stopPropagation()} onDragOver={e => e.stopPropagation()} onDrop={e => e.stopPropagation()}
+        ref={contentRef} className="modal-content folder-panel" style={{ width: '60vw', maxWidth: '60vw' }}
+        onClick={e => e.stopPropagation()}
       >
         <div className="modal-header">
           {renaming ? (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1 }}>
               <input
                 className="form-input" value={nameDraft} onChange={e => setNameDraft(e.target.value)} autoFocus
-                maxLength={60}
+                onFocus={e => e.target.select()} maxLength={60} placeholder="Folder name"
                 onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(false); }}
               />
               <button className="secondary-btn" onClick={commitRename}><Check size={14} /></button>
@@ -1542,55 +1575,35 @@ function FolderModal({
           ) : (
             <h3>{folder.name}</h3>
           )}
-          <button className="close-btn" onClick={onClose}><X size={16} /></button>
+          <button className="close-btn" onClick={requestClose}><X size={16} /></button>
         </div>
-        {dragKey && (
+        {draggingHere && (
           <p style={{ margin: '10px 24px 0', fontSize: 11.5, color: 'var(--wk-brand)', fontWeight: 600, textAlign: 'center' }}>
-            Drop outside this box to take it out of the folder
+            Drag past the edge to move it back to the main screen
           </p>
         )}
         <div style={{ padding: '20px 24px' }}>
           {memberEntries.length === 0 ? (
             <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '20px 0' }}>
-              Empty - use "Move to folder" on any app to add it here.
+              Empty - drop an app onto this folder's tile to add it here.
             </p>
           ) : (
-            <AppGrid>
+            <AppGrid gridRef={gridRef} jiggle={jiggle}>
               {memberEntries.map((entry) => {
+                const key = entryKey(entry);
                 const a = entryActions(entry, itemsById, actionCtx);
                 if (!a) return null;
                 return (
                   <AppTile
-                    key={entryKey(entry)} link={a.link} color={a.color} sourceType={a.sourceType} vaultLinked={a.vaultLinked}
+                    key={key} link={a.link} color={a.color} sourceType={a.sourceType} vaultLinked={a.vaultLinked}
                     canManage={a.canManage} canDelete={a.canDelete}
                     isFavorite={a.isFavorite} onToggleFavorite={a.onToggleFavorite}
                     onOpen={a.onOpen} onEdit={a.onEdit} onDelete={a.onDelete}
-                    dragHandleProps={editable ? {
-                      onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKey(entryKey(entry)); },
-                      onDragEnd: () => setDragKey(null),
-                    } : undefined}
-                    dropProps={editable ? {
-                      onDragOver: (e) => { if (dragKey != null) e.preventDefault(); },
-                      // Same DOM-ground-truth read as the background grid's
-                      // topItemDropProps - the actual element the drop
-                      // landed on, not a closure captured when this tile's
-                      // dropProps were built.
-                      onDrop: (e) => {
-                        e.preventDefault();
-                        if (dragKey == null) return;
-                        const targetKey = `${e.currentTarget.dataset.itemType}:${e.currentTarget.dataset.linkId}`;
-                        if (dragKey === targetKey) return;
-                        const dragged = memberEntries.find(x => entryKey(x) === dragKey);
-                        const entries = memberEntries.filter(x => entryKey(x) !== dragKey);
-                        const idx = entries.findIndex(x => entryKey(x) === targetKey);
-                        if (!dragged || idx === -1) return;
-                        entries.splice(idx, 0, dragged);
-                        onReorderWithin(entries);
-                        setDragKey(null);
-                      },
-                    } : undefined}
+                    drag={drag.tileProps(scope, key, 'item', { draggable: editable })}
+                    dragStyle={drag.tileStyle(scope, key)} dragging={drag.ui?.key === key}
+                    phase={jigglePhase(key)}
                     // No "move to folder" picker icon on Personal Links (Aug
-                    // 14) - matches the background grid's own gate above.
+                    // 14) - matches the background grid's own gate.
                     moveControls={(editable && folder.item_type !== 'personal') ? {
                       extra: (
                         <FolderPicker
@@ -1612,7 +1625,7 @@ function FolderModal({
               <Trash2 size={14} /> Delete Folder
             </button>
           )}
-          <button className="primary-btn" onClick={onClose}>Done</button>
+          <button className="primary-btn" onClick={requestClose}>Done</button>
         </div>
       </div>
     </div>
@@ -1640,34 +1653,36 @@ function FolderModal({
 // Company Links and Personal Links each get their own instance (Aug 14,
 // "add folders to personal links too"). extraAddTile is an optional extra
 // tile rendered at the end, after every folder/item (Personal Links' "Add
-// Link", which
-// creates a brand-new PersonalLink row rather than organizing existing
-// ones - Company Links has no equivalent since new Company Links are only
-// ever added from Manage).
-function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, extraAddTile, editable = false, view = 'tile' }) {
+// Link", which creates a brand-new PersonalLink row rather than organizing
+// existing ones - Company Links has no equivalent since new Company Links
+// are only ever added from Manage).
+//
+// Drag-and-drop (Sep 22) is the phone home-screen model, run by
+// useTileDrag: tiles slide aside live, resting one on another folds them
+// into a folder, and an app dragged out past an open folder's edge lands
+// wherever it is dropped on this grid. In Customize mode every tile is
+// draggable and the grid jiggles; in browse mode a long press on a tile
+// enters Customize and lifts it in one motion (onRequestEdit). Folders and
+// apps keep their separate position spaces - a folder only reorders among
+// folders, an app only among apps - the same folders-first layout as before.
+function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, extraAddTile, editable = false, view = 'tile', onRequestEdit }) {
   const [openFolderId, setOpenFolderId] = useState(null);
-  // Desktop drag-and-drop state - HTML5 native, mirrors ManageModal's
-  // draggable/onDragStart/onDragOver/onDrop/onDragEnd pattern elsewhere in
-  // this file (its own "All Links" category reorder). Touch has no
-  // equivalent gesture (poor/no support for native HTML5 DnD), so every tile
-  // also gets Move Up/Down + a folder picker as the touch-inclusive path -
-  // see AppTile's moveControls. dragEntry carries {item_type, item_id} (not
-  // just an id) now that a mix of both types can share one grid/folder and
-  // their autoincrement ids can collide.
-  const [dragKind, setDragKind] = useState(null); // 'item' | 'folder' | null
-  const [dragEntry, setDragEntry] = useState(null);
-  // dragOverFolderId only drives a CSS highlight (which folder an item would
-  // drop into) - safe to update on every dragover since it never touches
-  // the DOM order. Reordering itself is computed and applied on DROP ONLY
-  // (not live during dragover) - an earlier attempt at a live "iPhone-style"
-  // shift preview reordered the actual rendered list on every dragover,
-  // which reorders/reinserts the dragged element's own DOM node mid-drag -
-  // a well-known way to break a native HTML5 drag session (the browser can
-  // lose track of the drag once the element under the cursor moves out from
-  // under it), and it did: reordering stopped working entirely. Reverted -
-  // the order only changes once, at drop, which is what actually worked.
-  const [dragOverFolderId, setDragOverFolderId] = useState(null); // highlights the folder an item would drop into
+  const [ejectingFolderId, setEjectingFolderId] = useState(null);
+  const [freshFolderId, setFreshFolderId] = useState(null); // just made by a fold - opens into rename
+  const [folderOrigin, setFolderOrigin] = useState(null);   // the tile the open panel grew from
+  const gridRef = useRef(null);
+  const scopesRef = useRef({});
   const sameEntry = (a, b) => a && b && a.item_type === b.item_type && a.item_id === b.item_id;
+  // Opaque drag keys: `folder:<id>` for folders, `<type>:<id>` for apps
+  // (composite, since Company and Personal ids come from separate tables
+  // and can collide).
+  const keyOf = (e) => `${e.item_type}:${e.item_id}`;
+  const folderKeyOf = (f) => `folder:${f.id}`;
+  const parseKey = (key) => {
+    if (key.startsWith('folder:')) return { folderId: key.slice(7) };
+    const i = key.indexOf(':');
+    return { entry: { item_type: key.slice(0, i), item_id: Number(key.slice(i + 1)) } };
+  };
 
   const entryExists = useCallback((entry) => !!resolveEntryLink(itemsById, entry), [itemsById]);
   // Nothing saved yet for THIS tab (brand-new user, or one who's customized
@@ -1692,44 +1707,89 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
     [layout.items, sourceType, entryExists]
   );
 
-  const reorderTopLevel = (orderedEntries) => mutate(prev => {
-    const rank = new Map(orderedEntries.map((e, i) => [`${e.item_type}:${e.item_id}`, i]));
-    return {
-      ...prev,
-      items: prev.items.map(i => {
-        const key = `${i.item_type}:${i.item_id}`;
-        return (i.folder_id === null && rank.has(key)) ? { ...i, position: rank.get(key) } : i;
-      }),
+  // What the drag controller needs to know about the main grid, refreshed
+  // every render so a lift always measures the tiles that are on screen.
+  useLayoutEffect(() => {
+    scopesRef.current.top = {
+      keys: [...folders.map(folderKeyOf), ...topItems.map(keyOf)],
+      folderCount: folders.length, container: gridRef.current,
     };
   });
-  const reorderFolders = (orderedIds) => mutate(prev => {
-    const rank = new Map(orderedIds.map((id, i) => [id, i]));
-    return { ...prev, folders: prev.folders.map(f => rank.has(f.id) ? { ...f, position: rank.get(f.id) } : f) };
-  });
+
+  // ── Layout mutators ─────────────────────────────────────────────────
   // Folder-membership mutators all take an explicit mutateFn (defaulting to
   // the dirty-tracked `mutate`) rather than closing over it directly, so
   // the SAME logic can drive both the main-grid drag (gated behind
   // Customize, via `mutate`) and FolderModal's always-live internal
-  // organizing (via `immediateMutate`, see the *Now wrappers below and
-  // FolderModal's own docstring).
-  const reorderWithinFolder = (folderId, orderedEntries, mutateFn = mutate) => mutateFn(prev => {
-    const rank = new Map(orderedEntries.map((e, i) => [`${e.item_type}:${e.item_id}`, i]));
+  // organizing (via `immediateMutate`).
+  const applyTopOrder = (orderKeys, mutateFn = mutate) => mutateFn(prev => {
+    const folderRank = new Map(), itemRank = new Map();
+    for (const k of orderKeys) {
+      const p = parseKey(k);
+      if (p.folderId) folderRank.set(p.folderId, folderRank.size); else itemRank.set(keyOf(p.entry), itemRank.size);
+    }
     return {
       ...prev,
-      items: prev.items.map(i => {
-        const key = `${i.item_type}:${i.item_id}`;
-        return (i.folder_id === folderId && rank.has(key)) ? { ...i, position: rank.get(key) } : i;
-      }),
+      folders: prev.folders.map(f => folderRank.has(f.id) ? { ...f, position: folderRank.get(f.id) } : f),
+      items: prev.items.map(i => (i.folder_id === null && itemRank.has(keyOf(i))) ? { ...i, position: itemRank.get(keyOf(i)) } : i),
     };
   });
-  const moveToFolder = (entry, folderId, mutateFn = mutate) => mutateFn(prev => {
+  const reorderWithinFolder = (folderId, orderedEntries, mutateFn = mutate) => mutateFn(prev => {
+    const rank = new Map(orderedEntries.map((e, i) => [keyOf(e), i]));
+    return {
+      ...prev,
+      items: prev.items.map(i => (i.folder_id === folderId && rank.has(keyOf(i))) ? { ...i, position: rank.get(keyOf(i)) } : i),
+    };
+  });
+  // A folder left with nothing in it disappears, the way a phone folder
+  // does - only on the drag paths; the picker's "Remove from folder" keeps
+  // its explicit Delete Folder step.
+  const pruneEmptyFolder = (state, folderId) => {
+    if (!folderId || state.items.some(i => i.folder_id === folderId)) return state;
+    return { ...state, folders: state.folders.filter(f => f.id !== folderId) };
+  };
+  const moveToFolder = (entry, folderId, mutateFn = mutate, pruneFrom = null) => mutateFn(prev => {
     const dest = prev.items.filter(i => i.folder_id === folderId && !sameEntry(i, entry));
     const nextPos = dest.length ? Math.max(...dest.map(i => i.position)) + 1 : 0;
-    return { ...prev, items: prev.items.map(i => sameEntry(i, entry) ? { ...i, folder_id: folderId, position: nextPos } : i) };
+    const next = { ...prev, items: prev.items.map(i => sameEntry(i, entry) ? { ...i, folder_id: folderId, position: nextPos } : i) };
+    return pruneEmptyFolder(next, pruneFrom);
+  });
+  // An app dragged out of a folder and dropped on the main grid: back to
+  // top level, at exactly the slot it was dropped in.
+  const ejectToTop = (entry, orderKeys, mutateFn, fromFolderId) => mutateFn(prev => {
+    const itemRank = new Map(orderKeys.filter(k => !k.startsWith('folder:')).map((k, i) => [k, i]));
+    const next = {
+      ...prev,
+      items: prev.items.map(i => {
+        const k = keyOf(i);
+        if (sameEntry(i, entry)) return { ...i, folder_id: null, position: itemRank.get(k) ?? 0 };
+        return (i.folder_id === null && itemRank.has(k)) ? { ...i, position: itemRank.get(k) } : i;
+      }),
+    };
+    return pruneEmptyFolder(next, fromFolderId);
   });
   const foldersOfType = (allFolders) => allFolders.filter(f => (f.item_type || 'external') === sourceType);
+  // Drop one app onto another: a new folder holding both (target first, the
+  // dropped one after it - the phone's order), opened for naming once the
+  // fold animation has landed.
+  const createFolderWithPair = (dragged, target, mutateFn = mutate, pruneFrom = null) => {
+    const id = newFolderId();
+    const name = autoFolderName(resolveEntryLink(itemsById, dragged), resolveEntryLink(itemsById, target));
+    mutateFn(prev => {
+      const own = foldersOfType(prev.folders);
+      const position = own.length ? Math.max(...own.map(f => f.position)) + 1 : 0;
+      const next = {
+        ...prev,
+        folders: [...prev.folders, { id, name, position, item_type: sourceType }],
+        items: prev.items.map(i => sameEntry(i, target) ? { ...i, folder_id: id, position: 0 }
+          : sameEntry(i, dragged) ? { ...i, folder_id: id, position: 1 } : i),
+      };
+      return pruneEmptyFolder(next, pruneFrom);
+    });
+    setTimeout(() => { setFreshFolderId(id); showFolder(id); }, 320);
+  };
   const createFolderWithItem = (entry, mutateFn = mutate) => {
-    const id = `f_${Math.random().toString(36).slice(2, 8)}`;
+    const id = newFolderId();
     mutateFn(prev => {
       const own = foldersOfType(prev.folders);
       const position = own.length ? Math.max(...own.map(f => f.position)) + 1 : 0;
@@ -1739,16 +1799,7 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
         items: prev.items.map(i => sameEntry(i, entry) ? { ...i, folder_id: id, position: 0 } : i),
       };
     });
-    setOpenFolderId(id); // straight into the modal so the user can rename it right away
-  };
-  const createEmptyFolder = () => {
-    const id = `f_${Math.random().toString(36).slice(2, 8)}`;
-    mutate(prev => {
-      const own = foldersOfType(prev.folders);
-      const position = own.length ? Math.max(...own.map(f => f.position)) + 1 : 0;
-      return { ...prev, folders: [...prev.folders, { id, name: 'New Folder', position, item_type: sourceType }] };
-    });
-    setOpenFolderId(id);
+    setTimeout(() => { setFreshFolderId(id); showFolder(id); }, 0);
   };
   const renameFolder = (folderId, name, mutateFn = mutate) => mutateFn(prev => ({ ...prev, folders: prev.folders.map(f => f.id === folderId ? { ...f, name } : f) }));
   const deleteFolder = (folderId, mutateFn = mutate) => mutateFn(prev => {
@@ -1760,66 +1811,81 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
       items: prev.items.map(i => i.folder_id === folderId ? { ...i, folder_id: null, position: nextPos++ } : i),
     };
   });
-  const itemDragProps = (entry) => ({
-    onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('item'); setDragEntry(entry); },
-    onDragEnd: () => { setDragKind(null); setDragEntry(null); setDragOverFolderId(null); },
-  });
-  const folderDragProps = (folderId) => ({
-    onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('folder'); setDragEntry(folderId); },
-    onDragEnd: () => { setDragKind(null); setDragEntry(null); },
-  });
-  const topItemDropProps = () => ({
-    onDragOver: (e) => {
-      if (dragKind !== 'item') return;
-      e.preventDefault();
-      setDragOverFolderId(null);
-    },
-    // Reads the actual drop target straight off the DOM node the drop event
-    // landed on (e.currentTarget, guaranteed to be exactly the element the
-    // browser fired this handler for) instead of trusting a JS closure
-    // captured back when this tile's dropProps were built - eliminates any
-    // possibility of the target being stale/wrong regardless of cause, which
-    // is what "always moves one slot, ignoring where I actually drop it"
-    // pointed at. data-item-type/data-link-id are always in sync with what's
-    // rendered since they come straight from the same props on every render.
-    onDrop: (e) => {
-      e.preventDefault();
-      if (dragKind !== 'item') return;
-      const targetType = e.currentTarget.dataset.itemType;
-      const targetId = Number(e.currentTarget.dataset.linkId);
-      const targetEntry = topItems.find(i => i.item_type === targetType && i.item_id === targetId);
-      if (!targetEntry || sameEntry(dragEntry, targetEntry)) return;
-      const entries = topItems.filter(i => !sameEntry(i, dragEntry));
-      const idx = entries.findIndex(i => sameEntry(i, targetEntry));
-      entries.splice(idx, 0, dragEntry);
-      reorderTopLevel(entries);
-    },
-  });
-  const folderDropProps = (targetFolderId) => ({
-    onDragOver: (e) => {
-      if (!dragKind) return;
-      e.preventDefault();
-      if (dragKind === 'item') setDragOverFolderId(targetFolderId); // highlight - dropping here adds it to the folder
-    },
-    onDragLeave: () => { if (dragOverFolderId === targetFolderId) setDragOverFolderId(null); },
-    // Ground-truth target read off the DOM node the drop actually landed on
-    // (e.currentTarget), same reasoning as topItemDropProps above.
-    onDrop: (e) => {
-      e.preventDefault();
-      setDragOverFolderId(null);
-      const actualTargetFolderId = e.currentTarget.dataset.folderId;
-      if (dragKind === 'item') { moveToFolder(dragEntry, actualTargetFolderId); return; }
-      if (dragKind === 'folder' && dragEntry !== actualTargetFolderId) {
-        const ids = folders.map(f => f.id).filter(id => id !== dragEntry);
-        const idx = ids.indexOf(actualTargetFolderId);
-        if (idx === -1) return;
-        ids.splice(idx, 0, dragEntry);
-        reorderFolders(ids);
+
+  // Open a folder's panel, remembering which tile it grows out of.
+  const showFolder = (id) => {
+    const el = gridRef.current?.querySelector(`[data-folder-id="${CSS.escape(id)}"]`);
+    setFolderOrigin(el ? el.getBoundingClientRect() : null);
+    setOpenFolderId(id);
+  };
+  const closeFolder = () => { setOpenFolderId(null); setFreshFolderId(null); setEjectingFolderId(null); };
+
+  // ── The gesture ──────────────────────────────────────────────────────
+  // Every commit goes through commitWithFlip so the tiles that stay glide
+  // to their new places instead of jumping.
+  const drag = useTileDrag({
+    editable, onRequestEdit, scopesRef,
+    onReorder: (scope, order) => {
+      if (scope === 'top') {
+        drag.commitWithFlip('top', () => applyTopOrder(order, mutate));
+      } else {
+        const folderId = scope.slice(7);
+        drag.commitWithFlip(scope, () => reorderWithinFolder(folderId, order.map(k => parseKey(k).entry), immediateMutate));
       }
     },
+    onFold: (scope, dragKey, targetKey, fromFolderScope) => {
+      const dragged = parseKey(dragKey).entry;
+      const target = parseKey(targetKey);
+      const fromFolderId = fromFolderScope ? fromFolderScope.slice(7) : null;
+      // Folding straight off the main grid is a Customize edit (saved with
+      // the rest); folding an app that was just pulled out of a folder is
+      // live unless Customize is on, same as the folder's own organizing.
+      const commit = fromFolderId ? (editable ? mutate : immediateMutate) : mutate;
+      drag.commitWithFlip('top', () => {
+        if (target.folderId) moveToFolder(dragged, target.folderId, commit, fromFolderId);
+        else createFolderWithPair(dragged, target.entry, commit, fromFolderId);
+      });
+      if (fromFolderId) closeFolder();
+    },
+    onEjectStart: (scope) => setEjectingFolderId(scope.slice(7)),
+    onEject: (fromScope, key, _toScope, order) => {
+      const commit = editable ? mutate : immediateMutate;
+      drag.commitWithFlip('top', () => ejectToTop(parseKey(key).entry, order, commit, fromScope.slice(7)));
+      closeFolder();
+    },
+    onEjectCancel: () => setEjectingFolderId(null),
   });
 
   const openFolder = folders.find(f => f.id === openFolderId) || null;
+  const folderPanel = openFolder && (
+    // Always fully interactive regardless of the outer Customize mode
+    // (Aug 14) - organizing an already-open folder is lightweight and
+    // expected to just work, same posture as favoriting. Every mutator
+    // here goes through `immediateMutate` (saves right away) instead of
+    // `mutate` (the dirty-tracked draft that needs an explicit Save
+    // while Customizing the main screen).
+    <FolderModal
+      folder={openFolder}
+      memberEntries={folderMembers(openFolder.id)}
+      itemsById={itemsById}
+      actionCtx={actionCtx}
+      editable={true} jiggle={editable && view !== 'list'}
+      onClose={closeFolder}
+      onRename={(name) => renameFolder(openFolder.id, name, immediateMutate)}
+      onDeleteFolder={() => {
+        if (!window.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`)) return;
+        deleteFolder(openFolder.id, immediateMutate);
+        closeFolder();
+      }}
+      onMoveOut={(entry, destId) => moveToFolder(entry, destId, immediateMutate)}
+      allFolders={folders}
+      onCreateFolder={(entry) => createFolderWithItem(entry, immediateMutate)}
+      drag={drag} scope={`folder:${openFolder.id}`} scopesRef={scopesRef}
+      ejecting={ejectingFolderId === openFolder.id}
+      startRenaming={freshFolderId === openFolder.id}
+      originRect={folderOrigin}
+    />
+  );
 
   // List view (Aug 14) - read-only rows instead of the drag-and-drop icon
   // grid; Customize forces tile view (see the `editing` effect in the
@@ -1834,73 +1900,59 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
               <LinksListRow key={f.id} isFolder
                 icon={<FolderOpen size={17} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
                 name={f.name} sub={members.length > 0 ? `${members.length} apps` : 'Empty'}
-                onOpen={() => setOpenFolderId(f.id)} />
+                onOpen={() => showFolder(f.id)} />
             );
           })}
           {topItems.map((entry) => {
             const a = entryActions(entry, itemsById, actionCtx);
             if (!a) return null;
             return (
-              <LinksListRow key={`${entry.item_type}:${entry.item_id}`}
+              <LinksListRow key={keyOf(entry)}
                 icon={<LinkIcon url={a.link.url} iconKey={a.link.icon} size={26} iconSize={13} radius={7} fg={a.color.fg} bg={a.color.bg} gradient={false} />}
                 name={a.link.name} sub={listCategory(a.link)} onOpen={a.onOpen} />
             );
           })}
         </div>
-        {openFolder && (
-          <FolderModal
-            folder={openFolder}
-            memberEntries={folderMembers(openFolder.id)}
-            itemsById={itemsById}
-            actionCtx={actionCtx}
-            editable={true}
-            onClose={() => setOpenFolderId(null)}
-            onRename={(name) => renameFolder(openFolder.id, name, immediateMutate)}
-            onDeleteFolder={() => {
-              if (!window.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`)) return;
-              deleteFolder(openFolder.id, immediateMutate);
-              setOpenFolderId(null);
-            }}
-            onReorderWithin={(orderedEntries) => reorderWithinFolder(openFolder.id, orderedEntries, immediateMutate)}
-            onMoveOut={(entry, destId) => moveToFolder(entry, destId, immediateMutate)}
-            allFolders={folders}
-            onCreateFolder={(entry) => createFolderWithItem(entry, immediateMutate)}
-          />
-        )}
+        {folderPanel}
       </>
     );
   }
 
+  const tileGesture = { draggable: editable, holdToEdit: !editable && !!onRequestEdit };
+  const isFoldTarget = (key) => drag.ui?.scope === 'top' && drag.ui?.foldKey === key;
+
   return (
     <>
-      <AppGrid>
-        {/* First tile, not last (Aug 15) - "the new folder section is at
-            last, i want it at first so it is easy for user to understand." */}
-        {editable && <AddAppTile label="New Folder" onClick={createEmptyFolder} />}
-        {folders.map((f) => (
-          <FolderTile
-            key={f.id} folder={f}
-            memberLinks={folderMembers(f.id).map(e => resolveEntryLink(itemsById, e)).filter(Boolean)}
-            onOpen={() => setOpenFolderId(f.id)}
-            dragHandleProps={editable ? folderDragProps(f.id) : undefined}
-            dropProps={editable ? folderDropProps(f.id) : undefined}
-            isDropTarget={dragOverFolderId === f.id}
-          />
-        ))}
+      <AppGrid gridRef={gridRef} jiggle={editable}>
+        {folders.map((f) => {
+          const key = folderKeyOf(f);
+          return (
+            <FolderTile
+              key={f.id} folder={f}
+              memberLinks={folderMembers(f.id).map(e => resolveEntryLink(itemsById, e)).filter(Boolean)}
+              onOpen={() => showFolder(f.id)}
+              drag={drag.tileProps('top', key, 'folder', tileGesture)}
+              dragStyle={drag.tileStyle('top', key)} dragging={drag.ui?.key === key}
+              foldTarget={isFoldTarget(key)} phase={jigglePhase(key)}
+            />
+          );
+        })}
         {topItems.map((entry) => {
+          const key = keyOf(entry);
           const a = entryActions(entry, itemsById, actionCtx);
           if (!a) return null;
           return (
             <AppTile
-              key={`${entry.item_type}:${entry.item_id}`} link={a.link} color={a.color} sourceType={a.sourceType} vaultLinked={a.vaultLinked}
+              key={key} link={a.link} color={a.color} sourceType={a.sourceType} vaultLinked={a.vaultLinked}
               canManage={a.canManage} canDelete={a.canDelete}
               isFavorite={a.isFavorite} onToggleFavorite={a.onToggleFavorite}
               onOpen={a.onOpen} onEdit={a.onEdit} onDelete={a.onDelete}
-              dragHandleProps={editable ? itemDragProps(entry) : undefined}
-              dropProps={editable ? topItemDropProps() : undefined}
+              drag={drag.tileProps('top', key, 'item', tileGesture)}
+              dragStyle={drag.tileStyle('top', key)} dragging={drag.ui?.key === key}
+              foldTarget={isFoldTarget(key)} phase={jigglePhase(key)}
               // No "move to folder" picker icon on Personal Links (Aug 14) -
-              // folders still work by dragging a tile onto one, this just
-              // drops the extra hover-row button; Company Links keeps it.
+              // folders work by dragging one tile onto another; the picker
+              // stays on Company Links as the keyboard-reachable path.
               moveControls={(editable && sourceType !== 'personal') ? {
                 extra: (
                   <FolderPicker
@@ -1915,36 +1967,7 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
         })}
         {extraAddTile && <AddAppTile label={extraAddTile.label} onClick={extraAddTile.onClick} />}
       </AppGrid>
-
-      {openFolder && (
-        // Always fully interactive regardless of the outer Customize mode
-        // (Aug 14, "when we drag an application from folder it is not
-        // responsive... we should have the option to drag the application
-        // from folder also and move to any other folder or just keep it on
-        // main screen") - organizing an already-open folder is lightweight
-        // and expected to just work, same posture as favoriting. Every
-        // mutator here goes through `immediateMutate` (saves right away)
-        // instead of `mutate` (the dirty-tracked draft that needs an
-        // explicit Save while Customizing the main screen).
-        <FolderModal
-          folder={openFolder}
-          memberEntries={folderMembers(openFolder.id)}
-          itemsById={itemsById}
-          actionCtx={actionCtx}
-          editable={true}
-          onClose={() => setOpenFolderId(null)}
-          onRename={(name) => renameFolder(openFolder.id, name, immediateMutate)}
-          onDeleteFolder={() => {
-            if (!window.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`)) return;
-            deleteFolder(openFolder.id, immediateMutate);
-            setOpenFolderId(null);
-          }}
-          onReorderWithin={(orderedEntries) => reorderWithinFolder(openFolder.id, orderedEntries, immediateMutate)}
-          onMoveOut={(entry, destId) => moveToFolder(entry, destId, immediateMutate)}
-          allFolders={folders}
-          onCreateFolder={(entry) => createFolderWithItem(entry, immediateMutate)}
-        />
-      )}
+      {folderPanel}
     </>
   );
 }
