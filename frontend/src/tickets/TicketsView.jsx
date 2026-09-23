@@ -431,7 +431,7 @@ function TicketColumnsMenu({ columns, hidden, toggleHidden, cols }) {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button onClick={() => setOpen((o) => !o)} title="Customize columns" style={btn('outline')}>
-        <Columns3 size={15} /> Customize
+        <SlidersHorizontal size={14} /> Customize
       </button>
       {open && (
         <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, padding: 8 }}>
