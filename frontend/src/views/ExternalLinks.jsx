@@ -285,6 +285,30 @@ export default function ExternalLinks() {
   const toggleFavorite = useCallback((id) => toggleFavoriteRaw('external', id), [toggleFavoriteRaw]);
   const togglePersonalFavorite = useCallback((id) => toggleFavoriteRaw('personal', id), [toggleFavoriteRaw]);
 
+  // Keyboard (Neil, Sep 22): "/" anywhere on the page focuses the search
+  // box (unless something editable already has focus), and Enter in the
+  // search box opens the first app on screen - whatever the grid shows
+  // first under the current filters and arrangement.
+  const searchRef = useRef(null);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (document.querySelector('.modal-overlay, [role="dialog"]')) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const openFirstOnScreen = () => document.querySelector('.app-grid .app-tile:not(.app-tile-add), .dash-link-row')?.click();
+
+  // 3. A one-time hint that the gesture exists - dismissed once, per browser.
+  const [hintDismissed, setHintDismissed] = useState(() => { try { return localStorage.getItem('nexus-links-folder-hint') === '1'; } catch { return true; } });
+  const dismissHint = () => { setHintDismissed(true); try { localStorage.setItem('nexus-links-folder-hint', '1'); } catch { /* private mode */ } };
+
   const [recents, setRecents] = useState(() => readIds(myEmail, 'recents'));
   useEffect(() => { setRecents(readIds(myEmail, 'recents')); }, [myEmail]);
 
@@ -786,17 +810,13 @@ export default function ExternalLinks() {
   const isLoading = (links === null || layoutLoading) && !error;
   const isEmpty = !isLoading && !error && filtered.length === 0;
 
-  const totalClicks = all.reduce((s, l) => s + (l.clicks || 0), 0);
 
   return (
     <div>
       <div className="view-header links-dim">
         <div className="view-title-group">
           <h2>Links</h2>
-          <p>
-            Every tool the company runs on, one launchpad.
-            {all.length > 0 && ` ${all.length} apps across ${categoriesInUse.length || meta.categories.length} categories, ${totalClicks.toLocaleString()} launches all-time.`}
-          </p>
+          <p>Every tool the company runs on, one launchpad.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {/* View select + "..." menu trigger read as ONE joined control
@@ -959,8 +979,10 @@ export default function ExternalLinks() {
           <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
             <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
             <input
+              ref={searchRef}
               className="form-input" placeholder="Search Links..."
               style={{ paddingLeft: 36 }} value={q} onChange={e => setQ(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); openFirstOnScreen(); } }}
             />
           </div>
           <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={department}
@@ -1005,6 +1027,13 @@ export default function ExternalLinks() {
               mutate={seededMutate} immediateMutate={seededMutateNow} allLinks={all} editable={editing}
               view={gridView} onRequestEdit={() => setEditing(true)}
             />
+            {!hintDismissed && !editing && gridView === 'tile' && all.length > 1 && (
+              <div className="links-hint links-dim">
+                <FolderPlus size={14} />
+                <span>Tip: drag an app onto another to make a folder. Press and hold to rearrange.</span>
+                <button type="button" className="links-hint-close" onClick={dismissHint} aria-label="Dismiss tip" title="Dismiss"><X size={13} /></button>
+              </div>
+            )}
           </Section>
         </AsyncSection>
       </>)}
@@ -1300,7 +1329,7 @@ function PersonalStrip({ title, icon, links, onOpen, className, drag, scope, edi
     // would push the page wider instead of scrolling in place.
     <div className={className} style={{ minWidth: 0, ...(title ? { marginBottom: 22 } : null) }}>
       {title && <SectionHeader title={title} icon={icon} />}
-      <div ref={stripRef} className={`scroll-tabs fav-strip${drag && editable ? ' jiggle' : ''}`} style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+      <div ref={stripRef} className={`scroll-tabs fav-strip${drag && editable ? ' jiggle' : ''}`} style={{ display: 'flex', gap: 10, overflowX: 'auto', padding: '2px 2px 20px' }}>
         {links.map(l => {
           // External links carry `categories` (array, Aug 14); Personal
           // Links still have the single `category` string.
@@ -1315,9 +1344,9 @@ function PersonalStrip({ title, icon, links, onOpen, className, drag, scope, edi
             // strip stays a compact quick-launch row instead of widening
             // with every long app name.
             <button
-              key={key} onClick={() => onOpen(l)} title={l.name} className="fav-tile"
+              key={key} onClick={() => onOpen(l)} className="fav-tile" data-name={l.name}
               style={{
-                flexShrink: 0, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                position: 'relative', flexShrink: 0, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 borderRadius: '50%', border: '1px solid var(--wk-line2)', background: 'var(--card)', cursor: 'pointer',
                 transition: 'border-color .12s, transform .12s',
                 ...(shift || {}), '--jiggle-phase': jigglePhase(key),
@@ -1327,7 +1356,7 @@ function PersonalStrip({ title, icon, links, onOpen, className, drag, scope, edi
               {...gesture}
             >
               <span className="fav-body">
-                <LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius="50%" fg={fg} bg={bg} gradient={false} />
+                <LinkIcon url={l.url} iconKey={l.icon} size={30} iconSize={15} radius="50%" fg={fg} bg={bg} gradient={false} />
               </span>
             </button>
           );
@@ -1628,7 +1657,7 @@ function FolderModal({
       onClick={() => { if (!drag.recentlyDropped()) requestClose(); }}
     >
       <div
-        ref={contentRef} className="modal-content folder-panel" style={{ width: '60vw', maxWidth: '60vw' }}
+        ref={contentRef} className="modal-content folder-panel" style={{ width: 'fit-content', minWidth: 'min(380px, 100%)', maxWidth: 'min(60vw, 100%)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="modal-header">

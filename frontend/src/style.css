@@ -4201,6 +4201,9 @@ button, [role="button"], select { touch-action: manipulation; }
   overflow: hidden;
   word-break: break-word;
   max-width: 100%;
+  /* Always a two-line box (Sep 22), so a grid of one- and two-line names
+     keeps even rows instead of ragged ones. */
+  height: 2.5em;
 }
 .app-tile-pin {
   position: absolute; top: -3px; right: -3px;
@@ -4445,6 +4448,35 @@ body.links-editing .app-tile-tooltip { display: none !important; }
 .fav-strip.jiggle .fav-tile { cursor: grab; }
 .app-tile-ghost.fav-tile { border-radius: 50%; }
 .app-tile-ghost .fav-body { animation: none !important; }
+/* The name appears under a favorite on hover - a dock, not a mystery row. */
+.fav-tile::after {
+  content: attr(data-name);
+  position: absolute; top: calc(100% + 3px); left: 50%; transform: translateX(-50%);
+  white-space: nowrap; font-size: 10.5px; font-weight: 600; color: var(--ink);
+  opacity: 0; transition: opacity .12s ease; pointer-events: none;
+}
+.fav-tile:hover::after, .fav-tile:focus-visible::after { opacity: 1; }
+body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
+
+/* 3. The one-time "drag one app onto another" tip under the grid. */
+.links-hint {
+  display: flex; align-items: center; gap: 8px; margin-top: 14px;
+  font-size: 12.5px; color: var(--muted);
+}
+.links-hint svg:first-child { color: var(--wk-brand); flex-shrink: 0; }
+.links-hint-close {
+  display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+  border: none; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; margin-left: 2px;
+}
+.links-hint-close:hover { background: var(--mist); color: var(--ink); }
+
+/* 6. Touch: the action strip (folder picker) shows only in Customize mode,
+   so browsing tiles are just icon and name; the bookmark corner and the
+   (i) button stay. */
+@media (hover: none) {
+  .app-tile-actions { display: none; }
+  .app-grid.jiggle .app-tile-actions { display: flex; }
+}
 .links-edit-bar {
   position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
   display: flex; align-items: center; gap: 10px;
