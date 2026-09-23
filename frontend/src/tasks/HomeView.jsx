@@ -5,7 +5,7 @@
 // Manage rather than rendered here.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, CheckCircle2, LayoutGrid, Plus, Circle, CalendarDays, FolderKanban, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
+import { ChevronDown, ChevronRight, CheckCircle2, SlidersHorizontal, Plus, Circle, CalendarDays, FolderKanban, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { DeletedTasksTab as RecycleBinPanel } from './ManageView';
 import { fmtDate, taskIdFromUrl, taskAssignees } from './lib';
@@ -536,7 +536,7 @@ export default function HomeView({ onNavigate }) {
             <button onClick={() => { setCustomizing(false); setDragKey(null); setOverKey(null); }} style={{ ...btn('primary'), flexShrink: 0, whiteSpace: 'nowrap' }}><Check size={14} /> Done</button>
           </>
         ) : (
-          <button onClick={() => setCustomizing(true)} title="Customize widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><LayoutGrid size={14} /> Customize</button>
+          <button onClick={() => setCustomizing(true)} title="Customize widgets" style={{ ...btn('outline'), flexShrink: 0, whiteSpace: 'nowrap' }}><SlidersHorizontal size={14} /> Customize</button>
         ),
         barSlot,
       )}
