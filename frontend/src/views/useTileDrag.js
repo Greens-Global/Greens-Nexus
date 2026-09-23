@@ -50,9 +50,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 //   - Touch: a short hold lifts the tile (a swipe before the hold scrolls
 //     the page as normal - the hold is what claims the gesture, and a
 //     non-passive touchmove listener then keeps the page from scrolling
-//     under the drag). Outside Customize mode, a longer hold on a tile
-//     enters Customize and starts the drag in one motion - the phone's own
-//     long-press-to-jiggle - via onRequestEdit.
+//     under the drag). Outside Customize mode a mouse drag, or a longer
+//     hold on a tile, enters Customize and starts the drag in one motion -
+//     the phone's own long-press-to-jiggle - via onRequestEdit.
 //
 // Keys are opaque strings the grid picks (`folder:<id>` / `<type>:<id>`);
 // the engine only asks the grid (through scopesRef) what keys a scope has,
@@ -419,7 +419,10 @@ function createDragEngine(env) {
     const el = e.currentTarget;
     const pointerId = e.pointerId;
     const startX = e.clientX, startY = e.clientY;
-    const holdGated = e.pointerType === 'touch' || !draggable;
+    // Touch is always hold-gated (a swipe must still scroll the page). A
+    // mouse drags on movement alone, in browse mode too - the lift is what
+    // enters Customize there - since a desktop user expects to just drag.
+    const holdGated = e.pointerType === 'touch';
     let lastX = startX, lastY = startY;
     let timer = null, armed = false, lifted = false;
     const cleanup = () => {
@@ -449,11 +452,13 @@ function createDragEngine(env) {
       } else if (dist > LIFT_MOVE_PX) {
         lift();
       }
+      // A mouse held still in browse mode also lifts after the long hold,
+      // like the phone - see the timer below.
     };
     el.addEventListener('pointermove', onPressMove);
     el.addEventListener('pointerup', cleanup);
     el.addEventListener('pointercancel', cleanup);
-    if (holdGated) {
+    if (holdGated || !draggable) {
       el.classList.add('app-tile-holding');
       timer = setTimeout(() => {
         armed = true;
