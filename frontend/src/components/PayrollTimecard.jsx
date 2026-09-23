@@ -462,7 +462,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         {self
-          ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Timecard</span>
+          ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Timesheet</span>
           : <select className="form-input" value={email} onChange={e => setEmail(e.target.value)} style={{ fontSize: 13, minWidth: 180, fontWeight: 700 }} title="Also selectable from the sidebar">
               {people.map(p => <option key={p.email} value={p.email}>{p.name}{p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}</option>)}
             </select>}
@@ -975,7 +975,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       {/* Toolbar - month nav (fixed pay is by calendar month, no work-week) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         {self
-          ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 160 }}>My Timecard</span>
+          ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 160 }}>My Timesheet</span>
           : <select className="form-input" value={email} onChange={e => setEmail(e.target.value)} style={{ fontSize: 13, minWidth: 180, fontWeight: 700 }}>
               {people.map(p => <option key={p.email} value={p.email}>{p.name}{p.pendingEdits ? ` (${p.pendingEdits} to review)` : ''}</option>)}
             </select>}

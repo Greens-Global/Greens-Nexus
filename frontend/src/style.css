@@ -3798,6 +3798,35 @@ button, [role="button"], select { touch-action: manipulation; }
   .dk-rise { animation: none; }
 }
 
+/* Phone dashboard header (Neil, Sep 23): the tab strip's margin, the
+   wrapper's gap and the greeting's padding used to stack into ~40px of
+   nothing above "Good morning"; the view picker, Customize, the clock chip
+   and the view menu now share one scrolling toolbar row of same-height
+   pills, and the local time rides the date line instead of its own row. */
+.dk-sub-local { display: none; }
+@media (max-width: 900px) {
+  .dashboard-view { gap: 8px; }
+  .dashboard-view .module-tabs-inline { margin-bottom: 4px; }
+  .dk-head { padding-top: 0; gap: 8px; }
+}
+@media (max-width: 640px) {
+  .dk-head h1 { font-size: 24px; }
+  .dk-head-right { width: 100%; align-items: stretch; gap: 0; }
+  .dk-toolbar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 4px 0 6px; }
+  .dk-toolbar::-webkit-scrollbar { display: none; }
+  .dk-toolbar > * { flex-shrink: 0; }
+  .dk-session-chip { white-space: nowrap; padding: 7px 11px; }
+  .dk-session-long { display: none; }
+  /* Tighter pills so picker, Customize, clock and the view menu fit a
+     390px screen without scrolling. */
+  .dk-toolbar { gap: 6px !important; }
+  .dk-toolbar .dk-controls { gap: 6px !important; }
+  .dk-toolbar .secondary-btn, .dk-toolbar .primary-btn { padding: 7px 11px; }
+  .dk-toolbar select.form-input { padding-right: 26px !important; padding-left: 10px !important; }
+  .dk-zones { display: none; }
+  .dk-sub-local { display: inline; }
+}
+
 /* ── PDF Editor module: full-bleed workspace below the header ────────────── */
 /* NO negative margins. This used to sit inside a padded .viewport and cancel that
    padding with `margin: -32px -36px` plus one -18px override. But .viewport has
@@ -4619,3 +4648,71 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   .nx-fab-item { animation: none; }
   .nx-fab:hover, .nx-fab-item:hover { transform: none; }
 }
+
+/* ── Links: Manage on a phone (Sep 23) ─────────────────────────────────────
+   ManageMobileSheet in views/ExternalLinks.jsx. The class-based modal turns
+   into a 92vh bottom sheet at this breakpoint (above); Manage is a work
+   surface, not a dialog, so it takes the whole screen with its own fixed
+   head, tabs and toolbar and a body that scrolls on its own. */
+@media (max-width: 640px) {
+  .modal-overlay.links-manage-overlay { align-items: stretch !important; }
+  .modal-content.links-manage-sheet {
+    height: 100vh; height: 100dvh;
+    max-height: 100vh !important; max-height: 100dvh !important;
+    border-radius: 0 !important;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+}
+.links-manage-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: calc(12px + env(safe-area-inset-top)) 12px 8px 16px; flex-shrink: 0;
+}
+.links-manage-head h3 { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; color: var(--ink); margin: 0; }
+.links-manage-head .close-btn { width: 44px; height: 44px; }
+.links-manage-tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.links-manage-tabs > button { min-height: 44px; white-space: nowrap; flex-shrink: 0; font-size: 13.5px !important; }
+.links-manage-toolbar { display: flex; gap: 8px; padding: 12px 16px 0; flex-shrink: 0; }
+.links-manage-toolbar .form-input { min-height: 44px; font-size: 15px; }
+.links-manage-iconbtn { width: 44px; height: 44px; padding: 0 !important; justify-content: center; flex-shrink: 0; }
+.links-manage-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); min-width: 230px; z-index: 5;
+  background: var(--card); border: 1px solid var(--wk-line2); border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.18); padding: 6px;
+}
+.links-manage-menu > button { min-height: 44px; font-size: 14px !important; }
+.links-manage-bulk {
+  margin: 12px 16px 0; padding: 12px; border-radius: 12px; background: var(--wk-brand-tint);
+  display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
+}
+.links-manage-bulk .form-select { min-height: 44px; }
+.links-manage-body {
+  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  padding: 14px 16px calc(24px + env(safe-area-inset-bottom));
+}
+.links-manage-body .form-input { min-height: 44px; font-size: 15px; }
+.links-manage-group { margin-bottom: 18px; }
+.links-manage-cat { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+.links-manage-row { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--line); }
+.links-manage-check { display: flex; align-items: center; justify-content: center; width: 40px; min-height: 56px; flex-shrink: 0; margin-left: -8px; }
+.links-manage-check input { width: 18px; height: 18px; margin: 0; accent-color: var(--wk-brand); }
+.links-manage-rowmain {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 6px 0;
+  border: none; background: none; text-align: left; font-family: inherit; cursor: pointer; border-radius: 10px;
+  -webkit-tap-highlight-color: transparent;
+}
+.links-manage-rowmain:active { background: var(--mist); }
+.links-manage-rowtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.links-manage-rowname { font-size: 14.5px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.links-manage-rowsub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The per-row action sheet (Edit / Move Up / Move Down / Shorten / Delete). */
+.links-manage-actions { padding-bottom: env(safe-area-inset-bottom); }
+.links-manage-actions-head { display: flex; align-items: center; gap: 12px; padding: 18px 16px 12px; border-bottom: 1px solid var(--line); }
+.links-manage-action {
+  display: flex; align-items: center; gap: 14px; width: 100%; min-height: 52px; padding: 0 18px;
+  border: none; background: none; font-family: inherit; font-size: 15px; font-weight: 500; color: var(--ink); text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.links-manage-action svg { color: var(--muted); flex-shrink: 0; }
+.links-manage-action:disabled { opacity: .4; cursor: default; }
+.links-manage-action.danger, .links-manage-action.danger svg { color: hsl(var(--color-red)); }
+.links-manage-action:not(:disabled):active { background: var(--mist); }

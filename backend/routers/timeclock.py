@@ -4205,6 +4205,77 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
             "canManage": can_write}
 
 
+@router.get("/my-schedule")
+def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The signed-in person's own shifts for a date range (My Workday > Shifts,
+    Sep 23): their default shift preset, the PUBLISHED shifts placed on them in
+    the schedule grid, and their time off and company holidays in the range -
+    plus the same for everyone in the shift group(s) they belong to (`teams`).
+    Read-only and self-scoped - scheduling itself stays in People > Shifts."""
+    email = (user.get("email") or "").lower()
+    presets = {s.id: s for s in db.query(Shift).all()}
+    a = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == email).first()
+    default_shift = _shift_dict(presets[a.shift_id]) if a and a.shift_id in presets else None
+    rows = (db.query(ScheduledShift)
+            .filter(ScheduledShift.employee_email == email,
+                    ScheduledShift.work_date >= start, ScheduledShift.work_date <= end,
+                    ScheduledShift.published == 1)
+            .order_by(ScheduledShift.work_date, ScheduledShift.start_hhmm).all())
+    tq = (db.query(TimeOffRequest)
+          .filter(TimeOffRequest.employee_email == email,
+                  TimeOffRequest.status.in_(["approved", "pending"]),
+                  TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start))
+    timeoff = [{"startDate": t.start_date, "endDate": t.end_date, "type": t.type, "status": t.status}
+               for t in tq.all()]
+
+    # The person's team(s) (Neil, Sep 23: "Shifts should show all team shifts
+    # based on what team you are on as well as your own"). A team here is the
+    # shift group a manager put them in (People > Shifts > Groups) - the same
+    # grouping bulk assignment and the BOD/EOD chat already key on - so
+    # membership stays a manager's call and nothing new needs defining.
+    # Each group carries its members with their default preset, the
+    # PUBLISHED shifts placed on them, and their approved time off with the
+    # type withheld (a teammate needs to know you are out, not why).
+    group_ids = [m.group_id for m in db.query(ShiftGroupMember)
+                 .filter(ShiftGroupMember.employee_email == email).all()]
+    teams = []
+    if group_ids:
+        names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
+                 for e in db.query(NexusEmployee).all() if e.work_email}
+        members_by_group = {}
+        for m in db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id.in_(group_ids)).all():
+            members_by_group.setdefault(m.group_id, []).append((m.employee_email or "").lower())
+        all_members = sorted({em for ems in members_by_group.values() for em in ems if em})
+        defaults = {}
+        for asg in db.query(ShiftAssignment).filter(ShiftAssignment.employee_email.in_(all_members)).all():
+            if asg.shift_id in presets:
+                defaults[(asg.employee_email or "").lower()] = _shift_dict(presets[asg.shift_id])
+        placed = {}
+        for r in (db.query(ScheduledShift)
+                  .filter(ScheduledShift.employee_email.in_(all_members),
+                          ScheduledShift.work_date >= start, ScheduledShift.work_date <= end,
+                          ScheduledShift.published == 1)
+                  .order_by(ScheduledShift.work_date, ScheduledShift.start_hhmm).all()):
+            placed.setdefault((r.employee_email or "").lower(), []).append(_sched_dict(r, presets))
+        away = {}
+        for t in (db.query(TimeOffRequest)
+                  .filter(TimeOffRequest.employee_email.in_(all_members),
+                          TimeOffRequest.status == "approved",
+                          TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start).all()):
+            away.setdefault((t.employee_email or "").lower(), []).append(
+                {"startDate": t.start_date, "endDate": t.end_date})
+        for g in db.query(ShiftGroup).filter(ShiftGroup.id.in_(group_ids)).order_by(ShiftGroup.name).all():
+            ems = sorted(set(members_by_group.get(g.id, [])), key=lambda em: (em != email, names.get(em, em)))
+            teams.append({"id": g.id, "name": g.name,
+                          "members": [{"email": em, "name": names.get(em, em), "isMe": em == email,
+                                       "shift": defaults.get(em), "scheduled": placed.get(em, []),
+                                       "timeoff": away.get(em, [])} for em in ems]})
+
+    return {"shift": default_shift, "scheduled": [_sched_dict(r, presets) for r in rows],
+            "timeoff": timeoff, "holidays": _company_holidays_for_employee(db, email, start, end) or [],
+            "teams": teams}
+
+
 class ScheduledShiftIn(BaseModel):
     employee_email: str
     work_date: str

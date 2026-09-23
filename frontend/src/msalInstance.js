@@ -50,6 +50,15 @@ if (import.meta.env.DEV && import.meta.env.VITE_DEV_SKIP_AUTH === 'true') {
   };
   const realGetActive = msalInstance.getActiveAccount.bind(msalInstance);
   msalInstance.getActiveAccount = () => realGetActive() ?? devAccount;
+  // No token round-trip either (Sep 23): with the synthetic account the real
+  // acquireTokenSilent tried a silent flow against Microsoft that could stall
+  // for many seconds - or indefinitely - and every api call awaits it, so the
+  // app sat on a gate spinner. The backend's NEXUS_SKIP_AUTH ignores the
+  // bearer value anyway.
+  msalInstance.acquireTokenSilent = async () => ({
+    idToken: 'dev-local', accessToken: 'dev-local', account: devAccount,
+    idTokenClaims: { ...devAccount.idTokenClaims, exp: Math.floor(Date.now() / 1000) + 12 * 3600 },
+  });
 }
 
 // MSAL v3 requires explicit initialization before getAllAccounts()

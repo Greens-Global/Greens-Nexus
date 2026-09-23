@@ -21,7 +21,7 @@ import { toViewUrl } from '../lib/storageView';
 // reports with recorded steps + AI conversion, assignments with due dates.
 // Dev-only: the backend 404s everything unless NEXUS_QA_MODULE is set.
 
-const QA_MODULES = ['People', 'My Workday', 'Item Management', 'Asset Management', 'Documents (E-Sign)', 'Dashboards', 'Other'];
+const QA_MODULES = ['People', 'Workday', 'Item Management', 'Asset Management', 'Documents (E-Sign)', 'Dashboards', 'Other'];
 const RESULT_META = {
   pass:    { label: 'Pass',    fg: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)',  Icon: CheckCircle },
   fail:    { label: 'Fail',    fg: 'hsl(var(--color-red))',    bg: 'hsla(var(--color-red),0.12)',    Icon: XCircle },
@@ -800,7 +800,12 @@ export default function Testing() {
   // Stopping a bug-steps recording navigates here - open straight onto Report a
   // bug so the recorded steps (waiting in sessionStorage) are front and centre.
   const [tab, setTab] = useState(() => (sessionStorage.getItem('qa-bug-steps') ? 'bugs' : 'run'));
-  const [cases, setCases] = useState(null);
+  const [cases, _setCases] = useState(null);
+  // Cases filed while the module was still called "My Workday" (renamed
+  // "Workday", Sep 23) keep that string in the database; fold it into the
+  // current name on read so they stay in the Workday pool and filter, and
+  // pick up the new name the next time they are saved.
+  const setCases = useCallback((v) => _setCases(Array.isArray(v) ? v.map(c => c.module === 'My Workday' ? { ...c, module: 'Workday' } : c) : v), []);
   const [runs, setRuns] = useState(null);
   const [runId, setRunId] = useState('');
   const [results, setResults] = useState([]);

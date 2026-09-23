@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isBypassing } from '../../../lib/dialogGuard';
 import { X } from 'lucide-react';
 import UnsavedChangesPrompt from '../../../components/UnsavedChangesPrompt';
 
@@ -16,7 +17,7 @@ import UnsavedChangesPrompt from '../../../components/UnsavedChangesPrompt';
 export function Modal({ title, children, footer, wide, maxWidth, onClose, isDirty = false, onSave }) {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
-  const requestClose = () => { if (isDirty) setConfirming(true); else onClose(); };
+  const requestClose = () => { if (isDirty && !isBypassing()) setConfirming(true); else onClose(); };
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') requestClose(); };
     window.addEventListener('keydown', onKey);
