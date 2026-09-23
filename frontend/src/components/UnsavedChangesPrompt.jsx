@@ -10,20 +10,20 @@ import { createPortal } from 'react-dom';
 export default function UnsavedChangesPrompt({ onKeepEditing, onDiscard, onSave, saving }) {
   return createPortal((
     <div
-      className="modal-overlay"
+      className="modal-overlay" data-nx-prompt="1" role="alertdialog" aria-modal="true" aria-labelledby="nx-unsaved-title"
       style={{ zIndex: 6000 }}
       onClick={(e) => { if (e.target === e.currentTarget) onKeepEditing(); }}
     >
-      <div className="modal-content" style={{ maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: '20px 22px 4px' }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>Save your changes?</div>
+          <div id="nx-unsaved-title" style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>Discard unsaved changes?</div>
           <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
-            You have unsaved changes. Closing now will discard them.
+            You have unsaved changes in this window. If you leave now, they will be lost.
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '16px 22px 20px', flexWrap: 'wrap' }}>
-          <button className="secondary-btn" onClick={onKeepEditing}>Keep Editing</button>
-          <button className="secondary-btn" onClick={onDiscard}>Discard</button>
+          <button className="secondary-btn" style={{ color: 'hsl(var(--color-red))' }} onClick={onDiscard}>Discard Changes</button>
+          <button className={onSave ? 'secondary-btn' : 'primary-btn'} onClick={onKeepEditing} autoFocus>Keep Editing</button>
           {onSave && (
             <button className="primary-btn" onClick={onSave} disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
           )}

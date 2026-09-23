@@ -27,6 +27,7 @@ import { BFF_MODE } from "./bffAuth";
 import LoginPage from "./views/LoginPage";
 import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
+import { hasDirtyDialog, confirmDiscard } from "./lib/dialogGuard";
 
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
@@ -585,6 +586,15 @@ function MainApp() {
   }, [sidebarPinned]);
 
   function navigate(view, sub = null) {
+    // A popup with unsaved work is open: ask before leaving (Neil, Sep 22 -
+    // see lib/dialogGuard.js). The move goes ahead only on Discard.
+    if (hasDirtyDialog()) {
+      confirmDiscard().then(ok => { if (ok) applyNavigate(view, sub); });
+      return;
+    }
+    applyNavigate(view, sub);
+  }
+  function applyNavigate(view, sub = null) {
     // Old view ids that no longer route on their own (folded into a tab of
     // another view) - remapped here, not just in parsePath, so EVERY caller
     // (nexus:navigate events, widget/notification click-throughs, header
