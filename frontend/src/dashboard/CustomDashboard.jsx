@@ -221,11 +221,14 @@ export default function CustomDashboard() {
         // (Pranshu, Sep 15) while the view picker/Customize keep their own
         // group with normal spacing.
         const controls = (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: isMobile ? 'flex-start' : 'flex-end', width: isMobile ? '100%' : 'auto' }}>
+          // On a phone this is one item in the greeting's scrolling toolbar
+          // row (.dk-toolbar, see DeskGreeting) rather than a full-width
+          // stack of its own - the picker sizes to its name (Sep 23).
+          <div className="dk-controls" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: isMobile ? 'nowrap' : 'wrap', justifyContent: isMobile ? 'flex-start' : 'flex-end', flexShrink: 0 }}>
             <select value={d.activeId || ''}
               onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
               className="form-input" title="Switch dashboard view"
-              style={{ fontSize: 12.5, fontWeight: 600, width: isMobile ? '100%' : 170, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto' }}>
+              style={{ fontSize: 12.5, fontWeight: 600, width: isMobile ? 'auto' : 170, maxWidth: isMobile ? 176 : undefined, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto', flexShrink: 0 }}>
               <option value="">Home</option>
               {d.views.filter(v => v.scope === 'personal').length > 0 && (
                 <optgroup label="My views">
@@ -264,7 +267,7 @@ export default function CustomDashboard() {
         // with the chip (Pranshu, Sep 15 2nd follow-up).
         const viewMenu = (
           <div style={{ position: 'relative' }}>
-            <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
+            <button className="secondary-btn" style={{ ...btn, padding: '6px 9px', flexShrink: 0 }} onClick={() => setMenu(m => !m)} title="View options" aria-label="View options"><MoreHorizontal size={15} /></button>
             {menu && (
               <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 220 }}>
                 <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>

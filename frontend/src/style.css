@@ -3798,6 +3798,35 @@ button, [role="button"], select { touch-action: manipulation; }
   .dk-rise { animation: none; }
 }
 
+/* Phone dashboard header (Neil, Sep 23): the tab strip's margin, the
+   wrapper's gap and the greeting's padding used to stack into ~40px of
+   nothing above "Good morning"; the view picker, Customize, the clock chip
+   and the view menu now share one scrolling toolbar row of same-height
+   pills, and the local time rides the date line instead of its own row. */
+.dk-sub-local { display: none; }
+@media (max-width: 900px) {
+  .dashboard-view { gap: 8px; }
+  .dashboard-view .module-tabs-inline { margin-bottom: 4px; }
+  .dk-head { padding-top: 0; gap: 8px; }
+}
+@media (max-width: 640px) {
+  .dk-head h1 { font-size: 24px; }
+  .dk-head-right { width: 100%; align-items: stretch; gap: 0; }
+  .dk-toolbar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 4px 0 6px; }
+  .dk-toolbar::-webkit-scrollbar { display: none; }
+  .dk-toolbar > * { flex-shrink: 0; }
+  .dk-session-chip { white-space: nowrap; padding: 7px 11px; }
+  .dk-session-long { display: none; }
+  /* Tighter pills so picker, Customize, clock and the view menu fit a
+     390px screen without scrolling. */
+  .dk-toolbar { gap: 6px !important; }
+  .dk-toolbar .dk-controls { gap: 6px !important; }
+  .dk-toolbar .secondary-btn, .dk-toolbar .primary-btn { padding: 7px 11px; }
+  .dk-toolbar select.form-input { padding-right: 26px !important; padding-left: 10px !important; }
+  .dk-zones { display: none; }
+  .dk-sub-local { display: inline; }
+}
+
 /* ── PDF Editor module: full-bleed workspace below the header ────────────── */
 /* NO negative margins. This used to sit inside a padded .viewport and cancel that
    padding with `margin: -32px -36px` plus one -18px override. But .viewport has
