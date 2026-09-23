@@ -197,7 +197,7 @@ export default function LoginPage() {
                 <rect y="11" width="10" height="10" fill="#05A6F0" />
                 <rect x="11" y="11" width="10" height="10" fill="#FFBA08" />
               </svg>
-              Team Member Sign-In
+              Team Sign-In
             </button>
             {/* 4. An external profile face, so the two routes are told apart at
                 a glance rather than by reading both labels. */}
@@ -315,21 +315,20 @@ export default function LoginPage() {
         .nxl-hero-inner { width: 100%; max-width: 552px; margin-inline: auto; }
         .nxl-hero-brand {
           position: absolute; top: 26px; left: clamp(36px, 6vw, 84px);
-          display: flex; align-items: center; gap: 10px;
+          display: flex; align-items: center; gap: 14px;
         }
+        /* The brand lockup at ~150% (Sagar, Sep 17; Neil, Sep 22). Sized
+           directly - mark 32 -> 48px, wordmark 18 -> 27px - rather than via
+           transform: scale(), which the entrance animation below cancels
+           (every hero child lands on transform: none), so the earlier
+           scale(1.45) never actually showed. */
         .nxl-mark {
-          width: 32px; height: 32px; border-radius: 9px;
+          width: 48px; height: 48px; border-radius: 13px;
           display: inline-flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 16px;
+          font-weight: 800; font-size: 24px;
         }
         .nxl-mark--inverse { background: rgba(255,255,255,.16); color: #fff; }
-        .nxl-hero-name { font-size: 18px; font-weight: 800; letter-spacing: -.01em; }
-        /* The brand lockup at 145% (Sagar, Sep 17 - 125% first, then raised
-           again the same day). Scaled as a unit from its top-left so the mark
-           and the wordmark keep their proportions and the block stays anchored
-           to the panel's corner - sizing each part separately would drift
-           them apart. */
-        .nxl-hero-brand { transform: scale(1.45); transform-origin: left top; }
+        .nxl-hero-name { font-size: 27px; font-weight: 800; letter-spacing: -.01em; }
 
         .nxl-hero-title {
           margin: 0;
@@ -436,7 +435,10 @@ export default function LoginPage() {
              them; with that gone they need a gap of their own or they touch. */
           gap: 12px;
         }
-        .nxl-actions .nxl-cta { width: 100%; justify-content: center; margin-top: 0; }
+        /* Left-aligned (Neil, Sep 22): with the labels centered the two icons
+           sat at different x positions because the labels differ in length;
+           flush-left puts both icons, and both labels, on one edge. */
+        .nxl-actions .nxl-cta { width: 100%; justify-content: flex-start; margin-top: 0; }
         .nxl-actions .nxl-note { margin: 14px 0; }
         .nxl-note { margin: 16px 0 0; font-size: 12.5px; color: #9699a6; }
 
