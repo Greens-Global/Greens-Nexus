@@ -909,7 +909,8 @@ export default function TicketsView() {
         ) : view === 'board' ? (
           <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={(id, status) => updateTicket(id, { status }).catch(() => {})} />
         ) : visible.length === 0 ? (
-          <EmptyState icon={TicketToken} title="No Tickets" hint={tickets.length ? 'No tickets match your filters.' : 'Raise a ticket to get started.'} />
+          <EmptyState icon={TicketToken} title={tickets.length ? 'No Tickets' : 'No Tickets Yet'}
+            hint={tickets.length ? 'No tickets match your filters.' : `Nothing has been submitted so far. Choose ${isMobile ? 'Create' : 'New Ticket'} to report a problem or ask for help.`} />
         ) : isMobile ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {groups.map((g) => (
