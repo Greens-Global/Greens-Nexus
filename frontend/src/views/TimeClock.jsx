@@ -8,6 +8,7 @@ import { SkeletonBlocks } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
+import MyShifts from '../components/MyShifts';
 import BodModal from '../components/BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
@@ -41,6 +42,7 @@ const TAB_META = {
   overview:  { title: 'My Workday', label: 'Overview',   subtitle: 'Your profile, documents and leave - only you see this' },
   clock:     { title: 'Time Clock', label: 'Clock',      subtitle: 'Punch in and out, your timesheet and time off' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet', subtitle: 'Your hours this pay period, day by day' },
+  shifts:    { title: 'My Shifts',  label: 'Shifts',     subtitle: 'When you are scheduled to work, week by week' },
   timeoff:   { title: 'Time Off',   label: 'Time Off',   subtitle: 'Request time off and see what’s coming up' },
 };
 // Work OS card-header title (sentence case, no uppercase tracking).
@@ -293,7 +295,7 @@ function GeoChip({ p }) {
   if (p.lat && p.lng) return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
       title="Location recorded. No geofenced work site to judge against, or the fix was too coarse (Wi-Fi/IP, no GPS - punch from a phone for a precise fix).">
-      <MapPin size={12} /> location recorded{p.accuracyM ? ` (±${p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})` : ''}
+      <MapPin size={12} /> Location Recorded{p.accuracyM ? ` (±${p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})` : ''}
     </span>);
   return null;
 }
@@ -707,7 +709,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const [clockPeriod, setClockPeriod] = useState(null);
   useEffect(() => {
     if (tab !== 'clock') return;
-    api.timeMyPayroll('').then(setClockPeriod).catch(() => setClockPeriod(null));
+    const refresh = () => api.timeMyPayroll('').then(setClockPeriod).catch(() => setClockPeriod(null));
+    refresh();
+    // Every punch - here or from the floating timer - re-reads the period so
+    // the hours update the moment you punch out (Neil, Sep 23).
+    window.addEventListener('nexus:timeclock-changed', refresh);
+    return () => window.removeEventListener('nexus:timeclock-changed', refresh);
   }, [tab]);
   const fmtShort = (ds) => new Date(ds + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
 
@@ -737,8 +744,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         tabs={(status?.timeTrackingExempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? ['overview', 'clock', 'timeoff']
-          : ['overview', 'clock', 'timesheet', 'timeoff']
+          ? ['overview', 'clock', 'shifts', 'timeoff']
+          : ['overview', 'clock', 'timesheet', 'shifts', 'timeoff']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
         active={tab} onChange={setTab} syncTitle />
 
@@ -908,8 +915,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
             <div style={{ display: 'flex', gap: 26, marginTop: 18, flexWrap: 'wrap' }}>
               {[['Worked Today', fmtMin(todayData.workedMin), 'var(--ink)'],
                 ['Breaks', showAllowance ? `${breakUsedMin} / 60m` : `${breakUsedMin}m`,
-                  showAllowance && breakUsedMin > 60 ? 'hsl(var(--color-red))' : 'var(--ink)'],
-                ['Last 7 Days', fmtMin(weekTotal), 'var(--ink)']].map(([l, v, c]) => (
+                  showAllowance && breakUsedMin > 60 ? 'hsl(var(--color-red))' : 'var(--ink)']].map(([l, v, c]) => (
                 <div key={l}>
                   <div style={STAT_L}>{l}</div>
                   <div style={{ fontSize: 19, fontWeight: 700, color: c, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
@@ -926,7 +932,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           </>
         ) : (
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-            No punches yet today.{weekTotal > 0 ? ` You've worked ${fmtMin(weekTotal)} in the last 7 days.` : ''}
+            No punches yet today.
           </div>
         )}
       </div>
@@ -972,82 +978,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           )}
         </div>
 
-        {/* This week - hours vs the 40h OT line, today's break allowance, est. pay
-            and pending fix requests. Everything derives from data already loaded. */}
-        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={HD}>This Week</div>
-          {(() => {
-            const sun = new Date(); sun.setHours(0, 0, 0, 0); sun.setDate(sun.getDate() - sun.getDay());
-            const sunKey = new Date(sun.getTime() - sun.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-            const wkMin = clockPeriod
-              ? (clockPeriod.days || []).filter(d => d.date >= sunKey).reduce((a, d) => a + (d.workedMin || 0) - (d.sickMin || 0) - (d.vacationMin || 0), 0)
-              : weekTotal;
-            const otMin = Math.max(0, wkMin - 40 * 60);
-            const pct = Math.min(100, (wkMin / (40 * 60)) * 100);
-            const bPct = Math.min(100, (breakUsedMin / BREAK_ALLOWANCE_MIN) * 100);
-            const PTc = clockPeriod?.totals || {};
-            const curSym = (clockPeriod?.currency || PTc.currency) === 'INR' ? '₹' : '$';
-            const pendingReqs = myReqs.filter(r => r.status === 'pending').length;
-            return (<>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, gap: 8 }}>
-                  <span style={STAT_L}>Hours Worked</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtMin(wkMin)} <span style={{ color: 'var(--muted)', fontWeight: 500 }}>of 40h</span></span>
-                </div>
-                <div style={{ height: 8, borderRadius: 99, background: 'var(--mist)', overflow: 'hidden' }}>
-                  <div style={{ width: `${pct}%`, height: '100%', borderRadius: 99, background: otMin ? '#dc7a18' : 'var(--wk-brand)' }} />
-                </div>
-                {otMin > 0 && <div style={{ fontSize: 11.5, fontWeight: 700, color: '#b45309', marginTop: 5 }}>{fmtMin(otMin)} into overtime (1.5×)</div>}
-              </div>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, gap: 8 }}>
-                  <span style={STAT_L}>Break Today</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{breakUsedMin}m{showAllowance && <span style={{ color: 'var(--muted)', fontWeight: 500 }}> of 60m</span>}</span>
-                </div>
-                {/* The draining allowance bar is India-policy framing only. */}
-                {showAllowance && (
-                  <div style={{ height: 8, borderRadius: 99, background: 'var(--mist)', overflow: 'hidden' }}>
-                    <div style={{ width: `${bPct}%`, height: '100%', borderRadius: 99, background: breakUsedMin > BREAK_ALLOWANCE_MIN ? '#b91c1c' : '#248f4b' }} />
-                  </div>
-                )}
-              </div>
-              {clockPeriod?.rateSet && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-                  <span style={STAT_L}>Est. Pay This Period</span>
-                  <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>{curSym}{(PTc.totalPay || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </div>
-              )}
-              {pendingReqs > 0 && (
-                <button onClick={() => setTab('timesheet')}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(180,83,9,0.08)', border: 'none', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 600, color: '#b45309', textAlign: 'left' }}>
-                  <AlertTriangle size={12} /> {pendingReqs} punch-fix request{pendingReqs === 1 ? '' : 's'} awaiting your approver
-                </button>
-              )}
-            </>);
-          })()}
-        </div>
-
-        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ ...HD, flex: 1 }}>Time Off Coming Up</span>
-            <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 11px' }} onClick={() => setTab('timeoff')}>Request</button>
-          </div>
-          {(() => {
-            const upcoming = (timeoff || []).filter(r => r.status !== 'rejected' && r.status !== 'cancelled' && (r.endDate || '') >= todayKey).slice(0, 4);
-            return upcoming.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Nothing booked - your approved leave shows here.</div>
-            ) : upcoming.map(r => (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
-                <CalendarDays size={13} style={{ color: 'var(--wk-brand)', flexShrink: 0 }} />
-                <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{r.type}</span>
-                <span style={{ color: 'var(--muted)', flex: 1 }}>{r.startDate} → {r.endDate}{toWindow(r)}</span>
-                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'capitalize', padding: '2px 9px', borderRadius: 999,
-                  background: r.status === 'approved' ? 'hsla(var(--color-green),0.1)' : 'rgba(180,83,9,0.1)',
-                  color: r.status === 'approved' ? 'hsl(var(--color-green))' : '#b45309' }}>{r.status}</span>
-              </div>
-            ));
-          })()}
-        </div>
       </div>
       </>)}
 
@@ -1099,6 +1029,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 
 
       {/* Time off */}
+      {/* Shifts (Neil, Sep 23): read-only view of the week's shifts, set by
+          the manager in People > Shifts. */}
+      {tab === 'shifts' && <MyShifts />}
+
       {tab === 'timeoff' && (<>
       <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>

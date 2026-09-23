@@ -4205,6 +4205,31 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
             "canManage": can_write}
 
 
+@router.get("/my-schedule")
+def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The signed-in person's own shifts for a date range (My Workday > Shifts,
+    Sep 23): their default shift preset, the PUBLISHED shifts placed on them in
+    the schedule grid, and their time off and company holidays in the range.
+    Read-only and self-scoped - scheduling itself stays in People > Shifts."""
+    email = (user.get("email") or "").lower()
+    presets = {s.id: s for s in db.query(Shift).all()}
+    a = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == email).first()
+    default_shift = _shift_dict(presets[a.shift_id]) if a and a.shift_id in presets else None
+    rows = (db.query(ScheduledShift)
+            .filter(ScheduledShift.employee_email == email,
+                    ScheduledShift.work_date >= start, ScheduledShift.work_date <= end,
+                    ScheduledShift.published == 1)
+            .order_by(ScheduledShift.work_date, ScheduledShift.start_hhmm).all())
+    tq = (db.query(TimeOffRequest)
+          .filter(TimeOffRequest.employee_email == email,
+                  TimeOffRequest.status.in_(["approved", "pending"]),
+                  TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start))
+    timeoff = [{"startDate": t.start_date, "endDate": t.end_date, "type": t.type, "status": t.status}
+               for t in tq.all()]
+    return {"shift": default_shift, "scheduled": [_sched_dict(r, presets) for r in rows],
+            "timeoff": timeoff, "holidays": _company_holidays_for_employee(db, email, start, end) or []}
+
+
 class ScheduledShiftIn(BaseModel):
     employee_email: str
     work_date: str
