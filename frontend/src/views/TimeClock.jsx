@@ -34,6 +34,9 @@ const KIND_META = {
   break_end:   { label: 'End Break',  Icon: Play,   bg: 'var(--wk-brand)', fg: '#fff' },
 };
 const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break Start', break_end: 'Break End' };
+// What a punch reads as once it has happened (Neil, Sep 23: "Punched in at
+// 1:40 PM", not "Punch In at 1:40 PM").
+const KIND_DONE = { in: 'Punched in', out: 'Punched out', break_start: 'Break started', break_end: 'Break ended' };
 // Per-tab page title/subtitle (Aug 31, per Pranshu - the header used to read
 // "Time Clock" no matter which tab was open). `title` also drives the
 // breadcrumb via <ModuleTabs syncTitle> below.
@@ -373,7 +376,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     const r = await replayPending();
     if (r?.restored) {
       setParked(null); setLostModal(false);
-      toast(true, `${KIND_LABEL[r.entry.kind] || 'Punch'} recorded at ${localTime(r.punch.at)}`
+      toast(true, `${KIND_DONE[r.entry.kind] || 'Punch recorded'} at ${localTime(r.punch.at)}`
         + `${r.backfilled ? ' - flagged for your approver to confirm.' : '.'}`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
       load();
@@ -619,7 +622,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         : p.geoStatus === 'remote' ? ' - remote'
         : p.geoStatus === 'low_accuracy' ? ' - location too approximate to judge (no GPS on this device)'
         : pos ? '' : ' - location unavailable, recorded without it';
-      toast(true, `${KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
+      toast(true, `${KIND_DONE[kind] || KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
       load();
     } else {
