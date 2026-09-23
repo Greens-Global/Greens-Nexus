@@ -73,6 +73,18 @@ const FOLD_DWELL_MS = 280;     // resting over an icon this long arms a fold
 const FOLD_ZONE = 54;          // px box around a target's icon center that counts as "on the icon"
 const SHUFFLE_LINGER_MS = 110; // lingering beside a neighbor (not on its icon) this long shuffles it
 const EJECT_MARGIN = 20;       // px outside the folder box before a drag ejects
+// Touch (Sep 23): a finger is slower and less precise than a mouse, and it
+// hides the target under itself. With the mouse rules a finger heading for
+// an icon pushed it aside before it got there - past-center and cross-row
+// shuffles fired at once, and the 110ms linger was shorter than a finger's
+// travel across a tile's edge - so folding never happened on a phone. On
+// touch every shuffle waits for a real linger, the fold zone covers the
+// whole icon, and letting go while resting on an icon folds without
+// waiting out the full arm delay.
+const FOLD_ZONE_TOUCH = 66;
+const SHUFFLE_LINGER_TOUCH_MS = 300;
+const FOLD_DWELL_TOUCH_MS = 200;
+const FOLD_RELEASE_TOUCH_MS = 90; // resting this long on an icon at release folds
 const SETTLE_MS = 230;         // ghost's flight to its slot on release
 const FOLD_MS = 280;           // ghost's shrink into a fold target
 const SHIFT_EASE = 'cubic-bezier(.2,.8,.2,1)';
@@ -264,7 +276,8 @@ function createDragEngine(env) {
     const targetKey = s.order[over];
     const isFolderSlot = over < s.folderCount;
     const cx = slot.x + slot.w / 2, cy = slot.y + slot.icy;
-    const inCenter = Math.abs(px - cx) <= FOLD_ZONE / 2 && Math.abs(py - cy) <= FOLD_ZONE / 2;
+    const zone = s.touch ? FOLD_ZONE_TOUCH : FOLD_ZONE;
+    const inCenter = Math.abs(px - cx) <= zone / 2 && Math.abs(py - cy) <= zone / 2;
     const inFolder = s.scope.startsWith('folder:');
     // A folder only reorders among folders; an app among apps (or anywhere
     // inside a folder); only an app on the main grid can fold.
@@ -285,10 +298,12 @@ function createDragEngine(env) {
     // Past the target's center (relative to the hole) on the same row, or
     // anywhere on a target in another row: shuffle now. In the near half:
     // shuffle after a short linger, so a quick move through to the icon
-    // still folds. The linger itself fires from the frame loop.
+    // still folds. The linger itself fires from the frame loop. A finger
+    // never shuffles at once - it always lingers - or the target slides
+    // away before the finger reaches its icon.
     const sameRow = Math.abs(slot.y - s.slots[hole].y) < 2;
     const past = !sameRow || (over > hole ? px >= cx : px <= cx);
-    if (past) { applyReorder(over); return; }
+    if (past && !s.touch) { applyReorder(over); return; }
     if (s.pendingShuffle?.target !== over) s.pendingShuffle = { target: over, since: performance.now() };
   };
 
@@ -308,19 +323,23 @@ function createDragEngine(env) {
       evaluate(); // the slots moved under a still pointer
     }
     const now = performance.now();
-    if (s.pendingShuffle && now - s.pendingShuffle.since >= SHUFFLE_LINGER_MS) applyReorder(s.pendingShuffle.target);
-    if (s.foldCandidate && !s.foldKey && now - s.foldSince >= FOLD_DWELL_MS) {
+    const linger = s.touch ? SHUFFLE_LINGER_TOUCH_MS : SHUFFLE_LINGER_MS;
+    const dwell = s.touch ? FOLD_DWELL_TOUCH_MS : FOLD_DWELL_MS;
+    if (s.pendingShuffle && now - s.pendingShuffle.since >= linger) applyReorder(s.pendingShuffle.target);
+    if (s.foldCandidate && !s.foldKey && now - s.foldSince >= dwell) {
       s.foldKey = s.foldCandidate;
+      // The finger covers the tile that just opened up, so a tick says it.
+      if (s.touch) try { navigator.vibrate?.(12); } catch { /* not supported */ }
       publish();
     }
     s.raf = requestAnimationFrame(frame);
   };
 
-  const start = (scope, key, kind, el, pointerId, clientX, clientY) => {
+  const start = (scope, key, kind, el, pointerId, clientX, clientY, touch) => {
     const rect = el.getBoundingClientRect();
     const iconRect = el.querySelector('.app-tile-icon-wrap')?.getBoundingClientRect() || rect;
     s = {
-      active: true, key, kind, scope, pointerId,
+      active: true, key, kind, scope, pointerId, touch: !!touch,
       // icy: the carried icon's center, measured from the tile's top - the
       // point every hit test below is made from.
       ghostRect: { w: rect.width, h: rect.height, icy: iconRect.top - rect.top + iconRect.height / 2 },
@@ -364,6 +383,11 @@ function createDragEngine(env) {
       setTimeout(() => done(() => { if (g.ejected) env.cbsRef.current.onEjectCancel?.(g.fromScope, g.key); }), SETTLE_MS);
       return;
     }
+
+    // A finger let go while resting on an icon: that is the fold, whether or
+    // not the arm delay had run out - nobody holds still on a phone to wait
+    // for a ring they can't see under their fingertip.
+    if (!g.foldKey && g.touch && g.foldCandidate && performance.now() - g.foldSince >= FOLD_RELEASE_TOUCH_MS) g.foldKey = g.foldCandidate;
 
     if (g.foldKey) {
       const targetEl = (env.els.get(g.scope) || new Map()).get(g.foldKey);
@@ -458,7 +482,7 @@ function createDragEngine(env) {
       cleanup();
       suppressClick.add(key);
       if (!draggable && holdToEdit) env.cbsRef.current.onRequestEdit?.();
-      start(scope, key, kind, el, pointerId, lastX, lastY);
+      start(scope, key, kind, el, pointerId, lastX, lastY, holdGated);
     };
     const onPressMove = (ev) => {
       if (ev.pointerId !== pointerId) return;
