@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Clock, LogOut, MonitorUp, MonitorX, MonitorPause, Loader2, ChevronUp } from 'lucide-react';
+import { Clock, LogOut, MonitorUp, MonitorX, MonitorPause, Loader2, ChevronUp, Coffee, Play } from 'lucide-react';
 import { api } from '../api';
 import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
@@ -322,6 +322,24 @@ export default function TimeclockWidget() {
     } catch { /* user dismissed the picker - stays off */ }
   }
 
+  // Start / end a break right here (Neil, Sep 23) - the same durable punch
+  // the clock page makes, without a trip to it. The capture engine already
+  // pauses frames while on break (see onBreakRef).
+  const [breakBusy, setBreakBusy] = useState(false);
+  async function quickBreak(kind) {
+    if (busy || breakBusy) return;
+    setBreakBusy(true);
+    const res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset() });
+    if (res.ok) {
+      setLostOut(false);
+      window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
+    } else if (res.unreachable) {
+      setLostOut(true);
+      setExpanded(true);
+    }
+    setBreakBusy(false);
+  }
+
   async function quickPunchOut() {
     if (busy) return;
     setBusy(true);
@@ -432,11 +450,20 @@ export default function TimeclockWidget() {
               device and goes in at the time you pressed the button. Open Time Clock for details.
             </div>
           )}
+          <button onClick={() => quickBreak(onBreak ? 'break_end' : 'break_start')} disabled={busy || breakBusy}
+            title={onBreak ? 'End your break and get back on the clock' : 'Start a break - your working time pauses'}
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 12px', borderRadius: 10,
+              border: `1px solid ${onBreak ? 'rgba(180,83,9,0.35)' : 'var(--wk-line2)'}`, cursor: 'pointer',
+              background: onBreak ? 'rgba(180,83,9,0.1)' : 'var(--card)', color: onBreak ? '#b45309' : 'var(--ink)',
+              fontSize: 13, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>
+            {breakBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : onBreak ? <Play size={13} /> : <Coffee size={13} />}
+            {onBreak ? 'End Break' : 'Start Break'}
+          </button>
           <button onClick={quickPunchOut} disabled={busy} title="Punch out"
             style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 12px', borderRadius: 10,
               border: 'none', cursor: 'pointer', background: '#b91c1c', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>
             {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <LogOut size={13} />}
-            {lostOut ? 'Retry Punch Out' : 'Punch out'}
+            {lostOut ? 'Retry Punch Out' : 'Punch Out'}
           </button>
         </div>
       )}
