@@ -434,7 +434,7 @@ function createDragEngine(env) {
     // A press on one of the tile's own buttons (favorite, folder picker,
     // info) is theirs; a press anywhere else on the tile - including the
     // gaps of the action row - is the start of a drag.
-    if (e.target.closest('.app-tile-actions button, .folder-picker, .app-tile-info-btn')) return;
+    if (e.target.closest('.app-tile-actions button, .folder-picker, .app-tile-info-btn, .app-tile-fav')) return;
     if (!draggable && !holdToEdit) return;
     const el = e.currentTarget;
     const pointerId = e.pointerId;

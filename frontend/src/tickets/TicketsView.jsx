@@ -1761,7 +1761,15 @@ export function CreateTicketModal({ onClose }) {
   // desktop keeps the centred modal. A plain function, not a component - defining
   // a component inline would remount the whole form on every render and drop focus.
   // `extras` is the icon row, which sits on its own line above the actions.
-  const shell = (title, { onBack, footer, extras, children }) => (isMobile ? (
+  // The popup carries the same ticket glyph the sidebar uses, top-left of
+  // its header (Neil, Sep 22) - both shells render the title as a node.
+  const heading = (text) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+      <TicketToken size={18} style={{ color: NX.brand ?? 'var(--wk-brand)', flexShrink: 0 }} />
+      {text}
+    </span>
+  );
+  const shell = (text, { onBack, footer, extras, children }) => { const title = heading(text); return (isMobile ? (
     <BottomSheet title={title} onClose={onClose} onBack={onBack}>
       <div style={{ display: 'flex', flexDirection: 'column' }}>{children}</div>
       {/* Pinned to the bottom of the sheet's scroll area: the ticket form is long,
@@ -1779,7 +1787,7 @@ export function CreateTicketModal({ onClose }) {
     </BottomSheet>
   ) : (
     <Modal title={title} onClose={onClose} footer={footer}>{children}</Modal>
-  ));
+  )); };
 
   // ── Step 1: who the ticket is for and what kind it is. Everything downstream
   // (which intake fields to ask) depends on Type, so it's settled up front. ──

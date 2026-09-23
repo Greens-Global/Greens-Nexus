@@ -1386,7 +1386,7 @@ function AppTile({
   };
 
   const description = link.description || '';
-  const hasActions = !!(onToggleFavorite || (canManage && (onEdit || onDelete)) || moveControls);
+  const hasActions = !!((canManage && (onEdit || onDelete)) || moveControls);
   // Stable per-link id (not React's own, which isn't guaranteed unique
   // across a whole page) so aria-describedby can point at this tile's own
   // tooltip specifically - undefined (no attribute at all) when there's
@@ -1428,7 +1428,18 @@ function AppTile({
           <LinkIcon url={link.url} iconKey={link.icon} size={iconSize} radius={Math.round(iconSize * 0.28)} fg={color.fg} bg={color.bg} gradient={iconGradient} />
           {link.is_pinned && <span className="app-tile-pin" title="Pinned"><Star size={9} fill="currentColor" /></span>}
           {!link.is_pinned && isPersonal && <span className="app-tile-pin app-tile-personal-badge" title="Personal Link - only visible to you"><Lock size={8} /></span>}
-          {isFavorite && <span className="app-tile-fav-badge"><Bookmark size={9} fill="currentColor" /></span>}
+          {/* The bookmark lives in the top-left corner (Neil, Sep 22): it
+              appears there on hover as the toggle, and stays there, filled,
+              once the app is a favorite - one spot, one meaning. */}
+          {onToggleFavorite && (
+            <button
+              type="button" className={`app-tile-fav${isFavorite ? ' on' : ''}`}
+              title={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'} aria-pressed={isFavorite}
+              onClick={e => { e.stopPropagation(); onToggleFavorite(); }} onPointerDown={e => e.stopPropagation()}
+            >
+              <Bookmark size={12} fill={isFavorite ? 'currentColor' : 'none'} />
+            </button>
+          )}
           {vaultLinked && <span className="app-tile-key-badge" title="Copies its saved password when opened"><KeyRound size={9} /></span>}
           {hasActions && (
             <div className="app-tile-actions"
@@ -1438,11 +1449,6 @@ function AppTile({
               // underneath, so the middle of a tile is never a dead zone.
               onClick={e => { if (e.target.closest('button')) e.stopPropagation(); }}
               onPointerDown={e => { if (e.target.closest('button')) e.stopPropagation(); }}>
-              {onToggleFavorite && (
-                <IconBtn onClick={onToggleFavorite} title={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}>
-                  <Bookmark size={11} fill={isFavorite ? 'hsl(var(--color-blue))' : 'none'} style={{ color: isFavorite ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
-                </IconBtn>
-              )}
               {canManage && onEdit && <IconBtn onClick={onEdit} title="Edit link"><Pencil size={11} /></IconBtn>}
               {canManage && canDelete && onDelete && <IconBtn onClick={onDelete} title="Delete link" danger><Trash2 size={11} /></IconBtn>}
               {moveControls?.extra}
