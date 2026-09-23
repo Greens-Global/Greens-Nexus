@@ -30,7 +30,7 @@ export const SUBMENUS = {
   ],
   ops: [
     { sub: 'construction-dashboard', label: 'Project Dashboard' },
-    { sub: 'construction-cubby',     label: 'Cubby Integration' },
+    { sub: 'construction-activity',  label: 'Site Activity' },
   ],
   operations: [
     { sub: 'fms',        label: 'FMS Integration' },

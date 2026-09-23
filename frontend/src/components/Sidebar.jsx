@@ -91,7 +91,6 @@ export const NAV = [
     sub: [
       { subview: "construction-dashboard", label: "Project Dashboard", icon: LayoutDashboard },
       { subview: "construction-activity",  label: "Site Activity",     icon: ClipboardList },
-      { subview: "construction-cubby",     label: "Cubby Integration", icon: FileText },
     ],
   },
   {
