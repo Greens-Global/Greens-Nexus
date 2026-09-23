@@ -81,12 +81,17 @@ class DecorateTests(unittest.TestCase):
     def test_card_only_with_a_registered_originator(self):
         out = tma.decorate(self.HTML, event_type="assigned", t=self.CTX, recipient=ME, options=self.OPTS)
         self.assertNotIn("adaptivecard", out)
-        old = tma.AM_ORIGINATOR
+        old = tma.AM_ORIGINATOR, tma.AM_AUDIENCE
         tma.AM_ORIGINATOR = "originator-guid"
         try:
+            # Originator alone is half a registration: a card whose clicks
+            # would all 503. Not emitted until the token audience is set too.
+            out = tma.decorate(self.HTML, event_type="assigned", t=self.CTX, recipient=ME, options=self.OPTS)
+            self.assertNotIn("adaptivecard", out)
+            tma.AM_AUDIENCE = "api://auth-am-1/2"
             out = tma.decorate(self.HTML, event_type="assigned", t=self.CTX, recipient=ME, options=self.OPTS)
         finally:
-            tma.AM_ORIGINATOR = old
+            tma.AM_ORIGINATOR, tma.AM_AUDIENCE = old
         self.assertIn("application/adaptivecard+json", out)
         card = json.loads(out.split("adaptivecard+json'>", 1)[1].split("</script>", 1)[0])
         self.assertEqual(card["originator"], "originator-guid")
@@ -107,13 +112,13 @@ class DecorateTests(unittest.TestCase):
         self.assertEqual(card["actions"][0]["body"], "{{reply.value}}")
 
     def test_script_close_in_a_title_cannot_break_out_of_the_card(self):
-        old = tma.AM_ORIGINATOR
-        tma.AM_ORIGINATOR = "o"
+        old = tma.AM_ORIGINATOR, tma.AM_AUDIENCE
+        tma.AM_ORIGINATOR, tma.AM_AUDIENCE = "o", "api://auth-am-1/2"
         try:
             ctx = {**self.CTX, "title": "x</script><img src=x>"}
             out = tma.decorate(self.HTML, event_type="assigned", t=ctx, recipient=ME, options=self.OPTS)
         finally:
-            tma.AM_ORIGINATOR = old
+            tma.AM_ORIGINATOR, tma.AM_AUDIENCE = old
         self.assertEqual(out.count("</script>"), 1)
 
 
@@ -196,6 +201,73 @@ class EntraTokenClaimTests(unittest.TestCase):
         """Entra tokens do not carry `sender`; the signed per-task token in the
         URL is what ties the call to an email we sent."""
         self.assertEqual(self._who(), "sagar@greensglobal.com")
+
+
+class EntraTokenSignatureTests(unittest.TestCase):
+    """am_performer end to end: a signed token against the configured
+    audience(s) and either tenant issuer spelling. A throwaway RSA key stands
+    in for the tenant's signing key; no JWKS fetch."""
+    APP_ID_URI = "api://auth-am-11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222"
+    CLIENT_ID = "22222222-2222-2222-2222-222222222222"
+
+    @classmethod
+    def setUpClass(cls):
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        cls.key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        cls.pub = cls.key.public_key()
+
+    def setUp(self):
+        import auth
+        self._old = tma.AM_AUDIENCE, auth._get_public_key, mail_actions._sender_mailboxes
+        tma.AM_AUDIENCE = f"{self.APP_ID_URI},{self.CLIENT_ID}"
+        auth._get_public_key = lambda token: self.pub
+        mail_actions._sender_mailboxes = lambda db: {"nexus@greensglobal.com"}
+
+    def tearDown(self):
+        import auth
+        tma.AM_AUDIENCE, auth._get_public_key, mail_actions._sender_mailboxes = self._old
+
+    def _token(self, **over):
+        import time as _t
+        import auth
+        import jwt as pyjwt
+        claims = {"aud": self.CLIENT_ID, "iss": auth.ISSUER, "tid": auth.TENANT_ID,
+                  "azp": mail_actions.AM_APP_ID, "preferred_username": "Neil@GreensGlobal.com",
+                  "sub": "opaque", "iat": int(_t.time()), "exp": int(_t.time()) + 300, "ver": "2.0"}
+        claims.update(over)
+        return "Bearer " + pyjwt.encode({k: v for k, v in claims.items() if v is not None},
+                                        self.key, algorithm="RS256")
+
+    def test_v2_token_names_the_clicker(self):
+        self.assertEqual(mail_actions.am_performer(self._token(), None), "neil@greensglobal.com")
+
+    def test_v1_token_with_the_app_id_uri_audience_is_accepted_too(self):
+        import auth
+        tok = self._token(aud=self.APP_ID_URI, iss=f"https://sts.windows.net/{auth.TENANT_ID}/",
+                          azp=None, appid=mail_actions.AM_APP_ID,
+                          preferred_username=None, upn="neil@greensglobal.com", ver="1.0")
+        self.assertEqual(mail_actions.am_performer(tok, None), "neil@greensglobal.com")
+
+    def _refused(self, authorization, status, contains):
+        with self.assertRaises(HTTPException) as cm:
+            mail_actions.am_performer(authorization, None)
+        self.assertEqual(cm.exception.status_code, status)
+        self.assertIn(contains, cm.exception.detail)
+
+    def test_wrong_audience_issuer_or_signature_is_refused(self):
+        import auth
+        self._refused(self._token(aud="api://someone-else"), 401, "Invalid")
+        self._refused(self._token(iss="https://login.microsoftonline.com/other-tenant/v2.0",
+                                  tid="other-tenant"), 401, "another tenant")
+        self._refused(self._token(exp=0), 401, "Invalid")
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        auth._get_public_key = lambda token: rsa.generate_private_key(65537, 2048).public_key()
+        self._refused(self._token(), 401, "Invalid")
+
+    def test_missing_token_or_unconfigured_deployment(self):
+        self._refused("", 401, "Missing")
+        tma.AM_AUDIENCE = ""
+        self._refused(self._token(), 503, "not configured")
 
 
 class MailActionEndpointTests(_DBCase):

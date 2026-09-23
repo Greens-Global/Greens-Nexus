@@ -3,6 +3,7 @@ import { X, ChevronRight, ChevronLeft, LogOut, Moon, Sun } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { BFF_MODE, bffLogout } from '../bffAuth';
 import { useRole, ROLES, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
+import { usePersonPhoto } from '../lib/peoplePhotos';
 import { NAV } from './Sidebar';
 
 // Sub-screens per module - the same sub ids the views' tab strips use, so a
@@ -30,7 +31,7 @@ export const SUBMENUS = {
   ],
   ops: [
     { sub: 'construction-dashboard', label: 'Project Dashboard' },
-    { sub: 'construction-cubby',     label: 'Cubby Integration' },
+    { sub: 'construction-activity',  label: 'Site Activity' },
   ],
   operations: [
     { sub: 'fms',        label: 'FMS Integration' },
@@ -68,6 +69,11 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   const account  = accounts[0];
   const name     = account?.name ?? 'User';
   const initials = name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
+  // The person's own photo from the Nexus People directory (Sep 22) - the
+  // same picture the header pill shows, so the menu's card matches it. ''
+  // while it loads and for anyone HR hasn't given a photo; initials remain
+  // the fallback.
+  const photo    = usePersonPhoto(account?.username ?? '');
   // External guests read "External", never a tier name (Visesh, Aug 18).
   const roleMeta = isExternal ? EXTERNAL_ROLE_META : (ROLES[myRole] ?? ROLES.employee);
 
@@ -124,7 +130,11 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         <button className="mobile-menu-close" onClick={requestClose} aria-label="Close menu"><X size={22} /></button>
       </div>
       <div className="mobile-menu-user">
-        <div className="mobile-menu-avatar">{initials}</div>
+        <div className="mobile-menu-avatar">
+          {photo
+            ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            : initials}
+        </div>
         <div style={{ minWidth: 0 }}>
           <div className="mobile-menu-name">{name}</div>
           <div className="mobile-menu-role">{roleMeta.label}</div>

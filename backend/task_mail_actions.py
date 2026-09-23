@@ -60,6 +60,18 @@ from mail_text import rich_to_email_html
 # ── Configuration ────────────────────────────────────────────────────────────
 
 AM_ORIGINATOR = os.getenv("NEXUS_AM_ORIGINATOR", "").strip()
+# The audience(s) clicks are verified against (routers/mail_actions): the
+# AppIdUri from the provider registration, then the Entra app's client id,
+# comma-separated. Read here so the card can be gated on it without a
+# circular import.
+AM_AUDIENCE = os.getenv("NEXUS_AM_AUDIENCE", "").strip()
+
+
+def am_enabled() -> bool:
+    """Both halves of the registration are present: the originator the card
+    carries and the audience its clicks are verified against. Half-configured,
+    Outlook would render a card whose every button 503s."""
+    return bool(AM_ORIGINATOR and AM_AUDIENCE)
 
 # Same key the signed reply-to address uses (task_inbound_parse.py), with its
 # own context prefix so a token for one purpose can never be replayed as the
@@ -323,7 +335,7 @@ def decorate(html: str, *, event_type: str, t: dict, recipient: str, options: li
     html = html.replace(FOOTER_SLOT, footer_links_html(token=token))
     done = t.get("status") == "completed"
     html = html.replace(ACTIONS_SLOT, fallback_actions_html(event_type=event_type, token=token, done=done))
-    if not AM_ORIGINATOR:
+    if not am_enabled():
         return html
     card = build_card(t=t, event_type=event_type, token=token, options=options,
                       comment_body=comment_body, comment_author=comment_author)

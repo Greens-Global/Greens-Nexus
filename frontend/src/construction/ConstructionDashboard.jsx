@@ -3,7 +3,7 @@
 // Replaces the hardcoded INIT_PROJECTS / "156 / 12 / 0 / 94%" block that used to
 // live inline in views/Operations.jsx. Its own file because the construction
 // module is going to grow (daily log capture, manager review, weekly reports)
-// and Operations.jsx also owns the unrelated Cubby tab.
+// and Operations.jsx also owns the mock Logistics and Equipment cards.
 //
 // Every number shown here is derived server-side in /construction/overview. The
 // old "Productivity 94%" card is gone rather than reimplemented: nothing in the

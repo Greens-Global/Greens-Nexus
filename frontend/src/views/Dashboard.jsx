@@ -33,7 +33,7 @@ export default function Dashboard({ activeSub, onSubChange }) {
   const { activeOverdueAlerts, dismissOverdueAlert } = useNotifications();
   const fullName = accounts[0]?.name ?? 'there';
 
-  const tab = activeSub === 'external-links' ? 'external-links' : 'dashboard';
+  const tab = activeSub === 'links' ? 'links' : 'dashboard';
 
   // Overdue alerts relevant to this user
   const myOverdueAlerts = activeOverdueAlerts.filter(a =>
@@ -42,7 +42,7 @@ export default function Dashboard({ activeSub, onSubChange }) {
 
   const tabs = [
     { key: 'dashboard', label: 'Dashboard' },
-    { key: 'external-links', label: 'Links' },
+    { key: 'links', label: 'Links' },
   ];
 
   return (
@@ -76,7 +76,7 @@ export default function Dashboard({ activeSub, onSubChange }) {
         </div>
       ))}
 
-      {tab === 'external-links' ? (
+      {tab === 'links' ? (
         <Suspense fallback={null}>
           <ExternalLinks />
         </Suspense>

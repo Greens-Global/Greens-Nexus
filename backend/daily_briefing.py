@@ -476,6 +476,52 @@ def _item_needs_to_know_rows(db: Session, email: str, since_iso: str, is_manager
     return rows
 
 
+_TASK_COMMENT_PREVIEW_COUNT = 3
+_TASK_COMMENT_PREVIEW_CHARS = 180
+
+
+def _attach_task_comment_previews(db: Session, rows: list) -> None:
+    """Mutates each tasks-module row in place, adding a "comments" list of its
+    last 3 comments (Sep 23, Pranshu: "the comments made on that particular
+    task should be visible in daily brief mail... last 3 comments"). Runs
+    regardless of WHY the task made it into this section - a task showing up
+    because of a status change still gets its recent comments attached, not
+    just one that showed up because of a comment - so the reader gets real
+    context instead of just "added a comment" with no content. One batched
+    query for all rows' comments, one batched query for author display
+    names, rather than a per-row round trip."""
+    task_ids = {r["task_id"] for r in rows if r.get("task_id")}
+    if not task_ids:
+        return
+    comments = (db.query(models.TaskComment)
+                .filter(models.TaskComment.task_id.in_(task_ids), models.TaskComment.internal == False)  # noqa: E712
+                .order_by(models.TaskComment.created_at.desc()).all())
+    by_task: dict = {}
+    for c in comments:
+        bucket = by_task.setdefault(c.task_id, [])
+        if len(bucket) < _TASK_COMMENT_PREVIEW_COUNT:
+            bucket.append(c)
+    author_emails = {c.author_email.lower() for c in comments if c.author_email}
+    names = {}
+    if author_emails:
+        for e in db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email).in_(author_emails)).all():
+            names[(e.work_email or "").lower()] = f"{e.first_name} {e.last_name}".strip()
+    for r in rows:
+        bucket = by_task.get(r.get("task_id") or "")
+        if not bucket:
+            continue
+        r["comments"] = [{
+            "author": names.get((c.author_email or "").lower()) or c.author_email or "Someone",
+            # A comment's body is rich HTML (the editor wraps every line in
+            # <p>, same shape task_mail_actions.comment_html produces) - raw-
+            # truncating it left the literal "<p>...</p>" tags visible in the
+            # email (Sep 23 screenshot). task_mail_actions._plain already
+            # exists for exactly this - HTML -> plain text for a text-only
+            # summary - so reuse it instead of a second strip-tags implementation.
+            "body": task_mail_actions._plain(c.body or "", _TASK_COMMENT_PREVIEW_CHARS),
+        } for c in bucket]
+
+
 def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> list:
     activity = (db.query(models.TaskActivity)
                 .filter(models.TaskActivity.entity_kind == "task",
@@ -503,6 +549,7 @@ def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> li
             # Approve/Reject; a completed row needs neither.
             "task_open": not bool(t.completed),
         })
+    _attach_task_comment_previews(db, rows)
     rows.extend(_item_needs_to_know_rows(db, email, since_iso, bool(my_reports)))
     rows.extend(_ticket_needs_to_know_rows(db, email, since_iso))
     rows.extend(_esign_needs_to_know_rows(db, email, since_iso))
@@ -768,10 +815,23 @@ def _card_html(color: str, row: dict) -> str:
                         f"style='{btn}background:{accent};color:#ffffff'>Open in Nexus &rarr;</a>")
     link = f"<div style='margin-top:10px'>{''.join(buttons)}</div>" if buttons else ""
     sub_rows = "".join(_sub_action_html(accent, s) for s in row.get("sub_actions") or [])
+    # Last 3 comments (Sep 23, Pranshu: "the comments made on that particular
+    # task should be visible in daily brief mail") - _attach_task_comment_previews
+    # already capped/truncated these, so this is display-only. Newest first,
+    # matching the rest of the digest's own "most recent first" convention.
+    comments_html = ""
+    if row.get("comments"):
+        lines = "".join(
+            f"<div style='padding:4px 0;border-top:1px solid rgba(0,0,0,.08);font-size:12px;color:#3a463e;"
+            f"line-height:1.4'><b>{escape(c['author'])}:</b> {escape(c['body'])}</div>"
+            for c in row["comments"]
+        )
+        comments_html = f"<div style='margin-top:8px'>{lines}</div>"
     return f"""
         <div style="background:{tint};border-left:3px solid {accent};border-radius:10px;padding:14px 16px;margin-bottom:10px">
           <div style="font-size:14.5px;font-weight:700;color:#26312a;line-height:1.35">{escape(row['title'])}</div>
           <div style="font-size:12.5px;color:#5c6a60;margin-top:3px;line-height:1.45">{escape(row['detail'])}</div>
+          {comments_html}
           {sub_rows}
           {link}
         </div>"""

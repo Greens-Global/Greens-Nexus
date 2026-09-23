@@ -4,7 +4,7 @@
 // Dashboard, two levels down: open the dashboard, open a project, scroll past
 // the registers. That is the wrong depth for the two things people touch most -
 // a worker filing today's log and a manager reading the week - so they get
-// their own tab between Project Dashboard and Cubby Integration.
+// their own tab after Project Dashboard.
 //
 // The split, in one line: Project Dashboard is the portfolio (which jobsites
 // exist, how far along, their milestones and RFIs), this is the timeline (what
