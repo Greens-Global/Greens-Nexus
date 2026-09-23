@@ -16,7 +16,7 @@ import { replayPendingBods } from '../lib/bodQueue';
 import { formatTime } from '../lib/datetime';
 import { MyHROverview } from './MyHR';
 
-// ── My Workday - one module (Visesh, Sep 3: "combine My HR and Time Clock...
+// ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
 // "My HR" Sep 4 once it covered both halves). Four tabs: Overview (profile/
 // documents/paystubs/Ask HR - MyHR.jsx's MyHROverview), Clock, Time Sheet,
@@ -42,7 +42,7 @@ const KIND_DONE = { in: 'Punched in', out: 'Punched out', break_start: 'Break st
 // "Time Clock" no matter which tab was open). `title` also drives the
 // breadcrumb via <ModuleTabs syncTitle> below.
 const TAB_META = {
-  overview:  { title: 'My Workday', label: 'Overview',   subtitle: 'Your profile, documents and leave - only you see this' },
+  overview:  { title: 'Workday', label: 'Overview',   subtitle: 'Your profile, documents and leave - only you see this' },
   clock:     { title: 'Time Clock', label: 'Clock',      subtitle: 'Punch in and out, your timesheet and time off' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet', subtitle: 'Your hours this pay period, day by day' },
   shifts:    { title: 'My Shifts',  label: 'Shifts',     subtitle: 'When you are scheduled to work, week by week' },
