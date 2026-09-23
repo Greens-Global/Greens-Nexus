@@ -191,19 +191,23 @@ export default function LoginPage() {
               note, which read as fine print rather than the alternative it is. */}
           <div className="nxl-actions" style={{ "--i": 3 }}>
             <button className="nxl-cta" onClick={signIn}>
-              <svg width="18" height="18" viewBox="0 0 21 21" fill="none" aria-hidden="true">
-                <rect width="10" height="10" fill="#F35325" />
-                <rect x="11" width="10" height="10" fill="#81BC06" />
-                <rect y="11" width="10" height="10" fill="#05A6F0" />
-                <rect x="11" y="11" width="10" height="10" fill="#FFBA08" />
-              </svg>
-              Team Sign-In
+              <span className="nxl-cta-inner">
+                <svg width="18" height="18" viewBox="0 0 21 21" fill="none" aria-hidden="true">
+                  <rect width="10" height="10" fill="#F35325" />
+                  <rect x="11" width="10" height="10" fill="#81BC06" />
+                  <rect y="11" width="10" height="10" fill="#05A6F0" />
+                  <rect x="11" y="11" width="10" height="10" fill="#FFBA08" />
+                </svg>
+                Team Sign-In
+              </span>
             </button>
             {/* 4. An external profile face, so the two routes are told apart at
                 a glance rather than by reading both labels. */}
             <button className="nxl-cta" onClick={() => { setPartner('email'); setPError(''); }}>
-              <CircleUserRound size={18} strokeWidth={1.75} aria-hidden="true" />
-              Partner Sign-In
+              <span className="nxl-cta-inner">
+                <CircleUserRound size={18} strokeWidth={1.75} aria-hidden="true" />
+                Partner Sign-In
+              </span>
             </button>
           </div>
           </>)}
@@ -439,7 +443,20 @@ export default function LoginPage() {
            sat at different x positions because the labels differ in length;
            flush-left puts both icons, and both labels, on one edge. */
         .nxl-actions .nxl-cta { width: 100%; justify-content: flex-start; margin-top: 0; }
+        .nxl-actions .nxl-cta-inner { display: inline-flex; align-items: center; gap: 11px; white-space: nowrap; }
         .nxl-actions .nxl-note { margin: 14px 0; }
+        /* The labels sit left-justified but as one centered column (Neil,
+           Sep 23): both start on the same left edge, and that edge is placed
+           so the whitespace either side of the wider label is equal, instead
+           of both hugging the left padding with an empty right half. A
+           subgrid shares the label column across the two boxes, so it sizes
+           to the wider of the two without a hard-coded width. */
+        @supports (grid-template-columns: subgrid) {
+          .nxl-actions { display: grid; grid-template-columns: 1fr auto 1fr; }
+          .nxl-actions .nxl-cta { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; gap: 0; align-items: center; }
+          .nxl-actions .nxl-cta-inner { grid-column: 2; justify-self: start; }
+          .nxl-actions .nxl-note { grid-column: 1 / -1; }
+        }
         .nxl-note { margin: 16px 0 0; font-size: 12.5px; color: #9699a6; }
 
         /* Pinned to the page corners. The left one sits over the green panel,
