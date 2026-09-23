@@ -1,5 +1,6 @@
 // Task Module - shared UI atoms (inline-styled to match the export's light theme).
 import { useEffect, useLayoutEffect, useState, useRef } from 'react';
+import { isBypassing } from '../lib/dialogGuard';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
   ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus,
@@ -102,7 +103,9 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
   const isMobile = useIsMobile();
   const [confirmClose, setConfirmClose] = useState(false);
   const [saving, setSaving] = useState(false);
-  const requestClose = () => { if (isDirty) setConfirmClose(true); else onClose(); };
+  // isBypassing(): a Discard already confirmed by the app-wide guard
+  // (lib/dialogGuard.js) is replaying this close - do not ask twice.
+  const requestClose = () => { if (isDirty && !isBypassing()) setConfirmClose(true); else onClose(); };
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') requestClose(); };
     window.addEventListener('keydown', onKey);

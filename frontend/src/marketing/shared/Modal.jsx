@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { isBypassing } from '../../lib/dialogGuard'
 import { X } from 'lucide-react'
 import { C, FONT, alpha } from '../theme'
 
@@ -22,7 +23,7 @@ const MAX_W = {
 export default function Modal({ title, onClose, children, width, isDirty = false, onSave }) {
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
-  const requestClose = () => { if (isDirty) setConfirming(true); else onClose() }
+  const requestClose = () => { if (isDirty && !isBypassing()) setConfirming(true); else onClose() }
   useEffect(() => {
     function onKeyDown(e) {
       if (e.key === 'Escape') requestClose()

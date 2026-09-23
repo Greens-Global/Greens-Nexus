@@ -3,6 +3,7 @@
    modal. All state lives in the DB via /items/assignments - components only
    mirror it and poll. */
 import { useState, useEffect, useRef } from 'react';
+import { isBypassing } from '../lib/dialogGuard';
 import { Camera, CheckCircle, XCircle, RotateCcw, Loader2, AlertCircle, User, Package, ZoomIn, MapPin } from 'lucide-react';
 import { api } from '../api';
 import { emailToName } from '../lib/utils';
@@ -128,7 +129,7 @@ function ModalShell({ title, sub, children, onClose, busy = false, isDirty = fal
   const [confirming, setConfirming] = useState(false);
   // P4 modal guards: don't let ESC or a backdrop click tear the modal down while
   // an accept/return/cancel is in flight - that would also lose the onDone refresh.
-  const requestClose = () => { if (busy) return; if (isDirty) setConfirming(true); else onClose(); };
+  const requestClose = () => { if (busy) return; if (isDirty && !isBypassing()) setConfirming(true); else onClose(); };
   useEffect(() => { const h = e => { if (e.key === 'Escape') requestClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose, busy, isDirty]);
   return (
     <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}

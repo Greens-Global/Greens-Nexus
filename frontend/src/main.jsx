@@ -25,6 +25,7 @@ import './style.css'
 import App from './App.jsx'
 import LoginPage from './views/LoginPage'
 import RootErrorBoundary from './components/RootErrorBoundary'
+import DialogGuard from './components/DialogGuard'
 import { DialogHost } from './ui/dialog'
 import { installErrorReporter } from './lib/errorReporter'
 import { BFF_MODE, bffBootstrap } from './bffAuth'
@@ -99,6 +100,7 @@ function renderApp() {
           <MsalProvider instance={msalInstance}>
             <App />
             <DialogHost />
+            <DialogGuard />
           </MsalProvider>
         </QueryClientProvider>
       </RootErrorBoundary>
