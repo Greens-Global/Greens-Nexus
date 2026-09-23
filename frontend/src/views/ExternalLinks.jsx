@@ -6,6 +6,7 @@ import { PersonalLockGate } from '../credvault/vaultShared';
 import { LinkIcon } from '../components/LinkIcon.jsx';
 import { useLinkViews } from './useLinkViews';
 import { useTileDrag } from './useTileDrag';
+import { useIsMobile } from '../lib/useIsMobile';
 // The IT desk's triage taxonomy - a link carries one so a ticket raised
 // against this app lands in the right queue. Defined by the Ticket module.
 import { SERVICE_AREAS } from '../tickets/ticketMeta';
@@ -16,7 +17,7 @@ import {
   Settings2, Bookmark, History,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
   FolderPlus, Check, RefreshCw, SlidersHorizontal, Save,
-  MoreHorizontal, Copy,
+  MoreHorizontal, Copy, ArrowUp, ArrowDown,
 } from 'lucide-react';
 
 // ── Personal, client-side only (favorites / recents / view density) ──
@@ -2127,12 +2128,12 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
   );
 }
 
-function IconBtn({ children, onClick, title, danger, disabled }) {
+function IconBtn({ children, onClick, title, danger, disabled, size = 24 }) {
   return (
     <button
-      onClick={onClick} title={title} disabled={disabled}
+      onClick={onClick} title={title} aria-label={title} disabled={disabled}
       style={{
-        width: 24, height: 24, borderRadius: 6, border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: size, height: size, borderRadius: size > 28 ? 10 : 6, border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
         background: 'var(--card)', boxShadow: '0 1px 4px rgba(0,0,0,.15)', cursor: disabled ? 'default' : 'pointer',
         color: danger ? 'hsl(var(--color-red))' : 'var(--muted)', opacity: disabled ? 0.35 : 1,
       }}
@@ -2367,6 +2368,7 @@ function ManageModal({
   onRefreshDescription, onRefreshAllDescriptions,
   taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames, categoryNames, onBulkUpdate, onBulkDelete,
 }) {
+  const isMobile = useIsMobile();
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('all');
   const [showImport, setShowImport] = useState(false);
@@ -2459,6 +2461,20 @@ function ManageModal({
     setDragId(null);
     setDropCategory(null);
   };
+
+  // The phone gets its own layout of the same state (Sep 23) - every hook
+  // above has run by here, so branching on the breakpoint is safe.
+  if (isMobile) {
+    return (
+      <ManageMobileSheet m={{
+        q, setQ, tab, setTab, showImport, setShowImport, rows, grouped, attention, emptyDepartments, deptPick, setDeptPick,
+        selectedIds, toggleSelected, clearSelection, bulkCategories, setBulkCategories, bulkDepartments, setBulkDepartments,
+        bulkApplying, applyBulk, applyBulkDelete, refreshingId, doRefreshOne, refreshingAll, doRefreshAll, canReorder,
+        onClose, onAdd, onAddForDept, onEdit, onDelete, canDelete, onReorder, onImported, companyName,
+        taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames, categoryNames,
+      }} />
+    );
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -2641,6 +2657,245 @@ function ManageTab({ active, onClick, children }) {
   );
 }
 
+// Manage on a phone (Sep 23, "manage is not good on mobile - create a mobile
+// friendly version for mobile only"). It IS ManageModal - the same state,
+// handed over once the hooks have run - laid out as a full-height sheet:
+// one column, 44px targets, a per-row action sheet in place of the hover
+// icons, Move Up / Move Down in place of drag-to-reorder (a finger can't
+// drag an HTML5 list row anyway), Import and Shorten Descriptions behind a
+// "more" button so the search box keeps the width, the bulk bar stacked,
+// and the two taxonomy lists one under the other. The desktop modal above
+// is untouched.
+function ManageMobileSheet({ m }) {
+  const {
+    q, setQ, tab, setTab, showImport, setShowImport, rows, grouped, attention, emptyDepartments, deptPick, setDeptPick,
+    selectedIds, toggleSelected, clearSelection, bulkCategories, setBulkCategories, bulkDepartments, setBulkDepartments,
+    bulkApplying, applyBulk, applyBulkDelete, refreshingId, doRefreshOne, refreshingAll, doRefreshAll, canReorder,
+    onClose, onAdd, onAddForDept, onEdit, onDelete, canDelete, onReorder, onImported, companyName,
+    taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames, categoryNames,
+  } = m;
+  const [more, setMore] = useState(false);
+  const [sheet, setSheet] = useState(null); // { link, cat } - the row whose actions are open
+  const attentionCount = attention.length + emptyDepartments.length;
+
+  // Move Up / Move Down inside a category group - the same bulk reorder
+  // the desktop list's drag handle sends, with two ids swapped.
+  const groupIds = (cat) => (grouped.find(([c]) => c === cat)?.[1] || []).map(l => l.id);
+  const moveInGroup = (link, cat, dir) => {
+    const ids = groupIds(cat);
+    const i = ids.indexOf(link.id), j = i + dir;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    onReorder(ids);
+  };
+  const sub = (l) => {
+    const depts = (l.departments && l.departments.length) ? l.departments.join(', ') : 'All departments';
+    const cos = (l.companies && l.companies.length) ? ` · ${l.companies.map(companyName).join(', ')}` : '';
+    return `${depts}${cos} · ${l.clicks || 0} uses`;
+  };
+
+  const actionSheet = sheet && (() => {
+    const { link: l, cat } = sheet;
+    const ids = groupIds(cat);
+    const at = ids.indexOf(l.id);
+    const { fg, bg } = colorFor(primaryCategory(l));
+    const close = () => setSheet(null);
+    const run = (fn) => () => { close(); fn(); };
+    let host = '';
+    try { host = new URL(l.url).hostname.replace(/^www\./, ''); } catch { host = l.url; }
+    return (
+      <div className="modal-overlay" onClick={e => { e.stopPropagation(); close(); }} role="dialog" aria-label={`${l.name} actions`}>
+        <div className="modal-content links-manage-actions" onClick={e => e.stopPropagation()}>
+          <div className="links-manage-actions-head">
+            <LinkIcon url={l.url} iconKey={l.icon} size={36} iconSize={18} radius={10} fg={fg} bg={bg} gradient={false} />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{host}</div>
+            </div>
+          </div>
+          <div style={{ padding: '6px 0' }}>
+            <button type="button" className="links-manage-action" onClick={run(() => onEdit(l))}><Pencil size={17} /> Edit Link</button>
+            {canReorder && ids.length > 1 && (
+              <>
+                <button type="button" className="links-manage-action" disabled={at <= 0} onClick={run(() => moveInGroup(l, cat, -1))}><ArrowUp size={17} /> Move Up in {cat}</button>
+                <button type="button" className="links-manage-action" disabled={at < 0 || at >= ids.length - 1} onClick={run(() => moveInGroup(l, cat, 1))}><ArrowDown size={17} /> Move Down in {cat}</button>
+              </>
+            )}
+            <button type="button" className="links-manage-action" disabled={refreshingId === l.id} onClick={run(() => doRefreshOne(l))}><RefreshCw size={17} /> Shorten Description</button>
+            {canDelete && <button type="button" className="links-manage-action danger" onClick={run(() => onDelete(l))}><Trash2 size={17} /> Delete Link</button>}
+          </div>
+          <div style={{ padding: '4px 16px 12px' }}>
+            <button type="button" className="secondary-btn" style={{ width: '100%', justifyContent: 'center', minHeight: 46 }} onClick={close}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
+  return (
+    <div className="modal-overlay links-manage-overlay" onClick={onClose}>
+      <div className="modal-content links-manage-sheet" onClick={e => e.stopPropagation()} aria-label="Manage Links">
+        <div className="links-manage-head">
+          <h3>Manage Links</h3>
+          <button className="close-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
+        </div>
+
+        <div className="scroll-tabs links-manage-tabs">
+          <ManageTab active={tab === 'all'} onClick={() => setTab('all')}>All Links</ManageTab>
+          <ManageTab active={tab === 'attention'} onClick={() => setTab('attention')}>
+            Needs Attention{attentionCount > 0 && (
+              <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, background: 'hsla(var(--color-orange),0.18)', color: 'hsl(var(--color-orange))', padding: '1px 6px', borderRadius: 10 }}>
+                {attentionCount}
+              </span>
+            )}
+          </ManageTab>
+          <ManageTab active={tab === 'taxonomy'} onClick={() => setTab('taxonomy')}>Departments &amp; Categories</ManageTab>
+        </div>
+
+        {tab !== 'taxonomy' && (
+          <div className="links-manage-toolbar">
+            <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+              <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+              <input className="form-input" style={{ paddingLeft: 34 }} placeholder="Search links..." value={q} onChange={e => setQ(e.target.value)} />
+            </div>
+            <button className="primary-btn links-manage-iconbtn" onClick={onAdd} aria-label="Add Link" title="Add Link"><Plus size={20} /></button>
+            <div style={{ position: 'relative' }}>
+              <button className="secondary-btn links-manage-iconbtn" onClick={() => setMore(o => !o)} aria-label="More" aria-expanded={more}><MoreHorizontal size={20} /></button>
+              {more && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 4 }} onClick={() => setMore(false)} />
+                  <div className="links-manage-menu">
+                    <ViewMenuItem icon={Upload} label="Import Links" onClick={() => { setMore(false); setShowImport(true); }} />
+                    <ViewMenuItem icon={RefreshCw} label={refreshingAll ? 'Shortening...' : 'Shorten All Descriptions'} onClick={() => { setMore(false); if (!refreshingAll) doRefreshAll(); }} />
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {tab === 'all' && selectedIds.size > 0 && (
+          <div className="links-manage-bulk">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--wk-brand)' }}>{selectedIds.size} selected</span>
+              <button className="secondary-btn" onClick={clearSelection} disabled={bulkApplying} style={{ minHeight: 40 }}>Clear</button>
+            </div>
+            <CheckboxMultiSelect
+              options={categoryNames} selected={bulkCategories} onChange={setBulkCategories}
+              placeholder="Set categories..." allowCustom customPlaceholder="Add a new category..."
+            />
+            <CheckboxMultiSelect
+              options={departmentNames} selected={bulkDepartments} onChange={setBulkDepartments}
+              placeholder="Set departments..."
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="primary-btn" style={{ flex: 1, justifyContent: 'center', minHeight: 44 }} onClick={applyBulk}
+                disabled={bulkApplying || (bulkCategories.length === 0 && bulkDepartments.length === 0)}>
+                {bulkApplying ? 'Applying...' : 'Apply'}
+              </button>
+              {canDelete && (
+                <button className="secondary-btn" style={{ flex: 1, justifyContent: 'center', minHeight: 44, color: 'hsl(var(--color-red))' }} onClick={applyBulkDelete} disabled={bulkApplying}>
+                  <Trash2 size={14} /> {bulkApplying ? 'Removing...' : `Delete ${selectedIds.size}`}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="links-manage-body">
+          {tab === 'taxonomy' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+              <TaxonomyManager kind="department" label="Departments" items={taxonomy.departments} touch
+                onAdd={onAddTaxonomy} onRename={onRenameTaxonomy} onDelete={onDeleteTaxonomy} />
+              <TaxonomyManager kind="category" label="Categories" items={taxonomy.categories} touch
+                onAdd={onAddTaxonomy} onRename={onRenameTaxonomy} onDelete={onDeleteTaxonomy} />
+            </div>
+          ) : tab === 'all' ? (
+            rows.length === 0 ? (
+              <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, padding: '30px 0' }}>No links match "{q}".</p>
+            ) : (
+              <>
+                {!canReorder && (
+                  <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>Clear the search to move links up or down within a category.</p>
+                )}
+                {grouped.map(([cat, items]) => (
+                  <div key={cat} className="links-manage-group">
+                    <div className="links-manage-cat" style={{ color: colorFor(cat).fg }}>{cat}</div>
+                    <div>
+                      {items.map(l => {
+                        const { fg, bg } = colorFor(primaryCategory(l));
+                        return (
+                          <div key={l.id} className="links-manage-row">
+                            <label className="links-manage-check" aria-label={`Select ${l.name}`}>
+                              <input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => toggleSelected(l.id)} />
+                            </label>
+                            <button type="button" className="links-manage-rowmain" onClick={() => setSheet({ link: l, cat })} aria-haspopup="dialog">
+                              <LinkIcon url={l.url} iconKey={l.icon} size={34} iconSize={17} radius={9} fg={fg} bg={bg} gradient={false} />
+                              <span className="links-manage-rowtext">
+                                <span className="links-manage-rowname">
+                                  {l.name}{l.is_pinned && <Star size={11} style={{ color: 'hsl(var(--color-gold))', marginLeft: 5, verticalAlign: -1 }} fill="hsl(var(--color-gold))" />}
+                                </span>
+                                <span className="links-manage-rowsub">{sub(l)}</span>
+                              </span>
+                              {refreshingId === l.id
+                                ? <RefreshCw size={16} className="spin" style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                                : <MoreHorizontal size={18} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </>
+            )
+          ) : (
+            <div>
+              {emptyDepartments.length > 0 && (
+                <div style={{ marginBottom: 20, padding: 12, borderRadius: 12, background: 'hsla(var(--color-orange),0.08)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-orange))', marginBottom: 10 }}>
+                    <FolderOpen size={15} /> Departments with no links yet
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <select className="form-select" style={{ width: '100%', minHeight: 44 }} value={deptPick} onChange={e => setDeptPick(e.target.value)}>
+                      {emptyDepartments.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                    <button className="secondary-btn" style={{ justifyContent: 'center', minHeight: 44 }} onClick={() => onAddForDept(deptPick)} disabled={!deptPick}>
+                      <Plus size={14} /> Add Link for {deptPick || 'Department'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {attention.length === 0 ? (
+                <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, padding: '20px 0' }}>No placeholder or duplicate links - nicely done.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {attention.map(({ link: l, reason }) => {
+                    const { fg, bg } = colorFor(primaryCategory(l));
+                    return (
+                      <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--line)' }}>
+                        <LinkIcon url={l.url} iconKey={l.icon} size={34} iconSize={17} radius={9} fg={fg} bg={bg} gradient={false} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.name}</div>
+                          <div style={{ fontSize: 12, color: 'hsl(var(--color-orange))', display: 'flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={12} style={{ flexShrink: 0 }} /> {reason}</div>
+                        </div>
+                        <button className="secondary-btn" onClick={() => onEdit(l)} style={{ flexShrink: 0, minHeight: 40 }}><Pencil size={13} /> Fix</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {actionSheet}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} departmentNames={departmentNames} categoryNames={categoryNames} />}
+    </div>
+  );
+}
+
 // Personal Links' own entry point into the same Departments & Categories
 // picker Company Links' Manage modal has (Aug 14, "we should add manage
 // section in personal links also... same department and category setting
@@ -2678,7 +2933,8 @@ function TaxonomyModal({ taxonomy, onAdd, onRename, onDelete, onClose }) {
 // server-side (see rename_taxonomy in external_links.py); deleting only
 // removes it from this curated picker, existing links keep their string
 // (same free-text philosophy Category already had).
-function TaxonomyManager({ kind, label, items, onAdd, onRename, onDelete }) {
+function TaxonomyManager({ kind, label, items, onAdd, onRename, onDelete, touch }) {
+  const btn = touch ? 36 : undefined;
   const [newName, setNewName] = useState('');
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -2718,7 +2974,7 @@ function TaxonomyManager({ kind, label, items, onAdd, onRename, onDelete }) {
         <input className="form-input" value={newName} onChange={e => setNewName(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') submitAdd(); }}
           placeholder={`Add a ${kind}...`} maxLength={80} />
-        <button className="secondary-btn" onClick={submitAdd} disabled={!newName.trim() || adding}><Plus size={13} /></button>
+        <button className="secondary-btn" onClick={submitAdd} disabled={!newName.trim() || adding} aria-label={`Add ${kind}`} style={touch ? { minWidth: 44, justifyContent: 'center' } : undefined}><Plus size={touch ? 16 : 13} /></button>
       </div>
       {error && <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '0 0 8px' }}>{error}</p>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -2731,14 +2987,14 @@ function TaxonomyManager({ kind, label, items, onAdd, onRename, onDelete }) {
                 <input className="form-input" autoFocus value={editDraft} onChange={e => setEditDraft(e.target.value)}
                   maxLength={80} style={{ flex: 1, padding: '5px 8px' }}
                   onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingId(null); }} />
-                <IconBtn onClick={commitEdit} disabled={busyId === item.id} title="Save"><Check size={12} /></IconBtn>
-                <IconBtn onClick={() => setEditingId(null)} title="Cancel"><X size={12} /></IconBtn>
+                <IconBtn onClick={commitEdit} disabled={busyId === item.id} title="Save" size={btn}><Check size={touch ? 15 : 12} /></IconBtn>
+                <IconBtn onClick={() => setEditingId(null)} title="Cancel" size={btn}><X size={touch ? 15 : 12} /></IconBtn>
               </>
             ) : (
               <>
                 <span style={{ flex: 1, fontSize: 13, color: 'var(--ink)' }}>{item.name}</span>
-                <IconBtn onClick={() => startEdit(item)} disabled={busyId === item.id} title="Rename"><Pencil size={12} /></IconBtn>
-                <IconBtn onClick={() => remove(item)} disabled={busyId === item.id} title="Remove" danger><Trash2 size={12} /></IconBtn>
+                <IconBtn onClick={() => startEdit(item)} disabled={busyId === item.id} title="Rename" size={btn}><Pencil size={touch ? 15 : 12} /></IconBtn>
+                <IconBtn onClick={() => remove(item)} disabled={busyId === item.id} title="Remove" danger size={btn}><Trash2 size={touch ? 15 : 12} /></IconBtn>
               </>
             )}
           </div>
