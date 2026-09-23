@@ -156,15 +156,13 @@ export default function ExternalLinks() {
   const [pCategory, setPCategory] = useState('');
   const [pq, setPq] = useState('');
 
-  // List/Tile view toggle (Aug 14) - two independent toggles, one for the
-  // main grid (beside All Categories) and one for the My Favorites strip
-  // (beside its own header), since a user might want the big grid compact
-  // but favorites still as a quick-glance pill row, or vice versa. Tile is
-  // the only mode Customize/drag works in - list is read-only browsing, so
-  // switching to Customize forces tile view (see the `editing` effect
-  // further down, after `editing` itself is available from useLinkViews()).
+  // List/Tile view toggle (Aug 14) for the main grid, beside All Categories.
+  // (Favorites carried its own toggle until Sep 22; it is a tile-only strip
+  // now.) Tile is the only mode Customize/drag works in - list is read-only
+  // browsing, so switching to Customize forces tile view (see the `editing`
+  // effect further down, after `editing` itself is available from
+  // useLinkViews()).
   const [gridView, setGridView] = useState('tile');
-  const [favView, setFavView] = useState('tile');
 
   // Company list for the filter/Add-Link dropdown, sourced from the same
   // curated People directory every other company/department picker in Nexus
@@ -892,37 +890,23 @@ export default function ExternalLinks() {
       </>)}
 
       {section === 'company' && (<>
-        {/* Personal shortcuts - client-local, not scoped by the filters below */}
-        {favoriteLinks.length > 0 && (
-          <div style={{ marginBottom: 18 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-              <Bookmark size={14} style={{ color: 'hsl(var(--color-blue))' }} />
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', flex: 1 }}>My Favorites</span>
-              <ViewToggle view={favView} onChange={setFavView} />
-            </div>
-            {favView === 'tile' ? (
-              <PersonalStrip links={favoriteLinks} onOpen={(l) => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {favoriteLinks.map(l => {
-                  // External carries `categories` (array, Aug 14); Personal
-                  // still has the single `category` string.
-                  const cat = l.categories ? primaryCategory(l) : l.category;
-                  const { fg, bg } = colorFor(cat);
-                  return (
-                    <LinksListRow key={l._uid || l.id}
-                      icon={<LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius={7} fg={fg} bg={bg} gradient={false} />}
-                      name={l.name} sub={cat}
-                      onOpen={() => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
-                  );
-                })}
-              </div>
+        {/* Personal shortcuts - client-local, not scoped by the filters below.
+            Favorites on the left and Recently Used on the right (Sep 22) so
+            the two short strips share one row instead of stacking, each
+            beside a wide empty margin; auto-fit collapses them to one column
+            on narrow screens. Favorites is tile-only - the tile/list toggle
+            it used to carry was dropped the same day. */}
+        {(favoriteLinks.length > 0 || recentLinks.length > 0) && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', columnGap: 24 }}>
+            {favoriteLinks.length > 0 && (
+              <PersonalStrip title="Favorites" icon={Bookmark} iconColor="hsl(var(--color-blue))" links={favoriteLinks}
+                onOpen={(l) => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
+            )}
+            {recentLinks.length > 0 && (
+              <PersonalStrip title="Recently Used" icon={History} iconColor="var(--muted)" links={recentLinks}
+                onOpen={openLink} />
             )}
           </div>
-        )}
-        {recentLinks.length > 0 && (
-          <PersonalStrip title="Recently Used" icon={History} iconColor="var(--muted)" links={recentLinks}
-            onOpen={openLink} />
         )}
 
         {/* Filter bar - category chips sit inline beside the Companies
@@ -935,7 +919,7 @@ export default function ExternalLinks() {
           <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
             <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
             <input
-              className="form-input" placeholder="Search apps, tools, banks..."
+              className="form-input" placeholder="Search Links..."
               style={{ paddingLeft: 36 }} value={q} onChange={e => setQ(e.target.value)}
             />
           </div>
@@ -975,7 +959,7 @@ export default function ExternalLinks() {
             </div>
           }
         >
-          <Section title="My Layout" icon={LayoutGrid}>
+          <Section title="Links" icon={LayoutGrid}>
             <LinksLayoutSection
               sourceType="external" layout={layout} itemsById={unifiedItemsById} actionCtx={actionCtx}
               mutate={seededMutate} immediateMutate={seededMutateNow} allLinks={all} editable={editing}
@@ -1047,9 +1031,8 @@ function Section({ title, icon: Icon, color, children }) {
   );
 }
 
-// Tile/List toggle (Aug 14) - two independent instances live in this view
-// (the main grid, beside All Categories; My Favorites, beside its own
-// header), each with its own state so picking one doesn't affect the other.
+// Tile/List toggle (Aug 14) - one instance, on the main grid beside All
+// Categories. Favorites had its own until Sep 22; it is tile-only now.
 function ViewToggle({ view, onChange }) {
   return (
     <div style={{ display: 'inline-flex', background: 'var(--mist)', borderRadius: 8, padding: 2 }}>
@@ -1071,6 +1054,20 @@ function ViewToggle({ view, onChange }) {
       </button>
     </div>
   );
+}
+
+// Category shown to the right of a link in list view. Bulk-imported links
+// whose sheet row had no category are saved under a literal "Imported"
+// placeholder category (import_external_links in external_links.py) so they
+// still group together in the filters - that is bookkeeping, not something
+// worth a label beside the name, so it reads as no category here. Assign a
+// real category in Manage and it shows like any other.
+const IMPORT_PLACEHOLDER_CATEGORY = 'Imported';
+function listCategory(link) {
+  // External carries `categories` (array, Aug 14); Personal still has the
+  // single `category` string.
+  const cat = link.categories ? primaryCategory(link) : link.category;
+  return cat === IMPORT_PLACEHOLDER_CATEGORY ? '' : cat;
 }
 
 // Compact list-view row - the read-only alternative to an icon AppTile/
@@ -1232,7 +1229,10 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks, depar
 // quick-launch strip rather than another section to scan top to bottom.
 function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
   return (
-    <div style={title ? { marginBottom: 18 } : undefined}>
+    // minWidth 0: as a grid item (Favorites beside Recently Used) the
+    // default min-width:auto would stop the cell shrinking and the row
+    // would push the page wider instead of scrolling in place.
+    <div style={{ minWidth: 0, ...(title ? { marginBottom: 18 } : null) }}>
       {title && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
           <Icon size={14} style={{ color: iconColor }} />
@@ -1361,7 +1361,7 @@ function AppTile({
               </span>
             )}
             {onToggleFavorite && (
-              <IconBtn onClick={onToggleFavorite} title={isFavorite ? 'Remove from My Favorites' : 'Add to My Favorites'}>
+              <IconBtn onClick={onToggleFavorite} title={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}>
                 <Bookmark size={11} fill={isFavorite ? 'hsl(var(--color-blue))' : 'none'} style={{ color: isFavorite ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
               </IconBtn>
             )}
@@ -1843,7 +1843,7 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
             return (
               <LinksListRow key={`${entry.item_type}:${entry.item_id}`}
                 icon={<LinkIcon url={a.link.url} iconKey={a.link.icon} size={26} iconSize={13} radius={7} fg={a.color.fg} bg={a.color.bg} gradient={false} />}
-                name={a.link.name} sub={a.link.categories ? primaryCategory(a.link) : a.link.category} onOpen={a.onOpen} />
+                name={a.link.name} sub={listCategory(a.link)} onOpen={a.onOpen} />
             );
           })}
         </div>
