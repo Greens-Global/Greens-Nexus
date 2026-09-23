@@ -14,7 +14,7 @@ import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
-  Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
+  Image as ImageIcon, Paperclip, Settings2, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
   List, LayoutGrid, Building2, PanelRight, FileText, HelpCircle, Share2, Link2, Download, Printer,
   ShieldCheck, Play, ListChecks, ThumbsUp, ThumbsDown,
 } from 'lucide-react';
@@ -2819,9 +2819,12 @@ export default function SOP({ activeSub, onSubChange }) {
           {isManager && (() => {
             const active = ['manage', 'matrix', 'insights', 'signoffs', 'tasks'].includes(sub);
             return (
-              <button onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', borderRadius: 9, border: '1px solid', borderColor: active ? 'var(--ink)' : 'var(--line)', background: active ? 'var(--ink)' : 'var(--card)', color: active ? 'var(--card)' : 'var(--muted)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>
-                <Settings size={15} /> Manage
-                {taskCount > 0 && <span style={{ minWidth: 18, textAlign: 'center', backgroundColor: active ? 'var(--card)' : 'hsl(var(--color-blue))', color: active ? 'var(--ink)' : '#fff', borderRadius: 999, padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700 }}>{taskCount}</span>}
+              // The one Manage button Nexus uses everywhere (Neil, Sep 22);
+              // a ring marks it while one of the Manage tabs is open.
+              <button className="primary-btn" onClick={() => switchTab('manage')}
+                style={active ? { boxShadow: '0 0 0 2px var(--card), 0 0 0 4px var(--wk-brand)' } : undefined}>
+                <Settings2 size={14} /> Manage
+                {taskCount > 0 && <span style={{ minWidth: 18, textAlign: 'center', backgroundColor: 'var(--card)', color: 'var(--ink)', borderRadius: 999, padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700 }}>{taskCount}</span>}
               </button>
             );
           })()}

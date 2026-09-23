@@ -38,15 +38,17 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 //     it trails the pointer like a physical object rather than snapping.
 //     React only re-renders when something discrete happens (a slot
 //     changes hands, a fold target appears).
-//   - Reorder vs fold is decided by WHERE on the target the pointer is
-//     and for HOW LONG: the target's icon center is the fold zone (dwell
-//     ~280ms to arm it); the far half of the target - past its center
-//     relative to where the hole is - is the reorder trigger. Coming in
-//     from the near side does nothing yet, so a slow approach lands in the
-//     fold zone and a decisive sweep past the center reorders. That order
-//     of zones is the whole trick; a "nearest slot wins" rule makes folding
-//     impossible because the target moves away before the pointer can
-//     ever reach its center.
+//   - Every decision is made from where the GHOST'S ICON is, not where the
+//     pointer is - a person grabs a tile anywhere (often by its label) and
+//     watches the icon they are carrying, exactly as on the phone. Reorder
+//     vs fold is then WHERE that icon sits on the target and for HOW LONG:
+//     on the target's icon body it is a fold (dwell ~280ms to arm, then
+//     release); past the target's center it shuffles at once; beside the
+//     target, in its near half, it shuffles after a short linger. So a
+//     direct move onto an icon folds, a sweep across reorders, and an icon
+//     edged up against a neighbor pushes it aside after a beat. A plain
+//     "nearest slot wins" rule can never fold, because the target slides
+//     away before the carried icon can reach it.
 //   - Touch: a short hold lifts the tile (a swipe before the hold scrolls
 //     the page as normal - the hold is what claims the gesture, and a
 //     non-passive touchmove listener then keeps the page from scrolling
@@ -67,8 +69,9 @@ const LIFT_MOVE_PX = 5;        // mouse: movement that starts a drag in Customiz
 const TOUCH_HOLD_MS = 260;     // touch: hold that lifts a tile in Customize mode
 const ENTER_HOLD_MS = 480;     // either: hold that enters Customize from browse mode
 const TOUCH_SLOP_PX = 8;       // touch: movement before the hold that means "scrolling"
-const FOLD_DWELL_MS = 280;     // resting over an icon center this long arms a fold
-const FOLD_ZONE = 46;          // px box around the icon center that counts as "on the icon"
+const FOLD_DWELL_MS = 280;     // resting over an icon this long arms a fold
+const FOLD_ZONE = 54;          // px box around a target's icon center that counts as "on the icon"
+const SHUFFLE_LINGER_MS = 110; // lingering beside a neighbor (not on its icon) this long shuffles it
 const EJECT_MARGIN = 20;       // px outside the folder box before a drag ejects
 const SETTLE_MS = 230;         // ghost's flight to its slot on release
 const FOLD_MS = 280;           // ghost's shrink into a fold target
@@ -214,9 +217,19 @@ function createDragEngine(env) {
   };
 
   // Where the pointer is, and what that means for the live order.
+  const applyReorder = (over) => {
+    const hole = s.order.indexOf(s.key);
+    if (over === hole || over < 0 || over >= s.slots.length) return;
+    s.order = moveInOrder(s.order, hole, over);
+    s.pendingShuffle = null;
+    publish();
+  };
+
   const evaluate = () => {
     if (!s?.active) return;
     const { pointer } = s;
+    // The carried icon's center, in viewport coordinates.
+    const carried = { x: s.target.x + s.ghostRect.w / 2, y: s.target.y + s.ghostRect.icy };
 
     // Eject: still in a folder scope but the pointer left the folder's box.
     if (s.meta.bounds && s.meta.ejectTo && !s.ejected) {
@@ -235,7 +248,7 @@ function createDragEngine(env) {
     }
 
     const c = s.meta.container.getBoundingClientRect();
-    const px = pointer.x - c.left, py = pointer.y - c.top;
+    const px = carried.x - c.left, py = carried.y - c.top;
     const hole = s.order.indexOf(s.key);
     let over = -1;
     for (let i = 0; i < s.slots.length; i++) {
@@ -245,7 +258,7 @@ function createDragEngine(env) {
       s.foldCandidate = null;
       if (s.foldKey) { s.foldKey = null; publish(); }
     };
-    if (over === -1 || over === hole) { clearFold(); return; }
+    if (over === -1 || over === hole) { clearFold(); s.pendingShuffle = null; return; }
 
     const slot = s.slots[over];
     const targetKey = s.order[over];
@@ -259,6 +272,7 @@ function createDragEngine(env) {
     const canFold = s.kind === 'item' && !inFolder && (s.meta.canFold?.(s.key, targetKey) ?? true);
 
     if (inCenter && canFold) {
+      s.pendingShuffle = null;
       if (s.foldCandidate !== targetKey) {
         s.foldCandidate = targetKey;
         s.foldSince = performance.now();
@@ -267,14 +281,15 @@ function createDragEngine(env) {
       return;
     }
     clearFold();
-    if (!canReorder) return;
-    // Reorder once the pointer is past the target's center relative to the
-    // hole (same row), or anywhere on it when it sits in another row.
+    if (!canReorder) { s.pendingShuffle = null; return; }
+    // Past the target's center (relative to the hole) on the same row, or
+    // anywhere on a target in another row: shuffle now. In the near half:
+    // shuffle after a short linger, so a quick move through to the icon
+    // still folds. The linger itself fires from the frame loop.
     const sameRow = Math.abs(slot.y - s.slots[hole].y) < 2;
-    const past = !sameRow || (over > hole ? px >= cx - 4 : px <= cx + 4);
-    if (!past) return;
-    s.order = moveInOrder(s.order, hole, over);
-    publish();
+    const past = !sameRow || (over > hole ? px >= cx : px <= cx);
+    if (past) { applyReorder(over); return; }
+    if (s.pendingShuffle?.target !== over) s.pendingShuffle = { target: over, since: performance.now() };
   };
 
   // The frame loop: eases the ghost, auto-scrolls, arms a fold after dwell.
@@ -292,7 +307,9 @@ function createDragEngine(env) {
       if (s.scrollEl) s.scrollEl.scrollTop += dy; else window.scrollBy(0, dy);
       evaluate(); // the slots moved under a still pointer
     }
-    if (s.foldCandidate && !s.foldKey && performance.now() - s.foldSince >= FOLD_DWELL_MS) {
+    const now = performance.now();
+    if (s.pendingShuffle && now - s.pendingShuffle.since >= SHUFFLE_LINGER_MS) applyReorder(s.pendingShuffle.target);
+    if (s.foldCandidate && !s.foldKey && now - s.foldSince >= FOLD_DWELL_MS) {
       s.foldKey = s.foldCandidate;
       publish();
     }
@@ -301,14 +318,17 @@ function createDragEngine(env) {
 
   const start = (scope, key, kind, el, pointerId, clientX, clientY) => {
     const rect = el.getBoundingClientRect();
+    const iconRect = el.querySelector('.app-tile-icon-wrap')?.getBoundingClientRect() || rect;
     s = {
       active: true, key, kind, scope, pointerId,
-      ghostRect: { w: rect.width, h: rect.height },
+      // icy: the carried icon's center, measured from the tile's top - the
+      // point every hit test below is made from.
+      ghostRect: { w: rect.width, h: rect.height, icy: iconRect.top - rect.top + iconRect.height / 2 },
       grab: { x: clientX - rect.left, y: clientY - rect.top },
       pointer: { x: clientX, y: clientY },
       target: { x: rect.left, y: rect.top },
       pos: { x: rect.left, y: rect.top },
-      foldCandidate: null, foldKey: null, foldSince: 0, ejected: false, fromScope: null,
+      foldCandidate: null, foldKey: null, foldSince: 0, pendingShuffle: null, ejected: false, fromScope: null,
       originEl: el,
     };
     s.ghost = makeGhost(el, rect);
@@ -414,7 +434,7 @@ function createDragEngine(env) {
     // A press on one of the tile's own buttons (favorite, folder picker,
     // info) is theirs; a press anywhere else on the tile - including the
     // gaps of the action row - is the start of a drag.
-    if (e.target.closest('.app-tile-actions button, .folder-picker, button:not(.app-tile)')) return;
+    if (e.target.closest('.app-tile-actions button, .folder-picker, .app-tile-info-btn')) return;
     if (!draggable && !holdToEdit) return;
     const el = e.currentTarget;
     const pointerId = e.pointerId;

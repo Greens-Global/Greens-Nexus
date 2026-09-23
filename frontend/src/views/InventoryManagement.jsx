@@ -4,7 +4,7 @@ import {
   AlertCircle, X, Loader2, ChevronDown, UploadCloud, FileSpreadsheet,
   Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart,
   ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box, FileText,
-  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2, Tag, Settings,
+  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2, Tag, Settings2,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
@@ -3766,10 +3766,8 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
           header it gets its own right-aligned row. */}
       {showManage && onEnterManage && (
         <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:16 }}>
-          <button onClick={onEnterManage} title="Open the management tools"
-            style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'9px 22px', background:'hsl(var(--color-purple))', color:'#fff', border:'none', borderRadius:10, fontWeight:700, fontSize:14, cursor:'pointer', fontFamily:'Inter,sans-serif', whiteSpace:'nowrap', flexShrink:0, boxShadow:'var(--shadow-sm)' }}
-            onMouseEnter={e => e.currentTarget.style.filter='brightness(1.08)'} onMouseLeave={e => e.currentTarget.style.filter='none'}>
-            <ClipboardList size={16} /> Manage
+          <button className="primary-btn" onClick={onEnterManage} title="Open the management tools">
+            <Settings2 size={14} /> Manage
           </button>
         </div>
       )}
@@ -5921,7 +5919,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         {(onManageTypes || onManageCustomFields || (canDelete && onShowDeleted)) && (
           <div style={{ position:'relative' }}>
             <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={() => setManageMenu(o => !o)}>
-              <Settings size={14} /> Manage <ChevronDown size={13} style={{ opacity:.6 }} />
+              <Settings2 size={14} /> Manage <ChevronDown size={13} style={{ opacity:.6 }} />
             </button>
             {manageMenu && (
               <>

@@ -329,6 +329,25 @@ export default function ExternalLinks() {
     .filter(Boolean), [layout.favorites, all, personalLinks]);
   const recentLinks = useMemo(() => recents.map(id => all.find(l => l.id === id)).filter(Boolean), [recents, all]);
 
+  // Favorites rearrange with the same gesture as the grid (Neil, Sep 22) -
+  // a small drag scope of their own; the order IS the favorites array's
+  // order. Saved live outside Customize (like favoriting itself), part of
+  // the draft while Customizing so Save / Done keep their meaning.
+  const favStripRef = useRef(null);
+  const favScopes = useRef({});
+  useLayoutEffect(() => {
+    favScopes.current.fav = { keys: favoriteLinks.map(l => l._uid), folderCount: 0, container: favStripRef.current, canFold: () => false };
+  });
+  const favDrag = useTileDrag({
+    editable: editing, onRequestEdit: () => setEditing(true), scopesRef: favScopes,
+    onReorder: (_scope, order) => {
+      const rank = new Map(order.map((k, i) => [k, i]));
+      const keyFor = (f) => `${f.item_type}-${f.item_id}`;
+      const reorder = (prev) => ({ ...prev, favorites: [...prev.favorites].sort((a, b) => (rank.get(keyFor(a)) ?? 1e9) - (rank.get(keyFor(b)) ?? 1e9)) });
+      favDrag.commitWithFlip('fav', () => { if (editing) mutate(reorder); else mutateNow(reorder).catch(() => {}); });
+    },
+  });
+
   // Department/Company filters: "All ..." shows everything, including
   // company-wide links (field === ''); picking a specific department scopes
   // strictly to that department - a company-wide link used to also show up
@@ -466,6 +485,25 @@ export default function ExternalLinks() {
   });
   const guardedNew = () => { if (confirmDiscard()) createNew(); };
   const guardedDone = () => { if (confirmDiscard()) { setEditing(false); reloadViews(); } };
+  // Customize mode is unmistakable (Neil, Sep 22): the page fades around
+  // the tiles (body.links-editing, see style.css), a bar at the bottom
+  // holds Save / Done, and Escape leaves - unless a drag, a folder, or a
+  // dialog is open, in which case Escape belongs to that.
+  useEffect(() => {
+    document.body.classList.toggle('links-editing', editing);
+    return () => document.body.classList.remove('links-editing');
+  }, [editing]);
+  useEffect(() => {
+    if (!editing) return;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (nameModal || document.body.classList.contains('links-dragging')) return;
+      if (document.querySelector('.modal-overlay, [role="dialog"]')) return;
+      guardedDone();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
   const makeDefault = wrap(async () => { setViewMenu(false); if (activeId) await setDefaultView(activeId); }, 'Set as your default');
   const deleteCurrentView = () => {
     setViewMenu(false);
@@ -752,7 +790,7 @@ export default function ExternalLinks() {
 
   return (
     <div>
-      <div className="view-header">
+      <div className="view-header links-dim">
         <div className="view-title-group">
           <h2>Links</h2>
           <p>
@@ -835,7 +873,7 @@ export default function ExternalLinks() {
         </div>
       )}
 
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, borderRadius: 12, border: '1px solid var(--wk-line2)', background: 'var(--mist)', padding: 4, marginBottom: 20 }}>
+      <div className="links-dim" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, borderRadius: 12, border: '1px solid var(--wk-line2)', background: 'var(--mist)', padding: 4, marginBottom: 20 }}>
         <button onClick={() => setSection('company')} style={{
           display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
           border: 'none', cursor: 'pointer', fontFamily: 'inherit', transition: 'background .15s, color .15s',
@@ -857,7 +895,7 @@ export default function ExternalLinks() {
       </div>
 
       {section === 'personal' && (<>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20, alignItems: 'center' }}>
+        <div className="links-dim" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20, alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
             <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
             <input
@@ -874,7 +912,7 @@ export default function ExternalLinks() {
             {personalCategoriesAvailable.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           {canManage && (
-            <button className="secondary-btn" onClick={() => setShowPersonalTaxonomy(true)}>
+            <button className="primary-btn" onClick={() => setShowPersonalTaxonomy(true)}>
               <Settings2 size={14} /> Manage
             </button>
           )}
@@ -900,12 +938,13 @@ export default function ExternalLinks() {
         {(favoriteLinks.length > 0 || recentLinks.length > 0) && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', columnGap: 24 }}>
             {favoriteLinks.length > 0 && (
-              <PersonalStrip title="Favorites" icon={Bookmark} iconColor="hsl(var(--color-blue))" links={favoriteLinks}
-                onOpen={(l) => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
+              <PersonalStrip title="Favorites" icon={Bookmark} links={favoriteLinks}
+                onOpen={(l) => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))}
+                drag={favDrag} scope="fav" editable={editing} stripRef={favStripRef} />
             )}
             {recentLinks.length > 0 && (
-              <PersonalStrip title="Recently Used" icon={History} iconColor="var(--muted)" links={recentLinks}
-                onOpen={openLink} />
+              <PersonalStrip title="Recently Used" icon={History} links={recentLinks}
+                onOpen={openLink} className="links-dim" />
             )}
           </div>
         )}
@@ -916,7 +955,7 @@ export default function ExternalLinks() {
             strip gets its own shrinkable/scrollable flex item (minWidth: 0)
             so a long category list scrolls horizontally in place rather
             than pushing the search box and dropdowns off narrower screens. */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20, alignItems: 'center' }}>
+        <div className="links-dim" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20, alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
             <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
             <input
@@ -970,6 +1009,20 @@ export default function ExternalLinks() {
         </AsyncSection>
       </>)}
 
+      {editing && (
+        <div className="links-edit-bar" role="toolbar" aria-label="Customize">
+          <span className="links-edit-bar-text">
+            <SlidersHorizontal size={14} style={{ color: 'var(--wk-brand)' }} />
+            <b>Editing layout</b>
+            <span className="links-edit-bar-hint">Drag to arrange, drop one app on another to make a folder, Esc to finish</span>
+          </span>
+          <button className="primary-btn" style={{ opacity: dirty ? 1 : 0.6 }} onClick={saveViewLayout} disabled={!dirty}>
+            <Save size={14} /> {dirty ? 'Save' : 'Saved'}
+          </button>
+          <button className="secondary-btn" onClick={guardedDone}><X size={14} /> Done</button>
+        </div>
+      )}
+
       {showManage && (
         <ManageModal
           links={all} onClose={() => setShowManage(false)}
@@ -1014,19 +1067,28 @@ export default function ExternalLinks() {
   );
 }
 
-function Section({ title, icon: Icon, color, children }) {
+// The one section-heading treatment on this page - uppercase kicker, icon,
+// a rule that fills the rest of the line. Links, Favorites and Recently
+// Used all use it (Neil, Sep 22: same line style, same size, consistent).
+function SectionHeader({ title, icon: Icon, color }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      {Icon && <Icon size={15} style={{ color: color?.fg || 'var(--muted)' }} />}
+      <h3 style={{
+        fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em',
+        color: color?.fg || 'var(--muted)', margin: 0,
+      }}>
+        {title}
+      </h3>
+      <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+    </div>
+  );
+}
+
+function Section({ title, icon, color, children }) {
   return (
     <div style={{ marginBottom: 28 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        {Icon && <Icon size={15} style={{ color: color?.fg || 'var(--muted)' }} />}
-        <h3 style={{
-          fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em',
-          color: color?.fg || 'var(--muted)', margin: 0,
-        }}>
-          {title}
-        </h3>
-        <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-      </div>
+      <SectionHeader title={title} icon={icon} color={color} />
       {children}
     </div>
   );
@@ -1228,23 +1290,24 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks, depar
 // Horizontal shortcut row (Favorites / Recently Used) - compact pill-tiles,
 // distinct from the full card grid below so personal shortcuts read as a
 // quick-launch strip rather than another section to scan top to bottom.
-function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
+// `drag` / `scope` / `editable` / `stripRef` (Favorites only): the strip
+// is a drag scope of the same engine the grid uses, so its round tiles
+// lift, slide and settle exactly like the big ones - just no folding.
+function PersonalStrip({ title, icon, links, onOpen, className, drag, scope, editable, stripRef }) {
   return (
     // minWidth 0: as a grid item (Favorites beside Recently Used) the
     // default min-width:auto would stop the cell shrinking and the row
     // would push the page wider instead of scrolling in place.
-    <div style={{ minWidth: 0, ...(title ? { marginBottom: 18 } : null) }}>
-      {title && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-          <Icon size={14} style={{ color: iconColor }} />
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</span>
-        </div>
-      )}
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+    <div className={className} style={{ minWidth: 0, ...(title ? { marginBottom: 22 } : null) }}>
+      {title && <SectionHeader title={title} icon={icon} />}
+      <div ref={stripRef} className={`scroll-tabs fav-strip${drag && editable ? ' jiggle' : ''}`} style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
         {links.map(l => {
           // External links carry `categories` (array, Aug 14); Personal
           // Links still have the single `category` string.
           const { fg, bg } = colorFor(l.categories ? primaryCategory(l) : l.category);
+          const key = l._uid || String(l.id);
+          const gesture = drag ? drag.tileProps(scope, key, 'item', { draggable: editable, holdToEdit: !editable }) : {};
+          const shift = drag ? drag.tileStyle(scope, key) : undefined;
           return (
             // Icon-only (Aug 15) - the name showed as a permanent label
             // before; now it's just the native `title` tooltip on hover,
@@ -1252,16 +1315,20 @@ function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
             // strip stays a compact quick-launch row instead of widening
             // with every long app name.
             <button
-              key={l._uid || l.id} onClick={() => onOpen(l)} title={l.name}
+              key={key} onClick={() => onOpen(l)} title={l.name} className="fav-tile"
               style={{
                 flexShrink: 0, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 borderRadius: '50%', border: '1px solid var(--wk-line2)', background: 'var(--card)', cursor: 'pointer',
                 transition: 'border-color .12s, transform .12s',
+                ...(shift || {}), '--jiggle-phase': jigglePhase(key),
               }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = fg; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--wk-line2)'; }}
+              {...gesture}
             >
-              <LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius="50%" fg={fg} bg={bg} gradient={false} />
+              <span className="fav-body">
+                <LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius="50%" fg={fg} bg={bg} gradient={false} />
+              </span>
             </button>
           );
         })}

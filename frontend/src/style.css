@@ -4416,6 +4416,43 @@ body.links-dragging .app-tile-tooltip { opacity: 0 !important; visibility: hidde
 @keyframes tile-enter { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
 .app-tile-enter { animation: tile-enter .36s cubic-bezier(.2,.8,.2,1) both; }
 
+/* Customize mode (Sep 22): everything but the tiles steps back so the
+   arrangement is the only thing on screen, and a bar at the bottom holds
+   Save / Done (Esc also leaves). Faded parts stay clickable - the view
+   switcher and header buttons still work, they just stop competing. */
+.links-dim { transition: opacity .25s ease; }
+body.links-editing .links-dim,
+body.links-editing .sidebar,
+body.links-editing .top-header { opacity: .3; transition: opacity .25s ease; }
+body.links-editing .links-dim:hover,
+body.links-editing .sidebar:hover,
+body.links-editing .top-header:hover { opacity: .92; }
+body.links-editing .app-tile-tooltip { display: none !important; }
+/* Favorites strip: the same gesture on 38px round tiles. */
+.fav-tile { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.fav-body { display: flex; align-items: center; justify-content: center; }
+.fav-strip.jiggle .fav-body { animation: tile-jiggle .42s ease-in-out infinite alternate; animation-delay: var(--jiggle-phase, 0ms); }
+.fav-strip.jiggle .fav-tile { cursor: grab; }
+.app-tile-ghost.fav-tile { border-radius: 50%; }
+.app-tile-ghost .fav-body { animation: none !important; }
+.links-edit-bar {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px 8px 16px; border-radius: 999px;
+  background: var(--card); border: 1px solid var(--wk-line2);
+  box-shadow: 0 18px 50px rgba(17,24,39,.22), 0 2px 8px rgba(17,24,39,.08);
+  z-index: 450; max-width: calc(100vw - 32px);
+  animation: links-edit-bar-in .28s cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes links-edit-bar-in { from { transform: translate(-50%, 16px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+.links-edit-bar-text { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); white-space: nowrap; }
+.links-edit-bar-text b { font-weight: 700; }
+.links-edit-bar-hint { color: var(--muted); font-size: 12px; }
+@media (max-width: 880px) {
+  .links-edit-bar { bottom: 76px; }
+  .links-edit-bar-hint { display: none; }
+}
+
 /* Folder panel: grows out of its tile over a blurred page, shrinks back
    into it on close, and fades away under the pointer when an app is
    dragged out (ejecting - it stays mounted, invisible, until the drop). */
