@@ -441,6 +441,11 @@ export const api = {
   ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
   getGlobalTaskActivity: () => req("/tasks/activity"),
+  // Due-date negotiation (Sep 24) - the assignee confirms or proposes, the
+  // requester answers. Each returns the updated task.
+  confirmTaskDue: (id) => req(`/tasks/${id}/due/confirm`, { method: "POST" }),
+  proposeTaskDue: (id, dueOn, note = "") => req(`/tasks/${id}/due/propose`, { method: "POST", body: JSON.stringify({ due_on: dueOn, note }) }),
+  respondTaskDue: (id, accept, note = "", counterOn = "") => req(`/tasks/${id}/due/respond`, { method: "POST", body: JSON.stringify({ accept, note, counter_on: counterOn }) }),
   // Sections & custom statuses (board columns)
   getTaskSections: () => req("/tasks/meta/sections"),
   createTaskSection: (data) => req("/tasks/meta/sections", { method: "POST", body: JSON.stringify(data) }),
@@ -1195,6 +1200,15 @@ export const api = {
   mySignDecline:      (pid, data) => req(`/esign/mine/${pid}/decline`, { method: 'POST', body: JSON.stringify(data) }),
   // Approvers and certified-delivery recipients do NOT sign - they act.
   mySignAct:          (pid, data) => req(`/esign/mine/${pid}/act`, { method: 'POST', body: JSON.stringify(data) }),
+  // The executed copy, for anyone who was on the envelope in any role.
+  // reqBlob, not a bare URL: the API is bearer-authenticated, so a plain
+  // <a href> would arrive signed out.
+  mySignFinal:        (pid)       => reqBlob(`/esign/mine/${pid}/final`),
+  // Send for Signature drafts - a send that was started and not finished.
+  signDrafts:         ()         => req('/esign/drafts'),
+  saveSignDraft:      (form)     => req('/esign/drafts', { method: 'POST', body: form }),
+  deleteSignDraft:    (id)       => req(`/esign/drafts/${id}`, { method: 'DELETE' }),
+  signDraftFile:      (id)       => reqBlob(`/esign/drafts/${id}/file`),
   // Upload fields. FormData, so no JSON Content-Type - req() leaves the
   // boundary to the browser when the body is a FormData.
   mySignUpload:       (pid, form) => req(`/esign/mine/${pid}/upload`, { method: 'POST', body: form }),

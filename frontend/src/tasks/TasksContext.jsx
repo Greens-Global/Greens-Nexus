@@ -500,6 +500,9 @@ export function TasksProvider({ children }) {
     taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,
+    // Puts a task the server just returned into the store as-is (the due-date
+    // confirm/propose/respond calls answer with the updated task).
+    applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },
     markNotificationRead, markAllNotificationsRead, refresh: loadCore,
     offerUndo,
     // Bookmarks live HERE, not in `actions` below. That object is
