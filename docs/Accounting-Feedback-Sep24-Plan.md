@@ -16,8 +16,8 @@ Repos: Nexus = this repo. Accounting app = `C:\Users\Vlow\Desktop\Greens Account
   August debits through the new dimension reader = `ledger_account_sums` to
   the cent (6,417,032.58).
 - ✅ Accounting `main` PUSHED (731506b) - Cloudflare deploys it.
-- ☐ Nexus `dev` NOT pushed (1b106a48 + b8c7ab62 local): the auto-mode
-  classifier refused the push. Run `git push origin dev` yourself.
+- ✅ Nexus `dev` PUSHED (4bfd3656, rebased onto Sagar's Asana-removal merge)
+  - Cloudflare and the Azure dev API deploy it.
 - ☐ In the accounting app: Import Hub, pull Dimensions with Items ticked, then
   re-pull the GL for the months that should carry Item (existing lines have
   no `item_id` until pulled again; ITEMID is optional and dropped
