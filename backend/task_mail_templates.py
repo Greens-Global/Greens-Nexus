@@ -394,3 +394,55 @@ def reminder_digest_email(*, items: list[dict], base_url: str, logo_url: str,
   </table>
 </div>"""
     return subject, html
+
+
+def batch_email(*, items: list[dict], base_url: str, logo_url: str, recipient_name: str = "",
+                headline: str = "", window_minutes: int = 60) -> tuple[str, str]:
+    """ONE email for everything that happened to a person's tasks within the
+    batch window (Neil, Sep 24) - five assignments in a row arrive as one
+    "Neil assigned you 5 tasks", not five separate emails.
+
+    items: [{"t": task ctx, "lines": [str, ...], "links": html}] in the order
+    things happened. `headline` is set when the whole batch is one person
+    assigning work; otherwise the subject counts the tasks."""
+    n = len(items)
+    subject = (f"[{COMPANY_NAME}] - {headline}" if headline
+               else f"[{COMPANY_NAME}] - {n} Task Update{'s' if n != 1 else ''}")
+    trs = "".join(
+        "<tr><td style='padding:12px 0;border-bottom:1px solid #f0f1f3'>"
+        f"<a href='{escape(_task_url(base_url, i['t']['id']))}' style='font-size:14px;font-weight:700;"
+        f"color:#111827;text-decoration:none'>{escape(i['t'].get('title') or 'Task')}</a>"
+        f"<div style='font-size:12.5px;color:#6b7280;margin:3px 0 4px'>"
+        f"{escape(PRIORITY_LABEL.get(i['t'].get('priority'), i['t'].get('priority') or ''))} priority"
+        f" &nbsp;·&nbsp; Due {escape(i['t'].get('dueDateDisplay') or '-')}"
+        f"{' &nbsp;·&nbsp; ' + escape(i['t']['projectName']) if i['t'].get('projectName') else ''}</div>"
+        + "".join(f"<div style='font-size:13px;color:#374151;margin:2px 0'>&bull; {escape(line)}</div>"
+                  for line in i["lines"])
+        + f"<div style='margin-top:6px'>{i['links']}</div></td></tr>"
+        for i in items)
+    logo_block = (
+        f"<img src='{escape(logo_url)}' alt='Company logo' height='28' style='display:block' />"
+        if logo_url else
+        "<span style='color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px'>GREENS GLOBAL</span>"
+    )
+    hello = f"Hi {escape(recipient_name.split(' ')[0])}," if recipient_name else "Hi,"
+    window = (f"{window_minutes // 60} hour{'s' if window_minutes >= 120 else ''}"
+              if window_minutes % 60 == 0 else f"{window_minutes} minutes")
+    html = f"""<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+  <table align="center" width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
+    <tr><td style="background:#0f3d2e;padding:18px 28px">{logo_block}</td></tr>
+    <tr><td style="padding:24px 28px 8px">
+      <h2 style="margin:0 0 8px;font-size:19px;color:#111827">{escape(headline or f"Updates on {n} task{'s' if n != 1 else ''}")}</h2>
+      <p style="margin:0;font-size:13.5px;line-height:1.6;color:#374151">{hello} here is what changed on your tasks, in one email.</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:10px">{trs}</table>
+    </td></tr>
+    <tr><td style="padding:10px 28px 26px;text-align:center">
+      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:#248f4b;color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open My Tasks</a>
+    </td></tr>
+    <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
+      Task updates are gathered for up to {escape(window)} and sent together, so a run of changes arrives as one email. Mentions and urgent tasks still arrive right away.
+      <!--NEXUS-MAIL-FOOTER-->
+    </td></tr>
+  </table>
+</div>"""
+    return subject, html

@@ -29,7 +29,7 @@ from sqlalchemy import text
 
 from database import SessionLocal
 from models import Task
-from routers.task_util import purge_task_permanently, asana_push_deleted
+from routers.task_util import purge_task_permanently
 
 _LOCK_KEY = 794215     # stable advisory-lock id (screenshot loops use 794213/794214)
 _BATCH = 25
@@ -63,8 +63,6 @@ def _sweep_batch(days: int) -> int:
                 if purge_task_permanently(db, t.id, actor_email=""):
                     purged += 1
                 db.commit()
-            if purged:
-                asana_push_deleted()
             purged += _sweep_containers(db, cutoff)
             return purged
         finally:

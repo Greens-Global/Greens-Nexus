@@ -29,7 +29,6 @@ from fastapi import BackgroundTasks
 import database
 import models
 import task_notify
-from routers import task_util
 from routers.task_util import gen_id, now_iso, create_comment
 from routers.tasks import add_comment, CommentCreate
 
@@ -64,14 +63,11 @@ class CreateCommentTests(unittest.TestCase):
         self.db.add(self.task)
         self.db.commit()
 
-        self.pushed, self.emailed = [], []
-        self._real_push = task_util.asana_push_comment
+        self.emailed = []
         self._real_notify = task_notify.notify_task_event
-        task_util.asana_push_comment = lambda cid: self.pushed.append(cid)
         task_notify.notify_task_event = lambda *a, **kw: self.emailed.append((a, kw))
 
     def tearDown(self):
-        task_util.asana_push_comment = self._real_push
         task_notify.notify_task_event = self._real_notify
         self.db.close()
 
@@ -102,10 +98,6 @@ class CreateCommentTests(unittest.TestCase):
         create_comment(self.db, self.task, actor_email=ACTOR["email"], body="<p>hi</p>")
         self.assertEqual([a[1] for a, _ in self.emailed], ["commented"])
 
-    def test_asana_gets_the_comment(self):
-        c = create_comment(self.db, self.task, actor_email=ACTOR["email"], body="<p>hi</p>")
-        self.assertEqual(self.pushed, [c.id])
-
     # ── mentions ─────────────────────────────────────────────────────────
     def test_a_mention_raises_its_own_event_and_drops_self_mentions(self):
         """The mention mail says "X mentioned you" rather than the generic FYI,
@@ -119,14 +111,13 @@ class CreateCommentTests(unittest.TestCase):
 
     # ── the silent path ──────────────────────────────────────────────────
     def test_notify_false_writes_the_comment_and_nothing_else(self):
-        """The Asana importer backfills historical comments - assignees must not
-        be pinged about years-old ones. Asana still gets the push: a backfilled
-        comment is real, it just isn't news."""
+        """A backfilled comment (the email-reply path, or any importer) must not
+        ping assignees about something that isn't news."""
         c = create_comment(self.db, self.task, actor_email=ACTOR["email"],
                            body="<p>from 2024</p>", notify=False)
         self.assertEqual(self._bells(), [])
         self.assertEqual(self.emailed, [])
-        self.assertEqual(self.pushed, [c.id])
+        self.assertIsNotNone(self.db.get(models.TaskComment, c.id))
 
     def test_author_may_differ_from_the_actor(self):
         """Same backfill: the comment is FROM its original author, while the

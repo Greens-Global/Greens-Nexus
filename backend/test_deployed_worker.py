@@ -20,7 +20,6 @@ _tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp.close()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp.name}"
 
-import asana_sync
 from leader import is_deployed_worker
 
 _VARS = ("NEXUS_ASANA_ENABLED", "NEXUS_ASANA_SYNC_WORKER",
@@ -47,13 +46,6 @@ class DeployedWorkerTests(unittest.TestCase):
         os.environ["WEBSITE_SITE_NAME"] = "greens-nexus-api"
         self.assertTrue(is_deployed_worker())
 
-    # The regression itself: Asana severed, but these jobs must still run.
-    def test_severing_asana_does_not_switch_the_jobs_off(self):
-        os.environ["WEBSITE_SITE_NAME"] = "greens-nexus-api"
-        self.assertFalse(asana_sync.is_asana_enabled())   # severed
-        self.assertFalse(asana_sync.is_sync_worker())     # so no Asana traffic
-        self.assertTrue(is_deployed_worker())             # but the jobs still run
-
     def test_enabling_asana_does_not_switch_them_on_locally(self):
         # The reverse mistake: a laptop must not start draining the shared
         # mailbox just because someone re-enabled the integration.
@@ -68,10 +60,6 @@ class DeployedWorkerTests(unittest.TestCase):
         # Anyone who set this before the split keeps the behavior they chose.
         os.environ["NEXUS_ASANA_SYNC_WORKER"] = "true"
         self.assertTrue(is_deployed_worker())
-
-    def test_the_two_gates_are_not_the_same_function(self):
-        # Guards against someone "simplifying" one back into the other.
-        self.assertIsNot(is_deployed_worker, asana_sync.is_sync_worker)
 
 
 # The six jobs that must run on the deployed API and have nothing to do with

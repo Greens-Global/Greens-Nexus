@@ -73,7 +73,7 @@ def _domain_base() -> str:
 
 
 def redirect_uri() -> str:
-    from asana_sync import public_base   # the backend's public URL helper
+    from app_url import public_base   # the backend's public URL helper
     base = public_base()
     return f"{base}/egnyte-oauth/callback" if base else ""
 

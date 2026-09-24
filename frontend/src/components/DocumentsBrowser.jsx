@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { generateJSON } from '@tiptap/core';
-import { Search, Loader2, FilePlus2, Copy, Archive, RotateCcw, Trash2, FileText, Folder, FolderPlus, Tag, X, Pencil, PenTool, Upload, Cloud } from 'lucide-react';
+import { Search, Loader2, FilePlus2, Copy, Archive, RotateCcw, Trash2, FileText, Folder, FolderPlus, Tag, X, Pencil, PenTool, Upload, Cloud, Download } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -365,6 +365,27 @@ export default function DocumentsBrowser({ openCreateSignal, employees = [], ent
   useEffect(() => { load(); }, [folderId, statusFilter, search]);
   useEffect(() => { if (openCreateSignal) setCreateOpen(true); }, [openCreateSignal]);
 
+  // The sealed PDF of an executed envelope, fetched through the authenticated
+  // client and saved. Party-scoped on the server: it is the same file everyone
+  // on the envelope was emailed when it completed.
+  const downloadSigned = async (d) => {
+    setBusyId(d.id);
+    try {
+      const { blob, filename } = await api.mySignFinal(d.partyId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || `${d.title.replace(/[^\w .-]/g, '')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      toastErr?.(e.message || 'Could not download that copy.');
+    }
+    setBusyId('');
+  };
+
   const act = (id, fn, okMsg) => {
     setBusyId(id);
     fn(id).then(() => { toastOk?.(okMsg); load(); }).catch(e => toastErr?.(e.message || 'Action failed')).finally(() => setBusyId(''));
@@ -423,6 +444,10 @@ export default function DocumentsBrowser({ openCreateSignal, employees = [], ent
         }
       >
         {(docs || []).slice(0, 500).map(d => {
+        // An executed envelope, not an authored document: it has no versions
+        // to edit and no folder - the only thing to do with it is keep a copy
+        // (Sagar, Sep 22 2026).
+        const signedCopy = d.kind === 'signed';
         const st = DOC_STATUS[d.status] || DOC_STATUS.draft;
         const signSt = d.signRequestId ? SIGN_STATUS[d.signStatus] : null;
         const folder = folders.find(f => f.id === d.folderId);
@@ -432,7 +457,9 @@ export default function DocumentsBrowser({ openCreateSignal, employees = [], ent
             <div style={{ flex: '1 1 160px', minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                {folder ? folder.name : 'No folder'} · v{d.currentVersion} · updated {formatDate(d.updatedAt)}
+                {signedCopy
+                  ? `Signed on Nexus Sign · ${formatDate(d.updatedAt)}`
+                  : `${folder ? folder.name : 'No folder'} · v${d.currentVersion} · updated ${formatDate(d.updatedAt)}`}
               </div>
               {(d.tags || []).length > 0 && (
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
@@ -454,6 +481,14 @@ export default function DocumentsBrowser({ openCreateSignal, employees = [], ent
               </button>
             )}
             <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexShrink: 0 }}>
+              {signedCopy && (
+                <button title="Download the signed copy, with its Certificate of Completion"
+                  disabled={busyId === d.id} onClick={() => downloadSigned(d)}
+                  className="secondary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px' }}>
+                  <Download size={13} /> Download
+                </button>
+              )}
+              {!signedCopy && (<>
               <button title="Edit" onClick={() => setEditingDoc(d.id)}
                 style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Pencil size={14} /></button>
               <button title="Folder & Tags" onClick={() => setOrganizeDoc(d)}
@@ -471,6 +506,7 @@ export default function DocumentsBrowser({ openCreateSignal, employees = [], ent
                 <button title="Delete" disabled={busyId === d.id} onClick={() => { if (window.confirm(`Delete "${d.title}"? This can't be undone.`)) act(d.id, api.deleteDocument, 'Deleted'); }}
                   style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex', color: 'hsl(var(--color-red))' }}><Trash2 size={14} /></button>
               )}
+              </>)}
             </div>
           </div>
         );

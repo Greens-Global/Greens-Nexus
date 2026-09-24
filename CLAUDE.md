@@ -60,7 +60,7 @@ keep the diff minimal.
 - **Never do blocking I/O on the async event loop.** Background loops (the
   `*_loop` tasks started in `main.py`'s lifespan) and any `async def`
   endpoint/middleware must push synchronous DB queries and outbound HTTP
-  (Microsoft Graph, Asana) into a thread via `await asyncio.to_thread(...)` —
+  (Microsoft Graph) into a thread via `await asyncio.to_thread(...)` —
   copy `reminders_loop` / `long_session_loop`. A sync call left on the loop
   freezes the WHOLE worker (every request it is serving, CORS preflights
   included) for the call's full duration. This caused instance-wide ~16s
@@ -152,6 +152,14 @@ keep the diff minimal.
   (Charmi, Sep 21). No separate leave-hours table; approved time-off
   requests are NOT auto-punched.
 
+- Task emails are BATCHED (Neil, Sep 24): an event that can wait goes into
+  `task_email_queue`, and `task_notify.flush_batches` (every minute, inside
+  `task_notify_loop`) sends one email per person once their OLDEST pending row
+  is older than the company `batchWindowMinutes` (default 60; 0 = instant).
+  Relevance is re-checked at send time (deleted / reassigned away / completed /
+  muted rows are dropped; nothing left = nothing sent). Mentions, deletions,
+  urgent tasks and tasks due today/tomorrow never wait. New task email events
+  go through `notify_task_event` - never mail directly - so they batch too.
 - Accounting dashboard (Sep 22): the Accounting view's Overview / Cash /
   Performance / Close / Data tabs are the Nexus face of the finance dashboard
   in Nexus Accounting. Figures come ONLY through `backend/routers/
@@ -162,62 +170,25 @@ keep the diff minimal.
   with tsc (see the accounting repo's CLAUDE.md), never edit the .js by hand.
   Writes carry the caller's name; each tab shows one section at a time.
 
-## Asana sync — the contract (`backend/asana_sync.py`)
+## Asana — removed (Sep 2026)
 
-**One engine, three entry points.** The one-shot Import, the scheduled Pull and
-the webhook all go through `_pull_task_tree`. Import used to have its own
-parallel implementation and silently carried less than Pull did (no
-dependencies/status/start date/milestone/followers, and no `AsanaTaskLink`
-rows, so the next Pull re-adopted everything by title and duplicated what it
-couldn't match). **Never add a second inbound path** — add the field to the
-engine and all three get it. `_TASK_OPT_FIELDS` is the single field list.
+The Asana workspace is gone and the two-way sync, import, OAuth, webhook and
+rescue code has been deleted. **Do not rebuild any path to Asana.** The data
+was deliberately kept: every `asana_*` table and row (task/comment/attachment/
+activity links with their Asana gids, the project map, import jobs, user
+tokens) and every Asana-derived column (`synced_with_asana`,
+`original_asana_url`, `asana_option_gids`, `employees.asana_id`) stays as a
+permanent record of where each task came from - never drop them, and keep
+their models and migration lines. Imported content still renders as before
+(`[Asana · Name]` comment authors, read-only "Calculated in Asana" fields,
+`asana` entries in a task's due-date history).
 
-**Everything on a task syncs, both ways**: title, description, start/due,
-status, priority, done, assignee, followers, tags, section, milestone,
-subtasks, dependencies, comments, attachments. Asana's system stories become
-Nexus activity entries (inbound only — Nexus's own log would be noise in
-Asana). Attachments push out as Asana *external* attachments (link, not bytes);
-`data:` URLs are skipped because they only exist from an inbound inline of a
-file Asana already has.
-
-**Three hashes on `AsanaTaskLink`, and they are not interchangeable:**
-- `last_hash` — NEXUS-side digest; outbound compares against it.
-- `last_inbound_hash` — ASANA-side digest; inbound compares against it. Using
-  `last_hash` for this made every pull re-apply every task forever whenever the
-  Asana project lacked the Task Progress/Priority custom fields, because the
-  two digests can never converge in that case.
-- `last_push_hash` — the additive-only fields (tags/followers/dependencies/
-  section/attachments) that Asana takes through separate actions rather than a
-  task PUT. Lets the push sweep skip an untouched task at zero HTTP cost.
-
-**Deletions are queued, not fired.** Every other outbound change can be
-re-derived from the Nexus rows on the next push sweep; a deletion cannot — the
-task and its link are gone, so nothing is left to notice the Asana counterpart
-is orphaned. `delete_task` writes an `AsanaPendingDelete` tombstone in the SAME
-transaction as the delete; `drain_pending_deletes` sends it (from the sweep on
-dev/prod, from **Push all** on a laptop, where the fire-and-forget push never
-runs at all). A 404 counts as done; a row that fails 5 times is dropped so the
-queue can't grow forever. Never go back to firing deletes directly — that lost
-them silently off the sync worker.
-
-**Automatic on the deployed API, manual on a laptop** — `is_sync_worker()`
-(`WEBSITE_SITE_NAME`, or `NEXUS_ASANA_SYNC_WORKER=true` to opt in deliberately)
-gates the 2-min pull, the 10-min push sweep, and every fire-and-forget push.
-Manual Pull / Push all / Import work everywhere. Without this gate every
-developer's local backend would push local edits into the real workspace.
-
-**Duplicates.** Dev duplicated where localhost never did, because gunicorn runs
-8 worker *processes* there and `threading.Lock` doesn't cross processes. What
-holds now: the Postgres advisory lock (`_acquire_pull_lock`) around pull and
-around push's *create* path; `db.flush()` after every link insert (sessions are
-`autoflush=False`, so an unflushed link is invisible to the rest of the same
-transaction); a per-run `seen` set (Asana hands back the same task twice when
-it is both a project member and a subtask); and the partial-unique index
-`ux_asana_task_link_gid`. **That index cannot build while duplicates exist** —
-on such a database the migration fails and is swallowed. Run Manage → Two-way
-Sync → *Check for duplicates* → *Merge*; `dedupe_tasks` collapses them onto the
-oldest row (moving comments/attachments/subtasks across) and then creates the
-index itself.
+Rows that still point at Asana-hosted files or pages have dead links (1,834
+on dev at removal, ~600 of them files only Asana ever stored). The read-only
+`GET /asana-legacy/audit` (`backend/asana_legacy.py`, manager-only, no UI)
+lists every one and counts the archived rows. The custom-status merge that
+used to live in the sync is `backend/task_status_dedupe.py`; the API's
+public-URL helper is `app_url.public_base`.
 
 ## Asset Management module — scope (Ankush)
 

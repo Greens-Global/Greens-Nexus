@@ -337,58 +337,14 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
     return project_to_dict(p)
 
 
-@router.get("/task-projects/{project_id}/asana-link")
-def project_asana_link(project_id: str, user: dict = Depends(get_current_user),
-                       db: Session = Depends(get_db)):
-    """Whether this project is mapped to an Asana project - so the delete dialog
-    knows whether to offer "also delete it in Asana" at all, instead of showing
-    a choice that would only 400. Owner-gated like the delete it precedes."""
-    import asana_sync
-    p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
-    if not p:
-        raise HTTPException(404, "Project not found")
-    require_project_role(db, user, p, "owner")
-    gid = asana_sync.project_gid_for(db, project_id)
-    return {"mapped": bool(gid), "asanaProjectGid": gid}
-
-
 @router.delete("/task-projects/{project_id}")
-def delete_project(project_id: str, delete_in_asana: bool = False,
-                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Delete a project permanently, taking its tasks and its Asana sync state
-    with it, so the same Asana project can be imported again from scratch.
-
-    `delete_in_asana` is the caller's explicit answer to "also delete it in
-    Asana?" - default FALSE, because the normal reason to do this is to
-    re-import from an Asana project that must survive. When true the Asana
-    project is deleted FIRST and a failure there aborts the whole thing with
-    nothing removed on either side: the alternative (delete Nexus, then fail on
-    Asana) would leave a project nobody can reach from Nexus any more and no
-    record of the intent, which is precisely the lost-deletion problem
-    AsanaPendingDelete exists to prevent for tasks. Asana's project delete is a
-    soft delete (trash, 30 days), so this is recoverable there.
-
-    The tasks are now DELETED rather than orphaned. Orphaning them left rows
-    with no project and a live AsanaTaskLink, which silently absorbed every
-    later re-import - see asana_sync.purge_project_sync."""
-    import asana_sync
+def delete_project(project_id: str, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """Move a project, and its tasks with it, to the Recycle Bin."""
     p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
     if not p:
         raise HTTPException(404, "Project not found")
     require_project_role(db, user, p, "owner")
-
-    gid = asana_sync.project_gid_for(db, project_id)
-    if delete_in_asana:
-        # Sever (Aug 27): never place a live Asana call from this path while
-        # severed - the Nexus-side delete below still runs (that part is a
-        # local, reversible-in-intent action), it just can't also reach out.
-        if not asana_sync.is_asana_enabled():
-            raise HTTPException(403, "Asana integration is currently disabled, so it can't also be deleted there. Untick 'also delete in Asana' and try again.")
-        if not gid:
-            raise HTTPException(400, "This project isn't mapped to an Asana project, so there is nothing to delete in Asana.")
-        done, err = asana_sync.delete_asana_project(db, gid)
-        if not done:
-            raise HTTPException(502, f"Asana refused to delete the project ({err}). Nothing was deleted - try again, or untick 'also delete in Asana'.")
 
     # Soft delete (Sept 2026). The project, and its tasks with it - the hard
     # delete took them, and a project restored empty is not a restore.
@@ -416,16 +372,11 @@ def delete_project(project_id: str, delete_in_asana: bool = False,
     # portfolio. A binned project reads as absent everywhere (the
     # _hide_soft_deleted hook), so a team still listing it, or a portfolio still
     # counting it, resolves to nothing until it comes back.
-    #
-    # The Asana sync state is NOT purged here either - that was irreversible and
-    # is now the purge step's job. Deleting in Asana above remains the caller's
-    # explicit, separate choice.
     p.deleted_at = now
     p.deleted_by = user["email"]
     p.modified_at = now
     db.commit()
-    return {"tasks": binned, "mappings": 0,
-            "asanaProjectDeleted": bool(delete_in_asana and gid), "asanaProjectGid": gid}
+    return {"tasks": binned, "mappings": 0}
 
 
 @router.post("/task-projects/backfill-teams", dependencies=[Depends(require_manager)])
@@ -2192,13 +2143,12 @@ def purge_from_recycle_bin(kind: str, item_id: str, user: dict = Depends(get_cur
         return
     if kind == "project":
         # The cascade the old hard delete ran, now deferred to here: its tasks,
-        # its Asana links and map row, then the membership pointers.
+        # then the membership pointers. Its archived Asana map row, if any, is
+        # left alone (asana_legacy.py).
         from routers.task_util import purge_task_permanently
         for t in (db.query(models.Task).execution_options(include_deleted=True)
                   .filter(models.Task.project_id == item_id).all()):
             purge_task_permanently(db, t.id, actor_email=user["email"])
-        import asana_sync
-        asana_sync.purge_project_sync(db, item_id, actor=user["email"])
         for team in db.query(models.TaskTeam).execution_options(include_deleted=True).all():
             ids = team_project_ids(team)
             if item_id in ids:

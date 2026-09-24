@@ -38,14 +38,15 @@ export function Chip({ tone = 'neutral', children, title, style }) {
 }
 
 /** Signed % change pill. `goodUp=false` for costs: a rise is bad. */
-export function Delta({ v, goodUp = true, suffix, style }) {
+// `text` replaces the percent when the change is not a ratio ("+2.1 pts", "-3.1 mo").
+export function Delta({ v, goodUp = true, suffix, style, text }) {
   if (v == null || !Number.isFinite(v)) return null;
   const up = v >= 0;
   const good = goodUp ? up : !up;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: '0.72rem', fontWeight: 700, color: toneColor(good), fontVariantNumeric: 'tabular-nums', ...style }}>
       {up ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-      {pct(v)}
+      {text ?? pct(v)}
       {suffix ? <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>&nbsp;{suffix}</span> : null}
     </span>
   );

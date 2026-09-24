@@ -26,6 +26,19 @@ export function useDash() {
 
 /** Months loaded behind the selected one: trailing 12 plus the same month last year. */
 export const WINDOW_MONTHS = 13;
+/** Months of budget loaded AHEAD of the selected month for the cash forecast. */
+export const FORECAST_MONTHS = 6;
+/** Runway the Liquidity Runway tile measures against (months of fixed obligations). */
+export const RUNWAY_TARGET_MONTHS = 6;
+
+// First month to load: a year before the range starts, and never later than
+// January of the prior year so "Net Income YTD vs prior year" has every
+// prior-year month it needs (Priyanka, Sep 23). Mirrors the accounting app.
+export function windowStart(fromKey) {
+  const trailing = shiftKey(fromKey, WINDOW_MONTHS - 1);
+  const priorJan = `${Number(fromKey.slice(0, 4)) - 1}-01`;
+  return trailing < priorJan ? trailing : priorJan;
+}
 const KEY = 'acct-dash';
 const LS = 'nexus-accounting-dashboard';
 
@@ -64,10 +77,14 @@ export function DashProvider({ children }) {
   const setView = useCallback((v) => { setViewState(v); writeLS({ view: v }); }, []);
   useEffect(() => { writeLS({ period, from: fromKey }); }, [period, fromKey]);
 
-  // Load from a year before the range starts: trailing 12 for the end month,
-  // plus the same months last year for the whole range.
-  const from = mStart(shiftKey(fromKey, WINDOW_MONTHS - 1));
+  // Load from a year before the range starts (and from January of the prior
+  // year at the latest): trailing 12 for the end month, the same months last
+  // year for the whole range, and the full prior year-to-date.
+  const from = mStart(windowStart(fromKey));
   const to = mEnd(period);
+  // The budget for the six months after the selected one: the cash forecast.
+  const aheadFrom = mStart(shiftKey(period, -1));
+  const aheadTo = mEnd(shiftKey(period, -FORECAST_MONTHS));
   const periodOptions = useMemo(() => monthsBetween(shiftKey(lastClosed, 23), lastClosed).reverse(), [lastClosed]);
 
   const entitiesQ = useQuery({ queryKey: [KEY, 'entities'], queryFn: () => api.getAccountingDashEntities().then(rowsOf), staleTime: 5 * 60_000 });
@@ -84,8 +101,12 @@ export function DashProvider({ children }) {
   });
   const monthlyQ = useQuery({ queryKey: [KEY, 'monthly', scope, from, to, book], queryFn: () => api.getAccountingDashLedger(scope, from, to, book).then(normalizeMonthly), staleTime: 60_000 });
   const monthlyNcQ = useQuery({ queryKey: [KEY, 'monthly', 'NC', from, to, book], queryFn: () => api.getAccountingDashLedger('NC', from, to, book).then(normalizeMonthly), staleTime: 60_000, enabled: wantNc });
-  const budgetQ = useQuery({ queryKey: [KEY, 'budget', from, to, book], queryFn: () => api.getAccountingDashBudget(from, to, book).then((d) => rowsOf(d).map((r) => ({ account_id: r.account_id, month: r.month, amount: n(r.amount) }))), staleTime: 5 * 60_000 });
+  const budgetRows = (d) => rowsOf(d).map((r) => ({ account_id: r.account_id, month: r.month, amount: n(r.amount) }));
+  const budgetQ = useQuery({ queryKey: [KEY, 'budget', from, to, book], queryFn: () => api.getAccountingDashBudget(from, to, book).then(budgetRows), staleTime: 5 * 60_000 });
+  const budgetAheadQ = useQuery({ queryKey: [KEY, 'budget', aheadFrom, aheadTo, book], queryFn: () => api.getAccountingDashBudget(aheadFrom, aheadTo, book).then(budgetRows), staleTime: 5 * 60_000 });
   const cashEntitiesQ = useQuery({ queryKey: [KEY, 'cash-entities', scope, to, book], queryFn: () => api.getAccountingDashCashEntities(scope, to, book).then((d) => rowsOf(d).map((r) => ({ ...r, balance: n(r.balance), is_partner: !!r.is_partner }))), staleTime: 60_000 });
+  // Bank and card GL accounts per entity with their period-end balance: the reconciliation list (Charmi, Sep 23).
+  const reconAccountsQ = useQuery({ queryKey: [KEY, 'recon-accounts', scope, to, book], queryFn: () => api.getAccountingDashReconAccounts(scope, to, book).then((d) => rowsOf(d).map((r) => ({ ...r, kind: r.kind === 'card' ? 'card' : 'bank', is_partner: !!r.is_partner, balance: n(r.balance), entity: r.entity ?? '', entity_name: r.entity_name ?? '' }))), staleTime: 60_000 });
   const noiMonthQ = useQuery({ queryKey: [KEY, 'noi', mStart(period), to, book], queryFn: () => api.getAccountingDashNoi(mStart(period), to, book).then(rowsOf), staleTime: 60_000 });
   const noiT12Q = useQuery({ queryKey: [KEY, 'noi', mStart(shiftKey(period, 11)), to, book], queryFn: () => api.getAccountingDashNoi(mStart(shiftKey(period, 11)), to, book).then(rowsOf), staleTime: 5 * 60_000 });
   const tablesQ = useQuery({ queryKey: [KEY, 'tables', period], queryFn: () => api.getAccountingDashTables(period), staleTime: 10_000, refetchInterval: 60_000 });
@@ -146,7 +167,8 @@ export function DashProvider({ children }) {
   const value = {
     scope, period, fromKey, isRange, periodLabel, book, scenarioId, view, setScope, setPeriod, setRange, setBook, setScenario, setView, lastClosed, periodOptions,
     ix, entities, currency, m,
-    monthly: monthlyQ.data, ledger, ledgerNc, lines, cashEntities, cashSplit, noiRows, noiT12ByType,
+    monthly: monthlyQ.data, ledger, ledgerNc, lines, budgetAhead: budgetAheadQ.data ?? [], cashEntities, cashSplit, noiRows, noiT12ByType,
+    reconAccounts: reconAccountsQ.data ?? [], reconAccountsLoading: reconAccountsQ.isLoading,
     tables, tablesLoading: tablesQ.isLoading,
     loading: monthlyQ.isLoading || entitiesQ.isLoading,
     error: monthlyQ.error || entitiesQ.error || tablesQ.error || null,

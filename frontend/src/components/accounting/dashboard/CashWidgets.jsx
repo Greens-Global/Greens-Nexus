@@ -1,13 +1,13 @@
-import { fmtMDY, fmtNumMD, monthLabel } from '../../../accounting/dashboard/model/months';
+import { fmtNumMD, monthLabel, mShort } from '../../../accounting/dashboard/model/months';
 import { holdingClass } from '../../../accounting/dashboard/model/capital';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
 import { BAD, Chip, Delta, Dot, EmptyBox, Eyebrow, Footnote, LoadingBox, Meter, mono, num, seriesColor, toneColor } from './Bits';
 import { AreaTrend, Lines } from './Charts';
-import { useDash } from './DashContext';
-import { useFeed, useForecast13, useHoldings, useTrend } from './hooks';
+import { FORECAST_MONTHS, useDash } from './DashContext';
+import { useFeed, useForecastMonthly, useHoldings, useTrend } from './hooks';
 
 // Cash and banking widgets: investment portfolio, cash trend, cash by
-// entity, bank lines to code, and the 13-week forecast.
+// entity, bank lines to code, and the monthly cash forecast.
 
 export function InvestWidget() {
   const { m, cashSplit } = useDash();
@@ -136,33 +136,42 @@ export function UncatWidget({ onOpenBanks }) {
   );
 }
 
+// Monthly, from the posted budget (Charmi, Sep 23: "should do it monthly";
+// Neil: the numbers come from budgets - until a budget is uploaded there is
+// nothing to show). A month without budget lines is marked; with no budget at
+// all the panel says so instead of inventing numbers.
 export function CashForecastWidget() {
   const { m, cashSplit, loading } = useDash();
-  const f = useForecast13();
-  if (loading) return <LoadingBox />;
+  const f = useForecastMonthly();
+  if (loading || !f) return <LoadingBox />;
   if (!cashSplit.ctlEntities.length) return <EmptyBox title="No controllable cash in this scope" body="Choose All Entities, Controllable Entities Only, or one of your companies." />;
+  if (!f.hasBudget) {
+    return <EmptyBox title={`No budget posted for the next ${FORECAST_MONTHS} months`} body={`The forecast takes each month's receipts and costs from the posted budget in Nexus Accounting (Financials, Budgets), debt service from the loan schedule and distributions from partner capital. Post a budget for ${mShort(f.months[0])} onward and it fills in.`} />;
+  }
+  const last = f.months.length - 1;
   const low = Math.min(...f.end);
   const lowIdx = f.end.indexOf(low);
   const stat = (label, value, color, sub) => (<div><Eyebrow>{label}</Eyebrow><div style={{ marginTop: 4, fontSize: '1rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color }}>{value}</div>{sub ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{sub}</div> : null}</div>);
-  const data = f.weeks.map((w, i) => ({ label: fmtNumMD(w), end: Math.round(f.end[i]) }));
+  const data = f.months.map((k, i) => ({ label: mShort(k), end: Math.round(f.end[i]) }));
   const rowsDef = [
     ['Rent and operating receipts', f.rent, 'in'], ['Construction billings', f.con, 'in'],
-    ['Payroll', f.pay, 'out'], ['Vendors and operating', f.vend, 'out'], ['Debt service', f.debt, 'out'], ['Property taxes and insurance', f.tax.map((t, i) => t + f.ins[i]), 'out'], ['Owner distributions', f.dist, 'out'],
+    ['Payroll', f.pay, 'out'], ['Vendors and operating', f.vend, 'out'], ['Debt service', f.debt, 'out'], ['Taxes and insurance', f.tax, 'out'], ['Owner distributions', f.dist, 'out'],
     ['Net cash flow', f.receipts.map((r, i) => r + f.disbursements[i]), 'net'], ['Ending cash', f.end, 'end'],
   ];
+  const missing = f.months.filter((_k, i) => !f.budgeted[i]);
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
-        {stat('Opening cash', m(f.opening, { compact: true }))}
-        {stat('Week 13 ending', m(f.end[12], { compact: true }))}
-        {stat('Low point', m(low, { compact: true }), low < f.minCash ? BAD : undefined, `wk of ${fmtNumMD(f.weeks[lowIdx])}`)}
+        {stat('Opening cash', m(f.opening, { compact: true }), undefined, 'controllable, at the month end')}
+        {stat(`${mShort(f.months[last])} ending`, m(f.end[last], { compact: true }))}
+        {stat('Low point', m(low, { compact: true }), low < f.minCash ? BAD : undefined, mShort(f.months[lowIdx]))}
         {stat('Minimum cash target', m(f.minCash, { compact: true }), undefined, 'one month of payroll and debt')}
-        {stat('13-week net', m(f.end[12] - f.opening, { compact: true, paren: true }), toneColor(f.end[12] - f.opening >= 0))}
+        {stat(`${FORECAST_MONTHS}-month net`, m(f.end[last] - f.opening, { compact: true, paren: true }), toneColor(f.end[last] - f.opening >= 0))}
       </div>
       <Lines data={data} series={[{ key: 'end', label: 'Ending cash', color: 'var(--wk-brand, #2b45e1)' }]} height={150} hline={{ v: f.minCash, label: 'minimum' }} />
       <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>
-          <thead><tr><th style={{ position: 'sticky', left: 0, background: 'var(--bg-card)' }}>Week of</th>{f.weeks.map((w) => <th key={w} style={num}>{fmtNumMD(w)}</th>)}</tr></thead>
+          <thead><tr><th style={{ position: 'sticky', left: 0, background: 'var(--bg-card)' }}>Month</th>{f.months.map((k, i) => <th key={k} style={num}>{mShort(k)}{f.budgeted[i] ? '' : ' *'}</th>)}</tr></thead>
           <tbody>
             {rowsDef.map(([label, vals, kind]) => (
               <tr key={label} style={kind === 'net' || kind === 'end' ? { fontWeight: 700, borderTop: '1px solid var(--border-color)' } : undefined}>
@@ -173,7 +182,10 @@ export function CashForecastWidget() {
           </tbody>
         </table>
       </div>
-      <Footnote>Receipts and disbursements are projected from the last closed month's ledger and the loan schedule. Non-controllable cash in partner entities is excluded. Weeks start {fmtMDY(f.weeks[0])}.</Footnote>
+      <Footnote>
+        Receipts and costs come from the posted budget for each month; debt service from the loan schedule; distributions from partner capital. Non-controllable cash in partner entities is excluded.
+        {missing.length ? ` * ${missing.map(mShort).join(', ')}: no budget lines posted, only debt service and distributions counted.` : ''}
+      </Footnote>
     </div>
   );
 }

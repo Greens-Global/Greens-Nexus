@@ -32,7 +32,6 @@ from fastapi import BackgroundTasks
 import database
 import models
 import task_notify
-from routers import tasks as tasks_router
 from routers.task_util import gen_id, now_iso
 from routers.tasks import create_task, update_task, bulk_update, TaskCreate, TaskUpdate, BulkUpdate
 
@@ -90,13 +89,10 @@ class _StartDateCase(unittest.TestCase):
             self.db.query(m).delete()
         self.db.commit()
         # Asana push and mail are network; this is about the column.
-        self._push = tasks_router._asana_push
         self._notify = task_notify.notify_task_event
-        tasks_router._asana_push = lambda *a, **kw: None
         task_notify.notify_task_event = lambda *a, **kw: None
 
     def tearDown(self):
-        tasks_router._asana_push = self._push
         task_notify.notify_task_event = self._notify
         self.db.close()
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { fmtLong, fmtMD, mEnd, monthLong, MONTH_SHORT, mShort, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
 import { RECON_TYPES } from '../../../accounting/dashboard/model/recon';
-import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, mono, num, toneColor } from './Bits';
+import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, input, mono, num, toneColor } from './Bits';
 import { useDash } from './DashContext';
 import { useActivity, useCloseState, useDeadlines, useFlux, useIntercompany, useRecon } from './hooks';
 
@@ -44,49 +44,75 @@ export function CloseWidget({ onOpenClose }) {
   );
 }
 
+// The bookkeeper's reconciliation list (Charmi, Sep 23): per entity, every
+// bank and card account with its last reconciled date, the statement
+// (reconciled) balance recorded then, and the current book balance. Marking
+// an account asks for the statement date and balance so "last reconciled"
+// means something next month too.
 export function ReconWidget({ compact }) {
   const { period, act, m, ix } = useDash();
-  const { rows, reconciled, isLoading } = useRecon();
+  const { rows, reconciled, remaining, isLoading } = useRecon();
   const [busy, setBusy] = useState(null);
+  const [marking, setMarking] = useState(null);   // { key, thru, stmt }
+  const [error, setError] = useState('');
   if (isLoading) return <LoadingBox />;
-  if (!rows.length) return <EmptyBox title="No accounts to reconcile" body="Bank accounts, loans and brokerage accounts appear here once they exist in Nexus Accounting or the Data tab." />;
-  const mark = async (r) => {
+  if (!rows.length) return <EmptyBox title="No accounts to reconcile" body="Bank and credit card accounts with activity in this scope appear here, plus loans and brokerage accounts from the Data tab." />;
+  const mark = async (r, extra) => {
     setBusy(r.key);
-    try { await act('recon-mark', { period, key: r.key, detail: `${r.name} · ${monthLong(period)}` }); } finally { setBusy(null); }
+    setError('');
+    try {
+      await act('recon-mark', { period, key: r.key, ...extra, detail: `${r.name}${r.ref ? ` (${r.ref})` : ''} · ${monthLong(period)}${extra?.thru ? ` · through ${fmtLong(extra.thru)}` : ''}` });
+      setMarking(null);
+    } catch (e) { setError(e?.message || 'Could not mark the account.'); } finally { setBusy(null); }
+  };
+  const submitMark = (r) => {
+    if (!marking || marking.key !== r.key) return;
+    const stmt = marking.stmt.trim() === '' ? null : Number(marking.stmt.replace(/[,$\s]/g, ''));
+    if (stmt != null && !Number.isFinite(stmt)) { setError('Statement balance must be a number.'); return; }
+    mark(r, { thru: marking.thru || null, stmt_balance: stmt });
   };
   const byType = RECON_TYPES.map((t) => ({ t, rows: rows.filter((r) => r.type === t) })).filter((g) => g.rows.length);
-  const cols = compact ? 6 : 7;
+  const cols = compact ? 7 : 8;
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <div><span style={{ fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{reconciled} of {rows.length}</span> <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>accounts reconciled through {fmtLong(mEnd(period))}</span></div>
+        <div><span style={{ fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{reconciled} of {rows.length}</span> <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>completed · {remaining} remaining · through {fmtLong(mEnd(period))}</span></div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{byType.map((g) => <span key={g.t}>{g.t}: {g.rows.filter((r) => r.status === 'Reconciled').length}/{g.rows.length}</span>)}</div>
       </div>
       <Meter segments={[{ share: rows.length ? reconciled / rows.length : 0, color: 'var(--wk-brand, #2b45e1)' }]} />
+      {error && <div style={{ fontSize: '0.8rem', color: BAD }}>{error}</div>}
       <div className="req-table-wrapper">
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <thead><tr><th>Account</th>{!compact ? <th>Entity</th> : null}<th style={num}>Statement</th><th style={num}>Book</th><th style={num}>Difference</th><th>Reconciled through</th><th>Status</th></tr></thead>
+          <thead><tr><th>Account</th>{!compact ? <th>Entity</th> : null}<th>Last Reconciled</th><th style={num}>Reconciled Balance</th><th style={num}>Current Balance</th><th style={num}>Difference</th><th>Status</th><th /></tr></thead>
           <tbody>
             {byType.map((g) => (
               <GroupRows key={g.t} title={`${g.t} Accounts`} cols={cols}>
-                {g.rows.map((r) => (
-                  <tr key={r.key} style={r.nc ? { color: 'var(--text-muted)' } : undefined}>
-                    <td><div>{r.name}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
-                    {!compact ? <td style={{ fontSize: '0.78rem' }}>{r.entityCode ? (ix.byCode.get(r.entityCode)?.name || r.entityCode) : '-'}</td> : null}
-                    <td style={num}>{m(r.stmt, { cents: true })}</td>
-                    <td style={num}>{m(r.book, { cents: true })}</td>
-                    <td style={{ ...num, color: Math.abs(r.diff) >= 0.005 ? BAD : undefined }}>{Math.abs(r.diff) >= 0.005 ? m(r.diff, { cents: true }) : '-'}</td>
-                    <td style={{ fontSize: '0.78rem' }}>{r.thru ? fmtLong(r.thru) : 'Never'}{r.mark ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.mark.marked_by} · {whenTxt(r.mark.marked_at)}</div> : null}</td>
-                    <td>
-                      {r.status === 'Reconciled' ? <Chip tone="ok">Reconciled</Chip> : (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          <Chip tone={r.status === 'Difference' || r.status === 'Behind' ? 'bad' : 'wait'}>{r.status}</Chip>
-                          <button type="button" className="secondary-btn" style={{ fontSize: '0.7rem', padding: '2px 8px' }} disabled={busy === r.key} onClick={() => mark(r)}>Mark reconciled</button>
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {g.rows.map((r) => {
+                  const editing = marking?.key === r.key;
+                  return (
+                    <tr key={r.key} style={r.nc ? { color: 'var(--text-muted)' } : undefined}>
+                      <td><div>{r.name}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
+                      {!compact ? <td style={{ fontSize: '0.78rem' }}>{r.entityCode ? (ix.byCode.get(r.entityCode)?.name || r.entityCode) : r.ref || '-'}</td> : null}
+                      <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{r.thru ? fmtLong(r.thru) : 'Never'}{r.mark ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.mark.marked_by} · {whenTxt(r.mark.marked_at)}</div> : null}</td>
+                      <td style={num}>{r.thru ? m(r.stmt, { cents: true }) : '-'}</td>
+                      <td style={num}>{m(r.book, { cents: true })}</td>
+                      <td style={{ ...num, color: Math.abs(r.diff) >= 0.005 ? BAD : undefined }}>{Math.abs(r.diff) >= 0.005 ? m(r.diff, { cents: true }) : '-'}</td>
+                      <td>{r.status === 'Reconciled' ? <Chip tone="ok">Reconciled</Chip> : <Chip tone={r.status === 'Difference' || r.status === 'Behind' ? 'bad' : 'wait'}>{r.status}</Chip>}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {r.status === 'Reconciled' ? null : editing ? (
+                          <form style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} onSubmit={(e) => { e.preventDefault(); submitMark(r); }}>
+                            <input type="date" value={marking.thru} max={mEnd(period)} onChange={(e) => setMarking({ ...marking, thru: e.target.value })} style={{ ...input, padding: '3px 6px', fontSize: '0.74rem' }} aria-label="Statement date" />
+                            <input inputMode="decimal" value={marking.stmt} onChange={(e) => setMarking({ ...marking, stmt: e.target.value })} placeholder="Statement balance" style={{ ...input, padding: '3px 6px', fontSize: '0.74rem', width: 120, textAlign: 'right' }} aria-label="Statement balance" />
+                            <button type="submit" className="primary-btn" style={{ fontSize: '0.7rem', padding: '3px 8px' }} disabled={busy === r.key}>Save</button>
+                            <button type="button" className="secondary-btn" style={{ fontSize: '0.7rem', padding: '3px 8px' }} onClick={() => setMarking(null)}>Cancel</button>
+                          </form>
+                        ) : (
+                          <button type="button" className="secondary-btn" style={{ fontSize: '0.7rem', padding: '2px 8px' }} disabled={busy === r.key} onClick={() => setMarking({ key: r.key, thru: mEnd(period), stmt: r.book ? r.book.toFixed(2) : '' })}>Mark reconciled</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </GroupRows>
             ))}
           </tbody>
