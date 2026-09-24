@@ -15,8 +15,13 @@ Repos: Nexus = this repo. Accounting app = `C:\Users\Vlow\Desktop\Greens Account
   to the cent (6,417,032.58).
 - ✅ Accounting `main` pushed and deployed (latest 504b831). Nexus `dev`
   pushed and deployed (456db733, rebased onto Sagar's Asana-removal merge).
-- ✅ Items dimension pulled (307 items); the 2026 GL re-pull (Jan 1 - Sep 24)
-  was started from Import Hub on 09/24 so existing lines carry `item_id`.
+- ✅ Items dimension pulled (307 items) and the 2026 GL re-pulled twice
+  (Jan 1 - Sep 24): the first pass carried no items because the saved
+  connection has its own GL field list without ITEMID; ITEMID was added to
+  the saved list and the pull code now always asks for the six dimension
+  ids (accounting main ea5064e). Result: 103 item codes on 11,099 lines;
+  an Item-filtered P&L returns real accounts (HC01-20 General Labor:
+  14 accounts, 347,760.84 expense YTD).
 - ✅ Clicked through (09/24, Visesh's session):
   - Nexus Reports: one-line period control; vs Prior Year columns with $ and
     % variance; Add Filter chips (Project-Job picker lists names); filtered
@@ -49,8 +54,7 @@ Repos: Nexus = this repo. Accounting app = `C:\Users\Vlow\Desktop\Greens Account
   push dev's grant list to the accounting app and deactivate prod users.
   Either give dev a separate accounting key with the sync disabled, or keep
   testing Accounting on prod after the next dev -> main release.
-- ☐ Reset "I am Bookkeeper" on Visesh's accounting close-role pref (set
-  during the test; harmless).
+- ✅ Visesh's test "I am Bookkeeper" close-role pick reset to not set.
 
 ## A. Bugs reported (fix first)
 
