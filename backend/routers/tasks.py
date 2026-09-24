@@ -28,7 +28,7 @@ from routers.task_util import (
     is_manager, visible_project_ids, task_is_visible, wall_tasks,
     project_for_task, require_project_role, require_task_role, create_comment,
     task_assignees, set_task_assignees,
-    purge_task_permanently, asana_push_deleted,
+    purge_task_permanently,
 )
 from task_notify import notify_task_event
 import task_due
@@ -599,31 +599,6 @@ def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_c
             raise HTTPException(400, f"Blocked by {name}: finish it before completing this task (Finish → Finish).")
         if dep_type == "SF" and completing_now and not blocker_started:
             raise HTTPException(400, f"Blocked by {name}: start it before completing this task (Start → Finish).")
-
-
-def _asana_push(task_id: str, actor_email: str = "") -> None:
-    """Fire-and-forget outbound Asana sync. Fully guarded - must never affect the
-    task operation that triggered it (runs in a daemon thread on its own session).
-
-    `actor_email` is the signed-in user who made the change. Asana attributes the
-    system stories a write produces ("X changed Priority to Medium") to whoever
-    owns the token, so without it every field change reads as the shared sync
-    account. This is the boundary that used to drop it."""
-    try:
-        from asana_sync import on_task_changed
-        on_task_changed(task_id, actor_email)
-    except Exception:
-        pass
-
-
-def _asana_push_comment_edit(comment_id: str) -> None:
-    """Fire-and-forget outbound push of an edited comment body. Fully guarded -
-    the edit is already committed and must never fail on the sync."""
-    try:
-        from asana_sync import on_comment_edited
-        on_comment_edited(comment_id)
-    except Exception:
-        pass
 
 
 # ── Completion: `status` and `completed` are one fact in two columns ─────────
@@ -1437,7 +1412,6 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     db.commit()
     db.refresh(t)
     fire_task_event(tid, "created")
-    _asana_push(tid, user["email"])
     background_tasks.add_task(notify_task_event, tid, "created", user["email"])
     return task_to_dict(t)
 
@@ -1576,10 +1550,8 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     db.commit()
     db.refresh(t)
     fire_task_event(t.id, "updated")
-    _asana_push(t.id, user["email"])
     if spawned is not None:
         fire_task_event(spawned.id, "created")
-        _asana_push(spawned.id, user["email"])
 
     if wanted is not None and (set(task_assignees(t)) - prev_assignees):
         background_tasks.add_task(notify_task_event, t.id, "assigned", user["email"])
@@ -1635,13 +1607,11 @@ def _require_assignee(t: models.Task, user: dict) -> str:
     return me
 
 
-def _due_done(db: Session, t: models.Task, actor: str, *, date_moved: bool = False) -> dict:
+def _due_done(db: Session, t: models.Task) -> dict:
     t.modified_at = now_iso()
     db.commit()
     db.refresh(t)
     fire_task_event(t.id, "updated")
-    if date_moved:
-        _asana_push(t.id, actor)
     return task_to_dict(t)
 
 
@@ -1652,7 +1622,7 @@ def confirm_due(task_id: str, user: dict = Depends(get_current_user), db: Sessio
     if (t.due_agreement or "") != "pending":
         raise HTTPException(409, "There is no due date waiting for you to confirm.")
     task_due.confirm(db, t, me)
-    return _due_done(db, t, me)
+    return _due_done(db, t)
 
 
 @router.post("/{task_id}/due/propose")
@@ -1668,7 +1638,7 @@ def propose_due(body: DueProposal, task_id: str, user: dict = Depends(get_curren
     if not body.due_on or body.due_on[:10] == (t.due_on or "")[:10]:
         raise HTTPException(422, "Pick a date different from the current one.")
     task_due.propose(db, t, me, body.due_on[:10], (body.note or "").strip())
-    return _due_done(db, t, me)
+    return _due_done(db, t)
 
 
 @router.post("/{task_id}/due/respond")
@@ -1686,7 +1656,7 @@ def respond_due(body: DueAnswer, task_id: str, user: dict = Depends(get_current_
         if counter in ((t.due_on or "")[:10], ((t.due_proposal or {}).get("dueOn") or "")[:10]):
             raise HTTPException(422, "Suggest a date different from both the current and the proposed one.")
     task_due.respond(db, t, me, body.accept, (body.note or "").strip(), counter_on=counter)
-    return _due_done(db, t, me, date_moved=body.accept or bool(counter))
+    return _due_done(db, t)
 
 
 @router.delete("/{task_id}", status_code=204)
@@ -1872,7 +1842,6 @@ def delete_task_permanent(task_id: str, user: dict = Depends(get_current_user), 
     if not purge_task_permanently(db, task_id, actor_email=user["email"]):
         raise HTTPException(404, "That task isn't in the trash")
     db.commit()
-    asana_push_deleted()
 
 
 class BulkUpdate(BaseModel):
@@ -2095,11 +2064,6 @@ def edit_comment(comment_id: str, upd: CommentUpdate, user: dict = Depends(get_c
     db.commit()
     db.refresh(c)
     fire_task_event(c.task_id, "comment")
-    # A corrected comment has to reach Asana too, or the copy most of the
-    # workspace reads keeps the wrong text forever. Only on a body change -
-    # pinning is a Nexus-only notion with no Asana counterpart.
-    if upd.body is not None:
-        _asana_push_comment_edit(comment_id)
     return comment_to_dict(c)
 
 
@@ -2342,8 +2306,8 @@ def dedupe_custom_statuses(db: Session = Depends(get_db)):
     Task.status off every row it deletes, so no task is left pointing at a
     status that no longer exists.
     """
-    import asana_sync
-    result = asana_sync.dedupe_custom_statuses(db)
+    import task_status_dedupe
+    result = task_status_dedupe.dedupe_custom_statuses(db)
     db.commit()
     return result
 

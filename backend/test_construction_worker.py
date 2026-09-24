@@ -152,13 +152,6 @@ class SweepTests(unittest.TestCase):
         worker._file_one = lambda db, media: self.fail("must not touch deleted media")
         self.assertEqual(worker.sweep_once()["filed"], 0)
 
-    def test_lock_key_differs_from_the_asana_pull(self):
-        """Sharing Asana's advisory-lock key would make the two sweeps block each
-        other for no reason."""
-        import asana_sync
-        self.assertNotEqual(worker._CONSTRUCTION_SWEEP_LOCK_KEY,
-                            asana_sync._ASANA_PULL_LOCK_KEY)
-
 
 if __name__ == "__main__":
     unittest.main()

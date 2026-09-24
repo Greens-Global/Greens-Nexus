@@ -35,3 +35,15 @@ def app_url() -> str:
     if "dev" in site:
         return "https://dev.nexus.greensglobal.com"
     return "https://nexus.greensglobal.com"
+
+
+def public_base() -> str:
+    """The PUBLIC https base of this API (not the frontend), for callbacks an
+    outside service makes to us - OAuth redirects. Derived from the Azure host;
+    empty when running locally. NEXUS_API_BASE overrides it (e.g. an ngrok
+    tunnel while testing). Moved here from the removed asana_sync.py."""
+    override = os.getenv("NEXUS_API_BASE", "").strip().rstrip("/")
+    if override:
+        return override
+    host = os.getenv("WEBSITE_HOSTNAME", "").strip()
+    return f"https://{host}" if host else ""

@@ -78,7 +78,6 @@ _SYSTEM_INFO = {
             "subtitle": "What Nexus talks to",
             "points": [
                 "Microsoft Graph - mailbox, calendar, and M365 directory sync.",
-                "Asana - two-way task/project sync (Asana's own webhooks plus a scheduled pull).",
                 "Egnyte - browse and upload company files at the right folder level from inside Nexus.",
                 "GitHub - PR/push activity feeds the admin \"What's New\" drafts and deploy notifications.",
             ],

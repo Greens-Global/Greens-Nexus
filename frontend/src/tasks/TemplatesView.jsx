@@ -370,8 +370,7 @@ export function DuplicateProjectModal({ project, onClose, onCreated }) {
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
         <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.5 }}>
-          The original is left exactly as it is. The copy is a fresh project and is not linked to Asana,
-          even when the original is.
+          The original is left exactly as it is. The copy is a fresh project of its own.
         </div>
 
         <div>

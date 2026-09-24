@@ -4,7 +4,6 @@ const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
 import { useHeaderTabs } from "./ModuleTabs";
-import AccountSettingsModal from "./AccountSettingsModal";
 import MyProfileModal from "./MyProfileModal";
 import EmailSettingsModal from "./EmailSettingsModal";
 
@@ -60,7 +59,6 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   const displayTitle = (headerTabs?.syncTitle && activeTabMeta)
     ? (activeTabMeta.title || activeTabMeta.label)
     : title;
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [myProfileOpen, setMyProfileOpen] = useState(false);
   // Email Settings (menu item below My Profile). The "Email Settings" link in
   // every task email lands on ?emailSettings=1 and opens it straight away -
@@ -71,7 +69,6 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // start that flow any more, but a stale bookmark or an in-flight redirect
   // still can - so the params are stripped silently rather than reopening a
   // modal about an integration that is gone.
-  const [asanaResult, setAsanaResult] = useState({ result: "", reason: "" });
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     if (!p.get("asana")) return;
@@ -576,12 +573,6 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <button className="hud-item" onClick={() => { setOpen(false); setEmailSettingsOpen(true); }}>
                 <Mail size={14} /> Email Settings
               </button>
-{/* Account Settings held ONE thing - the personal Asana connection -
-    so with Asana severed (Aug 27) it would open an empty modal. Hidden
-    rather than deleted; restore this entry alongside the Manage tab.
-              <button className="hud-item" onClick={() => { setOpen(false); setSettingsOpen(true); }}>
-                <Settings size={14} /> Account Settings
-              </button> */}
               <button className="hud-item" onClick={() => { setOpen(false); openChangelog(); }}>
                 <Sparkles size={14} /> What's New
               </button>
@@ -661,14 +652,6 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
           {actAsStopping ? 'Exiting…' : 'Exit Act As'}
         </button>
       </div>
-    )}
-
-    {settingsOpen && (
-      <AccountSettingsModal
-        onClose={() => { setSettingsOpen(false); setAsanaResult({ result: "", reason: "" }); }}
-        initialResult={asanaResult.result}
-        initialReason={asanaResult.reason}
-      />
     )}
 
     {myProfileOpen && (

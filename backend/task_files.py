@@ -115,15 +115,8 @@ def data_url_to_storage(name: str, data_url: str) -> str:
 # ── Backlog migration (rows inlined before Aug 2026) ─────────────────────────
 def migrate_inlined_batch(db, batch: int = 25, skip_ids=None):
     """Move up to `batch` inlined rows to storage. Returns
-    (migrated, newly_failed_ids, fetched).
-
-    Push-safety: the Asana push sweep offers any http(s) attachment with no
-    AsanaAttachmentLink row back to Asana. Every data: URL exists only because
-    the file CAME FROM Asana, so a migrated row without a link gets a marker
-    ("migrated-inline:<id>", never a real gid) in the same transaction as the
-    URL rewrite - suppresses outbound push, invisible to inbound dedupe."""
+    (migrated, newly_failed_ids, fetched)."""
     import models
-    from routers.task_util import now_iso, gen_id
     q = db.query(models.TaskAttachment).filter(models.TaskAttachment.url.like("data:%"))
     if skip_ids:
         q = q.filter(~models.TaskAttachment.id.in_(skip_ids))
@@ -141,11 +134,6 @@ def migrate_inlined_batch(db, batch: int = 25, skip_ids=None):
             failed.append(a.id)
             continue
         a.url = stored
-        if not db.query(models.AsanaAttachmentLink).filter(
-                models.AsanaAttachmentLink.nexus_attachment_id == a.id).first():
-            db.add(models.AsanaAttachmentLink(
-                id=gen_id(), nexus_attachment_id=a.id,
-                asana_attachment_gid=f"migrated-inline:{a.id}", created_at=now_iso()))
         migrated += 1
     db.commit()
     return migrated, failed, len(rows)

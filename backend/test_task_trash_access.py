@@ -23,7 +23,6 @@ from fastapi import HTTPException
 
 import database
 import models
-from routers import tasks as tasks_router
 from routers.task_util import gen_id, now_iso
 from routers.tasks import list_deleted_tasks, restore_task, delete_task_permanent
 
@@ -62,13 +61,10 @@ class TrashAccessTests(unittest.TestCase):
         self.db = database.SessionLocal()
         self.db.query(models.Task).delete()
         self.db.commit()
-        self._push = tasks_router.asana_push_deleted
-        tasks_router.asana_push_deleted = lambda *a, **kw: None
         self.mine = self._trashed("Keypad rewire", OWNER["email"])
         self.theirs = self._trashed("Q3 tax filing", OTHER["email"])
 
     def tearDown(self):
-        tasks_router.asana_push_deleted = self._push
         self.db.close()
 
     def _trashed(self, title, by):
