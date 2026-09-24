@@ -8,6 +8,7 @@ import { useDash } from './DashContext';
 import { Toolbar } from './Filters';
 import { useCloseState, useFlux, useNotes } from './hooks';
 import { WidgetPanel, useDashNav } from './registry';
+import { TaskViewSwitch, useCloseViews } from './closeViews';
 
 // Close tab: pace against the target day, the shared checklist, account
 // reconciliations, balance-sheet flux with explanations, intercompany, bank
@@ -15,29 +16,11 @@ import { WidgetPanel, useDashNav } from './registry';
 
 const SECTIONS = ['checklist', 'recon', 'flux', 'controls'];
 
-// Checklist views (Priyanka, Sep 24): My Tasks / All Tasks / Overdue, with
-// My Tasks the default once a bookkeeper has said who they are. A task's
-// owner is a role name ("Bookkeeper", "Controller") or a person's name, so
-// "mine" means tasks whose owner is the role picked here or my own name.
-const TASK_VIEWS = [{ id: 'mine', label: 'My Tasks' }, { id: 'all', label: 'All Tasks' }, { id: 'overdue', label: 'Overdue' }];
-const ROLE_LS = 'nexus-accounting-close-role';
-const readRole = () => { try { return JSON.parse(localStorage.getItem(ROLE_LS) || '{}') || {}; } catch { return {}; } };
-const isMine = (r, role, me) => {
-  const o = (r.owner || '').trim().toLowerCase();
-  return !!o && (o === (role || '').trim().toLowerCase() || (!!me && o === me.trim().toLowerCase()));
-};
-
 export default function CloseTab({ canEdit, meName = '' }) {
   const { period, act, m } = useDash();
-  const [closePref, setClosePref] = useState(() => { const s = readRole(); return { role: s.role || '', view: s.view || 'all' }; });
-  const role = closePref.role;
-  const view = closePref.view;
-  const savePref = (next) => { setClosePref(next); try { localStorage.setItem(ROLE_LS, JSON.stringify(next)); } catch { /* private mode */ } };
-  const setView = (v) => savePref({ ...closePref, view: v });
-  const setRole = (r) => savePref({ role: r, view: r ? 'mine' : closePref.view === 'mine' ? 'all' : closePref.view });
-  const showRow = (r) => (view === 'all' ? true : view === 'overdue' ? r.state === 'past_due' : isMine(r, role, meName));
   const nav = useDashNav();
   const { state, history, isLoading } = useCloseState();
+  const { view, setView, pickedRole, setRole, owners, showRow } = useCloseViews(state?.rows ?? [], meName);
   const { rows: flux, hasPrior } = useFlux();
   const { flux: fluxNotes } = useNotes();
   const [busy, setBusy] = useState(null);
@@ -100,22 +83,15 @@ export default function CloseTab({ canEdit, meName = '' }) {
           <Panel title="Close checklist" sub="Tick a task and everyone sees who completed it" style={col(7)} bodyStyle={{ padding: 0 }}
             right={state?.n ? (
               <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                <select value={role} onChange={(e) => setRole(e.target.value)} style={{ ...input, padding: '3px 6px', fontSize: '0.74rem' }} aria-label="My close role">
+                <select value={pickedRole} onChange={(e) => setRole(e.target.value)} style={{ ...input, padding: '3px 6px', fontSize: '0.74rem' }} aria-label="My close role">
                   <option value="">I am... (not set)</option>
-                  {[...new Set(state.rows.map((r) => (r.owner || '').trim()).filter(Boolean))].sort().map((o) => <option key={o} value={o}>I am {o}</option>)}
+                  {owners.map((o) => <option key={o} value={o}>I am {o}</option>)}
                 </select>
-                <span style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, padding: 2 }}>
-                  {TASK_VIEWS.map((t) => (
-                    <button key={t.id} type="button" onClick={() => setView(t.id)} aria-pressed={view === t.id}
-                      style={{ border: 'none', borderRadius: 6, padding: '2px 8px', font: 'inherit', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', background: view === t.id ? 'var(--wk-brand, #2b45e1)' : 'transparent', color: view === t.id ? '#fff' : 'var(--text-secondary)' }}>
-                      {t.label}{t.id === 'overdue' && state.late.length ? ` (${state.late.length})` : ''}
-                    </button>
-                  ))}
-                </span>
+                <TaskViewSwitch view={view} onChange={setView} late={state.late.length} />
               </span>
             ) : null}>
             {isLoading || !state ? <LoadingBox /> : !state.n ? <EmptyBox title="No tasks" style={{ margin: 16 }} /> : !state.rows.some(showRow) ? (
-              <EmptyBox style={{ margin: 16 }} title={view === 'overdue' ? 'Nothing overdue' : view === 'mine' && !role ? 'Pick who you are' : 'No tasks for you this month'} body={view === 'mine' && !role ? 'Choose your role (Bookkeeper, Controller...) in the box above and My Tasks lists what is yours.' : undefined} />
+              <EmptyBox style={{ margin: 16 }} title={view === 'overdue' ? 'Nothing overdue' : view === 'mine' && !pickedRole ? 'Pick who you are' : 'No tasks for you this month'} body={view === 'mine' && !pickedRole ? 'Choose your role (Bookkeeper, Controller...) in the box above and My Tasks lists what is yours.' : undefined} />
             ) : (
               <table className="req-table">
                 <thead><tr><th style={{ width: 32 }} /><th>Task</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead>
