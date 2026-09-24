@@ -8,21 +8,49 @@ week hard." So this is a finish-and-close list, not a new roadmap.
 Repos: Nexus = this repo. Accounting app = `C:\Users\Vlow\Desktop\Greens Accounting`
 (`Greens-Global/greens-accounting`, `main` = production).
 
-## Status (09/24, end of session)
+## Status (09/24, verified in the browser)
 
-- ✅ All four accounting migrations APPLIED and tracked on the accounting
-  database (entry detail, report dimensions, dashboard recon accounts, and
-  the shared write policy on `fin_gl_import_rules`). Dry-run parity check:
-  August debits through the new dimension reader = `ledger_account_sums` to
-  the cent (6,417,032.58).
-- ✅ Accounting `main` PUSHED (731506b) - Cloudflare deploys it.
-- ✅ Nexus `dev` PUSHED (4bfd3656, rebased onto Sagar's Asana-removal merge)
-  - Cloudflare and the Azure dev API deploy it.
-- ☐ In the accounting app: Import Hub, pull Dimensions with Items ticked, then
-  re-pull the GL for the months that should carry Item (existing lines have
-  no `item_id` until pulled again; ITEMID is optional and dropped
-  automatically if this company's GLENTRY does not serve it).
-- ☐ Browser click-through: nothing below was opened in a browser.
+- ✅ All four accounting migrations applied and tracked. Dry-run parity:
+  August debits through the new dimension reader = `ledger_account_sums`
+  to the cent (6,417,032.58).
+- ✅ Accounting `main` pushed and deployed (latest 504b831). Nexus `dev`
+  pushed and deployed (456db733, rebased onto Sagar's Asana-removal merge).
+- ✅ Items dimension pulled (307 items); the 2026 GL re-pull (Jan 1 - Sep 24)
+  was started from Import Hub on 09/24 so existing lines carry `item_id`.
+- ✅ Clicked through (09/24, Visesh's session):
+  - Nexus Reports: one-line period control; vs Prior Year columns with $ and
+    % variance; Add Filter chips (Project-Job picker lists names); filtered
+    re-run with "Filtered by" line; drill-down; entry number opens the
+    journal entry modal (balanced, department, customer, book, Intacct
+    batch); "Open in Nexus Accounting" deep-links the same entry.
+  - Nexus Close tab: 128 ledger bank / card accounts per entity; "Mark
+    reconciled" with statement date + balance saved and showed
+    "1 of 128 · 127 remaining · Aug 31, 2026 · Visesh Lodha"; I am ... /
+    My Tasks / All / Overdue.
+  - Nexus Cash tab: "Monthly Cash Forecast" shows the no-budget state.
+  - Nexus Overview KPIs (CFO view): margin "-0.5 pts vs prior month",
+    runway "target 6 months / +17.6 mo vs target", YTD "vs prior year",
+    reconciliations "127 remaining".
+  - Nexus Time Sheet: no California / India toggle on My Timesheet.
+  - Accounting app: P&L Dimensions popover; By Vendor columns; Close page
+    role picker + My Tasks; Cash forecast empty state; Bank to Intacct
+    upload (Total row skipped, does not block), blocker text, coding with
+    Remember ticked saved a rule (deleted after the test).
+- Found and fixed during the click-through (accounting main 0f3bd2d, 504b831):
+  a lone department on Trial Balance / Balance Sheet came back unfiltered
+  (Nexus sends `departments=`; the fast path only knew `department`); "By
+  Vendor" drew 6,600+ columns and froze the tab (now the 50 largest plus an
+  "Other (n more)" column); "All entitys" wording.
+- ⚠ dev.nexus has NO `ACCOUNTING_BASE_URL` / `ACCOUNTING_INTERNAL_KEY` on
+  its App Service (prod has them), so the Accounting tabs on dev.nexus show
+  "Accounting service is not configured". Verification ran against a LOCAL
+  backend with the prod values in the gitignored `backend/.env`. Do not
+  copy the key to dev blindly: dev's `accounting_sso_sync_loop` would then
+  push dev's grant list to the accounting app and deactivate prod users.
+  Either give dev a separate accounting key with the sync disabled, or keep
+  testing Accounting on prod after the next dev -> main release.
+- ☐ Reset "I am Bookkeeper" on Visesh's accounting close-role pref (set
+  during the test; harmless).
 
 ## A. Bugs reported (fix first)
 
