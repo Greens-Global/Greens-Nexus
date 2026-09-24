@@ -779,6 +779,12 @@ def _run_migrations():
             # Policy ownership (Pranshu, Sep 22) - added after hr_holiday_policies
             # already shipped without it; see the matching Postgres migration below.
             "ALTER TABLE hr_holiday_policies ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # Due-date accountability (Neil, Sep 24) - see the matching Postgres
+            # migration below.
+            "ALTER TABLE tasks ADD COLUMN due_extension_count INTEGER DEFAULT 0",
+            "ALTER TABLE tasks ADD COLUMN due_history JSON DEFAULT '[]'",
+            "ALTER TABLE tasks ADD COLUMN due_agreement VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN due_proposal JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1646,6 +1652,13 @@ def _run_migrations():
         # deleting one is scoped to its creating company via auth.hr_scope, the
         # same way every other HR-admin surface is scoped.
         "ALTER TABLE hr_holiday_policies ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        # Due-date accountability (Neil, Sep 24): every due-date move is logged
+        # on the task, a push LATER of an agreed date counts as an extension,
+        # and the requester/assignee can negotiate the target (task_due.py).
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_extension_count INTEGER DEFAULT 0",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_history JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_agreement VARCHAR DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_proposal JSONB",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

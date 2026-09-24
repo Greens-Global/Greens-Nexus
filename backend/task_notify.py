@@ -183,6 +183,10 @@ def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: s
         add_assignees()
         for f in followers:
             add(f, "follower")
+        # A moved due date always reaches whoever asked for the work, follower
+        # or not (Neil, Sep 24).
+        if extra.get("due_changed"):
+            add(creator, "creator")
     elif event_type == "deleted":
         add_assignees()
         add(creator, "creator")

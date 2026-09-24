@@ -13,6 +13,7 @@ import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees } fro
 import { statusesForProject } from '../TasksContext';
 import { Avatar, PriorityChip, useClickOutside } from '../components';
 import { fmtDate } from '../lib';
+import DueBadge from '../DueBadge';
 
 const SECTION_PALETTE = ['#4573fa', '#8b6bf0', '#14a76c', '#e8a33d', '#e0844e', '#e8384f', '#29a8ab', '#db2777'];
 const SWIMLANE_OPTIONS = [
@@ -240,6 +241,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
               <MessageSquare size={11} />{t.commentIds?.length > 0 ? t.commentIds.length : ''}
             </button>
             {t.dueOn && <span style={{ fontSize: 11, color: dc }}>{fmtDue(t.dueOn)}</span>}
+            <DueBadge task={t} nameOf={ctx.nameOf} compact />
             {taskAssignees(t).slice(0, 3).map((a, i) => (
               <span key={a} style={{ display: 'inline-flex', marginLeft: i ? -7 : 0, borderRadius: '50%', boxShadow: `0 0 0 2px ${NX.surface}` }}>
                 <Avatar email={a} name={ctx.nameOf?.(a)} size={20} />

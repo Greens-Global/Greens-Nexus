@@ -174,4 +174,26 @@ describe('PersonView render-smoke', () => {
 
     await waitFor(() => expect(screen.queryByText('Projects')).not.toBeInTheDocument());
   });
+
+  it('shows the deadline record when the server sends one', async () => {
+    getPersonProfile.mockResolvedValueOnce({ ...profile, deadlineRecord: {
+      windowDays: 90, completedWithDueDate: 10, completedLate: 4, onTimePct: 60, openOverdue: 2,
+      tasksExtended: 1, totalExtensions: 3, selfExtensions: 3, awaitingConfirmation: 1,
+      mostExtended: [{ id: 't9', title: 'Stale thing', extensions: 3, completed: false }],
+      flags: ['Finished 40% of dated tasks late'],
+    } });
+
+    render(<PersonView {...props} />);
+
+    expect(await screen.findByText('Deadline Record')).toBeInTheDocument();
+    expect(screen.getByText('60%')).toBeInTheDocument();
+    expect(screen.getByText('Finished 40% of dated tasks late')).toBeInTheDocument();
+    expect(screen.getByText('Ext 3x')).toBeInTheDocument();
+  });
+
+  it('leaves the deadline record out for a peer', async () => {
+    render(<PersonView {...props} />);
+    await screen.findByText('Projects');
+    expect(screen.queryByText('Deadline Record')).not.toBeInTheDocument();
+  });
 });

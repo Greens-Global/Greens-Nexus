@@ -7,7 +7,7 @@
 // workspace is still one click away ("View All Tasks"), which is the right home
 // for filtering and bulk edits.
 import { useEffect, useState } from 'react';
-import { ArrowLeft, CheckCircle2, ChevronRight, Circle, FolderKanban, Users, AlertTriangle, Plus, Mail, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, ChevronRight, Circle, FolderKanban, Users, AlertTriangle, Plus, Mail, X, CalendarClock } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, btn, card, chip } from './theme';
 import { Avatar, EmptyState, useIsMobile } from './components';
@@ -15,6 +15,7 @@ import AsyncSection from '../components/AsyncState';
 import CreateTaskModal from './CreateTaskModal';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { formatDate } from '../lib/datetime';
+import DueBadge from './DueBadge';
 
 // Two of these are relative to the VIEWER, not the person being looked at:
 // "what did I give them" and "where do we overlap" are the questions you open
@@ -210,6 +211,7 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
                         {formatDate(t.dueOn)}
                       </span>
                     )}
+                    <DueBadge count={t.dueExtensionCount} compact />
                   </div>
                 );
               })}
@@ -230,8 +232,9 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
             </div>
           </div>
 
-          {/* Projects + Teams */}
+          {/* Deadline record + Projects + Teams */}
           <div style={{ display: 'grid', gap: 14 }}>
+            {data?.deadlineRecord && <DeadlineRecord record={data.deadlineRecord} onOpen={setOpenId} />}
             <SideCard title="Projects" icon={FolderKanban} empty="No projects yet."
               items={data?.projects || []}
               onPick={(p) => onOpenProject?.(p.id)} />
@@ -243,6 +246,67 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
 
       {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
       {creating && <CreateTaskModal defaults={creating} onClose={() => setCreating(null)} />}
+    </div>
+  );
+}
+
+// How this person does against deadlines (Neil, Sep 24): "if you have someone
+// that is always late on tasks or keeps extending, that should be a management
+// alert - using data, not a random opinion". Facts, not a score; the backend
+// (task_due.person_record) only sends it to a manager or the person themselves.
+function DeadlineRecord({ record: r, onOpen }) {
+  const stats = [
+    { label: 'On Time', value: r.onTimePct == null ? '-' : `${r.onTimePct}%`,
+      color: r.onTimePct == null ? NX.faint : r.onTimePct >= 85 ? NX.green : r.onTimePct >= 70 ? NX.amber : NX.red,
+      hint: `${r.completedWithDueDate - r.completedLate} of ${r.completedWithDueDate} dated tasks finished by their due date` },
+    { label: 'Finished Late', value: r.completedLate, color: r.completedLate ? NX.amber : NX.ink },
+    { label: 'Overdue Now', value: r.openOverdue, color: r.openOverdue ? NX.red : NX.ink },
+    { label: 'Extensions', value: r.totalExtensions, color: r.totalExtensions ? NX.amber : NX.ink,
+      hint: `${r.totalExtensions} extensions across ${r.tasksExtended} tasks - ${r.selfExtensions} made by this person` },
+  ];
+  return (
+    <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '12px 16px 10px', fontSize: 15, fontWeight: 700 }}>
+        <CalendarClock size={15} style={{ color: NX.dim }} /> Deadline Record
+        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: NX.faint, fontWeight: 500 }}>Last {r.windowDays} days</span>
+      </div>
+      <div style={{ borderTop: `1px solid ${NX.border}`, padding: '12px 16px', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+        {stats.map((s) => (
+          <div key={s.label} title={s.hint}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: s.color, lineHeight: 1.1 }}>{s.value}</div>
+            <div style={{ fontSize: 10.5, color: NX.faint, textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+      {r.flags.length > 0 && (
+        <div style={{ borderTop: `1px solid ${NX.border2}`, padding: '10px 16px', display: 'grid', gap: 5 }}>
+          {r.flags.map((f) => (
+            <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.red, fontWeight: 600 }}>
+              <AlertTriangle size={13} style={{ flexShrink: 0 }} /> {f}
+            </div>
+          ))}
+        </div>
+      )}
+      {r.awaitingConfirmation > 0 && (
+        <div style={{ borderTop: `1px solid ${NX.border2}`, padding: '8px 16px', fontSize: 12, color: NX.dim }}>
+          {r.awaitingConfirmation} due date{r.awaitingConfirmation === 1 ? '' : 's'} not yet confirmed
+        </div>
+      )}
+      {r.mostExtended.length > 0 && (
+        <div style={{ borderTop: `1px solid ${NX.border2}` }}>
+          <div style={{ padding: '9px 16px 3px', fontSize: 11, color: NX.faint, textTransform: 'uppercase', letterSpacing: '.06em' }}>Most Extended</div>
+          {r.mostExtended.map((t) => (
+            <div key={t.id} onClick={() => onOpen(t.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 16px', cursor: 'pointer' }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
+              <DueBadge count={t.extensions} compact />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

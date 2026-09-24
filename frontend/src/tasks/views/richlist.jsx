@@ -20,6 +20,7 @@ import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
 import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar, localTodayISO } from '../components';
 import { emailToName, rootZoom } from '../../lib/utils';
 import { matchPeople, onEnterPickFirst } from '../../lib/peopleSearch';
+import DueBadge from '../DueBadge';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
@@ -420,8 +421,9 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         ),
         // due
         due: (
-        <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
-          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={dueColor(t.dueOn, t.completed)} title="Due Date" compact style={{ fontSize: 12, width: '100%' }} />
+        <div className="rl-cell" style={{ ...editCell, gap: 4 }} onClick={(e) => e.stopPropagation()}>
+          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={dueColor(t.dueOn, t.completed)} title="Due Date" compact style={{ fontSize: 12, width: '100%', minWidth: 78, flex: 1 }} />
+          <DueBadge task={t} nameOf={store.nameOf} compact />
         </div>
         ),
         // estimate
@@ -786,7 +788,8 @@ function TimelineCell({ t, color, onChange }) {
 const AVATAR = 24;              // face diameter
 const TIGHT_STEP = 16;          // fully stacked (the old fixed -8px margin)
 const LOOSE_STEP = AVATAR + 4;  // fully separated, with a small gap
-const COLLAPSE_W = 120;         // default column width: faces sit collapsed
+const COLLAPSE_W = 120;
+const DUE_W_EXTENDED = 164;     // date + "Ext 3x" badge side by side         // default column width: faces sit collapsed
 const SPREAD_W = 280;           // wide enough that they are fully fanned out
 export function peopleStackLayout(width, count) {
   const w = width || 0;
@@ -1009,9 +1012,14 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   // so they join the list and are resizable like the built-in ones. The
   // trailing gutter is the empty cell header, rows and the group footer each
   // render, so it has to stay in the template.
+  // Room for the "Ext 3x" badge beside the date - only when a row on screen
+  // actually has one, so a list with no extensions keeps its compact column.
+  // A width the person dragged themselves still wins (useTableColumns).
+  const anyExtended = useMemo(() => visible.some((t) => t.dueExtensionCount > 0), [visible]);
   const gridCols = useMemo(
-    () => [...visibleCols, ...customFields.map((f) => ({ key: f.id, width: 150 }))],
-    [visibleCols, customFields],
+    () => [...visibleCols.map((c) => (c.key === 'due' && anyExtended ? { ...c, width: DUE_W_EXTENDED, minWidth: DUE_W_EXTENDED } : c)),
+      ...customFields.map((f) => ({ key: f.id, width: 150 }))],
+    [visibleCols, customFields, anyExtended],
   );
   const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps } = useTableColumns({
     table: 'richlist', cols: gridCols, trailing: '12px',

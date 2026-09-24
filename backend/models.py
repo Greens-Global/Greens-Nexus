@@ -98,6 +98,18 @@ class Task(Base):
     # project plus its 200 tasks as 201 rows is not a list anyone can use.
     deleted_with      = Column(String, default="", index=True)
     deleted_by        = Column(String, default="")         # email of whoever deleted it
+    # Due-date accountability (Neil, Sep 24) - maintained ONLY by task_due.py.
+    # due_history is every move of due_on, oldest first:
+    #   {at, from, to, by, source: app|bulk|asana|proposal, extension: bool}
+    # due_extension_count is how many of those pushed an AGREED date later.
+    # due_agreement: "" (legacy / set by the assignee = agreed) | "pending"
+    # (the requester set a target the assignee has not confirmed) | "proposed"
+    # (the assignee asked for due_proposal = {dueOn, by, at, note} instead) |
+    # "accepted".
+    due_extension_count = Column(Integer, default=0)
+    due_history       = Column(JSON, default=list)
+    due_agreement     = Column(String, default="")
+    due_proposal      = Column(JSON, nullable=True)
 
 
 class PurchaseRequest(Base):

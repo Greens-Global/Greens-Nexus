@@ -2077,7 +2077,12 @@ def _apply_inbound(db, at, nexus_project_id, counts, parent_task_id="", email_ma
             if inbound_fields:
                 t.custom_field_values = {**(t.custom_field_values or {}), **inbound_fields}
             t.start_on = (at.get("start_on") or "")[:10]
+            _prev_due = (t.due_on or "")[:10]
             t.due_on = (at.get("due_on") or "")[:10]
+            if t.due_on != _prev_due:
+                # A push-out made in Asana is still a push-out (task_due.py).
+                import task_due
+                task_due.record_due_change(db, t, _prev_due, t.due_on, actor="", source="asana")
             t.assignee_email = assignee
             t.tags = tag_names
             t.is_milestone = is_milestone

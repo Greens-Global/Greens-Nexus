@@ -441,6 +441,11 @@ export const api = {
   ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
   getGlobalTaskActivity: () => req("/tasks/activity"),
+  // Due-date negotiation (Sep 24) - the assignee confirms or proposes, the
+  // requester answers. Each returns the updated task.
+  confirmTaskDue: (id) => req(`/tasks/${id}/due/confirm`, { method: "POST" }),
+  proposeTaskDue: (id, dueOn, note = "") => req(`/tasks/${id}/due/propose`, { method: "POST", body: JSON.stringify({ due_on: dueOn, note }) }),
+  respondTaskDue: (id, accept, note = "", counterOn = "") => req(`/tasks/${id}/due/respond`, { method: "POST", body: JSON.stringify({ accept, note, counter_on: counterOn }) }),
   // Sections & custom statuses (board columns)
   getTaskSections: () => req("/tasks/meta/sections"),
   createTaskSection: (data) => req("/tasks/meta/sections", { method: "POST", body: JSON.stringify(data) }),
