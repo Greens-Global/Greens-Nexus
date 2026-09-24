@@ -89,6 +89,13 @@ keep the diff minimal.
   bucket public. A new protected bucket goes in BOTH `PROTECTED_BUCKETS` lists
   (`routers/files.py`, `frontend/src/lib/storageView.js`) and gets
   `update storage.buckets set public = false` on dev and prod.
+- **Outlook Actionable Messages** (task emails, `task_mail_actions.py` +
+  `routers/mail_actions.py`): clicks are authenticated with a Microsoft Entra
+  ID token (the legacy substrate.office.com token died Jun 8, 2026 - never
+  bring it back). The card is emitted only when BOTH `NEXUS_AM_ORIGINATOR` and
+  `NEXUS_AM_AUDIENCE` (AppIdUri, then the Entra app's client id, comma-
+  separated) are set; setup is `docs/Actionable-Messages-Setup.md`.
+  The signed task token in the URL is what proves an email was ours.
 - **Rate limiting** (`RequestRateLimit` in `middleware_hardening.py`, Sep 22):
   per-minute budgets keyed on the session/bearer for signed-in callers, per IP
   for anonymous ones, tighter on credential-taking routes, plus a per-IP

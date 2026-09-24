@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Settings, ChevronDown, Megaphone, PenSquare, Wallet, Target, MapPin, Share2, Camera } from 'lucide-react'
+import { Settings2, ChevronDown, Megaphone, PenSquare, Wallet, Target, MapPin, Share2, Camera } from 'lucide-react'
 import { C, FONT } from '../theme'
 
 const QUICK_ACTIONS = [
@@ -26,31 +26,14 @@ export default function ManageButton({ onNavigate }) {
 
   return (
     <div style={{ position: 'relative', fontFamily: FONT }} ref={ref}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        onMouseEnter={(e) => (e.currentTarget.style.background = C.gray800)}
-        onMouseLeave={(e) => (e.currentTarget.style.background = C.gray900)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '6px 12px',
-          borderRadius: 9999,
-          fontSize: 13,
-          fontWeight: 500,
-          background: C.gray900,
-          color: C.white,
-          border: 'none',
-          transition: 'all .15s',
-          cursor: 'pointer',
-        }}
-      >
-        <Settings size={14} />
+      {/* The one Manage button Nexus uses everywhere (Neil, Sep 22): the
+          Links page's green primary button with the sliders-cog icon. */}
+      <button className="primary-btn" onClick={() => setOpen((o) => !o)}>
+        <Settings2 size={14} />
         Manage
         <ChevronDown
           size={13}
-          color={C.gray400}
-          style={{ transition: 'transform .15s', transform: open ? 'rotate(180deg)' : 'none' }}
+          style={{ opacity: 0.75, transition: 'transform .15s', transform: open ? 'rotate(180deg)' : 'none' }}
         />
       </button>
 

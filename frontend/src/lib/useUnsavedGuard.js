@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { isBypassing } from './dialogGuard';
 
 // Shared "did this modal get closed with unsaved changes" guard for the many
 // hand-rolled modals across Nexus that don't go through one of the module
@@ -22,7 +23,9 @@ export function useUnsavedGuard(dirty, onClose, onSave) {
   const [saving, setSaving] = useState(false);
 
   const requestClose = useCallback(() => {
-    if (dirty) setConfirming(true); else onClose();
+    // A Discard already confirmed by the app-wide guard (lib/dialogGuard.js)
+    // replays the close with isBypassing() set - do not ask twice.
+    if (dirty && !isBypassing()) setConfirming(true); else onClose();
   }, [dirty, onClose]);
 
   useEffect(() => {

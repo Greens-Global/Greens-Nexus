@@ -1361,6 +1361,7 @@ export const api = {
   timeShiftAssignments: ()       => req('/timeclock/shift-assignments'),
   timeMyChat:        ()          => req('/timeclock/my-chat'),
   timeSchedule:      (start, end) => req(`/timeclock/schedule?start=${start}&end=${end}`),
+  timeMySchedule:    (start, end) => req(`/timeclock/my-schedule?start=${start}&end=${end}`),
   timeSchedCreate:   (data)      => req('/timeclock/schedule', { method: 'POST', body: JSON.stringify(data) }),
   timeSchedBulk:     (data)      => req('/timeclock/schedule/bulk', { method: 'POST', body: JSON.stringify(data) }),
   timeSchedAssign:   (id, email) => req(`/timeclock/schedule/${id}/assign`, { method: 'POST', body: JSON.stringify({ employee_email: email }) }),

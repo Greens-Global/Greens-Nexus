@@ -1,8 +1,7 @@
-import { useState } from 'react';
 // MapPin/Users/Calendar/X went unused when the mock project dashboard was
 // replaced by ConstructionDashboard; dropped here rather than left as dead
 // imports for the next reader to wonder about.
-import { LayoutDashboard, FolderSync, Folder, Truck, Settings, Database, Server, ShieldCheck, FolderOpen, ChevronRight, ArrowLeft, Download, RefreshCw, Upload, ClipboardList } from 'lucide-react';
+import { LayoutDashboard, Truck, Settings, ClipboardList } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import ConstructionDashboard from '../construction/ConstructionDashboard';
 import SiteActivity from '../construction/SiteActivity';
@@ -18,47 +17,20 @@ const INIT_EQUIPMENT = [
   { id: 2, name: 'Excavator EX-12', location: 'Equipment Yard', status: 'available', progress: 0 },
 ];
 
-const CUBBY_FOLDERS = {
-  'Blueprints & CAD drawings': [
-    { name: 'downtown_foundation_v3.dwg', size: '12.4 MB', type: 'dwg', date: '2026-05-18' },
-    { name: 'harbor_view_mep_v1.dwg', size: '18.1 MB', type: 'dwg', date: '2026-05-20' },
-    { name: 'warehouse_framing.dwg', size: '8.2 MB', type: 'dwg', date: '2026-05-14' },
-  ],
-  'Subcontractor Bid logs': [
-    { name: 'apex_concrete_bid_sealed.pdf', size: '1.2 MB', type: 'pdf', date: '2026-05-22' },
-    { name: 'electric_bids_tabulation.xlsx', size: '480 KB', type: 'xlsx', date: '2026-05-19' },
-  ],
-  'Site Safety Audits': [
-    { name: 'weekly_safety_check_may20.pdf', size: '1.4 MB', type: 'pdf', date: '2026-05-20' },
-    { name: 'osha_compliance_report.pdf', size: '2.1 MB', type: 'pdf', date: '2026-05-10' },
-  ],
-  'Permits & Regulatory approvals': [
-    { name: 'downtown_permit_approved.pdf', size: '820 KB', type: 'pdf', date: '2026-05-21' },
-    { name: 'zoning_variance_harbor.pdf', size: '1.1 MB', type: 'pdf', date: '2026-05-15' },
-  ],
-};
 
 // Old sub ids (from before the module's URL segment was renamed from /ops to
 // /construction - see PATH_TO_VIEW/VIEW_TO_PATH in App.jsx) still show up in
 // bookmarks, saved notification links, and the nexus:navigate event fired
 // from ConstructionDashboard - normalize them here rather than in every
-// caller so none of those old links break.
-const SUB_ALIASES = { 'ops-dashboard': 'construction-dashboard', 'ops-activity': 'construction-activity', 'ops-cubby': 'construction-cubby' };
+// caller so none of those old links break. The Cubby Integration tab (a
+// mock file browser) was removed Sep 22 - its old ids land on the dashboard.
+const SUB_ALIASES = {
+  'ops-dashboard': 'construction-dashboard', 'ops-activity': 'construction-activity',
+  'ops-cubby': 'construction-dashboard', 'construction-cubby': 'construction-dashboard',
+};
 
 export default function Operations({ activeSub, onSubChange }) {
   const sub = SUB_ALIASES[activeSub] || activeSub || 'construction-dashboard';
-  const [cubbyDir, setCubbyDir] = useState('root');
-
-
-  const fileIconColor = (type) => {
-    if (type === 'dwg') return 'hsl(var(--color-blue))';
-    if (type === 'pdf') return 'hsl(var(--color-red))';
-    if (type === 'xlsx') return 'hsl(var(--color-green))';
-    return 'var(--text-secondary)';
-  };
-
-  const isRoot = cubbyDir === 'root';
-  const currentFiles = isRoot ? [] : (CUBBY_FOLDERS[cubbyDir] || []);
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -68,7 +40,6 @@ export default function Operations({ activeSub, onSubChange }) {
         tabs={[
           { key: 'construction-dashboard', label: 'Project Dashboard', Icon: LayoutDashboard },
           { key: 'construction-activity',  label: 'Site Activity',     Icon: ClipboardList },
-          { key: 'construction-cubby',     label: 'Cubby Integration', Icon: FolderSync },
         ]}
         active={sub} onChange={onSubChange} />
 
@@ -135,112 +106,6 @@ export default function Operations({ activeSub, onSubChange }) {
           </div>
       )}
 
-      {/* Cubby Integration */}
-      {sub === 'construction-cubby' && (
-        <>
-          <div className="view-header" style={{ marginBottom: 24 }}>
-            <div className="view-title-group">
-              <h2>Cubby Secure Cloud Vault</h2>
-              <p>Nexus internal operations blueprint repository & subcontractor plans room</p>
-            </div>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-              <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <RefreshCw size={14} /> Sync Vault
-              </button>
-              {!isRoot && (
-                <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <Upload size={14} /> Upload Plan
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
-            <div className="kpi-card card-blue" style={{ cursor: 'default' }}>
-              <div className="kpi-card-header">
-                <span className="kpi-title">Storage Capacity</span>
-                <div className="kpi-icon-container"><Database size={18} /></div>
-              </div>
-              <div className="kpi-stat" style={{ fontSize: '1.6rem' }}>42.5 GB / 100 GB</div>
-              <div style={{ width: '100%', height: 4, backgroundColor: 'var(--border-color)', borderRadius: 2, overflow: 'hidden', marginTop: 8 }}>
-                <div style={{ width: '42.5%', height: '100%', backgroundColor: 'var(--ink)' }} />
-              </div>
-            </div>
-            <div className="kpi-card card-green" style={{ cursor: 'default' }}>
-              <div className="kpi-card-header">
-                <span className="kpi-title">Active Node Connections</span>
-                <div className="kpi-icon-container"><Server size={18} /></div>
-              </div>
-              <div className="kpi-stat" style={{ fontSize: '1.6rem' }}>3 Local Syncs</div>
-              <div className="kpi-helper" style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>HQ Server, Trailers, Procore Sync</div>
-            </div>
-            <div className="kpi-card card-purple" style={{ cursor: 'default' }}>
-              <div className="kpi-card-header">
-                <span className="kpi-title">Encryption Status</span>
-                <div className="kpi-icon-container"><ShieldCheck size={18} /></div>
-              </div>
-              <div className="kpi-stat" style={{ fontSize: '1.6rem' }}>AES-256 Enabled</div>
-              <div className="kpi-helper">End-to-End vault encryption active</div>
-            </div>
-          </div>
-
-          <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
-            <div style={{ backgroundColor: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: '0.9rem' }}>
-                <FolderOpen size={18} style={{ color: 'var(--text-secondary)' }} />
-                <span>Cubby Root</span>
-                {!isRoot && <><span>·</span><span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{cubbyDir}</span></>}
-              </div>
-              {!isRoot
-                ? <button className="secondary-btn" onClick={() => setCubbyDir('root')} style={{ padding: '4px 10px', fontSize: '0.775rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <ArrowLeft size={12} /> Up One Level
-                  </button>
-                : <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Select a folder to browse files</span>
-              }
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {isRoot
-                ? Object.keys(CUBBY_FOLDERS).map(folderName => (
-                    <div key={folderName} onClick={() => setCubbyDir(folderName)}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }}
-                      onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'}
-                      onMouseLeave={e => e.currentTarget.style.backgroundColor = ''}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <Folder size={22} style={{ color: 'hsl(var(--color-gold))' }} />
-                        <div>
-                          <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{folderName}</strong>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginTop: 1 }}>Cloud Vault Folder</span>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>{CUBBY_FOLDERS[folderName].length} items</span>
-                        <ChevronRight size={16} style={{ color: 'var(--text-muted)' }} />
-                      </div>
-                    </div>
-                  ))
-                : currentFiles.map(file => (
-                    <div key={file.name}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--border-color)', cursor: 'default' }}
-                      onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'}
-                      onMouseLeave={e => e.currentTarget.style.backgroundColor = ''}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <Download size={20} style={{ color: fileIconColor(file.type) }} />
-                        <div>
-                          <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{file.name}</strong>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginTop: 1 }}>Synced: {file.date} · {file.size}</span>
-                        </div>
-                      </div>
-                      <button className="secondary-btn" style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <Download size={12} /> Download
-                      </button>
-                    </div>
-                  ))
-              }
-            </div>
-          </div>
-        </>
-      )}
     </div>
   );
 }

@@ -431,7 +431,7 @@ function TicketColumnsMenu({ columns, hidden, toggleHidden, cols }) {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button onClick={() => setOpen((o) => !o)} title="Customize columns" style={btn('outline')}>
-        <Columns3 size={15} /> Customize
+        <SlidersHorizontal size={14} /> Customize
       </button>
       {open && (
         <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, padding: 8 }}>
@@ -909,7 +909,8 @@ export default function TicketsView() {
         ) : view === 'board' ? (
           <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={(id, status) => updateTicket(id, { status }).catch(() => {})} />
         ) : visible.length === 0 ? (
-          <EmptyState icon={TicketToken} title="No Tickets" hint={tickets.length ? 'No tickets match your filters.' : 'Raise a ticket to get started.'} />
+          <EmptyState icon={TicketToken} title={tickets.length ? 'No Tickets' : 'No Tickets Yet'}
+            hint={tickets.length ? 'No tickets match your filters.' : `Nothing has been submitted so far. Choose ${isMobile ? 'Create' : 'New Ticket'} to report a problem or ask for help.`} />
         ) : isMobile ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {groups.map((g) => (
@@ -1761,7 +1762,15 @@ export function CreateTicketModal({ onClose }) {
   // desktop keeps the centred modal. A plain function, not a component - defining
   // a component inline would remount the whole form on every render and drop focus.
   // `extras` is the icon row, which sits on its own line above the actions.
-  const shell = (title, { onBack, footer, extras, children }) => (isMobile ? (
+  // The popup carries the same ticket glyph the sidebar uses, top-left of
+  // its header (Neil, Sep 22) - both shells render the title as a node.
+  const heading = (text) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+      <TicketToken size={18} style={{ color: NX.brand ?? 'var(--wk-brand)', flexShrink: 0 }} />
+      {text}
+    </span>
+  );
+  const shell = (text, { onBack, footer, extras, children }) => { const title = heading(text); return (isMobile ? (
     <BottomSheet title={title} onClose={onClose} onBack={onBack}>
       <div style={{ display: 'flex', flexDirection: 'column' }}>{children}</div>
       {/* Pinned to the bottom of the sheet's scroll area: the ticket form is long,
@@ -1779,7 +1788,7 @@ export function CreateTicketModal({ onClose }) {
     </BottomSheet>
   ) : (
     <Modal title={title} onClose={onClose} footer={footer}>{children}</Modal>
-  ));
+  )); };
 
   // ── Step 1: who the ticket is for and what kind it is. Everything downstream
   // (which intake fields to ask) depends on Type, so it's settled up front. ──

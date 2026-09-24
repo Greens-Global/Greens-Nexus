@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, GripVertical, LayoutGrid, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, GripVertical, LayoutGrid, MoreHorizontal, SlidersHorizontal, Plus, Trash2, X } from 'lucide-react';
 import { SkeletonBlocks } from '../../AsyncState';
 import { Chip, EmptyBox, card, input } from './Bits';
 import { useDash } from './DashContext';
@@ -123,7 +123,7 @@ export default function OverviewTab({ canEdit }) {
               {canEdit ? <option value="__new">+ New view…</option> : null}
             </select>
           </span>
-          {canEdit && !editing ? <button type="button" className="secondary-btn" style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setEditing(true)} disabled={!current}><Pencil size={13} /> Customize</button> : null}
+          {canEdit && !editing ? <button type="button" className="secondary-btn" style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setEditing(true)} disabled={!current}><SlidersHorizontal size={13} /> Customize</button> : null}
         </>
       } />
 

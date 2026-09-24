@@ -30,7 +30,7 @@ guessing the employee's zone from their last punch's browser offset.
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone, timedelta, date
+from datetime import datetime, timezone, timedelta
 from html import escape
 
 from sqlalchemy import func, text
@@ -476,6 +476,52 @@ def _item_needs_to_know_rows(db: Session, email: str, since_iso: str, is_manager
     return rows
 
 
+_TASK_COMMENT_PREVIEW_COUNT = 3
+_TASK_COMMENT_PREVIEW_CHARS = 180
+
+
+def _attach_task_comment_previews(db: Session, rows: list) -> None:
+    """Mutates each tasks-module row in place, adding a "comments" list of its
+    last 3 comments (Sep 23, Pranshu: "the comments made on that particular
+    task should be visible in daily brief mail... last 3 comments"). Runs
+    regardless of WHY the task made it into this section - a task showing up
+    because of a status change still gets its recent comments attached, not
+    just one that showed up because of a comment - so the reader gets real
+    context instead of just "added a comment" with no content. One batched
+    query for all rows' comments, one batched query for author display
+    names, rather than a per-row round trip."""
+    task_ids = {r["task_id"] for r in rows if r.get("task_id")}
+    if not task_ids:
+        return
+    comments = (db.query(models.TaskComment)
+                .filter(models.TaskComment.task_id.in_(task_ids), models.TaskComment.internal == False)  # noqa: E712
+                .order_by(models.TaskComment.created_at.desc()).all())
+    by_task: dict = {}
+    for c in comments:
+        bucket = by_task.setdefault(c.task_id, [])
+        if len(bucket) < _TASK_COMMENT_PREVIEW_COUNT:
+            bucket.append(c)
+    author_emails = {c.author_email.lower() for c in comments if c.author_email}
+    names = {}
+    if author_emails:
+        for e in db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email).in_(author_emails)).all():
+            names[(e.work_email or "").lower()] = f"{e.first_name} {e.last_name}".strip()
+    for r in rows:
+        bucket = by_task.get(r.get("task_id") or "")
+        if not bucket:
+            continue
+        r["comments"] = [{
+            "author": names.get((c.author_email or "").lower()) or c.author_email or "Someone",
+            # A comment's body is rich HTML (the editor wraps every line in
+            # <p>, same shape task_mail_actions.comment_html produces) - raw-
+            # truncating it left the literal "<p>...</p>" tags visible in the
+            # email (Sep 23 screenshot). task_mail_actions._plain already
+            # exists for exactly this - HTML -> plain text for a text-only
+            # summary - so reuse it instead of a second strip-tags implementation.
+            "body": task_mail_actions._plain(c.body or "", _TASK_COMMENT_PREVIEW_CHARS),
+        } for c in bucket]
+
+
 def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> list:
     activity = (db.query(models.TaskActivity)
                 .filter(models.TaskActivity.entity_kind == "task",
@@ -503,6 +549,7 @@ def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> li
             # Approve/Reject; a completed row needs neither.
             "task_open": not bool(t.completed),
         })
+    _attach_task_comment_previews(db, rows)
     rows.extend(_item_needs_to_know_rows(db, email, since_iso, bool(my_reports)))
     rows.extend(_ticket_needs_to_know_rows(db, email, since_iso))
     rows.extend(_esign_needs_to_know_rows(db, email, since_iso))
@@ -590,10 +637,19 @@ def _manager_task_completion_rows(db: Session, email: str, since_iso: str, my_re
     return rows
 
 
-def _blue_rows_manager(db: Session, email: str, my_reports: dict) -> list:
+def _blue_rows_manager(db: Session, email: str, my_reports: dict, briefing_date: str) -> list:
     """Manager add-on only - direct reports out today, plus the day-before
     nudge for anyone whose leave STARTS tomorrow (Neil, 8/21: 'I want the
-    e-mail on the prior today')."""
+    e-mail on the prior today').
+
+    Anchored on `briefing_date` - the SAME shift-local "today" _trigger_due
+    already worked out for this manager - not the server process's own
+    date.today() (Sep 22 fix). Those two dates can legitimately differ: a
+    manager whose trigger time (shift start minus 2.5h) falls in their own
+    early-morning hours can have a local calendar date that's already rolled
+    over relative to the container's UTC clock, which silently shifted this
+    whole check by a day for exactly the shift-timezone edge cases
+    _trigger_due was built to handle in the first place."""
     reports = list(my_reports.values())
     if not reports:
         return []
@@ -601,8 +657,8 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict) -> list:
     if not report_emails:
         return []
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip() for e in reports}
-    today = date.today().isoformat()
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    today = briefing_date
+    tomorrow = (datetime.strptime(briefing_date, "%Y-%m-%d").date() + timedelta(days=1)).isoformat()
     rows = []
     for r in (db.query(models.TimeOffRequest)
               .filter(models.TimeOffRequest.employee_email.in_(report_emails),
@@ -626,13 +682,13 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict) -> list:
     return rows
 
 
-def build_sections(db: Session, email: str, since_iso: str) -> dict:
+def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) -> dict:
     my_reports = {(e.work_email or "").lower(): e for e in
                   db.query(models.NexusEmployee)
                   .filter(func.lower(models.NexusEmployee.manager_email) == email.lower()).all()}
     sections = {
         "action_required": _red_rows(db, email, my_reports),
-        "needs_to_know":   _amber_rows(db, email, since_iso, my_reports) + _blue_rows_manager(db, email, my_reports),
+        "needs_to_know":   _amber_rows(db, email, since_iso, my_reports) + _blue_rows_manager(db, email, my_reports, briefing_date),
         "completed":       _green_rows(db, email, since_iso),
     }
     return {k: v for k, v in sections.items() if v}
@@ -690,6 +746,11 @@ _MODULE_VIEW_URL = {
     "time_off": "/timeclock", "timecard": "/timeclock", "items": "/itemmanagement",
 }
 _MODULE_CARD_CAP = 3
+# Distinct titles shown in a module's "+N more" list before IT ALSO collapses
+# to a "+K more distinct" line - a second, independent cap so a project with
+# many genuinely different overflow items (not just duplicates of the same
+# title) still can't make one email unboundedly long.
+_OVERFLOW_GROUP_CAP = 15
 
 
 def _sub_action_html(accent: str, sub: dict) -> str:
@@ -754,10 +815,23 @@ def _card_html(color: str, row: dict) -> str:
                         f"style='{btn}background:{accent};color:#ffffff'>Open in Nexus &rarr;</a>")
     link = f"<div style='margin-top:10px'>{''.join(buttons)}</div>" if buttons else ""
     sub_rows = "".join(_sub_action_html(accent, s) for s in row.get("sub_actions") or [])
+    # Last 3 comments (Sep 23, Pranshu: "the comments made on that particular
+    # task should be visible in daily brief mail") - _attach_task_comment_previews
+    # already capped/truncated these, so this is display-only. Newest first,
+    # matching the rest of the digest's own "most recent first" convention.
+    comments_html = ""
+    if row.get("comments"):
+        lines = "".join(
+            f"<div style='padding:4px 0;border-top:1px solid rgba(0,0,0,.08);font-size:12px;color:#3a463e;"
+            f"line-height:1.4'><b>{escape(c['author'])}:</b> {escape(c['body'])}</div>"
+            for c in row["comments"]
+        )
+        comments_html = f"<div style='margin-top:8px'>{lines}</div>"
     return f"""
         <div style="background:{tint};border-left:3px solid {accent};border-radius:10px;padding:14px 16px;margin-bottom:10px">
           <div style="font-size:14.5px;font-weight:700;color:#26312a;line-height:1.35">{escape(row['title'])}</div>
           <div style="font-size:12.5px;color:#5c6a60;margin-top:3px;line-height:1.45">{escape(row['detail'])}</div>
+          {comments_html}
           {sub_rows}
           {link}
         </div>"""
@@ -778,19 +852,49 @@ def _module_group_html(color: str, group_id: str, module: str, label: str, rows:
     shown, hidden = rows[:_MODULE_CARD_CAP], rows[_MODULE_CARD_CAP:]
     cards = "".join(_card_html(color, r) for r in shown)
     if hidden:
-        # Plain link, not another accordion layer - this is the part that has
+        # Plain lines, not another accordion layer - this is the part that has
         # to work identically in every client, so it cannot depend on CSS the
         # way the outer toggle below does. But a bare "+N more -> Open in
         # Nexus" told the reader nothing about what those N things actually
         # WERE before making them leave the email to find out (Pranshu, Sep
         # 21) - listing the titles as plain text needs no interactivity at
         # all, so it's exactly as universal as the link itself.
+        #
+        # Sep 22 redesign, after a duplicate-task data bug (two Asana-pull
+        # workers racing on the same recurring series, see routers/tasks.py's
+        # _next_code fix) put ~15 rows all reading the identical title into
+        # one briefing: the OLD version joined every hidden row into a single
+        # semicolon-separated run-on paragraph, which made a genuine data bug
+        # look even worse than it was and was unreadable regardless of cause.
+        # Now: (1) rows are grouped by exact title first, so N rows sharing
+        # one title become ONE line with a "x N" count, not N repeats - this
+        # helps even before anyone runs the sync-dedupe cleanup, and keeps
+        # helping afterward for a genuinely busy recurring series; (2) each
+        # remaining group gets its OWN line, not folded into one paragraph;
+        # (3) the group LIST ITSELF is capped, so a single flooded project
+        # can never make one email unboundedly long even in the worst case.
         more_url = (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}"
-        titles = "; ".join(escape(h["title"]) for h in hidden)
-        cards += (f"<div style='margin:2px 0 10px;font-size:12.5px;color:#5c6a60'>"
-                  f"<b style='color:#26312a'>+{len(hidden)} more:</b> {titles} &mdash; "
-                  f"<a href='{escape(more_url)}' style='font-weight:700;color:{accent};text-decoration:none'>"
-                  f"Open in Nexus &rarr;</a></div>")
+        groups: dict = {}
+        for r in hidden:
+            g = groups.setdefault(r["title"], {"count": 0, "url": r.get("url") or ""})
+            g["count"] += 1
+        by_title = list(groups.items())
+        listed, overflow = by_title[:_OVERFLOW_GROUP_CAP], by_title[_OVERFLOW_GROUP_CAP:]
+        lines = []
+        for title, g in listed:
+            count_tag = f" <span style='color:#8a9389'>&times;{g['count']}</span>" if g["count"] > 1 else ""
+            open_link = (f" &mdash; <a href='{escape(g['url'])}' style='font-weight:700;color:{accent};"
+                         f"text-decoration:none'>Open &rarr;</a>") if g["url"] else ""
+            lines.append(f"<div style='padding:2px 0'>{escape(title)}{count_tag}{open_link}</div>")
+        if overflow:
+            overflow_total = sum(g["count"] for _, g in overflow)
+            lines.append(f"<div style='padding:2px 0;color:#8a9389'>+{len(overflow)} more distinct "
+                         f"({overflow_total} total)</div>")
+        cards += (f"<div style='margin:4px 0 10px;font-size:12.5px;color:#5c6a60;line-height:1.6'>"
+                  f"<div style='font-weight:700;color:#26312a;margin-bottom:3px'>+{len(hidden)} more:</div>"
+                  f"{''.join(lines)}"
+                  f"<a href='{escape(more_url)}' style='font-weight:700;color:{accent};text-decoration:none;"
+                  f"display:inline-block;margin-top:4px'>Open in Nexus &rarr;</a></div>")
     cid = f"nx-acc-{escape(group_id)}"
     # Checkbox-hack accordion, collapsed by default via the .nx-acc CSS rules
     # below. The content div's OWN inline style is display:block (visible) -
@@ -924,7 +1028,7 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
     if not since_iso:
         since_iso = (datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS_FIRST_RUN)).strftime("%Y-%m-%dT%H:%M:%S")
 
-    sections = build_sections(db, emp.work_email, since_iso)
+    sections = build_sections(db, emp.work_email, since_iso, briefing_date)
     name = f"{emp.first_name} {emp.last_name}".strip()
     subject, html = render_email(name, briefing_date, sections)
 

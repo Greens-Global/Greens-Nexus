@@ -855,7 +855,7 @@ export default function BiInsights() {
             <button className="secondary-btn" onClick={resetLayout} style={{ fontSize: 12.5, fontWeight: 600 }}>Reset layout</button>
           )}
           <button className="secondary-btn" onClick={() => setEditing(e => !e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}>
-            {editing ? <><X size={13} /> Done</> : <><SlidersHorizontal size={13} /> Customize</>}
+            {editing ? <><X size={14} /> Done</> : <><SlidersHorizontal size={14} /> Customize</>}
           </button>
           <button className="secondary-btn" onClick={exportAll} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}><Download size={13} /> Export</button>
           <button className="secondary-btn" onClick={load} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}><RefreshCw size={13} /> Refresh</button>

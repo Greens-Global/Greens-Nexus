@@ -1,10 +1,12 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { PersonalLockGate } from '../credvault/vaultShared';
 import { LinkIcon } from '../components/LinkIcon.jsx';
 import { useLinkViews } from './useLinkViews';
+import { useTileDrag } from './useTileDrag';
+import { useIsMobile } from '../lib/useIsMobile';
 // The IT desk's triage taxonomy - a link carries one so a ticket raised
 // against this app lands in the right queue. Defined by the Ticket module.
 import { SERVICE_AREAS } from '../tickets/ticketMeta';
@@ -15,7 +17,7 @@ import {
   Settings2, Bookmark, History,
   GripVertical, AlertTriangle, Upload, FolderOpen, Download, Lock, KeyRound, Info,
   FolderPlus, Check, RefreshCw, SlidersHorizontal, Save,
-  MoreHorizontal, Copy,
+  MoreHorizontal, Copy, ArrowUp, ArrowDown,
 } from 'lucide-react';
 
 // ── Personal, client-side only (favorites / recents / view density) ──
@@ -156,15 +158,13 @@ export default function ExternalLinks() {
   const [pCategory, setPCategory] = useState('');
   const [pq, setPq] = useState('');
 
-  // List/Tile view toggle (Aug 14) - two independent toggles, one for the
-  // main grid (beside All Categories) and one for the My Favorites strip
-  // (beside its own header), since a user might want the big grid compact
-  // but favorites still as a quick-glance pill row, or vice versa. Tile is
-  // the only mode Customize/drag works in - list is read-only browsing, so
-  // switching to Customize forces tile view (see the `editing` effect
-  // further down, after `editing` itself is available from useLinkViews()).
+  // List/Tile view toggle (Aug 14) for the main grid, beside All Categories.
+  // (Favorites carried its own toggle until Sep 22; it is a tile-only strip
+  // now.) Tile is the only mode Customize/drag works in - list is read-only
+  // browsing, so switching to Customize forces tile view (see the `editing`
+  // effect further down, after `editing` itself is available from
+  // useLinkViews()).
   const [gridView, setGridView] = useState('tile');
-  const [favView, setFavView] = useState('tile');
 
   // Company list for the filter/Add-Link dropdown, sourced from the same
   // curated People directory every other company/department picker in Nexus
@@ -286,6 +286,30 @@ export default function ExternalLinks() {
   const toggleFavorite = useCallback((id) => toggleFavoriteRaw('external', id), [toggleFavoriteRaw]);
   const togglePersonalFavorite = useCallback((id) => toggleFavoriteRaw('personal', id), [toggleFavoriteRaw]);
 
+  // Keyboard (Neil, Sep 22): "/" anywhere on the page focuses the search
+  // box (unless something editable already has focus), and Enter in the
+  // search box opens the first app on screen - whatever the grid shows
+  // first under the current filters and arrangement.
+  const searchRef = useRef(null);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (document.querySelector('.modal-overlay, [role="dialog"]')) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const openFirstOnScreen = () => document.querySelector('.app-grid .app-tile:not(.app-tile-add), .dash-link-row')?.click();
+
+  // 3. A one-time hint that the gesture exists - dismissed once, per browser.
+  const [hintDismissed, setHintDismissed] = useState(() => { try { return localStorage.getItem('nexus-links-folder-hint') === '1'; } catch { return true; } });
+  const dismissHint = () => { setHintDismissed(true); try { localStorage.setItem('nexus-links-folder-hint', '1'); } catch { /* private mode */ } };
+
   const [recents, setRecents] = useState(() => readIds(myEmail, 'recents'));
   useEffect(() => { setRecents(readIds(myEmail, 'recents')); }, [myEmail]);
 
@@ -329,6 +353,25 @@ export default function ExternalLinks() {
     })
     .filter(Boolean), [layout.favorites, all, personalLinks]);
   const recentLinks = useMemo(() => recents.map(id => all.find(l => l.id === id)).filter(Boolean), [recents, all]);
+
+  // Favorites rearrange with the same gesture as the grid (Neil, Sep 22) -
+  // a small drag scope of their own; the order IS the favorites array's
+  // order. Saved live outside Customize (like favoriting itself), part of
+  // the draft while Customizing so Save / Done keep their meaning.
+  const favStripRef = useRef(null);
+  const favScopes = useRef({});
+  useLayoutEffect(() => {
+    favScopes.current.fav = { keys: favoriteLinks.map(l => l._uid), folderCount: 0, container: favStripRef.current, canFold: () => false };
+  });
+  const favDrag = useTileDrag({
+    editable: editing, onRequestEdit: () => setEditing(true), scopesRef: favScopes,
+    onReorder: (_scope, order) => {
+      const rank = new Map(order.map((k, i) => [k, i]));
+      const keyFor = (f) => `${f.item_type}-${f.item_id}`;
+      const reorder = (prev) => ({ ...prev, favorites: [...prev.favorites].sort((a, b) => (rank.get(keyFor(a)) ?? 1e9) - (rank.get(keyFor(b)) ?? 1e9)) });
+      favDrag.commitWithFlip('fav', () => { if (editing) mutate(reorder); else mutateNow(reorder).catch(() => {}); });
+    },
+  });
 
   // Department/Company filters: "All ..." shows everything, including
   // company-wide links (field === ''); picking a specific department scopes
@@ -467,6 +510,25 @@ export default function ExternalLinks() {
   });
   const guardedNew = () => { if (confirmDiscard()) createNew(); };
   const guardedDone = () => { if (confirmDiscard()) { setEditing(false); reloadViews(); } };
+  // Customize mode is unmistakable (Neil, Sep 22): the page fades around
+  // the tiles (body.links-editing, see style.css), a bar at the bottom
+  // holds Save / Done, and Escape leaves - unless a drag, a folder, or a
+  // dialog is open, in which case Escape belongs to that.
+  useEffect(() => {
+    document.body.classList.toggle('links-editing', editing);
+    return () => document.body.classList.remove('links-editing');
+  }, [editing]);
+  useEffect(() => {
+    if (!editing) return;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (nameModal || document.body.classList.contains('links-dragging')) return;
+      if (document.querySelector('.modal-overlay, [role="dialog"]')) return;
+      guardedDone();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
   const makeDefault = wrap(async () => { setViewMenu(false); if (activeId) await setDefaultView(activeId); }, 'Set as your default');
   const deleteCurrentView = () => {
     setViewMenu(false);
@@ -749,17 +811,13 @@ export default function ExternalLinks() {
   const isLoading = (links === null || layoutLoading) && !error;
   const isEmpty = !isLoading && !error && filtered.length === 0;
 
-  const totalClicks = all.reduce((s, l) => s + (l.clicks || 0), 0);
 
   return (
     <div>
-      <div className="view-header">
+      <div className="view-header links-dim">
         <div className="view-title-group">
           <h2>Links</h2>
-          <p>
-            Every tool the company runs on, one launchpad.
-            {all.length > 0 && ` ${all.length} apps across ${categoriesInUse.length || meta.categories.length} categories, ${totalClicks.toLocaleString()} launches all-time.`}
-          </p>
+          <p>Every tool the company runs on, one launchpad.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {/* View select + "..." menu trigger read as ONE joined control
@@ -836,7 +894,7 @@ export default function ExternalLinks() {
         </div>
       )}
 
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, borderRadius: 12, border: '1px solid var(--wk-line2)', background: 'var(--mist)', padding: 4, marginBottom: 20 }}>
+      <div className="links-dim" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, borderRadius: 12, border: '1px solid var(--wk-line2)', background: 'var(--mist)', padding: 4, marginBottom: 20 }}>
         <button onClick={() => setSection('company')} style={{
           display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
           border: 'none', cursor: 'pointer', fontFamily: 'inherit', transition: 'background .15s, color .15s',
@@ -858,7 +916,7 @@ export default function ExternalLinks() {
       </div>
 
       {section === 'personal' && (<>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20, alignItems: 'center' }}>
+        <div className="links-dim" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20, alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
             <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
             <input
@@ -875,7 +933,7 @@ export default function ExternalLinks() {
             {personalCategoriesAvailable.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           {canManage && (
-            <button className="secondary-btn" onClick={() => setShowPersonalTaxonomy(true)}>
+            <button className="primary-btn" onClick={() => setShowPersonalTaxonomy(true)}>
               <Settings2 size={14} /> Manage
             </button>
           )}
@@ -883,7 +941,7 @@ export default function ExternalLinks() {
         <PersonalLinksSection
           layout={layout} itemsById={personalItemsById} actionCtx={actionCtx}
           mutate={seededPersonalMutate} immediateMutate={seededPersonalMutateNow} allLinks={personalLinks || []}
-          onAdd={openAddPersonal} editable={editing}
+          onAdd={openAddPersonal} editable={editing} onRequestEdit={() => setEditing(true)}
         />
         {showPersonalTaxonomy && (
           <TaxonomyModal taxonomy={taxonomy} onAdd={addTaxonomy} onRename={renameTaxonomy} onDelete={deleteTaxonomy}
@@ -892,37 +950,24 @@ export default function ExternalLinks() {
       </>)}
 
       {section === 'company' && (<>
-        {/* Personal shortcuts - client-local, not scoped by the filters below */}
-        {favoriteLinks.length > 0 && (
-          <div style={{ marginBottom: 18 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-              <Bookmark size={14} style={{ color: 'hsl(var(--color-blue))' }} />
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', flex: 1 }}>My Favorites</span>
-              <ViewToggle view={favView} onChange={setFavView} />
-            </div>
-            {favView === 'tile' ? (
-              <PersonalStrip links={favoriteLinks} onOpen={(l) => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {favoriteLinks.map(l => {
-                  // External carries `categories` (array, Aug 14); Personal
-                  // still has the single `category` string.
-                  const cat = l.categories ? primaryCategory(l) : l.category;
-                  const { fg, bg } = colorFor(cat);
-                  return (
-                    <LinksListRow key={l._uid || l.id}
-                      icon={<LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius={7} fg={fg} bg={bg} gradient={false} />}
-                      name={l.name} sub={cat}
-                      onOpen={() => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))} />
-                  );
-                })}
-              </div>
+        {/* Personal shortcuts - client-local, not scoped by the filters below.
+            Favorites on the left and Recently Used on the right (Sep 22) so
+            the two short strips share one row instead of stacking, each
+            beside a wide empty margin; auto-fit collapses them to one column
+            on narrow screens. Favorites is tile-only - the tile/list toggle
+            it used to carry was dropped the same day. */}
+        {(favoriteLinks.length > 0 || recentLinks.length > 0) && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', columnGap: 24 }}>
+            {favoriteLinks.length > 0 && (
+              <PersonalStrip title="Favorites" icon={Bookmark} links={favoriteLinks}
+                onOpen={(l) => (l._favType === 'personal' ? openPersonalLink(l) : openLink(l))}
+                drag={favDrag} scope="fav" editable={editing} stripRef={favStripRef} />
+            )}
+            {recentLinks.length > 0 && (
+              <PersonalStrip title="Recently Used" icon={History} links={recentLinks}
+                onOpen={openLink} className="links-dim" />
             )}
           </div>
-        )}
-        {recentLinks.length > 0 && (
-          <PersonalStrip title="Recently Used" icon={History} iconColor="var(--muted)" links={recentLinks}
-            onOpen={openLink} />
         )}
 
         {/* Filter bar - category chips sit inline beside the Companies
@@ -931,12 +976,14 @@ export default function ExternalLinks() {
             strip gets its own shrinkable/scrollable flex item (minWidth: 0)
             so a long category list scrolls horizontally in place rather
             than pushing the search box and dropdowns off narrower screens. */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20, alignItems: 'center' }}>
+        <div className="links-dim" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 20, alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
             <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
             <input
-              className="form-input" placeholder="Search apps, tools, banks..."
+              ref={searchRef}
+              className="form-input" placeholder="Search Links..."
               style={{ paddingLeft: 36 }} value={q} onChange={e => setQ(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); openFirstOnScreen(); } }}
             />
           </div>
           <select className="form-select" style={{ width: 'auto', minWidth: 170 }} value={department}
@@ -975,15 +1022,36 @@ export default function ExternalLinks() {
             </div>
           }
         >
-          <Section title="My Layout" icon={LayoutGrid}>
+          <Section title="Links" icon={LayoutGrid}>
             <LinksLayoutSection
               sourceType="external" layout={layout} itemsById={unifiedItemsById} actionCtx={actionCtx}
               mutate={seededMutate} immediateMutate={seededMutateNow} allLinks={all} editable={editing}
-              view={gridView}
+              view={gridView} onRequestEdit={() => setEditing(true)}
             />
+            {!hintDismissed && !editing && gridView === 'tile' && all.length > 1 && (
+              <div className="links-hint links-dim">
+                <FolderPlus size={14} />
+                <span>Tip: drag an app onto another to make a folder. Press and hold to rearrange.</span>
+                <button type="button" className="links-hint-close" onClick={dismissHint} aria-label="Dismiss tip" title="Dismiss"><X size={13} /></button>
+              </div>
+            )}
           </Section>
         </AsyncSection>
       </>)}
+
+      {editing && (
+        <div className="links-edit-bar" role="toolbar" aria-label="Customize">
+          <span className="links-edit-bar-text">
+            <SlidersHorizontal size={14} style={{ color: 'var(--wk-brand)' }} />
+            <b>Editing layout</b>
+            <span className="links-edit-bar-hint">Drag to arrange, drop one app on another to make a folder, Esc to finish</span>
+          </span>
+          <button className="primary-btn" style={{ opacity: dirty ? 1 : 0.6 }} onClick={saveViewLayout} disabled={!dirty}>
+            <Save size={14} /> {dirty ? 'Save' : 'Saved'}
+          </button>
+          <button className="secondary-btn" onClick={guardedDone}><X size={14} /> Done</button>
+        </div>
+      )}
 
       {showManage && (
         <ManageModal
@@ -1029,27 +1097,35 @@ export default function ExternalLinks() {
   );
 }
 
-function Section({ title, icon: Icon, color, children }) {
+// The one section-heading treatment on this page - uppercase kicker, icon,
+// a rule that fills the rest of the line. Links, Favorites and Recently
+// Used all use it (Neil, Sep 22: same line style, same size, consistent).
+function SectionHeader({ title, icon: Icon, color }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      {Icon && <Icon size={15} style={{ color: color?.fg || 'var(--muted)' }} />}
+      <h3 style={{
+        fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em',
+        color: color?.fg || 'var(--muted)', margin: 0,
+      }}>
+        {title}
+      </h3>
+      <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+    </div>
+  );
+}
+
+function Section({ title, icon, color, children }) {
   return (
     <div style={{ marginBottom: 28 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        {Icon && <Icon size={15} style={{ color: color?.fg || 'var(--muted)' }} />}
-        <h3 style={{
-          fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em',
-          color: color?.fg || 'var(--muted)', margin: 0,
-        }}>
-          {title}
-        </h3>
-        <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-      </div>
+      <SectionHeader title={title} icon={icon} color={color} />
       {children}
     </div>
   );
 }
 
-// Tile/List toggle (Aug 14) - two independent instances live in this view
-// (the main grid, beside All Categories; My Favorites, beside its own
-// header), each with its own state so picking one doesn't affect the other.
+// Tile/List toggle (Aug 14) - one instance, on the main grid beside All
+// Categories. Favorites had its own until Sep 22; it is tile-only now.
 function ViewToggle({ view, onChange }) {
   return (
     <div style={{ display: 'inline-flex', background: 'var(--mist)', borderRadius: 8, padding: 2 }}>
@@ -1071,6 +1147,20 @@ function ViewToggle({ view, onChange }) {
       </button>
     </div>
   );
+}
+
+// Category shown to the right of a link in list view. Bulk-imported links
+// whose sheet row had no category are saved under a literal "Imported"
+// placeholder category (import_external_links in external_links.py) so they
+// still group together in the filters - that is bookkeeping, not something
+// worth a label beside the name, so it reads as no category here. Assign a
+// real category in Manage and it shows like any other.
+const IMPORT_PLACEHOLDER_CATEGORY = 'Imported';
+function listCategory(link) {
+  // External carries `categories` (array, Aug 14); Personal still has the
+  // single `category` string.
+  const cat = link.categories ? primaryCategory(link) : link.category;
+  return cat === IMPORT_PLACEHOLDER_CATEGORY ? '' : cat;
 }
 
 // Compact list-view row - the read-only alternative to an icon AppTile/
@@ -1107,7 +1197,7 @@ const PERSONAL_COLOR = { fg: 'hsl(var(--color-purple))', bg: 'hsla(var(--color-p
 // reuse the exact same LinksLayoutSection Company Links already uses, just
 // pointed at item_type: "personal" - see that component's own docstring for
 // how one layout document stays split cleanly between the two tabs.
-function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, onAdd, editable }) {
+function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, onAdd, editable, onRequestEdit }) {
   return (
     <div style={{ marginBottom: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -1121,7 +1211,7 @@ function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, immediateM
       <LinksLayoutSection
         sourceType="personal" layout={layout} itemsById={itemsById} actionCtx={actionCtx}
         mutate={mutate} immediateMutate={immediateMutate} allLinks={allLinks} editable={editable}
-        extraAddTile={{ label: 'Add Link', onClick: onAdd }}
+        extraAddTile={{ label: 'Add Link', onClick: onAdd }} onRequestEdit={onRequestEdit}
       />
     </div>
   );
@@ -1230,20 +1320,24 @@ function PersonalLinkModal({ modal, setModal, save, saving, existingLinks, depar
 // Horizontal shortcut row (Favorites / Recently Used) - compact pill-tiles,
 // distinct from the full card grid below so personal shortcuts read as a
 // quick-launch strip rather than another section to scan top to bottom.
-function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
+// `drag` / `scope` / `editable` / `stripRef` (Favorites only): the strip
+// is a drag scope of the same engine the grid uses, so its round tiles
+// lift, slide and settle exactly like the big ones - just no folding.
+function PersonalStrip({ title, icon, links, onOpen, className, drag, scope, editable, stripRef }) {
   return (
-    <div style={title ? { marginBottom: 18 } : undefined}>
-      {title && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-          <Icon size={14} style={{ color: iconColor }} />
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</span>
-        </div>
-      )}
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+    // minWidth 0: as a grid item (Favorites beside Recently Used) the
+    // default min-width:auto would stop the cell shrinking and the row
+    // would push the page wider instead of scrolling in place.
+    <div className={className} style={{ minWidth: 0, ...(title ? { marginBottom: 22 } : null) }}>
+      {title && <SectionHeader title={title} icon={icon} />}
+      <div ref={stripRef} className={`scroll-tabs fav-strip${drag && editable ? ' jiggle' : ''}`} style={{ display: 'flex', gap: 10, overflowX: 'auto', padding: '2px 2px 20px' }}>
         {links.map(l => {
           // External links carry `categories` (array, Aug 14); Personal
           // Links still have the single `category` string.
           const { fg, bg } = colorFor(l.categories ? primaryCategory(l) : l.category);
+          const key = l._uid || String(l.id);
+          const gesture = drag ? drag.tileProps(scope, key, 'item', { draggable: editable, holdToEdit: !editable }) : {};
+          const shift = drag ? drag.tileStyle(scope, key) : undefined;
           return (
             // Icon-only (Aug 15) - the name showed as a permanent label
             // before; now it's just the native `title` tooltip on hover,
@@ -1251,16 +1345,20 @@ function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
             // strip stays a compact quick-launch row instead of widening
             // with every long app name.
             <button
-              key={l._uid || l.id} onClick={() => onOpen(l)} title={l.name}
+              key={key} onClick={() => onOpen(l)} className="fav-tile" data-name={l.name}
               style={{
-                flexShrink: 0, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                position: 'relative', flexShrink: 0, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 borderRadius: '50%', border: '1px solid var(--wk-line2)', background: 'var(--card)', cursor: 'pointer',
                 transition: 'border-color .12s, transform .12s',
+                ...(shift || {}), '--jiggle-phase': jigglePhase(key),
               }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = fg; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--wk-line2)'; }}
+              {...gesture}
             >
-              <LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={13} radius="50%" fg={fg} bg={bg} gradient={false} />
+              <span className="fav-body">
+                <LinkIcon url={l.url} iconKey={l.icon} size={30} iconSize={15} radius="50%" fg={fg} bg={bg} gradient={false} />
+              </span>
             </button>
           );
         })}
@@ -1281,14 +1379,28 @@ function PersonalStrip({ title, icon: Icon, iconColor, links, onOpen }) {
 // .app-grid is a plain flex-wrap for the same reason (easy to wrap in a DnD
 // context or split into folder sub-grids later, unlike a CSS Grid with fixed
 // track counts).
-function AppGrid({ children }) {
-  return <div className="app-grid">{children}</div>;
+function AppGrid({ children, jiggle, gridRef }) {
+  return <div ref={gridRef} className={`app-grid${jiggle ? ' jiggle' : ''}`}>{children}</div>;
 }
 
+// A stable per-tile phase offset for the Customize-mode jiggle, so the grid
+// wobbles organically rather than as one synchronized block - derived from
+// the key, not Math.random, so it never changes between renders.
+function jigglePhase(key) {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return `-${h % 400}ms`;
+}
+
+// `drag` / `dragStyle` / `dragging` / `foldTarget` come from useTileDrag via
+// LinksLayoutSection (Sep 22): the pointer handlers and registration ref,
+// the live slide-over transform while another tile is being dragged, the
+// invisible-in-place state of the tile that IS being dragged, and the
+// "opening up to receive" state when the dragged tile rests on this one.
 function AppTile({
   link, color, canManage, canDelete, isFavorite, onToggleFavorite, onOpen, onEdit, onDelete,
   iconSize = 60, iconGradient = true, vaultLinked = false, sourceType,
-  dragHandleProps, dropProps, moveControls,
+  drag, dragStyle, dragging, foldTarget, phase, moveControls,
 }) {
   const [showTip, setShowTip] = useState(false);
   const tipTimer = useRef(null);
@@ -1304,7 +1416,7 @@ function AppTile({
   };
 
   const description = link.description || '';
-  const hasActions = !!(onToggleFavorite || (canManage && (onEdit || onDelete)) || moveControls || dragHandleProps);
+  const hasActions = !!((canManage && (onEdit || onDelete)) || moveControls);
   // Stable per-link id (not React's own, which isn't guaranteed unique
   // across a whole page) so aria-describedby can point at this tile's own
   // tooltip specifically - undefined (no attribute at all) when there's
@@ -1332,58 +1444,61 @@ function AppTile({
 
   return (
     <div
-      className="app-tile" onClick={onOpen} data-link-id={link.id} data-item-type={sourceType || 'external'}
+      className={`app-tile${dragging ? ' app-tile-dragging' : ''}${foldTarget ? ' app-tile-fold-target' : ''}`}
+      onClick={onOpen} data-link-id={link.id} data-item-type={sourceType || 'external'}
       role="button" tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
       title={plainTitle}
       aria-describedby={tooltipId}
-      // Press-and-hold anywhere on the tile to drag it, not just the tiny
-      // grip icon - matches the phone-launcher gesture this is modeled on.
-      // HTML5 drag-and-drop already disambiguates this from a plain click on
-      // its own: dragstart only fires once the browser sees real pointer
-      // movement while the button is held, so a quick tap still opens the
-      // link as normal. The grip icon stays as a visual "this is
-      // draggable" hint, it's no longer the only place that works.
-      draggable={!!dragHandleProps} {...(dragHandleProps || {})}
-      {...dropProps}
+      style={{ ...(dragStyle || {}), '--jiggle-phase': phase }}
+      {...(drag || {})}
     >
-      <div className="app-tile-icon-wrap">
-        <LinkIcon url={link.url} iconKey={link.icon} size={iconSize} radius={Math.round(iconSize * 0.28)} fg={color.fg} bg={color.bg} gradient={iconGradient} />
-        {link.is_pinned && <span className="app-tile-pin" title="Pinned"><Star size={9} fill="currentColor" /></span>}
-        {!link.is_pinned && isPersonal && <span className="app-tile-pin app-tile-personal-badge" title="Personal Link - only visible to you"><Lock size={8} /></span>}
-        {isFavorite && <span className="app-tile-fav-badge"><Bookmark size={9} fill="currentColor" /></span>}
-        {vaultLinked && <span className="app-tile-key-badge" title="Copies its saved password when opened"><KeyRound size={9} /></span>}
-        {hasActions && (
-          <div className="app-tile-actions" draggable={false} onClick={e => e.stopPropagation()} onDragStart={e => e.stopPropagation()}>
-            {dragHandleProps && (
-              <span className="app-tile-grip" title="Drag to reorder">
-                <GripVertical size={11} />
-              </span>
-            )}
-            {onToggleFavorite && (
-              <IconBtn onClick={onToggleFavorite} title={isFavorite ? 'Remove from My Favorites' : 'Add to My Favorites'}>
-                <Bookmark size={11} fill={isFavorite ? 'hsl(var(--color-blue))' : 'none'} style={{ color: isFavorite ? 'hsl(var(--color-blue))' : 'var(--muted)' }} />
-              </IconBtn>
-            )}
-            {canManage && onEdit && <IconBtn onClick={onEdit} title="Edit link"><Pencil size={11} /></IconBtn>}
-            {canManage && canDelete && onDelete && <IconBtn onClick={onDelete} title="Delete link" danger><Trash2 size={11} /></IconBtn>}
-            {moveControls?.extra}
-          </div>
-        )}
-        {description && (
-          <>
-            <div id={tooltipId} role="tooltip" className={`app-tile-tooltip${showTip ? ' show' : ''}`}>{tooltipText}</div>
+      <div className="app-tile-body">
+        <div className="app-tile-icon-wrap">
+          <LinkIcon url={link.url} iconKey={link.icon} size={iconSize} radius={Math.round(iconSize * 0.28)} fg={color.fg} bg={color.bg} gradient={iconGradient} />
+          {link.is_pinned && <span className="app-tile-pin" title="Pinned"><Star size={9} fill="currentColor" /></span>}
+          {!link.is_pinned && isPersonal && <span className="app-tile-pin app-tile-personal-badge" title="Personal Link - only visible to you"><Lock size={8} /></span>}
+          {/* The bookmark lives in the top-left corner (Neil, Sep 22): it
+              appears there on hover as the toggle, and stays there, filled,
+              once the app is a favorite - one spot, one meaning. */}
+          {onToggleFavorite && (
             <button
-              type="button" className="app-tile-info-btn" onClick={toggleTip}
-              title="Show description" aria-label={showTip ? 'Hide description' : 'Show description'}
-              aria-expanded={showTip} aria-controls={tooltipId}
+              type="button" className={`app-tile-fav${isFavorite ? ' on' : ''}`}
+              title={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'} aria-pressed={isFavorite}
+              onClick={e => { e.stopPropagation(); onToggleFavorite(); }} onPointerDown={e => e.stopPropagation()}
             >
-              <Info size={10} />
+              <Bookmark size={12} fill={isFavorite ? 'currentColor' : 'none'} />
             </button>
-          </>
-        )}
+          )}
+          {vaultLinked && <span className="app-tile-key-badge" title="Copies its saved password when opened"><KeyRound size={9} /></span>}
+          {hasActions && (
+            <div className="app-tile-actions"
+              // Only the buttons themselves claim a tap or a press; the
+              // strip's gaps (always visible on touch, in the flow beside
+              // the icon) still open the link or start a drag of the tile
+              // underneath, so the middle of a tile is never a dead zone.
+              onClick={e => { if (e.target.closest('button')) e.stopPropagation(); }}
+              onPointerDown={e => { if (e.target.closest('button')) e.stopPropagation(); }}>
+              {canManage && onEdit && <IconBtn onClick={onEdit} title="Edit link"><Pencil size={11} /></IconBtn>}
+              {canManage && canDelete && onDelete && <IconBtn onClick={onDelete} title="Delete link" danger><Trash2 size={11} /></IconBtn>}
+              {moveControls?.extra}
+            </div>
+          )}
+          {description && (
+            <>
+              <div id={tooltipId} role="tooltip" className={`app-tile-tooltip${showTip ? ' show' : ''}`}>{tooltipText}</div>
+              <button
+                type="button" className="app-tile-info-btn" onClick={toggleTip} onPointerDown={e => e.stopPropagation()}
+                title="Show description" aria-label={showTip ? 'Hide description' : 'Show description'}
+                aria-expanded={showTip} aria-controls={tooltipId}
+              >
+                <Info size={10} />
+              </button>
+            </>
+          )}
+        </div>
+        <span className="app-tile-name">{link.name}</span>
       </div>
-      <span className="app-tile-name">{link.name}</span>
     </div>
   );
 }
@@ -1443,94 +1558,115 @@ function FolderPicker({ folders, currentFolderId, onMove, onCreateNew }) {
   );
 }
 
-function FolderTile({ folder, memberLinks, onOpen, dragHandleProps, dropProps, isDropTarget }) {
+function FolderTile({ folder, memberLinks, onOpen, drag, dragStyle, dragging, foldTarget, phase }) {
   const preview = memberLinks.slice(0, 4);
   return (
     <div
-      className={`app-tile app-tile-folder${isDropTarget ? ' app-tile-drop-target' : ''}`} onClick={onOpen} data-folder-id={folder.id}
+      className={`app-tile app-tile-folder${dragging ? ' app-tile-dragging' : ''}${foldTarget ? ' app-tile-fold-target' : ''}`}
+      onClick={onOpen} data-folder-id={folder.id}
       role="button" tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
       title={folder.name}
-      draggable={!!dragHandleProps} {...(dragHandleProps || {})}
-      {...dropProps}
+      style={{ ...(dragStyle || {}), '--jiggle-phase': phase }}
+      {...(drag || {})}
     >
-      <div className="app-tile-icon-wrap">
-        <div className="app-folder-preview">
-          {preview.length === 0
-            ? <FolderOpen size={22} style={{ color: 'var(--muted)' }} />
-            : preview.map(l => (
-              <div key={l.id} className="app-folder-preview-cell">
-                <LinkIcon url={l.url} iconKey={l.icon} size={24} radius={6} fg="var(--muted)" bg="var(--mist)" gradient={false} />
-              </div>
-            ))}
-        </div>
-        {dragHandleProps && (
-          <div className="app-tile-actions" draggable={false} onClick={e => e.stopPropagation()} onDragStart={e => e.stopPropagation()}>
-            <span className="app-tile-grip" title="Drag to reorder">
-              <GripVertical size={11} />
-            </span>
+      <div className="app-tile-body">
+        <div className="app-tile-icon-wrap">
+          <div className="app-folder-preview">
+            {preview.length === 0
+              ? <FolderOpen size={22} style={{ color: 'var(--muted)' }} />
+              : preview.map(l => (
+                <div key={l.id} className="app-folder-preview-cell">
+                  <LinkIcon url={l.url} iconKey={l.icon} size={24} radius={6} fg="var(--muted)" bg="var(--mist)" gradient={false} />
+                </div>
+              ))}
           </div>
-        )}
+        </div>
+        <span className="app-tile-name">{folder.name}</span>
       </div>
-      <span className="app-tile-name">{folder.name}</span>
     </div>
   );
 }
 
-// Opens a folder's contents - inline-renamable title, delete (unfolds
-// members back to top-level, never deletes the underlying links), and each
-// member gets the same reorder/move-out controls as the top-level grid.
+// The name a folder made by dropping one app onto another starts with: the
+// category the two share, when they share one (a real one, not the import
+// placeholder), otherwise "New Folder". The panel opens straight into rename
+// either way, so it is only ever a starting point.
+function autoFolderName(a, b) {
+  const cat = (l) => (l ? (l.categories ? primaryCategory(l) : l.category) : '');
+  const ca = cat(a), cb = cat(b);
+  return (ca && ca === cb && ca !== IMPORT_PLACEHOLDER_CATEGORY) ? ca : 'New Folder';
+}
+const newFolderId = () => `f_${Math.random().toString(36).slice(2, 8)}`;
+
+// An open folder - the phone's folder view (Sep 22): it grows out of its own
+// tile over a blurred page, its title is renamable in place, and its apps
+// are dragged with the same gesture as the main grid. Drag one past the
+// panel's edge and the panel fades away under the pointer while the drag
+// carries on over the main grid - see useTileDrag's eject path. Organizing
+// inside a folder is always live (immediateMutate), never gated behind
+// Customize - unchanged from Aug 14.
 function FolderModal({
-  folder, memberEntries, itemsById, actionCtx, editable,
-  onClose, onRename, onDeleteFolder, onReorderWithin, onMoveOut,
-  allFolders, onCreateFolder,
+  folder, memberEntries, itemsById, actionCtx, editable, jiggle,
+  onClose, onRename, onDeleteFolder, onMoveOut, allFolders, onCreateFolder,
+  drag, scope, scopesRef, ejecting, startRenaming, originRect,
 }) {
   const [nameDraft, setNameDraft] = useState(folder.name);
-  const [renaming, setRenaming] = useState(false);
-  // Own small drag state for reordering within this folder - separate DnD
-  // context from the background grid (this is a modal on top of it), so it
-  // doesn't share LinksLayoutSection's dragKind/dragId. Composite key
-  // (item_type:item_id) since Company and Personal Links share the same
-  // autoincrement id space (separate tables).
-  const [dragKey, setDragKey] = useState(null);
+  const [renaming, setRenaming] = useState(!!startRenaming);
+  const [closing, setClosing] = useState(false);
+  const contentRef = useRef(null);
+  const gridRef = useRef(null);
   const entryKey = (entry) => `${entry.item_type}:${entry.item_id}`;
+
+  // This folder's grid is a drag scope of its own; the panel box is the
+  // boundary a drag has to cross to eject back onto the main grid.
+  useLayoutEffect(() => {
+    scopesRef.current[scope] = {
+      keys: memberEntries.map(entryKey), folderCount: 0,
+      container: gridRef.current, bounds: contentRef.current, ejectTo: 'top',
+    };
+  });
+  useEffect(() => () => { delete scopesRef.current[scope]; }, [scope, scopesRef]);
+
+  const requestClose = () => {
+    if (closing) return;
+    setClosing(true);
+    setTimeout(onClose, 200);
+  };
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape' && !drag.active && !renaming) requestClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
   const commitRename = () => {
     const trimmed = nameDraft.trim();
     if (trimmed && trimmed !== folder.name) onRename(trimmed);
     setRenaming(false);
   };
-  // Drag a member out onto the dimmed backdrop (outside the folder's own
-  // content box) to pull it back to the main grid - the drag-and-drop
-  // equivalent of the "Remove from folder" option already in the picker,
-  // for the "grab it and pull it out" gesture users expect from a phone
-  // folder. onDrop/onDragOver on modal-content stop propagation so a drop
-  // that lands ON another tile (within-folder reorder) never also bubbles
-  // up and gets misread as a drag-to-backdrop.
-  const onBackdropDragOver = (e) => { if (dragKey != null) e.preventDefault(); };
-  const onBackdropDrop = (e) => {
-    e.preventDefault();
-    if (dragKey == null) return;
-    const entry = memberEntries.find(x => entryKey(x) === dragKey);
-    setDragKey(null);
-    if (entry) onMoveOut(entry, null);
-  };
+  // Where the panel grows from / shrinks back to: its own tile's center,
+  // expressed as an offset from the viewport center the panel sits at.
+  const fromX = originRect ? `${Math.round(originRect.left + originRect.width / 2 - window.innerWidth / 2)}px` : '0px';
+  const fromY = originRect ? `${Math.round(originRect.top + originRect.height / 2 - window.innerHeight / 2)}px` : '0px';
+  const draggingHere = drag.active && drag.ui?.scope === scope && !ejecting;
 
   return (
-    // Same centered popup every other modal in this file uses, just wider -
-    // 60% of the screen width (Aug 14), not the usual ~480-520px cap. Kept
-    // as an inline override rather than touching the shared .modal-content
-    // class every other modal still relies on for its normal size.
-    <div className="modal-overlay" onClick={onClose} onDragOver={onBackdropDragOver} onDrop={onBackdropDrop}>
+    <div
+      className={`modal-overlay folder-overlay${closing ? ' closing' : ''}${ejecting ? ' ejecting' : ''}`}
+      style={{ '--from-x': fromX, '--from-y': fromY }}
+      // The tail of a drop that ended over the backdrop arrives as a click
+      // here too - that must not close the folder the person just organized.
+      onClick={() => { if (!drag.recentlyDropped()) requestClose(); }}
+    >
       <div
-        className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }}
-        onClick={e => e.stopPropagation()} onDragOver={e => e.stopPropagation()} onDrop={e => e.stopPropagation()}
+        ref={contentRef} className="modal-content folder-panel" style={{ width: 'fit-content', minWidth: 'min(380px, 100%)', maxWidth: 'min(60vw, 100%)' }}
+        onClick={e => e.stopPropagation()}
       >
         <div className="modal-header">
           {renaming ? (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1 }}>
               <input
                 className="form-input" value={nameDraft} onChange={e => setNameDraft(e.target.value)} autoFocus
-                maxLength={60}
+                onFocus={e => e.target.select()} maxLength={60} placeholder="Folder name"
                 onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(false); }}
               />
               <button className="secondary-btn" onClick={commitRename}><Check size={14} /></button>
@@ -1542,55 +1678,35 @@ function FolderModal({
           ) : (
             <h3>{folder.name}</h3>
           )}
-          <button className="close-btn" onClick={onClose}><X size={16} /></button>
+          <button className="close-btn" onClick={requestClose}><X size={16} /></button>
         </div>
-        {dragKey && (
+        {draggingHere && (
           <p style={{ margin: '10px 24px 0', fontSize: 11.5, color: 'var(--wk-brand)', fontWeight: 600, textAlign: 'center' }}>
-            Drop outside this box to take it out of the folder
+            Drag past the edge to move it back to the main screen
           </p>
         )}
         <div style={{ padding: '20px 24px' }}>
           {memberEntries.length === 0 ? (
             <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '20px 0' }}>
-              Empty - use "Move to folder" on any app to add it here.
+              Empty - drop an app onto this folder's tile to add it here.
             </p>
           ) : (
-            <AppGrid>
+            <AppGrid gridRef={gridRef} jiggle={jiggle}>
               {memberEntries.map((entry) => {
+                const key = entryKey(entry);
                 const a = entryActions(entry, itemsById, actionCtx);
                 if (!a) return null;
                 return (
                   <AppTile
-                    key={entryKey(entry)} link={a.link} color={a.color} sourceType={a.sourceType} vaultLinked={a.vaultLinked}
+                    key={key} link={a.link} color={a.color} sourceType={a.sourceType} vaultLinked={a.vaultLinked}
                     canManage={a.canManage} canDelete={a.canDelete}
                     isFavorite={a.isFavorite} onToggleFavorite={a.onToggleFavorite}
                     onOpen={a.onOpen} onEdit={a.onEdit} onDelete={a.onDelete}
-                    dragHandleProps={editable ? {
-                      onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKey(entryKey(entry)); },
-                      onDragEnd: () => setDragKey(null),
-                    } : undefined}
-                    dropProps={editable ? {
-                      onDragOver: (e) => { if (dragKey != null) e.preventDefault(); },
-                      // Same DOM-ground-truth read as the background grid's
-                      // topItemDropProps - the actual element the drop
-                      // landed on, not a closure captured when this tile's
-                      // dropProps were built.
-                      onDrop: (e) => {
-                        e.preventDefault();
-                        if (dragKey == null) return;
-                        const targetKey = `${e.currentTarget.dataset.itemType}:${e.currentTarget.dataset.linkId}`;
-                        if (dragKey === targetKey) return;
-                        const dragged = memberEntries.find(x => entryKey(x) === dragKey);
-                        const entries = memberEntries.filter(x => entryKey(x) !== dragKey);
-                        const idx = entries.findIndex(x => entryKey(x) === targetKey);
-                        if (!dragged || idx === -1) return;
-                        entries.splice(idx, 0, dragged);
-                        onReorderWithin(entries);
-                        setDragKey(null);
-                      },
-                    } : undefined}
+                    drag={drag.tileProps(scope, key, 'item', { draggable: editable })}
+                    dragStyle={drag.tileStyle(scope, key)} dragging={drag.ui?.key === key}
+                    phase={jigglePhase(key)}
                     // No "move to folder" picker icon on Personal Links (Aug
-                    // 14) - matches the background grid's own gate above.
+                    // 14) - matches the background grid's own gate.
                     moveControls={(editable && folder.item_type !== 'personal') ? {
                       extra: (
                         <FolderPicker
@@ -1612,7 +1728,7 @@ function FolderModal({
               <Trash2 size={14} /> Delete Folder
             </button>
           )}
-          <button className="primary-btn" onClick={onClose}>Done</button>
+          <button className="primary-btn" onClick={requestClose}>Done</button>
         </div>
       </div>
     </div>
@@ -1640,34 +1756,36 @@ function FolderModal({
 // Company Links and Personal Links each get their own instance (Aug 14,
 // "add folders to personal links too"). extraAddTile is an optional extra
 // tile rendered at the end, after every folder/item (Personal Links' "Add
-// Link", which
-// creates a brand-new PersonalLink row rather than organizing existing
-// ones - Company Links has no equivalent since new Company Links are only
-// ever added from Manage).
-function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, extraAddTile, editable = false, view = 'tile' }) {
+// Link", which creates a brand-new PersonalLink row rather than organizing
+// existing ones - Company Links has no equivalent since new Company Links
+// are only ever added from Manage).
+//
+// Drag-and-drop (Sep 22) is the phone home-screen model, run by
+// useTileDrag: tiles slide aside live, resting one on another folds them
+// into a folder, and an app dragged out past an open folder's edge lands
+// wherever it is dropped on this grid. In Customize mode every tile is
+// draggable and the grid jiggles; in browse mode a long press on a tile
+// enters Customize and lifts it in one motion (onRequestEdit). Folders and
+// apps keep their separate position spaces - a folder only reorders among
+// folders, an app only among apps - the same folders-first layout as before.
+function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, extraAddTile, editable = false, view = 'tile', onRequestEdit }) {
   const [openFolderId, setOpenFolderId] = useState(null);
-  // Desktop drag-and-drop state - HTML5 native, mirrors ManageModal's
-  // draggable/onDragStart/onDragOver/onDrop/onDragEnd pattern elsewhere in
-  // this file (its own "All Links" category reorder). Touch has no
-  // equivalent gesture (poor/no support for native HTML5 DnD), so every tile
-  // also gets Move Up/Down + a folder picker as the touch-inclusive path -
-  // see AppTile's moveControls. dragEntry carries {item_type, item_id} (not
-  // just an id) now that a mix of both types can share one grid/folder and
-  // their autoincrement ids can collide.
-  const [dragKind, setDragKind] = useState(null); // 'item' | 'folder' | null
-  const [dragEntry, setDragEntry] = useState(null);
-  // dragOverFolderId only drives a CSS highlight (which folder an item would
-  // drop into) - safe to update on every dragover since it never touches
-  // the DOM order. Reordering itself is computed and applied on DROP ONLY
-  // (not live during dragover) - an earlier attempt at a live "iPhone-style"
-  // shift preview reordered the actual rendered list on every dragover,
-  // which reorders/reinserts the dragged element's own DOM node mid-drag -
-  // a well-known way to break a native HTML5 drag session (the browser can
-  // lose track of the drag once the element under the cursor moves out from
-  // under it), and it did: reordering stopped working entirely. Reverted -
-  // the order only changes once, at drop, which is what actually worked.
-  const [dragOverFolderId, setDragOverFolderId] = useState(null); // highlights the folder an item would drop into
+  const [ejectingFolderId, setEjectingFolderId] = useState(null);
+  const [freshFolderId, setFreshFolderId] = useState(null); // just made by a fold - opens into rename
+  const [folderOrigin, setFolderOrigin] = useState(null);   // the tile the open panel grew from
+  const gridRef = useRef(null);
+  const scopesRef = useRef({});
   const sameEntry = (a, b) => a && b && a.item_type === b.item_type && a.item_id === b.item_id;
+  // Opaque drag keys: `folder:<id>` for folders, `<type>:<id>` for apps
+  // (composite, since Company and Personal ids come from separate tables
+  // and can collide).
+  const keyOf = (e) => `${e.item_type}:${e.item_id}`;
+  const folderKeyOf = (f) => `folder:${f.id}`;
+  const parseKey = (key) => {
+    if (key.startsWith('folder:')) return { folderId: key.slice(7) };
+    const i = key.indexOf(':');
+    return { entry: { item_type: key.slice(0, i), item_id: Number(key.slice(i + 1)) } };
+  };
 
   const entryExists = useCallback((entry) => !!resolveEntryLink(itemsById, entry), [itemsById]);
   // Nothing saved yet for THIS tab (brand-new user, or one who's customized
@@ -1692,44 +1810,89 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
     [layout.items, sourceType, entryExists]
   );
 
-  const reorderTopLevel = (orderedEntries) => mutate(prev => {
-    const rank = new Map(orderedEntries.map((e, i) => [`${e.item_type}:${e.item_id}`, i]));
-    return {
-      ...prev,
-      items: prev.items.map(i => {
-        const key = `${i.item_type}:${i.item_id}`;
-        return (i.folder_id === null && rank.has(key)) ? { ...i, position: rank.get(key) } : i;
-      }),
+  // What the drag controller needs to know about the main grid, refreshed
+  // every render so a lift always measures the tiles that are on screen.
+  useLayoutEffect(() => {
+    scopesRef.current.top = {
+      keys: [...folders.map(folderKeyOf), ...topItems.map(keyOf)],
+      folderCount: folders.length, container: gridRef.current,
     };
   });
-  const reorderFolders = (orderedIds) => mutate(prev => {
-    const rank = new Map(orderedIds.map((id, i) => [id, i]));
-    return { ...prev, folders: prev.folders.map(f => rank.has(f.id) ? { ...f, position: rank.get(f.id) } : f) };
-  });
+
+  // ── Layout mutators ─────────────────────────────────────────────────
   // Folder-membership mutators all take an explicit mutateFn (defaulting to
   // the dirty-tracked `mutate`) rather than closing over it directly, so
   // the SAME logic can drive both the main-grid drag (gated behind
   // Customize, via `mutate`) and FolderModal's always-live internal
-  // organizing (via `immediateMutate`, see the *Now wrappers below and
-  // FolderModal's own docstring).
-  const reorderWithinFolder = (folderId, orderedEntries, mutateFn = mutate) => mutateFn(prev => {
-    const rank = new Map(orderedEntries.map((e, i) => [`${e.item_type}:${e.item_id}`, i]));
+  // organizing (via `immediateMutate`).
+  const applyTopOrder = (orderKeys, mutateFn = mutate) => mutateFn(prev => {
+    const folderRank = new Map(), itemRank = new Map();
+    for (const k of orderKeys) {
+      const p = parseKey(k);
+      if (p.folderId) folderRank.set(p.folderId, folderRank.size); else itemRank.set(keyOf(p.entry), itemRank.size);
+    }
     return {
       ...prev,
-      items: prev.items.map(i => {
-        const key = `${i.item_type}:${i.item_id}`;
-        return (i.folder_id === folderId && rank.has(key)) ? { ...i, position: rank.get(key) } : i;
-      }),
+      folders: prev.folders.map(f => folderRank.has(f.id) ? { ...f, position: folderRank.get(f.id) } : f),
+      items: prev.items.map(i => (i.folder_id === null && itemRank.has(keyOf(i))) ? { ...i, position: itemRank.get(keyOf(i)) } : i),
     };
   });
-  const moveToFolder = (entry, folderId, mutateFn = mutate) => mutateFn(prev => {
+  const reorderWithinFolder = (folderId, orderedEntries, mutateFn = mutate) => mutateFn(prev => {
+    const rank = new Map(orderedEntries.map((e, i) => [keyOf(e), i]));
+    return {
+      ...prev,
+      items: prev.items.map(i => (i.folder_id === folderId && rank.has(keyOf(i))) ? { ...i, position: rank.get(keyOf(i)) } : i),
+    };
+  });
+  // A folder left with nothing in it disappears, the way a phone folder
+  // does - only on the drag paths; the picker's "Remove from folder" keeps
+  // its explicit Delete Folder step.
+  const pruneEmptyFolder = (state, folderId) => {
+    if (!folderId || state.items.some(i => i.folder_id === folderId)) return state;
+    return { ...state, folders: state.folders.filter(f => f.id !== folderId) };
+  };
+  const moveToFolder = (entry, folderId, mutateFn = mutate, pruneFrom = null) => mutateFn(prev => {
     const dest = prev.items.filter(i => i.folder_id === folderId && !sameEntry(i, entry));
     const nextPos = dest.length ? Math.max(...dest.map(i => i.position)) + 1 : 0;
-    return { ...prev, items: prev.items.map(i => sameEntry(i, entry) ? { ...i, folder_id: folderId, position: nextPos } : i) };
+    const next = { ...prev, items: prev.items.map(i => sameEntry(i, entry) ? { ...i, folder_id: folderId, position: nextPos } : i) };
+    return pruneEmptyFolder(next, pruneFrom);
+  });
+  // An app dragged out of a folder and dropped on the main grid: back to
+  // top level, at exactly the slot it was dropped in.
+  const ejectToTop = (entry, orderKeys, mutateFn, fromFolderId) => mutateFn(prev => {
+    const itemRank = new Map(orderKeys.filter(k => !k.startsWith('folder:')).map((k, i) => [k, i]));
+    const next = {
+      ...prev,
+      items: prev.items.map(i => {
+        const k = keyOf(i);
+        if (sameEntry(i, entry)) return { ...i, folder_id: null, position: itemRank.get(k) ?? 0 };
+        return (i.folder_id === null && itemRank.has(k)) ? { ...i, position: itemRank.get(k) } : i;
+      }),
+    };
+    return pruneEmptyFolder(next, fromFolderId);
   });
   const foldersOfType = (allFolders) => allFolders.filter(f => (f.item_type || 'external') === sourceType);
+  // Drop one app onto another: a new folder holding both (target first, the
+  // dropped one after it - the phone's order), opened for naming once the
+  // fold animation has landed.
+  const createFolderWithPair = (dragged, target, mutateFn = mutate, pruneFrom = null) => {
+    const id = newFolderId();
+    const name = autoFolderName(resolveEntryLink(itemsById, dragged), resolveEntryLink(itemsById, target));
+    mutateFn(prev => {
+      const own = foldersOfType(prev.folders);
+      const position = own.length ? Math.max(...own.map(f => f.position)) + 1 : 0;
+      const next = {
+        ...prev,
+        folders: [...prev.folders, { id, name, position, item_type: sourceType }],
+        items: prev.items.map(i => sameEntry(i, target) ? { ...i, folder_id: id, position: 0 }
+          : sameEntry(i, dragged) ? { ...i, folder_id: id, position: 1 } : i),
+      };
+      return pruneEmptyFolder(next, pruneFrom);
+    });
+    setTimeout(() => { setFreshFolderId(id); showFolder(id); }, 320);
+  };
   const createFolderWithItem = (entry, mutateFn = mutate) => {
-    const id = `f_${Math.random().toString(36).slice(2, 8)}`;
+    const id = newFolderId();
     mutateFn(prev => {
       const own = foldersOfType(prev.folders);
       const position = own.length ? Math.max(...own.map(f => f.position)) + 1 : 0;
@@ -1739,16 +1902,7 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
         items: prev.items.map(i => sameEntry(i, entry) ? { ...i, folder_id: id, position: 0 } : i),
       };
     });
-    setOpenFolderId(id); // straight into the modal so the user can rename it right away
-  };
-  const createEmptyFolder = () => {
-    const id = `f_${Math.random().toString(36).slice(2, 8)}`;
-    mutate(prev => {
-      const own = foldersOfType(prev.folders);
-      const position = own.length ? Math.max(...own.map(f => f.position)) + 1 : 0;
-      return { ...prev, folders: [...prev.folders, { id, name: 'New Folder', position, item_type: sourceType }] };
-    });
-    setOpenFolderId(id);
+    setTimeout(() => { setFreshFolderId(id); showFolder(id); }, 0);
   };
   const renameFolder = (folderId, name, mutateFn = mutate) => mutateFn(prev => ({ ...prev, folders: prev.folders.map(f => f.id === folderId ? { ...f, name } : f) }));
   const deleteFolder = (folderId, mutateFn = mutate) => mutateFn(prev => {
@@ -1760,66 +1914,81 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
       items: prev.items.map(i => i.folder_id === folderId ? { ...i, folder_id: null, position: nextPos++ } : i),
     };
   });
-  const itemDragProps = (entry) => ({
-    onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('item'); setDragEntry(entry); },
-    onDragEnd: () => { setDragKind(null); setDragEntry(null); setDragOverFolderId(null); },
-  });
-  const folderDragProps = (folderId) => ({
-    onDragStart: (e) => { e.dataTransfer.effectAllowed = 'move'; setDragKind('folder'); setDragEntry(folderId); },
-    onDragEnd: () => { setDragKind(null); setDragEntry(null); },
-  });
-  const topItemDropProps = () => ({
-    onDragOver: (e) => {
-      if (dragKind !== 'item') return;
-      e.preventDefault();
-      setDragOverFolderId(null);
-    },
-    // Reads the actual drop target straight off the DOM node the drop event
-    // landed on (e.currentTarget, guaranteed to be exactly the element the
-    // browser fired this handler for) instead of trusting a JS closure
-    // captured back when this tile's dropProps were built - eliminates any
-    // possibility of the target being stale/wrong regardless of cause, which
-    // is what "always moves one slot, ignoring where I actually drop it"
-    // pointed at. data-item-type/data-link-id are always in sync with what's
-    // rendered since they come straight from the same props on every render.
-    onDrop: (e) => {
-      e.preventDefault();
-      if (dragKind !== 'item') return;
-      const targetType = e.currentTarget.dataset.itemType;
-      const targetId = Number(e.currentTarget.dataset.linkId);
-      const targetEntry = topItems.find(i => i.item_type === targetType && i.item_id === targetId);
-      if (!targetEntry || sameEntry(dragEntry, targetEntry)) return;
-      const entries = topItems.filter(i => !sameEntry(i, dragEntry));
-      const idx = entries.findIndex(i => sameEntry(i, targetEntry));
-      entries.splice(idx, 0, dragEntry);
-      reorderTopLevel(entries);
-    },
-  });
-  const folderDropProps = (targetFolderId) => ({
-    onDragOver: (e) => {
-      if (!dragKind) return;
-      e.preventDefault();
-      if (dragKind === 'item') setDragOverFolderId(targetFolderId); // highlight - dropping here adds it to the folder
-    },
-    onDragLeave: () => { if (dragOverFolderId === targetFolderId) setDragOverFolderId(null); },
-    // Ground-truth target read off the DOM node the drop actually landed on
-    // (e.currentTarget), same reasoning as topItemDropProps above.
-    onDrop: (e) => {
-      e.preventDefault();
-      setDragOverFolderId(null);
-      const actualTargetFolderId = e.currentTarget.dataset.folderId;
-      if (dragKind === 'item') { moveToFolder(dragEntry, actualTargetFolderId); return; }
-      if (dragKind === 'folder' && dragEntry !== actualTargetFolderId) {
-        const ids = folders.map(f => f.id).filter(id => id !== dragEntry);
-        const idx = ids.indexOf(actualTargetFolderId);
-        if (idx === -1) return;
-        ids.splice(idx, 0, dragEntry);
-        reorderFolders(ids);
+
+  // Open a folder's panel, remembering which tile it grows out of.
+  const showFolder = (id) => {
+    const el = gridRef.current?.querySelector(`[data-folder-id="${CSS.escape(id)}"]`);
+    setFolderOrigin(el ? el.getBoundingClientRect() : null);
+    setOpenFolderId(id);
+  };
+  const closeFolder = () => { setOpenFolderId(null); setFreshFolderId(null); setEjectingFolderId(null); };
+
+  // ── The gesture ──────────────────────────────────────────────────────
+  // Every commit goes through commitWithFlip so the tiles that stay glide
+  // to their new places instead of jumping.
+  const drag = useTileDrag({
+    editable, onRequestEdit, scopesRef,
+    onReorder: (scope, order) => {
+      if (scope === 'top') {
+        drag.commitWithFlip('top', () => applyTopOrder(order, mutate));
+      } else {
+        const folderId = scope.slice(7);
+        drag.commitWithFlip(scope, () => reorderWithinFolder(folderId, order.map(k => parseKey(k).entry), immediateMutate));
       }
     },
+    onFold: (scope, dragKey, targetKey, fromFolderScope) => {
+      const dragged = parseKey(dragKey).entry;
+      const target = parseKey(targetKey);
+      const fromFolderId = fromFolderScope ? fromFolderScope.slice(7) : null;
+      // Folding straight off the main grid is a Customize edit (saved with
+      // the rest); folding an app that was just pulled out of a folder is
+      // live unless Customize is on, same as the folder's own organizing.
+      const commit = fromFolderId ? (editable ? mutate : immediateMutate) : mutate;
+      drag.commitWithFlip('top', () => {
+        if (target.folderId) moveToFolder(dragged, target.folderId, commit, fromFolderId);
+        else createFolderWithPair(dragged, target.entry, commit, fromFolderId);
+      });
+      if (fromFolderId) closeFolder();
+    },
+    onEjectStart: (scope) => setEjectingFolderId(scope.slice(7)),
+    onEject: (fromScope, key, _toScope, order) => {
+      const commit = editable ? mutate : immediateMutate;
+      drag.commitWithFlip('top', () => ejectToTop(parseKey(key).entry, order, commit, fromScope.slice(7)));
+      closeFolder();
+    },
+    onEjectCancel: () => setEjectingFolderId(null),
   });
 
   const openFolder = folders.find(f => f.id === openFolderId) || null;
+  const folderPanel = openFolder && (
+    // Always fully interactive regardless of the outer Customize mode
+    // (Aug 14) - organizing an already-open folder is lightweight and
+    // expected to just work, same posture as favoriting. Every mutator
+    // here goes through `immediateMutate` (saves right away) instead of
+    // `mutate` (the dirty-tracked draft that needs an explicit Save
+    // while Customizing the main screen).
+    <FolderModal
+      folder={openFolder}
+      memberEntries={folderMembers(openFolder.id)}
+      itemsById={itemsById}
+      actionCtx={actionCtx}
+      editable={true} jiggle={editable && view !== 'list'}
+      onClose={closeFolder}
+      onRename={(name) => renameFolder(openFolder.id, name, immediateMutate)}
+      onDeleteFolder={() => {
+        if (!window.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`)) return;
+        deleteFolder(openFolder.id, immediateMutate);
+        closeFolder();
+      }}
+      onMoveOut={(entry, destId) => moveToFolder(entry, destId, immediateMutate)}
+      allFolders={folders}
+      onCreateFolder={(entry) => createFolderWithItem(entry, immediateMutate)}
+      drag={drag} scope={`folder:${openFolder.id}`} scopesRef={scopesRef}
+      ejecting={ejectingFolderId === openFolder.id}
+      startRenaming={freshFolderId === openFolder.id}
+      originRect={folderOrigin}
+    />
+  );
 
   // List view (Aug 14) - read-only rows instead of the drag-and-drop icon
   // grid; Customize forces tile view (see the `editing` effect in the
@@ -1834,73 +2003,59 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
               <LinksListRow key={f.id} isFolder
                 icon={<FolderOpen size={17} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
                 name={f.name} sub={members.length > 0 ? `${members.length} apps` : 'Empty'}
-                onOpen={() => setOpenFolderId(f.id)} />
+                onOpen={() => showFolder(f.id)} />
             );
           })}
           {topItems.map((entry) => {
             const a = entryActions(entry, itemsById, actionCtx);
             if (!a) return null;
             return (
-              <LinksListRow key={`${entry.item_type}:${entry.item_id}`}
+              <LinksListRow key={keyOf(entry)}
                 icon={<LinkIcon url={a.link.url} iconKey={a.link.icon} size={26} iconSize={13} radius={7} fg={a.color.fg} bg={a.color.bg} gradient={false} />}
-                name={a.link.name} sub={a.link.categories ? primaryCategory(a.link) : a.link.category} onOpen={a.onOpen} />
+                name={a.link.name} sub={listCategory(a.link)} onOpen={a.onOpen} />
             );
           })}
         </div>
-        {openFolder && (
-          <FolderModal
-            folder={openFolder}
-            memberEntries={folderMembers(openFolder.id)}
-            itemsById={itemsById}
-            actionCtx={actionCtx}
-            editable={true}
-            onClose={() => setOpenFolderId(null)}
-            onRename={(name) => renameFolder(openFolder.id, name, immediateMutate)}
-            onDeleteFolder={() => {
-              if (!window.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`)) return;
-              deleteFolder(openFolder.id, immediateMutate);
-              setOpenFolderId(null);
-            }}
-            onReorderWithin={(orderedEntries) => reorderWithinFolder(openFolder.id, orderedEntries, immediateMutate)}
-            onMoveOut={(entry, destId) => moveToFolder(entry, destId, immediateMutate)}
-            allFolders={folders}
-            onCreateFolder={(entry) => createFolderWithItem(entry, immediateMutate)}
-          />
-        )}
+        {folderPanel}
       </>
     );
   }
 
+  const tileGesture = { draggable: editable, holdToEdit: !editable && !!onRequestEdit };
+  const isFoldTarget = (key) => drag.ui?.scope === 'top' && drag.ui?.foldKey === key;
+
   return (
     <>
-      <AppGrid>
-        {/* First tile, not last (Aug 15) - "the new folder section is at
-            last, i want it at first so it is easy for user to understand." */}
-        {editable && <AddAppTile label="New Folder" onClick={createEmptyFolder} />}
-        {folders.map((f) => (
-          <FolderTile
-            key={f.id} folder={f}
-            memberLinks={folderMembers(f.id).map(e => resolveEntryLink(itemsById, e)).filter(Boolean)}
-            onOpen={() => setOpenFolderId(f.id)}
-            dragHandleProps={editable ? folderDragProps(f.id) : undefined}
-            dropProps={editable ? folderDropProps(f.id) : undefined}
-            isDropTarget={dragOverFolderId === f.id}
-          />
-        ))}
+      <AppGrid gridRef={gridRef} jiggle={editable}>
+        {folders.map((f) => {
+          const key = folderKeyOf(f);
+          return (
+            <FolderTile
+              key={f.id} folder={f}
+              memberLinks={folderMembers(f.id).map(e => resolveEntryLink(itemsById, e)).filter(Boolean)}
+              onOpen={() => showFolder(f.id)}
+              drag={drag.tileProps('top', key, 'folder', tileGesture)}
+              dragStyle={drag.tileStyle('top', key)} dragging={drag.ui?.key === key}
+              foldTarget={isFoldTarget(key)} phase={jigglePhase(key)}
+            />
+          );
+        })}
         {topItems.map((entry) => {
+          const key = keyOf(entry);
           const a = entryActions(entry, itemsById, actionCtx);
           if (!a) return null;
           return (
             <AppTile
-              key={`${entry.item_type}:${entry.item_id}`} link={a.link} color={a.color} sourceType={a.sourceType} vaultLinked={a.vaultLinked}
+              key={key} link={a.link} color={a.color} sourceType={a.sourceType} vaultLinked={a.vaultLinked}
               canManage={a.canManage} canDelete={a.canDelete}
               isFavorite={a.isFavorite} onToggleFavorite={a.onToggleFavorite}
               onOpen={a.onOpen} onEdit={a.onEdit} onDelete={a.onDelete}
-              dragHandleProps={editable ? itemDragProps(entry) : undefined}
-              dropProps={editable ? topItemDropProps() : undefined}
+              drag={drag.tileProps('top', key, 'item', tileGesture)}
+              dragStyle={drag.tileStyle('top', key)} dragging={drag.ui?.key === key}
+              foldTarget={isFoldTarget(key)} phase={jigglePhase(key)}
               // No "move to folder" picker icon on Personal Links (Aug 14) -
-              // folders still work by dragging a tile onto one, this just
-              // drops the extra hover-row button; Company Links keeps it.
+              // folders work by dragging one tile onto another; the picker
+              // stays on Company Links as the keyboard-reachable path.
               moveControls={(editable && sourceType !== 'personal') ? {
                 extra: (
                   <FolderPicker
@@ -1915,36 +2070,7 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
         })}
         {extraAddTile && <AddAppTile label={extraAddTile.label} onClick={extraAddTile.onClick} />}
       </AppGrid>
-
-      {openFolder && (
-        // Always fully interactive regardless of the outer Customize mode
-        // (Aug 14, "when we drag an application from folder it is not
-        // responsive... we should have the option to drag the application
-        // from folder also and move to any other folder or just keep it on
-        // main screen") - organizing an already-open folder is lightweight
-        // and expected to just work, same posture as favoriting. Every
-        // mutator here goes through `immediateMutate` (saves right away)
-        // instead of `mutate` (the dirty-tracked draft that needs an
-        // explicit Save while Customizing the main screen).
-        <FolderModal
-          folder={openFolder}
-          memberEntries={folderMembers(openFolder.id)}
-          itemsById={itemsById}
-          actionCtx={actionCtx}
-          editable={true}
-          onClose={() => setOpenFolderId(null)}
-          onRename={(name) => renameFolder(openFolder.id, name, immediateMutate)}
-          onDeleteFolder={() => {
-            if (!window.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`)) return;
-            deleteFolder(openFolder.id, immediateMutate);
-            setOpenFolderId(null);
-          }}
-          onReorderWithin={(orderedEntries) => reorderWithinFolder(openFolder.id, orderedEntries, immediateMutate)}
-          onMoveOut={(entry, destId) => moveToFolder(entry, destId, immediateMutate)}
-          allFolders={folders}
-          onCreateFolder={(entry) => createFolderWithItem(entry, immediateMutate)}
-        />
-      )}
+      {folderPanel}
     </>
   );
 }
@@ -2002,12 +2128,12 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
   );
 }
 
-function IconBtn({ children, onClick, title, danger, disabled }) {
+function IconBtn({ children, onClick, title, danger, disabled, size = 24 }) {
   return (
     <button
-      onClick={onClick} title={title} disabled={disabled}
+      onClick={onClick} title={title} aria-label={title} disabled={disabled}
       style={{
-        width: 24, height: 24, borderRadius: 6, border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: size, height: size, borderRadius: size > 28 ? 10 : 6, border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
         background: 'var(--card)', boxShadow: '0 1px 4px rgba(0,0,0,.15)', cursor: disabled ? 'default' : 'pointer',
         color: danger ? 'hsl(var(--color-red))' : 'var(--muted)', opacity: disabled ? 0.35 : 1,
       }}
@@ -2242,6 +2368,7 @@ function ManageModal({
   onRefreshDescription, onRefreshAllDescriptions,
   taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames, categoryNames, onBulkUpdate, onBulkDelete,
 }) {
+  const isMobile = useIsMobile();
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('all');
   const [showImport, setShowImport] = useState(false);
@@ -2334,6 +2461,20 @@ function ManageModal({
     setDragId(null);
     setDropCategory(null);
   };
+
+  // The phone gets its own layout of the same state (Sep 23) - every hook
+  // above has run by here, so branching on the breakpoint is safe.
+  if (isMobile) {
+    return (
+      <ManageMobileSheet m={{
+        q, setQ, tab, setTab, showImport, setShowImport, rows, grouped, attention, emptyDepartments, deptPick, setDeptPick,
+        selectedIds, toggleSelected, clearSelection, bulkCategories, setBulkCategories, bulkDepartments, setBulkDepartments,
+        bulkApplying, applyBulk, applyBulkDelete, refreshingId, doRefreshOne, refreshingAll, doRefreshAll, canReorder,
+        onClose, onAdd, onAddForDept, onEdit, onDelete, canDelete, onReorder, onImported, companyName,
+        taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames, categoryNames,
+      }} />
+    );
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -2516,6 +2657,245 @@ function ManageTab({ active, onClick, children }) {
   );
 }
 
+// Manage on a phone (Sep 23, "manage is not good on mobile - create a mobile
+// friendly version for mobile only"). It IS ManageModal - the same state,
+// handed over once the hooks have run - laid out as a full-height sheet:
+// one column, 44px targets, a per-row action sheet in place of the hover
+// icons, Move Up / Move Down in place of drag-to-reorder (a finger can't
+// drag an HTML5 list row anyway), Import and Shorten Descriptions behind a
+// "more" button so the search box keeps the width, the bulk bar stacked,
+// and the two taxonomy lists one under the other. The desktop modal above
+// is untouched.
+function ManageMobileSheet({ m }) {
+  const {
+    q, setQ, tab, setTab, showImport, setShowImport, rows, grouped, attention, emptyDepartments, deptPick, setDeptPick,
+    selectedIds, toggleSelected, clearSelection, bulkCategories, setBulkCategories, bulkDepartments, setBulkDepartments,
+    bulkApplying, applyBulk, applyBulkDelete, refreshingId, doRefreshOne, refreshingAll, doRefreshAll, canReorder,
+    onClose, onAdd, onAddForDept, onEdit, onDelete, canDelete, onReorder, onImported, companyName,
+    taxonomy, onAddTaxonomy, onRenameTaxonomy, onDeleteTaxonomy, departmentNames, categoryNames,
+  } = m;
+  const [more, setMore] = useState(false);
+  const [sheet, setSheet] = useState(null); // { link, cat } - the row whose actions are open
+  const attentionCount = attention.length + emptyDepartments.length;
+
+  // Move Up / Move Down inside a category group - the same bulk reorder
+  // the desktop list's drag handle sends, with two ids swapped.
+  const groupIds = (cat) => (grouped.find(([c]) => c === cat)?.[1] || []).map(l => l.id);
+  const moveInGroup = (link, cat, dir) => {
+    const ids = groupIds(cat);
+    const i = ids.indexOf(link.id), j = i + dir;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    onReorder(ids);
+  };
+  const sub = (l) => {
+    const depts = (l.departments && l.departments.length) ? l.departments.join(', ') : 'All departments';
+    const cos = (l.companies && l.companies.length) ? ` · ${l.companies.map(companyName).join(', ')}` : '';
+    return `${depts}${cos} · ${l.clicks || 0} uses`;
+  };
+
+  const actionSheet = sheet && (() => {
+    const { link: l, cat } = sheet;
+    const ids = groupIds(cat);
+    const at = ids.indexOf(l.id);
+    const { fg, bg } = colorFor(primaryCategory(l));
+    const close = () => setSheet(null);
+    const run = (fn) => () => { close(); fn(); };
+    let host = '';
+    try { host = new URL(l.url).hostname.replace(/^www\./, ''); } catch { host = l.url; }
+    return (
+      <div className="modal-overlay" onClick={e => { e.stopPropagation(); close(); }} role="dialog" aria-label={`${l.name} actions`}>
+        <div className="modal-content links-manage-actions" onClick={e => e.stopPropagation()}>
+          <div className="links-manage-actions-head">
+            <LinkIcon url={l.url} iconKey={l.icon} size={36} iconSize={18} radius={10} fg={fg} bg={bg} gradient={false} />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{host}</div>
+            </div>
+          </div>
+          <div style={{ padding: '6px 0' }}>
+            <button type="button" className="links-manage-action" onClick={run(() => onEdit(l))}><Pencil size={17} /> Edit Link</button>
+            {canReorder && ids.length > 1 && (
+              <>
+                <button type="button" className="links-manage-action" disabled={at <= 0} onClick={run(() => moveInGroup(l, cat, -1))}><ArrowUp size={17} /> Move Up in {cat}</button>
+                <button type="button" className="links-manage-action" disabled={at < 0 || at >= ids.length - 1} onClick={run(() => moveInGroup(l, cat, 1))}><ArrowDown size={17} /> Move Down in {cat}</button>
+              </>
+            )}
+            <button type="button" className="links-manage-action" disabled={refreshingId === l.id} onClick={run(() => doRefreshOne(l))}><RefreshCw size={17} /> Shorten Description</button>
+            {canDelete && <button type="button" className="links-manage-action danger" onClick={run(() => onDelete(l))}><Trash2 size={17} /> Delete Link</button>}
+          </div>
+          <div style={{ padding: '4px 16px 12px' }}>
+            <button type="button" className="secondary-btn" style={{ width: '100%', justifyContent: 'center', minHeight: 46 }} onClick={close}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
+  return (
+    <div className="modal-overlay links-manage-overlay" onClick={onClose}>
+      <div className="modal-content links-manage-sheet" onClick={e => e.stopPropagation()} aria-label="Manage Links">
+        <div className="links-manage-head">
+          <h3>Manage Links</h3>
+          <button className="close-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
+        </div>
+
+        <div className="scroll-tabs links-manage-tabs">
+          <ManageTab active={tab === 'all'} onClick={() => setTab('all')}>All Links</ManageTab>
+          <ManageTab active={tab === 'attention'} onClick={() => setTab('attention')}>
+            Needs Attention{attentionCount > 0 && (
+              <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, background: 'hsla(var(--color-orange),0.18)', color: 'hsl(var(--color-orange))', padding: '1px 6px', borderRadius: 10 }}>
+                {attentionCount}
+              </span>
+            )}
+          </ManageTab>
+          <ManageTab active={tab === 'taxonomy'} onClick={() => setTab('taxonomy')}>Departments &amp; Categories</ManageTab>
+        </div>
+
+        {tab !== 'taxonomy' && (
+          <div className="links-manage-toolbar">
+            <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+              <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+              <input className="form-input" style={{ paddingLeft: 34 }} placeholder="Search links..." value={q} onChange={e => setQ(e.target.value)} />
+            </div>
+            <button className="primary-btn links-manage-iconbtn" onClick={onAdd} aria-label="Add Link" title="Add Link"><Plus size={20} /></button>
+            <div style={{ position: 'relative' }}>
+              <button className="secondary-btn links-manage-iconbtn" onClick={() => setMore(o => !o)} aria-label="More" aria-expanded={more}><MoreHorizontal size={20} /></button>
+              {more && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 4 }} onClick={() => setMore(false)} />
+                  <div className="links-manage-menu">
+                    <ViewMenuItem icon={Upload} label="Import Links" onClick={() => { setMore(false); setShowImport(true); }} />
+                    <ViewMenuItem icon={RefreshCw} label={refreshingAll ? 'Shortening...' : 'Shorten All Descriptions'} onClick={() => { setMore(false); if (!refreshingAll) doRefreshAll(); }} />
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {tab === 'all' && selectedIds.size > 0 && (
+          <div className="links-manage-bulk">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--wk-brand)' }}>{selectedIds.size} selected</span>
+              <button className="secondary-btn" onClick={clearSelection} disabled={bulkApplying} style={{ minHeight: 40 }}>Clear</button>
+            </div>
+            <CheckboxMultiSelect
+              options={categoryNames} selected={bulkCategories} onChange={setBulkCategories}
+              placeholder="Set categories..." allowCustom customPlaceholder="Add a new category..."
+            />
+            <CheckboxMultiSelect
+              options={departmentNames} selected={bulkDepartments} onChange={setBulkDepartments}
+              placeholder="Set departments..."
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="primary-btn" style={{ flex: 1, justifyContent: 'center', minHeight: 44 }} onClick={applyBulk}
+                disabled={bulkApplying || (bulkCategories.length === 0 && bulkDepartments.length === 0)}>
+                {bulkApplying ? 'Applying...' : 'Apply'}
+              </button>
+              {canDelete && (
+                <button className="secondary-btn" style={{ flex: 1, justifyContent: 'center', minHeight: 44, color: 'hsl(var(--color-red))' }} onClick={applyBulkDelete} disabled={bulkApplying}>
+                  <Trash2 size={14} /> {bulkApplying ? 'Removing...' : `Delete ${selectedIds.size}`}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="links-manage-body">
+          {tab === 'taxonomy' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+              <TaxonomyManager kind="department" label="Departments" items={taxonomy.departments} touch
+                onAdd={onAddTaxonomy} onRename={onRenameTaxonomy} onDelete={onDeleteTaxonomy} />
+              <TaxonomyManager kind="category" label="Categories" items={taxonomy.categories} touch
+                onAdd={onAddTaxonomy} onRename={onRenameTaxonomy} onDelete={onDeleteTaxonomy} />
+            </div>
+          ) : tab === 'all' ? (
+            rows.length === 0 ? (
+              <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, padding: '30px 0' }}>No links match "{q}".</p>
+            ) : (
+              <>
+                {!canReorder && (
+                  <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>Clear the search to move links up or down within a category.</p>
+                )}
+                {grouped.map(([cat, items]) => (
+                  <div key={cat} className="links-manage-group">
+                    <div className="links-manage-cat" style={{ color: colorFor(cat).fg }}>{cat}</div>
+                    <div>
+                      {items.map(l => {
+                        const { fg, bg } = colorFor(primaryCategory(l));
+                        return (
+                          <div key={l.id} className="links-manage-row">
+                            <label className="links-manage-check" aria-label={`Select ${l.name}`}>
+                              <input type="checkbox" checked={selectedIds.has(l.id)} onChange={() => toggleSelected(l.id)} />
+                            </label>
+                            <button type="button" className="links-manage-rowmain" onClick={() => setSheet({ link: l, cat })} aria-haspopup="dialog">
+                              <LinkIcon url={l.url} iconKey={l.icon} size={34} iconSize={17} radius={9} fg={fg} bg={bg} gradient={false} />
+                              <span className="links-manage-rowtext">
+                                <span className="links-manage-rowname">
+                                  {l.name}{l.is_pinned && <Star size={11} style={{ color: 'hsl(var(--color-gold))', marginLeft: 5, verticalAlign: -1 }} fill="hsl(var(--color-gold))" />}
+                                </span>
+                                <span className="links-manage-rowsub">{sub(l)}</span>
+                              </span>
+                              {refreshingId === l.id
+                                ? <RefreshCw size={16} className="spin" style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                                : <MoreHorizontal size={18} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </>
+            )
+          ) : (
+            <div>
+              {emptyDepartments.length > 0 && (
+                <div style={{ marginBottom: 20, padding: 12, borderRadius: 12, background: 'hsla(var(--color-orange),0.08)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-orange))', marginBottom: 10 }}>
+                    <FolderOpen size={15} /> Departments with no links yet
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <select className="form-select" style={{ width: '100%', minHeight: 44 }} value={deptPick} onChange={e => setDeptPick(e.target.value)}>
+                      {emptyDepartments.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                    <button className="secondary-btn" style={{ justifyContent: 'center', minHeight: 44 }} onClick={() => onAddForDept(deptPick)} disabled={!deptPick}>
+                      <Plus size={14} /> Add Link for {deptPick || 'Department'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {attention.length === 0 ? (
+                <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, padding: '20px 0' }}>No placeholder or duplicate links - nicely done.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {attention.map(({ link: l, reason }) => {
+                    const { fg, bg } = colorFor(primaryCategory(l));
+                    return (
+                      <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--line)' }}>
+                        <LinkIcon url={l.url} iconKey={l.icon} size={34} iconSize={17} radius={9} fg={fg} bg={bg} gradient={false} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.name}</div>
+                          <div style={{ fontSize: 12, color: 'hsl(var(--color-orange))', display: 'flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={12} style={{ flexShrink: 0 }} /> {reason}</div>
+                        </div>
+                        <button className="secondary-btn" onClick={() => onEdit(l)} style={{ flexShrink: 0, minHeight: 40 }}><Pencil size={13} /> Fix</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {actionSheet}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={onImported} departmentNames={departmentNames} categoryNames={categoryNames} />}
+    </div>
+  );
+}
+
 // Personal Links' own entry point into the same Departments & Categories
 // picker Company Links' Manage modal has (Aug 14, "we should add manage
 // section in personal links also... same department and category setting
@@ -2553,7 +2933,8 @@ function TaxonomyModal({ taxonomy, onAdd, onRename, onDelete, onClose }) {
 // server-side (see rename_taxonomy in external_links.py); deleting only
 // removes it from this curated picker, existing links keep their string
 // (same free-text philosophy Category already had).
-function TaxonomyManager({ kind, label, items, onAdd, onRename, onDelete }) {
+function TaxonomyManager({ kind, label, items, onAdd, onRename, onDelete, touch }) {
+  const btn = touch ? 36 : undefined;
   const [newName, setNewName] = useState('');
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -2593,7 +2974,7 @@ function TaxonomyManager({ kind, label, items, onAdd, onRename, onDelete }) {
         <input className="form-input" value={newName} onChange={e => setNewName(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') submitAdd(); }}
           placeholder={`Add a ${kind}...`} maxLength={80} />
-        <button className="secondary-btn" onClick={submitAdd} disabled={!newName.trim() || adding}><Plus size={13} /></button>
+        <button className="secondary-btn" onClick={submitAdd} disabled={!newName.trim() || adding} aria-label={`Add ${kind}`} style={touch ? { minWidth: 44, justifyContent: 'center' } : undefined}><Plus size={touch ? 16 : 13} /></button>
       </div>
       {error && <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '0 0 8px' }}>{error}</p>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -2606,14 +2987,14 @@ function TaxonomyManager({ kind, label, items, onAdd, onRename, onDelete }) {
                 <input className="form-input" autoFocus value={editDraft} onChange={e => setEditDraft(e.target.value)}
                   maxLength={80} style={{ flex: 1, padding: '5px 8px' }}
                   onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingId(null); }} />
-                <IconBtn onClick={commitEdit} disabled={busyId === item.id} title="Save"><Check size={12} /></IconBtn>
-                <IconBtn onClick={() => setEditingId(null)} title="Cancel"><X size={12} /></IconBtn>
+                <IconBtn onClick={commitEdit} disabled={busyId === item.id} title="Save" size={btn}><Check size={touch ? 15 : 12} /></IconBtn>
+                <IconBtn onClick={() => setEditingId(null)} title="Cancel" size={btn}><X size={touch ? 15 : 12} /></IconBtn>
               </>
             ) : (
               <>
                 <span style={{ flex: 1, fontSize: 13, color: 'var(--ink)' }}>{item.name}</span>
-                <IconBtn onClick={() => startEdit(item)} disabled={busyId === item.id} title="Rename"><Pencil size={12} /></IconBtn>
-                <IconBtn onClick={() => remove(item)} disabled={busyId === item.id} title="Remove" danger><Trash2 size={12} /></IconBtn>
+                <IconBtn onClick={() => startEdit(item)} disabled={busyId === item.id} title="Rename" size={btn}><Pencil size={touch ? 15 : 12} /></IconBtn>
+                <IconBtn onClick={() => remove(item)} disabled={busyId === item.id} title="Remove" danger size={btn}><Trash2 size={touch ? 15 : 12} /></IconBtn>
               </>
             )}
           </div>

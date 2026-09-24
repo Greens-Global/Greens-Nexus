@@ -25,9 +25,10 @@ export const NAV = [
   // to be a separate left navigation item... anything to do with their time
   // and HR should be together"). Renamed "My Workday" (Pranshu, Sep 4) once
   // it covered both halves - "My HR" undersold the Clock/Time Sheet/Time Off
-  // tabs living here too. The 'myhr'/'timeclock' view ids are unchanged (just
-  // internal routing) - 'timeclock' still resolves and lands on the Clock tab.
-  { view: "myhr", code: "MHR",              label: "My Workday",         icon: Contact },
+  // tabs living here too; then just "Workday" (Neil, Sep 23). The 'myhr'/
+  // 'timeclock' view ids are unchanged (just internal routing) - 'timeclock'
+  // still resolves and lands on the Clock tab.
+  { view: "myhr", code: "MHR",              label: "Workday",            icon: Contact },
   // Manager Dashboard is no longer a screen at all (Sep 3, Neil: role-based
   // widgets on the one Dashboard, not a second board) - it has no NAV entry
   // and no tab. The old view id still resolves (App.jsx parsePath/navigate
@@ -91,7 +92,6 @@ export const NAV = [
     sub: [
       { subview: "construction-dashboard", label: "Project Dashboard", icon: LayoutDashboard },
       { subview: "construction-activity",  label: "Site Activity",     icon: ClipboardList },
-      { subview: "construction-cubby",     label: "Cubby Integration", icon: FileText },
     ],
   },
   {

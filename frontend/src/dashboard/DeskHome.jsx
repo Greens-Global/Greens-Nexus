@@ -125,7 +125,12 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
     <div className="dk-head dk-rise" style={{ '--i': 0 }}>
       <div className="dk-head-left">
         <h1>{greeting}, {firstName}!</h1>
-        <div className="dk-head-sub">{dateLine}{summary && <> · {summary}</>}</div>
+        <div className="dk-head-sub">
+          {dateLine}{summary && <> · {summary}</>}
+          {/* On a phone the zones line below is hidden and the local time
+              rides here instead (Sep 23) - one line, no separate row. */}
+          {zones[0] && <span className="dk-sub-local"> · {zones[0].label} <b>{fmtZone(now, zones[0].tz)}</b></span>}
+        </div>
       </div>
       <div className="dk-head-right">
         {/* View picker + Customize, moved up here from their own title band
@@ -134,7 +139,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             the greeting/stats should get instead. Session chip sits on the
             same row as those controls, with the local-time zones line below
             it (Neil, Sep 15 follow-up). */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="dk-toolbar" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {right}
           <button
             className={`dk-session-chip${clockedIn ? ' dk-session-chip--on' : ''}`}
@@ -142,7 +147,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             title="Open time clock"
           >
             <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
-            {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : 'Clocked out · Open time clock'}
+            {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : <>Clocked out<span className="dk-session-long"> · Open time clock</span></>}
           </button>
           {/* "…" view menu: its own distinct button, at the far right corner
               after the session chip - not merged with it (Pranshu, Sep 15
