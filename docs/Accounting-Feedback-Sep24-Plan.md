@@ -8,48 +8,33 @@ week hard." So this is a finish-and-close list, not a new roadmap.
 Repos: Nexus = this repo. Accounting app = `C:\Users\Vlow\Desktop\Greens Accounting`
 (`Greens-Global/greens-accounting`, `main` = production).
 
-## Status (09/24, end of build session)
+## Status (09/24, end of session)
 
-Built and committed, NOT deployed: accounting `main` (2e76595 + the dashboard
-commit after it) and Nexus `dev` (b8c7ab62 + the dashboard commit after it).
-Neither repo is pushed: the auto-mode classifier refuses pushes and every
-production database read or write. Before anyone tests:
-
-1. Apply the three accounting migrations live (from the accounting repo;
-   `apply_mig.py` is in the Sep 22 session scratchpad and reads DATABASE_URL
-   from the accounting `.env`):
-   ```
-   python apply_mig.py 20260924100100_entry_detail_internal --apply
-   python apply_mig.py 20260924110000_report_dimensions --apply
-   python apply_mig.py 20260924120000_dashboard_recon_accounts --apply
-   ```
-2. Run this one line on the accounting database. The classifier refused to
-   let me write it as a migration file because it widens a write policy. It
-   lets finance "view" users (every Nexus-provisioned bookkeeper) save Bank
-   to Intacct rules; today only "full" can, which is why Charmi's picks with
-   Remember ticked were refused. Put the same line in a migration file
-   afterwards so it is tracked:
-   ```sql
-   select public._fin_dash_policies_shared('fin_gl_import_rules');
-   ```
-3. Push accounting `main` (Cloudflare deploys) and Nexus `dev`.
-4. In the accounting app: Import Hub, pull Dimensions with Items ticked, then
-   re-pull the GL for the months that should carry Item (existing lines have
-   no `item_id` until pulled again; ITEMID is optional and dropped
-   automatically if this company's GLENTRY does not serve it).
-5. Browser click-through: nothing below was opened in a browser.
+- ✅ All four accounting migrations APPLIED and tracked on the accounting
+  database (entry detail, report dimensions, dashboard recon accounts, and
+  the shared write policy on `fin_gl_import_rules`). Dry-run parity check:
+  August debits through the new dimension reader = `ledger_account_sums` to
+  the cent (6,417,032.58).
+- ✅ Accounting `main` PUSHED (731506b) - Cloudflare deploys it.
+- ☐ Nexus `dev` NOT pushed (1b106a48 + b8c7ab62 local): the auto-mode
+  classifier refused the push. Run `git push origin dev` yourself.
+- ☐ In the accounting app: Import Hub, pull Dimensions with Items ticked, then
+  re-pull the GL for the months that should carry Item (existing lines have
+  no `item_id` until pulled again; ITEMID is optional and dropped
+  automatically if this company's GLENTRY does not serve it).
+- ☐ Browser click-through: nothing below was opened in a browser.
 
 ## A. Bugs reported (fix first)
 
 - ✅ **Import Hub > Bank to Intacct: drag-and-drop does nothing** (Charmi, 00:16).
   The drop zone claims the drop, highlights while dragging, and the same file
   can be chosen twice.
-- ✅ / ☐ **Cannot pick an offset account while Remember is ticked** (Charmi,
+- ✅ **Cannot pick an offset account while Remember is ticked** (Charmi,
   00:16). Root cause: the rule table's write policy needs finance "full";
   Nexus provisions everyone but administrators at "view", so the rule save was
   refused by RLS and the toast read like the pick had failed. Client fix done
-  (the line stays coded, the message says the rule was not saved and why).
-  The policy line in step 2 above finishes it.
+  (the line stays coded, the message says the rule was not saved and why)
+  and the shared policy is live (migration 20260924130000).
 - ✅ **"Next: export" cannot be clicked** (Charmi, 00:26). Rows the parser
   skipped (no date or amount) no longer block the export; the button carries
   the reason and "Show next uncoded" scrolls to the first open line.
