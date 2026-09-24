@@ -8,6 +8,21 @@ week hard." So this is a finish-and-close list, not a new roadmap.
 Repos: Nexus = this repo. Accounting app = `C:\Users\Vlow\Desktop\Greens Accounting`
 (`Greens-Global/greens-accounting`, `main` = production).
 
+## Status (09/25)
+
+- ✅ PRODUCTION: Nexus `main` 00b12d74 = `release/accounting-sep24` (only the
+  accounting commits, cherry-picked from dev; Sagar's Asana removal stays on
+  dev). Verified live on nexus.greensglobal.com 09/25: period control,
+  comparison columns, Add Filter, drill-down, entry modal, Close tab task
+  views + role picker, reconciliation list (139 accounts), Overview tiles.
+- ✅ Priyanka's two Overview asks: "3/5 completed | 2 remaining" on the
+  reconciliation tile and the My Tasks / All Tasks / Overdue switch on the
+  Month-End Close card (Bookkeeper view opens on My Tasks). Both apps.
+- ☐ Entity picker (Visesh, 09/25: typing a code only narrowed the native
+  dropdown): searchable picker on dev cab3c310 and on the release branch
+  d201d319, NOT yet on main - run `git push origin release/accounting-sep24:main`.
+- ✅ Accounting app main b600a64 live.
+
 ## Status (09/24, verified in the browser)
 
 - ✅ All four accounting migrations applied and tracked. Dry-run parity:
