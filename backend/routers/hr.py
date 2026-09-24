@@ -1952,6 +1952,7 @@ class EntityIn(BaseModel):
     domains:            Optional[str] = ""   # comma-separated email domains
     manager_email:      Optional[str] = ""   # legacy mirror - kept for callers still reading the single field
     manager_emails:     Optional[list] = None   # company manager(s) (Nexus people) - source of truth
+    hr_contact_email:   Optional[str] = ""      # signs + finalizes timesheets (timesheet_review.py)
 
 
 class EntityUpdate(BaseModel):
@@ -1976,6 +1977,7 @@ class EntityUpdate(BaseModel):
     domains:            Optional[str] = None
     manager_email:      Optional[str] = None
     manager_emails:     Optional[list] = None
+    hr_contact_email:   Optional[str] = None
 
 
 def _norm_manager_emails(manager_email, manager_emails) -> tuple:
@@ -2007,6 +2009,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "notes": e.notes, "domains": e.domains or "",
         "managerEmail": e.manager_email or "",
         "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
+        "hrContactEmail": e.hr_contact_email or "",
         "createdAt": e.created_at, "updatedAt": e.updated_at,
     }
 
@@ -2042,6 +2045,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         notes=body.notes or "",
         domains=_norm_domains(body.domains or ""),
         manager_email=mgr_email, manager_emails=mgr_emails,
+        hr_contact_email=(body.hr_contact_email or "").strip().lower(),
         created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
@@ -2081,7 +2085,7 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             continue
         if key == "domains":
             value = _norm_domains(value)
-        elif key == "manager_email":
+        elif key in ("manager_email", "hr_contact_email"):
             value = value.strip().lower()
         elif key == "manager_emails":
             mgr_email, value = _norm_manager_emails(None, value)

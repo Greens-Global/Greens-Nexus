@@ -1320,6 +1320,9 @@ class HrEntity(Base):
     # single column keeps working.
     manager_email      = Column(String, default="")
     manager_emails     = Column(JSON, default=list)
+    # The company's HR contact (a Nexus person): signs every employee's
+    # timesheet last and finalizes it for payroll (timesheet_review.py).
+    hr_contact_email   = Column(String, default="")
     # Split from the old single `registered_address` (Neil, Sep 22: "add in
     # physical address, and then add in mailing address... two important
     # fields"). `registered_address` stays for old rows that predate the split -
@@ -1627,6 +1630,10 @@ class HrSignRequest(Base):
     content_pages    = Column(Integer, default=0)         # pages of final_pdf that are the DOCUMENT; the rest is the certificate
     document_class   = Column(String, default="")         # hr_document_classes.code - gates electronic signing
     governing_law    = Column(String, default="")         # 'CA', 'TX', ... - routes the consent flow (Cal. Civ. Code 1633.5(b))
+    # What this envelope belongs to outside Nexus Sign, so its events can move
+    # that record along: link_kind "timesheet" + link_id = TimesheetReview.id.
+    link_kind        = Column(String, default="", index=True)
+    link_id          = Column(String, default="", index=True)
 
 
 class HrSignParty(Base):
@@ -4373,3 +4380,36 @@ class TaskEmailQueue(Base):
     created_at  = Column(String, default="", index=True)
     updated_at  = Column(String, default="")
     sent_at     = Column(String, default="")
+
+
+class TimesheetReview(Base):
+    """One employee's timesheet for one pay period on its way to payroll
+    (Sep 2026). Two phases - see timesheet_review.py:
+
+      review  - employee and manager hand it back and forth ("with_manager" /
+                "with_employee"), each hand-off a round with a note and a diff,
+                until the manager agrees to an exact version (agreed_fingerprint);
+      signing - a Nexus Sign envelope (sign_request_id) of that frozen version,
+                signed employee -> manager -> HR; HR's signature finalizes the
+                period for payroll ("completed").
+
+    A decline in Nexus Sign cancels the envelope and hands the timesheet back
+    ("with_employee" / "with_manager") for another round."""
+    __tablename__ = "timesheet_reviews"
+    id                 = Column(String, primary_key=True)
+    employee_email     = Column(String, default="", index=True)
+    period_start       = Column(String, default="", index=True)
+    period_end         = Column(String, default="")
+    pay_type           = Column(String, default="hourly")   # hourly | fixed
+    status             = Column(String, default="with_manager")  # with_manager | with_employee | signing | completed
+    manager_email      = Column(String, default="")
+    hr_email           = Column(String, default="")
+    agreed_fingerprint = Column(String, default="")
+    agreed_at          = Column(String, default="")
+    agreed_by          = Column(String, default="")
+    sign_request_id    = Column(String, default="")
+    rounds             = Column(JSON, default=list)          # [{at, by, action, note, workedMin, changes}]
+    last_snapshot      = Column(JSON, default=dict)          # {date: workedMin} at the last hand-off
+    created_at         = Column(String, default="")
+    updated_at         = Column(String, default="")
+

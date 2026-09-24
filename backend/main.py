@@ -783,6 +783,10 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN due_history JSON DEFAULT '[]'",
             "ALTER TABLE tasks ADD COLUMN due_agreement VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN due_proposal JSON",
+            # Timesheet review + Nexus Sign (Sep 2026) - see the Postgres list.
+            "ALTER TABLE hr_entities ADD COLUMN hr_contact_email VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_requests ADD COLUMN link_kind VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_sign_requests ADD COLUMN link_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1660,6 +1664,13 @@ def _run_migrations():
         # Batched task emails (Neil, Sep 24) - new table, create_all builds it;
         # RLS enabled here per CLAUDE.md's recurring-gap note.
         "ALTER TABLE task_email_queue ENABLE ROW LEVEL SECURITY",
+        # Timesheet review + Nexus Sign (Sep 2026): the company's HR contact
+        # signs last and finalizes; an envelope carries what it belongs to; the
+        # review table is new (RLS enabled per CLAUDE.md).
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS hr_contact_email VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS link_kind VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS link_id VARCHAR DEFAULT ''",
+        "ALTER TABLE timesheet_reviews ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2653,3 +2664,5 @@ app.include_router(briefing_actions.router)  # Daily Briefing one-click Approve/
 from routers import assistant as assistant_router  # noqa: E402
 app.include_router(assistant_router.router)  # Nexus Assistant (Phase 0) - see ai_assistant.py
 
+from routers import timesheet_reviews  # noqa: E402
+app.include_router(timesheet_reviews.router)  # Timesheet review hand-offs before signing in Nexus Sign - see timesheet_review.py

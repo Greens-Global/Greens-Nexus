@@ -160,6 +160,14 @@ keep the diff minimal.
   muted rows are dropped; nothing left = nothing sent). Mentions, deletions,
   urgent tasks and tasks due today/tomorrow never wait. New task email events
   go through `notify_task_event` - never mail directly - so they batch too.
+- Timesheets are signed through review + Nexus Sign (Sep 2026,
+  `timesheet_review.py`): employee submits -> manager sends back / agrees (back
+  and forth, one side edits at a time - `guard_edit` is called from every
+  timeclock route that changes hours; add it to any new one) -> an envelope of
+  the agreed version is signed employee -> manager -> the company's HR contact
+  (`hr_entities.hr_contact_email`) -> HR's signature finalizes the period.
+  A Nexus Sign decline hands it back for another round. The old one-click
+  `/my-timecard/sign` returns 410; never add a signing path around this.
 - Accounting dashboard (Sep 22): the Accounting view's Overview / Cash /
   Performance / Close / Data tabs are the Nexus face of the finance dashboard
   in Nexus Accounting. Figures come ONLY through `backend/routers/

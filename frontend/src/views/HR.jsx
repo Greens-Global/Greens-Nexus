@@ -3307,7 +3307,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
   // untouched (still rendered in signatures); this form just stops offering
   // a way to view/set it.
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', notes: '', domains: '', manager_emails: [], logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const [f, setF] = useState(blank);
@@ -3351,6 +3351,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
       physical_address: en.physicalAddress || '', mailing_address: en.mailingAddress || '',
       signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '',
       manager_emails: en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []),
+      hr_contact_email: en.hrContactEmail || '',
       logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
     setF(seeded); formSnapshotRef.current = seeded; setTab('overview'); setMode(en.id);
   };
@@ -3462,6 +3463,17 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                     <option value="">+ add a manager</option>
                     {people.filter(p => !f.manager_emails.includes(p.email)).map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
                   </select>
+                </div>
+                {/* Signs every employee's timesheet last and finalizes it for
+                    payroll (timesheet review + Nexus Sign, Sep 2026). */}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL}>HR CONTACT</label>
+                  <select className="form-input" style={{ width: '100%' }} value={f.hr_contact_email || ''}
+                    onChange={e => set('hr_contact_email', e.target.value)}>
+                    <option value="">- not set -</option>
+                    {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
+                  </select>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's timesheet after the employee and manager, and finalizes it for payroll.</div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('PHYSICAL ADDRESS', 'physical_address', { placeholder: 'search or pick a spot on the map, or type it in' })}</div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('MAILING ADDRESS', 'mailing_address', { placeholder: 'if different from the physical address' })}</div>

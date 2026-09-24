@@ -683,6 +683,7 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
         raise HTTPException(400, "Older than 7 days - ask a manager to add it.")
     if not (body.note or "").strip():
         raise HTTPException(400, "Add a short note explaining the missed punch.")
+    _guard_review(db, user["email"], _local_date(body.at, body.tz_offset_min or 0), user["email"])
     now = _now_iso()
     row = TimePunch(id=str(uuid.uuid4()), employee_email=user["email"], kind=body.kind,
                     at=body.at[:19], local_date=_local_date(body.at, body.tz_offset_min or 0),
@@ -914,6 +915,13 @@ def _finalized_row(db: Session, email: str, d_start: str, d_end: str = ""):
 def _guard_not_finalized(db: Session, email: str, d_start: str, d_end: str = ""):
     if _finalized_row(db, email, d_start, d_end):
         raise HTTPException(403, "This pay period is finalized and locked. Ask HR to unlock it before changing time records.")
+
+
+def _guard_review(db: Session, email: str, local_date: str, actor_email: str) -> None:
+    """Timesheet review (timesheet_review.py): one side edits at a time while a
+    timesheet is being reviewed, and nobody while it is out for signature."""
+    import timesheet_review
+    timesheet_review.guard_edit(db, email, local_date, actor_email)
 
 
 # ── Punch exceptions (SwipeClock "missing punch" model) ──────────────────────
@@ -1165,31 +1173,13 @@ def sign_my_timecard(body: SignTimecardIn, user: dict = Depends(get_current_user
     """Employee attests their OWN timecard for the period - records their name and a
     timestamp (electronic sign-off). Reuses TimeApproval with kind='employee_sign'.
     Re-signing replaces the prior signature (e.g. after a correction). A later punch
-    change makes the signature go stale (see _team_rows / the timecard header)."""
-    email = user["email"]
-    anchor = (body.start or "").strip() or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    # Fixed-salary employees sign their MONTH; hourly sign the bi-weekly period. The
-    # sign row must be keyed to the same bounds the card's sign-off state checks.
-    if _pay_type(db, email) == "fixed":
-        anchor = (body.start or "").strip() or _employee_today(db, email)
-        p_start, p_end = _month_bounds(anchor)
-        worked = _fixed_card(db, email, anchor).get("totals", {}).get("workedMin", 0)
-    else:
-        p_start, p_end = _pay_period(anchor)
-        worked = _compute_timecard(db, email, p_start, p_end).get("totals", {}).get("workedMin", 0)
-    for r in (db.query(TimeApproval)
-              .filter(TimeApproval.employee_email == email, TimeApproval.period_start == p_start,
-                      TimeApproval.period_end == p_end, TimeApproval.kind == "employee_sign",
-                      TimeApproval.revoked == 0).all()):
-        r.revoked = 1
-    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
-    name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
-    row = TimeApproval(id=str(uuid.uuid4()), employee_email=email, period_start=p_start, period_end=p_end,
-                       worked_min=worked, approved_by=email, approved_at=_now_iso(),
-                       kind="employee_sign", note=name)
-    db.add(row)
-    db.commit()
-    return {"signed": {"by": email, "name": name, "at": row.approved_at, "workedMin": worked}}
+    change makes the signature go stale (see _team_rows / the timecard header).
+
+    Retired (Sep 2026): the employee now signs in Nexus Sign at the end of the
+    review (timesheet_review.py), so this one-click path would be a way around
+    the manager and HR. Kept as a clear refusal for any old client."""
+    raise HTTPException(410, "Timesheets are now signed in Nexus Sign. Submit your timesheet for "
+                             "review; once your manager agrees you'll be asked to sign it.")
 
 
 class FinalizeIn(BaseModel):
@@ -1327,6 +1317,7 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     if scope is not None and row.employee_email not in scope:
         raise HTTPException(403, "You can only adjust your own team's punches.")
     _guard_not_finalized(db, row.employee_email, row.local_date)
+    _guard_review(db, row.employee_email, row.local_date, user["email"])
     if body.at is not None:
         t = _parse_iso(body.at)
         if t is None:
@@ -1399,6 +1390,8 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
         raise HTTPException(403, "You can only add punches for your own team.")
     _guard_not_finalized(db, body.employee_email.strip().lower(),
                          _local_date(body.at, body.tz_offset_min or 0))
+    _guard_review(db, body.employee_email.strip().lower(),
+                  _local_date(body.at, body.tz_offset_min or 0), user["email"])
     now = _now_iso()
     row = TimePunch(id=str(uuid.uuid4()), employee_email=body.employee_email.strip().lower(),
                     kind=body.kind, at=body.at[:19],
@@ -2042,6 +2035,7 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
         if not tp:
             raise HTTPException(404, "That punch isn't yours or no longer exists.")
         local_date = tp.local_date
+    _guard_review(db, email, local_date, email)
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
     req = PunchRequest(id=str(uuid.uuid4()), employee_email=email, employee_name=name,
@@ -2185,6 +2179,7 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
     visible = _visible_emails(db, user)
     if visible is not None and r.employee_email not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
+    _guard_review(db, r.employee_email, r.local_date, user["email"])
     decision = body.status if body.status in ("approved", "rejected") else ""
     if not decision:
         raise HTTPException(400, "status must be approved or rejected")
@@ -2287,6 +2282,7 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
     if row.employee_email != email:
         raise HTTPException(403, "You can only edit your own punches.")
     _guard_not_finalized(db, row.employee_email, row.local_date)
+    _guard_review(db, row.employee_email, row.local_date, email)
     at = (body.at or "").strip()
     t = _parse_iso(at)
     if not t:
@@ -2328,6 +2324,7 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
     if visible is not None and row.employee_email not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
     _guard_not_finalized(db, row.employee_email, row.local_date)
+    _guard_review(db, row.employee_email, row.local_date, user["email"])
     decision = body.status if body.status in ("approved", "rejected") else ""
     if not decision:
         raise HTTPException(400, "status must be approved or rejected")
@@ -5582,10 +5579,21 @@ def payroll_timecard(email: str, start: str, end: str,
         # Fixed-salary employees are paid by the calendar month; `start` anchors it.
         card = _fixed_card(db, em, start or _employee_today(db, em))
         card.update(_signoff_state(db, em, card["periodStart"], card["periodEnd"]))
+        card["review"] = _review_state(db, em, card["periodStart"], user, team=True)
         return card
     card = _compute_timecard(db, em, start, end)
     card.update(_signoff_state(db, em, start, end))
+    card["review"] = _review_state(db, em, start, user, team=True)
     return card
+
+
+def _review_state(db: Session, email: str, start: str, user: dict, team: bool) -> dict:
+    import timesheet_review
+    try:
+        return timesheet_review.state_for(db, email, start, user["email"], team)
+    except Exception as e:   # the timecard must still load
+        print(f"[timesheet-review] state failed for {email} {start}: {type(e).__name__}: {e}")
+        return None
 
 
 @router.get("/my-payroll")
@@ -5600,10 +5608,12 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
         anchor = start.strip() or _employee_today(db, user["email"])
         card = _fixed_card(db, user["email"], anchor)
         card.update(_signoff_state(db, user["email"], card["periodStart"], card["periodEnd"]))
+        card["review"] = _review_state(db, user["email"], card["periodStart"], user, team=False)
         return card
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)
     card.update(_signoff_state(db, user["email"], p_start, p_end))
+    card["review"] = _review_state(db, user["email"], p_start, user, team=False)
     card["periodStart"], card["periodEnd"] = p_start, p_end
     card["periodDays"] = _PAYPERIOD_DAYS
     return card

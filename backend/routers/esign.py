@@ -2120,6 +2120,7 @@ def void_request(rid: str, user: dict = Depends(require_hr_write), db: Session =
         raise HTTPException(409, f"Request is already {req.status}")
     req.status = "voided"
     _log(db, rid, "voided", f"by {user['email']}")
+    _link_hook("voided", db, req, user["email"])
     db.commit()
     return _ser_request(req, parties=_parties(db, rid))
 
@@ -2661,6 +2662,18 @@ def _apply_act(db: Session, req: HrSignRequest, party: HrSignParty, body: ActIn,
     return {"ok": True, "status": req.status, "role": role, "recorded": party.status}
 
 
+def _link_hook(event: str, db: Session, req: HrSignRequest, *args) -> None:
+    """Tell the record an envelope belongs to (HrSignRequest.link_kind) that
+    something happened to it. Timesheets only so far - see timesheet_review.py.
+    Never raises: a problem over there must not cost anyone their signature."""
+    if (getattr(req, "link_kind", "") or "") != "timesheet":
+        return
+    import timesheet_review as tsr
+    fn = {"progress": tsr.on_progress, "declined": tsr.on_declined,
+          "voided": tsr.on_voided, "completed": tsr.on_completed}[event]
+    tsr.safe(fn, db, req, *args)
+
+
 def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:
     """Move to the next party, or seal when everyone has done their part.
 
@@ -2670,6 +2683,8 @@ def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:
     an approver was still outstanding would be exactly the bug the role is
     there to prevent.
     """
+    db.flush()   # autoflush=False: the party just marked done must be visible below
+    _link_hook("progress", db, req)
     remaining = [p for p in _parties(db, req.id)
                  if _role_of(p) in _ACTING_ROLES and not _is_done(p)]
     if remaining:
@@ -2838,6 +2853,7 @@ def _apply_decline(db: Session, req: HrSignRequest, party: HrSignParty, reason: 
     req.status = "declined"
     _log(db, req.id, "declined", f"{party.name}: {party.decline_reason or 'no reason given'}",
          party_id=party.id, ip=ip, user_agent=ua)
+    _link_hook("declined", db, req, party, party.decline_reason)
     _hr_notify(db, req.created_by, f"Signature declined: {req.title}",
                f"{party.name} declined to sign. {party.decline_reason}".strip(),
                ref_id=req.id, requested_by=party.name,
@@ -4826,6 +4842,10 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
                  f"{n_att} signer attachment{'s' if n_att != 1 else ''} filed alongside")
             egnyte_note = (egnyte_note + f", with {n_att} attachment"
                            f"{'s' if n_att != 1 else ''}") if egnyte_note else egnyte_note
+
+    # The record this envelope belongs to (a timesheet period) moves on now -
+    # before the fan-out below, whose email sends can be slow.
+    _link_hook("completed", db, req)
 
     # Attach to the subject employee's profile Documents tab
     if req.employee_id:
