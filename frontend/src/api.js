@@ -200,6 +200,17 @@ function _isRetryable(options) {
   return method === 'GET' || method === 'HEAD';
 }
 
+// Accounting report dimension filters -> query string. `dims` is
+// { locations, departments, vendor, customer, employee, project, item }, each an
+// array of Intacct codes; an empty or missing key adds nothing.
+function dimsQuery(dims) {
+  if (!dims) return "";
+  return ["locations", "departments", "vendor", "customer", "employee", "project", "item"]
+    .filter((k) => Array.isArray(dims[k]) && dims[k].length)
+    .map((k) => `&${k}=${encodeURIComponent(dims[k].join(","))}`)
+    .join("");
+}
+
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   const authHeader = await getAuthHeader(tokenRefreshed);
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
@@ -948,13 +959,18 @@ export const api = {
   // Accounting
   // Reports served by Greens Accounting (Supabase mirror of the Intacct
   // ledger) through the grant-gated backend proxy. Dates are YYYY-MM-DD.
-  getAccountingPnl: (from, to, location) =>
-    req(`/accounting/reports/pnl?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
+  // `dims` (optional): { locations, departments, vendor, customer, employee,
+  // project, item } - each an array of codes; every Intacct dimension is a
+  // report filter (Charmi, Sep 23). Empty arrays are left out.
+  getAccountingPnl: (from, to, location, dims) =>
+    req(`/accounting/reports/pnl?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}`),
   getAccountingLocations: () => req("/accounting/reports/locations"),
-  getAccountingBalanceSheet: (asof, location) =>
-    req(`/accounting/reports/balance-sheet?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
-  getAccountingTrialBalance: (from, to, location) =>
-    req(`/accounting/reports/trial-balance?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
+  // Values one dimension can be filtered by (vendor, customer, employee, project, item, department).
+  getAccountingDimensionValues: (kind) => req(`/accounting/reports/dimensions?kind=${encodeURIComponent(kind)}`),
+  getAccountingBalanceSheet: (asof, location, dims) =>
+    req(`/accounting/reports/balance-sheet?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}`),
+  getAccountingTrialBalance: (from, to, location, dims) =>
+    req(`/accounting/reports/trial-balance?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}`),
   getAccountingCashPosition: (asof, location) =>
     req(`/accounting/reports/cash-position?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
   // Global search over the posted ledger, and the report drill-down (same call
@@ -964,6 +980,9 @@ export const api = {
     Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') qs.set(k, v); });
     return req(`/accounting/search?${qs.toString()}`);
   },
+  // One journal entry (header, lines, Intacct records) - the entry number on a
+  // search result or drill-down opens it.
+  getAccountingEntry: (entryId) => req(`/accounting/entry/${encodeURIComponent(entryId)}`),
   // One-time sign-in URL for accounting.greensglobal.com - Nexus is the only
   // way in there (no passwords). Open the returned url immediately.
   launchAccounting: (next) => req(`/accounting/launch${next ? `?next=${encodeURIComponent(next)}` : ""}`, { method: "POST" }),

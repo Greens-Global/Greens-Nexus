@@ -90,7 +90,12 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // TypeScript), 29 widgets and four tab screens. Measured +138 KB, total 9331.
 // Taken deliberately for a whole new module, owner asked. The mammoth note
 // above still names the real lever.
-const TOTAL_KB     = 9400;
+// Sep 24, 2026: 9400 -> 9600. Accounting feedback batch (Visesh): journal
+// entry view behind the entry number on search results and drill-downs,
+// report comparison columns, dimension filters, the monthly cash forecast and
+// the per-entity reconciliation list. Measured 9403 before the batch, so the
+// headroom is for the batch itself.
+const TOTAL_KB     = 9600;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

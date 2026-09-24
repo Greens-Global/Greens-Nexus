@@ -19,6 +19,7 @@ router = APIRouter(prefix="/accounting", tags=["Accounting"], dependencies=[Depe
 # by the query so a dashboard full of widgets costs one upstream call.
 import asyncio
 import os
+import re
 import time
 
 import httpx
@@ -57,10 +58,26 @@ async def _acct_get(path: str, params: dict) -> dict:
     return data
 
 
+# Every Intacct dimension as a report filter (Charmi, Sep 23): several
+# entities / departments at once, plus vendor, customer, employee, Project-Job
+# and item - each a comma-separated list of codes, passed through as is.
+_DIM_KEYS = ("locations", "departments", "vendor", "customer", "employee", "project", "item")
+
+
+def _dims(locations, departments, vendor, customer, employee, project, item) -> dict:
+    vals = (locations, departments, vendor, customer, employee, project, item)
+    return {k: v for k, v in zip(_DIM_KEYS, vals) if v}
+
+
 @router.get("/reports/pnl")
-async def report_pnl(from_: str = Query(alias="from"), to: str = Query(...), location: str | None = None):
-    """Profit and loss between two ISO dates, optionally for one Intacct location."""
-    return await _acct_get("/api/internal/reports/pnl", {"from": from_, "to": to, "location": location})
+async def report_pnl(
+    from_: str = Query(alias="from"), to: str = Query(...), location: str | None = None,
+    locations: str | None = None, departments: str | None = None, vendor: str | None = None, customer: str | None = None,
+    employee: str | None = None, project: str | None = None, item: str | None = None,
+):
+    """Profit and loss between two ISO dates, optionally for one Intacct location
+    and any mix of dimensions."""
+    return await _acct_get("/api/internal/reports/pnl", {"from": from_, "to": to, "location": location, **_dims(locations, departments, vendor, customer, employee, project, item)})
 
 
 @router.get("/reports/locations")
@@ -69,16 +86,33 @@ async def report_locations():
     return await _acct_get("/api/internal/reports/locations", {})
 
 
+@router.get("/reports/dimensions")
+async def report_dimensions(kind: str = Query(...)):
+    """Values one dimension can be filtered by: vendor, customer, employee,
+    project (Project-Job), item (codes on the ledger, with names) or department."""
+    if kind not in ("vendor", "customer", "employee", "project", "item", "department"):
+        raise HTTPException(status_code=400, detail="kind must be vendor, customer, employee, project, item or department")
+    return await _acct_get("/api/internal/reports/dimensions", {"kind": kind})
+
+
 @router.get("/reports/balance-sheet")
-async def report_balance_sheet(asof: str = Query(...), location: str | None = None):
-    """Balance sheet as of an ISO date, optionally for one entity."""
-    return await _acct_get("/api/internal/reports/balance-sheet", {"asof": asof, "location": location})
+async def report_balance_sheet(
+    asof: str = Query(...), location: str | None = None,
+    locations: str | None = None, departments: str | None = None, vendor: str | None = None, customer: str | None = None,
+    employee: str | None = None, project: str | None = None, item: str | None = None,
+):
+    """Balance sheet as of an ISO date, optionally for one entity and any mix of dimensions."""
+    return await _acct_get("/api/internal/reports/balance-sheet", {"asof": asof, "location": location, **_dims(locations, departments, vendor, customer, employee, project, item)})
 
 
 @router.get("/reports/trial-balance")
-async def report_trial_balance(from_: str = Query(alias="from"), to: str = Query(...), location: str | None = None):
-    """Trial balance for a date range, optionally for one entity."""
-    return await _acct_get("/api/internal/reports/trial-balance", {"from": from_, "to": to, "location": location})
+async def report_trial_balance(
+    from_: str = Query(alias="from"), to: str = Query(...), location: str | None = None,
+    locations: str | None = None, departments: str | None = None, vendor: str | None = None, customer: str | None = None,
+    employee: str | None = None, project: str | None = None, item: str | None = None,
+):
+    """Trial balance for a date range, optionally for one entity and any mix of dimensions."""
+    return await _acct_get("/api/internal/reports/trial-balance", {"from": from_, "to": to, "location": location, **_dims(locations, departments, vendor, customer, employee, project, item)})
 
 
 @router.get("/reports/cash-position")
@@ -116,6 +150,17 @@ async def search_ledger(
         "account": account, "journal": journal, "min": min_, "max": max_,
         "book": book, "offset": max(0, offset), "limit": max(1, min(limit, 1000)),
     })
+
+
+@router.get("/entry/{entry_id}")
+async def ledger_entry(entry_id: str):
+    """One journal entry - header, every line, the Intacct records behind it -
+    for the entry number on a search result or drill-down (Charmi, Sep 24:
+    click the entry after pulling a report). `path` in the answer is where the
+    accounting app shows the same entry, for "Open in Nexus Accounting"."""
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", entry_id or ""):
+        raise HTTPException(status_code=400, detail="entry id must be a uuid")
+    return await _acct_get("/api/internal/entry", {"id": entry_id})
 
 
 # ── Single sign-on into the accounting app (Nexus is the access authority) ──
