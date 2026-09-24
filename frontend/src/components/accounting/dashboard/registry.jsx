@@ -45,7 +45,7 @@ export const WIDGET_LIST = [
   def('deadlines', 'Filing and Payment Calendar', 'Close & Controls', 'sm', 'Upcoming tax filings, loan payments and covenant deadlines.', DeadlinesWidget),
   def('income', 'Income This Month', 'Performance', 'lg', 'Every income source for the selected month, by account and by entity, with a chart, a six-month trend and the change from last month.', IncomeWidget, { report: 'reports' }),
   def('expenses', 'Expenses This Month', 'Performance', 'lg', 'Every expense for the selected month by account, with a chart and the change from last month.', ExpensesWidget, { report: 'reports' }),
-  def('cashForecast', '13-Week Cash Forecast', 'Cash & Banking', 'lg', 'Weekly receipts, disbursements and ending controllable cash for the next thirteen weeks, with the minimum cash line.', CashForecastWidget, { page: 'cash' }),
+  def('cashForecast', 'Monthly Cash Forecast', 'Cash & Banking', 'lg', 'Receipts, disbursements and ending controllable cash for the next six months from the posted budget, with the minimum cash line.', CashForecastWidget, { page: 'cash' }),
   def('ytdVariance', 'Budget vs Actual · Year to Date', 'Performance', 'md', 'Revenue, expense and net income against budget for the year so far, with the largest variances.', YtdVarianceWidget, { page: 'performance' }),
   def('partners', 'Partner Capital & Distributions', 'Debt & Capital', 'md', 'Capital by investor class, distributions paid year to date, and what is scheduled next.', PartnersWidget),
   def('valuation', 'Portfolio Value & Leverage', 'Debt & Capital', 'md', 'Implied value from trailing NOI at market cap rates, against debt, for loan-to-value and equity.', ValuationWidget),

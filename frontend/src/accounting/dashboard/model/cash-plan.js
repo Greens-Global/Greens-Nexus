@@ -1,4 +1,4 @@
-import { balanceOf, cashAt, incomeStatement, isCapitalAsset, isConstruction, isDepreciation, isDistribution, isInsurance, isInterest, isPayroll, isRevenue, isTax, isWorkingCapitalAsset, sumLines, } from "./ledger";
+import { balanceOf, cashAt, incomeStatement, isCapitalAsset, isConstruction, isDepreciation, isDistribution, isInsurance, isInterest, isPayroll, isPl, isRevenue, isTax, isWorkingCapitalAsset, plGroup, sumLines, } from "./ledger";
 import { addDays, mEnd, monthsBetween, parts, seasonal, shiftKey } from "./months";
 import { sum } from "./money";
 export const SCENARIOS = {
@@ -106,6 +106,69 @@ const hash01 = (s) => {
     }
     return (h >>> 0) / 4294967296;
 };
+/**
+ * Month-by-month cash forecast from the POSTED BUDGET (Charmi, 09/23: monthly,
+ * not weekly; Neil: the figures come from budgets, and until budgets are
+ * uploaded there is nothing to forecast). Each future month's receipts and
+ * costs are its budget lines by category; debt service is the loan schedule;
+ * distributions come from partner capital. No run-rate, no seasonality, no
+ * jitter - a month with no budget lines is flagged, and with none at all
+ * `hasBudget` is false and the widget says so instead of inventing numbers.
+ */
+export function forecastMonthly(L, budgetAhead, loans, period, openingCash, distributionsPerMonth, months = 6) {
+    const keys = [];
+    let k = period;
+    for (let n = 1; n <= months; n++) {
+        k = shiftKey(k, -1);
+        keys.push(k);
+    }
+    const byMonth = new Map();
+    for (const r of budgetAhead) {
+        if (!keys.includes(r.month))
+            continue;
+        const m = byMonth.get(r.month) ?? new Map();
+        m.set(r.account_id, (m.get(r.account_id) ?? 0) + r.amount);
+        byMonth.set(r.month, m);
+    }
+    const debt = sum(loans.filter((x) => x.is_active).map((x) => x.monthly_pi));
+    const out = { months: keys, budgeted: [], hasBudget: false, rent: [], con: [], pay: [], vend: [], debt: [], tax: [], dist: [], receipts: [], disbursements: [], end: [], minCash: 0, opening: openingCash };
+    let bal = openingCash;
+    let firstPay = 0;
+    keys.forEach((mk, i) => {
+        const m = byMonth.get(mk) ?? new Map();
+        // Budget amounts are signed like the income statement: revenue +, costs -.
+        const lines = [];
+        for (const [id, amount] of m) {
+            const a = L.accounts.get(id);
+            if (!a || !isPl(a) || Math.abs(amount) < 0.005)
+                continue;
+            lines.push({ id, gl: a.gl, name: a.name, group: plGroup(a), account: a, actual: amount, budget: amount, prior: 0 });
+        }
+        const budgeted = lines.length > 0;
+        const cat = categorize(lines, []);
+        const tax = sumLines(lines, (l) => isCostLine(l) && (isTax(l.account) || isInsurance(l.account)));
+        const r = Math.round(cat.rent), c = Math.round(cat.con), p = Math.round(cat.pay), v = Math.round(cat.vend), t = Math.round(tax);
+        const db = -Math.round(debt), ds = -Math.round(distributionsPerMonth);
+        if (i === 0)
+            firstPay = Math.abs(p);
+        out.budgeted.push(budgeted);
+        out.rent.push(r);
+        out.con.push(c);
+        out.pay.push(p);
+        out.vend.push(v);
+        out.debt.push(db);
+        out.tax.push(t);
+        out.dist.push(ds);
+        const rec = r + c, dis = p + v + db + t + ds;
+        out.receipts.push(rec);
+        out.disbursements.push(dis);
+        bal += rec + dis;
+        out.end.push(bal);
+    });
+    out.hasBudget = out.budgeted.some(Boolean);
+    out.minCash = Math.round(firstPay + debt);
+    return out;
+}
 /** Thirteen weeks of receipts and disbursements projected from the last closed month, starting from controllable cash. */
 export function forecast13(lines, loans, period, openingCash, distributionsPerMonth) {
     const cat = categorize(lines, loans);

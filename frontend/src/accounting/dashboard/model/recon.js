@@ -1,5 +1,7 @@
 import { inScope } from "./scope";
 import { keyOfISO, mEnd, monthsBetween } from "./months";
+/** The mark key for a ledger bank / card account within one entity. */
+export const glReconKey = (accountId, entity) => `gl:${accountId}@${entity}`;
 export const RECON_TYPES = ["Bank", "Credit Card", "Mortgage", "Line of Credit", "Investment"];
 const monthsLag = (period, thru) => {
     if (!thru)
@@ -14,7 +16,32 @@ export function reconList(args) {
     const { period, scope, ix } = args;
     const pe = mEnd(period);
     const markOf = new Map(args.marks.map((m) => [m.recon_key, m]));
+    const latestOf = new Map((args.latestMarks ?? []).map((m) => [m.recon_key, m]));
     const out = [];
+    // Ledger bank / card accounts, one row per account and entity. A bank_accounts
+    // row pointing at the same GL account is the richer record; skip the GL row then.
+    const covered = new Set(args.banks.map((b) => b.gl_account_id).filter((x) => !!x));
+    for (const g of args.glAccounts ?? []) {
+        if (covered.has(g.account_id))
+            continue;
+        const key = glReconKey(g.account_id, g.entity);
+        const mark = markOf.get(key) ?? null;
+        const latest = latestOf.get(key) ?? null;
+        // Reconciled through: this month's mark, else the latest mark's statement
+        // date (or that mark's month end when no date was typed).
+        const thru = mark ? (mark.thru_date ?? pe) : latest ? (latest.thru_date ?? mEnd(latest.period ?? period)) : null;
+        const lag = mark ? 0 : monthsLag(period, thru);
+        const book = g.balance;
+        // Statement balance from the mark that covers the month; a book-side
+        // liability shows as the negative it is so Difference reads book - statement.
+        const stmtRaw = mark?.stmt_balance ?? (lag === 0 ? latest?.stmt_balance ?? null : null);
+        const stmt = stmtRaw == null ? book : g.kind === "card" ? -Math.abs(stmtRaw) : stmtRaw;
+        const diff = stmtRaw == null ? 0 : Math.round((book - stmt) * 100) / 100;
+        out.push({
+            key, type: g.kind === "card" ? "Credit Card" : "Bank", name: g.name, ref: g.entity_name, entityCode: g.entity, gl: g.gl_code,
+            thru, lag, openItems: 0, diff, mark, book, stmt, status: statusOf(lag, diff), nc: g.is_partner,
+        });
+    }
     for (const b of args.banks) {
         const key = `bank:${b.id}`;
         const rec = args.recons.find((r) => r.bank_account_id === b.id) ?? null;
