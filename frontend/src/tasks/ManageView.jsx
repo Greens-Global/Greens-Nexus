@@ -7,10 +7,9 @@ import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
   Circle, Palette, Users, List, ChevronDown, Check, AlertTriangle, RotateCcw,
-  FolderKanban, Briefcase, LayoutTemplate, Archive,
+  FolderKanban, Briefcase, LayoutTemplate,
 } from 'lucide-react';
 import DataQualityTab from './DataQualityTab';
-import AsanaArchiveTab from './AsanaArchiveTab';
 import { useTasks } from './TasksContext';
 import { api } from '../api';
 import {
@@ -90,8 +89,6 @@ const SUBTABS = [
   { key: 'trash', label: 'Recycle Bin', icon: Trash2 },
   { key: 'activity', label: 'Activity Log', icon: ActivityIcon },
   { key: 'reporting', label: 'Reporting', icon: BarChart3 },
-  // The Asana sync is removed (Sep 2026); this lists what it left behind.
-  { key: 'asanaArchive', label: 'Asana Archive', icon: Archive },
 ];
 
 export default function ManageView({ onExit }) {
@@ -151,7 +148,6 @@ export default function ManageView({ onExit }) {
             {tab === 'trash' && <DeletedTasksTab store={store} />}
             {tab === 'activity' && <ActivityTab store={store} />}
             {tab === 'reporting' && <ReportingTab store={store} />}
-            {tab === 'asanaArchive' && <AsanaArchiveTab />}
           </div>
         </div>
       )}
