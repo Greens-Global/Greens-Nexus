@@ -95,7 +95,7 @@ export const DOCS = [
       { name: 'Search (Ctrl+K)', desc: 'Searches pages, people, tasks, projects, portfolios and teams from anywhere.' },
       { name: 'Notification Bell', desc: 'Every alert meant for you: approvals, handovers, ticket updates, reminders. Click to open the item.' },
       { name: 'Page Help (?)', desc: 'The "?" in the header opens a short guide for the page you are on.' },
-      { name: 'Profile Menu', desc: 'My Profile, Email Settings, Account Settings (Asana connection), Tour and Sign Out.' },
+      { name: 'Profile Menu', desc: 'My Profile, Email Settings, Tour and Sign Out.' },
       { name: 'Tour', desc: 'Tasks, Tickets and Support have a guided tour. It runs once on your first visit, and you can replay it from the profile menu.' },
       { name: 'Phone Friendly', desc: 'Nexus works in your phone browser. The left menu becomes a menu button, and tabs become swipeable.' },
     ],
@@ -301,7 +301,7 @@ export const DOCS = [
     tagline: 'Plan, assign and track work across projects and teams.',
     where: 'Left menu > Tasks',
     access: 'Anyone whose job role or Access Group grants Tasks (most do)',
-    purpose: 'Tasks is where work gets planned and done. Every task has an owner, a due date, a status and a priority, and it can hold comments, files and subtasks. Tasks are grouped into Projects, projects into Portfolios, and people into Teams. It syncs both ways with Asana.',
+    purpose: 'Tasks is where work gets planned and done. Every task has an owner, a due date, a status and a priority, and it can hold comments, files and subtasks. Tasks are grouped into Projects, projects into Portfolios, and people into Teams.',
     gains: [
       'One list of everything assigned to you, across every project.',
       'Six ways to see the same work: List, Board, Calendar, Timeline, Files and Workload.',
@@ -352,7 +352,7 @@ export const DOCS = [
       { name: 'Views', desc: 'List, Board, Calendar, Timeline, Files and Workload for any list.' },
       { name: 'Templates', desc: 'Start a project or task from a saved template (Use Template, Save as Template).' },
       { name: 'Recurring Tasks', desc: 'Repeat daily, weekly, monthly or yearly, with an end date or a number of occurrences.' },
-      { name: 'Asana Sync', desc: 'Title, dates, status, assignee, comments, attachments and more sync both ways with Asana.' },
+      { name: 'Task Emails', desc: 'Routine task emails are bundled into one summary email instead of one per change. Mentions, urgent tasks and anything due today or tomorrow still arrive right away.' },
     ],
     manager: {
       title: 'Manage (Managers and Above)',
@@ -360,7 +360,7 @@ export const DOCS = [
         'The Manage button appears for Managers and above. Changes there affect the module for everyone.',
         'Custom Fields and Custom Statuses extend what a task holds. Scope them to the projects that need them.',
         'Templates and Intake Forms decide how new work arrives. Automation Rules react to changes on their own (for example, when status changes to Done).',
-        'Reporting and Activity Log show what happened and who did it. Two-way Sync controls the Asana connection.',
+        'Reporting and Activity Log show what happened and who did it.',
       ],
     },
     tips: [
