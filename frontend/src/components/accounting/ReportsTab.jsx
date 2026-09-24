@@ -145,7 +145,6 @@ export default function ReportsTab() {
   const [[from, to], setRange] = useState(() => presetRange('ytd').map(iso));
   const [asof, setAsof] = useState(() => iso(new Date()));
   const [entity, setEntity] = useState('');
-  const [entityFilter, setEntityFilter] = useState('');
   const [entities, setEntities] = useState([]);
   const [dims, setDims] = useState(EMPTY_DIMS);
   const [compare, setCompare] = useState('none');
@@ -229,17 +228,6 @@ export default function ReportsTab() {
     return e?.name ? `${e.name} (${code})` : code;
   };
 
-  const grouped = useMemo(() => {
-    const q = entityFilter.trim().toLowerCase();
-    const list = q ? entities.filter((e) => e.code.toLowerCase().includes(q) || (e.name || '').toLowerCase().includes(q)) : entities;
-    const roots = list.filter((e) => !e.parent_code || !entities.some((p) => p.code === e.parent_code));
-    const kids = (code) => list.filter((e) => e.parent_code === code);
-    const out = [];
-    roots.forEach((r) => { out.push({ ...r, depth: 0 }); kids(r.code).forEach((k) => out.push({ ...k, depth: 1 })); });
-    // Children whose parent was filtered out still need to appear.
-    list.forEach((e) => { if (!out.some((o) => o.code === e.code)) out.push({ ...e, depth: 1 }); });
-    return out;
-  }, [entities, entityFilter]);
 
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 20, boxShadow: 'var(--shadow-sm)' };
   const input = { padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.8rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)' };
@@ -370,19 +358,9 @@ export default function ReportsTab() {
               {compareOptions.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-            <Building2 size={14} style={{ color: 'var(--text-muted)' }} />
-            <div style={{ position: 'relative' }}>
-              <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
-              <input type="text" value={entityFilter} onChange={(e) => setEntityFilter(e.target.value)} placeholder="Find entity" style={{ ...input, paddingLeft: 24, width: 140 }} disabled={dims.locations.length > 0} />
-            </div>
-            <select value={effectiveEntity} onChange={(e) => setEntity(e.target.value)} style={{ ...input, maxWidth: 320 }} disabled={dims.locations.length > 0}
-              title={dims.locations.length ? 'Several entities are picked in the Entities filter below.' : undefined}>
-              {dims.locations.length ? <option value="">{dims.locations.length} entities (see filter)</option> : <option value="">All entities (consolidated)</option>}
-              {grouped.map((e) => (
-                <option key={e.code} value={e.code}>{`${e.depth ? '    ' : ''}${e.name || 'Unnamed'} (${e.code})`}</option>
-              ))}
-            </select>
+          <div style={{ marginLeft: 'auto' }}>
+            <EntityPicker entities={entities} value={effectiveEntity} onChange={setEntity} disabled={dims.locations.length > 0}
+              disabledLabel={dims.locations.length ? `${dims.locations.length} entities (see filter)` : ''} />
           </div>
         </div>
         {canDims && <DimensionBar dims={dims} onChange={setDims} entities={entities} />}
@@ -556,6 +534,86 @@ function SectionRows({ section, open, onDrill, compare }) {
         </tr>
       ))}
     </>
+  );
+}
+
+// One entity, searchable (Visesh, Sep 25: typing a code in the old "Find
+// entity" box only narrowed the native dropdown, so the match never showed
+// until the list was opened). Type a code or a name and the matches appear
+// under the box; Enter takes the first one, Escape closes. Top-level entities
+// first with their sub-locations indented, the same order as before.
+function EntityPicker({ entities, value, onChange, disabled, disabledLabel }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const box = useRef(null);
+  const inputRef = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    setQ('');
+    setTimeout(() => inputRef.current?.focus(), 0);
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const onDown = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onDown);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
+  }, [open]);
+  const grouped = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    const list = s ? entities.filter((e) => e.code.toLowerCase().includes(s) || (e.name || '').toLowerCase().includes(s)) : entities;
+    const roots = list.filter((e) => !e.parent_code || !entities.some((p) => p.code === e.parent_code));
+    const kids = (code) => list.filter((e) => e.parent_code === code);
+    const out = [];
+    roots.forEach((r) => { out.push({ ...r, depth: 0 }); kids(r.code).forEach((k) => out.push({ ...k, depth: 1 })); });
+    // Children whose parent was filtered out still need to appear.
+    list.forEach((e) => { if (!out.some((o) => o.code === e.code)) out.push({ ...e, depth: 1 }); });
+    return out;
+  }, [entities, q]);
+  const current = entities.find((e) => e.code === value);
+  const label = disabled ? disabledLabel : value ? `${current?.name || 'Unnamed'} (${value})` : 'All entities (consolidated)';
+  const pick = (code) => { onChange(code); setOpen(false); };
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); if (q.trim()) { if (grouped[0]) pick(grouped[0].code); } else pick(''); }
+  };
+  const inputStyle = { padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.8rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)', width: '100%', boxSizing: 'border-box' };
+  const row = (on) => ({ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '6px 8px', borderRadius: 6, font: 'inherit', fontSize: '0.8rem', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', cursor: 'pointer' });
+  return (
+    <div ref={box} style={{ position: 'relative' }}>
+      <button type="button" onClick={() => !disabled && setOpen((v) => !v)} disabled={disabled} aria-haspopup="listbox" aria-expanded={open}
+        title={disabled ? 'Several entities are picked in the Entities filter below.' : 'Pick an entity'}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: 340, padding: '6px 10px', borderRadius: 8, border: `1px solid ${value && !disabled ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: 'var(--bg-card)', color: value && !disabled ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', font: 'inherit', fontSize: '0.8rem', fontWeight: value ? 600 : 400, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.7 : 1 }}>
+        <Building2 size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        <ChevronDown size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+      </button>
+      {open && (
+        <div role="listbox" aria-label="Entity" style={{ position: 'absolute', top: '110%', right: 0, zIndex: 30, width: 360, maxWidth: '92vw', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10 }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={12} style={{ position: 'absolute', left: 8, top: 10, color: 'var(--text-muted)' }} />
+            <input ref={inputRef} type="text" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKeyDown} placeholder="Type an entity code or name" style={{ ...inputStyle, paddingLeft: 26 }} aria-label="Find entity" />
+          </div>
+          <div style={{ maxHeight: 300, overflowY: 'auto', marginTop: 8, display: 'grid', gap: 2 }}>
+            {!q.trim() && (
+              <button type="button" onClick={() => pick('')} style={row(!value)}>
+                <span style={{ width: 14, display: 'inline-flex' }}>{!value ? <Check size={14} /> : null}</span>
+                <span style={{ flex: 1, fontWeight: 600 }}>All entities</span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>consolidated</span>
+              </button>
+            )}
+            {grouped.map((e) => {
+              const on = e.code === value;
+              return (
+                <button key={e.code} type="button" onClick={() => pick(e.code)} style={row(on)}>
+                  <span style={{ width: 14, display: 'inline-flex' }}>{on ? <Check size={14} /> : null}</span>
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: e.depth ? 14 : 0 }}>{e.name || 'Unnamed'}</span>
+                  <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{e.code}</span>
+                </button>
+              );
+            })}
+            {q.trim() && !grouped.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>No entity matches "{q.trim()}".</div>}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
