@@ -1209,6 +1209,10 @@ export const api = {
   timePunchEditDecide:    (id, data) => req(`/timeclock/punch-edits/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timePendingPunchEdits:  ()         => req('/timeclock/punch-edits'),
   timeSignMyTimecard:     (start)    => req('/timeclock/my-timecard/sign', { method: 'POST', body: JSON.stringify({ start: start || '' }) }),
+  // Timesheet review before signing in Nexus Sign (Sep 2026) - timesheet_review.py.
+  timesheetReviewSubmit:   (start, note = '') => req('/timesheet-review/submit', { method: 'POST', body: JSON.stringify({ start: start || '', note }) }),
+  timesheetReviewSendBack: (id, note)         => req(`/timesheet-review/${id}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
+  timesheetReviewAgree:    (id, note = '')    => req(`/timesheet-review/${id}/agree`, { method: 'POST', body: JSON.stringify({ note }) }),
   timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   // Employee's own bi-weekly pay-period timecard (payroll rows + composition)
   timeMyPayroll:          (start) => req(`/timeclock/my-payroll?start=${start || ''}`),

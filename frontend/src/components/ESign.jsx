@@ -1911,7 +1911,9 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
 }
 
 // ── Internal signing - in-shell panel replacing the E-Sign tab content ────────
-function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
+// Exported for the timesheet review panel, which opens the same signing
+// screen for a timesheet envelope (TimesheetReviewPanel.jsx).
+export function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
   const [payload, setPayload] = useState(null);
   const [busy, setBusy] = useState(false);
   const [boxRef, boxH] = useFillHeight();
