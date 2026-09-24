@@ -77,7 +77,7 @@ export function KpiReconWidget() {
   const { rows, reconciled, remaining, behind, isLoading } = useRecon();
   if (isLoading) return <LoadingBox height={80} />;
   // "Reconciliations: 3/5 completed | 2 remaining" (Priyanka, Sep 24).
-  return <Kpi value={`${reconciled} of ${rows.length}`} note={rows.length ? `${remaining} remaining · through ${fmtMD(mEnd(period))}` : `through ${fmtMD(mEnd(period))}`} delta={behind ? <Chip tone="bad">{behind} behind</Chip> : rows.length ? <Chip tone="ok">On track</Chip> : null} />;
+  return <Kpi value={`${reconciled}/${rows.length} completed`} note={rows.length ? `| ${remaining} remaining · through ${fmtMD(mEnd(period))}` : `through ${fmtMD(mEnd(period))}`} delta={behind ? <Chip tone="bad">{behind} behind</Chip> : rows.length ? <Chip tone="ok">On track</Chip> : null} />;
 }
 
 export function KpiRunwayWidget() {

@@ -5,6 +5,7 @@ import { RECON_TYPES } from '../../../accounting/dashboard/model/recon';
 import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, input, mono, num, toneColor } from './Bits';
 import { useDash } from './DashContext';
 import { useActivity, useCloseState, useDeadlines, useFlux, useIntercompany, useRecon } from './hooks';
+import { TaskViewSwitch, useCloseViews } from './closeViews';
 
 // Close and controls widgets: the close card, reconciliations, activity,
 // intercompany, balance-sheet flux, and the filing calendar.
@@ -13,16 +14,27 @@ export function CloseWidget({ onOpenClose }) {
   const { period, act } = useDash();
   const { state, isLoading } = useCloseState();
   const [busy, setBusy] = useState(null);
+  // My Tasks / All Tasks / Overdue on the card itself (Priyanka, Sep 24); the
+  // Bookkeeper view opens on My Tasks with no setup.
+  const { view, setView, role, showRow } = useCloseViews(state?.rows ?? []);
   if (isLoading || !state) return <LoadingBox />;
   if (!state.n) return <EmptyBox title="No close plan yet" body="Add the close checklist under the Data tab." />;
-  const open = state.rows.filter((r) => !r.done);
+  const open = state.rows.filter((r) => !r.done && showRow(r));
+  const shownTotal = state.rows.filter(showRow).length;
+  const shownDone = state.rows.filter((r) => r.done && showRow(r)).length;
   const complete = async (r) => {
     setBusy(r.id);
     try { await act('close-task', { period, task_id: r.id, done: true, detail: `${r.title} · ${monthLong(period)}` }); } finally { setBusy(null); }
   };
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '0.84rem' }}><span>{monthLong(period)} · target day 10</span><span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{state.nDone}/{state.n}</span></div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: '0.84rem' }}>
+        <span>{monthLong(period)} · target day 10</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <TaskViewSwitch view={view} onChange={setView} late={state.late.length} size="xs" />
+          <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{view === 'all' ? `${state.nDone}/${state.n}` : `${shownDone}/${shownTotal}`}</span>
+        </span>
+      </div>
       <Meter segments={state.phases.map((p) => ({ share: p.rows.length / state.n, color: p.done === p.rows.length ? 'var(--wk-brand, #2b45e1)' : p.done ? '#0998c3' : 'var(--border-color)', title: `${p.phase}: ${p.done}/${p.rows.length}` }))} />
       {open.length ? (
         <div>
@@ -38,7 +50,10 @@ export function CloseWidget({ onOpenClose }) {
           ))}
           {open.length > 5 ? <div style={{ paddingTop: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>+{open.length - 5} more open</div> : null}
         </div>
-      ) : <div style={{ fontSize: '0.84rem', color: toneColor(true) }}>Closed - package delivered</div>}
+      ) : view === 'overdue' ? <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>Nothing overdue.</div>
+        : view === 'mine' && !shownTotal ? <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>{role ? `No tasks owned by ${role} this month.` : 'Pick your role on the Close tab and My Tasks lists what is yours.'}</div>
+        : view === 'mine' ? <div style={{ fontSize: '0.84rem', color: toneColor(true) }}>All of your tasks are done.</div>
+        : <div style={{ fontSize: '0.84rem', color: toneColor(true) }}>Closed - package delivered</div>}
       {onOpenClose ? <button type="button" onClick={onOpenClose} style={{ alignSelf: 'flex-start', border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: '0.74rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Open the Close tab →</button> : null}
     </div>
   );
@@ -76,7 +91,7 @@ export function ReconWidget({ compact }) {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <div><span style={{ fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{reconciled} of {rows.length}</span> <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>completed · {remaining} remaining · through {fmtLong(mEnd(period))}</span></div>
+        <div><span style={{ fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{reconciled}/{rows.length} completed</span> <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>| {remaining} remaining · through {fmtLong(mEnd(period))}</span></div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{byType.map((g) => <span key={g.t}>{g.t}: {g.rows.filter((r) => r.status === 'Reconciled').length}/{g.rows.length}</span>)}</div>
       </div>
       <Meter segments={[{ share: rows.length ? reconciled / rows.length : 0, color: 'var(--wk-brand, #2b45e1)' }]} />
