@@ -1657,6 +1657,9 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_history JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_agreement VARCHAR DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_proposal JSONB",
+        # Batched task emails (Neil, Sep 24) - new table, create_all builds it;
+        # RLS enabled here per CLAUDE.md's recurring-gap note.
+        "ALTER TABLE task_email_queue ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

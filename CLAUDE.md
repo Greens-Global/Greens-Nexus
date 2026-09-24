@@ -152,6 +152,14 @@ keep the diff minimal.
   (Charmi, Sep 21). No separate leave-hours table; approved time-off
   requests are NOT auto-punched.
 
+- Task emails are BATCHED (Neil, Sep 24): an event that can wait goes into
+  `task_email_queue`, and `task_notify.flush_batches` (every minute, inside
+  `task_notify_loop`) sends one email per person once their OLDEST pending row
+  is older than the company `batchWindowMinutes` (default 60; 0 = instant).
+  Relevance is re-checked at send time (deleted / reassigned away / completed /
+  muted rows are dropped; nothing left = nothing sent). Mentions, deletions,
+  urgent tasks and tasks due today/tomorrow never wait. New task email events
+  go through `notify_task_event` - never mail directly - so they batch too.
 - Accounting dashboard (Sep 22): the Accounting view's Overview / Cash /
   Performance / Close / Data tabs are the Nexus face of the finance dashboard
   in Nexus Accounting. Figures come ONLY through `backend/routers/

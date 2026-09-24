@@ -4349,3 +4349,27 @@ class TaskNotifyPref(Base):
     email      = Column(String, primary_key=True)   # lowercased work email
     prefs      = Column(JSON, default=dict)
     updated_at = Column(String, default="")
+
+
+class TaskEmailQueue(Base):
+    """Task emails held back to be sent as one batch per person (Neil, Sep 24:
+    "wait to send the email until after one hour - if 5 tasks get assigned it
+    can batch it"). One row per (recipient, event); task_notify.flush_batches
+    sends everything a person has pending once their oldest row is older than
+    the company batch window, drops what is no longer relevant, and records
+    why. status: pending | claimed (being sent) | sent | dropped."""
+    __tablename__ = "task_email_queue"
+    id          = Column(String, primary_key=True)
+    recipient   = Column(String, default="", index=True)
+    role        = Column(String, default="")          # assignee | follower | creator
+    task_id     = Column(String, default="", index=True)
+    event_type  = Column(String, default="")
+    actor_email = Column(String, default="")
+    payload     = Column(JSON, default=dict)          # update_kind, comment_body, new_follower
+    urgent      = Column(Boolean, default=False)      # flush this person's batch now
+    status      = Column(String, default="pending", index=True)
+    batch_id    = Column(String, default="")
+    drop_reason = Column(String, default="")
+    created_at  = Column(String, default="", index=True)
+    updated_at  = Column(String, default="")
+    sent_at     = Column(String, default="")

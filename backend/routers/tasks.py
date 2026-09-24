@@ -1925,7 +1925,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # changed), but the bell notification is AGGREGATED per person: fifty
     # separate "you were assigned a task" pings for one action is the failure
     # mode CLAUDE.md warns about ("one notification per workflow, never one per
-    # item"). Email is deliberately not sent from here at all - see below.
+    # item"). Email goes through the batch queue only - see the end of this function.
     actor = (user["email"] or "").lower()
     newly_assigned: dict[str, list] = {}
     for t in rows:
@@ -1978,6 +1978,11 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View tasks"})
 
     db.commit()
+    # With batching on (task_notify.flush_batches), each newly assigned person
+    # now gets ONE email for the whole bulk assignment instead of none at all.
+    if newly_assigned:
+        import task_notify as task_mail
+        task_mail.queue_bulk_assignments(db, actor, newly_assigned)
     fire_task_event("", "bulk")
     return [task_to_dict(t) for t in rows]
 
