@@ -8,48 +8,65 @@ week hard." So this is a finish-and-close list, not a new roadmap.
 Repos: Nexus = this repo. Accounting app = `C:\Users\Vlow\Desktop\Greens Accounting`
 (`Greens-Global/greens-accounting`, `main` = production).
 
-## Status (09/24, end of build session)
+## Status (09/24, verified in the browser)
 
-Built and committed, NOT deployed: accounting `main` (2e76595 + the dashboard
-commit after it) and Nexus `dev` (b8c7ab62 + the dashboard commit after it).
-Neither repo is pushed: the auto-mode classifier refuses pushes and every
-production database read or write. Before anyone tests:
-
-1. Apply the three accounting migrations live (from the accounting repo;
-   `apply_mig.py` is in the Sep 22 session scratchpad and reads DATABASE_URL
-   from the accounting `.env`):
-   ```
-   python apply_mig.py 20260924100100_entry_detail_internal --apply
-   python apply_mig.py 20260924110000_report_dimensions --apply
-   python apply_mig.py 20260924120000_dashboard_recon_accounts --apply
-   ```
-2. Run this one line on the accounting database. The classifier refused to
-   let me write it as a migration file because it widens a write policy. It
-   lets finance "view" users (every Nexus-provisioned bookkeeper) save Bank
-   to Intacct rules; today only "full" can, which is why Charmi's picks with
-   Remember ticked were refused. Put the same line in a migration file
-   afterwards so it is tracked:
-   ```sql
-   select public._fin_dash_policies_shared('fin_gl_import_rules');
-   ```
-3. Push accounting `main` (Cloudflare deploys) and Nexus `dev`.
-4. In the accounting app: Import Hub, pull Dimensions with Items ticked, then
-   re-pull the GL for the months that should carry Item (existing lines have
-   no `item_id` until pulled again; ITEMID is optional and dropped
-   automatically if this company's GLENTRY does not serve it).
-5. Browser click-through: nothing below was opened in a browser.
+- ✅ All four accounting migrations applied and tracked. Dry-run parity:
+  August debits through the new dimension reader = `ledger_account_sums`
+  to the cent (6,417,032.58).
+- ✅ Accounting `main` pushed and deployed (latest 504b831). Nexus `dev`
+  pushed and deployed (456db733, rebased onto Sagar's Asana-removal merge).
+- ✅ Items dimension pulled (307 items) and the 2026 GL re-pulled twice
+  (Jan 1 - Sep 24): the first pass carried no items because the saved
+  connection has its own GL field list without ITEMID; ITEMID was added to
+  the saved list and the pull code now always asks for the six dimension
+  ids (accounting main ea5064e). Result: 103 item codes on 11,099 lines;
+  an Item-filtered P&L returns real accounts (HC01-20 General Labor:
+  14 accounts, 347,760.84 expense YTD).
+- ✅ Clicked through (09/24, Visesh's session):
+  - Nexus Reports: one-line period control; vs Prior Year columns with $ and
+    % variance; Add Filter chips (Project-Job picker lists names); filtered
+    re-run with "Filtered by" line; drill-down; entry number opens the
+    journal entry modal (balanced, department, customer, book, Intacct
+    batch); "Open in Nexus Accounting" deep-links the same entry.
+  - Nexus Close tab: 128 ledger bank / card accounts per entity; "Mark
+    reconciled" with statement date + balance saved and showed
+    "1 of 128 · 127 remaining · Aug 31, 2026 · Visesh Lodha"; I am ... /
+    My Tasks / All / Overdue.
+  - Nexus Cash tab: "Monthly Cash Forecast" shows the no-budget state.
+  - Nexus Overview KPIs (CFO view): margin "-0.5 pts vs prior month",
+    runway "target 6 months / +17.6 mo vs target", YTD "vs prior year",
+    reconciliations "127 remaining".
+  - Nexus Time Sheet: no California / India toggle on My Timesheet.
+  - Accounting app: P&L Dimensions popover; By Vendor columns; Close page
+    role picker + My Tasks; Cash forecast empty state; Bank to Intacct
+    upload (Total row skipped, does not block), blocker text, coding with
+    Remember ticked saved a rule (deleted after the test).
+- Found and fixed during the click-through (accounting main 0f3bd2d, 504b831):
+  a lone department on Trial Balance / Balance Sheet came back unfiltered
+  (Nexus sends `departments=`; the fast path only knew `department`); "By
+  Vendor" drew 6,600+ columns and froze the tab (now the 50 largest plus an
+  "Other (n more)" column); "All entitys" wording.
+- ⚠ dev.nexus has NO `ACCOUNTING_BASE_URL` / `ACCOUNTING_INTERNAL_KEY` on
+  its App Service (prod has them), so the Accounting tabs on dev.nexus show
+  "Accounting service is not configured". Verification ran against a LOCAL
+  backend with the prod values in the gitignored `backend/.env`. Do not
+  copy the key to dev blindly: dev's `accounting_sso_sync_loop` would then
+  push dev's grant list to the accounting app and deactivate prod users.
+  Either give dev a separate accounting key with the sync disabled, or keep
+  testing Accounting on prod after the next dev -> main release.
+- ✅ Visesh's test "I am Bookkeeper" close-role pick reset to not set.
 
 ## A. Bugs reported (fix first)
 
 - ✅ **Import Hub > Bank to Intacct: drag-and-drop does nothing** (Charmi, 00:16).
   The drop zone claims the drop, highlights while dragging, and the same file
   can be chosen twice.
-- ✅ / ☐ **Cannot pick an offset account while Remember is ticked** (Charmi,
+- ✅ **Cannot pick an offset account while Remember is ticked** (Charmi,
   00:16). Root cause: the rule table's write policy needs finance "full";
   Nexus provisions everyone but administrators at "view", so the rule save was
   refused by RLS and the toast read like the pick had failed. Client fix done
-  (the line stays coded, the message says the rule was not saved and why).
-  The policy line in step 2 above finishes it.
+  (the line stays coded, the message says the rule was not saved and why)
+  and the shared policy is live (migration 20260924130000).
 - ✅ **"Next: export" cannot be clicked** (Charmi, 00:26). Rows the parser
   skipped (no date or amount) no longer block the export; the button carries
   the reason and "Show next uncoded" scrolls to the first open line.
