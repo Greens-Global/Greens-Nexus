@@ -21,9 +21,7 @@ from routers import tasks, purchases, reviews, marketing, sop, assets, accountin
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
-from routers import asana_webhook  # Asana two-way sync - public webhook receiver
 from routers import github_webhook  # PR/push merged to dev/main -> admin notification + What's New drafts (Sep 2026)
-from routers import asana_oauth as asana_oauth_router  # Per-user Asana connection (Account Settings)
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
@@ -2161,29 +2159,9 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] monitoring_policy company backfill skipped: {e}")
-    # Asana sync fallback poll (webhooks handle real-time; this is the safety net).
-    try:
-        from asana_sync import start_auto_pull, is_sync_worker
-        start_auto_pull()
-        print(f"[startup] asana auto-pull {'scheduled' if is_sync_worker() else 'skipped (not the sync worker)'}")
-    except Exception as e:
-        print(f"[startup] asana auto-pull skipped: {e}")
-    # An import interrupted by the last restart resumes from where it stopped.
-    # Gated on the sync worker for the same reason the poll is: otherwise every
-    # developer's laptop would pick up the shared job on startup.
-    try:
-        from asana_sync import is_sync_worker
-        if is_sync_worker():
-            from routers.task_config import resume_stalled_import
-            outcome = resume_stalled_import()
-            if outcome:
-                print(f"[startup] asana import {outcome}")
-    except Exception as e:
-        print(f"[startup] asana import resume skipped: {e}")
     # Background jobs - HR reminders, ticket/task notification retries + due-date
     # reminders, the long-session nudge - run on a SINGLE elected leader instance so
-    # scaling out to multiple web instances can't double-send. Asana sync above keeps
-    # its own advisory-lock gating. See leader.py.
+    # scaling out to multiple web instances can't double-send. See leader.py.
     def _start_background_jobs():
         import asyncio as _a
         _tasks = []
@@ -2638,11 +2616,8 @@ app.include_router(task_projects.router)  # Task Module: projects/portfolios/dep
 app.include_router(task_config.router)    # Task Module: views/rules/templates/notifications/changelog
 app.include_router(tickets_router.router) # Ticket Module: tickets, conversation, components, links, escalation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
-app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook receiver (verified by HMAC)
 app.include_router(github_webhook.router) # PR/push merged to dev/main: public webhook receiver (verified by HMAC)
-app.include_router(asana_oauth_router.router)         # Per-user Asana connection (signed-in user, own grant only)
 app.include_router(construction.router)  # Construction: projects, daily logs, jobsite media
-app.include_router(asana_oauth_router.public_router)  # OAuth callback - Asana redirects a browser here, no bearer token
 app.include_router(egnyte_oauth_router.router)        # Per-user Egnyte connection (browse with YOUR OWN Egnyte permissions)
 app.include_router(egnyte_oauth_router.public_router) # OAuth callback - Egnyte redirects a browser here, no bearer token
 app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment

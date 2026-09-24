@@ -385,11 +385,11 @@ export function TasksProvider({ children }) {
   const actions = useMemo(() => ({
     createProject: mk(api.createTaskProject, setProjects),
     updateProject: mkUpd(api.updateTaskProject, setProjects),
-    // Not mkDel: a project delete now removes its tasks and teams server-side
-    // too (and optionally the Asana project), so the whole core has to be
-    // refetched rather than just dropping the project from its own list.
-    deleteProject: async (id, { deleteInAsana = false } = {}) => {
-      const r = await api.deleteTaskProject(id, deleteInAsana);
+    // Not mkDel: a project delete bins its tasks server-side too, so the
+    // whole core has to be refetched rather than just dropping the project
+    // from its own list.
+    deleteProject: async (id) => {
+      const r = await api.deleteTaskProject(id);
       setProjects((p) => p.filter((x) => x.id !== id));
       loadCore();
       return r;

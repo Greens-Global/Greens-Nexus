@@ -459,15 +459,10 @@ export const api = {
   getTaskProjects: () => req("/task-projects"),
   createTaskProject: (data) => req("/task-projects", { method: "POST", body: JSON.stringify(data) }),
   updateTaskProject: (id, data) => req(`/task-projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  // deleteInAsana: the operator's explicit answer to "also delete it in Asana?".
-  // Omitted (false) means Nexus-only - the Asana project survives so it can be
-  // imported again from scratch.
-  deleteTaskProject: (id, deleteInAsana = false) =>
-    req(`/task-projects/${id}${deleteInAsana ? "?delete_in_asana=true" : ""}`, { method: "DELETE" }),
+  deleteTaskProject: (id) => req(`/task-projects/${id}`, { method: "DELETE" }),
   // Department names only, readable by anyone in the task module (the People
   // module's own listing needs HR access) - see list_project_departments.
   getProjectDepartments: () => req("/task-projects/meta/departments"),
-  getTaskProjectAsanaLink: (id) => req(`/task-projects/${id}/asana-link`),
   // Fills team_id on tasks whose project has exactly one team. Dry run by default.
   backfillTaskTeams: (apply) => req(`/task-projects/backfill-teams?apply=${apply ? 'true' : 'false'}`, { method: 'POST', timeoutMs: 120000 }),
   getTaskPortfolios: () => req("/task-portfolios"),
@@ -518,51 +513,9 @@ export const api = {
   // Work-site names for the intake form's Facility / Site questions. Ticket-
   // scoped on purpose - /hr/work-sites needs an HR grant a requester won't have.
   getTicketSites: () => cachedGet("/ticket-sites", 120_000),
-  asanaListProjects: (data) => req("/task-asana-projects", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
-  asanaImport: (data) => req("/task-asana-import", { method: "POST", body: JSON.stringify(data), timeoutMs: 600000 }),
-  getAsanaSyncConfig: () => req("/asana-sync/config"),
-  setAsanaSyncConfig: (data) => req("/asana-sync/config", { method: "PUT", body: JSON.stringify(data) }),
-  setAsanaProjectMap: (data) => req("/asana-sync/projects", { method: "PUT", body: JSON.stringify(data) }),
-  asanaSyncPull: () => req("/asana-sync/pull", { method: "POST", timeoutMs: 600000 }),
-  // Additive pull: create only the Asana tasks Nexus is missing; never touch an
-  // existing task. Safe when Nexus holds edits Asana doesn't.
-  asanaSyncPullNew: () => req("/asana-sync/pull-new", { method: "POST", timeoutMs: 600000 }),
-  asanaSyncPullPersonal: () => req("/asana-sync/pull-personal", { method: "POST", timeoutMs: 600000 }),
-  asanaSyncPushAll: () => req("/asana-sync/push-all", { method: "POST", timeoutMs: 600000 }),
-  asanaSyncDedupe: (apply) => req(`/asana-sync/dedupe?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
-  // Why assignees are or are not reaching Asana - the one field that can fail
-  // on its own, because it is the only one that must be translated (Nexus email
-  // -> Asana user gid) rather than copied.
-  asanaAssigneeCheck: () => req("/asana-sync/assignee-check"),
-  // Asana shows no workspace id in its UI and the ids in its URLs are PROJECT
-  // ids - so offer a picker rather than have one pasted into the wrong field.
-  asanaWorkspaces:    () => req("/asana-sync/workspaces"),
-  // Walks every project in the workspace - same 10-min ceiling as Pull/Push all.
-  // Starts a background job and returns it right away; a whole workspace takes
-  // minutes and Azure kills any request at ~230s. Poll asanaSyncImportAllStatus.
-  asanaSyncImportAll: () => req("/asana-sync/import-all", { method: "POST" }),
-  asanaSyncImportAllStatus: () => req("/asana-sync/import-all/status"),
-  // Asks the run to stop at the next project boundary; it does not kill it.
-  asanaSyncImportAllCancel: () => req("/asana-sync/import-all/cancel", { method: "POST" }),
-  asanaSyncPurgeOrphans: (apply) => req(`/asana-sync/purge-orphans?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
-  getAsanaSyncProjects: () => req("/asana-sync/asana-projects", { timeoutMs: 60000 }),
-  getAsanaWebhooks: () => req("/asana-sync/webhooks"),
-  registerAsanaWebhooks: (data) => req("/asana-sync/webhooks", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
-  // ── Per-user Asana connection (Account Settings) ──
-  // Personal, not admin: each of these acts on the signed-in user's own grant.
-  // No endpoint here ever returns the token itself.
-  asanaOauthStatus:     () => req("/asana-oauth/status"),
-  asanaOauthStart:      () => req("/asana-oauth/start", { method: "POST" }),
-  asanaOauthDisconnect: () => req("/asana-oauth/me", { method: "DELETE" }),
-  // Live check: would a comment posted NOW go out as me, or as the shared
-  // sync account - and if the latter, why. Calls Asana for real.
-  asanaOauthCheck:      () => req("/asana-oauth/check"),
-  // Counts every Asana task assigned to ME (my own grant sees my private ones)
-  // and says which are not in Nexus. Long: pages the whole list.
-  asanaOauthCoverage:   () => req("/asana-oauth/coverage", { timeoutMs: 300000 }),
-  // Pulls the tasks /coverage listed as missing, through MY grant. Additive.
-  asanaOauthRescue:     () => req("/asana-oauth/coverage/rescue", { method: "POST", timeoutMs: 600000 }),
-  deleteAsanaWebhooks: () => req("/asana-sync/webhooks", { method: "DELETE", timeoutMs: 60000 }),
+  // Asana, after the integration (removed Sep 2026): read-only list of rows
+  // still pointing at Asana-hosted content, plus the archived row counts.
+  getAsanaLegacyAudit: () => req("/asana-legacy/audit", { timeoutMs: 60000 }),
   getTaskAutomationRules: () => req("/task-automation-rules"),
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),
   updateTaskAutomationRule: (id, data) => req(`/task-automation-rules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),

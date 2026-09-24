@@ -22,7 +22,6 @@ from fastapi import BackgroundTasks, HTTPException
 import database
 import models
 import task_due
-from routers import tasks as tasks_router
 from routers.task_util import gen_id
 from routers.tasks import (create_task, update_task, bulk_update, confirm_due, propose_due, respond_due,
                            TaskCreate, TaskUpdate, BulkUpdate, DueProposal, DueAnswer)
@@ -65,11 +64,8 @@ class DueCase(unittest.TestCase):
         self.db.add(models.NexusEmployee(id=gen_id(), work_email=SAGAR["email"], first_name="Sagar",
                                          manager_email=MANAGER["email"]))
         self.db.commit()
-        self._push = tasks_router._asana_push
-        tasks_router._asana_push = lambda *a, **kw: None
 
     def tearDown(self):
-        tasks_router._asana_push = self._push
         self.db.close()
 
     def _create(self, user=BOSS, **fields):
