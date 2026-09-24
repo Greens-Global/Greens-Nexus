@@ -3,6 +3,7 @@ import { Download, X, ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react'
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
+import EntryDetail from './EntryDetail';
 
 // Search results and report drill-downs for Accounting -> Reports.
 //
@@ -69,7 +70,29 @@ function FacetRow({ label, items, total, onPick, text }) {
   );
 }
 
-export default function LedgerSearch({ term, entity, entityName, drill, onClearDrill, onClose }) {
+// The report's dimension filters (`dims`) narrow the search as far as line
+// search can: one entity, and one vendor / customer / employee become the
+// location and party filters. Anything else (several entities, departments,
+// Project-Job, item, several parties) is named in the header as not applied,
+// so the total here is never mistaken for the filtered report figure.
+const PARTY_KINDS = ['vendor', 'customer', 'employee'];
+const DIM_NAMES = { locations: 'entities', departments: 'department', vendor: 'vendor', customer: 'customer', employee: 'employee', project: 'Project-Job', item: 'item' };
+function applyDims(dims, entity) {
+  if (!dims) return { location: entity || undefined, party: null, unapplied: [] };
+  const unapplied = [];
+  let location = entity || undefined;
+  if (dims.locations?.length === 1) location = dims.locations[0];
+  else if (dims.locations?.length > 1) unapplied.push(`${dims.locations.length} entities`);
+  let party = null;
+  const partyKinds = PARTY_KINDS.filter((k) => dims[k]?.length);
+  if (partyKinds.length === 1 && dims[partyKinds[0]].length === 1) party = { kind: partyKinds[0], code: dims[partyKinds[0]][0], name: dims[partyKinds[0]][0] };
+  else partyKinds.forEach((k) => unapplied.push(`${dims[k].length} ${DIM_NAMES[k]}${dims[k].length > 1 ? 's' : ''}`));
+  ['departments', 'project', 'item'].forEach((k) => { if (dims[k]?.length) unapplied.push(`${DIM_NAMES[k]} (${dims[k].length})`); });
+  return { location, party, unapplied };
+}
+
+export default function LedgerSearch({ term, entity, entityName, drill, onClearDrill, onClose, dims = null }) {
+  const applied = useMemo(() => applyDims(dims, entity), [dims, entity]);
   // Narrowing picked from the chips. A drill-down arrives with its account set.
   const [party, setParty] = useState(null);       // { kind, code, name }
   const [account, setAccount] = useState(null);   // { code, name }
@@ -81,19 +104,22 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [openEntry, setOpenEntry] = useState(null); // { id, no } - the entry number clicked
   const seq = useRef(0);
 
   // A new drill-down replaces whatever was picked before it.
   useEffect(() => {
     if (!drill) return;
     setAccount({ code: drill.account, name: drill.accountName });
-    setParty(null); setJournal(''); setBook('accrual'); setScope('period');
-  }, [drill]);
+    setParty(applied.party); setJournal(''); setBook('accrual'); setScope('period');
+  }, [drill]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A single vendor / customer / employee on the report follows into the search.
+  useEffect(() => { setParty(applied.party); }, [applied.party?.kind, applied.party?.code]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const usePeriod = scope === 'period' && drill;
   const params = useMemo(() => ({
     q: term || undefined,
-    location: entity || undefined,
+    location: applied.location,
     from: usePeriod ? drill.from : undefined,
     to: usePeriod ? drill.to : undefined,
     party_kind: party?.kind,
@@ -101,7 +127,7 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
     account: account?.code,
     journal: journal || undefined,
     book: book === 'all' ? undefined : book,
-  }), [term, entity, usePeriod, drill, party, account, journal, book]);
+  }), [term, applied.location, usePeriod, drill, party, account, journal, book]);
 
   const hasCriteria = (term || '').trim().length >= 2 || !!party || !!account || !!journal;
 
@@ -197,6 +223,12 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
         </div>
       )}
 
+      {applied.unapplied.length > 0 && (
+        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 10 }}>
+          Report filters not applied to line search: {applied.unapplied.join(', ')}. These lines are the account's full activity for the entity and period.
+        </div>
+      )}
+
       {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', marginBottom: 10 }}>{error}</div>}
 
       {!hasCriteria ? (
@@ -245,7 +277,14 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
                 {rows.map((r) => (
                   <tr key={r.line_id}>
                     <td style={{ whiteSpace: 'nowrap' }}>{formatDate(r.entry_date)}</td>
-                    <td style={{ whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '0.74rem' }}>{r.entry_no}</td>
+                    <td style={{ whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '0.74rem' }}>
+                      {r.entry_id ? (
+                        <button type="button" onClick={() => setOpenEntry({ id: r.entry_id, no: r.entry_no })} title="Open this journal entry"
+                          style={{ border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3 }}>
+                          {r.entry_no || 'open'}
+                        </button>
+                      ) : r.entry_no}
+                    </td>
                     <td style={{ whiteSpace: 'nowrap' }}>{r.doc}</td>
                     <td style={{ maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.description}>{r.description}</td>
                     <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${r.gl_code} ${r.account_name}`}>
@@ -275,6 +314,7 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
           )}
         </>
       ) : null}
+      {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={() => setOpenEntry(null)} />}
     </div>
   );
 }

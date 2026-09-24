@@ -478,7 +478,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         </button>
         )}
         <div style={{ flex: 1 }} />
-        <TzSwitch />
+        {/* The California / India toggle is a payroll reviewer's tool; an
+            employee's own timesheet shows one timezone (Neil, Sep 23). */}
+        {!self && <TzSwitch />}
         <label data-tour="pr-rounding" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
           title="SwipeClock shows rounded times (nearest 5 min) and computes pay from them. Tick to see the raw punch times instead - totals stay computed from rounded.">
           <input type="checkbox" checked={showRaw} onChange={e => setShowRaw(e.target.checked)} />
@@ -985,7 +987,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <button className="icon-btn" onClick={onNext} style={{ padding: 6 }}><ChevronRight size={16} /></button>
         </div>
         <div style={{ flex: 1 }} />
-        <TzSwitch />
+        {/* The California / India toggle is a payroll reviewer's tool; an
+            employee's own timesheet shows one timezone (Neil, Sep 23). */}
+        {!self && <TzSwitch />}
         {/* No rounding toggle - salary pay is day-based, so times show exactly as punched. */}
       </div>
 
