@@ -513,9 +513,6 @@ export const api = {
   // Work-site names for the intake form's Facility / Site questions. Ticket-
   // scoped on purpose - /hr/work-sites needs an HR grant a requester won't have.
   getTicketSites: () => cachedGet("/ticket-sites", 120_000),
-  // Asana, after the integration (removed Sep 2026): read-only list of rows
-  // still pointing at Asana-hosted content, plus the archived row counts.
-  getAsanaLegacyAudit: () => req("/asana-legacy/audit", { timeoutMs: 60000 }),
   getTaskAutomationRules: () => req("/task-automation-rules"),
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),
   updateTaskAutomationRule: (id, data) => req(`/task-automation-rules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
