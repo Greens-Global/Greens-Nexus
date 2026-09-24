@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { closeState } from '../../../accounting/dashboard/model/close';
 import { holdingsInScope, intercompanyRows, loansInScope, partnerSummary, upcomingDeadlines, valuation } from '../../../accounting/dashboard/model/capital';
 import { balancesAt, cashTrend, monthTotals } from '../../../accounting/dashboard/model/ledger';
-import { cashPlan, fixedMonthly, forecast13, runwayMonths, SCENARIOS } from '../../../accounting/dashboard/model/cash-plan';
+import { cashPlan, fixedMonthly, forecast13, forecastMonthly, runwayMonths, SCENARIOS } from '../../../accounting/dashboard/model/cash-plan';
 import { reconList } from '../../../accounting/dashboard/model/recon';
 import { fluxRows } from '../../../accounting/dashboard/model/flux';
 import { perfTiles, variances, ytdVariance } from '../../../accounting/dashboard/model/perf';
@@ -72,24 +72,31 @@ export function useCloseState() {
   return { state, history: useMemo(() => history.map((h) => ({ period: h.period, closed_day: n(h.closed_day) })), [history]), isLoading: tablesLoading };
 }
 
+const markRow = (m) => ({ ...m, thru_date: m.thru_date ? String(m.thru_date).slice(0, 10) : null, stmt_balance: m.stmt_balance == null || m.stmt_balance === '' ? null : Number(m.stmt_balance) });
+
 export function useRecon() {
-  const { period, scope, ix, ledger, tablesLoading } = useDash();
+  const { period, scope, ix, ledger, tablesLoading, reconAccounts, reconAccountsLoading } = useDash();
   const banks = useTable('banks');
   const recons = useTable('recons');
-  const marks = useTable('reconMarks');
+  const marksRaw = useTable('reconMarks');
+  const latestRaw = useTable('reconMarksLatest');
   const { all: loans } = useLoans();
   const holdingsRaw = useTable('holdings');
   const rows = useMemo(() => {
     const bal = ledger ? balancesAt(ledger, period) : new Map();
     return reconList({
-      period, scope, ix, banks, marks, loans,
+      period, scope, ix, banks, loans,
+      marks: marksRaw.map(markRow),
+      latestMarks: latestRaw.map(markRow),
+      glAccounts: reconAccounts,
       recons: recons.map((r) => ({ ...r, difference: n(r.difference), ending_balance: n(r.ending_balance) })),
       holdings: holdingsRaw.map((h) => ({ ...h, market_value: n(h.market_value) })),
       glBalance: (id) => bal.get(id) ?? 0,
       glCode: (id) => ledger?.accounts.get(id)?.gl ?? '',
     });
-  }, [period, scope, ix, ledger, banks, recons, loans, holdingsRaw, marks]);
-  return { rows, reconciled: rows.filter((r) => r.status === 'Reconciled').length, behind: rows.filter((r) => r.status === 'Behind' || r.status === 'Difference').length, isLoading: tablesLoading };
+  }, [period, scope, ix, ledger, banks, recons, loans, holdingsRaw, marksRaw, latestRaw, reconAccounts]);
+  const reconciled = rows.filter((r) => r.status === 'Reconciled').length;
+  return { rows, reconciled, remaining: rows.length - reconciled, behind: rows.filter((r) => r.status === 'Behind' || r.status === 'Difference').length, isLoading: tablesLoading || reconAccountsLoading };
 }
 
 export function useNotes() {
@@ -149,6 +156,15 @@ export function useForecast13() {
   const { summary } = usePartners();
   const monthlyDist = summary.rows.filter((r) => r.frequency === 'M').reduce((t, r) => t + r.distribution, 0) + summary.nextQuarterly / 3;
   return useMemo(() => forecast13(lines, loans, period, cashSplit.ctl, monthlyDist), [lines, loans, period, cashSplit.ctl, monthlyDist]);
+}
+
+/** Six months of cash from the posted budget (Charmi, Sep 23: monthly, not weekly). Null until the ledger is in. */
+export function useForecastMonthly() {
+  const { ledger, budgetAhead, period, cashSplit } = useDash();
+  const { loans } = useLoans();
+  const { summary } = usePartners();
+  const monthlyDist = summary.rows.filter((r) => r.frequency === 'M').reduce((t, r) => t + r.distribution, 0) + summary.nextQuarterly / 3;
+  return useMemo(() => (ledger ? forecastMonthly(ledger, budgetAhead, loans, period, cashSplit.ctl, monthlyDist) : null), [ledger, budgetAhead, loans, period, cashSplit.ctl, monthlyDist]);
 }
 
 export function useFlux() {

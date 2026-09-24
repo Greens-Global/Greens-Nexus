@@ -102,6 +102,13 @@ async def cash_entities(scope: str = "ALL", asof: str = Query(...), book: str = 
     return await _get("cash-entities", {"scope": scope, "asof": asof, "book": book})
 
 
+@router.get("/recon-accounts")
+async def recon_accounts(scope: str = "ALL", asof: str = Query(...), book: str = "accrual"):
+    """Bank and card GL accounts per entity with their balance as of a date -
+    the bookkeeper's reconciliation list (Charmi, Sep 23)."""
+    return await _get("recon-accounts", {"scope": scope, "asof": asof, "book": book})
+
+
 @router.get("/budget")
 async def budget(from_: str = Query(alias="from"), to: str = Query(...), book: str = "accrual"):
     """Budget per account per month, prorated from posted budget journals."""

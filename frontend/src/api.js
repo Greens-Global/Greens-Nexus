@@ -1039,6 +1039,9 @@ export const api = {
   getAccountingDashCashEntities: (scope, asof, book) =>
     req(`/accounting/dashboard/cash-entities?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}`),
   getAccountingDashBudget: (from, to, book) => req(`/accounting/dashboard/budget?from=${from}&to=${to}&book=${book}`),
+  // Bank and card GL accounts per entity with their balance as of a date - the reconciliation list.
+  getAccountingDashReconAccounts: (scope, asof, book) =>
+    req(`/accounting/dashboard/recon-accounts?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}`),
   getAccountingDashNoi: (from, to, book) => req(`/accounting/dashboard/noi?from=${from}&to=${to}&book=${book}`),
   getAccountingDashEntities: () => req("/accounting/dashboard/entities"),
   getAccountingDashTables: (period) => req(`/accounting/dashboard/tables?period=${period}`),

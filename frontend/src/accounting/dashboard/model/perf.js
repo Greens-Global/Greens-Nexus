@@ -72,11 +72,16 @@ export function ytdVariance(L, period) {
     const rev = lines.filter((l) => isRevenue(l.account));
     const exp = lines.filter((l) => !isRevenue(l.account));
     const t = (ls, key) => ls.reduce((s, l) => s + l[key], 0);
+    const pyFrom = shiftKey(from, 12);
+    const py = L.months.includes(pyFrom) ? incomeStatementRange(L, pyFrom, shiftKey(period, 12)) : null;
     return {
         lines,
         revenue: { a: t(rev, "actual"), b: t(rev, "budget") },
         expense: { a: t(exp, "actual"), b: t(exp, "budget") },
         net: { a: t(lines, "actual"), b: t(lines, "budget") },
         largest: [...lines].sort((a, b) => Math.abs(b.v) - Math.abs(a.v)).slice(0, 5),
+        prior: py
+            ? { revenue: sumLines(py, (l) => isRevenue(l.account)), expense: sumLines(py, (l) => !isRevenue(l.account)), net: sumLines(py) }
+            : null,
     };
 }

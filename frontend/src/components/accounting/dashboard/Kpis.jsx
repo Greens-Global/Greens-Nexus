@@ -3,8 +3,10 @@ import { fmtMD, mEnd } from '../../../accounting/dashboard/model/months';
 import { sumLines } from '../../../accounting/dashboard/model/ledger';
 import { Chip, Delta, LoadingBox } from './Bits';
 import { Sparkline } from './Charts';
-import { useDash } from './DashContext';
+import { RUNWAY_TARGET_MONTHS, useDash } from './DashContext';
 import { useHoldings, usePerf, useRecon, useRunway, useTrend } from './hooks';
+
+const signed = (n, digits = 1) => `${n >= 0 ? '+' : '-'}${Math.abs(n).toFixed(digits)}`;
 
 // Headline-number widgets: one figure, a note, a change pill and, where a
 // history exists, a sparkline.
@@ -49,11 +51,17 @@ export function KpiNiWidget() {
 }
 
 export function KpiMarginWidget() {
-  const { lines, loading } = useDash();
+  const { lines, loading, isRange } = useDash();
   if (loading) return <LoadingBox height={80} />;
   const rev = sumLines(lines, (l) => l.group === 'Revenue');
   const op = sumLines(lines, (l) => l.group !== 'Other');
-  return <Kpi value={pctTxt(rev ? op / rev : 0)} note="before interest and depreciation" />;
+  const margin = rev ? op / rev : 0;
+  // Same margin over the preceding run of months (Priyanka, Sep 23: every card carries a comparison).
+  const prevRev = sumLines(lines, (l) => l.group === 'Revenue', 'prior');
+  const prevOp = sumLines(lines, (l) => l.group !== 'Other', 'prior');
+  const prevMargin = prevRev ? prevOp / prevRev : null;
+  const pts = prevMargin == null ? null : (margin - prevMargin) * 100;
+  return <Kpi value={pctTxt(margin)} note="before interest and depreciation" delta={<Delta v={pts} text={pts == null ? undefined : `${signed(pts)} pts`} suffix={isRange ? 'vs prior period' : 'vs prior month'} />} />;
 }
 
 export function KpiInvestWidget() {
@@ -66,16 +74,24 @@ export function KpiInvestWidget() {
 
 export function KpiReconWidget() {
   const { period } = useDash();
-  const { rows, reconciled, behind, isLoading } = useRecon();
+  const { rows, reconciled, remaining, behind, isLoading } = useRecon();
   if (isLoading) return <LoadingBox height={80} />;
-  return <Kpi value={`${reconciled} of ${rows.length}`} note={`through ${fmtMD(mEnd(period))}`} delta={behind ? <Chip tone="bad">{behind} behind</Chip> : <Chip tone="ok">On track</Chip>} />;
+  // "Reconciliations: 3/5 completed | 2 remaining" (Priyanka, Sep 24).
+  return <Kpi value={`${reconciled} of ${rows.length}`} note={rows.length ? `${remaining} remaining · through ${fmtMD(mEnd(period))}` : `through ${fmtMD(mEnd(period))}`} delta={behind ? <Chip tone="bad">{behind} behind</Chip> : rows.length ? <Chip tone="ok">On track</Chip> : null} />;
 }
 
 export function KpiRunwayWidget() {
   const { m, loading } = useDash();
   const { fixed, liquid, months } = useRunway();
   if (loading) return <LoadingBox height={80} />;
-  return <Kpi value={fixed ? `${months.toFixed(1)} mo` : '-'} note={`${m(liquid, { compact: true })} liquid vs ${m(fixed, { compact: true })}/mo fixed`} delta={fixed ? <Chip tone={months < 6 ? 'bad' : months < 12 ? 'wait' : 'ok'}>{months < 6 ? 'Tight' : months < 12 ? 'Adequate' : 'Strong'}</Chip> : null} />;
+  const gap = months - RUNWAY_TARGET_MONTHS;
+  return (
+    <Kpi value={fixed ? `${months.toFixed(1)} mo` : '-'} note={`target ${RUNWAY_TARGET_MONTHS} months · ${m(liquid, { compact: true })} liquid vs ${m(fixed, { compact: true })}/mo fixed`}
+      delta={fixed ? (<>
+        <Delta v={gap} text={`${signed(gap)} mo`} suffix="vs target" />
+        <Chip tone={months < RUNWAY_TARGET_MONTHS ? 'bad' : months < 12 ? 'wait' : 'ok'}>{months < RUNWAY_TARGET_MONTHS ? 'Tight' : months < 12 ? 'Adequate' : 'Strong'}</Chip>
+      </>) : null} />
+  );
 }
 
 export function KpiYtdWidget() {
@@ -83,5 +99,10 @@ export function KpiYtdWidget() {
   const perf = usePerf();
   if (loading || !perf) return <LoadingBox height={80} />;
   const { a, b } = perf.ytd.net;
-  return <Kpi value={m(a, { compact: true })} note={`budget ${m(b, { compact: true })} year to date`} delta={<Delta v={b ? (a - b) / Math.abs(b) : null} />} />;
+  const py = perf.ytd.prior?.net ?? null;
+  // Against the budget and against the same months last year (Priyanka, Sep 23).
+  return (
+    <Kpi value={m(a, { compact: true })} note={`budget ${m(b, { compact: true })}${py != null ? ` · prior year ${m(py, { compact: true })}` : ''}`}
+      delta={<><Delta v={b ? (a - b) / Math.abs(b) : null} suffix="vs budget" /><Delta v={py ? (a - py) / Math.abs(py) : null} suffix="vs prior year" /></>} />
+  );
 }

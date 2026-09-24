@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CheckSquare, Database, ExternalLink, FileText, LayoutGrid, Loader2, TrendingUp, Wallet } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
+import { useNameResolver } from '../lib/useNameResolver';
 import ModuleTabs from '../components/ModuleTabs';
 import ReportsTab from '../components/accounting/ReportsTab';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
@@ -16,7 +17,7 @@ import DataTab from '../components/accounting/dashboard/DataTab';
 // Supabase mirror; Intacct stays the source of truth and nothing is written
 // back to it - Neil, Sep 7). Sep 22: the finance dashboard joined the Reports
 // surface as its own tabs - Overview (customizable widgets and role views),
-// Cash (plan, scenarios, 13-week forecast), Performance (budget vs actual vs
+// Cash (plan, scenarios, monthly budget forecast), Performance (budget vs actual vs
 // prior year, commentary) and Close (checklist, reconciliations, flux). Each
 // tab shows one section at a time so nobody scrolls to find a panel. The
 // figures come through the backend proxy (backend/routers/accounting_dashboard.py);
@@ -36,7 +37,10 @@ const TABS = [
 export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
   // Access); seeing this screen does not imply it. Administrators bypass.
-  const { canAccessModule } = useRole();
+  const { canAccessModule, myEmail } = useRole();
+  // The Close tab's "My Tasks" matches a task owner to my role or my name.
+  const nameOf = useNameResolver();
+  const meName = nameOf(myEmail) || '';
   const canOpenApp = canAccessModule('accounting-app', 'administrator', 'viewer');
   // Ticking close tasks, marking reconciliations, writing commentary and
   // editing reference figures need the editor level on the Accounting grant.
@@ -100,7 +104,7 @@ export default function Accounting({ activeSub, onSubChange }) {
             {sub === 'overview' && <OverviewTab canEdit={canEdit} />}
             {sub === 'cash' && <CashTab />}
             {sub === 'performance' && <PerformanceTab canEdit={canEdit} />}
-            {sub === 'close' && <CloseTab canEdit={canEdit} />}
+            {sub === 'close' && <CloseTab canEdit={canEdit} meName={meName} />}
             {sub === 'reports' && <ReportsTab />}
             {sub === 'data' && canEdit && <DataTab />}
           </div>
