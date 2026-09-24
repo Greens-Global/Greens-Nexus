@@ -6,7 +6,7 @@
 // in WHICH order.
 //
 // No access gating here, unlike the Task/Ticket tours: Support shows the
-// same five cards and the same "my tickets" table to every signed-in person
+// same six cards and the same "my tickets" table to every signed-in person
 // regardless of role, so there is nothing to filter by `when`.
 //
 // Step shape (GuidedTour's contract):
@@ -17,8 +17,8 @@ export function buildSupportTourSteps() {
   return [
     {
       target: 'support-options',
-      title: 'Five shortcuts, one page',
-      body: 'Everything you might need help with starts from one of these cards. The two you will use most are Submit a Ticket and Report a Bug - the rest jump to the Contact Directory, Privacy Policy and Terms.',
+      title: 'Six shortcuts, one page',
+      body: 'Everything you might need help with starts from one of these cards. The two you will use most are Submit a Ticket and Report a Bug - the rest jump to the Contact Directory, Privacy Policy, Terms and the Documentation guide.',
     },
     {
       target: 'support-submit-ticket',
@@ -29,6 +29,11 @@ export function buildSupportTourSteps() {
       target: 'support-report-bug',
       title: 'Report a Bug',
       body: 'For something broken IN Nexus itself, not a request. Describe what happened and attach a screenshot or two if you have them - it goes in as its own ticket type, so whoever picks it up knows it is a bug, not a request.',
+    },
+    {
+      target: 'support-documentation',
+      title: 'Documentation',
+      body: 'A plain-English guide to every Nexus module - what it is for, how to use it step by step, and what managers get extra. It is also the Documentation tab at the top of this page.',
     },
     {
       target: 'support-open-tickets',

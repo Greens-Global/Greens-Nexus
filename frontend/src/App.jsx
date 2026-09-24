@@ -347,7 +347,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin":              return <Admin />;
     case "admin-console":      return <AdminConsole activeSub={activeSub} onSubChange={onSubChange} />;
-    case "support":            return <Support />;
+    case "support":            return <Support activeSub={activeSub} onSubChange={onSubChange} />;
     case "timeclock":          return <TimeClock initialTab="clock" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
