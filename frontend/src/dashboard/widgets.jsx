@@ -6,12 +6,17 @@ import {
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
   ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
   CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
+  Bookmark, Plus, Link2, Lock,
+  PenLine, Contact, ShoppingCart, Cake, UserMinus,
   Ticket as TicketIcon,
 } from 'lucide-react';
 import { formatTime } from '../lib/datetime';
 import { api } from '../api';
 import { LinkIcon } from '../components/LinkIcon.jsx';
 import { useNotifications } from '../contexts/NotificationContext.jsx';
+import { useRole } from '../contexts/RoleContext';
+import { readIds, pushRecentId } from '../links/shortcutStorage';
+import { looksLikeUrl } from '../links/personalLinkModal.jsx';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
 // lazily so TimeAdmin & the approval flows stay out of the main bundle.
@@ -32,6 +37,20 @@ const ProjectsPanel     = lazyPanel('ProjectsPanel');
 const TeamCalendarPanel = lazyPanel('TeamCalendarPanel');
 const CalendarPanel     = lazyPanel('CalendarPanel');
 
+// Workday tiles (phase 2, Sep 24) - own lazy chunk, same idea as panels.jsx.
+const lazyWorkday = (name) => lazy(() => import('./workdayWidgets.jsx').then(m => ({ default: m[name] })));
+const TimeClockWidget  = lazyWorkday('TimeClockWidget');
+const MyRequestsWidget = lazyWorkday('MyRequestsWidget');
+const DueBackWidget    = lazyWorkday('DueBackWidget');
+const ComingUpWidget   = lazyWorkday('ComingUpWidget');
+
+// Team tiles (phase 3, Sep 25) - the supervisor/manager gaps, own lazy chunk.
+const lazyTeam = (name) => lazy(() => import('./teamWidgets.jsx').then(m => ({ default: m[name] })));
+const TicketQueueWidget      = lazyTeam('TicketQueueWidget');
+const TimeExceptionsWidget   = lazyTeam('TimeExceptionsWidget');
+const OutTodayWidget         = lazyTeam('OutTodayWidget');
+const PendingPurchasesWidget = lazyTeam('PendingPurchasesWidget');
+
 // Fire the app's cross-view navigation event (see CLAUDE.md).
 export function navigate(view, sub) {
   window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub: sub || null } }));
@@ -49,6 +68,7 @@ export const KPI_CATALOG = {
   my_checkouts:         { label: 'My Active Checkouts',     color: 'green',  Icon: Boxes,         hint: 'Currently with you',   nav: { view: 'inventory', sub: 'checkouts' } },
   my_assignments:       { label: 'Items Assigned to Me',    color: 'green',  Icon: Package,       hint: 'Your equipment',       nav: { view: 'inventory' } },
   unread_notifications: { label: 'Unread Notifications',    color: 'blue',   Icon: Bell,          hint: 'Tap to review' },
+  signatures_needed:    { label: 'Signatures Needed',       color: 'green',  Icon: PenLine,       hint: 'Waiting on you',       nav: { view: 'myhr' } },
   warranties_expiring:  { label: 'Warranties Expiring',     color: 'red',    Icon: ShieldCheck,   hint: 'Within 60 days',       nav: { view: 'property-asset' } },
   open_tickets:         { label: 'Open Tickets',            color: 'red',    Icon: TicketIcon,    hint: 'Across the team',      nav: { view: 'tickets' } },
   // Manager Dashboard folded into the one Dashboard (Sep 3) - these KPI tiles
@@ -81,7 +101,7 @@ const labelFor = (t) => SHORTCUT_TARGETS.find(s => s.view === t.view && (s.sub |
   || t.label || t.view;
 
 // ── Native card shells (match the Overview screen exactly) ────────────────────
-function DashCard({ title, sub, action, children, onClick, style }) {
+export function DashCard({ title, sub, action, children, onClick, style }) {
   return (
     <div className="dash-card" onClick={onClick}
       style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', cursor: onClick ? 'pointer' : 'default', ...style }}>
@@ -269,7 +289,7 @@ function LinksFolderTile({ link, color, onOpen, style }) {
 // makes it a direct child of body, same as it should have been the whole
 // session - no other modal in this app is nested this deep, which is why
 // this is the only one that showed it.
-function LinksFolderAllModal({ title, links, itemType, onOpen, onClose }) {
+function LinksFolderAllModal({ title, links, itemType, colorFor, onOpen, onClose }) {
   return createPortal((
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
@@ -280,9 +300,9 @@ function LinksFolderAllModal({ title, links, itemType, onOpen, onClose }) {
         <div style={{ padding: '20px 24px' }}>
           <div className="scroll-tabs" style={{ display: 'flex', flexWrap: 'nowrap', gap: 14, overflowX: 'auto', paddingBottom: 4 }}>
             {links.map(l => (
-              <div key={l.id} style={{ flexShrink: 0 }}>
+              <div key={l._uid || l.id} style={{ flexShrink: 0 }}>
                 <LinksFolderTile link={l} onOpen={() => onOpen(l)}
-                  color={itemType === 'personal' ? PERSONAL_TILE_COLOR : colorForLinkCategory(l.category)} />
+                  color={colorFor ? colorFor(l) : itemType === 'personal' ? PERSONAL_TILE_COLOR : colorForLinkCategory(l.category)} />
               </div>
             ))}
           </div>
@@ -387,18 +407,228 @@ function LinksFolderWidget({ config }) {
   );
 }
 
-// Two kinds of action: `act` opens a composer that creates the thing in place
-// (an Outlook mail/event via Graph, or the Tasks module's own create modal),
-// everything else navigates to a screen the way this widget always has.
-const ACTIONS = [
-  { label: 'New Task',        act: 'task',                       color: 'blue',   Icon: CheckSquare },
-  { label: 'New Event',       act: 'event',                      color: 'purple', Icon: CalendarPlus },
-  { label: 'New Email',       act: 'email',                      color: 'brand',  Icon: Mail },
-  { label: 'Request an Item', view: 'inventory', sub: 'catalog', color: 'orange', Icon: Package },
-  { label: 'Time Clock',      view: 'timeclock',                 color: 'green',  Icon: Clock },
-  { label: 'Knowledge Base',  view: 'sop',                       color: 'brand',  Icon: BookOpen },
+// ── Favorites / My Personal Links widgets (Sep 24) ───────────────────────────
+// Both reuse the Links Folder tile and its "All" popup above, so a link looks
+// the same whether it's opened from the Links tab or from the dashboard.
+
+const noteStyle = { fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
+const tileGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(76px, 1fr))', gap: '14px 10px' };
+
+// Open a link in a new tab and record the click the same way the Links tab
+// does: the per-type click counter on the server and, for Company Links, the
+// per-browser Recently Used trail - so the dashboard and Links stay in step.
+function openLinkTile(link, type, myEmail) {
+  window.open(link.url, '_blank', 'noopener,noreferrer');
+  if (type === 'personal') { api.clickPersonalLink(link.id).catch(() => {}); return; }
+  api.clickExternalLink(link.id).catch(() => {});
+  pushRecentId(myEmail, link.id);
+}
+
+// A few preview tiles, then one "All" tile when the list doesn't fit - same
+// rule as the Links Folder widget, except a list that is only one tile over
+// the preview count shows everything (an "All" tile hiding a single link is
+// silly). `trailing` is an extra tile (the Add tile) rendered after the list.
+function LinkTileGrid({ links, colorFor, onOpen, onShowAll, allLabel, trailing }) {
+  const overflow = links.length > LINKS_FOLDER_PREVIEW_COUNT + 1;
+  const shown = overflow ? links.slice(0, LINKS_FOLDER_PREVIEW_COUNT) : links;
+  return (
+    <div style={tileGridStyle}>
+      {shown.map(l => (
+        <LinksFolderTile key={l._uid || l.id} link={l} onOpen={() => onOpen(l)} style={{ width: '100%' }} color={colorFor(l)} />
+      ))}
+      {overflow && (
+        <div className="app-tile" onClick={onShowAll} role="button" tabIndex={0}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onShowAll(); } }}
+          title={`See all ${links.length}`} style={{ width: '100%' }}>
+          <div className="app-tile-icon-wrap">
+            <div style={{ width: 48, height: 48, borderRadius: 13, background: 'var(--mist)', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <LayoutGrid size={20} />
+            </div>
+          </div>
+          <span className="app-tile-name">{allLabel}</span>
+        </div>
+      )}
+      {trailing}
+    </div>
+  );
+}
+
+// Flat text tabs with a thin rule under the active one (no pill chips).
+const tabStyle = (on) => ({
+  border: 'none', background: 'none', padding: '0 0 3px', cursor: 'pointer', fontFamily: 'inherit',
+  fontSize: 12, fontWeight: 600, color: on ? 'var(--ink)' : 'var(--muted)',
+  borderBottom: `2px solid ${on ? 'var(--wk-brand)' : 'transparent'}`,
+});
+
+// The Links tab's bookmarks, live from the saved Link View (backend-persisted,
+// so they follow the account), with a Recently Used tab reading the same
+// per-browser trail the Links tab keeps (shortcutStorage.js). The tab choice
+// is session-local on purpose: persisting it through updateConfig would mark
+// the saved layout dirty and trip the "discard layout changes?" confirm on
+// the next view switch (see confirmDiscard in CustomDashboard) for what is
+// only a way of looking, not an arrangement.
+function FavoritesWidget() {
+  const { myEmail } = useRole();
+  const [mode, setMode] = useState('favorites'); // 'favorites' | 'recents'
+  const [state, setState] = useState({ loading: true, favorites: [], company: [] });
+  const [recentIds, setRecentIds] = useState(() => readIds(myEmail, 'recents'));
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    Promise.all([api.getLinkLayout(), api.getExternalLinks(), api.getPersonalLinks().catch(() => [])])
+      .then(([layout, company, personal]) => {
+        if (!alive) return;
+        // A favorite can be a Company or a Personal Link - resolve against
+        // whichever list matches its item_type; _uid keeps render keys
+        // unique since the two tables' ids can collide.
+        const favorites = (layout?.favorites || []).map(f => {
+          const link = (f.item_type === 'personal' ? (personal || []) : (company || [])).find(l => l.id === f.item_id);
+          return link ? { ...link, _uid: `${f.item_type}-${link.id}`, _favType: f.item_type } : null;
+        }).filter(Boolean);
+        setState({ loading: false, favorites, company: company || [] });
+      })
+      .catch(() => { if (alive) setState({ loading: false, favorites: [], company: [] }); });
+    return () => { alive = false; };
+  }, []);
+
+  const recents = recentIds.map(id => state.company.find(l => l.id === id)).filter(Boolean);
+  const links = mode === 'recents' ? recents : state.favorites;
+  const colorFor = (l) => l._favType === 'personal' ? PERSONAL_TILE_COLOR : colorForLinkCategory(l.category);
+  const open = (l) => {
+    const type = l._favType === 'personal' ? 'personal' : 'external';
+    openLinkTile(l, type, myEmail);
+    if (type === 'external') setRecentIds(readIds(myEmail, 'recents'));
+  };
+  const title = mode === 'recents' ? 'Recently Used' : 'Favorites';
+  const tabs = (
+    <div style={{ display: 'inline-flex', gap: 12 }} role="tablist" aria-label="Show">
+      <button type="button" role="tab" aria-selected={mode === 'favorites'} style={tabStyle(mode === 'favorites')} onClick={() => setMode('favorites')}>Favorites</button>
+      <button type="button" role="tab" aria-selected={mode === 'recents'} style={tabStyle(mode === 'recents')} onClick={() => setMode('recents')}>Recent</button>
+    </div>
+  );
+  return (
+    <DashCard title={title} sub={mode === 'recents' ? 'Company links opened in this browser' : undefined} action={tabs}>
+      {state.loading ? (
+        <div style={noteStyle}>Loading…</div>
+      ) : links.length === 0 ? (
+        mode === 'recents' ? (
+          <div style={noteStyle}>Nothing opened yet in this browser. Company links you open show up here.</div>
+        ) : (
+          <div style={noteStyle}>
+            No favorites yet. Bookmark an app in Links and it shows up here.
+            <div style={{ marginTop: 10 }}>
+              <button type="button" className="secondary-btn" onClick={() => navigate('external-links')}>Open Links</button>
+            </div>
+          </div>
+        )
+      ) : (
+        <LinkTileGrid links={links} colorFor={colorFor} onOpen={open} onShowAll={() => setShowAll(true)}
+          allLabel={mode === 'recents' ? 'All Recent' : 'All Favorites'} />
+      )}
+      {showAll && (
+        <LinksFolderAllModal title={title} links={links} colorFor={colorFor} onOpen={open} onClose={() => setShowAll(false)} />
+      )}
+    </DashCard>
+  );
+}
+
+const sortPersonalLinks = (rows) => [...rows].sort((a, b) =>
+  ((a.sort_order ?? 0) - (b.sort_order ?? 0)) || (a.name || '').localeCompare(b.name || ''));
+
+// Every one of the user's own Personal Links, flat (no folders - that is what
+// the Links Folder widget is for), plus an Add tile. Adding goes through the
+// same PersonalLinkComposer the Quick Actions tile uses (one form, one dupe
+// check - src/links/personalLinkModal.jsx), reached via the lazy
+// QuickActionModal chunk so the dashboard bundle doesn't grow. Ctrl+V with a
+// URL anywhere on the tile opens the composer prefilled - the same paste
+// shortcut every upload widget in Nexus offers (CLAUDE.md).
+function PersonalLinksWidget() {
+  const { myEmail } = useRole();
+  const [state, setState] = useState({ loading: true, links: [] });
+  const [showAll, setShowAll] = useState(false);
+  const [composer, setComposer] = useState(null); // { initialUrl }
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    let alive = true;
+    api.getPersonalLinks()
+      .then(p => { if (alive) setState({ loading: false, links: sortPersonalLinks(p || []) }); })
+      .catch(() => { if (alive) setState({ loading: false, links: [] }); });
+    return () => { alive = false; };
+  }, []);
+  const closeComposer = (res) => {
+    setComposer(null);
+    if (res?.created) setState(s => ({ ...s, links: sortPersonalLinks([...s.links, res.created]) }));
+    if (res?.toast) { setNote(res.toast); setTimeout(() => setNote(''), 4000); }
+  };
+  const onPaste = (e) => {
+    if (composer) return;
+    const text = e.clipboardData?.getData('text') || '';
+    if (looksLikeUrl(text)) { e.preventDefault(); setComposer({ initialUrl: text.trim() }); }
+  };
+  const open = (l) => openLinkTile(l, 'personal', myEmail);
+  const addTile = (
+    <button type="button" className="app-tile app-tile-add" style={{ width: '100%' }}
+      onClick={() => setComposer({ initialUrl: '' })} title="Add a personal link - or press Ctrl+V with a URL">
+      <div className="app-tile-add-icon"><Plus size={22} /></div>
+      <span className="app-tile-name">Add Link</span>
+    </button>
+  );
+  return (
+    <div tabIndex={-1} onPaste={onPaste} style={{ height: '100%', outline: 'none' }}>
+      <DashCard title="My Personal Links" sub={note || 'Only visible to you'}
+        action={<Lock size={15} style={{ color: 'var(--muted)' }} />}>
+        {state.loading ? (
+          <div style={noteStyle}>Loading…</div>
+        ) : (
+          <>
+            <LinkTileGrid links={state.links} colorFor={() => PERSONAL_TILE_COLOR} onOpen={open}
+              onShowAll={() => setShowAll(true)} allLabel="All Links" trailing={addTile} />
+            <div style={{ fontSize: 11, color: 'var(--wk-faint)', marginTop: 12 }}>
+              {state.links.length === 0 ? 'Your own day-to-day shortcuts - add one, or press Ctrl+V with a URL.' : 'Or press Ctrl+V with a URL to add it here.'}
+            </div>
+          </>
+        )}
+        {showAll && (
+          <LinksFolderAllModal title="My Personal Links" links={state.links} itemType="personal" onOpen={open} onClose={() => setShowAll(false)} />
+        )}
+        {composer && (
+          <Suspense fallback={null}>
+            <QuickActionModal kind="personal-link" initialUrl={composer.initialUrl} onClose={closeComposer} />
+          </Suspense>
+        )}
+      </DashCard>
+    </div>
+  );
+}
+
+// Every quick action a tile can offer. `act` opens a composer that creates
+// the thing in place (an Outlook mail/event via Graph, the Tasks module's own
+// create modal, or the shared Personal Link form); `view` navigates to a
+// screen the way this widget always has. Order here is the display order.
+// A tile's config (`actions`: array of keys, picked in the gallery / pencil
+// checklist - Sep 24, configurable like the KPI tile) chooses which ones it
+// shows; tiles saved before that carry no config and keep the original six
+// (DEFAULT_QUICK_ACTIONS), so nothing already placed changes.
+export const QUICK_ACTIONS = [
+  { key: 'task',          label: 'New Task',          act: 'task',          color: 'blue',   Icon: CheckSquare },
+  { key: 'event',         label: 'New Event',         act: 'event',         color: 'purple', Icon: CalendarPlus },
+  { key: 'email',         label: 'New Email',         act: 'email',         color: 'brand',  Icon: Mail },
+  { key: 'personal-link', label: 'Add Personal Link', act: 'personal-link', color: 'purple', Icon: Link2 },
+  { key: 'request-item',  label: 'Request an Item',   view: 'inventory', sub: 'catalog', color: 'orange', Icon: Package },
+  { key: 'time-off',      label: 'Request Time Off',  view: 'timeclock', sub: 'timeoff',   color: 'orange', Icon: CalendarClock },
+  { key: 'punch-fix',     label: 'Punch Correction',  view: 'timeclock', sub: 'timesheet', color: 'green',  Icon: Timer },
+  { key: 'ask-hr',        label: 'Ask HR',            view: 'myhr',                        color: 'blue',   Icon: Contact },
+  { key: 'purchase',      label: 'New Purchase Request', view: 'purchase',                 color: 'purple', Icon: ShoppingCart },
+  { key: 'timeclock',     label: 'Time Clock',        view: 'timeclock',    color: 'green',  Icon: Clock },
+  { key: 'kb',            label: 'Knowledge Base',    view: 'sop',          color: 'brand',  Icon: BookOpen },
 ];
-function QuickActionsWidget() {
+export const DEFAULT_QUICK_ACTIONS = ['task', 'event', 'email', 'request-item', 'timeclock', 'kb'];
+export function resolveQuickActions(config) {
+  const keys = Array.isArray(config?.actions) && config.actions.length ? config.actions : DEFAULT_QUICK_ACTIONS;
+  const picked = new Set(keys);
+  return QUICK_ACTIONS.filter(a => picked.has(a.key));
+}
+function QuickActionsWidget({ config }) {
   const [modal, setModal] = useState(null);
   const [note, setNote] = useState('');
   // Composers report whether Graph sent it or Outlook took over, so the card
@@ -407,12 +637,13 @@ function QuickActionsWidget() {
     setModal(null);
     if (res?.toast) { setNote(res.toast); setTimeout(() => setNote(''), 4000); }
   };
+  const actions = resolveQuickActions(config);
   // Same row anatomy as DeskHome's quick actions - icon chip, label, chevron.
   return (
     <DashCard title="Quick Actions" sub={note || undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {ACTIONS.map(a => (
-          <button key={a.label} className="dk-key"
+        {actions.map(a => (
+          <button key={a.key} className="dk-key"
             onClick={() => a.act ? setModal(a.act) : navigate(a.view, a.sub)}>
             <span className={`dk-chip dk-chip--${a.color}`}><a.Icon /></span> {a.label}
             <ChevronRight size={14} className="dk-key-arrow" />
@@ -550,10 +781,16 @@ const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
 export const WIDGETS = {
   kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi' },
   'kpi-bar':     { title: 'KPI Bar Chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget },
+  'time-clock':  { title: 'Time Clock',      cat: 'Workday',   icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 4 }, render: TimeClockWidget },
+  'my-requests': { title: 'My Requests',     cat: 'Workday',   icon: ClipboardList, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: MyRequestsWidget },
+  'due-back':    { title: 'Due Back Soon',   cat: 'Workday',   icon: Boxes,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: DueBackWidget },
+  'coming-up':   { title: 'Coming Up',       cat: 'Workday',   icon: Cake,         size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 5 }, render: ComingUpWidget },
   shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut' },
-  links:         { title: 'Quick Links',     cat: 'Navigation', icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
-  'links-folder': { title: 'Links Folder',   cat: 'Navigation', icon: FolderOpen,  size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder' },
-  'quick-actions': { title: 'Quick Actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 4 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 6 }, render: QuickActionsWidget },
+  links:         { title: 'Quick Links',     cat: 'Links',     icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
+  'links-folder': { title: 'Links Folder',   cat: 'Links',     icon: FolderOpen,   size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder' },
+  favorites:     { title: 'Favorites',       cat: 'Links',     icon: Bookmark,     size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: FavoritesWidget },
+  'personal-links': { title: 'My Personal Links', cat: 'Links', icon: Link2,       size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: PersonalLinksWidget },
+  'quick-actions': { title: 'Quick Actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 4 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 6 }, render: QuickActionsWidget, configurable: 'quick-actions' },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget },
   // 'agenda' is the pre-merge widget type (My Agenda, list-only) - kept as a
   // hidden alias so dashboards that already have one keep working, but it now
@@ -576,6 +813,12 @@ export const WIDGETS = {
   'team-workload': { title: 'Workload by Employee', cat: 'Team',    icon: Users,         size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 8, maxH: 8 },  render: WorkloadPanel,     minRole: 'supervisor' },
   'team-projects': { title: 'Project-Wise Tasks', cat: 'Team',      icon: FolderKanban,  size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 8, maxH: 7 },  render: ProjectsPanel,     minRole: 'supervisor' },
   'team-calendar': { title: 'Team Calendar',      cat: 'Team',      icon: CalendarDays,  size: { w: 6, h: 3 }, limits: { minW: 4, minH: 3, maxW: 12, maxH: 5 }, render: TeamCalendarPanel, minRole: 'supervisor' },
+  // Phase 3 (Sep 25). Tickets is a supervisor module; the time-off list,
+  // punch exceptions and purchases are manager-level on the server.
+  'ticket-queue':      { title: 'My Ticket Queue',   cat: 'Team', icon: TicketIcon,   size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TicketQueueWidget,      minRole: 'supervisor' },
+  'time-exceptions':   { title: 'Time Exceptions',   cat: 'Team', icon: Timer,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TimeExceptionsWidget,   minRole: 'manager' },
+  'out-today':         { title: 'Out Today',         cat: 'Team', icon: UserMinus,    size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: OutTodayWidget,         minRole: 'manager' },
+  'pending-purchases': { title: 'Pending Purchases', cat: 'Team', icon: ShoppingCart, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: PendingPurchasesWidget, minRole: 'manager' },
   occupancy:       { title: 'Occupancy Trend',    cat: 'Portfolio', icon: TrendingUp,    size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 9, maxH: 6 },  render: OccupancyPanel },
   facilities:      { title: 'Facilities',         cat: 'Portfolio', icon: Building2,     size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 12, maxH: 7 }, render: FacilitiesPanel },
   'tasks-list':    { title: 'Tasks Overview',     cat: 'Portfolio', icon: ListTodo,      size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 6 },  render: TasksPanel },

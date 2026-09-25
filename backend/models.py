@@ -1431,11 +1431,27 @@ class HrWorkSite(Base):
     latitude      = Column(String, default="")
     longitude     = Column(String, default="")
     radius_m      = Column(Integer, default=150)       # geofence radius in metres
-    company       = Column(String, default="")         # HrEntity.id this site belongs to (optional)
+    # Legacy single-company pointer (pre Sep 25). Which companies use a site
+    # now lives in HrCompanyWorkSite; this is only read by the one-time link
+    # backfill in main.py and cleared when that company unlinks the site.
+    company       = Column(String, default="")
     notes         = Column(String, default="")
     created_by    = Column(String, default="")
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
+
+
+class HrCompanyWorkSite(Base):
+    """A company's pick from the global work-site library (Neil, Sep 25): sites
+    are entered once in the library, and each company chooses which of them its
+    employees punch at. A site can belong to many companies. id is
+    "<company_id>:<site_id>" so the backfill and re-adds are idempotent."""
+    __tablename__ = "hr_company_work_sites"
+    id            = Column(String, primary_key=True)
+    company_id    = Column(String, nullable=False, index=True)   # HrEntity.id
+    site_id       = Column(String, nullable=False, index=True)   # HrWorkSite.id
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
 
 
 class HrCompanyHoliday(Base):

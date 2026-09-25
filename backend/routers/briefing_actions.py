@@ -11,15 +11,19 @@ ticket request) - the confirm page adds it only for that one case rather than
 carrying a note field the other two kinds don't use.
 """
 import asyncio
+from datetime import datetime, timedelta, timezone
 from html import escape
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from sqlalchemy import func
 
+import auth
 import briefing_mail_actions
 import models
+import task_mail_actions
 from database import SessionLocal
-from routers.mail_actions import _BTN, _page, _user_for
+from routers.mail_actions import _BTN, _page, _perform, _user_for, am_performer
 
 router = APIRouter(prefix="/briefing-actions", tags=["Briefing Actions"])
 
@@ -85,6 +89,92 @@ def _execute(db, bt: BackgroundTasks, *, user: dict, kind: str, entity_id: str, 
     raise HTTPException(400, "Unknown action")
 
 
+# ── Outlook card (briefing_card.py) ──────────────────────────────────────
+# Every button in the Outlook version of the briefing posts here: kind=decision
+# (an Approve/Reject token from briefing_mail_actions) or kind=task (a task
+# token from task_mail_actions, same actions as the task email card). The
+# answer is the whole briefing card redrawn for the same window (d, s), so the
+# email updates in place and everything else still pending stays in view.
+
+def _card_error(message: str, status: int) -> JSONResponse:
+    # Outlook shows CARD-ACTION-STATUS under the card when the call fails.
+    return JSONResponse({"detail": message}, status_code=status,
+                        headers={"CARD-ACTION-STATUS": message[:200]})
+
+
+@router.post("/card")
+async def card_action(request: Request, kind: str = "", token: str = "", action: str = "",
+                      d: str = "", s: str = ""):
+    if kind == "decision":
+        info = briefing_mail_actions.verify_token(token)
+    elif kind == "task":
+        info = task_mail_actions.verify_token(token)
+    else:
+        info = None
+    if not info:
+        return _card_error("This briefing's buttons have expired. Open Nexus to take this action instead.", 400)
+    text = (await request.body()).decode("utf-8", "replace")
+    # Everything below is blocking (JWKS fetch, DB, the routers it calls) -
+    # off the event loop, per CLAUDE.md.
+    return await asyncio.to_thread(_card_action_sync, request, kind, info, action, text, d, s)
+
+
+def _card_action_sync(request: Request, kind: str, info: dict, action: str, text: str,
+                      briefing_date: str, since_iso: str):
+    import daily_briefing
+    db = SessionLocal()
+    bt = BackgroundTasks()
+    try:
+        recipient = info["recipient"]
+        if auth.SKIP_AUTH:
+            performer = recipient   # laptop only: no Outlook to sign the call
+        else:
+            performer = am_performer(request.headers.get("authorization", ""), db)
+        user = _user_for(request, performer, db)
+        if kind == "decision":
+            subject, status = _execute(db, bt, user=user, kind=info["kind"], entity_id=info["id"],
+                                       action=info["action"], note=text)
+            outcome = f"{subject} {status}"
+        else:
+            outcome = _perform(request, db, user=user, task_id=info["task_id"], action=action,
+                               text=text, bt=bt)
+        outcome = f"{outcome}. Done by you."
+        if (performer or "").lower() != (recipient or "").lower():
+            # A forwarded copy: the action ran as the person who clicked, but
+            # the briefing's owner's list is not theirs to see.
+            import briefing_card
+            from app_url import app_url
+            card = briefing_card.outcome_only_card(outcome, app_url())
+        else:
+            card = _refreshed_card(db, daily_briefing, recipient, briefing_date, since_iso, outcome)
+    except HTTPException as e:
+        return _card_error(str(e.detail), e.status_code)
+    finally:
+        db.close()
+    return JSONResponse(card, background=bt, headers={
+        "CARD-UPDATE-IN-BODY": "true", "CARD-ACTION-STATUS": outcome[:200]})
+
+
+def _refreshed_card(db, daily_briefing, recipient: str, briefing_date: str, since_iso: str,
+                    outcome: str) -> dict:
+    try:
+        datetime.strptime(briefing_date, "%Y-%m-%d")
+    except ValueError:
+        briefing_date = datetime.now(timezone.utc).date().isoformat()
+    if not since_iso:
+        # An empty cursor would match every row ever - fall back to the same
+        # first-run window a brand-new employee gets.
+        since_iso = (datetime.now(timezone.utc) - timedelta(hours=daily_briefing.LOOKBACK_HOURS_FIRST_RUN)
+                     ).strftime("%Y-%m-%dT%H:%M:%S")
+    emp = (db.query(models.NexusEmployee)
+           .filter(func.lower(models.NexusEmployee.work_email) == recipient.lower()).first())
+    sections = daily_briefing.build_sections(db, recipient, since_iso, briefing_date)
+    return daily_briefing.outlook_card(
+        db, recipient, ((emp.first_name if emp else "") or "").strip(), sections, briefing_date, since_iso,
+        greeting=daily_briefing._greeting(daily_briefing._recipient_local_now(db, recipient)),
+        logo_url=daily_briefing._logo_url(db), outcome=outcome)
+
+
 @router.get("/page", response_class=HTMLResponse)
 def action_page(token: str = ""):
     info = briefing_mail_actions.verify_token(token)
@@ -138,4 +228,4 @@ def _action_page_submit_sync(request: Request, token: str, note: str = "") -> HT
 
 
 # Kept for main.py's CSRF exemption list.
-PUBLIC_PATHS = ("/briefing-actions/page",)
+PUBLIC_PATHS = ("/briefing-actions/page", "/briefing-actions/card")

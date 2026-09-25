@@ -789,6 +789,10 @@ def _run_migrations():
             "ALTER TABLE hr_entities ADD COLUMN hr_contact_email VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_requests ADD COLUMN link_kind VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_requests ADD COLUMN link_id VARCHAR DEFAULT ''",
+            # Global work-site library (Neil, Sep 25) - see the Postgres list.
+            "INSERT OR IGNORE INTO hr_company_work_sites (id, company_id, site_id, created_by, created_at) "
+            "SELECT company || ':' || id, company, id, created_by, created_at "
+            "FROM hr_work_sites WHERE company IS NOT NULL AND company != ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1675,6 +1679,16 @@ def _run_migrations():
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS link_kind VARCHAR DEFAULT ''",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS link_id VARCHAR DEFAULT ''",
         "ALTER TABLE timesheet_reviews ENABLE ROW LEVEL SECURITY",
+        # Global work-site library (Neil, Sep 25): sites are one shared list and
+        # each company picks its own from it (hr_company_work_sites, new table -
+        # RLS per CLAUDE.md). Every site's old single-company tag becomes a link,
+        # so no company loses a site; idempotent (deterministic id), and an
+        # unlink clears the old tag so this can't re-add it on the next boot.
+        "ALTER TABLE hr_company_work_sites ENABLE ROW LEVEL SECURITY",
+        "INSERT INTO hr_company_work_sites (id, company_id, site_id, created_by, created_at) "
+        "SELECT company || ':' || id, company, id, created_by, created_at "
+        "FROM hr_work_sites WHERE company IS NOT NULL AND company <> '' "
+        "ON CONFLICT (id) DO NOTHING",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2371,6 +2385,9 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # Daily Briefing one-click actions: authorized by a signed per-decision
     # token, same reasoning - see routers/briefing_actions.py.
     "/briefing-actions/page",
+    # ...and the Outlook card version of the briefing (Outlook's own JWT names
+    # who clicked, same as /mail-actions/card).
+    "/briefing-actions/card",
     # Boot-failure beacon from public/guard.js: sent with credentials omitted
     # while the app cannot load, by a user who usually has no session at all -
     # see routers/client_errors.py.

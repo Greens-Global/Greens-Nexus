@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 import models
 from database import SessionLocal
 import graph_mail
+import briefing_card
 import briefing_mail_actions
 import task_mail_actions
 import ticket_mail_templates
@@ -50,6 +51,11 @@ _SETTINGS_KEY = "daily_briefing_config"
 _DEFAULT_SETTINGS = {
     "mode": "off",              # off|test|live
     "test_recipients": [],
+    # Outlook card version of the email (briefing_card.py). Off by default
+    # (Sep 26): Outlook dictates the card's colors and buttons, so everyone
+    # gets the HTML design, and the My Briefing page is where sections
+    # collapse and actions run in one click.
+    "outlook_card": False,
 }
 
 TRIGGER_MINUTES_BEFORE_SHIFT = 150   # 2.5h - agreed on the call
@@ -71,6 +77,12 @@ def _fmt_date(iso_str: str) -> str:
         return datetime.strptime(iso_str, "%Y-%m-%d").strftime("%m/%d/%Y")
     except (TypeError, ValueError):
         return iso_str or ""
+
+
+def _sentence(text: str) -> str:
+    """First letter upper-cased, the rest left alone (so task codes and names
+    inside the text keep their own casing)."""
+    return text[:1].upper() + text[1:] if text else ""
 
 
 # ── Settings ───────────────────────────────────────────────────────────────
@@ -227,8 +239,8 @@ def _ticket_action_rows(db: Session, email: str) -> list:
               .filter(models.TaskTicket.assignee_email == email,
                       models.TaskTicket.status.notin_(["resolved", "closed"])).all()):
         rows.append({
-            "title": f"{t.code or 'Ticket'} - {t.subject}",
-            "detail": f"Assigned to you - {(t.status or 'new').replace('_', ' ')}",
+            "ref": t.code or "", "title": t.subject,
+            "detail": f"Assigned to you - {(t.status or 'new').replace('_', ' ').capitalize()}",
             "url": _ticket_url(ticket_id=t.id, for_requester=False),
             "module": "tickets",
         })
@@ -243,7 +255,7 @@ def _ticket_needs_to_know_rows(db: Session, email: str, since_iso: str) -> list:
                       models.TaskTicket.last_comment_at != "",
                       models.TaskTicket.status.notin_(["resolved", "closed"])).all()):
         rows.append({
-            "title": f"{t.code or 'Ticket'} - {t.subject}",
+            "ref": t.code or "", "title": t.subject,
             "detail": "New activity on your ticket",
             "url": _ticket_url(ticket_id=t.id, for_requester=True),
             "module": "tickets",
@@ -259,7 +271,7 @@ def _ticket_completed_rows(db: Session, email: str, since_iso: str) -> list:
                       models.TaskTicket.resolved_at >= since_iso,
                       models.TaskTicket.resolved_at != "").all()):
         rows.append({
-            "title": f"{t.code or 'Ticket'} - {t.subject}",
+            "ref": t.code or "", "title": t.subject,
             "detail": "Resolved" if t.status == "resolved" else "Closed",
             "url": _ticket_url(ticket_id=t.id, for_requester=True),
             "module": "tickets",
@@ -446,11 +458,11 @@ def _timecard_rows(db: Session, email: str) -> list:
         return []
     if 0 <= days_to_close <= 2:
         return [{"title": "Confirm your time card",
-                 "detail": f"Pay period closes {end} - review and sign off before it locks",
+                 "detail": f"Pay period closes {_fmt_date(end)} - review and sign off before it locks",
                  "url": f"{app_url()}/timeclock", "module": "timecard"}]
     if days_to_close == -1:
         return [{"title": "Submit your time card",
-                 "detail": f"Pay period ending {end} is closed - sign off is still open",
+                 "detail": f"Pay period ending {_fmt_date(end)} is closed - sign off is still open",
                  "url": f"{app_url()}/timeclock", "module": "timecard"}]
     return []
 
@@ -463,7 +475,7 @@ def _item_needs_to_know_rows(db: Session, email: str, since_iso: str, is_manager
                       models.ItemCheckout.resolved_at >= since_iso,
                       models.ItemCheckout.requested_by_email == email).all()):
         rows.append({"title": f"Checkout {c.status}: {c.item_name}",
-                     "detail": c.reject_reason if c.status == "rejected" else "Awaiting handover",
+                     "detail": (c.reject_reason or "No reason given") if c.status == "rejected" else "Awaiting handover",
                      "url": items_url, "module": "items"})
     if is_manager:
         # No fixed approver field for a return confirmation - items.py's
@@ -539,8 +551,10 @@ def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> li
             continue
         seen_tasks.add(t.id)
         rows.append({
-            "title": f"{t.code or 'Task'} - {a.entity_title or t.title}",
-            "detail": a.detail or a.type,
+            "title": a.entity_title or t.title,
+            # Activity text is stored lowercase ("completed this task") and the
+            # bare type is a snake_case key - both need to read as a sentence.
+            "detail": _sentence(a.detail or (a.type or "").replace("_", " ")),
             "url": f"{app_url()}/tasks/mine?task={t.id}",
             "module": "tasks", "task_id": t.id, "action_email": email,
             # Open task, not yet a decided approval or already-closed-out row -
@@ -548,6 +562,8 @@ def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> li
             # it, not just comment/react. Approval rows have their own
             # Approve/Reject; a completed row needs neither.
             "task_open": not bool(t.completed),
+            # For the Outlook card's Change Status list (briefing_card.py).
+            "project_id": t.project_id or "", "task_status": t.status or "",
         })
     _attach_task_comment_previews(db, rows)
     rows.extend(_item_needs_to_know_rows(db, email, since_iso, bool(my_reports)))
@@ -590,7 +606,7 @@ def _green_rows(db: Session, email: str, since_iso: str) -> list:
         if email.lower() not in task_assignees(t):
             continue
         rows.append({
-            "title": f"{t.code or 'Task'} - {t.title}",
+            "title": t.title,
             "detail": "Completed",
             "url": f"{app_url()}/tasks/mine?task={t.id}",
             "module": "tasks", "task_id": t.id, "action_email": email,
@@ -624,7 +640,7 @@ def _manager_task_completion_rows(db: Session, email: str, since_iso: str, my_re
     for rep_email, tasks in by_report.items():
         emp = my_reports.get(rep_email)
         name = f"{emp.first_name} {emp.last_name}".strip() if emp else rep_email
-        titles = [f"{t.code or 'Task'} - {t.title}" for t in tasks]
+        titles = [t.title for t in tasks]
         shown, hidden = titles[:3], titles[3:]
         detail = "; ".join(shown) + (f"; and {len(hidden)} more" if hidden else "")
         n = len(tasks)
@@ -667,7 +683,7 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict, briefing_date:
                       models.TimeOffRequest.end_date >= today).all()):
         rows.append({
             "title": f"Out today: {names.get(r.employee_email, r.employee_email)} ({r.type})",
-            "detail": f"Back {r.end_date}",
+            "detail": f"Back after {_fmt_date(r.end_date)}",
             "url": "", "module": "team",
         })
     for r in (db.query(models.TimeOffRequest)
@@ -676,7 +692,7 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict, briefing_date:
                       models.TimeOffRequest.start_date == tomorrow).all()):
         rows.append({
             "title": f"Starting leave tomorrow: {names.get(r.employee_email, r.employee_email)}",
-            "detail": f"{r.start_date} - {r.end_date}. Reassign anything time-sensitive today.",
+            "detail": f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}. Reassign anything time-sensitive today.",
             "url": "", "module": "team",
         })
     return rows
@@ -696,35 +712,37 @@ def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) 
 
 # ── Render (email-safe: inline styles, Segoe UI stack, table layout) ──────
 #
-# Sep 15 redesign (Pranshu: "use full screen, make it more attractive and
-# responsive"). Two changes, kept email-client-safe:
-#   - The outer table is now fluid (width:100% up to a wider 680px cap, not a
-#     fixed 600px box) so it fills a phone screen edge-to-edge instead of
-#     leaving the old fixed-width box floating with side gutters.
-#   - A <style> block adds @media breakpoint tweaks (tighter padding, stacked
-#     stat chips, full-width buttons) for clients that honor it (Gmail app/
-#     web, Apple Mail, Outlook mobile/web). It is a pure enhancement layer -
-#     Outlook desktop's Word engine ignores @media and <style> silently, and
-#     the fluid table + inline styles underneath already look correct there
-#     without it, so nothing depends on the media query firing.
-_BADGE = {
-    # Accent colors matched to Nexus Sign's own palette (routers/esign.py
-    # _sign_email_html: header #14532d, button #15803d) so the two email
-    # families read as one brand - and darkened for red/amber to match that
-    # green's weight, rather than the lighter/muted tones this started with
-    # (Pranshu, Sep 21).
-    "action_required": ("Action required",                    "#b91c1c", "#faece9", "\U0001F534"),
-    "needs_to_know":   ("Needs to know",                       "#b45309", "#faf1de", "\U0001F440"),
-    "completed":       ("Completed since your last briefing",  "#15803d", "#e9f5ec", "✅"),
+# Sep 25 redesign (Neil: remove anything that reads as AI-generated, look like
+# an enterprise product). Plain, neutral layout matching the ticket/task
+# notification emails (ticket_mail_templates.ticket_email_html): dark green
+# brand bar, no emoji, no pills or gradients. Each module inside a section is
+# ONE table, one row per item, instead of a separate card per item.
+#
+# Email-client rules still apply: everything is inline-styled table markup
+# that renders correctly with no <style> support at all (Outlook desktop's
+# Word engine). The <style> block only adds the collapse toggle and the phone
+# layout for clients that honor it.
+_BRAND = "#0f3d2e"
+_INK, _BODY, _MUTED, _LINE, _SOFT = "#111827", "#374151", "#6b7280", "#e5e7eb", "#f9fafb"
+_LINK = "#166534"
+
+_SECTION_META = {
+    # key: (heading, accent, summary label)
+    "action_required": ("Action Required",                    "#b91c1c", "Need your action"),
+    "needs_to_know":   ("Updates for You",                     "#b45309", "Updates for you"),
+    "completed":       ("Completed Since Your Last Briefing",  "#15803d", "Completed"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
-_SUMMARY_NOUN = {"action_required": "need your approval", "needs_to_know": "updates to check", "completed": "completed"}
+# Each section's tables carry that section's color (Pranshu, Sep 26): a light
+# tint for the rows, a deeper one for the header row, and a matching border,
+# so a table reads as part of its section at a glance.
+_TONE = {
+    # key: (row background, header background, border)
+    "action_required": ("#fef5f5", "#fce4e4", "#f1c7c7"),
+    "needs_to_know":   ("#fffaf0", "#fdefd5", "#f0d6a8"),
+    "completed":       ("#f3fbf5", "#dff3e6", "#bfe3cb"),
+}
 
-# Module accordion (Pranshu, Sep 19 - "the list is too long to see and work,
-# segregate into their module and collapse it"). One person's Action Required
-# used to render 10 flat cards; grouping by module and collapsing each behind
-# its own header lets you see the shape of the day (3 items, 3 tasks, 3 time
-# off) before opening any of it.
 _MODULE_META = {
     "tasks":    "Tasks",
     "tickets":  "Tickets",
@@ -735,106 +753,173 @@ _MODULE_META = {
     "team":     "Team",
 }
 _MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "items", "team"]
-# A "view all" fallback per module for the "+N more" link (Pranshu, Sep 20 -
-# true click-to-expand only works in clients that honor the checkbox-hack CSS
-# (see _module_group_html); Outlook desktop's Word engine never will, and
-# there is no JS-free way around that. A plain HTML cap+link works identically
-# in every client instead, so it is the actual fix for "the list is too long"
-# rather than a client-dependent nicety.
+# "View all" target per module for the overflow rows - a plain link, so it
+# works identically in every client (Pranshu, Sep 20).
 _MODULE_VIEW_URL = {
     "tasks": "/tasks/mine", "tickets": "/tickets", "documents": _ESIGN_URL,
     "time_off": "/timeclock", "timecard": "/timeclock", "items": "/itemmanagement",
 }
+# Rows past this show as compact title-only rows, grouped by exact title
+# (N rows sharing one title = one row with "x N"), and the grouped list is
+# itself capped so one flooded project can't make the email unbounded
+# (Sep 22 duplicate-task incident).
 _MODULE_CARD_CAP = 3
-# Distinct titles shown in a module's "+N more" list before IT ALSO collapses
-# to a "+K more distinct" line - a second, independent cap so a project with
-# many genuinely different overflow items (not just duplicates of the same
-# title) still can't make one email unboundedly long.
 _OVERFLOW_GROUP_CAP = 15
 
 
-def _sub_action_html(accent: str, sub: dict) -> str:
-    """One request's own Approve/Reject pair inside a bundled card (e.g. an
-    employee with several pending time-off requests) - each request still
-    gets a one-click decision, just scoped to that row instead of the whole
-    card (Pranshu, Sep 20)."""
-    sbtn = ("display:inline-block;padding:4px 10px;border-radius:16px;"
-            "font-size:11px;font-weight:700;text-decoration:none;margin:0 6px 0 0;")
-    approve_url = briefing_mail_actions.action_url(sub["action_kind"], sub["action_id"], "approve", sub["action_email"])
-    reject_url = briefing_mail_actions.action_url(sub["action_kind"], sub["action_id"], "reject", sub["action_email"])
-    return f"""
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
-          border-top:1px solid rgba(0,0,0,.06);padding:7px 0;margin-top:2px">
-          <span style="font-size:12.5px;color:#3a463e">{escape(sub['detail'])}</span>
-          <span>
-            <a href='{escape(approve_url)}' style='{sbtn}background:#15803d;color:#ffffff'>Approve</a>
-            <a href='{escape(reject_url)}' style='{sbtn}background:#ffffff;color:#6b6b6b;border:1px solid #d8ddd6'>Reject</a>
-          </span>
-        </div>"""
+
+def _th(tone: tuple) -> str:
+    return (f"padding:8px 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;"
+            f"color:{_BODY};text-align:left;background:{tone[1]};border-bottom:1px solid {tone[2]}")
 
 
-def _card_html(color: str, row: dict) -> str:
-    _, accent, tint, _icon = _BADGE[color]
-    btn = ("display:inline-block;padding:7px 14px;border-radius:20px;"
-           "font-size:12px;font-weight:700;text-decoration:none;margin:0 6px 6px 0;")
-    buttons = []
+def _td(tone: tuple) -> str:
+    return f"padding:12px;vertical-align:top;border-top:1px solid {tone[2]}"
+
+
+def _greeting(local_now: datetime) -> str:
+    """Matched to the recipient's own clock at send time - the briefing goes
+    out 2.5h before each person's shift, so a 6:00 PM IST shift gets it in
+    the afternoon, not the morning."""
+    if local_now.hour < 12:
+        return "Good morning"
+    if local_now.hour < 17:
+        return "Good afternoon"
+    return "Good evening"
+
+
+def _recipient_local_now(db: Session, email: str) -> datetime:
+    """The recipient's wall-clock time now: their shift's own timezone (same
+    source _trigger_due uses), else the offset of their last punch."""
+    utc_today = datetime.now(timezone.utc).date()
+    for dd in (utc_today, utc_today - timedelta(days=1), utc_today + timedelta(days=1)):
+        shift = _shift_start_for(db, email, dd)
+        if shift:
+            return _shift_local_now(shift[2])
+    from routers.timeclock import _employee_now
+    return _employee_now(db, email)
+
+
+# Button colors (Pranshu, Sep 26): Approve and Open in Nexus green, Reject red.
+_BUTTON_COLOR = {"approve": "#15803d", "reject": "#b91c1c", "open": "#166534"}
+
+
+def _button(label: str, url: str, kind: str) -> str:
+    color = _BUTTON_COLOR[kind]
+    style = ("display:inline-block;padding:5px 14px;border-radius:4px;font-size:12px;font-weight:600;"
+             f"text-decoration:none;margin:0 6px 4px 0;background:{color};color:#ffffff;border:1px solid {color}")
+    return f"<a href='{escape(url)}' class='nx-btn' style='{style}'>{escape(label)}</a>"
+
+
+def _links(pairs: list) -> str:
+    # Plain spacing, not "|" dividers: a divider is left dangling at the end
+    # of a line when the links wrap. The trailing ordinary space is the only
+    # break point, so each link wraps whole.
+    sep = "&nbsp;&nbsp;&nbsp; "
+    return sep.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:12.5px;font-weight:600;"
+                    f"text-decoration:none;white-space:nowrap'>{escape(label)}</a>" for label, url in pairs)
+
+
+def _decision_buttons(kind: str, action_id: str, email: str) -> str:
+    # Two links, one per decision - NOT a single link that mutates on GET.
+    # Email link scanners (Outlook Safe Links, Gmail) prefetch every URL in a
+    # message; each link opens a one-tap confirm page
+    # (routers/briefing_actions.py) that only acts on its own POST.
+    return (_button("Approve", briefing_mail_actions.action_url(kind, action_id, "approve", email), "approve") +
+            _button("Reject", briefing_mail_actions.action_url(kind, action_id, "reject", email), "reject"))
+
+
+def _row_actions_html(row: dict) -> str:
+    parts = []
     if row.get("action_kind"):
-        # Two links, one per decision - NOT a single link that mutates on GET.
-        # Email link scanners (Outlook Safe Links, Gmail) prefetch every URL in
-        # a message; a bare GET that approved/rejected would fire from the scan
-        # itself, not the person. Each link instead opens a one-tap confirm
-        # page (routers/briefing_actions.py) that only acts on its own POST -
-        # the same pattern task_mail_actions.py already uses for task emails.
-        approve_url = briefing_mail_actions.action_url(row["action_kind"], row["action_id"], "approve", row["action_email"])
-        reject_url = briefing_mail_actions.action_url(row["action_kind"], row["action_id"], "reject", row["action_email"])
-        buttons.append(f"<a href='{escape(approve_url)}' class='nx-btn' "
-                        f"style='{btn}background:#15803d;color:#ffffff'>Approve</a>")
-        buttons.append(f"<a href='{escape(reject_url)}' class='nx-btn' "
-                        f"style='{btn}background:#ffffff;color:#6b6b6b;border:1px solid #d8ddd6'>Reject</a>")
+        parts.append(f"<div style='margin-top:8px'>"
+                     f"{_decision_buttons(row['action_kind'], row['action_id'], row['action_email'])}</div>")
+    links = []
     if row.get("task_id"):
-        # Same buttons Nexus itself shows on a task - Comment and React -
-        # reusing task_mail_actions.py's already-shipped token + confirm page
-        # (routers/mail_actions.py) wholesale rather than a second copy: one
-        # token per (task, recipient), do=comment/react picks the form.
+        # Same Comment / React / status / complete forms the task notification
+        # email uses (task_mail_actions + routers/mail_actions.py): one token
+        # per (task, recipient), do= picks the form.
         tok = task_mail_actions.sign_token(row["task_id"], row.get("action_email", ""))
         base = f"{task_mail_actions.api_base()}/mail-actions/page?token={tok}"
-        buttons.append(f"<a href='{escape(base)}&do=comment' class='nx-btn' "
-                        f"style='{btn}background:#ffffff;color:#374151;border:1px solid #d8ddd6'>&#128172; Comment</a>")
-        buttons.append(f"<a href='{escape(base)}&do=react' class='nx-btn' "
-                        f"style='{btn}background:#ffffff;color:#374151;border:1px solid #d8ddd6'>&#128512; React</a>")
+        links += [("Comment", f"{base}&do=comment"), ("React", f"{base}&do=react")]
         if row.get("task_open"):
-            # Full parity with the task card in Nexus, not just an FYI link -
-            # same do=status/complete the task notification email already
-            # ships, same token, no new endpoint.
-            buttons.append(f"<a href='{escape(base)}&do=status' class='nx-btn' "
-                            f"style='{btn}background:#ffffff;color:#374151;border:1px solid #d8ddd6'>Change Status</a>")
-            buttons.append(f"<a href='{escape(base)}&do=complete' class='nx-btn' "
-                            f"style='{btn}background:#ffffff;color:#374151;border:1px solid #d8ddd6'>Mark Complete</a>")
+            links += [("Change Status", f"{base}&do=status"), ("Mark Complete", f"{base}&do=complete")]
+    if links:
+        parts.append(f"<div style='margin-top:6px;line-height:1.8'>{_links(links)}</div>")
     if row.get("url"):
-        buttons.append(f"<a href='{escape(row['url'])}' class='nx-btn' "
-                        f"style='{btn}background:{accent};color:#ffffff'>Open in Nexus &rarr;</a>")
-    link = f"<div style='margin-top:10px'>{''.join(buttons)}</div>" if buttons else ""
-    sub_rows = "".join(_sub_action_html(accent, s) for s in row.get("sub_actions") or [])
-    # Last 3 comments (Sep 23, Pranshu: "the comments made on that particular
-    # task should be visible in daily brief mail") - _attach_task_comment_previews
-    # already capped/truncated these, so this is display-only. Newest first,
-    # matching the rest of the digest's own "most recent first" convention.
-    comments_html = ""
-    if row.get("comments"):
-        lines = "".join(
-            f"<div style='padding:4px 0;border-top:1px solid rgba(0,0,0,.08);font-size:12px;color:#3a463e;"
-            f"line-height:1.4'><b>{escape(c['author'])}:</b> {escape(c['body'])}</div>"
-            for c in row["comments"]
-        )
-        comments_html = f"<div style='margin-top:8px'>{lines}</div>"
-    return f"""
-        <div style="background:{tint};border-left:3px solid {accent};border-radius:10px;padding:14px 16px;margin-bottom:10px">
-          <div style="font-size:14.5px;font-weight:700;color:#26312a;line-height:1.35">{escape(row['title'])}</div>
-          <div style="font-size:12.5px;color:#5c6a60;margin-top:3px;line-height:1.45">{escape(row['detail'])}</div>
-          {comments_html}
-          {sub_rows}
-          {link}
-        </div>"""
+        parts.append(f"<div style='margin-top:8px'>{_button('Open in Nexus', row['url'], 'open')}</div>")
+    return "".join(parts)
+
+
+def _sub_actions_html(row: dict, tone: tuple) -> str:
+    """One Approve/Reject pair per request inside a bundled row (e.g. an
+    employee with several pending time-off requests)."""
+    subs = row.get("sub_actions") or []
+    if not subs:
+        return ""
+    lines = "".join(
+        f"<tr><td style='padding:6px 0;font-size:12.5px;color:{_BODY};border-top:1px solid {tone[2]}'>{escape(s['detail'])}</td>"
+        f"<td align='right' style='padding:6px 0 2px;border-top:1px solid {tone[2]};white-space:nowrap'>"
+        f"{_decision_buttons(s['action_kind'], s['action_id'], s['action_email'])}</td></tr>"
+        for s in subs)
+    return f"<table width='100%' cellpadding='0' cellspacing='0' style='margin-top:8px;border-collapse:collapse'>{lines}</table>"
+
+
+def _comments_row_html(row: dict, colspan: int, tone: tuple) -> str:
+    """Last 3 comments on a task (Sep 23), full width under its row so they
+    stay readable instead of squeezed into one column."""
+    if not row.get("comments"):
+        return ""
+    lines = "".join(
+        f"<div style='padding:3px 0;font-size:12.5px;line-height:1.5;color:{_BODY}'>"
+        f"<span style='font-weight:600;color:{_INK}'>{escape(c['author'])}:</span> {escape(c['body'])}</div>"
+        for c in row["comments"])
+    return (f"<tr><td colspan='{colspan}' class='nx-td' style='padding:0 12px 12px'>"
+            f"<div style='background:#ffffff;border-left:3px solid {tone[2]};padding:8px 12px'>"
+            f"<div style='font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;"
+            f"color:{_MUTED};margin-bottom:2px'>Recent Comments</div>{lines}</div></td></tr>")
+
+
+def _item_row_html(row: dict, with_ref: bool, tone: tuple) -> str:
+    td = _td(tone)
+    ref = (f"<td class='nx-td nx-ref' width='92' style='{td};font-size:12px;font-weight:600;color:{_MUTED};"
+           f"white-space:nowrap'>{escape(row.get('ref') or '')}</td>") if with_ref else ""
+    item = (f"<td class='nx-td' style='{td}'>"
+            f"<div style='font-size:13.5px;font-weight:600;color:{_INK};line-height:1.4'>{escape(row['title'])}</div>"
+            f"{_sub_actions_html(row, tone)}{_row_actions_html(row)}</td>")
+    update = (f"<td class='nx-td nx-upd' width='34%' style='{td};font-size:13px;line-height:1.45;color:{_BODY}'>"
+              f"{escape(row.get('detail') or '')}</td>")
+    return f"<tr>{ref}{item}{update}</tr>{_comments_row_html(row, 3 if with_ref else 2, tone)}"
+
+
+def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool, tone: tuple) -> str:
+    """Compact title-only rows for everything past the cap - still in the
+    same table, so the reader sees WHAT the rest is without leaving the email."""
+    cols = 3 if with_ref else 2
+    groups: dict = {}
+    for r in hidden:
+        key = (r.get("ref") or "", r["title"])
+        g = groups.setdefault(key, {"count": 0, "url": r.get("url") or ""})
+        g["count"] += 1
+    by_title = list(groups.items())
+    listed, overflow = by_title[:_OVERFLOW_GROUP_CAP], by_title[_OVERFLOW_GROUP_CAP:]
+    td = f"padding:8px 12px;vertical-align:top;border-top:1px solid {tone[2]};font-size:12.5px;color:{_BODY}"
+    out = []
+    for (ref, title), g in listed:
+        count = f" <span style='color:{_MUTED}'>&times;{g['count']}</span>" if g["count"] > 1 else ""
+        open_link = _links([("Open", g["url"])]) if g["url"] else ""
+        ref_td = (f"<td class='nx-td nx-ref' style='{td};font-weight:600;color:{_MUTED};white-space:nowrap'>"
+                  f"{escape(ref)}</td>") if with_ref else ""
+        out.append(f"<tr>{ref_td}<td class='nx-td' style='{td}'>{escape(title)}{count}</td>"
+                   f"<td class='nx-td nx-upd' style='{td}'>{open_link}</td></tr>")
+    more = ""
+    if overflow:
+        more = f"{sum(g['count'] for _, g in overflow)} more not listed. "
+    view_url = (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}"
+    out.append(f"<tr><td colspan='{cols}' class='nx-td' style='padding:10px 12px;border-top:1px solid {tone[2]};"
+               f"background:{tone[1]};font-size:12.5px;color:{_BODY}'>{escape(more)}"
+               f"{_links([(f'View All {len(shown) + len(hidden)} in Nexus', view_url)])}</td></tr>")
+    return "".join(out)
 
 
 def _group_by_module(rows: list) -> list:
@@ -847,175 +932,233 @@ def _group_by_module(rows: list) -> list:
     return [(m, _MODULE_META.get(m, m.replace("_", " ").title()), buckets[m]) for m in order]
 
 
-def _module_group_html(color: str, group_id: str, module: str, label: str, rows: list) -> str:
-    _, accent, _tint, _icon = _BADGE[color]
+def _module_table_html(section: str, module: str, label: str, rows: list) -> str:
+    tone = _TONE[section]
     shown, hidden = rows[:_MODULE_CARD_CAP], rows[_MODULE_CARD_CAP:]
-    cards = "".join(_card_html(color, r) for r in shown)
+    with_ref = any(r.get("ref") for r in rows)
+    th = _th(tone)
+    head = ((f"<th class='nx-th' style='{th}'>ID</th>" if with_ref else "") +
+            f"<th class='nx-th' style='{th}'>Item</th><th class='nx-th' style='{th}'>Update</th>")
+    body = "".join(_item_row_html(r, with_ref, tone) for r in shown)
     if hidden:
-        # Plain lines, not another accordion layer - this is the part that has
-        # to work identically in every client, so it cannot depend on CSS the
-        # way the outer toggle below does. But a bare "+N more -> Open in
-        # Nexus" told the reader nothing about what those N things actually
-        # WERE before making them leave the email to find out (Pranshu, Sep
-        # 21) - listing the titles as plain text needs no interactivity at
-        # all, so it's exactly as universal as the link itself.
-        #
-        # Sep 22 redesign, after a duplicate-task data bug (two Asana-pull
-        # workers racing on the same recurring series, see routers/tasks.py's
-        # _next_code fix) put ~15 rows all reading the identical title into
-        # one briefing: the OLD version joined every hidden row into a single
-        # semicolon-separated run-on paragraph, which made a genuine data bug
-        # look even worse than it was and was unreadable regardless of cause.
-        # Now: (1) rows are grouped by exact title first, so N rows sharing
-        # one title become ONE line with a "x N" count, not N repeats - this
-        # helps even before anyone runs the sync-dedupe cleanup, and keeps
-        # helping afterward for a genuinely busy recurring series; (2) each
-        # remaining group gets its OWN line, not folded into one paragraph;
-        # (3) the group LIST ITSELF is capped, so a single flooded project
-        # can never make one email unboundedly long even in the worst case.
-        more_url = (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}"
-        groups: dict = {}
-        for r in hidden:
-            g = groups.setdefault(r["title"], {"count": 0, "url": r.get("url") or ""})
-            g["count"] += 1
-        by_title = list(groups.items())
-        listed, overflow = by_title[:_OVERFLOW_GROUP_CAP], by_title[_OVERFLOW_GROUP_CAP:]
-        lines = []
-        for title, g in listed:
-            count_tag = f" <span style='color:#8a9389'>&times;{g['count']}</span>" if g["count"] > 1 else ""
-            open_link = (f" &mdash; <a href='{escape(g['url'])}' style='font-weight:700;color:{accent};"
-                         f"text-decoration:none'>Open &rarr;</a>") if g["url"] else ""
-            lines.append(f"<div style='padding:2px 0'>{escape(title)}{count_tag}{open_link}</div>")
-        if overflow:
-            overflow_total = sum(g["count"] for _, g in overflow)
-            lines.append(f"<div style='padding:2px 0;color:#8a9389'>+{len(overflow)} more distinct "
-                         f"({overflow_total} total)</div>")
-        cards += (f"<div style='margin:4px 0 10px;font-size:12.5px;color:#5c6a60;line-height:1.6'>"
-                  f"<div style='font-weight:700;color:#26312a;margin-bottom:3px'>+{len(hidden)} more:</div>"
-                  f"{''.join(lines)}"
-                  f"<a href='{escape(more_url)}' style='font-weight:700;color:{accent};text-decoration:none;"
-                  f"display:inline-block;margin-top:4px'>Open in Nexus &rarr;</a></div>")
-    cid = f"nx-acc-{escape(group_id)}"
-    # Checkbox-hack accordion, collapsed by default via the .nx-acc CSS rules
-    # below. The content div's OWN inline style is display:block (visible) -
-    # a client that ignores the sibling-selector CSS entirely (Outlook
-    # desktop's Word engine, same gap the @media block above already accepts)
-    # just shows every module expanded instead of hiding action items behind
-    # a toggle that can never be clicked. Nothing here depends on the CSS
-    # firing; it only makes a supporting client more compact. The cap above
-    # (not this toggle) is what actually keeps a long list short everywhere.
-    #
-    # `mso-hide:all` alongside display:none (Pranshu, Sep 22 - screenshot from
-    # Outlook classic): plain display:none does NOT hide an <input> from
-    # Word's rendering engine - it rendered the checkbox as a literal "[ ]"
-    # sitting in front of every badge/module header, not just failing open to
-    # expanded. mso-hide:all is the actual Outlook-specific directive for
-    # "don't render this element at all"; every other client ignores an
-    # unrecognized mso-* property and still sees the ordinary display:none.
+        body += _overflow_rows_html(module, shown, hidden, with_ref, tone)
+    return (f"<div style='margin:18px 0 8px;font-size:13px;font-weight:600;color:{_INK}'>{escape(label)} "
+            f"<span style='font-weight:400;color:{_MUTED}'>({len(rows)})</span></div>"
+            # bgcolor as well as the style: Outlook desktop honors the attribute
+            # on tables more reliably than a CSS background.
+            f"<table width='100%' cellpadding='0' cellspacing='0' class='nx-tbl' bgcolor='{tone[0]}' "
+            f"style='background:{tone[0]};border:1px solid {tone[2]};border-collapse:collapse;border-radius:6px'>"
+            f"<tr class='nx-head'>{head}</tr>{body}</table>")
+
+
+def _section_html(key: str, rows: list) -> str:
+    heading, accent, _ = _SECTION_META[key]
+    tables = "".join(_module_table_html(key, m, label, grows) for m, label, grows in _group_by_module(rows))
+    sid = f"nx-sec-{key}"
+    # Checkbox-hack collapse, collapsed by default where the <style> CSS runs.
+    # The content's own inline style is display:block, so a client that
+    # ignores the CSS (Outlook desktop) shows the section expanded - never
+    # stuck hidden. mso-hide:all stops Outlook drawing the checkbox as "[ ]"
+    # (Sep 22).
     return f"""
-        <input type="checkbox" id="{cid}" class="nx-acc" style="display:none;mso-hide:all">
-        <label for="{cid}" class="nx-acc-label" style="display:block;cursor:pointer;padding:9px 12px;
-          margin:10px 0 6px;background:#f4f6f3;border-radius:8px;font-size:13px;font-weight:700;color:#26312a">
-          <span style="float:right;color:{accent};transition:transform .15s" class="nx-arrow">&#9656;</span>
-          {escape(label)} <span style="font-weight:400;color:#5c6a60">({len(rows)})</span>
-        </label>
-        <div class="nx-content" style="display:block">{cards}</div>"""
+    <tr><td class="nx-pad" style="padding:26px 32px 0">
+      <input type="checkbox" id="{sid}" class="nx-acc" style="display:none;mso-hide:all">
+      <label for="{sid}" class="nx-acc-label" style="display:block;cursor:pointer">
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:2px solid {accent}">
+          <tr>
+            <td style="padding:0 0 8px;font-size:16px;font-weight:600;color:{_INK}">{escape(heading)}
+              <span style="font-weight:400;color:{_MUTED}">({len(rows)})</span></td>
+            <td align="right" style="padding:0 0 8px;font-size:12px;color:{_MUTED}"><span class="nx-arrow" style="display:inline-block">&#9656;</span></td>
+          </tr>
+        </table>
+      </label>
+      <div class="nx-content" style="display:block">{tables}</div>
+    </td></tr>"""
 
 
-def _section_html(color: str, rows: list) -> str:
-    label, accent, _tint, icon = _BADGE[color]
-    badge = (f"<span style='display:inline-block;padding:6px 12px;border-radius:20px;background:{accent};"
-             f"color:#ffffff;font-family:\"Segoe UI\",Arial,sans-serif;font-size:11.5px;letter-spacing:.02em;"
-             f"font-weight:700'>{icon} {escape(label)}</span>")
-    groups = _group_by_module(rows)
-    body = "".join(_module_group_html(color, f"{color}-{m}", m, glabel, grows) for m, glabel, grows in groups)
-    sid = f"nx-sec-{color}"
-    # Same checkbox-hack accordion as _module_group_html, one level up - the
-    # whole section (not just each module inside it) starts collapsed in a
-    # client that honors the CSS, and safely stays expanded (never stuck
-    # hidden) in one that doesn't, like Outlook desktop classic (Pranshu,
-    # Sep 20: "the sections... should be collapsed - it should only expand
-    # if user clicks on it"). Reuses the exact same .nx-acc/.nx-content CSS
-    # rules - nested accordions each match only their own immediate
-    # siblings, so the module-level toggles inside still work independently -
-    # including the mso-hide:all fix (see _module_group_html) so this
-    # checkbox doesn't render as a literal "[ ]" in Outlook either.
-    #
-    # Outlook desktop classic (Word engine) never runs that CSS though, so it
-    # always falls back to fully expanded - badge, every module header, every
-    # card, all in a row with nothing marking where one section ends and the
-    # next begins (Pranshu, Sep 21: "confusing for end user"). A single bordered
-    # card AROUND the whole section - white, not the same tint the individual
-    # cards use inside it, so they still stand out against it - makes each
-    # section read as one visual chunk regardless of whether the accordion CSS
-    # fires, the same fallback-safe reasoning as the module cap's plain-text
-    # "+N more" line above.
-    return f"""
-      <tr><td class="nx-pad" style="padding:12px 32px">
-        <div style="background:#ffffff;border:1px solid #e2e5df;border-left:4px solid {accent};
-          border-radius:14px;padding:16px 18px 6px">
-          <input type="checkbox" id="{sid}" class="nx-acc" style="display:none;mso-hide:all">
-          <label for="{sid}" class="nx-acc-label" style="display:block;cursor:pointer;margin-bottom:12px">
-            {badge}
-            <span style="float:right;color:{accent};font-size:15px;transition:transform .15s" class="nx-arrow">&#9656;</span>
-          </label>
-          <div class="nx-content" style="display:block">{body}</div>
-        </div>
-      </td></tr>"""
+def _summary_html(sections: dict) -> str:
+    present = [k for k in _ORDER if sections.get(k)]
+    if not present:
+        return f"<div style='font-size:13.5px;color:{_MUTED}'>Nothing new since your last briefing.</div>"
+    cells = []
+    for i, k in enumerate(present):
+        _, accent, noun = _SECTION_META[k]
+        # Solid section color with white text (Pranshu, Sep 26: the light
+        # tints were too faint to read at a glance). A white gap between
+        # tiles keeps them separate.
+        gap = "border-left:6px solid #ffffff;" if i else ""
+        cells.append(f"<td class='nx-kpi' width='{100 // len(present)}%' bgcolor='{accent}' "
+                     f"style='{gap}background:{accent};padding:14px 18px;vertical-align:top'>"
+                     f"<div style='font-size:24px;font-weight:600;color:#ffffff;line-height:1'>{len(sections[k])}</div>"
+                     f"<div style='font-size:12px;color:#ffffff;margin-top:6px'>{escape(noun)}</div></td>")
+    return (f"<table width='100%' cellpadding='0' cellspacing='0' style='border-collapse:collapse'>"
+            f"<tr>{''.join(cells)}</tr></table>")
 
 
-def _stat_chip_html(count: int, noun: str) -> str:
-    return (f"<td class='nx-chip' style='padding:0 6px 8px 0'>"
-            f"<div style='background:#f4f6f3;border-radius:20px;padding:6px 13px;font-size:12.5px;color:#3a463e;"
-            f"white-space:nowrap'><b style='color:#173328'>{count}</b> {escape(noun)}</div></td>")
-
-
-def render_email(employee_name: str, briefing_date: str, sections: dict) -> tuple:
+def render_email(first_name: str, briefing_date: str, sections: dict,
+                 greeting: str = "Hello", logo_url: str = "") -> tuple:
     _d = datetime.strptime(briefing_date, "%Y-%m-%d")
-    weekday_date = f"{_d.strftime('%A, %B')} {_d.day}"  # avoid %-d/%#d (platform-specific strftime flags)
-    chips = "".join(_stat_chip_html(len(sections[c]), _SUMMARY_NOUN[c]) for c in _ORDER if sections.get(c))
-    counts_row = (f"<table cellpadding='0' cellspacing='0'><tr>{chips}</tr></table>"
-                  if chips else "<div style='font-size:13px;color:#5c6a60'>Nothing new since your last briefing</div>")
-    body_sections = "".join(_section_html(c, sections[c]) for c in _ORDER if sections.get(c))
+    weekday_date = f"{_d.strftime('%A')}, {_d.strftime('%m/%d/%Y')}"
     subject = f"Your Daily Briefing - {weekday_date}"
-    html = f"""<div style="background:#eef1ee;padding:32px 14px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+    logo = (f"<img src='{escape(logo_url)}' alt='Greens Global' height='26' style='display:block;border:0'>"
+            if logo_url else
+            "<span style='color:#ffffff;font-size:14px;font-weight:700;letter-spacing:.18em'>GREENS GLOBAL</span>")
+    salutation = f"{greeting}, {escape(first_name)}." if first_name else f"{greeting}."
+    body_sections = "".join(_section_html(k, sections[k]) for k in _ORDER if sections.get(k))
+    html = f"""<div style="background:#f3f4f6;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <style>
-    /* Module accordion - collapsed by default; label click checks the hidden
-       box and reveals its .nx-content sibling. A client that does not apply
-       this block at all (see _module_group_html) leaves every module visibly
-       expanded instead, which is the safe direction to fail in. */
     .nx-acc:not(:checked) ~ .nx-content {{ display:none !important; }}
     .nx-acc:checked ~ .nx-content {{ display:block !important; }}
     .nx-acc:checked + .nx-acc-label .nx-arrow {{ transform:rotate(90deg); }}
-    @media (max-width:520px) {{
-      .nx-wrap {{ border-radius:0 !important; border-left:0 !important; border-right:0 !important; }}
-      .nx-pad {{ padding-left:20px !important; padding-right:20px !important; }}
-      .nx-hero {{ padding-left:20px !important; padding-right:20px !important; }}
-      .nx-btn {{ display:block !important; text-align:center !important; margin:0 0 8px !important; }}
-      .nx-chip {{ display:block !important; padding-right:0 !important; }}
-      .nx-chip > div {{ display:inline-block; }}
+    @media (max-width:560px) {{
+      .nx-wrap {{ border-left:0 !important; border-right:0 !important; }}
+      .nx-pad {{ padding-left:16px !important; padding-right:16px !important; }}
+      .nx-head {{ display:none !important; }}
+      .nx-td {{ display:block !important; width:auto !important; }}
+      .nx-ref {{ padding-bottom:0 !important; }}
+      .nx-upd {{ border-top:0 !important; padding-top:4px !important; }}
+      .nx-kpi {{ padding:12px !important; }}
     }}
   </style>
-  <table class="nx-wrap" align="center" width="680" cellpadding="0" cellspacing="0" style="max-width:680px;width:100%;background:#ffffff;border-radius:18px;border:1px solid #e2e5df;border-collapse:separate;overflow:hidden">
+  <table class="nx-wrap" align="center" width="680" cellpadding="0" cellspacing="0" style="max-width:680px;width:100%;background:#ffffff;border:1px solid {_LINE};border-collapse:collapse">
     <tr>
-      <td class="nx-hero" style="background:#173328;background-image:linear-gradient(135deg,#173328,#1e4d38);padding:26px 32px">
-        <div style="font-family:'Segoe UI',Arial,sans-serif;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#8fd3ac;font-weight:700">&#9670; NEXUS</div>
-        <div style="color:#ffffff;font-size:23px;font-weight:700;margin-top:9px">Your Daily Briefing</div>
-        <div style="color:#b7d8c6;font-size:13.5px;margin-top:4px">{escape(weekday_date)}</div>
+      <td class="nx-pad" style="background:{_BRAND};padding:16px 32px">
+        <table width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td>{logo}</td>
+          <td align="right" style="font-size:12.5px;color:#cfe3d8">{escape(weekday_date)}</td>
+        </tr></table>
       </td>
     </tr>
-    <tr><td class="nx-pad" style="padding:18px 32px;border-bottom:1px solid #eef0ec">{counts_row}</td></tr>
-    <tr><td class="nx-pad" style="padding:20px 32px 0;font-size:14.5px;color:#5c6a60">Good morning{', ' + escape(employee_name) if employee_name else ''}. Here's everything since your last briefing - sign in only if you need the full detail.</td></tr>
+    <tr>
+      <td class="nx-pad" style="padding:28px 32px 0">
+        <div style="font-size:21px;font-weight:600;color:{_INK}">Daily Briefing</div>
+        <div style="font-size:14px;line-height:1.55;color:{_BODY};margin-top:6px">{salutation} Here is what changed since your last briefing.</div>
+      </td>
+    </tr>
+    <tr><td class="nx-pad" style="padding:20px 32px 0">{_summary_html(sections)}</td></tr>
+    <tr><td class="nx-pad" style="padding:12px 32px 0;font-size:13px">
+      <a href="{escape(app_url())}/briefing" style="color:{_LINK};font-weight:600;text-decoration:none">Open My Briefing in Nexus &rarr;</a>
+    </td></tr>
     {body_sections}
     <tr>
-      <td class="nx-pad" style="padding:26px 32px 30px;margin-top:6px;border-top:1px solid #eef0ec">
-        <p style="font-size:11.5px;color:#95a096;margin:0 0 14px;line-height:1.5">This briefing replaces individual task/HR notification emails. Anything genuinely blocking still reaches you instantly on Teams.</p>
-        <a href="{escape(app_url())}" class="nx-btn" style="display:inline-block;padding:11px 22px;border-radius:22px;background:#173328;color:#ffffff;text-decoration:none;font-weight:700;font-size:13px">Open Nexus &rarr;</a>
+      <td class="nx-pad" style="padding:32px 32px 28px">
+        <a href="{escape(app_url())}/briefing" class="nx-btn" style="display:inline-block;padding:10px 22px;border-radius:4px;background:{_BRAND};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px">Open My Briefing</a>
+        <div style="font-size:12px;color:{_MUTED};margin-top:8px">Collapse sections and approve, comment or complete in one click.</div>
+      </td>
+    </tr>
+    <tr>
+      <td class="nx-pad" style="background:{_SOFT};border-top:1px solid {_LINE};padding:16px 32px;font-size:11.5px;line-height:1.6;color:{_MUTED}">
+        You receive one briefing a day, before your shift starts. It lists what needs your attention in Nexus since your last briefing.
       </td>
     </tr>
   </table>
 </div>"""
     return subject, html
+
+
+# ── Outlook card ────────────────────────────────────────────────────────
+
+def _logo_url(db: Session) -> str:
+    # Same logo the ticket emails carry (Ticket settings), so both read as one brand.
+    try:
+        import ticket_notify
+        return ticket_notify.get_settings(db).get("logoUrl") or ""
+    except Exception:
+        return ""
+
+
+def outlook_card(db: Session, email: str, first_name: str, sections: dict, briefing_date: str,
+                 since_iso: str, *, greeting: str, logo_url: str, outcome: str = "") -> dict:
+    """The briefing as an Outlook card (briefing_card.py). Also called by
+    routers/briefing_actions.py to redraw the card after a click."""
+    _d = datetime.strptime(briefing_date, "%Y-%m-%d")
+    base = app_url()
+    return briefing_card.build_card(
+        sections=sections, first_name=first_name, greeting=greeting,
+        weekday_date=f"{_d.strftime('%A')}, {_d.strftime('%m/%d/%Y')}",
+        briefing_date=briefing_date, since_iso=since_iso, logo_url=logo_url, app_url=base,
+        view_urls={m: f"{base}{path}" for m, path in _MODULE_VIEW_URL.items()},
+        status_options=lambda project_id: task_mail_actions.status_options(db, project_id),
+        outcome=outcome)
+
+
+def with_card(html: str, card: dict) -> str:
+    """Embeds the card the same way task_mail_actions.decorate() does."""
+    card_json = json.dumps(card, ensure_ascii=False).replace("</", "<\\/")
+    return ("<html><head><meta http-equiv='Content-Type' content='text/html; charset=utf-8'>"
+            f"<script type='application/adaptivecard+json'>{card_json}</script>"
+            f"</head><body>{html}</body></html>")
+
+
+# ── My Briefing page (Sep 26) ───────────────────────────────────────────
+# The briefing as a Nexus page (/briefing, frontend/src/views/MyBriefing.jsx):
+# same content as the email, but with collapsible sections and actions that
+# run in place. It covers the same window as the person's latest email,
+# extended to now, so it matches what they just read and stays current.
+
+def _page_window(db: Session, email: str) -> str:
+    sent = (db.query(models.NexusDailyBriefingLog)
+            .filter(models.NexusDailyBriefingLog.employee_email == email,
+                    models.NexusDailyBriefingLog.sent_at != "")
+            .order_by(models.NexusDailyBriefingLog.sent_at.desc()).limit(2).all())
+    if len(sent) == 2:
+        return sent[1].sent_at
+    anchor = datetime.now(timezone.utc)
+    if sent:
+        try:
+            anchor = datetime.strptime(sent[0].sent_at[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return (anchor - timedelta(hours=LOOKBACK_HOURS_FIRST_RUN)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _page_row(db: Session, row: dict, status_cache: dict) -> dict:
+    base = app_url()
+    url = row.get("url") or ""
+    out = {
+        "title": row["title"], "ref": row.get("ref") or "", "detail": row.get("detail") or "",
+        "module": row.get("module") or "other",
+        # In-app path, so the page navigates instead of reloading the whole app.
+        "path": url[len(base):] if base and url.startswith(base) else url,
+        "comments": row.get("comments") or [],
+    }
+    if row.get("action_kind"):
+        out["decision"] = {"kind": row["action_kind"], "id": row["action_id"]}
+    if row.get("sub_actions"):
+        out["subDecisions"] = [{"detail": x["detail"], "kind": x["action_kind"], "id": x["action_id"]}
+                               for x in row["sub_actions"]]
+    if row.get("task_id"):
+        out["taskId"] = row["task_id"]
+        out["taskOpen"] = bool(row.get("task_open"))
+        if row.get("task_open"):
+            pid = row.get("project_id") or ""
+            if pid not in status_cache:
+                status_cache[pid] = [{"value": k, "label": v} for k, v in task_mail_actions.status_options(db, pid)]
+            out["statusOptions"] = status_cache[pid]
+            out["taskStatus"] = row.get("task_status") or ""
+    return out
+
+
+def my_briefing(db: Session, email: str) -> dict:
+    email = (email or "").lower()
+    local_now = _recipient_local_now(db, email)
+    briefing_date = local_now.date().isoformat()
+    since_iso = _page_window(db, email)
+    sections = build_sections(db, email, since_iso, briefing_date)
+    emp = (db.query(models.NexusEmployee)
+           .filter(func.lower(models.NexusEmployee.work_email) == email).first())
+    status_cache: dict = {}
+    return {
+        "greeting": _greeting(local_now),
+        "firstName": ((emp.first_name if emp else "") or "").strip(),
+        "date": briefing_date,
+        "since": since_iso,
+        "reactions": task_mail_actions.REACTION_EMOJIS,
+        "sections": [{
+            "key": k, "label": _SECTION_META[k][0],
+            "rows": [_page_row(db, r, status_cache) for r in sections[k]],
+        } for k in _ORDER if sections.get(k)],
+    }
 
 
 # ── Send + scan ─────────────────────────────────────────────────────────
@@ -1029,10 +1172,21 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
         since_iso = (datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS_FIRST_RUN)).strftime("%Y-%m-%dT%H:%M:%S")
 
     sections = build_sections(db, emp.work_email, since_iso, briefing_date)
-    name = f"{emp.first_name} {emp.last_name}".strip()
-    subject, html = render_email(name, briefing_date, sections)
+    first_name = (emp.first_name or "").strip()
+    greeting = _greeting(_recipient_local_now(db, emp.work_email))
+    logo_url = _logo_url(db)
+    subject, html = render_email(first_name, briefing_date, sections, greeting=greeting, logo_url=logo_url)
 
     mode = cfg.get("mode", "off")
+    # Outlook card: in live mode for everyone; in test mode only on the tester's
+    # OWN briefing, since its buttons act for real and a tester must not be able
+    # to approve other people's items from a preview copy.
+    test_own = mode == "test" and emp.work_email.lower() in {
+        (e or "").strip().lower() for e in (cfg.get("test_recipients") or [])}
+    if cfg.get("outlook_card") and task_mail_actions.am_enabled() and sections and (mode == "live" or test_own):
+        card = outlook_card(db, emp.work_email, first_name, sections, briefing_date, since_iso,
+                            greeting=greeting, logo_url=logo_url)
+        html = with_card(html, card)
     sent_at = ""
     if mode in ("test", "live") and sections:
         to = [emp.work_email] if mode == "live" else list(cfg.get("test_recipients") or [])

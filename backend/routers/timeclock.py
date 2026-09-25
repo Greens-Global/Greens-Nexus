@@ -47,7 +47,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification, HrCompanyHoliday, NexusRole)
-from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
+from routers.hr import company_sites, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
 
@@ -155,7 +155,9 @@ def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "") -> dict:
     except (TypeError, ValueError):
         return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     # An assigned work site (Visesh, Sep 25) narrows "any company site" to that
-    # one; the default (no assignment) keeps every site in play.
+    # one; the default (no assignment) is every site on the person's company's
+    # list (Neil, Sep 25: a Sacred Natural punch must not resolve to a Greens
+    # office) - company_sites falls back to all sites for an unconfigured company.
     sites = None
     if email:
         emp = (db.query(NexusEmployee)
@@ -164,6 +166,8 @@ def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "") -> dict:
             site = db.query(HrWorkSite).filter(HrWorkSite.id == emp.work_site_id.strip()).first()
             if site:
                 sites = [site]
+        if sites is None and emp:
+            sites = company_sites(db, emp.company or "")
     verdict = _geofence_site(db, plat, plng, accuracy_m, sites=sites)
     if verdict["geo_status"] != "in_fence" and email and _is_remote(db, email):
         return {"geo_status": "remote", "work_site_id": "", "work_site_name": "Remote", "distance_m": 0}
@@ -506,7 +510,7 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     week_start = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
     summaries = _day_summaries(_live_punches(db, email, start=week_start),
                                break_cfg=_break_cfg_for(db, email))
-    sites = [{"id": s.id, "name": s.name} for s in db.query(HrWorkSite).all()
+    sites = [{"id": s.id, "name": s.name} for s in company_sites(db, _company_of(db, email))
              if (s.latitude or "").strip() and (s.longitude or "").strip()]
     # Beginning-of-day message is required before the first punch-in of the day:
     # true only until either the BOD is posted or an in-punch already exists today.
@@ -3931,7 +3935,10 @@ def geofence_punches(email: str = "", start: str = "", end: str = "",
     emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == target).first()
     assigned = (emp.work_site_id or "").strip() if emp else ""
     sites = []
-    for st in db.query(HrWorkSite).order_by(HrWorkSite.name).all():
+    pool = list(company_sites(db, (emp.company or "") if emp else ""))
+    if assigned and all(st.id != assigned for st in pool):
+        pool += db.query(HrWorkSite).filter(HrWorkSite.id == assigned).all()
+    for st in pool:
         try:
             lat, lng = float(st.latitude), float(st.longitude)
         except (TypeError, ValueError):

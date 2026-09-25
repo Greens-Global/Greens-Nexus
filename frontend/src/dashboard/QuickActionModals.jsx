@@ -13,6 +13,8 @@ import { TasksProvider } from '../tasks/TasksContext';
 import CreateTaskModal from '../tasks/CreateTaskModal';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+// "Add Personal Link" is the Links tab's own form (src/links/), not a copy.
+import { PersonalLinkComposer } from '../links/personalLinkModal.jsx';
 
 const Overlay = ({ children, onClose }) => (
   <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
@@ -241,7 +243,8 @@ function TaskModal({ onClose }) {
   );
 }
 
-export default function QuickActionModal({ kind, onClose }) {
+export default function QuickActionModal({ kind, onClose, initialUrl }) {
+  if (kind === 'personal-link') return <PersonalLinkComposer initialUrl={initialUrl} onClose={onClose} />;
   if (kind === 'email') return <EmailModal onClose={onClose} />;
   if (kind === 'event') return <EventModal onClose={onClose} />;
   if (kind === 'task')  return <TaskModal  onClose={onClose} />;

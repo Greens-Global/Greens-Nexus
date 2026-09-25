@@ -1928,7 +1928,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
 # ---------------------------------------------------------------------------
 # HR Section A - Companies/Entities + Work Sites (structural foundation)
 # ---------------------------------------------------------------------------
-from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday, HrHolidayPolicy
+from models import HrEntity, HrWorkSite, HrCompanyWorkSite, HrDepartment, NexusSetting, HrCompanyHoliday, HrHolidayPolicy
 
 
 class EntityIn(BaseModel):
@@ -2525,6 +2525,8 @@ class WorkSiteIn(BaseModel):
     latitude: Optional[str] = ""
     longitude: Optional[str] = ""
     radius_m: Optional[int] = 150
+    # Optional: also add the new site to this company's list (adding a site from
+    # a company's Work Sites tab). Blank = library only.
     company:  Optional[str] = ""
     notes:    Optional[str] = ""
 
@@ -2535,54 +2537,105 @@ class WorkSiteUpdate(BaseModel):
     latitude: Optional[str] = None
     longitude: Optional[str] = None
     radius_m: Optional[int] = None
-    company:  Optional[str] = None
     notes:    Optional[str] = None
 
 
-def _serialize_site(s: HrWorkSite) -> dict:
+class CompanySitesIn(BaseModel):
+    site_ids: List[str] = []
+
+
+def _site_links(db: Session, site_ids=None) -> dict:
+    """site_id -> [company_id, ...] from the company/site link table."""
+    q = db.query(HrCompanyWorkSite)
+    if site_ids is not None:
+        q = q.filter(HrCompanyWorkSite.site_id.in_(list(site_ids)))
+    out = {}
+    for ln in q.all():
+        out.setdefault(ln.site_id, []).append(ln.company_id)
+    return out
+
+
+def _serialize_site(s: HrWorkSite, companies=None) -> dict:
     return {
         "id": s.id, "name": s.name, "address": s.address, "latitude": s.latitude,
-        "longitude": s.longitude, "radiusM": s.radius_m, "company": s.company,
+        "longitude": s.longitude, "radiusM": s.radius_m,
+        "companies": sorted(companies or []),
         "notes": s.notes, "createdAt": s.created_at, "updatedAt": s.updated_at,
     }
 
 
+def company_sites(db: Session, company_id: str):
+    """The work sites a company's employees punch at: its picks from the global
+    library (Neil, Sep 25 - Sacred Natural has one site, so its people must not
+    resolve to a Greens office). A company that hasn't picked any yet (or a
+    person with no company) falls back to every site, the behavior before the
+    library existed, so an unconfigured company never breaks punching."""
+    cid = (company_id or "").strip()
+    if cid:
+        rows = (db.query(HrWorkSite)
+                .join(HrCompanyWorkSite, HrCompanyWorkSite.site_id == HrWorkSite.id)
+                .filter(HrCompanyWorkSite.company_id == cid)
+                .order_by(HrWorkSite.name).all())
+        if rows:
+            return rows
+    return db.query(HrWorkSite).order_by(HrWorkSite.name).all()
+
+
+def _link_site(db: Session, company_id: str, site_id: str, email: str) -> bool:
+    lid = f"{company_id}:{site_id}"
+    if db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.id == lid).first():
+        return False
+    db.add(HrCompanyWorkSite(id=lid, company_id=company_id, site_id=site_id, created_by=email,
+                             created_at=datetime.now(timezone.utc).isoformat()))
+    return True
+
+
+def _assert_site_editable(db: Session, site_id: str, scope) -> None:
+    """A library site is shared, so a company-scoped admin may only change or
+    delete one that no company outside their scope uses."""
+    if scope is None:
+        return
+    used_by = set(_site_links(db, [site_id]).get(site_id, []))
+    if used_by - set(scope):
+        raise HTTPException(403, "Another company uses this work site - ask an admin with access to every company")
+
+
 @router.get("/work-sites")
 def list_work_sites(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    scope = hr_scope(user, db)
-    q = db.query(HrWorkSite)
-    if scope is not None:
-        # Company-less sites stay readable (shared geofences); tagged sites
-        # only within scope.
-        q = q.filter(or_(HrWorkSite.company == "", HrWorkSite.company.in_(scope)))
-    rows = q.order_by(HrWorkSite.name).all()
-    return [_serialize_site(s) for s in rows]
+    """The global work-site library - every site, with the companies using it.
+    Readable in full by every HR admin: a site is entered once and any company
+    can pick it."""
+    rows = db.query(HrWorkSite).order_by(HrWorkSite.name).all()
+    links = _site_links(db)
+    return [_serialize_site(s, links.get(s.id)) for s in rows]
 
 
 @router.post("/work-sites")
 def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     if not body.name.strip():
         raise HTTPException(400, "name is required")
-    # Work sites are per-company now (Sep 18) - a shared/global site can no
-    # longer be created. Existing pre-migration sites with no company keep
-    # working as shared geofences; admins claim them into a company (or
-    # leave them alone) via each company's Work Sites tab rather than a
-    # forced bulk migration.
-    if not (body.company or "").strip():
-        raise HTTPException(400, "Pick a company for this work site")
+    company = (body.company or "").strip()
     scope = hr_scope(user, db)
-    if scope is not None and (body.company or "").strip() not in scope:
+    if scope is not None and company not in scope:
         raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
+    if company and not db.query(HrEntity).filter(HrEntity.id == company).first():
+        raise HTTPException(404, "Company not found")
     now = datetime.now(timezone.utc).isoformat()
     row = HrWorkSite(
         id=str(uuid.uuid4()), name=body.name.strip(), address=(body.address or "").strip(),
         latitude=(body.latitude or "").strip(), longitude=(body.longitude or "").strip(),
         radius_m=body.radius_m if body.radius_m is not None else 150,
-        company=(body.company or "").strip(), notes=body.notes or "",
+        company="", notes=body.notes or "",
         created_by=user["email"], created_at=now, updated_at=now,
     )
-    db.add(row); db.commit(); db.refresh(row)
-    return _serialize_site(row)
+    db.add(row)
+    # Added from a company = in the library for everyone AND on that company's
+    # list (Neil, Sep 25: "if you add it from the company, it should go into
+    # global also").
+    if company:
+        _link_site(db, company, row.id, user["email"])
+    db.commit(); db.refresh(row)
+    return _serialize_site(row, [company] if company else [])
 
 
 @router.patch("/work-sites/{site_id}")
@@ -2590,11 +2643,7 @@ def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(re
     row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
     if not row:
         raise HTTPException(404, "Work site not found")
-    scope = hr_scope(user, db)
-    if scope is not None and (row.company or "") not in scope:
-        raise HTTPException(404, "Work site not found")
-    if scope is not None and body.company is not None and body.company.strip() not in scope:
-        raise HTTPException(403, "You can't move a work site to a company outside your People access")
+    _assert_site_editable(db, site_id, hr_scope(user, db))
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
     for key, value in body.model_dump(exclude_unset=True).items():
@@ -2603,17 +2652,54 @@ def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(re
         setattr(row, key, value.strip() if isinstance(value, str) and key != "notes" else value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit(); db.refresh(row)
-    return _serialize_site(row)
+    return _serialize_site(row, _site_links(db, [row.id]).get(row.id))
 
 
 @router.delete("/work-sites/{site_id}")
 def delete_work_site(site_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+    """Removes the site from the library and from every company using it."""
     row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
-    scope = hr_scope(user, db)
-    if row and scope is not None and (row.company or "") not in scope:
-        raise HTTPException(404, "Work site not found")
     if row:
+        _assert_site_editable(db, site_id, hr_scope(user, db))
+        db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.site_id == site_id).delete(synchronize_session=False)
         db.delete(row); db.commit()
+    return {"ok": True}
+
+
+@router.post("/entities/{entity_id}/work-sites")
+def add_company_work_sites(entity_id: str, body: CompanySitesIn, user: dict = Depends(require_hr_write),
+                           db: Session = Depends(get_db)):
+    """Add library sites to a company's list - one, several, or all of them."""
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    if not db.query(HrEntity).filter(HrEntity.id == entity_id).first():
+        raise HTTPException(404, "Company not found")
+    wanted = {(s or "").strip() for s in body.site_ids if (s or "").strip()}
+    known = ({sid for (sid,) in db.query(HrWorkSite.id).filter(HrWorkSite.id.in_(list(wanted))).all()}
+             if wanted else set())
+    added = sum(1 for sid in known if _link_site(db, entity_id, sid, user["email"]))
+    db.commit()
+    return {"ok": True, "added": added}
+
+
+@router.delete("/entities/{entity_id}/work-sites/{site_id}")
+def remove_company_work_site(entity_id: str, site_id: str, user: dict = Depends(require_hr_write),
+                             db: Session = Depends(get_db)):
+    """Take a site off one company's list. It stays in the library for everyone."""
+    scope = hr_scope(user, db)
+    if scope is not None and entity_id not in scope:
+        raise HTTPException(404, "Company not found")
+    db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.company_id == entity_id,
+                                       HrCompanyWorkSite.site_id == site_id).delete(synchronize_session=False)
+    site = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
+    if site and (site.company or "") == entity_id:
+        site.company = ""   # else main.py's link backfill would re-add it on the next boot
+    # This company's people pinned to the site go back to "any company site".
+    for emp in (db.query(NexusEmployee)
+                .filter(NexusEmployee.company == entity_id, NexusEmployee.work_site_id == site_id).all()):
+        emp.work_site_id = ""
+    db.commit()
     return {"ok": True}
 
 
@@ -3207,9 +3293,14 @@ def get_geofence(eid: str, user: dict = Depends(require_hr_read), db: Session = 
         last_loc = {"lat": last.lat, "lng": last.lng, "accuracyM": int(last.accuracy_m or 0),
                     "at": last.at, "workSiteName": last.work_site_name or "",
                     "geoStatus": last.geo_status or ""}
+    # Only the person's company's sites are pickable (plus whatever they are
+    # already pinned to, so the picker never shows a blank for a live pin).
+    pool = list(company_sites(db, emp.company or ""))
+    pinned = (emp.work_site_id or "").strip()
+    if pinned and all(s.id != pinned for s in pool):
+        pool += db.query(HrWorkSite).filter(HrWorkSite.id == pinned).all()
     sites = [{"id": s.id, "name": s.name or "", "radiusM": int(s.radius_m or 150)}
-             for s in db.query(HrWorkSite).order_by(HrWorkSite.name).all()
-             if (s.latitude or "") and (s.longitude or "")]
+             for s in pool if (s.latitude or "") and (s.longitude or "")]
     return {"geofence": _geofence_payload(emp), "lastPunchLocation": last_loc, "workSites": sites}
 
 
