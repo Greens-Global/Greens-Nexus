@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 import models
 from database import SessionLocal
 import graph_mail
+import briefing_card
 import briefing_mail_actions
 import task_mail_actions
 import ticket_mail_templates
@@ -556,6 +557,8 @@ def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> li
             # it, not just comment/react. Approval rows have their own
             # Approve/Reject; a completed row needs neither.
             "task_open": not bool(t.completed),
+            # For the Outlook card's Change Status list (briefing_card.py).
+            "project_id": t.project_id or "", "task_status": t.status or "",
         })
     _attach_task_comment_previews(db, rows)
     rows.extend(_item_needs_to_know_rows(db, email, since_iso, bool(my_reports)))
@@ -1017,6 +1020,40 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
     return subject, html
 
 
+# ── Outlook card ────────────────────────────────────────────────────────
+
+def _logo_url(db: Session) -> str:
+    # Same logo the ticket emails carry (Ticket settings), so both read as one brand.
+    try:
+        import ticket_notify
+        return ticket_notify.get_settings(db).get("logoUrl") or ""
+    except Exception:
+        return ""
+
+
+def outlook_card(db: Session, email: str, first_name: str, sections: dict, briefing_date: str,
+                 since_iso: str, *, greeting: str, logo_url: str, outcome: str = "") -> dict:
+    """The briefing as an Outlook card (briefing_card.py). Also called by
+    routers/briefing_actions.py to redraw the card after a click."""
+    _d = datetime.strptime(briefing_date, "%Y-%m-%d")
+    base = app_url()
+    return briefing_card.build_card(
+        sections=sections, first_name=first_name, greeting=greeting,
+        weekday_date=f"{_d.strftime('%A')}, {_d.strftime('%m/%d/%Y')}",
+        briefing_date=briefing_date, since_iso=since_iso, logo_url=logo_url, app_url=base,
+        view_urls={m: f"{base}{path}" for m, path in _MODULE_VIEW_URL.items()},
+        status_options=lambda project_id: task_mail_actions.status_options(db, project_id),
+        outcome=outcome)
+
+
+def with_card(html: str, card: dict) -> str:
+    """Embeds the card the same way task_mail_actions.decorate() does."""
+    card_json = json.dumps(card, ensure_ascii=False).replace("</", "<\\/")
+    return ("<html><head><meta http-equiv='Content-Type' content='text/html; charset=utf-8'>"
+            f"<script type='application/adaptivecard+json'>{card_json}</script>"
+            f"</head><body>{html}</body></html>")
+
+
 # ── Send + scan ─────────────────────────────────────────────────────────
 
 def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date: str) -> None:
@@ -1028,16 +1065,21 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
         since_iso = (datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS_FIRST_RUN)).strftime("%Y-%m-%dT%H:%M:%S")
 
     sections = build_sections(db, emp.work_email, since_iso, briefing_date)
-    try:
-        import ticket_notify
-        logo_url = ticket_notify.get_settings(db).get("logoUrl") or ""
-    except Exception:
-        logo_url = ""
-    subject, html = render_email((emp.first_name or "").strip(), briefing_date, sections,
-                                 greeting=_greeting(_recipient_local_now(db, emp.work_email)),
-                                 logo_url=logo_url)
+    first_name = (emp.first_name or "").strip()
+    greeting = _greeting(_recipient_local_now(db, emp.work_email))
+    logo_url = _logo_url(db)
+    subject, html = render_email(first_name, briefing_date, sections, greeting=greeting, logo_url=logo_url)
 
     mode = cfg.get("mode", "off")
+    # Outlook card: in live mode for everyone; in test mode only on the tester's
+    # OWN briefing, since its buttons act for real and a tester must not be able
+    # to approve other people's items from a preview copy.
+    test_own = mode == "test" and emp.work_email.lower() in {
+        (e or "").strip().lower() for e in (cfg.get("test_recipients") or [])}
+    if task_mail_actions.am_enabled() and sections and (mode == "live" or test_own):
+        card = outlook_card(db, emp.work_email, first_name, sections, briefing_date, since_iso,
+                            greeting=greeting, logo_url=logo_url)
+        html = with_card(html, card)
     sent_at = ""
     if mode in ("test", "live") and sections:
         to = [emp.work_email] if mode == "live" else list(cfg.get("test_recipients") or [])
