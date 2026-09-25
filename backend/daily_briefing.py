@@ -728,6 +728,15 @@ _SECTION_META = {
     "completed":       ("Completed Since Your Last Briefing",  "#15803d", "Completed"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
+# Each section's tables carry that section's color (Pranshu, Sep 26): a light
+# tint for the rows, a deeper one for the header row, and a matching border,
+# so a table reads as part of its section at a glance.
+_TONE = {
+    # key: (row background, header background, border)
+    "action_required": ("#fef5f5", "#fce4e4", "#f1c7c7"),
+    "needs_to_know":   ("#fffaf0", "#fdefd5", "#f0d6a8"),
+    "completed":       ("#f3fbf5", "#dff3e6", "#bfe3cb"),
+}
 
 _MODULE_META = {
     "tasks":    "Tasks",
@@ -752,9 +761,15 @@ _MODULE_VIEW_URL = {
 _MODULE_CARD_CAP = 3
 _OVERFLOW_GROUP_CAP = 15
 
-_TH = (f"padding:8px 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;"
-       f"color:{_MUTED};text-align:left;background:{_SOFT};border-bottom:1px solid {_LINE}")
-_TD = f"padding:12px;vertical-align:top;border-top:1px solid {_LINE}"
+
+
+def _th(tone: tuple) -> str:
+    return (f"padding:8px 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;"
+            f"color:{_BODY};text-align:left;background:{tone[1]};border-bottom:1px solid {tone[2]}")
+
+
+def _td(tone: tuple) -> str:
+    return f"padding:12px;vertical-align:top;border-top:1px solid {tone[2]}"
 
 
 def _greeting(local_now: datetime) -> str:
@@ -828,21 +843,21 @@ def _row_actions_html(row: dict) -> str:
     return "".join(parts)
 
 
-def _sub_actions_html(row: dict) -> str:
+def _sub_actions_html(row: dict, tone: tuple) -> str:
     """One Approve/Reject pair per request inside a bundled row (e.g. an
     employee with several pending time-off requests)."""
     subs = row.get("sub_actions") or []
     if not subs:
         return ""
     lines = "".join(
-        f"<tr><td style='padding:6px 0;font-size:12.5px;color:{_BODY};border-top:1px solid {_LINE}'>{escape(s['detail'])}</td>"
-        f"<td align='right' style='padding:6px 0 2px;border-top:1px solid {_LINE};white-space:nowrap'>"
+        f"<tr><td style='padding:6px 0;font-size:12.5px;color:{_BODY};border-top:1px solid {tone[2]}'>{escape(s['detail'])}</td>"
+        f"<td align='right' style='padding:6px 0 2px;border-top:1px solid {tone[2]};white-space:nowrap'>"
         f"{_decision_buttons(s['action_kind'], s['action_id'], s['action_email'])}</td></tr>"
         for s in subs)
     return f"<table width='100%' cellpadding='0' cellspacing='0' style='margin-top:8px;border-collapse:collapse'>{lines}</table>"
 
 
-def _comments_row_html(row: dict, colspan: int) -> str:
+def _comments_row_html(row: dict, colspan: int, tone: tuple) -> str:
     """Last 3 comments on a task (Sep 23), full width under its row so they
     stay readable instead of squeezed into one column."""
     if not row.get("comments"):
@@ -852,23 +867,24 @@ def _comments_row_html(row: dict, colspan: int) -> str:
         f"<span style='font-weight:600;color:{_INK}'>{escape(c['author'])}:</span> {escape(c['body'])}</div>"
         for c in row["comments"])
     return (f"<tr><td colspan='{colspan}' class='nx-td' style='padding:0 12px 12px'>"
-            f"<div style='background:{_SOFT};border-left:3px solid #d1d5db;padding:8px 12px'>"
+            f"<div style='background:#ffffff;border-left:3px solid {tone[2]};padding:8px 12px'>"
             f"<div style='font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;"
             f"color:{_MUTED};margin-bottom:2px'>Recent Comments</div>{lines}</div></td></tr>")
 
 
-def _item_row_html(row: dict, with_ref: bool) -> str:
-    ref = (f"<td class='nx-td nx-ref' width='92' style='{_TD};font-size:12px;font-weight:600;color:{_MUTED};"
+def _item_row_html(row: dict, with_ref: bool, tone: tuple) -> str:
+    td = _td(tone)
+    ref = (f"<td class='nx-td nx-ref' width='92' style='{td};font-size:12px;font-weight:600;color:{_MUTED};"
            f"white-space:nowrap'>{escape(row.get('ref') or '')}</td>") if with_ref else ""
-    item = (f"<td class='nx-td' style='{_TD}'>"
+    item = (f"<td class='nx-td' style='{td}'>"
             f"<div style='font-size:13.5px;font-weight:600;color:{_INK};line-height:1.4'>{escape(row['title'])}</div>"
-            f"{_sub_actions_html(row)}{_row_actions_html(row)}</td>")
-    update = (f"<td class='nx-td nx-upd' width='34%' style='{_TD};font-size:13px;line-height:1.45;color:{_BODY}'>"
+            f"{_sub_actions_html(row, tone)}{_row_actions_html(row)}</td>")
+    update = (f"<td class='nx-td nx-upd' width='34%' style='{td};font-size:13px;line-height:1.45;color:{_BODY}'>"
               f"{escape(row.get('detail') or '')}</td>")
-    return f"<tr>{ref}{item}{update}</tr>{_comments_row_html(row, 3 if with_ref else 2)}"
+    return f"<tr>{ref}{item}{update}</tr>{_comments_row_html(row, 3 if with_ref else 2, tone)}"
 
 
-def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool) -> str:
+def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool, tone: tuple) -> str:
     """Compact title-only rows for everything past the cap - still in the
     same table, so the reader sees WHAT the rest is without leaving the email."""
     cols = 3 if with_ref else 2
@@ -879,7 +895,7 @@ def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool) 
         g["count"] += 1
     by_title = list(groups.items())
     listed, overflow = by_title[:_OVERFLOW_GROUP_CAP], by_title[_OVERFLOW_GROUP_CAP:]
-    td = f"padding:8px 12px;vertical-align:top;border-top:1px solid {_LINE};font-size:12.5px;color:{_BODY}"
+    td = f"padding:8px 12px;vertical-align:top;border-top:1px solid {tone[2]};font-size:12.5px;color:{_BODY}"
     out = []
     for (ref, title), g in listed:
         count = f" <span style='color:{_MUTED}'>&times;{g['count']}</span>" if g["count"] > 1 else ""
@@ -892,8 +908,8 @@ def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool) 
     if overflow:
         more = f"{sum(g['count'] for _, g in overflow)} more not listed. "
     view_url = (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}"
-    out.append(f"<tr><td colspan='{cols}' class='nx-td' style='padding:10px 12px;border-top:1px solid {_LINE};"
-               f"background:{_SOFT};font-size:12.5px;color:{_MUTED}'>{escape(more)}"
+    out.append(f"<tr><td colspan='{cols}' class='nx-td' style='padding:10px 12px;border-top:1px solid {tone[2]};"
+               f"background:{tone[1]};font-size:12.5px;color:{_BODY}'>{escape(more)}"
                f"{_links([(f'View All {len(shown) + len(hidden)} in Nexus', view_url)])}</td></tr>")
     return "".join(out)
 
@@ -908,24 +924,28 @@ def _group_by_module(rows: list) -> list:
     return [(m, _MODULE_META.get(m, m.replace("_", " ").title()), buckets[m]) for m in order]
 
 
-def _module_table_html(module: str, label: str, rows: list) -> str:
+def _module_table_html(section: str, module: str, label: str, rows: list) -> str:
+    tone = _TONE[section]
     shown, hidden = rows[:_MODULE_CARD_CAP], rows[_MODULE_CARD_CAP:]
     with_ref = any(r.get("ref") for r in rows)
-    head = ((f"<th class='nx-th' style='{_TH}'>ID</th>" if with_ref else "") +
-            f"<th class='nx-th' style='{_TH}'>Item</th><th class='nx-th' style='{_TH}'>Update</th>")
-    body = "".join(_item_row_html(r, with_ref) for r in shown)
+    th = _th(tone)
+    head = ((f"<th class='nx-th' style='{th}'>ID</th>" if with_ref else "") +
+            f"<th class='nx-th' style='{th}'>Item</th><th class='nx-th' style='{th}'>Update</th>")
+    body = "".join(_item_row_html(r, with_ref, tone) for r in shown)
     if hidden:
-        body += _overflow_rows_html(module, shown, hidden, with_ref)
+        body += _overflow_rows_html(module, shown, hidden, with_ref, tone)
     return (f"<div style='margin:18px 0 8px;font-size:13px;font-weight:600;color:{_INK}'>{escape(label)} "
             f"<span style='font-weight:400;color:{_MUTED}'>({len(rows)})</span></div>"
-            f"<table width='100%' cellpadding='0' cellspacing='0' class='nx-tbl' "
-            f"style='border:1px solid {_LINE};border-collapse:collapse;border-radius:6px'>"
+            # bgcolor as well as the style: Outlook desktop honors the attribute
+            # on tables more reliably than a CSS background.
+            f"<table width='100%' cellpadding='0' cellspacing='0' class='nx-tbl' bgcolor='{tone[0]}' "
+            f"style='background:{tone[0]};border:1px solid {tone[2]};border-collapse:collapse;border-radius:6px'>"
             f"<tr class='nx-head'>{head}</tr>{body}</table>")
 
 
 def _section_html(key: str, rows: list) -> str:
     heading, accent, _ = _SECTION_META[key]
-    tables = "".join(_module_table_html(m, label, grows) for m, label, grows in _group_by_module(rows))
+    tables = "".join(_module_table_html(key, m, label, grows) for m, label, grows in _group_by_module(rows))
     sid = f"nx-sec-{key}"
     # Checkbox-hack collapse, collapsed by default where the <style> CSS runs.
     # The content's own inline style is display:block, so a client that
@@ -955,12 +975,15 @@ def _summary_html(sections: dict) -> str:
     cells = []
     for i, k in enumerate(present):
         _, accent, noun = _SECTION_META[k]
-        divider = f"border-left:1px solid {_LINE};" if i else ""
-        cells.append(f"<td class='nx-kpi' width='{100 // len(present)}%' style='{divider}padding:14px 18px;vertical-align:top'>"
+        tone = _TONE[k]
+        # A white gap between tiles, so each keeps its own section color.
+        gap = "border-left:6px solid #ffffff;" if i else ""
+        cells.append(f"<td class='nx-kpi' width='{100 // len(present)}%' bgcolor='{tone[0]}' "
+                     f"style='{gap}background:{tone[0]};border-top:3px solid {accent};padding:14px 18px;vertical-align:top'>"
                      f"<div style='font-size:24px;font-weight:600;color:{accent};line-height:1'>{len(sections[k])}</div>"
                      f"<div style='font-size:12px;color:{_MUTED};margin-top:6px'>{escape(noun)}</div></td>")
-    return (f"<table width='100%' cellpadding='0' cellspacing='0' style='border:1px solid {_LINE};"
-            f"border-collapse:collapse'><tr>{''.join(cells)}</tr></table>")
+    return (f"<table width='100%' cellpadding='0' cellspacing='0' style='border-collapse:collapse'>"
+            f"<tr>{''.join(cells)}</tr></table>")
 
 
 def render_email(first_name: str, briefing_date: str, sections: dict,
