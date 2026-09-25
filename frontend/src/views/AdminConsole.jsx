@@ -40,7 +40,7 @@ import {
   Settings2, ChevronDown, Tag, Shield, SlidersHorizontal,
   Headset, Bell, Mail, Building2, RefreshCw, Loader2, Timer,
   UserCog, Activity, DoorOpen, Signature, Check, Eye, X,
-  Plus, Pencil, Trash2, Upload, GripVertical,
+  Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -55,6 +55,7 @@ import DailyBriefingSettings from '../components/DailyBriefingSettings';
 const ManageTypesModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.ManageTypesModal })));
 const CustomFieldsAdminModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.CustomFieldsAdminModal })));
 const CompanySetupPage = lazy(() => import('./HR').then(m => ({ default: m.CompanySetupPage })));
+const WorkSiteLibrary = lazy(() => import('./HR').then(m => ({ default: m.WorkSiteLibrary })));
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
 // `embedded` skips its own page header, since it gets one from the tab here.
@@ -772,6 +773,18 @@ function M365SyncSection({ toastOk, toastErr }) {
   );
 }
 
+// ── Work Site Library (Neil, Sep 25) - every site entered once, here; each
+// company picks its own from Company Setup -> the company -> Work Sites.
+function WorkSiteLibrarySection({ toastOk, toastErr }) {
+  return (
+    <Section icon={MapPinned} title="Work Site Library" sub="Every geofenced work site - companies pick theirs from this list.">
+      <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)' }}>Loading…</div>}>
+        <WorkSiteLibrary toastOk={toastOk} toastErr={toastErr} />
+      </Suspense>
+    </Section>
+  );
+}
+
 // ── Company Setup tab (Pranshu, Sep 18) - its own top-level tab, not an
 // accordion popup: legal entities, and inside each one's full-screen editor,
 // its departments, work sites, and (soon) holiday calendar.
@@ -917,6 +930,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           <ItemSettingsSection toast={showToast} />
           <TicketSettingsSections />
           <DailyBriefingSection />
+          <WorkSiteLibrarySection toastOk={toastOk} toastErr={toastErr} />
           <EmailSignatureSection toastOk={toastOk} toastErr={toastErr} />
           <M365SyncSection toastOk={toastOk} toastErr={toastErr} />
         </>
