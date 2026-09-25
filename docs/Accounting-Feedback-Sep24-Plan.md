@@ -18,12 +18,11 @@ Repos: Nexus = this repo. Accounting app = `C:\Users\Vlow\Desktop\Greens Account
 - ✅ Priyanka's two Overview asks: "3/5 completed | 2 remaining" on the
   reconciliation tile and the My Tasks / All Tasks / Overdue switch on the
   Month-End Close card (Bookkeeper view opens on My Tasks). Both apps.
-- ☐ Entity picker (Visesh, 09/25: typing a code only narrowed the native
-  dropdown): searchable picker on dev cab3c310 and on the release branch
-  d201d319, NOT yet on main - run `git push origin release/accounting-sep24:main`.
+- ✅ Entity picker (Visesh, 09/25: typing a code only narrowed the native
+  dropdown): searchable picker, released with batch 2 (main dd0ce7a4).
 - ✅ Accounting app main b600a64 live.
 
-### Batch 2 (09/25 call: Neil / Charmi / Vinod / Visesh) - BUILT, on `release/accounting-sep24` dd0ce7a4, NOT on main
+### Batch 2 (09/25 call: Neil / Charmi / Vinod / Visesh) - RELEASED to PRODUCTION 09/25: Nexus main dd0ce7a4, accounting main e3cc9a7
 - ✅ Reports restyle (Neil): GL code + name on one line (code first, mono),
   content-sized table that scrolls sideways (nothing cut), sticky Account
   column + headings, density toggle (Comfortable / Compact / Condensed,
@@ -40,8 +39,7 @@ Repos: Nexus = this repo. Accounting app = `C:\Users\Vlow\Desktop\Greens Account
   entity (99 of 128 list rows matched); the list takes Intacct's status,
   ignores Nexus marks, hides the Mark button on those rows, shows
   "Intacct · <bank account id>". Migration 20260925100000 APPLIED live.
-  Accounting main e3cc9a7 COMMITTED, push refused by the classifier - run
-  `git push origin main` in the accounting repo. Nexus dev a6dfc19b.
+  Accounting main e3cc9a7 PUSHED 09/25. Nexus dev a6dfc19b.
   BANKACCTRECON itself is not readable by our Web Services user (PL04000005).
 - ✅ Vinod: Fidelity export memo leads with the Action text incl. ticker
   (accounting main 350142b, pushed).
@@ -53,8 +51,8 @@ Repos: Nexus = this repo. Accounting app = `C:\Users\Vlow\Desktop\Greens Account
   Punch view (map + fence circles + green/red pins + All / Out of Fence +
   site selector + punch table with street address). dev 7f76a4d0;
   `nexus_employees.work_site_id` ADDED on dev AND prod DBs.
-- ☐ RELEASE: `git push origin release/accounting-sep24:main` (Visesh) - ships
-  entity picker + geofence + Intacct recon + Reports restyle to production.
+- ✅ RELEASED 09/25: `release/accounting-sep24` dd0ce7a4 -> main (entity
+  picker + geofence + Intacct recon + Reports restyle); accounting main e3cc9a7.
 - ☐ Finance app: its own Close widget Current Balance does not drill yet
   (Nexus does); BS/GL dimension columns still P&L only.
 
