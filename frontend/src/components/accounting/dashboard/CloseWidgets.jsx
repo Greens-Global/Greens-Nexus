@@ -6,6 +6,7 @@ import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, input, mono
 import { useDash } from './DashContext';
 import { useActivity, useCloseState, useDeadlines, useFlux, useIntercompany, useRecon } from './hooks';
 import { TaskViewSwitch, useCloseViews } from './closeViews';
+import { requestReportDrill } from '../drill';
 
 // Close and controls widgets: the close card, reconciliations, activity,
 // intercompany, balance-sheet flux, and the filing calendar.
@@ -110,7 +111,13 @@ export function ReconWidget({ compact }) {
                       {!compact ? <td style={{ fontSize: '0.78rem' }}>{r.entityCode ? (ix.byCode.get(r.entityCode)?.name || r.entityCode) : r.ref || '-'}</td> : null}
                       <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{r.thru ? fmtLong(r.thru) : 'Never'}{r.source === 'intacct' ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }} title={r.intacctAsOf ? `Read from Intacct ${whenTxt(r.intacctAsOf)}` : 'Read from Intacct'}>Intacct{r.intacctRef ? ` · ${r.intacctRef}` : ''}</div> : r.mark ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.mark.marked_by} · {whenTxt(r.mark.marked_at)}</div> : null}</td>
                       <td style={num}>{r.thru ? m(r.stmt, { cents: true }) : '-'}</td>
-                      <td style={num}>{m(r.book, { cents: true })}</td>
+                      <td style={num}>{r.gl ? (
+                        <button type="button" title="See the ledger lines behind this balance (Reports tab)"
+                          onClick={() => requestReportDrill({ account: r.gl, accountName: r.name, from: '', to: mEnd(period), entity: r.entityCode || '' })}
+                          style={{ border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3 }}>
+                          {m(r.book, { cents: true })}
+                        </button>
+                      ) : m(r.book, { cents: true })}</td>
                       <td style={{ ...num, color: Math.abs(r.diff) >= 0.005 ? (r.source === 'intacct' ? 'var(--text-muted)' : BAD) : undefined }} title={r.source === 'intacct' && Math.abs(r.diff) >= 0.005 ? 'Book balance less the statement balance Intacct reconciled to - outstanding items' : undefined}>{Math.abs(r.diff) >= 0.005 ? m(r.diff, { cents: true }) : '-'}</td>
                       <td>{r.status === 'Reconciled' ? <Chip tone="ok">Reconciled</Chip> : <Chip tone={r.status === 'Difference' || r.status === 'Behind' ? 'bad' : 'wait'}>{r.status}</Chip>}</td>
                       <td style={{ whiteSpace: 'nowrap' }}>

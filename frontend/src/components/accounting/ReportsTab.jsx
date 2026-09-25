@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, RefreshCw, Building2, Search, X, Plus, Check, ChevronDown } from 'lucide-react';
+import { Download, RefreshCw, Building2, Search, X, Plus, Check, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import LedgerSearch from './LedgerSearch';
+import { takePendingDrill } from './drill';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
 // ledger without opening Nexus Accounting: Profit & Loss, Balance Sheet,
@@ -152,7 +153,15 @@ export default function ReportsTab() {
   const [prior, setPrior] = useState(null);   // the comparison statement, same shape as `data`
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [showAccounts, setShowAccounts] = useState(true);
+  // Report layout (Neil, Sep 25: tighter, like Intacct / the finance app).
+  // Sections fold on click; density and the Account column width are the
+  // reader's own and stick across visits.
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  const [density, setDensity] = useState(() => { try { return localStorage.getItem('acct-report-density') || 'compact'; } catch { return 'compact'; } });
+  const [colW, setColW] = useState(() => { try { return Number(localStorage.getItem('acct-report-colw')) || 0; } catch { return 0; } });   // 0 = size to content
+  const toggleSection = (key) => setCollapsed((c) => { const n = new Set(c); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const pickDensity = (d) => { setDensity(d); try { localStorage.setItem('acct-report-density', d); } catch { /* private mode */ } };
+  const saveColW = (w) => { setColW(w); try { if (w) localStorage.setItem('acct-report-colw', String(w)); else localStorage.removeItem('acct-report-colw'); } catch { /* private mode */ } };
   // Global search + drill-down. `searchText` is what is typed; `term` follows it
   // after a pause so the ledger is not queried on every keystroke.
   const [searchText, setSearchText] = useState('');
@@ -164,11 +173,30 @@ export default function ReportsTab() {
   }, [searchText]);
   const searching = term.length >= 2 || !!drill;
   const closeSearch = () => { setSearchText(''); setTerm(''); setDrill(null); };
+  // A drill-down asked for from another tab (see drill.js) lands here.
+  useEffect(() => {
+    const take = (d) => {
+      if (!d || !d.account) return;
+      if (d.entity !== undefined) { setEntity(d.entity || ''); setDims(EMPTY_DIMS); }
+      setDrill({ account: d.account, accountName: d.accountName || '', from: d.from || '', to: d.to || iso(new Date()) });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    take(takePendingDrill());
+    const onEvent = (e) => { takePendingDrill(); take(e.detail); };
+    window.addEventListener('nexus:accounting-drill', onEvent);
+    return () => window.removeEventListener('nexus:accounting-drill', onEvent);
+  }, []);
   // The lines behind one account's amount, for what the report is showing.
   // Balance-type reports (as of a date) drill from the beginning of the books.
   const drillInto = (accountNo, title) => {
     if (!accountNo) return;
     setDrill({ account: accountNo, accountName: title || '', from: def.period === 'asof' ? '' : from, to: def.period === 'asof' ? asof : to });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  // The comparison column drills into ITS window, not the current one.
+  const drillPrior = (accountNo, title) => {
+    if (!accountNo || !priorRange) return;
+    setDrill({ account: accountNo, accountName: title || '', from: priorRange.asof ? '' : priorRange.from, to: priorRange.asof || priorRange.to });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -244,6 +272,7 @@ export default function ReportsTab() {
   const priorLabel = !priorRange ? '' : priorRange.asof ? `As of ${formatDate(priorRange.asof)}` : `${formatDate(priorRange.from)} - ${formatDate(priorRange.to)}`;
   const currentLabel = def.period === 'asof' ? `As of ${formatDate(asof)}` : preset === 'ytd' ? 'YTD Actual' : rangeText;
   const comparing = !!prior && activeCompare !== 'none';
+  const hasSections = !!data && data.report !== 'trial-balance' && data.report !== 'cash-position';
   const dimsText = DIM_KINDS.filter((k) => dims[k.key].length).map((k) => (dims[k.key].length === 1 ? `${k.label} ${dims[k.key][0]}` : `${dims[k.key].length} ${k.label.toLowerCase()}${k.key === 'locations' ? '' : 's'}`));
 
   // The comparison figure for one account / total, looked up in the prior statement.
@@ -293,9 +322,9 @@ export default function ReportsTab() {
 
   const cmpHeader = comparing ? (
     <>
-      <th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{priorLabel}</th>
-      <th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>$ Variance</th>
-      <th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>% Variance</th>
+      <th className="acct-num">{priorLabel}</th>
+      <th className="acct-num">$ Variance</th>
+      <th className="acct-num">% Variance</th>
     </>
   ) : null;
 
@@ -375,103 +404,122 @@ export default function ReportsTab() {
       {!searching && loading && !data && <SkeletonBlocks count={4} />}
 
       {!searching && data && (
-        <div style={card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ ...card, padding: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
             <div>
               <h3 style={{ fontSize: '1rem', margin: 0 }}>{def.label}</h3>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                 {data.org} · {dims.locations.length ? `${dims.locations.length} entities` : entityName(effectiveEntity)} · {periodLabel}{comparing ? ` · vs ${priorLabel}` : ''} · accrual{loading ? ' · refreshing' : ''}
               </div>
-              {dimsText.length > 0 && <div style={{ fontSize: '0.78rem', color: 'var(--wk-brand, #2b45e1)', marginTop: 2 }}>Filtered by {dimsText.join(' · ')}</div>}
+              {dimsText.length > 0 && <div style={{ fontSize: '0.76rem', color: 'var(--wk-brand, #2b45e1)', marginTop: 2 }}>Filtered by {dimsText.join(' · ')}</div>}
             </div>
-            {data.report !== 'trial-balance' && data.report !== 'cash-position' && (
-              <button type="button" className="secondary-btn" style={{ fontSize: '0.75rem', padding: '4px 10px' }} onClick={() => setShowAccounts((v) => !v)}>
-                {showAccounts ? 'Hide Accounts' : 'Show Accounts'}
-              </button>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <div role="group" aria-label="Row density" style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+                {DENSITIES.map((d) => (
+                  <button key={d.key} type="button" onClick={() => pickDensity(d.key)} title={d.title} aria-pressed={density === d.key}
+                    style={{ border: 'none', borderRight: '1px solid var(--border-color)', background: density === d.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: density === d.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', font: 'inherit', fontSize: '0.72rem', fontWeight: 600, padding: '4px 9px', cursor: 'pointer' }}>
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+              {hasSections && (
+                <button type="button" className="secondary-btn" style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+                  onClick={() => setCollapsed(collapsed.size ? new Set() : new Set(data.sections.map((x) => x.key)))}>
+                  {collapsed.size ? 'Expand All' : 'Collapse All'}
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="req-table-wrapper">
-            {data.report === 'cash-position' ? (
-              <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <thead>
-                  <tr><th>Account</th><th>Title</th><th style={{ textAlign: 'right' }}>Balance</th><th>Last Activity</th></tr>
-                </thead>
-                <tbody>
-                  {data.accounts.map((a) => (
-                    <tr key={a.gl_code}>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>{a.gl_code}</td>
-                      <td>{a.account_name}</td>
-                      <td style={{ textAlign: 'right', color: a.balance < 0 ? 'var(--bad-fg, #dc2626)' : undefined }}><DrillAmount onClick={() => drillInto(a.gl_code, a.account_name)}>{money(a.balance)}</DrillAmount></td>
-                      <td style={{ color: 'var(--text-secondary)' }}>{a.last_activity ? formatDate(a.last_activity) : '-'}</td>
+          <div className="acct-report-wrap">
+            <table className="acct-report" style={{ '--acct-row-py': DENSITIES.find((d) => d.key === density)?.py || '5px' }}>
+              <colgroup><col style={colW ? { width: colW, minWidth: colW } : undefined} /></colgroup>
+              {data.report === 'cash-position' ? (
+                <>
+                  <thead>
+                    <tr>
+                      <ResizableHead width={colW} onResize={saveColW}>Account</ResizableHead>
+                      <th className="acct-num">Balance</th>
+                      <th>Last Activity</th>
                     </tr>
-                  ))}
-                  <tr style={{ fontWeight: 800, borderTop: '2px solid var(--border-color)', fontSize: '1.02rem' }}>
-                    <td colSpan={2}>Total Cash as of {formatDate(asof)}</td>
-                    <td style={{ textAlign: 'right', color: data.total >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' }}>{money(data.total)}</td>
-                    <td />
-                  </tr>
-                </tbody>
-              </table>
-            ) : data.report === 'trial-balance' ? (
-              <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <thead>
-                  <tr><th>Account</th><th>Title</th><th style={{ textAlign: 'right' }}>Opening</th><th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th><th style={{ textAlign: 'right' }}>Closing</th></tr>
-                </thead>
-                <tbody>
-                  {data.rows.map((r) => (
-                    <tr key={r.account_no}>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>{r.account_no}</td>
-                      <td>{r.title}</td>
-                      <td style={{ textAlign: 'right' }}>{money(r.opening)}</td>
-                      <td style={{ textAlign: 'right' }}>{money(r.debit)}</td>
-                      <td style={{ textAlign: 'right' }}>{money(r.credit)}</td>
-                      <td style={{ textAlign: 'right' }}><DrillAmount onClick={() => drillInto(r.account_no, r.title)}>{money(r.closing)}</DrillAmount></td>
+                  </thead>
+                  <tbody>
+                    {data.accounts.map((a) => (
+                      <tr key={a.gl_code}>
+                        <td className="acct-label" style={colW ? { maxWidth: colW } : undefined}><AccountLabel code={a.gl_code} title={a.account_name} /></td>
+                        <td className="acct-num" style={{ color: a.balance < 0 ? 'var(--bad-fg, #dc2626)' : undefined }}><DrillAmount onClick={() => drillInto(a.gl_code, a.account_name)}>{money(a.balance)}</DrillAmount></td>
+                        <td style={{ color: 'var(--text-secondary)' }}>{a.last_activity ? formatDate(a.last_activity) : '-'}</td>
+                      </tr>
+                    ))}
+                    <tr className="acct-grand">
+                      <td className="acct-label">Total Cash as of {formatDate(asof)}</td>
+                      <td className="acct-num" style={{ color: data.total >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' }}>{money(data.total)}</td>
+                      <td />
                     </tr>
-                  ))}
-                  <tr style={{ fontWeight: 800, borderTop: '2px solid var(--border-color)' }}>
-                    <td colSpan={2}>Total</td>
-                    <td style={{ textAlign: 'right' }}>{money(data.totals.opening)}</td>
-                    <td style={{ textAlign: 'right' }}>{money(data.totals.debit)}</td>
-                    <td style={{ textAlign: 'right' }}>{money(data.totals.credit)}</td>
-                    <td style={{ textAlign: 'right' }}>{money(data.totals.closing)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            ) : (
-              <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <thead>
-                  <tr>
-                    <th>Account</th>
-                    <th style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{currentLabel}</th>
-                    {cmpHeader}
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.sections.map((s) => (
-                    <SectionRows key={s.key} section={s} open={showAccounts} onDrill={drillInto}
-                      compare={comparing ? { amounts: priorAmounts, total: priorSectionTotal(s.key) } : null} />
-                  ))}
-                  {data.report === 'pnl' ? (
-                    <>
-                      <TotalRow label="Gross Profit" value={data.totals.gross_profit} prior={comparing ? priorTotal('gross_profit') : null} style={{ fontWeight: 700, borderTop: '2px solid var(--border-color)' }} />
-                      <TotalRow label="Operating Income" value={data.totals.operating_income} prior={comparing ? priorTotal('operating_income') : null} style={{ fontWeight: 700 }} />
-                      <TotalRow label="Net Income" value={data.totals.net_income} prior={comparing ? priorTotal('net_income') : null} style={{ fontWeight: 800, fontSize: '1.02rem' }} tone />
-                    </>
-                  ) : (
-                    <>
-                      <TotalRow label="Total Liabilities and Equity" value={data.totals.liabilities_and_equity} prior={comparing ? priorTotal('liabilities_and_equity') : null} style={{ fontWeight: 800, borderTop: '2px solid var(--border-color)' }} />
-                      {Math.abs(data.totals.difference) >= 0.01 && (
-                        <tr style={{ color: 'var(--bad-fg, #dc2626)' }}><td>Out of balance by</td><td style={{ textAlign: 'right' }}>{money(data.totals.difference)}</td>{comparing && <td colSpan={3} />}</tr>
-                      )}
-                    </>
-                  )}
-                </tbody>
-              </table>
-            )}
+                  </tbody>
+                </>
+              ) : data.report === 'trial-balance' ? (
+                <>
+                  <thead>
+                    <tr>
+                      <ResizableHead width={colW} onResize={saveColW}>Account</ResizableHead>
+                      <th className="acct-num">Opening</th><th className="acct-num">Debit</th><th className="acct-num">Credit</th><th className="acct-num">Closing</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.rows.map((r) => (
+                      <tr key={r.account_no}>
+                        <td className="acct-label" style={colW ? { maxWidth: colW } : undefined}><AccountLabel code={r.account_no} title={r.title} /></td>
+                        <td className="acct-num"><DrillAmount onClick={() => drillInto(r.account_no, r.title)}>{money(r.opening)}</DrillAmount></td>
+                        <td className="acct-num"><DrillAmount onClick={() => drillInto(r.account_no, r.title)}>{money(r.debit)}</DrillAmount></td>
+                        <td className="acct-num"><DrillAmount onClick={() => drillInto(r.account_no, r.title)}>{money(r.credit)}</DrillAmount></td>
+                        <td className="acct-num"><DrillAmount onClick={() => drillInto(r.account_no, r.title)}>{money(r.closing)}</DrillAmount></td>
+                      </tr>
+                    ))}
+                    <tr className="acct-grand">
+                      <td className="acct-label">Total</td>
+                      <td className="acct-num">{money(data.totals.opening)}</td>
+                      <td className="acct-num">{money(data.totals.debit)}</td>
+                      <td className="acct-num">{money(data.totals.credit)}</td>
+                      <td className="acct-num">{money(data.totals.closing)}</td>
+                    </tr>
+                  </tbody>
+                </>
+              ) : (
+                <>
+                  <thead>
+                    <tr>
+                      <ResizableHead width={colW} onResize={saveColW}>Account</ResizableHead>
+                      <th className="acct-num">{currentLabel}</th>
+                      {cmpHeader}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.sections.map((sec) => (
+                      <SectionRows key={sec.key} section={sec} open={!collapsed.has(sec.key)} onToggle={() => toggleSection(sec.key)} onDrill={drillInto} onDrillPrior={drillPrior} colW={colW}
+                        compare={comparing ? { amounts: priorAmounts, total: priorSectionTotal(sec.key) } : null} />
+                    ))}
+                    {data.report === 'pnl' ? (
+                      <>
+                        <TotalRow label="Gross Profit" value={data.totals.gross_profit} prior={comparing ? priorTotal('gross_profit') : null} className="acct-subtotal" />
+                        <TotalRow label="Operating Income" value={data.totals.operating_income} prior={comparing ? priorTotal('operating_income') : null} className="acct-subtotal" />
+                        <TotalRow label="Net Income" value={data.totals.net_income} prior={comparing ? priorTotal('net_income') : null} className="acct-grand" tone />
+                      </>
+                    ) : (
+                      <>
+                        <TotalRow label="Total Liabilities and Equity" value={data.totals.liabilities_and_equity} prior={comparing ? priorTotal('liabilities_and_equity') : null} className="acct-grand" />
+                        {Math.abs(data.totals.difference) >= 0.01 && (
+                          <tr style={{ color: 'var(--bad-fg, #dc2626)' }}><td className="acct-label">Out of balance by</td><td className="acct-num">{money(data.totals.difference)}</td>{comparing && <td colSpan={3} />}</tr>
+                        )}
+                      </>
+                    )}
+                  </tbody>
+                </>
+              )}
+            </table>
           </div>
-          <div style={{ marginTop: 10, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-            Generated {formatDate(data.generated_at)} from the Nexus Accounting ledger. Figures refresh every 5 minutes.
+          <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            Generated {formatDate(data.generated_at)} from the Nexus Accounting ledger. Figures refresh every 5 minutes. Click any amount for the lines behind it; click a section to fold it; drag the edge of the Account heading to change its width (double-click resets).
           </div>
         </div>
       )}
@@ -479,58 +527,102 @@ export default function ReportsTab() {
   );
 }
 
+// Row density, the finance app's three steps.
+const DENSITIES = [
+  { key: 'comfortable', label: 'Comfortable', py: '10px', title: 'Roomy rows' },
+  { key: 'compact', label: 'Compact', py: '5px', title: 'Tight rows, like Intacct' },
+  { key: 'condensed', label: 'Condensed', py: '2px', title: 'As many rows on screen as possible' },
+];
+
+// GL code and name on ONE line, code first in the muted mono face (Neil, Sep 25).
+function AccountLabel({ code, title }) {
+  return (
+    <>
+      {code ? <span className="acct-code">{code}</span> : null}
+      <span>{title}</span>
+    </>
+  );
+}
+
+// The Account heading with a drag handle on its right edge: drag to set the
+// column width, double-click to go back to "as wide as the longest name".
+function ResizableHead({ width, onResize, children }) {
+  const ref = useRef(null);
+  const onPointerDown = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = ref.current ? ref.current.getBoundingClientRect().width : width || 240;
+    const move = (ev) => onResize(Math.max(140, Math.round(startW + ev.clientX - startX)));
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <th ref={ref} className="acct-label acct-head" style={width ? { width, minWidth: width, maxWidth: width } : undefined}>
+      {children}
+      <span role="separator" aria-orientation="vertical" aria-label="Resize the Account column" title="Drag to resize · double-click to fit"
+        onPointerDown={onPointerDown} onDoubleClick={() => onResize(0)} className="acct-resize" />
+    </th>
+  );
+}
+
 // An account's amount, clickable: opens the ledger lines that add up to it.
 function DrillAmount({ onClick, children }) {
   return (
-    <button type="button" onClick={onClick} title="See the lines behind this amount"
-      style={{ border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3 }}>
+    <button type="button" onClick={onClick} title="See the lines behind this amount" className="acct-drill">
       {children}
     </button>
   );
 }
 
-// The three comparison cells: prior figure, $ variance, % variance.
-function CompareCells({ value, prior }) {
+// The three comparison cells: prior figure (drillable into its own window), $ variance, % variance.
+function CompareCells({ value, prior, onDrillPrior }) {
   if (prior == null) return null;
   const diff = value - prior;
   const color = diff < 0 ? 'var(--bad-fg, #dc2626)' : diff > 0 ? 'var(--ok-fg, #15803d)' : undefined;
   return (
     <>
-      <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>{money(prior)}</td>
-      <td style={{ textAlign: 'right', color }}>{Math.abs(diff) < 0.005 ? '-' : money(diff)}</td>
-      <td style={{ textAlign: 'right', color }}>{pct(value, prior) || '-'}</td>
+      <td className="acct-num" style={{ color: 'var(--text-secondary)' }}>{onDrillPrior ? <DrillAmount onClick={onDrillPrior}>{money(prior)}</DrillAmount> : money(prior)}</td>
+      <td className="acct-num" style={{ color }}>{Math.abs(diff) < 0.005 ? '-' : money(diff)}</td>
+      <td className="acct-num" style={{ color }}>{pct(value, prior) || '-'}</td>
     </>
   );
 }
 
-function TotalRow({ label, value, prior, style, tone }) {
+function TotalRow({ label, value, prior, className, tone }) {
   return (
-    <tr style={style}>
-      <td>{label}</td>
-      <td style={{ textAlign: 'right', color: tone ? (value >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)') : undefined }}>{money(value)}</td>
+    <tr className={className}>
+      <td className="acct-label">{label}</td>
+      <td className="acct-num" style={{ color: tone ? (value >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)') : undefined }}>{money(value)}</td>
       <CompareCells value={value} prior={prior} />
     </tr>
   );
 }
 
-function SectionRows({ section, open, onDrill, compare }) {
+// One statement section: a fold-able heading row with the section total, then
+// one dense line per account (code + name, amount, comparison).
+function SectionRows({ section, open, onToggle, onDrill, onDrillPrior, compare, colW }) {
   if (!section.accounts.length && !section.total) return null;
+  const Chevron = open ? ChevronDown : ChevronRight;
   return (
     <>
-      <tr style={{ fontWeight: 700, background: 'var(--bg-secondary)' }}>
-        <td>{section.label}</td>
-        <td style={{ textAlign: 'right' }}>{money(section.total)}</td>
+      <tr className="acct-section" onClick={onToggle} title={open ? 'Click to fold this section' : 'Click to open this section'}>
+        <td className="acct-label">
+          <button type="button" className="acct-fold" aria-expanded={open} aria-label={`${open ? 'Fold' : 'Open'} ${section.label}`} onClick={(e) => { e.stopPropagation(); onToggle(); }}>
+            <Chevron size={13} />
+          </button>
+          {section.label}{!open ? <span className="acct-count">{section.accounts.length}</span> : null}
+        </td>
+        <td className="acct-num">{money(section.total)}</td>
         {compare && <CompareCells value={section.total} prior={compare.total} />}
       </tr>
       {open && section.accounts.map((a, i) => (
         <tr key={`${a.account_no}-${i}`}>
-          <td style={{ paddingLeft: 24, color: 'var(--text-secondary)' }}>
-            {a.account_no && <span style={{ fontFamily: 'monospace', fontSize: '0.78rem', marginRight: 8 }}>{a.account_no}</span>}{a.title}
-          </td>
-          <td style={{ textAlign: 'right' }}>
+          <td className="acct-label acct-indent" style={colW ? { maxWidth: colW } : undefined}><AccountLabel code={a.account_no} title={a.title} /></td>
+          <td className="acct-num">
             {a.account_no && onDrill ? <DrillAmount onClick={() => onDrill(a.account_no, a.title)}>{money(a.amount)}</DrillAmount> : money(a.amount)}
           </td>
-          {compare && <CompareCells value={a.amount} prior={compare.amounts.get(a.account_no || a.title) ?? 0} />}
+          {compare && <CompareCells value={a.amount} prior={compare.amounts.get(a.account_no || a.title) ?? 0} onDrillPrior={a.account_no && onDrillPrior ? () => onDrillPrior(a.account_no, a.title) : null} />}
         </tr>
       ))}
     </>
