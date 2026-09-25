@@ -91,7 +91,7 @@ export function ReconWidget({ compact }) {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <div><span style={{ fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{reconciled}/{rows.length} completed</span> <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>| {remaining} remaining · through {fmtLong(mEnd(period))}</span></div>
+        <div><span style={{ fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{reconciled}/{rows.length} completed</span> <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>| {remaining} remaining · through {fmtLong(mEnd(period))}{rows.some((r) => r.source === 'intacct') ? ' · bank and card status from Intacct' : ''}</span></div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{byType.map((g) => <span key={g.t}>{g.t}: {g.rows.filter((r) => r.status === 'Reconciled').length}/{g.rows.length}</span>)}</div>
       </div>
       <Meter segments={[{ share: rows.length ? reconciled / rows.length : 0, color: 'var(--wk-brand, #2b45e1)' }]} />
@@ -108,13 +108,13 @@ export function ReconWidget({ compact }) {
                     <tr key={r.key} style={r.nc ? { color: 'var(--text-muted)' } : undefined}>
                       <td><div>{r.name}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
                       {!compact ? <td style={{ fontSize: '0.78rem' }}>{r.entityCode ? (ix.byCode.get(r.entityCode)?.name || r.entityCode) : r.ref || '-'}</td> : null}
-                      <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{r.thru ? fmtLong(r.thru) : 'Never'}{r.mark ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.mark.marked_by} · {whenTxt(r.mark.marked_at)}</div> : null}</td>
+                      <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{r.thru ? fmtLong(r.thru) : 'Never'}{r.source === 'intacct' ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }} title={r.intacctAsOf ? `Read from Intacct ${whenTxt(r.intacctAsOf)}` : 'Read from Intacct'}>Intacct{r.intacctRef ? ` · ${r.intacctRef}` : ''}</div> : r.mark ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.mark.marked_by} · {whenTxt(r.mark.marked_at)}</div> : null}</td>
                       <td style={num}>{r.thru ? m(r.stmt, { cents: true }) : '-'}</td>
                       <td style={num}>{m(r.book, { cents: true })}</td>
-                      <td style={{ ...num, color: Math.abs(r.diff) >= 0.005 ? BAD : undefined }}>{Math.abs(r.diff) >= 0.005 ? m(r.diff, { cents: true }) : '-'}</td>
+                      <td style={{ ...num, color: Math.abs(r.diff) >= 0.005 ? (r.source === 'intacct' ? 'var(--text-muted)' : BAD) : undefined }} title={r.source === 'intacct' && Math.abs(r.diff) >= 0.005 ? 'Book balance less the statement balance Intacct reconciled to - outstanding items' : undefined}>{Math.abs(r.diff) >= 0.005 ? m(r.diff, { cents: true }) : '-'}</td>
                       <td>{r.status === 'Reconciled' ? <Chip tone="ok">Reconciled</Chip> : <Chip tone={r.status === 'Difference' || r.status === 'Behind' ? 'bad' : 'wait'}>{r.status}</Chip>}</td>
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        {r.status === 'Reconciled' ? null : editing ? (
+                        {r.status === 'Reconciled' || r.source === 'intacct' ? null : editing ? (
                           <form style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} onSubmit={(e) => { e.preventDefault(); submitMark(r); }}>
                             <input type="date" value={marking.thru} max={mEnd(period)} onChange={(e) => setMarking({ ...marking, thru: e.target.value })} style={{ ...input, padding: '3px 6px', fontSize: '0.74rem' }} aria-label="Statement date" />
                             <input inputMode="decimal" value={marking.stmt} onChange={(e) => setMarking({ ...marking, stmt: e.target.value })} placeholder="Statement balance" style={{ ...input, padding: '3px 6px', fontSize: '0.74rem', width: 120, textAlign: 'right' }} aria-label="Statement balance" />
