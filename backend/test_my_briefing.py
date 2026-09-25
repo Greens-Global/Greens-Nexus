@@ -12,6 +12,7 @@ NEXUS_DEV_EMAIL). No network, no mail is sent.
 
 Run with: python -m unittest test_my_briefing -v
 """
+import json
 import os
 import tempfile
 import unittest
@@ -34,6 +35,16 @@ from routers import daily_briefing as briefing_router    # noqa: E402
 from routers.task_util import gen_id, now_iso            # noqa: E402
 
 ME = "sagar@greensglobal.com"
+
+
+def _walk(node):
+    if isinstance(node, dict):
+        yield node
+        for v in node.values():
+            yield from _walk(v)
+    elif isinstance(node, list):
+        for v in node:
+            yield from _walk(v)
 
 
 class _DBCase(unittest.TestCase):
@@ -134,21 +145,76 @@ class OutlookCardSwitchTests(_DBCase):
         return sent["html"]
 
     def test_card_is_off_by_default(self):
-        self.assertFalse(daily_briefing.get_settings(self.db)["outlook_card"])
+        self.assertEqual(daily_briefing.get_settings(self.db)["outlook_card"], "off")
         html = self._send()
         self.assertNotIn("adaptivecard", html)
         self.assertIn("/briefing", html)          # the email links to My Briefing
 
     def test_card_is_embedded_when_switched_on(self):
-        html = self._send(outlook_card=True)
-        self.assertIn("application/adaptivecard+json", html)
+        for value in (True, "full"):      # True = the earlier on/off switch
+            html = self._send(outlook_card=value)
+            self.assertIn("application/adaptivecard+json", html)
+            self.assertIn('"hideOriginalBody": true', html)
+            self.db.query(models.Task).delete()
+            self.db.commit()
+
+    def test_quick_card_sits_on_top_of_the_designed_email(self):
+        html = self._send(outlook_card="quick")
+        card = json.loads(html.split("adaptivecard+json'>", 1)[1].split("</script>", 1)[0])
+        self.assertFalse(card["hideOriginalBody"])
+        self.assertIn("GREENS GLOBAL", html)                 # the designed email is still the body
+        texts = [n.get("text") for n in _walk(card)]
+        self.assertIn("1 decision waiting on you", texts)
+        by_id = {n["id"]: n for n in _walk(card) if "id" in n}
+        self.assertFalse(by_id["qa-list"]["isVisible"])     # collapsed on arrival
+        urls = [n["url"] for n in _walk(card) if n.get("type") == "Action.Http"]
+        self.assertTrue(urls and all("v=quick" in u for u in urls))
+
+    def test_quick_card_is_skipped_when_nothing_needs_a_decision(self):
+        t = self._task(title="Plain task")
+        self.db.add(models.TaskActivity(id=gen_id(), entity_kind="task", entity_id=t.id, entity_title=t.title,
+                                        type="commented", detail="added a comment", actor_email="neil@greensglobal.com",
+                                        at=now_iso()))
+        self.db.commit()
+        emp = self.db.query(models.NexusEmployee).first()
+        sent = {}
+        with mock.patch.object(tma, "am_enabled", return_value=True),              mock.patch.object(daily_briefing.graph_mail, "send_mail", side_effect=lambda **kw: sent.update(kw)):
+            daily_briefing._send_one(self.db, emp, {"mode": "live", "outlook_card": "quick"}, "2026-09-26")
+        self.assertNotIn("adaptivecard", sent.get("html", ""))
 
     def test_admin_can_switch_it(self):
         from auth import require_administrator
         self.client.app.dependency_overrides[require_administrator] = lambda: {"email": ME, "role": "administrator", "level": 4}
-        r = self.client.put("/daily-briefing/config", json={"outlook_card": True})
+        for sent, saved in ((True, "full"), ("quick", "quick"), ("nonsense", "off"), (False, "off")):
+            r = self.client.put("/daily-briefing/config", json={"outlook_card": sent})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["outlook_card"], saved)
+
+
+class QuickCardEndpointTests(_DBCase):
+    def test_click_on_the_quick_card_redraws_the_quick_card(self):
+        import briefing_mail_actions
+        from routers import briefing_actions
+        app = FastAPI()
+        app.include_router(briefing_actions.router)
+        client = TestClient(app)
+        a = self._task(title="Budget", type="approval", approval_status="pending")
+        b = self._task(title="Hiring plan", type="approval", approval_status="pending")
+        tok = briefing_mail_actions.sign_token("task_approval", a.id, "approve", ME)
+        r = client.post("/briefing-actions/card", params={"kind": "decision", "token": tok, "v": "quick",
+                                                           "d": "2026-09-26", "s": "2026-09-25T00:00:00"})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertTrue(r.json()["outlook_card"])
+        card = r.json()
+        self.assertFalse(card["hideOriginalBody"])
+        texts = [n.get("text") for n in _walk(card)]
+        self.assertIn("Budget approved. Done by you.", texts)
+        self.assertIn("1 decision waiting on you", texts)
+        self.assertIn("Approve: Hiring plan", texts)
+        by_id = {n["id"]: n for n in _walk(card) if "id" in n}
+        self.assertTrue(by_id["qa-list"]["isVisible"])      # stays open after a click
+        self.assertEqual(self._reload(a.id).approval_status, "approved")
+        self.assertEqual(self._reload(b.id).approval_status, "pending")
+
 
 
 if __name__ == "__main__":

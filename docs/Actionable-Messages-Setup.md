@@ -27,6 +27,12 @@ buttons act for real. Until the Organization-scope registration is approved,
 only the Test Users on the registration see the card; everyone else gets the
 HTML briefing.
 
+Which card is sent is the **Outlook Card** setting in Daily Briefing settings
+(Sep 26): **Off** (default, designed email only), **Quick Actions** (the
+designed email plus a small collapsed "decisions waiting" card on top -
+Outlook always draws a card above the body, never inside it), or **Full
+Card** (the whole briefing as a card, replacing the designed email).
+
 ## What changed on Sep 22
 
 Microsoft retired the legacy Actionable Messages token on June 8, 2026.

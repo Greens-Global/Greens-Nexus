@@ -104,7 +104,7 @@ def _card_error(message: str, status: int) -> JSONResponse:
 
 @router.post("/card")
 async def card_action(request: Request, kind: str = "", token: str = "", action: str = "",
-                      d: str = "", s: str = ""):
+                      d: str = "", s: str = "", v: str = ""):
     if kind == "decision":
         info = briefing_mail_actions.verify_token(token)
     elif kind == "task":
@@ -116,11 +116,11 @@ async def card_action(request: Request, kind: str = "", token: str = "", action:
     text = (await request.body()).decode("utf-8", "replace")
     # Everything below is blocking (JWKS fetch, DB, the routers it calls) -
     # off the event loop, per CLAUDE.md.
-    return await asyncio.to_thread(_card_action_sync, request, kind, info, action, text, d, s)
+    return await asyncio.to_thread(_card_action_sync, request, kind, info, action, text, d, s, v)
 
 
 def _card_action_sync(request: Request, kind: str, info: dict, action: str, text: str,
-                      briefing_date: str, since_iso: str):
+                      briefing_date: str, since_iso: str, variant: str = ""):
     import daily_briefing
     db = SessionLocal()
     bt = BackgroundTasks()
@@ -146,7 +146,7 @@ def _card_action_sync(request: Request, kind: str, info: dict, action: str, text
             from app_url import app_url
             card = briefing_card.outcome_only_card(outcome, app_url())
         else:
-            card = _refreshed_card(db, daily_briefing, recipient, briefing_date, since_iso, outcome)
+            card = _refreshed_card(db, daily_briefing, recipient, briefing_date, since_iso, outcome, variant)
     except HTTPException as e:
         return _card_error(str(e.detail), e.status_code)
     finally:
@@ -156,7 +156,7 @@ def _card_action_sync(request: Request, kind: str, info: dict, action: str, text
 
 
 def _refreshed_card(db, daily_briefing, recipient: str, briefing_date: str, since_iso: str,
-                    outcome: str) -> dict:
+                    outcome: str, variant: str = "") -> dict:
     try:
         datetime.strptime(briefing_date, "%Y-%m-%d")
     except ValueError:
@@ -166,9 +166,12 @@ def _refreshed_card(db, daily_briefing, recipient: str, briefing_date: str, sinc
         # first-run window a brand-new employee gets.
         since_iso = (datetime.now(timezone.utc) - timedelta(hours=daily_briefing.LOOKBACK_HOURS_FIRST_RUN)
                      ).strftime("%Y-%m-%dT%H:%M:%S")
+    sections = daily_briefing.build_sections(db, recipient, since_iso, briefing_date)
+    if variant == "quick":
+        # Clicked on the Quick Actions card: redraw that card, not the full one.
+        return daily_briefing.quick_card(sections, briefing_date, since_iso, outcome)
     emp = (db.query(models.NexusEmployee)
            .filter(func.lower(models.NexusEmployee.work_email) == recipient.lower()).first())
-    sections = daily_briefing.build_sections(db, recipient, since_iso, briefing_date)
     return daily_briefing.outlook_card(
         db, recipient, ((emp.first_name if emp else "") or "").strip(), sections, briefing_date, since_iso,
         greeting=daily_briefing._greeting(daily_briefing._recipient_local_now(db, recipient)),
