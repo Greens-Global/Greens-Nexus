@@ -51,6 +51,11 @@ _SETTINGS_KEY = "daily_briefing_config"
 _DEFAULT_SETTINGS = {
     "mode": "off",              # off|test|live
     "test_recipients": [],
+    # Outlook card version of the email (briefing_card.py). Off by default
+    # (Sep 26): Outlook dictates the card's colors and buttons, so everyone
+    # gets the HTML design, and the My Briefing page is where sections
+    # collapse and actions run in one click.
+    "outlook_card": False,
 }
 
 TRIGGER_MINUTES_BEFORE_SHIFT = 150   # 2.5h - agreed on the call
@@ -1031,10 +1036,14 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
       </td>
     </tr>
     <tr><td class="nx-pad" style="padding:20px 32px 0">{_summary_html(sections)}</td></tr>
+    <tr><td class="nx-pad" style="padding:12px 32px 0;font-size:13px">
+      <a href="{escape(app_url())}/briefing" style="color:{_LINK};font-weight:600;text-decoration:none">Open My Briefing in Nexus &rarr;</a>
+    </td></tr>
     {body_sections}
     <tr>
       <td class="nx-pad" style="padding:32px 32px 28px">
-        <a href="{escape(app_url())}" class="nx-btn" style="display:inline-block;padding:10px 22px;border-radius:4px;background:{_BRAND};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px">Open Nexus</a>
+        <a href="{escape(app_url())}/briefing" class="nx-btn" style="display:inline-block;padding:10px 22px;border-radius:4px;background:{_BRAND};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px">Open My Briefing</a>
+        <div style="font-size:12px;color:{_MUTED};margin-top:8px">Collapse sections and approve, comment or complete in one click.</div>
       </td>
     </tr>
     <tr>
@@ -1081,6 +1090,77 @@ def with_card(html: str, card: dict) -> str:
             f"</head><body>{html}</body></html>")
 
 
+# ── My Briefing page (Sep 26) ───────────────────────────────────────────
+# The briefing as a Nexus page (/briefing, frontend/src/views/MyBriefing.jsx):
+# same content as the email, but with collapsible sections and actions that
+# run in place. It covers the same window as the person's latest email,
+# extended to now, so it matches what they just read and stays current.
+
+def _page_window(db: Session, email: str) -> str:
+    sent = (db.query(models.NexusDailyBriefingLog)
+            .filter(models.NexusDailyBriefingLog.employee_email == email,
+                    models.NexusDailyBriefingLog.sent_at != "")
+            .order_by(models.NexusDailyBriefingLog.sent_at.desc()).limit(2).all())
+    if len(sent) == 2:
+        return sent[1].sent_at
+    anchor = datetime.now(timezone.utc)
+    if sent:
+        try:
+            anchor = datetime.strptime(sent[0].sent_at[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return (anchor - timedelta(hours=LOOKBACK_HOURS_FIRST_RUN)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _page_row(db: Session, row: dict, status_cache: dict) -> dict:
+    base = app_url()
+    url = row.get("url") or ""
+    out = {
+        "title": row["title"], "ref": row.get("ref") or "", "detail": row.get("detail") or "",
+        "module": row.get("module") or "other",
+        # In-app path, so the page navigates instead of reloading the whole app.
+        "path": url[len(base):] if base and url.startswith(base) else url,
+        "comments": row.get("comments") or [],
+    }
+    if row.get("action_kind"):
+        out["decision"] = {"kind": row["action_kind"], "id": row["action_id"]}
+    if row.get("sub_actions"):
+        out["subDecisions"] = [{"detail": x["detail"], "kind": x["action_kind"], "id": x["action_id"]}
+                               for x in row["sub_actions"]]
+    if row.get("task_id"):
+        out["taskId"] = row["task_id"]
+        out["taskOpen"] = bool(row.get("task_open"))
+        if row.get("task_open"):
+            pid = row.get("project_id") or ""
+            if pid not in status_cache:
+                status_cache[pid] = [{"value": k, "label": v} for k, v in task_mail_actions.status_options(db, pid)]
+            out["statusOptions"] = status_cache[pid]
+            out["taskStatus"] = row.get("task_status") or ""
+    return out
+
+
+def my_briefing(db: Session, email: str) -> dict:
+    email = (email or "").lower()
+    local_now = _recipient_local_now(db, email)
+    briefing_date = local_now.date().isoformat()
+    since_iso = _page_window(db, email)
+    sections = build_sections(db, email, since_iso, briefing_date)
+    emp = (db.query(models.NexusEmployee)
+           .filter(func.lower(models.NexusEmployee.work_email) == email).first())
+    status_cache: dict = {}
+    return {
+        "greeting": _greeting(local_now),
+        "firstName": ((emp.first_name if emp else "") or "").strip(),
+        "date": briefing_date,
+        "since": since_iso,
+        "reactions": task_mail_actions.REACTION_EMOJIS,
+        "sections": [{
+            "key": k, "label": _SECTION_META[k][0],
+            "rows": [_page_row(db, r, status_cache) for r in sections[k]],
+        } for k in _ORDER if sections.get(k)],
+    }
+
+
 # ── Send + scan ─────────────────────────────────────────────────────────
 
 def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date: str) -> None:
@@ -1103,7 +1183,7 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
     # to approve other people's items from a preview copy.
     test_own = mode == "test" and emp.work_email.lower() in {
         (e or "").strip().lower() for e in (cfg.get("test_recipients") or [])}
-    if task_mail_actions.am_enabled() and sections and (mode == "live" or test_own):
+    if cfg.get("outlook_card") and task_mail_actions.am_enabled() and sections and (mode == "live" or test_own):
         card = outlook_card(db, emp.work_email, first_name, sections, briefing_date, since_iso,
                             greeting=greeting, logo_url=logo_url)
         html = with_card(html, card)

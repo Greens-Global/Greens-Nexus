@@ -75,13 +75,14 @@ const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
 const Egnyte              = lazy(() => import("./views/Egnyte"));
 const EmployeeTracking    = lazy(() => import("./components/TimeTrackingAdmin"));
+const MyBriefing          = lazy(() => import("./views/MyBriefing"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
 // title-cased version of their id so breadcrumbs never show raw lowercase ids.
 // Acronyms the title-caser would mangle ("pdf-editor" -> "Pdf Editor"). These
 // views live in Sidebar's NAV but not in MODULES, so they hit the fallback.
-const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions' };
+const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing' };
 const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
   || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -356,6 +357,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "employee-tracking":  return <EmployeeTracking initialSub={activeSub} module />;
     case "privacy-policy":     return <PrivacyPolicy embedded />;
     case "terms-conditions":   return <TermsConditions embedded />;
+    case "briefing":           return <MyBriefing />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }

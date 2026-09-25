@@ -598,6 +598,9 @@ export const api = {
   getDailyBriefingConfig: () => req("/daily-briefing/config"),
   updateDailyBriefingConfig: (patch) => req("/daily-briefing/config", { method: "PUT", body: JSON.stringify(patch) }),
   getDailyBriefingLog: (params = {}) => req(`/daily-briefing/log?${new URLSearchParams(params).toString()}`),
+  // My Briefing page (views/MyBriefing.jsx) - the signed-in person's own briefing.
+  getMyBriefing: () => req("/daily-briefing/me"),
+  actOnMyBriefing: (payload) => req("/daily-briefing/me/act", { method: "POST", body: JSON.stringify(payload) }),
   // Clears one dedupe row AND immediately sends that employee's briefing
   // right now, bypassing their shift window - a deliberate admin override,
   // not the automatic per-shift trigger. No effect on any other employee or
