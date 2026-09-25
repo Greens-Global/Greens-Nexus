@@ -35,7 +35,6 @@ import models
 import task_inbound as inbound
 import task_inbound_parse as parse
 import task_notify
-from routers import task_util
 from routers.task_util import gen_id, now_iso
 
 models.Base.metadata.create_all(bind=database.engine)
@@ -218,13 +217,10 @@ class _MailboxCase(unittest.TestCase):
         import auth
         auth.invalidate_role_cache()
 
-        self._real_push = task_util.asana_push_comment
         self._real_notify = task_notify.notify_task_event
-        task_util.asana_push_comment = lambda cid: None
         task_notify.notify_task_event = lambda *a, **kw: None
 
     def tearDown(self):
-        task_util.asana_push_comment = self._real_push
         task_notify.notify_task_event = self._real_notify
         self.db.close()
 

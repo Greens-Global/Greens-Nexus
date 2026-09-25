@@ -229,7 +229,10 @@ export function useTableColumns({ table, cols, trailing = '' }) {
 
   const templateFrom = useCallback((wd) => {
     const parts = colsRef.current.map((c) => {
-      const w = wd[c.key];
+      // `minWidth` is a floor even under a width the person saved: a cell
+      // whose content just grew (the due date's "Ext 3x" badge) must not spill
+      // into its neighbor because of a width dragged before the content existed.
+      const w = wd[c.key] && Math.max(wd[c.key], c.minWidth || 0);
       if (w) return `${w}px`;
       return c.template || (c.width ? `${c.width}px` : 'minmax(0,1fr)');
     });
@@ -320,7 +323,7 @@ export function useTableColumns({ table, cols, trailing = '' }) {
     const idx = colsRef.current.findIndex((c) => c.key === key);
     if (idx < 0) return;
     const widthOf = (c) => {
-      const w = widthsRef.current[c.key];
+      const w = widthsRef.current[c.key] && Math.max(widthsRef.current[c.key], c.minWidth || 0);
       if (w) return `${w}px`;
       return c.template || (c.width ? `${c.width}px` : 'minmax(0,1fr)');
     };

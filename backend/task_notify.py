@@ -24,6 +24,7 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone, date
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
@@ -61,12 +62,18 @@ _DEFAULT_SETTINGS = {
     # settings (task_notify_prefs). Off by default: the least they can choose
     # is weekly / only once, so overdue work never goes completely silent.
     "allowUserOverdueOff": False,
+    # Batching (Neil, Sep 24): hold a person's task emails and send what
+    # piled up as ONE email once the oldest has waited this long. 0 = send
+    # every email the moment it happens (the old behavior). See flush_batches.
+    "batchWindowMinutes": 60,
 }
 
 MAX_ATTEMPTS = 5
 _RETRY_LOOP_SEC = 5 * 60
 _STALE_PENDING_SEC = 5 * 60
 _DUE_SCAN_LOOP_SEC = 60 * 60   # due-date reminders only need an hourly resolution, not 5 min
+_BATCH_LOOP_SEC = 60           # how often held (batched) emails are checked
+_CLAIM_STALE_SEC = 10 * 60     # a batch claimed this long ago by a worker that died is re-queued
 
 
 # ── Settings ───────────────────────────────────────────────────────────────
@@ -183,6 +190,10 @@ def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: s
         add_assignees()
         for f in followers:
             add(f, "follower")
+        # A moved due date always reaches whoever asked for the work, follower
+        # or not (Neil, Sep 24).
+        if extra.get("due_changed"):
+            add(creator, "creator")
     elif event_type == "deleted":
         add_assignees()
         add(creator, "creator")
@@ -312,6 +323,41 @@ def _fmt(iso: str) -> str:
         return iso[:10]
 
 
+def _render_event(db: Session, ctx: dict, event_type: str, recipient: str, role: str,
+                  logo_url: str, kw: dict) -> tuple[str, str] | None:
+    """The single-task email for one event, actions included - shared by the
+    instant path and by a batch that turned out to hold just one event, so a
+    batch of one reads exactly like the email it replaced."""
+    if event_type == "created":
+        subject, html = tmpl.created_email(t=ctx, base_url=app_url(), logo_url=logo_url,
+                                            audience="assignee" if role == "assignee" else "other")
+    elif event_type == "assigned":
+        subject, html = tmpl.assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
+                                             audience="assignee" if role == "assignee" else "other")
+    elif event_type == "completed":
+        subject, html = tmpl.completed_email(t=ctx, base_url=app_url(), logo_url=logo_url)
+    elif event_type == "mentioned":
+        subject, html = tmpl.mentioned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
+                                             comment_body=kw.get("comment_body", ""),
+                                             actor_name=ctx["actorName"])
+    elif event_type == "commented":
+        subject, html = tmpl.commented_email(t=ctx, base_url=app_url(), logo_url=logo_url,
+                                              comment_body=kw.get("comment_body", ""))
+    elif event_type == "follower_added":
+        subject, html = tmpl.follower_added_email(t=ctx, base_url=app_url(), logo_url=logo_url)
+    elif event_type == "modified":
+        subject, html = tmpl.modified_email(t=ctx, base_url=app_url(), logo_url=logo_url,
+                                             update_kind=kw.get("update_kind", "Task updated"))
+    elif event_type == "deleted":
+        subject, html = tmpl.deleted_email(t=ctx, base_url=app_url(), logo_url=logo_url)
+    else:
+        return None
+    html = _with_actions(db, html, event_type=event_type, ctx=ctx, recipient=recipient,
+                         comment_body=kw.get("comment_body", ""),
+                         comment_author=ctx.get("actorName", ""))
+    return subject, html
+
+
 # ── Main entry point - called from routers/tasks.py via BackgroundTasks ────
 
 def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> None:
@@ -353,33 +399,17 @@ def notify_task_event(task_id: str, event_type: str, actor_email: str, **kw) -> 
             if event_type == "modified" and _recently_sent(db, task_id, "modified", recipient,
                                                            p["updateThrottleMinutes"]):
                 continue
-            if event_type == "created":
-                subject, html = tmpl.created_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                    audience="assignee" if role == "assignee" else "other")
-            elif event_type == "assigned":
-                subject, html = tmpl.assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                     audience="assignee" if role == "assignee" else "other")
-            elif event_type == "completed":
-                subject, html = tmpl.completed_email(t=ctx, base_url=app_url(), logo_url=logo_url)
-            elif event_type == "mentioned":
-                subject, html = tmpl.mentioned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                     comment_body=kw.get("comment_body", ""),
-                                                     actor_name=ctx["actorName"])
-            elif event_type == "commented":
-                subject, html = tmpl.commented_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                      comment_body=kw.get("comment_body", ""))
-            elif event_type == "follower_added":
-                subject, html = tmpl.follower_added_email(t=ctx, base_url=app_url(), logo_url=logo_url)
-            elif event_type == "modified":
-                subject, html = tmpl.modified_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                     update_kind=kw.get("update_kind", "Task updated"))
-            elif event_type == "deleted":
-                subject, html = tmpl.deleted_email(t=ctx, base_url=app_url(), logo_url=logo_url)
-            else:
+            # Batching: everything that can wait is queued and goes out with
+            # the rest of this person's hour (flush_batches). A deleted task
+            # has no row left to batch from, so it never waits.
+            if event_type != "deleted" and not _sends_now(t, event_type, cfg):
+                _enqueue(db, recipient=recipient, role=role, task_id=task_id, event_type=event_type,
+                         actor_email=actor_email, payload=kw)
                 continue
-            html = _with_actions(db, html, event_type=event_type, ctx=ctx, recipient=recipient,
-                                 comment_body=kw.get("comment_body", ""),
-                                 comment_author=ctx.get("actorName", ""))
+            rendered = _render_event(db, ctx, event_type, recipient, role, logo_url, kw)
+            if not rendered:
+                continue
+            subject, html = rendered
             _send_one(db, task_id=task_id, task_code=t.code, event_type=event_type,
                       idem_suffix=str(version), recipient=recipient, role=role,
                       subject=subject, html=html, cfg=cfg)
@@ -557,7 +587,7 @@ def _retry_failed_once(db: Session) -> None:
                 started = cutoff
             if (cutoff - started).total_seconds() < _STALE_PENDING_SEC:
                 continue
-        if row.event_type == "digest":
+        if row.event_type in ("digest", "batch"):
             _retry_digest(db, row)
             continue
         t = db.query(models.Task).filter(models.Task.id == row.task_id).first()
@@ -660,7 +690,7 @@ def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[st
     return tmpl.modified_email(t=ctx, base_url=app_url(), logo_url=logo_url, update_kind="Task updated")
 
 
-def _task_scan_once(do_due: bool) -> None:
+def _task_scan_once(do_due: bool, do_retry: bool = True) -> None:
     """The blocking body of task_notify_loop: synchronous DB queries plus
     Outlook/Graph email sends. Run via asyncio.to_thread (see the loop) so it
     NEVER executes on the request event loop - a slow synchronous Graph send here
@@ -669,7 +699,14 @@ def _task_scan_once(do_due: bool) -> None:
     long_session_loop, which already offload their scans the same way."""
     db = SessionLocal()
     try:
-        _retry_failed_once(db)
+        # Every tick: a person whose hour is up should not wait for the slower
+        # retry/due cadences below.
+        try:
+            flush_batches(db)
+        except Exception:
+            db.rollback()
+        if do_retry:
+            _retry_failed_once(db)
         if do_due:
             # Recurrences first, so an occurrence created today is already on
             # the books - and already mailed - when the due-date scan looks.
@@ -689,14 +726,264 @@ async def task_notify_loop() -> None:
     days" reminder needs). The scan runs in a worker thread (asyncio.to_thread)
     so its blocking DB + Graph I/O never stalls the event loop."""
     await asyncio.sleep(75)   # stagger slightly after the ticket loop's own 60s startup delay
-    last_due_scan = 0.0
+    last_due_scan = last_retry = 0.0
     while True:
         now = asyncio.get_event_loop().time()
         do_due = (now - last_due_scan) >= _DUE_SCAN_LOOP_SEC
+        do_retry = (now - last_retry) >= _RETRY_LOOP_SEC
         try:
-            await asyncio.to_thread(_task_scan_once, do_due)
+            await asyncio.to_thread(_task_scan_once, do_due, do_retry)
             if do_due:
                 last_due_scan = now
+            if do_retry:
+                last_retry = now
         except Exception:
             pass
-        await asyncio.sleep(_RETRY_LOOP_SEC)
+        # Ticks every minute so a batch goes out within a minute of its hour
+        # being up; retries and the due scan keep their own slower cadence.
+        await asyncio.sleep(_BATCH_LOOP_SEC)
+
+
+# ── Batching (Neil, Sep 24) ─────────────────────────────────────────────────
+# "Wait to send the email until after one hour - if 5 tasks get assigned it can
+# batch it. Neil reviews Sagar's work and assigns 4-5 at a time. That's how to
+# make it smart and less spammy. Relevance is key."
+#
+# An event that can wait is queued (TaskEmailQueue) instead of mailed. Once a
+# person's OLDEST pending row is older than the company window, everything they
+# have pending goes out as one email - so the window starts at the first event
+# and a busy afternoon can never push the email back forever. Before sending,
+# anything that stopped being true is dropped (task deleted, reassigned away,
+# already completed, muted since); if nothing is left, nothing is sent. A batch
+# that holds a single event is sent as the ordinary single-task email.
+#
+# Never waits: mentions (someone asking you directly), deletions, and tasks
+# that are urgent or due today/tomorrow - an hour's delay would cost the time
+# the email exists to save. The in-app bell is never batched.
+
+_WAIT_NEVER = ("mentioned", "deleted")
+
+
+def batch_window_minutes(cfg: dict) -> int:
+    try:
+        return max(0, int(cfg.get("batchWindowMinutes", 60) or 0))
+    except (TypeError, ValueError):
+        return 60
+
+
+def _is_time_critical(t) -> bool:
+    if (getattr(t, "priority", "") or "") == "urgent":
+        return True
+    try:
+        due = date.fromisoformat((getattr(t, "due_on", "") or "")[:10])
+    except ValueError:
+        return False
+    return (due - date.fromisoformat(_business_today())).days <= 1
+
+
+def _sends_now(t, event_type: str, cfg: dict) -> bool:
+    """True when this event must be mailed immediately rather than batched."""
+    return (batch_window_minutes(cfg) == 0 or event_type in _WAIT_NEVER
+            or _is_time_critical(t))
+
+
+_PAYLOAD_KEYS = ("update_kind", "comment_body", "new_follower")
+
+
+def _enqueue(db: Session, *, recipient: str, role: str, task_id: str, event_type: str,
+             actor_email: str, payload: dict, urgent: bool = False) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    db.add(models.TaskEmailQueue(
+        id=str(uuid.uuid4()), recipient=recipient, role=role, task_id=task_id,
+        event_type=event_type, actor_email=(actor_email or "").lower(),
+        payload={k: payload[k] for k in _PAYLOAD_KEYS if payload.get(k)},
+        urgent=urgent, status="pending", created_at=now, updated_at=now))
+    db.commit()
+
+
+def queue_bulk_assignments(db: Session, actor_email: str, assigned: dict) -> None:
+    """Bulk edits never emailed anyone (fifty separate "you were assigned"
+    mails for one action). With batching on they can: each newly assigned
+    person gets ONE email for the lot. A time-critical task marks the batch
+    urgent so it goes out on the next tick instead of waiting the hour.
+    `assigned` = {email: [Task, ...]}. Never raises."""
+    try:
+        cfg = get_settings(db)
+        if not batch_window_minutes(cfg) or not cfg["enabledEvents"].get("assigned", True):
+            return
+        for who, tasks in assigned.items():
+            if not _is_sendable(db, who):
+                continue
+            p = prefs_mod.load(db, who)
+            for t in tasks:
+                if prefs_mod.wants_event(p, "assigned", t):
+                    _enqueue(db, recipient=who, role="assignee", task_id=t.id, event_type="assigned",
+                             actor_email=actor_email, payload={}, urgent=_is_time_critical(t))
+    except Exception:
+        db.rollback()
+
+
+def _drop_reason(db: Session, q, t, p: dict) -> str:
+    """Why a queued event is no longer worth sending, or "" to keep it."""
+    if t is None:
+        return "task deleted"
+    who = q.recipient
+    assignees = task_assignees(t)
+    followers = [(f or "").strip().lower() for f in (t.follower_emails or [])]
+    if q.role == "assignee" and who not in assignees:
+        return "no longer assigned"
+    if q.role == "follower" and who not in followers and who not in assignees:
+        return "no longer following"
+    if t.completed and q.event_type in ("created", "assigned", "modified", "follower_added"):
+        return "task already completed"
+    if not prefs_mod.wants_event(p, q.event_type, t):
+        return "turned off or muted"
+    return ""
+
+
+def _event_line(q, actor_name: str) -> str:
+    """One readable line for a queued event, e.g. "Neil assigned this to you"."""
+    pl = q.payload if isinstance(q.payload, dict) else {}
+    if q.event_type == "created":
+        return f"{actor_name} created this task" + (" for you" if q.role == "assignee" else "")
+    if q.event_type == "assigned":
+        return f"{actor_name} assigned this to you" if q.role == "assignee" else f"{actor_name} assigned this task"
+    if q.event_type == "completed":
+        return f"{actor_name} completed this task"
+    if q.event_type == "follower_added":
+        return f"{actor_name} added you as a collaborator"
+    if q.event_type == "commented":
+        text = mail_actions._plain(pl.get("comment_body") or "", 160)
+        return f'{actor_name} commented: "{text}"' if text else f"{actor_name} commented"
+    if q.event_type == "modified":
+        return f"{actor_name} changed: {pl.get('update_kind') or 'task details'}"
+    return f"{actor_name} updated this task"
+
+
+def _task_lines(rows: list, name_of) -> list[str]:
+    """The lines for one task, coalesced: several "changed" events become one
+    line, and comments past the second collapse into "and N more comments"."""
+    lines, changes, comments = [], [], []
+    for q in rows:
+        actor = name_of(q.actor_email)
+        if q.event_type == "modified":
+            for kind in str((q.payload or {}).get("update_kind") or "task details").split(", "):
+                if kind not in changes:
+                    changes.append(kind)
+            continue
+        line = _event_line(q, actor)
+        (comments if q.event_type == "commented" else lines).append(line)
+    if changes:
+        lines.append("Changed: " + ", ".join(changes))
+    lines += comments[:2]
+    if len(comments) > 2:
+        lines.append(f"and {len(comments) - 2} more comment{'s' if len(comments) > 3 else ''}")
+    return lines
+
+
+def _reclaim_stale(db: Session, now: datetime) -> None:
+    cutoff = (now - timedelta(seconds=_CLAIM_STALE_SEC)).isoformat()
+    n = (db.query(models.TaskEmailQueue)
+         .filter(models.TaskEmailQueue.status == "claimed", models.TaskEmailQueue.updated_at < cutoff)
+         .update({"status": "pending", "batch_id": ""}, synchronize_session=False))
+    if n:
+        db.commit()
+
+
+def _ready_recipients(db: Session, window: int, now: datetime) -> list[str]:
+    cutoff = (now - timedelta(minutes=window)).isoformat()
+    Q = models.TaskEmailQueue
+    rows = (db.query(Q.recipient, func.min(Q.created_at), func.max(Q.urgent))
+            .filter(Q.status == "pending").group_by(Q.recipient).all())
+    return [r for r, oldest, urgent in rows if urgent or (oldest or "") <= cutoff]
+
+
+def flush_batches(db: Session, now: datetime | None = None) -> int:
+    """Send every batch whose window is up. Returns the number of emails sent.
+    Safe to run from several workers at once: a person's rows are claimed
+    under FOR UPDATE SKIP LOCKED before anything is sent."""
+    now = now or datetime.now(timezone.utc)
+    _reclaim_stale(db, now)
+    cfg = get_settings(db)
+    sent = 0
+    for recipient in _ready_recipients(db, batch_window_minutes(cfg), now):
+        try:
+            sent += _flush_recipient(db, recipient, cfg, now)
+        except Exception:
+            db.rollback()
+    return sent
+
+
+def _flush_recipient(db: Session, recipient: str, cfg: dict, now: datetime) -> int:
+    Q = models.TaskEmailQueue
+    rows = (db.query(Q).filter(Q.recipient == recipient, Q.status == "pending")
+            .order_by(Q.created_at).with_for_update(skip_locked=True).all())
+    if not rows:
+        return 0
+    batch_id = str(uuid.uuid4())
+    stamp = now.isoformat()
+    for q in rows:
+        q.status, q.batch_id, q.updated_at = "claimed", batch_id, stamp
+    db.commit()
+
+    p = prefs_mod.load(db, recipient)
+    tasks = {}
+    kept = []
+    for q in rows:
+        if q.task_id not in tasks:
+            tasks[q.task_id] = db.query(models.Task).filter(models.Task.id == q.task_id).first()
+        reason = _drop_reason(db, q, tasks[q.task_id], p)
+        if reason:
+            q.status, q.drop_reason, q.updated_at = "dropped", reason, stamp
+        else:
+            kept.append(q)
+    if not kept:
+        db.commit()
+        return 0
+
+    logo_url = cfg.get("logoUrl") or ""
+    if len(kept) == 1:
+        q = kept[0]
+        t = tasks[q.task_id]
+        ctx = _task_context(db, t, q.actor_email)
+        rendered = _render_event(db, ctx, q.event_type, recipient, q.role, logo_url, q.payload or {})
+        if rendered:
+            subject, html = rendered
+            _send_one(db, task_id=t.id, task_code=t.code, event_type=q.event_type,
+                      idem_suffix=f"batch-{batch_id}", recipient=recipient, role=q.role,
+                      subject=subject, html=html, cfg=cfg)
+    else:
+        names = {}
+
+        def name_of(email):
+            if email not in names:
+                names[email] = _name_of(db, email) if email else "Someone"
+            return names[email]
+
+        order, by_task = [], {}
+        for q in kept:
+            if q.task_id not in by_task:
+                order.append(q.task_id)
+                by_task[q.task_id] = []
+            by_task[q.task_id].append(q)
+        items = []
+        for tid in order:
+            t = tasks[tid]
+            items.append({"t": _task_context(db, t, by_task[tid][0].actor_email),
+                          "lines": _task_lines(by_task[tid], name_of),
+                          "links": mail_actions.task_links_html(t.id, recipient, done=bool(t.completed))})
+        actors = {q.actor_email for q in kept}
+        all_assigned = all(q.event_type in ("assigned", "created") and q.role == "assignee" for q in kept)
+        headline = (f"{name_of(next(iter(actors)))} assigned you {len(items)} tasks"
+                    if all_assigned and len(actors) == 1 else "")
+        subject, html = tmpl.batch_email(items=items, base_url=app_url(), logo_url=logo_url,
+                                         recipient_name=_name_of(db, recipient), headline=headline,
+                                         window_minutes=batch_window_minutes(cfg))
+        html = html.replace(mail_actions.FOOTER_SLOT, mail_actions.footer_links_html())
+        _send_one(db, task_id="", task_code="", event_type="batch", idem_suffix=batch_id,
+                  recipient=recipient, role=kept[0].role, subject=subject, html=html, cfg=cfg)
+    for q in kept:
+        q.status, q.sent_at, q.updated_at = "sent", stamp, stamp
+    db.commit()
+    return 1
+

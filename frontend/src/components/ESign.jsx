@@ -4,8 +4,8 @@ import {
   Pencil, FileText, Download, ShieldCheck, Bell, ChevronRight, ChevronLeft,
   ChevronUp, ChevronDown, Eraser, Type, PenTool, Users, AlertTriangle,
   RefreshCw, Ban, UploadCloud, ZoomIn, ZoomOut, ArrowRight,
-  CalendarDays, CheckSquare, ALargeSmall, GripVertical, Copy, Search, CopyPlus,
-  User, CircleDot, Check, Paperclip, Printer, Cloud, Info,
+  CalendarDays, CheckSquare, ALargeSmall, Copy, Search,
+  User, CircleDot, Check, Paperclip, Printer, Cloud, Save, FilePlus2,
 } from 'lucide-react';
 import { api } from '../api';
 import { PdfEditor } from './PdfEditor';
@@ -62,14 +62,6 @@ const PARTY_STATUS = {
   acknowledged: { label: 'Acknowledged', fg: 'hsl(var(--color-green))' },
   declined:     { label: 'Declined',     fg: 'hsl(var(--color-red))' },
 };
-const KIND_LABEL = {
-  offer: 'Offer Letter', nda: 'NDA', direct_deposit: 'Direct Deposit',
-  handbook_ack: 'Handbook Ack', w9: 'W-9 / TIN', contractor_agreement: 'Contractor Agreement',
-  sow: 'SOW', custom: 'Custom',
-};
-const MERGE_TOKENS = ['first_name', 'last_name', 'full_name', 'email', 'job_title',
-  'department', 'start_date', 'salary', 'company', 'company_legal', 'company_address',
-  'signatory', 'manager', 'today'];
 
 // DocuSign-style recipient colors - each signer owns one; their fields inherit it.
 const RCOLORS = [
@@ -1213,7 +1205,6 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   const outstanding = required.filter(t => !isDone(t));
   const doneCount = required.length - outstanding.length;
   const allDone = outstanding.length === 0;
-  const canFinish = payload.myTurn && consent && allDone;
   const nextTask = outstanding[0];
 
   const jumpTo = (task) => {
@@ -1920,7 +1911,9 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
 }
 
 // ── Internal signing - in-shell panel replacing the E-Sign tab content ────────
-function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
+// Exported for the timesheet review panel, which opens the same signing
+// screen for a timesheet envelope (TimesheetReviewPanel.jsx).
+export function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
   const [payload, setPayload] = useState(null);
   const [busy, setBusy] = useState(false);
   const [boxRef, boxH] = useFillHeight();
@@ -2194,326 +2187,11 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
   );
 }
 
-function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, toastErr }) {
-  const t0 = template || {};
-  const [name, setName] = useState(t0.name || '');
-  const [kind, setKind] = useState(t0.kind || 'custom');
-  const [entityId, setEntityId] = useState(t0.entityId || '');
-  const [roles, setRoles] = useState(t0.roles?.length ? t0.roles : [{ key: 'employee', label: 'Employee', order: 1 }]);
-  const [blocks, setBlocks] = useState(() => {
-    const b = parseBlocks(t0.body);
-    return b.length ? b : [{ type: 'para', text: '' }];
-  });
-  const [attachments, setAttachments] = useState(t0.attachments || []);
-  const [placerIdx, setPlacerIdx] = useState(null);
-  const [editPdf, setEditPdf] = useState(null);   // { idx, url } - attachment open in the PDF editor
-  const [uploading, setUploading] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [focusPara, setFocusPara] = useState(null); // paragraph whose Insert dropdown is showing
-  const [egnyteFolder, setEgnyteFolder] = useState(t0.egnyteFolder || '');
-  const paraRefs = useRef({});
-  const rolesInitial = t0.roles?.length ? t0.roles : [{ key: 'employee', label: 'Employee', order: 1 }];
-  const blocksInitial = (() => { const b = parseBlocks(t0.body); return b.length ? b : [{ type: 'para', text: '' }]; })();
-  const dirty = name !== (t0.name || '') || kind !== (t0.kind || 'custom') || entityId !== (t0.entityId || '')
-    || JSON.stringify(roles) !== JSON.stringify(rolesInitial)
-    || JSON.stringify(blocks) !== JSON.stringify(blocksInitial)
-    || JSON.stringify(attachments) !== JSON.stringify(t0.attachments || [])
-    || egnyteFolder !== (t0.egnyteFolder || '');
+// The legacy signing-template editor used to live here. Nexus Sign no
+// longer has a Templates tab - templates are authored in the Templates
+// module, the only place with variables, versioning and Word import - so
+// nothing could open it any more (Sagar, Sep 22 2026).
 
-  const setBlock = (i, patch) => setBlocks(bs => bs.map((b, j) => j === i ? { ...b, ...patch } : b));
-  // focusPara is an INDEX - remap it on reorder/removal, or the Insert dropdown
-  // reattaches to whichever block slides into the old index and merge tokens
-  // land in the wrong paragraph.
-  const rmBlock = (i) => {
-    if (blocks.length <= 1) return;
-    setBlocks(bs => bs.filter((_, j) => j !== i));
-    setFocusPara(fp => fp === null ? null : fp === i ? null : fp > i ? fp - 1 : fp);
-  };
-  const movBlock = (i, dir) => {
-    const j = i + dir;
-    if (j < 0 || j >= blocks.length) return;
-    setBlocks(bs => { const next = [...bs]; [next[i], next[j]] = [next[j], next[i]]; return next; });
-    setFocusPara(fp => fp === i ? j : fp === j ? i : fp);
-  };
-  const addBlock = (type) => setBlocks(bs => [...bs,
-    type === 'para' ? { type: 'para', text: '' }
-      : { type, role: roles[0]?.key || 'employee', label: type === 'check' ? 'I agree' : type === 'text' ? 'Label' : '' }]);
-  // Drop a merge CHIP at the caret of the paragraph's contentEditable (falls
-  // back to the end when the caret is elsewhere), then re-serialize to tokens.
-  const insertMerge = (i, token) => {
-    const el = paraRefs.current[i]; if (!el) return;
-    el.focus();
-    const sel = window.getSelection();
-    let range = sel.rangeCount && el.contains(sel.getRangeAt(0).startContainer) ? sel.getRangeAt(0) : null;
-    if (!range) { range = document.createRange(); range.selectNodeContents(el); range.collapse(false); }
-    const chip = chipEl(token);
-    range.deleteContents(); range.insertNode(chip);
-    range.setStartAfter(chip); range.collapse(true);
-    sel.removeAllRanges(); sel.addRange(range);
-    setBlock(i, { text: paraFromDom(el) });
-  };
-  const setRole = (i, k, v) => setRoles(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r));
-  const roleIdx = (key) => Math.max(0, roles.findIndex(r => r.key === key));
-
-  async function uploadAttachment(fl) {
-    if (!fl) return;
-    setUploading(true);
-    try {
-      // Same rule as the send wizard: a template attachment is signed too, so
-      // it is converted by a real Word engine on the server or not at all.
-      if (isDocx(fl)) fl = await api.convertDocxToPdf(fl);
-      const form = new FormData();
-      form.append('file', fl);
-      const a = await api.uploadSignAttachment(form);
-      setAttachments(as => [...as, a]);
-      toastOk(`Attached ${a.name} (${a.pages} page${a.pages === 1 ? '' : 's'}). Now place its signature fields.`);
-    } catch (e) { toastErr(e?.message || 'Upload failed.'); }
-    setUploading(false);
-  }
-
-  async function openPdfEditor(i) {
-    try {
-      const r = await api.getSignAttachmentUrl(attachments[i].path);
-      setEditPdf({ idx: i, url: r.url });
-    } catch (e) { toastErr(e?.message || 'Could not load the PDF.'); }
-  }
-  // The editor hands back a brand-new PDF: re-upload it and swap the attachment.
-  // Fields survive only if the page count didn't shrink (geometry may differ -
-  // the placer is one click away); page indexes are clamped defensively.
-  async function savePdfEdit(edited) {
-    const form = new FormData();
-    form.append('file', edited);
-    const a = await api.uploadSignAttachment(form);
-    setAttachments(as => as.map((old, j) => {
-      if (j !== editPdf.idx) return old;
-      const fields = (a.pages >= (old.pages || 0))
-        ? (old.fields || []).map(f => ({ ...f, page: Math.min(f.page || 0, a.pages - 1) }))
-        : [];
-      return { ...a, fields };
-    }));
-    const shrunk = a.pages < (attachments[editPdf.idx]?.pages || 0);
-    toastOk(shrunk ? 'PDF updated - pages changed, place its fields again.' : 'PDF updated.');
-  }
-
-  async function save() {
-    if (busy) return; setBusy(true);
-    const data = { name, kind, entity_id: entityId, roles: roles.filter(r => r.key.trim()),
-      body: blocksToBody(blocks), attachments, egnyte_folder: egnyteFolder.trim() };
-    try {
-      const saved = template?.id ? await api.updateSignTemplate(template.id, data) : await api.createSignTemplate(data);
-      toastOk('Template saved.'); onSaved(saved); onClose();
-    } catch (e) { toastErr(e?.message || 'Could not save template.'); setBusy(false); }
-  }
-  const guard = useUnsavedGuard(dirty, onClose, name.trim() ? save : undefined);
-
-  const fieldBlockMeta = { sign: ['Signature', PenTool], date: ['Date signed', CalendarDays],
-    initials: ['Initials', Type], check: ['Checkbox', CheckSquare], text: ['Text field', ALargeSmall] };
-
-  return (
-    <div style={overlayStyle} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={cardStyle(1100, 'min(94dvh, 1020px)')}>
-        <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <FileText size={17} style={{ color: 'var(--pine)' }} />
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{template?.id ? 'Edit Template' : 'New Template'}</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
-            <div><label style={FL}>Name *</label><input className="form-input" style={{ width: '100%' }} value={name} onChange={e => setName(e.target.value)} autoFocus /></div>
-            <div><label style={FL}>Kind</label>
-              <select className="form-input" style={{ width: '100%' }} value={kind} onChange={e => setKind(e.target.value)}>
-                {Object.entries(KIND_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select></div>
-            <div><label style={FL}>Company</label>
-              <select className="form-input" style={{ width: '100%' }} value={entityId} onChange={e => setEntityId(e.target.value)}>
-                <option value="">Any</option>
-                {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-              </select></div>
-          </div>
-
-          <div style={{ margin: '16px 0 6px' }}><label style={FL}>Who signs (in order)</label></div>
-          {roles.map((r, i) => (
-            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
-              <span style={{ width: 12, height: 12, borderRadius: '50%', background: rcolor(i).solid, flexShrink: 0 }} />
-              <input className="form-input" style={{ flex: 1 }} value={r.label} placeholder="e.g. Employee, Hiring manager…"
-                onChange={e => {
-                  const label = e.target.value;
-                  let key = r.key || label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || `signer${i + 1}`;
-                  // Keep it unique - two roles labelled the same must not share a
-                  // key (duplicate keys mis-stamp signatures in the sealed PDF).
-                  const used = new Set(roles.filter((_, j) => j !== i).map(x => x.key));
-                  if (!r.key) { let base = key, n = 2; while (used.has(key)) key = `${base}_${n++}`; }
-                  setRole(i, 'label', label); if (!r.key) setRole(i, 'key', key);
-                }} />
-              <button onClick={() => setRoles(rs => rs.filter((_, j) => j !== i).map((x, j) => ({ ...x, order: j + 1 })))}
-                disabled={roles.length === 1}
-                style={{ background: 'none', border: 'none', color: roles.length === 1 ? 'var(--line)' : 'hsl(var(--color-red))', cursor: roles.length === 1 ? 'default' : 'pointer', display: 'flex', padding: 4 }}><Trash2 size={14} /></button>
-            </div>
-          ))}
-          <button className="secondary-btn" onClick={() => setRoles(rs => {
-            // Unique key - `signer{length+1}` collides after a delete (delete
-            // signer1 from [signer1,signer2] → length 1 → 'signer2' dup), and a
-            // duplicate role key stamps one signer's signature into another's slot.
-            const used = new Set(rs.map(x => x.key));
-            let n = rs.length + 1;
-            while (used.has(`signer${n}`)) n++;
-            return [...rs, { key: `signer${n}`, label: '', order: rs.length + 1 }];
-          })}
-            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Signer Role</button>
-
-          <div style={{ margin: '18px 0 6px', display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <label style={{ ...FL, marginBottom: 0 }}>Document</label>
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>shown exactly as signers will read it - click any text to edit</span>
-          </div>
-          {/* The paper matches the signing screen (same padding + typography), so
-              what you compose here is literally what the signer gets. */}
-          <div style={{ background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 12, padding: '20px 16px 12px' }}>
-            <div style={{ background: '#fff', borderRadius: 4, boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 5px 18px rgba(0,0,0,0.07)', padding: '30px 38px', maxWidth: 620, margin: '0 auto', color: '#111827', minHeight: 140 }}>
-              {blocks.map((b, i) => {
-                const ctl = (dis) => ({ background: 'none', border: 'none', cursor: dis ? 'default' : 'pointer', color: dis ? 'var(--line)' : 'var(--muted)', display: 'flex', padding: 2 });
-                const c = b.type !== 'para' ? rcolor(roleIdx(b.role)) : null;
-                const meta = b.type !== 'para' && (() => { const [lbl, Icon] = fieldBlockMeta[b.type]; return (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}>
-                    <Icon size={12} style={{ color: c.solid }} />
-                    <span style={{ fontSize: 10.5, fontWeight: 800, color: c.solid, letterSpacing: '.03em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{lbl}</span>
-                    <select value={b.role} onChange={e => setBlock(i, { role: e.target.value })} title="Who fills this in"
-                      style={{ border: `1.5px solid ${c.solid}`, color: c.solid, background: c.soft, borderRadius: 14, fontSize: 11, fontWeight: 800, padding: '2px 8px', fontFamily: 'Inter,sans-serif', cursor: 'pointer', outline: 'none' }}>
-                      {roles.filter(r => r.key).map(r => <option key={r.key} value={r.key}>{r.label || r.key}</option>)}
-                    </select>
-                  </span>); })();
-                return (
-                  <div key={i} className="tpl-block">
-                    <div className="tpl-ctl" style={{ position: 'absolute', left: -32, top: 1, display: 'flex', flexDirection: 'column' }}>
-                      <button onClick={() => movBlock(i, -1)} disabled={i === 0} style={ctl(i === 0)} title="Move up"><ChevronUp size={13} /></button>
-                      <button onClick={() => movBlock(i, 1)} disabled={i === blocks.length - 1} style={ctl(i === blocks.length - 1)} title="Move down"><ChevronDown size={13} /></button>
-                    </div>
-                    <button className="tpl-ctl" onClick={() => rmBlock(i)} disabled={blocks.length === 1} title="Remove"
-                      style={{ ...ctl(blocks.length === 1), position: 'absolute', right: -30, top: 3, color: blocks.length === 1 ? 'var(--line)' : 'hsl(var(--color-red))' }}><Trash2 size={13} /></button>
-                    {b.type === 'para' ? (
-                      <>
-                        <MergePara text={b.text} innerRef={el => { paraRefs.current[i] = el; }}
-                          onFocus={() => setFocusPara(i)} onChange={t => setBlock(i, { text: t })} />
-                        {focusPara === i && (
-                          <select value="" onChange={e => e.target.value && insertMerge(i, e.target.value)}
-                            style={{ display: 'block', margin: '0 0 10px', fontSize: 11, padding: '2px 6px', height: 24, width: 200, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 6, background: 'transparent', fontFamily: 'Inter,sans-serif', cursor: 'pointer', outline: 'none' }}>
-                            <option value="">✨ Insert auto-filled detail…</option>
-                            {Object.entries(FRIENDLY_MERGE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                          </select>
-                        )}
-                      </>
-                    ) : b.type === 'sign' ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 20px', borderRadius: 8, background: '#fbbf24', color: '#78350f', fontWeight: 800, fontSize: 13, fontFamily: 'Inter,sans-serif', boxShadow: '0 2px 6px rgba(245,158,11,0.35)', position: 'relative', marginLeft: 7 }}>
-                          <span style={{ position: 'absolute', left: -7, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '7px solid transparent', borderBottom: '7px solid transparent', borderRight: '7px solid #fbbf24' }} />
-                          <PenTool size={13} /> Sign here
-                        </span>
-                        {meta}
-                      </div>
-                    ) : b.type === 'date' ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0' }}>
-                        <span style={{ color: 'var(--muted)', fontSize: 12.5, fontStyle: 'italic', borderBottom: '1px dotted var(--line)', padding: '0 2px' }}>date signed</span>
-                        {meta}
-                      </div>
-                    ) : b.type === 'initials' ? (
-                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, margin: '8px 0' }}>
-                        <span style={{ fontFamily: '"Segoe Script",cursive', fontWeight: 700, fontSize: 15, borderBottom: '1px solid #9ca3af', padding: '0 14px' }}>··</span>
-                        {meta}
-                      </div>
-                    ) : b.type === 'check' ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0' }}>
-                        <input type="checkbox" disabled style={{ width: 16, height: 16, accentColor: '#10b981', flexShrink: 0 }} />
-                        <input className="tpl-inline" value={b.label} placeholder="Checkbox text…"
-                          onChange={e => setBlock(i, { label: e.target.value })}
-                          style={{ flex: 1, minWidth: 120, fontSize: 14, color: '#111827' }} />
-                        {meta}
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, margin: '10px 0' }}>
-                        <input className="tpl-inline" value={b.label} placeholder="Field label…"
-                          onChange={e => setBlock(i, { label: e.target.value })}
-                          style={{ width: 220, borderBottom: '1px solid #9ca3af', fontSize: 12.5, color: 'var(--muted)' }} />
-                        {meta}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, justifyContent: 'center' }}>
-              <button className="secondary-btn" onClick={() => addBlock('para')} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px' }}><Plus size={11} /> Paragraph</button>
-              {Object.entries(fieldBlockMeta).map(([ft, [lbl, Icon]]) => (
-                <button key={ft} className="secondary-btn" onClick={() => addBlock(ft)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px' }}>
-                  <Icon size={11} /> {lbl}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ margin: '18px 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <label style={{ ...FL, marginBottom: 0, flex: 1 }}>Attached documents - signed together as one packet</label>
-            <label className="secondary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-              {uploading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <UploadCloud size={13} />} Attach PDF / Word
-              <input type="file" accept="application/pdf,.docx" style={{ display: 'none' }}
-                onChange={e => { uploadAttachment(e.target.files?.[0]); e.target.value = ''; }} />
-            </label>
-          </div>
-          {attachments.length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 10, padding: '12px 14px' }}>
-              None yet - attach the handbook, NDA or policy PDFs and this template sends them all as one signature packet.
-            </div>
-          ) : attachments.map((a, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: '1px solid var(--line)', borderRadius: 10, marginBottom: 6 }}>
-              <FileText size={14} style={{ color: 'var(--pine)', flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
-                <div style={{ fontSize: 11, color: (a.fields || []).length ? 'var(--muted)' : '#b45309' }}>
-                  {a.pages} page{a.pages === 1 ? '' : 's'} · {(a.fields || []).length
-                    ? `${a.fields.length} field${a.fields.length === 1 ? '' : 's'} placed`
-                    : 'no fields yet - signers will only view it'}
-                </div>
-              </div>
-              <button className="secondary-btn" onClick={() => openPdfEditor(i)} title="Fix the PDF itself - text, pages, images - before placing fields"
-                style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px' }}>
-                <Pencil size={11} /> Edit PDF
-              </button>
-              <button className="secondary-btn" onClick={() => setPlacerIdx(i)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px' }}>
-                <PenTool size={11} /> Place fields
-              </button>
-              <button onClick={() => setAttachments(as => as.filter((_, j) => j !== i))}
-                style={{ background: 'none', border: 'none', color: 'hsl(var(--color-red))', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={13} /></button>
-            </div>
-          ))}
-
-          <div style={{ margin: '18px 0 6px' }}><label style={FL}>Signed document location - Egnyte (optional)</label></div>
-          <input className="form-input" value={egnyteFolder} onChange={e => setEgnyteFolder(e.target.value)}
-            placeholder="/Shared/Human Resources/Signed Documents" style={{ width: '100%' }} />
-          <p style={{ fontSize: 11, color: 'var(--muted)', margin: '5px 0 0' }}>
-            When an envelope from this template completes, a copy of the sealed PDF is filed to this Egnyte folder.
-          </p>
-        </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={!name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save Template
-          </button>
-        </div>
-      </div>
-      {placerIdx !== null && attachments[placerIdx] && (
-        <AttachmentPlacer attachment={attachments[placerIdx]} roles={roles.filter(r => r.key)}
-          toastErr={toastErr} onClose={() => setPlacerIdx(null)}
-          onSave={(fields) => setAttachments(as => as.map((a, j) => j === placerIdx ? { ...a, fields } : a))} />
-      )}
-      {editPdf !== null && attachments[editPdf.idx] && (
-        <PdfEditor url={editPdf.url} fileName={attachments[editPdf.idx].name} toastErr={toastErr}
-          onClose={() => setEditPdf(null)} onSave={savePdfEdit} />
-      )}
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose}
-          onSave={name.trim() ? guard.saveAndClose : undefined} saving={guard.saving} />
-      )}
-    </div>
-  );
-}
 
 // ── Send wizard - in-shell, DocuSign-style: Doc → Recipients → Fields → Send ──
 /** The company a new envelope defaults to: the SENDER's own company from their
@@ -2576,6 +2254,11 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const { myEmail } = useRole() || {};
   const [boxRef, boxH] = useFillHeight();
   const isMobile = useIsMobile();
+  // Resuming a draft: the wizard's own state, as it was saved. Everything
+  // below reads `dr` for its initial value, so a resumed draft opens exactly
+  // where it was left (Sagar, Sep 22 2026).
+  const dr = prefill?.draft?.payload || null;
+  const [draftId, setDraftId] = useState(prefill?.draft?.id || '');
   const [step, setStep] = useState(0);
   // Excluded-record acknowledgment (ESIGN 15 U.S.C. 7003 / Cal. Civ. Code
   // 1633.3). The list comes from the server so this checklist and the
@@ -2595,11 +2278,11 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   useEffect(() => { api.getEsignDocumentClasses().then(setDocClasses).catch(() => setDocClasses([])); }, []);
   const pickedClass = docClasses.find(c => c.code === documentClass);
   const classBlocked = !!pickedClass && !pickedClass.electronicPermitted;
-  const [source, setSource] = useState(prefill?.source === 'pdf' ? 'pdf' : (prefill ? 'template' : ''));
-  const [templateId, setTemplateId] = useState('');
+  const [source, setSource] = useState(dr ? (dr.source || '') : (prefill?.source === 'pdf' ? 'pdf' : (prefill ? 'template' : '')));
+  const [templateId, setTemplateId] = useState(dr?.templateId || '');
   const [file, setFile] = useState(null);
   const [dragOver, setDragOver] = useState(false);
-  const [subjectId, setSubjectId] = useState(prefill?.candidateId ? `c:${prefill.candidateId}` : '');
+  const [subjectId, setSubjectId] = useState(dr?.subjectId || (prefill?.candidateId ? `c:${prefill.candidateId}` : ''));
   const [candidates, setCandidates] = useState([]);
   const [entityId, setEntityIdRaw] = useState(() => defaultSendEntityId(entities, employees, myEmail));
   // Entities and employees arrive asynchronously (react-query / a separate
@@ -2612,15 +2295,15 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
     const d = defaultSendEntityId(entities, employees, myEmail);
     if (d) setEntityIdRaw(d);
   }, [entities, employees, myEmail]);
-  const [title, setTitle] = useState(prefill?.title || '');
-  const [message, setMessage] = useState('');
-  const [expiresOn, setExpiresOn] = useState('');
-  const [routing, setRouting] = useState('sequential');   // sequential | parallel
-  const [merge, setMerge] = useState({});
-  const [parties, setParties] = useState(prefill?.parties?.map(p => ({ ...p })) || []);
+  const [title, setTitle] = useState(dr?.title || prefill?.title || '');
+  const [message, setMessage] = useState(dr?.message || '');
+  const [expiresOn, setExpiresOn] = useState(dr?.expiresOn || '');
+  const [routing, setRouting] = useState(dr?.routing || 'sequential');   // sequential | parallel
+  const [merge, setMerge] = useState(dr?.merge || {});
+  const [parties, setParties] = useState(dr?.parties?.map(p => ({ ...p })) || prefill?.parties?.map(p => ({ ...p })) || []);
   const [busy, setBusy] = useState(false);
   // Field editor state (pdf mode)
-  const [fields, setFields] = useState([]);
+  const [fields, setFields] = useState(dr?.fields || []);
   const [activeRecipient, setActiveRecipient] = useState(0); // index into signerParties
   const [activeType, setActiveType] = useState('sign');
   const [zoom, setZoom] = useState(1);
@@ -2631,6 +2314,47 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const rkCounter = useRef(0);      // stable per-party field keys - survive removal/reorder
 
   useEffect(() => { api.getCandidates().then(setCandidates).catch(() => setCandidates([])); }, []);
+  // The source PDF of a resumed draft. Fetched, not re-generated: the field
+  // coordinates were placed on THAT file, so anything else would move them.
+  useEffect(() => {
+    const d = prefill?.draft;
+    if (!d?.id || !d.hasFile) return;
+    api.signDraftFile(d.id)
+      .then(({ blob, filename }) => setFile(new File([blob], filename || d.fileName || 'document.pdf',
+        { type: 'application/pdf' })))
+      .catch(() => toastErr('Could not reopen the document this draft was built on.'));
+  }, [prefill?.draft?.id]);
+
+  // Saving is deliberately manual and explicit. An autosave would litter the
+  // Drafts tab with every wizard anyone ever opened and closed.
+  const [savingDraft, setSavingDraft] = useState(false);
+  async function saveDraft() {
+    setSavingDraft(true);
+    try {
+      const form = new FormData();
+      if (draftId) form.append('id', draftId);
+      form.append('payload', JSON.stringify({
+        source, templateId, subjectId, entityId, title, message, expiresOn,
+        routing, merge, parties, fields, excludedAck, documentClass, governingLaw,
+      }));
+      if (file) form.append('file', file);
+      const saved = await api.saveSignDraft(form);
+      setDraftId(saved.id);
+      toastOk(`Draft saved - pick it up from the Drafts tab.`);
+      onClose();
+    } catch (e) {
+      toastErr(e?.message || 'Could not save that draft.');
+    }
+    setSavingDraft(false);
+  }
+  const draftBtn = (
+    <button className="secondary-btn" onClick={saveDraft} disabled={savingDraft || busy}
+      title="Keep this and finish it later"
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, flexShrink: 0 }}>
+      {savingDraft ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={13} />}
+      Save Draft
+    </button>
+  );
 
   const tpl = templates.find(t => t.id === templateId);
   const isPdf = source === 'pdf';
@@ -2772,7 +2496,9 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
         department: cand.department || '', start_date: cand.expectedStart || '',
       });
       const doc = await api.createDocument({
-        title: t.name, templateId: t.id,
+        // Plumbing, not a document: this exists to render the PDF that goes
+        // into the envelope, so it stays out of My Documents.
+        title: t.name, templateId: t.id, forSignature: true,
         ...(emp ? { employeeId: emp } : {}),
         ...(entityId ? { entityId } : {}),
         ...(Object.keys(values).length ? { fillValues: values } : {}) });
@@ -3082,6 +2808,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          {draftBtn}
           {step > 0 && <button className="secondary-btn" onClick={goBack} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}><ChevronLeft size={13} /> Back</button>}
           {step < steps.length - 1 ? (
             <button className="primary-btn" onClick={goNext}
@@ -3663,6 +3390,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
               <ChevronLeft size={13} /> Back
             </button>
           )}
+          {draftBtn}
           {step < steps.length - 1 ? (
             <button className="primary-btn" onClick={goNext}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, flexShrink: 0, opacity: stepOk() ? 1 : 0.55 }}>
@@ -3860,14 +3588,16 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   const [signParty, setSignParty] = useState(null);
   const [sendOpen, setSendOpen] = useState(false);
   const [detailId, setDetailId] = useState(null);
-  const [editTpl, setEditTpl] = useState(undefined);
   const [reqSearch, setReqSearch] = useState('');
   const [reqFilter, setReqFilter] = useState('all');
+  const [drafts, setDrafts] = useState(null);
+  const [resumeDraft, setResumeDraft] = useState(null);
 
   const loadInbox = () => api.mySignatures().then(setInbox).catch(() => setInbox([]));
   const loadRequests = () => api.getSignRequests().then(setRequests).catch(() => setRequests([]));
   const loadTemplates = () => api.getSignTemplates().then(setTemplates).catch(() => setTemplates([]));
-  useEffect(() => { loadInbox(); loadRequests(); loadTemplates(); }, []);
+  const loadDrafts = () => api.signDrafts().then(setDrafts).catch(() => setDrafts([]));
+  useEffect(() => { loadInbox(); loadRequests(); loadTemplates(); loadDrafts(); }, []);
   // "Open in Nexus" in a Nexus Sign email carries ?request=<id> and must land
   // ON that envelope, not on a list the recipient then has to search (review
   // section 16). The param is consumed once and stripped, so a refresh or a
@@ -3903,10 +3633,13 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   }, []);
 
   const myTurnCount = (inbox || []).filter(x => x.myTurn).length;
+  // No Templates tab: templates are authored in the Templates module, which is
+  // the only place with variables, versioning and Word import - a second list
+  // here was a duplicate of it (Sagar, Sep 22 2026). Drafts takes its place.
   const tabs = [
     ['inbox', `Inbox${myTurnCount ? ` (${myTurnCount})` : ''}`],
     ['requests', 'Sent Requests'],
-    ['templates', 'Templates'],
+    ['drafts', `Drafts${(drafts || []).length ? ` (${drafts.length})` : ''}`],
   ];
 
   const empty = (Icon, text, action) => (
@@ -3948,9 +3681,16 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   );
   if (sendOpen) return (
     <SendWizard templates={templates || []} employees={employees} entities={entities}
-      prefill={prefill} onPrefillConsumed={onPrefillConsumed} toastOk={toastOk} toastErr={toastErr}
-      onClose={() => { setSendOpen(false); onPrefillConsumed?.(); }}
-      onSent={(sent) => { loadRequests(); loadInbox(); onSentRequest?.(sent); }} />
+      prefill={resumeDraft ? { draft: resumeDraft } : prefill}
+      onPrefillConsumed={onPrefillConsumed} toastOk={toastOk} toastErr={toastErr}
+      onClose={() => { setSendOpen(false); setResumeDraft(null); onPrefillConsumed?.(); loadDrafts(); }}
+      onSent={(sent) => {
+        loadRequests(); loadInbox();
+        // A draft that was sent is not a draft any more.
+        if (resumeDraft?.id) api.deleteSignDraft(resumeDraft.id).catch(() => {});
+        setResumeDraft(null);
+        onSentRequest?.(sent);
+      }} />
   );
 
   return (
@@ -4045,62 +3785,41 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
         )
       )}
 
-      {sub === 'templates' && (
-        !templates ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
-        : (
-          <>
-            {/* Nexus Sign is the signing layer, not a second template manager
-                (requirements 10 and 25). Templates are authored once, in the
-                Templates tab, which is the only place that has variables,
-                department ownership, versioning and Word import. These are the
-                legacy signing templates: still usable, no longer added to. */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              padding: '9px 14px', marginBottom: 12, borderRadius: 9,
-              background: 'var(--mist)', border: '1px solid var(--line)',
-            }}>
-              <Info size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-              <span style={{ fontSize: 12.5, color: 'var(--muted)', flex: 1, minWidth: 220 }}>
-                Templates are now created in the <strong>Templates</strong> tab, where they carry
-                variables, an owning department and version history. These older signing templates
-                still work; new ones are made there.
-              </span>
-              <button className="secondary-btn" style={{ fontSize: 12, whiteSpace: 'nowrap' }}
-                onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-templates' } }))}>
-                Go to Templates
-              </button>
-            </div>
-            {templates.length === 0 ? empty(FileText, 'No templates yet - start from the standard Offer / NDA / Handbook set.')
-            : templates.map(t => (
-              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', border: '1px solid var(--line)', borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
-                <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{t.name}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                    {KIND_LABEL[t.kind] || t.kind} · {(t.roles || []).length} role{(t.roles || []).length === 1 ? '' : 's'} · {(t.body || []).length} paragraphs{(t.attachments || []).length > 0 && ` · ${t.attachments.length} attached doc${t.attachments.length === 1 ? '' : 's'}`}
+      {sub === 'drafts' && (
+        !drafts ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+        : drafts.length === 0
+          ? empty(FilePlus2, 'No drafts. A send you save from the wizard waits here until you finish it.',
+              <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={13} /> Send for Signature</button>)
+          : (
+            <>
+              {drafts.map(d => (
+                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 16px', border: '1px solid var(--line)', borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
+                  <FilePlus2 size={17} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                  <div style={{ flex: '1 1 160px', minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                      {d.recipients} recipient{d.recipients === 1 ? '' : 's'} · saved {formatDateTime(d.updatedAt)}
+                    </div>
                   </div>
+                  <button className="primary-btn" onClick={() => { setResumeDraft(d); setSendOpen(true); }}
+                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px' }}>
+                    Resume <ChevronRight size={13} />
+                  </button>
+                  <button title="Delete this draft"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete the draft "${d.title}"? This can't be undone.`)) return;
+                      try { await api.deleteSignDraft(d.id); loadDrafts(); toastOk('Draft deleted.'); }
+                      catch (e) { toastErr(e?.message || 'Could not delete that draft.'); }
+                    }}
+                    style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
                 </div>
-                <button className="secondary-btn" onClick={() => setEditTpl(t)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}><Pencil size={12} /> Edit</button>
-                <button className="secondary-btn" title="Duplicate this template"
-                  onClick={async () => {
-                    try {
-                      await api.createSignTemplate({ name: `${t.name} (copy)`, kind: t.kind, entity_id: t.entityId || '', roles: t.roles || [], body: t.body || [], attachments: t.attachments || [] });
-                      toastOk(`Duplicated as "${t.name} (copy)".`); loadTemplates();
-                    } catch (e) { toastErr(e?.message || 'Could not duplicate.'); }
-                  }}
-                  style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}><CopyPlus size={12} /> Duplicate</button>
-                <button title="Delete" onClick={async () => { try { await api.deleteSignTemplate(t.id); loadTemplates(); } catch (e) { toastErr(e?.message || 'Delete failed (owner grant needed).'); } }}
-                  style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
-              </div>
-            ))}
-          </>
-        )
+              ))}
+            </>
+          )
       )}
 
       {detailId && <RequestDetailModal requestId={detailId} toastOk={toastOk} toastErr={toastErr}
         onClose={() => setDetailId(null)} onChanged={loadRequests} />}
-      {editTpl !== undefined && <TemplateEditorModal template={editTpl} entities={entities}
-        toastOk={toastOk} toastErr={toastErr} onClose={() => setEditTpl(undefined)} onSaved={() => loadTemplates()} />}
     </div>
   );
 }

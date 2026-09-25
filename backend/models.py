@@ -98,6 +98,18 @@ class Task(Base):
     # project plus its 200 tasks as 201 rows is not a list anyone can use.
     deleted_with      = Column(String, default="", index=True)
     deleted_by        = Column(String, default="")         # email of whoever deleted it
+    # Due-date accountability (Neil, Sep 24) - maintained ONLY by task_due.py.
+    # due_history is every move of due_on, oldest first:
+    #   {at, from, to, by, source: app|bulk|asana|proposal, extension: bool}
+    # due_extension_count is how many of those pushed an AGREED date later.
+    # due_agreement: "" (legacy / set by the assignee = agreed) | "pending"
+    # (the requester set a target the assignee has not confirmed) | "proposed"
+    # (the assignee asked for due_proposal = {dueOn, by, at, note} instead) |
+    # "accepted".
+    due_extension_count = Column(Integer, default=0)
+    due_history       = Column(JSON, default=list)
+    due_agreement     = Column(String, default="")
+    due_proposal      = Column(JSON, nullable=True)
 
 
 class PurchaseRequest(Base):
@@ -1312,6 +1324,9 @@ class HrEntity(Base):
     # single column keeps working.
     manager_email      = Column(String, default="")
     manager_emails     = Column(JSON, default=list)
+    # The company's HR contact (a Nexus person): signs every employee's
+    # timesheet last and finalizes it for payroll (timesheet_review.py).
+    hr_contact_email   = Column(String, default="")
     # Split from the old single `registered_address` (Neil, Sep 22: "add in
     # physical address, and then add in mailing address... two important
     # fields"). `registered_address` stays for old rows that predate the split -
@@ -1416,11 +1431,27 @@ class HrWorkSite(Base):
     latitude      = Column(String, default="")
     longitude     = Column(String, default="")
     radius_m      = Column(Integer, default=150)       # geofence radius in metres
-    company       = Column(String, default="")         # HrEntity.id this site belongs to (optional)
+    # Legacy single-company pointer (pre Sep 25). Which companies use a site
+    # now lives in HrCompanyWorkSite; this is only read by the one-time link
+    # backfill in main.py and cleared when that company unlinks the site.
+    company       = Column(String, default="")
     notes         = Column(String, default="")
     created_by    = Column(String, default="")
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
+
+
+class HrCompanyWorkSite(Base):
+    """A company's pick from the global work-site library (Neil, Sep 25): sites
+    are entered once in the library, and each company chooses which of them its
+    employees punch at. A site can belong to many companies. id is
+    "<company_id>:<site_id>" so the backfill and re-adds are idempotent."""
+    __tablename__ = "hr_company_work_sites"
+    id            = Column(String, primary_key=True)
+    company_id    = Column(String, nullable=False, index=True)   # HrEntity.id
+    site_id       = Column(String, nullable=False, index=True)   # HrWorkSite.id
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
 
 
 class HrCompanyHoliday(Base):
@@ -1518,6 +1549,29 @@ class HrSignTemplate(Base):
     body_locked   = Column(Boolean, default=False)      # statutory form (CA lien waiver, TX release) - body text is not editable
 
 
+class HrSignDraft(Base):
+    """A Send for Signature that was started and not finished.
+
+    Filling one of these in is twenty minutes of work - recipients, field
+    placement, a message, an expiry - and until now closing the wizard threw
+    all of it away (Sagar, Sep 22 2026). The draft is the wizard's own state,
+    stored as it serializes it, plus the source PDF: a draft that could not
+    hand back the exact file the fields were placed on would be worse than
+    none, because the coordinates would no longer mean anything.
+
+    Private to its owner. Nobody else's business what someone was drafting.
+    """
+    __tablename__ = "hr_sign_drafts"
+    id          = Column(String, primary_key=True)     # uuid
+    owner_email = Column(String, default="")           # the only person who can see it
+    title       = Column(String, default="")           # for the list, so it need not parse payload
+    payload     = Column(JSON, default=dict)           # the wizard's state, verbatim
+    file_path   = Column(String, default="")           # hr-docs path of the source PDF, when there is one
+    file_name   = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
 class HrSignSeal(Base):
     """What was ACTUALLY applied to a completed packet, read back off the
     signed PDF rather than copied from configuration.
@@ -1596,6 +1650,10 @@ class HrSignRequest(Base):
     content_pages    = Column(Integer, default=0)         # pages of final_pdf that are the DOCUMENT; the rest is the certificate
     document_class   = Column(String, default="")         # hr_document_classes.code - gates electronic signing
     governing_law    = Column(String, default="")         # 'CA', 'TX', ... - routes the consent flow (Cal. Civ. Code 1633.5(b))
+    # What this envelope belongs to outside Nexus Sign, so its events can move
+    # that record along: link_kind "timesheet" + link_id = TimesheetReview.id.
+    link_kind        = Column(String, default="", index=True)
+    link_id          = Column(String, default="", index=True)
 
 
 class HrSignParty(Base):
@@ -1918,6 +1976,11 @@ class Document(Base):
     tags             = Column(JSON, default=list)
     current_version  = Column(Integer, default=1)
     sign_request_id  = Column(String, default="")          # set once sent for signature (HrSignRequest.id)
+    # "esign-send" = plumbing, not a document: the Send for Signature wizard
+    # generates one of these purely to render the PDF it attaches to an
+    # envelope, so it is kept (the envelope cites it) but never listed in My
+    # Documents (Sagar, Sep 22 2026).
+    source           = Column(String, default="")
     created_by       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_by       = Column(String, default="")
@@ -4313,3 +4376,60 @@ class TaskNotifyPref(Base):
     email      = Column(String, primary_key=True)   # lowercased work email
     prefs      = Column(JSON, default=dict)
     updated_at = Column(String, default="")
+
+
+class TaskEmailQueue(Base):
+    """Task emails held back to be sent as one batch per person (Neil, Sep 24:
+    "wait to send the email until after one hour - if 5 tasks get assigned it
+    can batch it"). One row per (recipient, event); task_notify.flush_batches
+    sends everything a person has pending once their oldest row is older than
+    the company batch window, drops what is no longer relevant, and records
+    why. status: pending | claimed (being sent) | sent | dropped."""
+    __tablename__ = "task_email_queue"
+    id          = Column(String, primary_key=True)
+    recipient   = Column(String, default="", index=True)
+    role        = Column(String, default="")          # assignee | follower | creator
+    task_id     = Column(String, default="", index=True)
+    event_type  = Column(String, default="")
+    actor_email = Column(String, default="")
+    payload     = Column(JSON, default=dict)          # update_kind, comment_body, new_follower
+    urgent      = Column(Boolean, default=False)      # flush this person's batch now
+    status      = Column(String, default="pending", index=True)
+    batch_id    = Column(String, default="")
+    drop_reason = Column(String, default="")
+    created_at  = Column(String, default="", index=True)
+    updated_at  = Column(String, default="")
+    sent_at     = Column(String, default="")
+
+
+class TimesheetReview(Base):
+    """One employee's timesheet for one pay period on its way to payroll
+    (Sep 2026). Two phases - see timesheet_review.py:
+
+      review  - employee and manager hand it back and forth ("with_manager" /
+                "with_employee"), each hand-off a round with a note and a diff,
+                until the manager agrees to an exact version (agreed_fingerprint);
+      signing - a Nexus Sign envelope (sign_request_id) of that frozen version,
+                signed employee -> manager -> HR; HR's signature finalizes the
+                period for payroll ("completed").
+
+    A decline in Nexus Sign cancels the envelope and hands the timesheet back
+    ("with_employee" / "with_manager") for another round."""
+    __tablename__ = "timesheet_reviews"
+    id                 = Column(String, primary_key=True)
+    employee_email     = Column(String, default="", index=True)
+    period_start       = Column(String, default="", index=True)
+    period_end         = Column(String, default="")
+    pay_type           = Column(String, default="hourly")   # hourly | fixed
+    status             = Column(String, default="with_manager")  # with_manager | with_employee | signing | completed
+    manager_email      = Column(String, default="")
+    hr_email           = Column(String, default="")
+    agreed_fingerprint = Column(String, default="")
+    agreed_at          = Column(String, default="")
+    agreed_by          = Column(String, default="")
+    sign_request_id    = Column(String, default="")
+    rounds             = Column(JSON, default=list)          # [{at, by, action, note, workedMin, changes}]
+    last_snapshot      = Column(JSON, default=dict)          # {date: workedMin} at the last hand-off
+    created_at         = Column(String, default="")
+    updated_at         = Column(String, default="")
+

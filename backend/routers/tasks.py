@@ -28,9 +28,10 @@ from routers.task_util import (
     is_manager, visible_project_ids, task_is_visible, wall_tasks,
     project_for_task, require_project_role, require_task_role, create_comment,
     task_assignees, set_task_assignees,
-    purge_task_permanently, asana_push_deleted,
+    purge_task_permanently,
 )
 from task_notify import notify_task_event
+import task_due
 from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
 from routers.task_config import coerce_custom_field_values
@@ -90,6 +91,12 @@ def task_to_dict(t: models.Task) -> dict:
         "createdAt":        t.created_at or "",
         "modifiedAt":       t.modified_at or "",
         "syncedWithAsana":  bool(t.synced_with_asana),
+        # Due-date accountability - see task_due.py.
+        "dueExtensionCount": int(t.due_extension_count or 0),
+        "dueHistory":       t.due_history if isinstance(t.due_history, list) else [],
+        "dueAgreement":     t.due_agreement or "",
+        "dueProposal":      t.due_proposal if isinstance(t.due_proposal, dict) else None,
+        "requesterId":      _nz(task_due.requester_of(t)),
     }
 
 
@@ -592,31 +599,6 @@ def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_c
             raise HTTPException(400, f"Blocked by {name}: finish it before completing this task (Finish → Finish).")
         if dep_type == "SF" and completing_now and not blocker_started:
             raise HTTPException(400, f"Blocked by {name}: start it before completing this task (Start → Finish).")
-
-
-def _asana_push(task_id: str, actor_email: str = "") -> None:
-    """Fire-and-forget outbound Asana sync. Fully guarded - must never affect the
-    task operation that triggered it (runs in a daemon thread on its own session).
-
-    `actor_email` is the signed-in user who made the change. Asana attributes the
-    system stories a write produces ("X changed Priority to Medium") to whoever
-    owns the token, so without it every field change reads as the shared sync
-    account. This is the boundary that used to drop it."""
-    try:
-        from asana_sync import on_task_changed
-        on_task_changed(task_id, actor_email)
-    except Exception:
-        pass
-
-
-def _asana_push_comment_edit(comment_id: str) -> None:
-    """Fire-and-forget outbound push of an edited comment body. Fully guarded -
-    the edit is already committed and must never fail on the sync."""
-    try:
-        from asana_sync import on_comment_edited
-        on_comment_edited(comment_id)
-    except Exception:
-        pass
 
 
 # ── Completion: `status` and `completed` are one fact in two columns ─────────
@@ -1234,6 +1216,7 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
         return {"id": t.id, "code": t.code or "", "title": t.title,
                 "completed": bool(t.completed), "status": t.status,
                 "dueOn": _nz(t.due_on), "assigneeId": _nz(t.assignee_email),
+                "dueExtensionCount": int(t.due_extension_count or 0),
                 "projectId": _nz(t.project_id),
                 "projectName": project_names.get(t.project_id or "", "")}
 
@@ -1291,6 +1274,10 @@ def person_profile(email: str, user: dict = Depends(get_current_user), db: Sessi
                   "created": newest(created), "collaboratingWithYou": newest(collaborating)},
         "projects": [{"id": p.id, "name": p.name, "color": p.color or ""} for p in projects],
         "teams": [{"id": t.id, "name": t.name, "color": t.color or ""} for t in teams],
+        # How they do against deadlines (task_due.person_record). Only for a
+        # manager or the person themselves - a colleague's lateness is not
+        # something every peer should be able to read.
+        "deadlineRecord": task_due.person_record(assigned, email) if (manager or me == email) else None,
     }
 
 
@@ -1402,6 +1389,8 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     set_task_assignees(t, _assignees_from(body.__dict__, []) or [])
     # Whoever raised the task follows it - see _follow_as_actor.
     _follow_as_actor(t, user["email"])
+    # A date set for somebody else is a target they still have to confirm.
+    task_due.init_due(t, user["email"])
     db.add(t)
     # link into parent
     if t.parent_task_id:
@@ -1423,7 +1412,6 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     db.commit()
     db.refresh(t)
     fire_task_event(tid, "created")
-    _asana_push(tid, user["email"])
     background_tasks.add_task(notify_task_event, tid, "created", user["email"])
     return task_to_dict(t)
 
@@ -1450,6 +1438,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     prev_status = t.status
     prev_completed = bool(t.completed)
     prev_followers = set((t.follower_emails or []))
+    prev_due = (t.due_on or "")[:10]
     modified_kinds = [label for field, label in _MODIFIED_FIELD_LABELS.items() if field in data]
 
     new_status = data.get("status", prev_status)
@@ -1536,16 +1525,33 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
                                  detail="completed this task"))
     t.activity_ids = acts
 
+    # After activity_ids is rebuilt above - task_due appends its own entries.
+    due_entry = None
+    if "due_on" in data and (t.due_on or "")[:10] != prev_due:
+        due_entry = task_due.record_due_change(db, t, prev_due, t.due_on or "", actor=user["email"])
+        # The generic "Due date changed" becomes the actual story.
+        modified_kinds = [k for k in modified_kinds if k != "Due date changed"]
+        modified_kinds.insert(0, _due_change_label(t, due_entry))
+        req = task_due.requester_of(t)
+        if req and req != user["email"].lower():
+            task_notify(db, kind="task_due_changed", for_email=req,
+                        title="Due date extended" if due_entry["extension"] else "Due date changed",
+                        body=f"{t.title} - {_due_change_label(t, due_entry)}", task_id=t.id,
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+    elif "due_on" in data:
+        modified_kinds = [k for k in modified_kinds if k != "Due date changed"]
+    elif wanted is not None and set(task_assignees(t)) != prev_assignees and t.due_on:
+        # A new holder did not agree to the old holder's date.
+        task_due.settle_agreement(t, user["email"])
+
     # Completing a recurring task rolls the series forward to the next occurrence.
     spawned = _spawn_next_occurrence(db, t, user) if (t.completed and not prev_completed) else None
 
     db.commit()
     db.refresh(t)
     fire_task_event(t.id, "updated")
-    _asana_push(t.id, user["email"])
     if spawned is not None:
         fire_task_event(spawned.id, "created")
-        _asana_push(spawned.id, user["email"])
 
     if wanted is not None and (set(task_assignees(t)) - prev_assignees):
         background_tasks.add_task(notify_task_event, t.id, "assigned", user["email"])
@@ -1554,9 +1560,103 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     for f in (set(t.follower_emails or []) - prev_followers):
         background_tasks.add_task(notify_task_event, t.id, "follower_added", user["email"], new_follower=f)
     if modified_kinds:
+        # due_changed puts the requester on this email too (task_notify
+        # _recipients_for) - Neil: "if a task changes due date it will notify
+        # the requester".
         background_tasks.add_task(notify_task_event, t.id, "modified", user["email"],
-                                  update_kind=", ".join(modified_kinds))
+                                  update_kind=", ".join(modified_kinds),
+                                  due_changed=due_entry is not None)
     return task_to_dict(t)
+
+
+def _due_change_label(t: models.Task, entry: dict) -> str:
+    frm, to = entry.get("from") or "", entry.get("to") or ""
+    if not frm:
+        label = f"Due date set to {task_due.us_date(to)}"
+    elif not to:
+        label = f"Due date removed (was {task_due.us_date(frm)})"
+    else:
+        label = f"Due date changed from {task_due.us_date(frm)} to {task_due.us_date(to)}"
+    n = int(t.due_extension_count or 0)
+    if entry.get("extension"):
+        label += f" (extended {n} time{'s' if n != 1 else ''})"
+    return label
+
+
+# ── Due-date negotiation (Neil, Sep 24) ─────────────────────────────────────
+# "The requester can set a target date. It is up to the assignee to confirm it,
+# or push it out if they deny the timeline, and the two can hash it out." The
+# state machine lives in task_due.py; these only check who may do what.
+class DueProposal(BaseModel):
+    due_on: str
+    note: Optional[str] = ""
+
+
+class DueAnswer(BaseModel):
+    accept: bool = False
+    note: Optional[str] = ""
+    counter_on: Optional[str] = ""   # the requester's own suggestion instead
+
+
+def _require_assignee(t: models.Task, user: dict) -> str:
+    me = (user.get("email") or "").strip().lower()
+    if me not in task_assignees(t):
+        raise HTTPException(403, "Only the person assigned to this task can answer its due date.")
+    if not t.due_on:
+        raise HTTPException(409, "This task has no due date.")
+    return me
+
+
+def _due_done(db: Session, t: models.Task) -> dict:
+    t.modified_at = now_iso()
+    db.commit()
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return task_to_dict(t)
+
+
+@router.post("/{task_id}/due/confirm")
+def confirm_due(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = _wall_task(db, user, task_id)
+    me = _require_assignee(t, user)
+    if (t.due_agreement or "") != "pending":
+        raise HTTPException(409, "There is no due date waiting for you to confirm.")
+    task_due.confirm(db, t, me)
+    return _due_done(db, t)
+
+
+@router.post("/{task_id}/due/propose")
+def propose_due(body: DueProposal, task_id: str, user: dict = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    t = _wall_task(db, user, task_id)
+    me = _require_assignee(t, user)
+    # Negotiating is for a target you have not agreed to yet. Once it is yours,
+    # moving it is an extension - change the date and it is counted.
+    if (t.due_agreement or "") not in ("pending", "proposed"):
+        raise HTTPException(409, "This due date is already agreed - change it directly instead.")
+    _check_iso_date(body.due_on, "due_on")
+    if not body.due_on or body.due_on[:10] == (t.due_on or "")[:10]:
+        raise HTTPException(422, "Pick a date different from the current one.")
+    task_due.propose(db, t, me, body.due_on[:10], (body.note or "").strip())
+    return _due_done(db, t)
+
+
+@router.post("/{task_id}/due/respond")
+def respond_due(body: DueAnswer, task_id: str, user: dict = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    t = _wall_task(db, user, task_id)
+    me = (user.get("email") or "").strip().lower()
+    if (t.due_agreement or "") != "proposed" or not isinstance(t.due_proposal, dict):
+        raise HTTPException(409, "There is no proposed date to answer.")
+    if me != task_due.requester_of(t) and not is_manager(user):
+        raise HTTPException(403, "Only whoever requested this task, or a manager, can answer the proposal.")
+    counter = (body.counter_on or "")[:10]
+    if counter:
+        _check_iso_date(counter, "counter_on")
+        if counter in ((t.due_on or "")[:10], ((t.due_proposal or {}).get("dueOn") or "")[:10]):
+            raise HTTPException(422, "Suggest a date different from both the current and the proposed one.")
+    task_due.respond(db, t, me, body.accept, (body.note or "").strip(), counter_on=counter)
+    return _due_done(db, t)
 
 
 @router.delete("/{task_id}", status_code=204)
@@ -1742,7 +1842,6 @@ def delete_task_permanent(task_id: str, user: dict = Depends(get_current_user), 
     if not purge_task_permanently(db, task_id, actor_email=user["email"]):
         raise HTTPException(404, "That task isn't in the trash")
     db.commit()
-    asana_push_deleted()
 
 
 class BulkUpdate(BaseModel):
@@ -1778,6 +1877,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # Captured before the patch lands so the activity entries below can say what
     # actually changed rather than restating the new value for every row.
     before = {t.id: (t.status, bool(t.completed), tuple(task_assignees(t))) for t in rows}
+    before_due = {t.id: (t.due_on or "")[:10] for t in rows}
     for t in rows:
         prev_status, prev_completed, _ = before[t.id]
         # Decided BEFORE the loop writes anything, from the payload and the
@@ -1825,7 +1925,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # changed), but the bell notification is AGGREGATED per person: fifty
     # separate "you were assigned a task" pings for one action is the failure
     # mode CLAUDE.md warns about ("one notification per workflow, never one per
-    # item"). Email is deliberately not sent from here at all - see below.
+    # item"). Email goes through the batch queue only - see the end of this function.
     actor = (user["email"] or "").lower()
     newly_assigned: dict[str, list] = {}
     for t in rows:
@@ -1854,6 +1954,12 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                                      entity_id=t.id, entity_code=t.code, entity_title=t.title,
                                      detail="completed this task"))
         t.activity_ids = acts
+        # After activity_ids is rebuilt - task_due appends its own entries.
+        # Logged and counted like a single edit, but no per-row email (see above).
+        if "due_on" in patch:
+            task_due.record_due_change(db, t, before_due[t.id], t.due_on or "", actor=actor, source="bulk")
+        elif now_assignees != set(prev_assignees) and t.due_on:
+            task_due.settle_agreement(t, actor)
 
     for email, assigned in newly_assigned.items():
         # One task through bulk is the same action as one through PATCH, so it
@@ -1872,6 +1978,11 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View tasks"})
 
     db.commit()
+    # With batching on (task_notify.flush_batches), each newly assigned person
+    # now gets ONE email for the whole bulk assignment instead of none at all.
+    if newly_assigned:
+        import task_notify as task_mail
+        task_mail.queue_bulk_assignments(db, actor, newly_assigned)
     fire_task_event("", "bulk")
     return [task_to_dict(t) for t in rows]
 
@@ -1958,11 +2069,6 @@ def edit_comment(comment_id: str, upd: CommentUpdate, user: dict = Depends(get_c
     db.commit()
     db.refresh(c)
     fire_task_event(c.task_id, "comment")
-    # A corrected comment has to reach Asana too, or the copy most of the
-    # workspace reads keeps the wrong text forever. Only on a body change -
-    # pinning is a Nexus-only notion with no Asana counterpart.
-    if upd.body is not None:
-        _asana_push_comment_edit(comment_id)
     return comment_to_dict(c)
 
 
@@ -2205,8 +2311,8 @@ def dedupe_custom_statuses(db: Session = Depends(get_db)):
     Task.status off every row it deletes, so no task is left pointing at a
     status that no longer exists.
     """
-    import asana_sync
-    result = asana_sync.dedupe_custom_statuses(db)
+    import task_status_dedupe
+    result = task_status_dedupe.dedupe_custom_statuses(db)
     db.commit()
     return result
 

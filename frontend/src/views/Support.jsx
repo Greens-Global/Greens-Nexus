@@ -10,12 +10,12 @@
 // This is the requester's view: raise one, then watch yours. The list comes from
 // /task-tickets?mine=true, scoped server-side, so an employee's browser never
 // receives anyone else's ticket.
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 // Ticket is the Ticket module's own icon (Sidebar, TicketsView) - the card
 // that opens its create form should wear it, not a generic document.
 import {
   Ticket, Users, ArrowUpRight, Shield, FileSignature, Bug, Search,
-  ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight,
+  ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, LifeBuoy, BookOpen,
 } from 'lucide-react';
 import { api } from '../api';
 import { ticketNoShort, normalizeCode, TICKET_STATUS_META, TICKET_STATUS_ORDER } from '../tickets/ticketMeta';
@@ -26,7 +26,20 @@ import { Avatar, usePeople } from '../tasks/components';
 import { useTableColumns, ColResizer } from '../tasks/tableCols';
 import { takePendingOpen } from '../lib/pendingOpen';
 import GuidedTour from '../components/GuidedTour';
+import ModuleTabs from '../components/ModuleTabs';
+import { SkeletonBlocks } from '../components/AsyncState';
 import { buildSupportTourSteps } from './supportTourSteps';
+
+// Documentation tab (Sep 24): the written guide to every module. Lazy so its
+// content and drawn screenshots only load when someone opens the tab.
+const SupportDocs = lazy(() => import('../support/SupportDocs'));
+
+// 'help' is the page as it always was; 'documentation' is the module guide.
+// URL: /support (help) or /support/documentation.
+const SUPPORT_TABS = [
+  { key: 'help', label: 'Help Center', Icon: LifeBuoy },
+  { key: 'documentation', label: 'Documentation', Icon: BookOpen },
+];
 
 // Tour id this page reports to the server (routers/user_tours.py) - same
 // pattern as the Task and Ticket modules' own TASK_TOUR_ID/TICKET_TOUR_ID.
@@ -117,7 +130,9 @@ const SUPPORT_TABLE_COLUMNS = [
 ];
 const SUPPORT_PAGE_SIZE = 10;
 
-export default function Support() {
+export default function Support({ activeSub, onSubChange }) {
+  const tab = activeSub === 'documentation' ? 'documentation' : 'help';
+  const setTab = (key) => onSubChange?.(key === 'help' ? null : key);
   const [submitting, setSubmitting] = useState(false);
   const [reportingBug, setReportingBug] = useState(false);
   const [viewingTicketId, setViewingTicketId] = useState(null);
@@ -178,6 +193,8 @@ export default function Support() {
   // gated on activeView === 'support'), which fires this same event. "Seen"
   // is server-side, per person - see routers/user_tours.py.
   const [tour, setTour] = useState(false);
+  const onSubChangeRef = useRef(onSubChange);
+  useEffect(() => { onSubChangeRef.current = onSubChange; });
   useEffect(() => {
     if (!myEmail) return;
     let cancelled = false;
@@ -191,7 +208,8 @@ export default function Support() {
     api.markTourSeen(SUPPORT_TOUR_ID).catch(() => {});
   };
   useEffect(() => {
-    const openTour = () => setTour(true);
+    // The tour spotlights Help Center cards, so it always runs on that tab.
+    const openTour = () => { onSubChangeRef.current?.(null); setTour(true); };
     window.addEventListener('nexus:support-tour', openTour);
     return () => window.removeEventListener('nexus:support-tour', openTour);
   }, []);
@@ -218,6 +236,8 @@ export default function Support() {
       onOpen: () => go('privacy-policy') },
     { icon: FileSignature, title: 'Terms & Conditions', desc: 'The terms that govern your use of Nexus.',
       onOpen: () => go('terms-conditions') },
+    { icon: BookOpen, title: 'Documentation', desc: 'How every Nexus module works, step by step.',
+      onOpen: () => setTab('documentation'), tour: 'support-documentation' },
   ];
 
   // Closed tickets are not what "My Open Tickets" means, but a requester whose
@@ -252,6 +272,13 @@ export default function Support() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <ModuleTabs tabs={SUPPORT_TABS} active={tab} onChange={setTab} />
+
+      {tab === 'documentation' ? (
+        <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
+          <SupportDocs />
+        </Suspense>
+      ) : (<>
       <div className="view-header">
         <div className="view-title-group">
           <h2>Support</h2>
@@ -385,6 +412,7 @@ export default function Support() {
           </>
         )}
       </div>
+      </>)}
 
       {submitting && (
         <Suspense fallback={null}>
@@ -409,7 +437,7 @@ export default function Support() {
         </Suspense>
       )}
 
-      {tour && <GuidedTour steps={buildSupportTourSteps()} onClose={closeTour} />}
+      {tour && tab === 'help' && <GuidedTour steps={buildSupportTourSteps()} onClose={closeTour} />}
     </div>
   );
 }

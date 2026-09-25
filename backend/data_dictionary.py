@@ -67,7 +67,7 @@ _DOMAINS = [
      "The help-desk queue - tickets, components, and their email/notification trail.",
      lambda t: t == "task_tickets" or t.startswith("ticket_") or t == "task_ticket_components"),
     ("tasks", "Tasks & Projects", "CheckSquare",
-     "The task/project engine - boards, automations, templates, and Asana two-way sync.",
+     "The task/project engine - boards, automations, templates, and the archived Asana link records.",
      lambda t: t == "tasks" or t.startswith("task_") or t.startswith("asana_")),
     ("construction", "Construction", "HardHat",
      "The Construction module - projects, daily logs, RFIs, submittals, and site media.",

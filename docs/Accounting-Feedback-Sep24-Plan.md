@@ -8,6 +8,54 @@ week hard." So this is a finish-and-close list, not a new roadmap.
 Repos: Nexus = this repo. Accounting app = `C:\Users\Vlow\Desktop\Greens Accounting`
 (`Greens-Global/greens-accounting`, `main` = production).
 
+## Status (09/25)
+
+- ✅ PRODUCTION: Nexus `main` 00b12d74 = `release/accounting-sep24` (only the
+  accounting commits, cherry-picked from dev; Sagar's Asana removal stays on
+  dev). Verified live on nexus.greensglobal.com 09/25: period control,
+  comparison columns, Add Filter, drill-down, entry modal, Close tab task
+  views + role picker, reconciliation list (139 accounts), Overview tiles.
+- ✅ Priyanka's two Overview asks: "3/5 completed | 2 remaining" on the
+  reconciliation tile and the My Tasks / All Tasks / Overdue switch on the
+  Month-End Close card (Bookkeeper view opens on My Tasks). Both apps.
+- ✅ Entity picker (Visesh, 09/25: typing a code only narrowed the native
+  dropdown): searchable picker, released with batch 2 (main dd0ce7a4).
+- ✅ Accounting app main b600a64 live.
+
+### Batch 2 (09/25 call: Neil / Charmi / Vinod / Visesh) - RELEASED to PRODUCTION 09/25: Nexus main dd0ce7a4, accounting main e3cc9a7
+- ✅ Reports restyle (Neil): GL code + name on one line (code first, mono),
+  content-sized table that scrolls sideways (nothing cut), sticky Account
+  column + headings, density toggle (Comfortable / Compact / Condensed,
+  Compact default), sections fold on click + Expand All / Collapse All,
+  Account column resizable by dragging its heading edge (double-click =
+  fit), drill-down on EVERY amount incl. the comparison column (its own
+  window), trial balance opening/debit/credit/closing, cash position, and
+  the Close tab's Current Balance (opens Reports on that account via
+  `drill.js`). Render-smoke test `ReportsTab.test.jsx`. dev ef5fa4b0.
+- ✅ Reconciliation status from Intacct (Charmi / Neil): accounting app
+  mirrors CHECKINGACCOUNT / SAVINGSACCOUNT / CREDITCARD into
+  `intacct_bank_accounts` (173 rows) every sync; `ledger_dash_recon_accounts`
+  returns Intacct's last reconciled date + statement balance per GL +
+  entity (99 of 128 list rows matched); the list takes Intacct's status,
+  ignores Nexus marks, hides the Mark button on those rows, shows
+  "Intacct · <bank account id>". Migration 20260925100000 APPLIED live.
+  Accounting main e3cc9a7 PUSHED 09/25. Nexus dev a6dfc19b.
+  BANKACCTRECON itself is not readable by our Web Services user (PL04000005).
+- ✅ Vinod: Fidelity export memo leads with the Action text incl. ticker
+  (accounting main 350142b, pushed).
+- ✅ Entity picker (Visesh): searchable, matches as you type (d201d319).
+- ✅ Geofence (Charmi / Visesh, Time Clock): every work site is a fence;
+  default = any company site, optional assigned site per person (People ->
+  Work Mode); out-of-fence punch IN or OUT -> manager bell + email; Out
+  punch judged on its own (geoOut on the timecard, both dots); Geofence
+  Punch view (map + fence circles + green/red pins + All / Out of Fence +
+  site selector + punch table with street address). dev 7f76a4d0;
+  `nexus_employees.work_site_id` ADDED on dev AND prod DBs.
+- ✅ RELEASED 09/25: `release/accounting-sep24` dd0ce7a4 -> main (entity
+  picker + geofence + Intacct recon + Reports restyle); accounting main e3cc9a7.
+- ☐ Finance app: its own Close widget Current Balance does not drill yet
+  (Nexus does); BS/GL dimension columns still P&L only.
+
 ## Status (09/24, verified in the browser)
 
 - ✅ All four accounting migrations applied and tracked. Dry-run parity:

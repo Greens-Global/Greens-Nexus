@@ -452,6 +452,11 @@ export const api = {
   ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
   getGlobalTaskActivity: () => req("/tasks/activity"),
+  // Due-date negotiation (Sep 24) - the assignee confirms or proposes, the
+  // requester answers. Each returns the updated task.
+  confirmTaskDue: (id) => req(`/tasks/${id}/due/confirm`, { method: "POST" }),
+  proposeTaskDue: (id, dueOn, note = "") => req(`/tasks/${id}/due/propose`, { method: "POST", body: JSON.stringify({ due_on: dueOn, note }) }),
+  respondTaskDue: (id, accept, note = "", counterOn = "") => req(`/tasks/${id}/due/respond`, { method: "POST", body: JSON.stringify({ accept, note, counter_on: counterOn }) }),
   // Sections & custom statuses (board columns)
   getTaskSections: () => req("/tasks/meta/sections"),
   createTaskSection: (data) => req("/tasks/meta/sections", { method: "POST", body: JSON.stringify(data) }),
@@ -465,15 +470,10 @@ export const api = {
   getTaskProjects: () => req("/task-projects"),
   createTaskProject: (data) => req("/task-projects", { method: "POST", body: JSON.stringify(data) }),
   updateTaskProject: (id, data) => req(`/task-projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  // deleteInAsana: the operator's explicit answer to "also delete it in Asana?".
-  // Omitted (false) means Nexus-only - the Asana project survives so it can be
-  // imported again from scratch.
-  deleteTaskProject: (id, deleteInAsana = false) =>
-    req(`/task-projects/${id}${deleteInAsana ? "?delete_in_asana=true" : ""}`, { method: "DELETE" }),
+  deleteTaskProject: (id) => req(`/task-projects/${id}`, { method: "DELETE" }),
   // Department names only, readable by anyone in the task module (the People
   // module's own listing needs HR access) - see list_project_departments.
   getProjectDepartments: () => req("/task-projects/meta/departments"),
-  getTaskProjectAsanaLink: (id) => req(`/task-projects/${id}/asana-link`),
   // Fills team_id on tasks whose project has exactly one team. Dry run by default.
   backfillTaskTeams: (apply) => req(`/task-projects/backfill-teams?apply=${apply ? 'true' : 'false'}`, { method: 'POST', timeoutMs: 120000 }),
   getTaskPortfolios: () => req("/task-portfolios"),
@@ -524,51 +524,6 @@ export const api = {
   // Work-site names for the intake form's Facility / Site questions. Ticket-
   // scoped on purpose - /hr/work-sites needs an HR grant a requester won't have.
   getTicketSites: () => cachedGet("/ticket-sites", 120_000),
-  asanaListProjects: (data) => req("/task-asana-projects", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
-  asanaImport: (data) => req("/task-asana-import", { method: "POST", body: JSON.stringify(data), timeoutMs: 600000 }),
-  getAsanaSyncConfig: () => req("/asana-sync/config"),
-  setAsanaSyncConfig: (data) => req("/asana-sync/config", { method: "PUT", body: JSON.stringify(data) }),
-  setAsanaProjectMap: (data) => req("/asana-sync/projects", { method: "PUT", body: JSON.stringify(data) }),
-  asanaSyncPull: () => req("/asana-sync/pull", { method: "POST", timeoutMs: 600000 }),
-  // Additive pull: create only the Asana tasks Nexus is missing; never touch an
-  // existing task. Safe when Nexus holds edits Asana doesn't.
-  asanaSyncPullNew: () => req("/asana-sync/pull-new", { method: "POST", timeoutMs: 600000 }),
-  asanaSyncPullPersonal: () => req("/asana-sync/pull-personal", { method: "POST", timeoutMs: 600000 }),
-  asanaSyncPushAll: () => req("/asana-sync/push-all", { method: "POST", timeoutMs: 600000 }),
-  asanaSyncDedupe: (apply) => req(`/asana-sync/dedupe?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
-  // Why assignees are or are not reaching Asana - the one field that can fail
-  // on its own, because it is the only one that must be translated (Nexus email
-  // -> Asana user gid) rather than copied.
-  asanaAssigneeCheck: () => req("/asana-sync/assignee-check"),
-  // Asana shows no workspace id in its UI and the ids in its URLs are PROJECT
-  // ids - so offer a picker rather than have one pasted into the wrong field.
-  asanaWorkspaces:    () => req("/asana-sync/workspaces"),
-  // Walks every project in the workspace - same 10-min ceiling as Pull/Push all.
-  // Starts a background job and returns it right away; a whole workspace takes
-  // minutes and Azure kills any request at ~230s. Poll asanaSyncImportAllStatus.
-  asanaSyncImportAll: () => req("/asana-sync/import-all", { method: "POST" }),
-  asanaSyncImportAllStatus: () => req("/asana-sync/import-all/status"),
-  // Asks the run to stop at the next project boundary; it does not kill it.
-  asanaSyncImportAllCancel: () => req("/asana-sync/import-all/cancel", { method: "POST" }),
-  asanaSyncPurgeOrphans: (apply) => req(`/asana-sync/purge-orphans?apply=${apply ? "true" : "false"}`, { method: "POST", timeoutMs: 600000 }),
-  getAsanaSyncProjects: () => req("/asana-sync/asana-projects", { timeoutMs: 60000 }),
-  getAsanaWebhooks: () => req("/asana-sync/webhooks"),
-  registerAsanaWebhooks: (data) => req("/asana-sync/webhooks", { method: "POST", body: JSON.stringify(data), timeoutMs: 60000 }),
-  // ── Per-user Asana connection (Account Settings) ──
-  // Personal, not admin: each of these acts on the signed-in user's own grant.
-  // No endpoint here ever returns the token itself.
-  asanaOauthStatus:     () => req("/asana-oauth/status"),
-  asanaOauthStart:      () => req("/asana-oauth/start", { method: "POST" }),
-  asanaOauthDisconnect: () => req("/asana-oauth/me", { method: "DELETE" }),
-  // Live check: would a comment posted NOW go out as me, or as the shared
-  // sync account - and if the latter, why. Calls Asana for real.
-  asanaOauthCheck:      () => req("/asana-oauth/check"),
-  // Counts every Asana task assigned to ME (my own grant sees my private ones)
-  // and says which are not in Nexus. Long: pages the whole list.
-  asanaOauthCoverage:   () => req("/asana-oauth/coverage", { timeoutMs: 300000 }),
-  // Pulls the tasks /coverage listed as missing, through MY grant. Additive.
-  asanaOauthRescue:     () => req("/asana-oauth/coverage/rescue", { method: "POST", timeoutMs: 600000 }),
-  deleteAsanaWebhooks: () => req("/asana-sync/webhooks", { method: "DELETE", timeoutMs: 60000 }),
   getTaskAutomationRules: () => req("/task-automation-rules"),
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),
   updateTaskAutomationRule: (id, data) => req(`/task-automation-rules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
@@ -1095,6 +1050,9 @@ export const api = {
   createWorkSite: (data)     => req('/hr/work-sites', { method: 'POST', body: JSON.stringify(data) }),
   updateWorkSite: (id, data) => req(`/hr/work-sites/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteWorkSite: (id)       => req(`/hr/work-sites/${id}`, { method: 'DELETE' }),
+  // a company's picks from the global work-site library (Neil, Sep 25)
+  addCompanyWorkSites:   (entityId, siteIds) => req(`/hr/entities/${entityId}/work-sites`, { method: 'POST', body: JSON.stringify({ site_ids: siteIds }) }),
+  removeCompanyWorkSite: (entityId, siteId)  => req(`/hr/entities/${entityId}/work-sites/${siteId}`, { method: 'DELETE' }),
   // per-company holiday calendar
   getCompanyHolidays:    (entityId)         => req(`/hr/entities/${entityId}/holidays`),
   createCompanyHoliday:  (entityId, data)   => req(`/hr/entities/${entityId}/holidays`, { method: 'POST', body: JSON.stringify(data) }),
@@ -1217,6 +1175,15 @@ export const api = {
   mySignDecline:      (pid, data) => req(`/esign/mine/${pid}/decline`, { method: 'POST', body: JSON.stringify(data) }),
   // Approvers and certified-delivery recipients do NOT sign - they act.
   mySignAct:          (pid, data) => req(`/esign/mine/${pid}/act`, { method: 'POST', body: JSON.stringify(data) }),
+  // The executed copy, for anyone who was on the envelope in any role.
+  // reqBlob, not a bare URL: the API is bearer-authenticated, so a plain
+  // <a href> would arrive signed out.
+  mySignFinal:        (pid)       => reqBlob(`/esign/mine/${pid}/final`),
+  // Send for Signature drafts - a send that was started and not finished.
+  signDrafts:         ()         => req('/esign/drafts'),
+  saveSignDraft:      (form)     => req('/esign/drafts', { method: 'POST', body: form }),
+  deleteSignDraft:    (id)       => req(`/esign/drafts/${id}`, { method: 'DELETE' }),
+  signDraftFile:      (id)       => reqBlob(`/esign/drafts/${id}/file`),
   // Upload fields. FormData, so no JSON Content-Type - req() leaves the
   // boundary to the browser when the body is a FormData.
   mySignUpload:       (pid, form) => req(`/esign/mine/${pid}/upload`, { method: 'POST', body: form }),
@@ -1269,6 +1236,10 @@ export const api = {
   timePunchEditDecide:    (id, data) => req(`/timeclock/punch-edits/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timePendingPunchEdits:  ()         => req('/timeclock/punch-edits'),
   timeSignMyTimecard:     (start)    => req('/timeclock/my-timecard/sign', { method: 'POST', body: JSON.stringify({ start: start || '' }) }),
+  // Timesheet review before signing in Nexus Sign (Sep 2026) - timesheet_review.py.
+  timesheetReviewSubmit:   (start, note = '') => req('/timesheet-review/submit', { method: 'POST', body: JSON.stringify({ start: start || '', note }) }),
+  timesheetReviewSendBack: (id, note)         => req(`/timesheet-review/${id}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
+  timesheetReviewAgree:    (id, note = '')    => req(`/timesheet-review/${id}/agree`, { method: 'POST', body: JSON.stringify({ note }) }),
   timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   // Employee's own bi-weekly pay-period timecard (payroll rows + composition)
   timeMyPayroll:          (start) => req(`/timeclock/my-payroll?start=${start || ''}`),

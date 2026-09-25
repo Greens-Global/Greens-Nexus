@@ -192,7 +192,7 @@ export default function ProjectsView({ onNavigate }) {
     const { project } = deleting;
     setDeleting((d) => ({ ...d, busy: true, err: '' }));
     try {
-      await deleteProject(project.id, { deleteInAsana: false });
+      await deleteProject(project.id);
       setDeleting(null);
     } catch (e) {
       setDeleting((d) => ({ ...d, busy: false, err: e.message || 'Could not delete the project.' }));

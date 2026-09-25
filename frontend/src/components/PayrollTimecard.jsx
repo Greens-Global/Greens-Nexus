@@ -11,6 +11,7 @@ import GuidedTour from './GuidedTour';
 import WorkLogDrawer, { WorkLogButton } from './WorkLogDrawer';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import TimesheetReviewPanel from './TimesheetReviewPanel';
 import GeofencePunchModal from './GeofencePunchModal';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
@@ -297,16 +298,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     }
     setBusy(false);
   }
-  async function approve() {
-    await signOff((allow) => api.timeApprove({ email, start: perStart, end: perEnd, allow_exceptions: allow }),
-      'Approve', 'Timecard approved - the employee is notified.');
-  }
-  async function signTimecard() {
-    setBusy(true);
-    try { await api.timeSignMyTimecard(perStart); toastOk?.('Timecard signed - thank you.'); load(); }
-    catch (e) { toastErr?.(e?.message || 'Could not sign.'); }
-    setBusy(false);
-  }
 
   // Hourly nav MUST stay Sunday-anchored (SwipeClock parity). Step in whole
   // periods on the UTC series - snapPeriodUTC first, so a pStart left
@@ -427,7 +418,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
         onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)}
-        onApprove={approve} onFinalize={finalize} onUnfinalize={unfinalize} onSign={signTimecard}
+        onFinalize={finalize} onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
         setWorkLogDay={setWorkLogDay} />
     );
@@ -846,15 +837,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               <button className="secondary-btn" title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time/Sick/Vacation payroll items must match QuickBooks."
                 onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportIif(perStart, perEnd); }}
                 style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
-              <button className={mgrAp ? 'secondary-btn' : 'primary-btn'} data-tour="pr-approve" onClick={approve} disabled={busy || !!fin}
-                title={fin ? 'Period is finalized' : mgrAp ? `Approved by ${nameFor(mgrAp.by)} - click to re-approve after changes` : 'Step 1: manager sign-off'}
-                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, ...(mgrAp ? { color: 'hsl(var(--color-green))', borderColor: 'hsl(var(--color-green))' } : {}) }}>
-                <CheckCircle size={13} /> {busy ? '…' : mgrAp ? 'Approved' : 'Approve'}</button>
+              {/* Approving is now "Agree" in the review panel below; HR's
+                  signature there finalizes. Unlock / Finalize stay as the HR
+                  override for a period that never went through review. */}
               {isAdmin && (fin
                 ? <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period for corrections"
                     style={{ fontSize: 12.5 }}>Unlock</button>
-                : <button className="secondary-btn" onClick={finalize} disabled={busy} title="Step 2 (HR): finalize for payroll and lock the period"
-                    style={{ fontSize: 12.5, fontWeight: 700 }}>Finalize</button>)}
+                : <button className="secondary-btn" onClick={finalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
+                    style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
             </div>
             )}
           </div>
@@ -868,21 +858,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         </p>
       )}
 
-      {/* Three-signature sign-off. The Approve and Finalize buttons ARE the manager
-          and HR signatures - each line auto-fills when that person acts. A line goes
-          amber "changed since" if hours were edited after it was signed. */}
+      {/* Review + Nexus Sign (Sep 2026): the employee submits, the manager sends
+          back or agrees, then employee -> manager -> HR sign in Nexus Sign. */}
       {T && (
-        <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>
-            The employee signs to attest the hours are accurate; the manager approves and HR finalizes for payroll. Period: {label}.
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
-            <SigLine label="Employee" sig={data.signed} nameFor={nameFor}
-              action={self && !fin ? { label: data.signed ? 'Re-sign' : 'Sign & submit', onClick: signTimecard, busy } : null} />
-            <SigLine label="Manager" sig={data.approval} nameFor={nameFor} pending="Approve to sign" />
-            <SigLine label="HR" sig={data.finalized} nameFor={nameFor} pending="Finalize to sign" />
-          </div>
-        </div>
+        <TimesheetReviewPanel review={data.review} self={self} anchor={perStart} periodLabel={label}
+          nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
       )}
 
       {editDay && (
@@ -939,7 +919,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onApprove, onFinalize, onUnfinalize, onSign, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay }) {
+function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay }) {
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
   const T = data.totals || {};
@@ -1298,29 +1278,18 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           )}
           {!self && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <button className={mgrAp ? 'secondary-btn' : 'primary-btn'} onClick={onApprove} disabled={busy || !!fin}
-                title={fin ? 'Period is finalized' : mgrAp ? 'Approved - click to re-approve after changes' : 'Step 1: manager sign-off'}
-                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, ...(mgrAp ? { color: 'hsl(var(--color-green))', borderColor: 'hsl(var(--color-green))' } : {}) }}>
-                <CheckCircle size={13} /> {busy ? '…' : mgrAp ? 'Approved' : 'Approve'}</button>
               {isAdmin && (fin
                 ? <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>
-                : <button className="secondary-btn" onClick={onFinalize} disabled={busy} style={{ fontSize: 12.5, fontWeight: 700 }}>Finalize</button>)}
+                : <button className="secondary-btn" onClick={onFinalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
+                    style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
             </div>
           )}
         </div>
       </div>
 
-      {/* Three-signature sign-off (same as hourly) */}
-      <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
-        <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>
-          The employee signs to attest attendance; the manager approves and HR finalizes for payroll. Month: {monthLabel}.
-        </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
-          <SigLine label="Employee" sig={data.signed} nameFor={nameFor} action={self && !fin ? { label: data.signed ? 'Re-sign' : 'Sign & submit', onClick: onSign, busy } : null} />
-          <SigLine label="Manager" sig={data.approval} nameFor={nameFor} pending="Approve to sign" />
-          <SigLine label="HR" sig={data.finalized} nameFor={nameFor} pending="Finalize to sign" />
-        </div>
-      </div>
+      {/* Review + Nexus Sign (same as hourly) */}
+      <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}
+        nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
 
       {editDay && (
         <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
@@ -1329,33 +1298,6 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       )}
       {geoMap && (
         <GeofencePunchModal email={geoMap} name={data?.name || nameFor?.(geoMap) || geoMap} start={data?.periodStart || ''} end={data?.periodEnd || ''} onClose={() => setGeoMap('')} />
-      )}
-    </div>
-  );
-}
-
-function SigLine({ label, sig, nameFor, action, pending }) {
-  const done = sig && sig.at;
-  const who = done ? (sig.name || (nameFor && nameFor(sig.by)) || (sig.by || '').split('@')[0].replace(/\./g, ' ')) : '';
-  return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '14px', background: 'var(--card)', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' }}>{label} signature</div>
-      {done ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: sig.stale ? '#b45309' : 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <CheckCircle size={14} /> {who}
-          </span>
-          <span style={{ fontSize: 11, color: 'var(--muted)' }}>{new Date(sig.at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
-          {sig.stale && <span title="Hours changed after this signature - it needs to be redone" style={{ fontSize: 10, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.12)', padding: '2px 8px', borderRadius: 999 }}>changed since</span>}
-        </div>
-      ) : (
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>{action ? 'Unsigned' : (pending || 'Pending')}</span>
-      )}
-      {action && (
-        <button className="primary-btn" onClick={action.onClick} disabled={action.busy}
-          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <CheckCircle size={13} /> {action.busy ? '…' : action.label}
-        </button>
       )}
     </div>
   );

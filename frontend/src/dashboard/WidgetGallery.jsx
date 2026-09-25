@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Plus, Check } from 'lucide-react';
-import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS } from './widgets.jsx';
+import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS, QUICK_ACTIONS, DEFAULT_QUICK_ACTIONS } from './widgets.jsx';
 import { api } from '../api';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
@@ -81,6 +81,28 @@ function LinksFolderFields({ config, onChange }) {
 
 // Config picker used both when adding a configurable widget and when editing one.
 function ConfigFields({ type, config, onChange }) {
+  if (type === 'quick-actions') {
+    const picked = new Set(Array.isArray(config.actions) && config.actions.length ? config.actions : DEFAULT_QUICK_ACTIONS);
+    const toggle = (key) => {
+      const next = QUICK_ACTIONS.map(a => a.key).filter(k => k === key ? !picked.has(k) : picked.has(k));
+      onChange({ actions: next });
+    };
+    return (
+      <div>
+        <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Actions on this tile</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {QUICK_ACTIONS.map(a => (
+            <label key={a.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--ink)', cursor: 'pointer', padding: '4px 2px' }}>
+              <input type="checkbox" checked={picked.has(a.key)} onChange={() => toggle(a.key)} />
+              <span className={`dk-chip dk-chip--${a.color}`} style={{ width: 26, height: 26, borderRadius: 7 }}><a.Icon size={14} /></span>
+              {a.label}
+            </label>
+          ))}
+        </div>
+        {picked.size === 0 && <p style={{ fontSize: 12, color: 'hsl(var(--color-red))', margin: '8px 0 0' }}>Pick at least one action.</p>}
+      </div>
+    );
+  }
   if (type === 'links-folder') {
     return <LinksFolderFields config={config} onChange={onChange} />;
   }
@@ -115,6 +137,14 @@ function ConfigFields({ type, config, onChange }) {
   return <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>This widget has no options.</p>;
 }
 
+// Is this widget's config complete enough to add / save? Gates the primary
+// button in both the gallery's picking step and the pencil's ConfigModal.
+export function configValid(type, config) {
+  if (type === 'links-folder') return !!config?.folderId;
+  if (type === 'quick-actions') return !Array.isArray(config?.actions) || config.actions.length > 0;
+  return true;
+}
+
 export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
   const [picking, setPicking] = useState(null);   // { type, config, initial }
 
@@ -142,7 +172,7 @@ export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
             <ConfigFields type={picking.type} config={picking.config} onChange={patch => setPicking(p => ({ ...p, config: { ...p.config, ...patch } }))} />
             <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
               <button className="secondary-btn" onClick={() => setPicking(null)}>Back</button>
-              <button className="primary-btn" disabled={picking.type === 'links-folder' && !picking.config.folderId}
+              <button className="primary-btn" disabled={!configValid(picking.type, picking.config)}
                 onClick={addWidget}>
                 <Plus size={14} /> Add Widget
               </button>
@@ -171,6 +201,7 @@ export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
                       if (def.configurable) {
                         const initial = def.configurable === 'kpi' ? { metric: 'open_tasks' }
                           : def.configurable === 'links-folder' ? {}
+                          : def.configurable === 'quick-actions' ? { actions: [...DEFAULT_QUICK_ACTIONS] }
                           : { ...SHORTCUT_TARGETS[0] };
                         setPicking({ type, config: initial, initial });
                       } else { onAdd(type); onClose(); }
@@ -201,8 +232,9 @@ export function ConfigModal({ item, onSave, onClose }) {
   const def = WIDGETS[item.type];
   const [config, setConfig] = useState(item.config || {});
   const dirty = JSON.stringify(config) !== JSON.stringify(item.config || {});
-  const doSave = () => { onSave(config); onClose(); };
-  const guard = useUnsavedGuard(dirty, onClose, doSave);
+  const valid = configValid(item.type, config);
+  const doSave = () => { if (!valid) return; onSave(config); onClose(); };
+  const guard = useUnsavedGuard(dirty, onClose, valid ? doSave : undefined);
   return (
     <>
       <Overlay onClose={guard.requestClose}>
@@ -210,7 +242,7 @@ export function ConfigModal({ item, onSave, onClose }) {
           <ConfigFields type={item.type} config={config} onChange={patch => setConfig(c => ({ ...c, ...patch }))} />
           <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
             <button className="secondary-btn" onClick={onClose}>Cancel</button>
-            <button className="primary-btn" onClick={doSave}><Check size={14} /> Save</button>
+            <button className="primary-btn" onClick={doSave} disabled={!valid}><Check size={14} /> Save</button>
           </div>
         </Shell>
       </Overlay>

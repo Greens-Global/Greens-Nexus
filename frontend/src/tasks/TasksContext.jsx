@@ -385,11 +385,11 @@ export function TasksProvider({ children }) {
   const actions = useMemo(() => ({
     createProject: mk(api.createTaskProject, setProjects),
     updateProject: mkUpd(api.updateTaskProject, setProjects),
-    // Not mkDel: a project delete now removes its tasks and teams server-side
-    // too (and optionally the Asana project), so the whole core has to be
-    // refetched rather than just dropping the project from its own list.
-    deleteProject: async (id, { deleteInAsana = false } = {}) => {
-      const r = await api.deleteTaskProject(id, deleteInAsana);
+    // Not mkDel: a project delete bins its tasks server-side too, so the
+    // whole core has to be refetched rather than just dropping the project
+    // from its own list.
+    deleteProject: async (id) => {
+      const r = await api.deleteTaskProject(id);
       setProjects((p) => p.filter((x) => x.id !== id));
       loadCore();
       return r;
@@ -500,6 +500,9 @@ export function TasksProvider({ children }) {
     taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,
+    // Puts a task the server just returned into the store as-is (the due-date
+    // confirm/propose/respond calls answer with the updated task).
+    applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },
     markNotificationRead, markAllNotificationsRead, refresh: loadCore,
     offerUndo,
     // Bookmarks live HERE, not in `actions` below. That object is

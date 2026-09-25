@@ -20,6 +20,7 @@ import { useTableColumns, TableHead, ResetColumnsButton, useTableValue, useTable
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import { selectionAfterClick } from './rowSelection';
 import BulkActionBar from './BulkActionBar';
+import DueBadge from './DueBadge';
 
 const VIEW_TABS = [
   { key: 'list', label: 'List', icon: ListIcon },
@@ -197,10 +198,11 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
       // MyTasksView), which leaves Due Date as the last column - flush it to
       // the row's right edge instead of the left-aligned default, so it isn't
       // stranded in a sea of empty space between it and the name column.
-      <div style={isMobilePortrait ? { display: 'flex', justifyContent: 'flex-end', width: '100%' } : undefined}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, ...(isMobilePortrait ? { justifyContent: 'flex-end', width: '100%' } : null) }}>
         <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={dueColor(t.dueOn, t.completed)}
           title="Due Date" compact
           style={t.dueOn ? { fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: dueBg, width: 'fit-content' } : undefined} />
+        <DueBadge task={t} nameOf={store.nameOf} compact />
       </div>
     ),
     collaborators: (
@@ -252,7 +254,16 @@ export default function MyTasksView({ onNavigate }) {
   // Name/Due Date fit without every row wrapping or Name shrinking to
   // nothing, so Collaborators/Projects drop rather than squeeze.
   const isMobilePortrait = useIsMobile('(max-width: 640px) and (orientation: portrait)');
-  const baseCols = isMobilePortrait ? LIST_COLS.filter((c) => c.key === 'title' || c.key === 'dueOn') : LIST_COLS;
+  // Room for the "Ext 3x" badge beside the date, only when one of my tasks
+  // has one (a width dragged by hand still wins - useTableColumns).
+  const anyExtended = useMemo(
+    () => tasks.some((t) => t.dueExtensionCount > 0 && !t.completed && taskAssignees(t).includes((myEmail || '').toLowerCase())),
+    [tasks, myEmail],
+  );
+  const baseCols = useMemo(() => {
+    const cols = anyExtended ? LIST_COLS.map((c) => (c.key === 'dueOn' ? { ...c, width: 172, minWidth: 172 } : c)) : LIST_COLS;
+    return isMobilePortrait ? cols.filter((c) => c.key === 'title' || c.key === 'dueOn') : cols;
+  }, [anyExtended, isMobilePortrait]);
   const { cols: listCols, template, startResize, resetWidth, autofitWidth, widths, wrapRef, dragProps } =
     useTableColumns({ table: 'mytasks', cols: baseCols });
   // Person / Project / Collaborator sorts order by the NAME on screen, not the

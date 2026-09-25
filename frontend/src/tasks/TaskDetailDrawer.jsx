@@ -22,6 +22,8 @@ import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateFi
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import ProjectPicker from './ProjectPicker';
+import DueBadge from './DueBadge';
+import DueNegotiation from './DueNegotiation';
 import { toDownloadUrl } from '../lib/storageView';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
@@ -712,7 +714,9 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       <Row label="Due Date">
         <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} compact noPast
           style={task.dueOn ? { ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 } : undefined} />
+        <DueBadge task={task} nameOf={nameOf} />
       </Row>
+      <DueNegotiation task={task} />
 
       <Row label="Project">
         <div style={{ minWidth: 220 }}>

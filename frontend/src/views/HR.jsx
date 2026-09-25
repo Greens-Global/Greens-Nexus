@@ -3335,7 +3335,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
   // untouched (still rendered in signatures); this form just stops offering
   // a way to view/set it.
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', notes: '', domains: '', manager_emails: [], logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const [f, setF] = useState(blank);
@@ -3379,6 +3379,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
       physical_address: en.physicalAddress || '', mailing_address: en.mailingAddress || '',
       signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '',
       manager_emails: en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []),
+      hr_contact_email: en.hrContactEmail || '',
       logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
     setF(seeded); formSnapshotRef.current = seeded; setTab('overview'); setMode(en.id);
   };
@@ -3490,6 +3491,17 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                     <option value="">+ add a manager</option>
                     {people.filter(p => !f.manager_emails.includes(p.email)).map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
                   </select>
+                </div>
+                {/* Signs every employee's timesheet last and finalizes it for
+                    payroll (timesheet review + Nexus Sign, Sep 2026). */}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL}>HR CONTACT</label>
+                  <select className="form-input" style={{ width: '100%' }} value={f.hr_contact_email || ''}
+                    onChange={e => set('hr_contact_email', e.target.value)}>
+                    <option value="">- not set -</option>
+                    {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
+                  </select>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's timesheet after the employee and manager, and finalizes it for payroll.</div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('PHYSICAL ADDRESS', 'physical_address', { placeholder: 'search or pick a spot on the map, or type it in' })}</div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('MAILING ADDRESS', 'mailing_address', { placeholder: 'if different from the physical address' })}</div>
@@ -3631,108 +3643,144 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   );
 }
 
-// ── Work Sites tab, nested inside a single company's editor - sites are
-// per-company now, not a shared central list (Pranshu, Sep 18). Existing
-// sites with no company yet (pre-dating this change) show up in every
-// company's "Unassigned" bucket so an admin can claim the ones that are
-// actually theirs, one at a time, instead of a forced bulk migration.
-function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
-  const blank = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, notes: '' };
-  const [mode, setMode] = useState(null); // null | 'new' | site.id
-  const [f, setF] = useState(blank);
-  const [busy, setBusy] = useState(false);
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-  const mySites = sites.filter(s => s.company === entity.id);
-  const unassigned = sites.filter(s => !s.company);
+// ── Work sites (Neil, Sep 25) - ONE global library (Settings -> Company
+// Settings -> Work Site Library), and each company picks the sites its people
+// punch at from it: all of them, some, or one (Sacred Natural has one site, so
+// its people must not resolve to a Greens office). A site added from a
+// company's tab lands in the library too, so it is entered once and every
+// other company can pick it. Replaces the Sep 18 single-company `company` tag,
+// where claiming a site for one company took it away from every other.
+const SITE_BLANK = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, notes: '' };
+const siteForm = s => ({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, notes: s.notes || '' });
+const siteLine = s => [s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '-';
 
-  const startNew = () => { setF(blank); setMode('new'); };
-  const startEdit = s => { setF({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, notes: s.notes || '' }); setMode(s.id); };
-
-  async function save() {
-    if (!f.name.trim() || busy) return; setBusy(true);
-    try {
-      const body = { ...f, radius_m: Number(f.radius_m) || 150, company: entity.id };
-      if (mode === 'new') await api.createWorkSite(body); else await api.updateWorkSite(mode, body);
-      await onChanged(); toastOk('Work site saved.'); setMode(null);
-    } catch (e) { toastErr(e?.message || 'Could not save work site.'); }
-    setBusy(false);
-  }
-  async function remove(s) {
-    if (!await dialog.confirm(`Delete work site "${s.name}"?`, { title: 'Delete work site', confirmText: 'Delete', danger: true })) return;
-    try { await api.deleteWorkSite(s.id); await onChanged(); toastOk('Work site deleted.'); }
-    catch (e) { toastErr(e?.message || 'Could not delete.'); }
-  }
-  async function claim(s) {
-    try { await api.updateWorkSite(s.id, { company: entity.id }); await onChanged(); toastOk(`Assigned to ${entity.name}.`); }
-    catch (e) { toastErr(e?.message || 'Could not assign.'); }
-  }
+function WorkSiteForm({ f, set, busy, onBack, onSave, hint }) {
   const field = (label, key, props = {}) => (
     <div><label style={FL}>{label}</label>
       <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
   );
-
-  if (mode) {
-    const initialLatLng = (f.latitude && f.longitude) ? [Number(f.latitude), Number(f.longitude)] : null;
-    return (
-      <div style={{ padding: '18px 4px', display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        <div style={{ flex: '1 1 420px', maxWidth: 480, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Escondido Office' })}</div>
-          <div style={{ gridColumn: '1 / -1' }}>{field('ADDRESS', 'address', { placeholder: 'search or pick a spot on the map' })}</div>
-          {field('LATITUDE', 'latitude', { placeholder: 'e.g. 33.1192' })}
-          {field('LONGITUDE', 'longitude', { placeholder: 'e.g. -117.0864' })}
-          {field('GEOFENCE RADIUS (m)', 'radius_m', { type: 'number', min: 10 })}
-          <div style={{ gridColumn: '1 / -1' }}>
-            <label style={FL}>NOTES</label>
-            <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
-          </div>
-        </div>
-        <div style={{ flex: '1 1 360px', minWidth: 300 }}>
-          <label style={FL}>PICK LOCATION ON MAP</label>
-          <LocationPickerMap initialLatLng={initialLatLng}
-            onLocationPicked={(address, [lat, lng]) => { set('address', address); set('latitude', String(lat.toFixed(6))); set('longitude', String(lng.toFixed(6))); }} />
-        </div>
-        <div style={{ flex: '1 1 100%', display: 'flex', gap: 10, marginTop: 4 }}>
-          <button className="secondary-btn" onClick={() => setMode(null)} disabled={busy}>Back</button>
-          <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
-          </button>
+  const initialLatLng = (f.latitude && f.longitude) ? [Number(f.latitude), Number(f.longitude)] : null;
+  return (
+    <div style={{ padding: '18px 4px', display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      <div style={{ flex: '1 1 420px', maxWidth: 480, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        {hint && <p style={{ gridColumn: '1 / -1', fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>{hint}</p>}
+        <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Escondido Office' })}</div>
+        <div style={{ gridColumn: '1 / -1' }}>{field('ADDRESS', 'address', { placeholder: 'search or pick a spot on the map' })}</div>
+        {field('LATITUDE', 'latitude', { placeholder: 'e.g. 33.1192' })}
+        {field('LONGITUDE', 'longitude', { placeholder: 'e.g. -117.0864' })}
+        {field('GEOFENCE RADIUS (m)', 'radius_m', { type: 'number', min: 10 })}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={FL}>NOTES</label>
+          <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
         </div>
       </div>
-    );
+      <div style={{ flex: '1 1 360px', minWidth: 300 }}>
+        <label style={FL}>PICK LOCATION ON MAP</label>
+        <LocationPickerMap initialLatLng={initialLatLng}
+          onLocationPicked={(address, [lat, lng]) => { set('address', address); set('latitude', String(lat.toFixed(6))); set('longitude', String(lng.toFixed(6))); }} />
+      </div>
+      <div style={{ flex: '1 1 100%', display: 'flex', gap: 10, marginTop: 4 }}>
+        <button className="secondary-btn" onClick={onBack} disabled={busy}>Back</button>
+        <button className="primary-btn" onClick={onSave} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
+          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
+  const [mode, setMode] = useState(null); // null | 'new' | site.id
+  const [f, setF] = useState(SITE_BLANK);
+  const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState('');
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const onCompany = s => (s.companies || []).includes(entity.id);
+  const mySites = sites.filter(onCompany);
+  const library = sites.filter(s => !onCompany(s));
+  const needle = q.trim().toLowerCase();
+  const libraryShown = needle ? library.filter(s => `${s.name} ${s.address || ''}`.toLowerCase().includes(needle)) : library;
+
+  const startNew = () => { setF(SITE_BLANK); setMode('new'); };
+  const startEdit = s => { setF(siteForm(s)); setMode(s.id); };
+
+  async function save() {
+    if (!f.name.trim() || busy) return; setBusy(true);
+    try {
+      const body = { ...f, radius_m: Number(f.radius_m) || 150 };
+      // New from here = into the library AND onto this company's list.
+      if (mode === 'new') await api.createWorkSite({ ...body, company: entity.id }); else await api.updateWorkSite(mode, body);
+      await onChanged(); toastOk('Work site saved.'); setMode(null);
+    } catch (e) { toastErr(e?.message || 'Could not save work site.'); }
+    setBusy(false);
+  }
+  async function unlink(s) {
+    if (!await dialog.confirm(`Remove "${s.name}" from ${entity.name}? ${entity.name} employees will no longer punch at it. It stays in the Work Site Library for other companies.`, { title: 'Remove work site', confirmText: 'Remove', danger: true })) return;
+    try { await api.removeCompanyWorkSite(entity.id, s.id); await onChanged(); toastOk(`Removed from ${entity.name}.`); }
+    catch (e) { toastErr(e?.message || 'Could not remove.'); }
+  }
+  async function add(list) {
+    if (!list.length || busy) return; setBusy(true);
+    try {
+      await api.addCompanyWorkSites(entity.id, list.map(s => s.id)); await onChanged();
+      toastOk(list.length === 1 ? `Added ${list[0].name}.` : `Added ${list.length} work sites.`);
+    } catch (e) { toastErr(e?.message || 'Could not add.'); }
+    setBusy(false);
+  }
+
+  if (mode) {
+    const shared = mode !== 'new' && (sites.find(s => s.id === mode)?.companies || []).length > 1;
+    return <WorkSiteForm f={f} set={set} busy={busy} onBack={() => setMode(null)} onSave={save}
+      hint={mode === 'new' ? `Saved to the Work Site Library and added to ${entity.name}.` : shared ? 'Other companies use this site too - changes apply to them as well.' : ''} />;
   }
 
   return (
     <div style={{ padding: '18px 4px' }}>
-      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 12px' }}>Geofenced clock-in locations for {entity.name}.</p>
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 12px' }}>{entity.name} employees can only punch at these geofenced sites.</p>
       {mySites.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>No work sites for {entity.name} yet.</div>
+        <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>No work sites for {entity.name} yet - add them from the library below.</div>
       ) : mySites.map(s => (
         <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '-'}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{siteLine(s)}</div>
           </div>
           <button className="secondary-btn" onClick={() => startEdit(s)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
-          <button onClick={() => remove(s)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
+          <button className="secondary-btn" onClick={() => unlink(s)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))' }}><X size={13} /> Remove</button>
         </div>
       ))}
       <div style={{ paddingTop: 14 }}>
-        <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Work Site</button>
+        <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add New Work Site</button>
       </div>
 
-      {unassigned.length > 0 && (
+      {library.length > 0 && (
         <div style={{ marginTop: 28, paddingTop: 18, borderTop: '1px solid var(--line)' }}>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>Unassigned work sites</div>
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 10px' }}>From before work sites were per-company - claim the ones that belong to {entity.name}.</p>
-          {unassigned.map(s => (
-            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 10px', borderBottom: '1px solid var(--line)' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{s.name}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.address || '-'}</div>
-              </div>
-              <button className="secondary-btn" onClick={() => claim(s)} style={{ padding: '5px 10px', fontSize: 12 }}>Assign to {entity.name}</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>Add From Work Site Library</div>
+              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 0' }}>Sites already in Nexus that {entity.name} doesn't use yet.</p>
             </div>
-          ))}
+            <div style={{ position: 'relative' }}>
+              <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+              <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search sites" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
+            </div>
+            <button className="secondary-btn" onClick={() => add(libraryShown)} disabled={busy || !libraryShown.length} style={{ padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <Plus size={13} /> Add All ({libraryShown.length})
+            </button>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            {libraryShown.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 10px' }}>No sites match "{q}".</div>
+            ) : libraryShown.map(s => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 10px', borderBottom: '1px solid var(--line)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{s.name}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.address || '-'}</div>
+                </div>
+                <button className="secondary-btn" onClick={() => add([s])} disabled={busy} style={{ padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> Add</button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -4886,19 +4934,19 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   );
 }
 
-// ── Work sites registry (HR Section A - geofence foundation for Time Clock) ───
-export function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr }) {
-  const blank = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, company: '', notes: '' };
-  const [mode, setMode] = useState(null);
-  const [f, setF] = useState(blank);
+// ── Work Site Library (Neil, Sep 25) - every work site, entered once; each
+// company then picks its own from its Work Sites tab. Lives under Settings ->
+// Company Settings (the global settings), not inside any one company.
+export function WorkSiteLibrary({ toastOk, toastErr }) {
+  const [sites, setSites] = useState(null);
+  const [entities, setEntities] = useState([]);
+  const [mode, setMode] = useState(null); // null | 'new' | site.id
+  const [f, setF] = useState(SITE_BLANK);
   const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState('');
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-  const formSnapshotRef = useRef(blank);
-  const startNew = () => { setF(blank); formSnapshotRef.current = blank; setMode('new'); };
-  const startEdit = s => {
-    const seeded = { name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, company: s.company || '', notes: s.notes || '' };
-    setF(seeded); formSnapshotRef.current = seeded; setMode(s.id);
-  };
+  const load = useCallback(() => api.getWorkSites().then(setSites).catch(() => setSites([])), []);
+  useEffect(() => { load(); api.getEntities().then(setEntities).catch(() => {}); }, [load]);
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
   async function save() {
@@ -4906,87 +4954,52 @@ export function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, t
     try {
       const body = { ...f, radius_m: Number(f.radius_m) || 150 };
       if (mode === 'new') await api.createWorkSite(body); else await api.updateWorkSite(mode, body);
-      await onChanged(); toastOk('Work site saved.'); setMode(null);
+      await load(); toastOk('Work site saved.'); setMode(null);
     } catch (e) { toastErr(e?.message || 'Could not save work site.'); }
     setBusy(false);
   }
   async function remove(s) {
-    if (!await dialog.confirm(`Delete work site "${s.name}"?`, { title: 'Delete work site', confirmText: 'Delete', danger: true })) return;
-    try { await api.deleteWorkSite(s.id); await onChanged(); toastOk('Work site deleted.'); }
+    const used = (s.companies || []).map(entityName).filter(Boolean);
+    const msg = used.length ? `Delete "${s.name}"? It is removed from ${used.join(', ')} too.` : `Delete "${s.name}"?`;
+    if (!await dialog.confirm(msg, { title: 'Delete work site', confirmText: 'Delete', danger: true })) return;
+    try { await api.deleteWorkSite(s.id); await load(); toastOk('Work site deleted.'); }
     catch (e) { toastErr(e?.message || 'Could not delete.'); }
   }
-  const field = (label, key, props = {}) => (
-    <div><label style={FL}>{label}</label>
-      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
-  );
 
-  const dirty = !!mode && JSON.stringify(f) !== JSON.stringify(formSnapshotRef.current);
-  const guard = useUnsavedGuard(dirty, onClose, f.name.trim() ? save : undefined);
-
+  if (sites === null) return <SkeletonBlocks count={3} height={48} borderRadius={10} />;
+  if (mode) {
+    const used = mode === 'new' ? [] : (sites.find(s => s.id === mode)?.companies || []);
+    return <WorkSiteForm f={f} set={set} busy={busy} onBack={() => setMode(null)} onSave={save}
+      hint={mode === 'new' ? 'Saved to the library - add it to companies from each company\'s Work Sites tab.' : used.length > 1 ? 'Several companies use this site - changes apply to all of them.' : ''} />;
+  }
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? sites.filter(s => `${s.name} ${s.address || ''}`.toLowerCase().includes(needle)) : sites;
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 60vw, 980px)', maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-purple),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <MapPinned size={17} color="hsl(var(--color-purple))" />
-          </div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{mode ? (mode === 'new' ? 'Add Work Site' : 'Edit Work Site') : 'Work Sites'}</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Each company chooses which of these its employees can punch at (Company Setup - a company - Work Sites).</p>
+        <div style={{ position: 'relative' }}>
+          <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+          <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search sites" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
         </div>
-
-        {mode ? (
-          <>
-            <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-              <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Escondido Office' })}</div>
-              <div style={{ gridColumn: '1 / -1' }}>{field('ADDRESS', 'address')}</div>
-              {field('LATITUDE', 'latitude', { placeholder: 'e.g. 33.1192' })}
-              {field('LONGITUDE', 'longitude', { placeholder: 'e.g. -117.0864' })}
-              {field('GEOFENCE RADIUS (m)', 'radius_m', { type: 'number', min: 10 })}
-              <div>
-                <label style={FL}>COMPANY / ENTITY</label>
-                <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
-                  <option value="">- any -</option>
-                  {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-                </select>
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={FL}>NOTES</label>
-                <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
-              </div>
-            </div>
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-              <button className="secondary-btn" onClick={() => setMode(null)} disabled={busy}>Back</button>
-              <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
-                {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{ overflowY: 'auto', flex: 1, padding: '14px 18px' }}>
-              {sites.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)', fontSize: 13 }}>No work sites yet. Add sites (with lat/long + radius) to enable geofenced clock-in later.</div>
-              ) : sites.map(s => (
-                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name} {s.company && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {entityName(s.company)}</span>}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '-'}</div>
-                  </div>
-                  <button className="secondary-btn" onClick={() => startEdit(s)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
-                  <button onClick={() => remove(s)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
-                </div>
-              ))}
-            </div>
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
-              <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Work Site</button>
-            </div>
-          </>
-        )}
+        <button className="primary-btn" onClick={() => { setF(SITE_BLANK); setMode('new'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Work Site</button>
       </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={f.name.trim() ? guard.saveAndClose : undefined} saving={busy} />
-      )}
+      {shown.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>{sites.length ? `No sites match "${q}".` : 'No work sites yet.'}</div>
+      ) : shown.map(s => {
+        const used = (s.companies || []).map(entityName).filter(Boolean);
+        return (
+          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{siteLine(s)}</div>
+              <div style={{ fontSize: 11.5, color: used.length ? 'var(--ink)' : 'var(--muted)', marginTop: 2 }}>{used.length ? `Used by ${used.join(', ')}` : 'Not used by any company yet'}</div>
+            </div>
+            <button className="secondary-btn" onClick={() => { setF(siteForm(s)); setMode(s.id); }} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
+            <button onClick={() => remove(s)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
+          </div>
+        );
+      })}
     </div>
   );
 }

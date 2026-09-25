@@ -180,7 +180,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>
                 {g.members.length} member{g.members.length === 1 ? '' : 's'}
-                {g.members.length > 0 && ` · ${g.members.slice(0, 2).map(nameOf).join(', ')}${g.members.length > 2 ? '…' : ''}`}
+                {g.members.length > 0 && ` · ${g.members.slice(0, 2).map(e => nameOf(e)).join(', ')}${g.members.length > 2 ? '…' : ''}`}
               </div>
               <div style={{ fontSize: 11.5, marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 5, color: g.chatId ? 'var(--wk-brand)' : 'var(--muted)' }}>
                 <MessageSquare size={12} /> {g.chatId ? (g.chatName || 'Chat bound') : 'No chat bound'}

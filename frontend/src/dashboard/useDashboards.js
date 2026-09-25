@@ -132,14 +132,18 @@ export function useDashboards(widgetTier) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [v, k] = await Promise.all([
+      const [v, k, sigs] = await Promise.all([
         api.dashViews(TARGET).catch(() => ({ views: [] })),
         api.dashKpis(widgetTier !== 'employee' ? 'team' : 'self').catch(() => ({ kpis: {} })),
+        // Documents waiting on my signature - the KPI catalog's
+        // signatures_needed metric (Sep 24); same count Home's tile shows.
+        api.mySignatures().catch(() => []),
       ]);
       setViews(v.views || []);
       setDepartment(v.department || '');
       setCanPublish(!!v.canPublish);
-      setKpis(k.kpis || {});
+      const sigList = Array.isArray(sigs) ? sigs : (sigs?.requests || sigs?.items || []);
+      setKpis({ ...(k.kpis || {}), signatures_needed: sigList.length });
       const def = (v.views || []).find(x => x.isDefault && x.scope === 'personal')
         || (v.views || []).find(x => x.scope === 'personal')
         || (v.views || []).find(x => x.scope === 'department');

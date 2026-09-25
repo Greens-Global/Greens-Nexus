@@ -146,6 +146,20 @@ export default function TaskNotifySettings() {
                 <input type="number" min={0} value={cfg.overdueRepeatDays ?? 0} onChange={(e) => set('overdueRepeatDays', Math.max(0, Number(e.target.value) || 0))}
                   style={{ ...inputStyle, width: 120 }} />
               </Field>
+              {/* Batching (Neil, Sep 24): a person's task emails are held and
+                  sent together once the oldest has waited this long, so five
+                  assignments in a row arrive as one email. Backend:
+                  task_notify.flush_batches. */}
+              <Field label="Batch Task Emails" hint="Updates on someone's tasks are gathered and sent as one email once the first has waited this long. Mentions, deletions, urgent tasks and tasks due today or tomorrow always go out right away.">
+                <select value={cfg.batchWindowMinutes ?? 60} onChange={(e) => set('batchWindowMinutes', Number(e.target.value))}
+                  style={{ ...inputStyle, width: 'auto', appearance: 'auto', cursor: 'pointer' }}>
+                  <option value={0}>Off - send each email right away</option>
+                  <option value={15}>15 minutes</option>
+                  <option value={30}>30 minutes</option>
+                  <option value={60}>1 hour</option>
+                  <option value={120}>2 hours</option>
+                </select>
+              </Field>
               {/* The two reminder numbers above are the COMPANY DEFAULT: each
                   person can change their own in Email Settings (My Tasks).
                   This decides whether "Off" is one of their choices. */}
