@@ -15,6 +15,18 @@ one-time registration is done. Every other mail client keeps the signed
 fallback links, which already work today, so nothing breaks while this is
 pending.
 
+## Daily Briefing card (Sep 25)
+
+The Daily Briefing also ships as a card (`backend/briefing_card.py`): the
+whole briefing, with sections that open and close (Action.ToggleVisibility)
+and the same buttons as the HTML version. Clicks post to
+`/briefing-actions/card` on the same target hosts, so the registration above
+covers it with no change. Same gate as task emails (`am_enabled()`), plus: in
+Test mode the card is only added to a tester's OWN briefing, because its
+buttons act for real. Until the Organization-scope registration is approved,
+only the Test Users on the registration see the card; everyone else gets the
+HTML briefing.
+
 ## What changed on Sep 22
 
 Microsoft retired the legacy Actionable Messages token on June 8, 2026.
