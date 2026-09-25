@@ -1050,6 +1050,9 @@ export const api = {
   createWorkSite: (data)     => req('/hr/work-sites', { method: 'POST', body: JSON.stringify(data) }),
   updateWorkSite: (id, data) => req(`/hr/work-sites/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteWorkSite: (id)       => req(`/hr/work-sites/${id}`, { method: 'DELETE' }),
+  // a company's picks from the global work-site library (Neil, Sep 25)
+  addCompanyWorkSites:   (entityId, siteIds) => req(`/hr/entities/${entityId}/work-sites`, { method: 'POST', body: JSON.stringify({ site_ids: siteIds }) }),
+  removeCompanyWorkSite: (entityId, siteId)  => req(`/hr/entities/${entityId}/work-sites/${siteId}`, { method: 'DELETE' }),
   // per-company holiday calendar
   getCompanyHolidays:    (entityId)         => req(`/hr/entities/${entityId}/holidays`),
   createCompanyHoliday:  (entityId, data)   => req(`/hr/entities/${entityId}/holidays`, { method: 'POST', body: JSON.stringify(data) }),
