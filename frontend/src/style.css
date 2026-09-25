@@ -2245,6 +2245,37 @@ html { overflow-x: hidden; }
   [style*="minmax(3"] { grid-template-columns: 1fr !important; }
 }
 
+/* ── Accounting -> Reports: dense statement table (Neil, Sep 25) ─────────────
+   Sized to its content like Intacct / the finance app, never cut: the wrapper
+   scrolls sideways, the Account column is sticky, rows take --acct-row-py
+   (density toggle), code + name sit on one line. */
+.acct-report-wrap { overflow: auto; max-height: 78vh; border: 1px solid var(--border-color); border-radius: 10px; }
+.acct-report { border-collapse: separate; border-spacing: 0; width: auto; min-width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; --acct-row-py: 5px; }
+.acct-report th {
+  position: sticky; top: 0; z-index: 3; background: var(--bg-secondary);
+  text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--text-muted); padding: 7px 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap;
+}
+.acct-report th.acct-head { position: sticky; left: 0; z-index: 4; min-width: 220px; }
+.acct-report td { padding: var(--acct-row-py) 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap; vertical-align: middle; line-height: 1.35; }
+.acct-report tr:last-child td { border-bottom: none; }
+.acct-report td.acct-label { position: sticky; left: 0; z-index: 1; background: var(--bg-card); overflow: hidden; text-overflow: ellipsis; }
+.acct-report td.acct-indent { padding-left: 30px; }
+.acct-report .acct-num { text-align: right; }
+.acct-report tbody tr:hover td { background: var(--bg-secondary); }
+.acct-report .acct-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.86em; color: var(--text-muted); margin-right: 8px; }
+.acct-report .acct-section td { background: var(--bg-secondary); font-weight: 700; cursor: pointer; }
+.acct-report .acct-section td.acct-label { padding-left: 6px; }
+.acct-report .acct-fold { border: none; background: none; padding: 0 4px 0 0; margin: 0; cursor: pointer; color: var(--text-muted); display: inline-flex; vertical-align: middle; }
+.acct-report .acct-count { margin-left: 8px; font-size: 0.72rem; font-weight: 600; color: var(--text-muted); }
+.acct-report .acct-subtotal td { font-weight: 700; border-top: 2px solid var(--border-color); }
+.acct-report .acct-grand td { font-weight: 800; border-top: 3px double var(--border-color); background: var(--wk-brand-tint, #e8ecfd); }
+.acct-report .acct-drill { border: none; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-color); text-underline-offset: 3px; }
+.acct-report .acct-drill:hover { text-decoration-color: var(--wk-brand, #2b45e1); color: var(--wk-brand, #2b45e1); }
+.acct-report .acct-resize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; touch-action: none; }
+.acct-report .acct-resize:hover { background: var(--wk-brand, #2b45e1); opacity: .35; }
+.acct-report th.acct-head { overflow: visible; }
+
 /* Phone: wide data tables (.req-table - PropertyAsset sections, requisition
    logs) scroll sideways inside their card instead of being cut off. */
 @media (max-width: 640px) {
