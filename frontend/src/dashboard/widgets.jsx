@@ -7,7 +7,7 @@ import {
   ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
   CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
   Bookmark, Plus, Link2, Lock,
-  PenLine, Contact, ShoppingCart, Cake,
+  PenLine, Contact, ShoppingCart, Cake, UserMinus,
   Ticket as TicketIcon,
 } from 'lucide-react';
 import { formatTime } from '../lib/datetime';
@@ -43,6 +43,13 @@ const TimeClockWidget  = lazyWorkday('TimeClockWidget');
 const MyRequestsWidget = lazyWorkday('MyRequestsWidget');
 const DueBackWidget    = lazyWorkday('DueBackWidget');
 const ComingUpWidget   = lazyWorkday('ComingUpWidget');
+
+// Team tiles (phase 3, Sep 25) - the supervisor/manager gaps, own lazy chunk.
+const lazyTeam = (name) => lazy(() => import('./teamWidgets.jsx').then(m => ({ default: m[name] })));
+const TicketQueueWidget      = lazyTeam('TicketQueueWidget');
+const TimeExceptionsWidget   = lazyTeam('TimeExceptionsWidget');
+const OutTodayWidget         = lazyTeam('OutTodayWidget');
+const PendingPurchasesWidget = lazyTeam('PendingPurchasesWidget');
 
 // Fire the app's cross-view navigation event (see CLAUDE.md).
 export function navigate(view, sub) {
@@ -806,6 +813,12 @@ export const WIDGETS = {
   'team-workload': { title: 'Workload by Employee', cat: 'Team',    icon: Users,         size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 8, maxH: 8 },  render: WorkloadPanel,     minRole: 'supervisor' },
   'team-projects': { title: 'Project-Wise Tasks', cat: 'Team',      icon: FolderKanban,  size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 8, maxH: 7 },  render: ProjectsPanel,     minRole: 'supervisor' },
   'team-calendar': { title: 'Team Calendar',      cat: 'Team',      icon: CalendarDays,  size: { w: 6, h: 3 }, limits: { minW: 4, minH: 3, maxW: 12, maxH: 5 }, render: TeamCalendarPanel, minRole: 'supervisor' },
+  // Phase 3 (Sep 25). Tickets is a supervisor module; the time-off list,
+  // punch exceptions and purchases are manager-level on the server.
+  'ticket-queue':      { title: 'My Ticket Queue',   cat: 'Team', icon: TicketIcon,   size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TicketQueueWidget,      minRole: 'supervisor' },
+  'time-exceptions':   { title: 'Time Exceptions',   cat: 'Team', icon: Timer,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TimeExceptionsWidget,   minRole: 'manager' },
+  'out-today':         { title: 'Out Today',         cat: 'Team', icon: UserMinus,    size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: OutTodayWidget,         minRole: 'manager' },
+  'pending-purchases': { title: 'Pending Purchases', cat: 'Team', icon: ShoppingCart, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: PendingPurchasesWidget, minRole: 'manager' },
   occupancy:       { title: 'Occupancy Trend',    cat: 'Portfolio', icon: TrendingUp,    size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 9, maxH: 6 },  render: OccupancyPanel },
   facilities:      { title: 'Facilities',         cat: 'Portfolio', icon: Building2,     size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 12, maxH: 7 }, render: FacilitiesPanel },
   'tasks-list':    { title: 'Tasks Overview',     cat: 'Portfolio', icon: ListTodo,      size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 6 },  render: TasksPanel },

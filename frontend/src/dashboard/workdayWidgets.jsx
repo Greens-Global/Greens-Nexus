@@ -15,7 +15,7 @@ import { useRole } from '../contexts/RoleContext';
 import { formatDate, formatTime, formatDateLong } from '../lib/datetime';
 import { DashCard, navigate } from './widgets.jsx';
 
-const noteStyle = { fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
+export const noteStyle = { fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
 const fmtH = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
 const DAY_MS = 86400000;
 // Local calendar date as YYYY-MM-DD - the key the time clock's `days` map uses.
@@ -31,7 +31,7 @@ const STATUS_TONE = {
   pending: 'orange', open: 'orange', approved: 'green', resolved: 'green',
   rejected: 'red', overdue: 'red', cancelled: 'muted', canceled: 'muted',
 };
-function Row({ Icon, title, meta, status, statusLabel, onClick }) {
+export function Row({ Icon, title, meta, status, statusLabel, onClick }) {
   const tone = STATUS_TONE[status] || 'blue';
   const color = tone === 'muted' ? 'var(--muted)' : `hsl(var(--color-${tone}))`;
   // No onClick = a plain, non-interactive row (Coming Up: there is no screen
