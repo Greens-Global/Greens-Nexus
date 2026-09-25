@@ -12,6 +12,12 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { SERVICE_AREAS } from '../tickets/ticketMeta';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+// Personal Link add/edit form + URL dupe check, and the per-browser Recently
+// Used trail, live in src/links/ now - shared with the dashboard's Favorites
+// and My Personal Links widgets and its "Add Personal Link" quick action
+// (Sep 24), so both screens run one form and read one recents list.
+import { PersonalLinkModal, normalizeUrl } from '../links/personalLinkModal.jsx';
+import { readIds, writeIds } from '../links/shortcutStorage';
 import {
   Search, Plus, Pencil, Trash2, X, Star, Globe, LayoutGrid, List,
   Settings2, Bookmark, History,
@@ -20,19 +26,6 @@ import {
   MoreHorizontal, Copy, ArrowUp, ArrowDown,
 } from 'lucide-react';
 
-// ── Personal, client-side only (favorites / recents / view density) ──
-// Deliberately NOT backend fields - these are per-browser shortcuts, same
-// spirit as a browser bookmarks bar, so they stay snappy with zero API calls
-// and never need a migration. Keyed by email so a shared kiosk PC doesn't
-// bleed one person's shortcuts into another's session.
-const lsKey = (email, kind) => `nexus:extlinks:${kind}:${(email || 'anon').toLowerCase()}`;
-function readIds(email, kind) {
-  try { return JSON.parse(localStorage.getItem(lsKey(email, kind)) || '[]'); } catch { return []; }
-}
-function writeIds(email, kind, ids) {
-  try { localStorage.setItem(lsKey(email, kind), JSON.stringify(ids)); } catch { /* storage disabled/full - shortcuts just won't persist */ }
-}
-
 // Mirrors the old start.greensglobal.com department dropdown (Neil, Aug 12) -
 // "Development" deliberately excluded per that ask. Admin-managed now (Aug
 // 14, "give the option to add, rename and remove any department and
@@ -40,23 +33,6 @@ function writeIds(email, kind, ids) {
 // hardcoded frontend constant - see ExternalLinks' own `taxonomy` state
 // below, fetched on mount and threaded down as props everywhere a
 // department/category picker needs the curated list.
-
-// Duplicate-URL detection (Add Link / Add Personal Link) - normalizes away
-// the differences that would otherwise let the same site get added twice
-// (http vs https, www. vs not, a trailing slash, mixed case) without masking
-// genuinely different pages on the same host (different path = different
-// link). Mirrors _normalize_url in external_links.py - keep both in sync.
-function normalizeUrl(u) {
-  try {
-    const withProto = /^https?:\/\//i.test(u) ? u : `https://${u}`;
-    const parsed = new URL(withProto);
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-    const path = parsed.pathname.replace(/\/+$/, '');
-    return `${host}${path}`;
-  } catch {
-    return (u || '').trim().toLowerCase();
-  }
-}
 
 // Stable color per category, cycling the app's existing --color-* tokens
 // (same palette InventoryManagement's TYPE_META draws from) so every tile's
@@ -1213,106 +1189,6 @@ function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, immediateM
         mutate={mutate} immediateMutate={immediateMutate} allLinks={allLinks} editable={editable}
         extraAddTile={{ label: 'Add Link', onClick: onAdd }} onRequestEdit={onRequestEdit}
       />
-    </div>
-  );
-}
-
-function PersonalLinkModal({ modal, setModal, save, saving, existingLinks, departments, categories }) {
-  const { mode, form } = modal;
-  const setForm = (patch) => setModal(m => ({ ...m, form: { ...m.form, ...patch } }));
-  const duplicate = useMemo(() => {
-    if (!form.url.trim()) return null;
-    return existingLinks.find(l => l.id !== modal.id && normalizeUrl(l.url) === normalizeUrl(form.url)) || null;
-  }, [form.url, existingLinks, modal.id]);
-  const initialFormRef = useRef(form);
-  const dirty = JSON.stringify(form) !== JSON.stringify(initialFormRef.current);
-  const closeModal = () => setModal(null);
-  const guard = useUnsavedGuard(dirty, closeModal, duplicate ? undefined : save);
-
-  // Same auto-fill as the Company Links Add Link modal (see LinkModal) -
-  // fetch the site's own meta description once the URL field is blurred,
-  // fill it in only if the description is still empty or was itself the
-  // last auto-fill (never overwrite something the user actually typed).
-  const [fetchingPreview, setFetchingPreview] = useState(false);
-  const autoFilledDescRef = useRef('');
-  const fetchPreview = async () => {
-    const raw = form.url.trim();
-    if (!raw || (form.description && form.description !== autoFilledDescRef.current)) return;
-    const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-    setFetchingPreview(true);
-    try {
-      const preview = await api.previewExternalLink(url);
-      if (preview?.description) {
-        autoFilledDescRef.current = preview.description;
-        setForm({ description: preview.description });
-      }
-    } catch {
-      /* best-effort prefill - the field just stays as it was */
-    } finally {
-      setFetchingPreview(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={() => !saving && guard.requestClose()}>
-      <div className="modal-content" style={{ width: '60vw', maxWidth: '60vw' }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>{mode === 'add' ? 'Add Personal Link' : 'Edit Personal Link'}</h3>
-          <button className="close-btn" onClick={guard.requestClose}><X size={16} /></button>
-        </div>
-        <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <p style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, margin: 0 }}>
-            <Lock size={12} /> Only visible to you - no one else, including managers, can see this.
-          </p>
-          <div className="form-group">
-            <label>Name</label>
-            <input className="form-input" value={form.name} onChange={e => setForm({ name: e.target.value })} placeholder="e.g. My Timesheet" autoFocus />
-          </div>
-          <div className="form-group">
-            <label>URL</label>
-            <input className="form-input" value={form.url} onChange={e => setForm({ url: e.target.value })} onBlur={fetchPreview} placeholder="https://..." />
-            {duplicate && (
-              <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '5px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
-                <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
-                Already in your Personal Links as "{duplicate.name}" - pick a different link, or edit that one instead.
-              </p>
-            )}
-          </div>
-          <div className="form-group">
-            <label>
-              Description
-              {fetchingPreview && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginLeft: 8 }}>Fetching from site...</span>}
-            </label>
-            <textarea className="form-input" rows={2} value={form.description}
-              onChange={e => setForm({ description: e.target.value })} placeholder="Optional note to yourself - or leave blank, we'll try to pull it from the site" />
-          </div>
-          <div className="form-grid" style={{ padding: 0 }}>
-            <div className="form-group">
-              <label>Category</label>
-              <input className="form-input" list="personal-link-categories" value={form.category}
-                onChange={e => setForm({ category: e.target.value })} placeholder="e.g. Productivity" />
-              <datalist id="personal-link-categories">{categories.map(c => <option key={c} value={c} />)}</datalist>
-            </div>
-            <div className="form-group">
-              <label>Department</label>
-              <select className="form-select" value={form.department} onChange={e => setForm({ department: e.target.value })}>
-                <option value="">None</option>
-                {departments.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-        <p style={{ textAlign: 'center', fontSize: 13, fontWeight: 700, color: 'var(--muted)', margin: '4px 0 18px' }}>
-          Icon Auto Fetched From AI
-        </p>
-        <div className="modal-footer">
-          <button className="secondary-btn" onClick={() => setModal(null)} disabled={saving}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={saving || !!duplicate}>{saving ? 'Saving...' : mode === 'add' ? 'Add Link' : 'Save Changes'}</button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={closeModal} onSave={duplicate ? undefined : guard.saveAndClose} saving={saving} />
-      )}
     </div>
   );
 }
