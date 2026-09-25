@@ -25,21 +25,41 @@ export function reconList(args) {
         if (covered.has(g.account_id))
             continue;
         const key = glReconKey(g.account_id, g.entity);
+        const book = g.balance;
+        const type = g.kind === "card" ? "Credit Card" : "Bank";
+        if (g.intacct_ref) {
+            // Intacct's own last reconciliation decides (09/25) - a Nexus mark on
+            // the same account is ignored, and an account Intacct has never
+            // reconciled reads "Never". The statement balance is the one Intacct
+            // reconciled to; book minus statement is outstanding items when the
+            // months match, never a reason to call the account "Difference".
+            const thru = g.intacct_thru ?? null;
+            const lag = monthsLag(period, thru);
+            const stmtRaw = thru ? g.intacct_stmt ?? null : null;
+            const stmt = stmtRaw == null ? book : g.kind === "card" ? -Math.abs(stmtRaw) : stmtRaw;
+            const diff = stmtRaw != null && thru && keyOfISO(thru) === period ? Math.round((book - stmt) * 100) / 100 : 0;
+            out.push({
+                key, type, name: g.name, ref: g.entity_name, entityCode: g.entity, gl: g.gl_code,
+                thru, lag, openItems: 0, diff, mark: null, book, stmt, status: statusOf(lag, 0), nc: g.is_partner,
+                source: "intacct", intacctRef: g.intacct_ref ?? "", intacctAsOf: g.intacct_asof ?? null,
+            });
+            continue;
+        }
         const mark = markOf.get(key) ?? null;
         const latest = latestOf.get(key) ?? null;
         // Reconciled through: this month's mark, else the latest mark's statement
         // date (or that mark's month end when no date was typed).
         const thru = mark ? (mark.thru_date ?? pe) : latest ? (latest.thru_date ?? mEnd(latest.period ?? period)) : null;
         const lag = mark ? 0 : monthsLag(period, thru);
-        const book = g.balance;
         // Statement balance from the mark that covers the month; a book-side
         // liability shows as the negative it is so Difference reads book - statement.
         const stmtRaw = mark?.stmt_balance ?? (lag === 0 ? latest?.stmt_balance ?? null : null);
         const stmt = stmtRaw == null ? book : g.kind === "card" ? -Math.abs(stmtRaw) : stmtRaw;
         const diff = stmtRaw == null ? 0 : Math.round((book - stmt) * 100) / 100;
         out.push({
-            key, type: g.kind === "card" ? "Credit Card" : "Bank", name: g.name, ref: g.entity_name, entityCode: g.entity, gl: g.gl_code,
+            key, type, name: g.name, ref: g.entity_name, entityCode: g.entity, gl: g.gl_code,
             thru, lag, openItems: 0, diff, mark, book, stmt, status: statusOf(lag, diff), nc: g.is_partner,
+            source: mark || latest ? "mark" : null,
         });
     }
     for (const b of args.banks) {
