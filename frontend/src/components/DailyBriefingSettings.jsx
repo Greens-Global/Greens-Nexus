@@ -23,6 +23,15 @@ const MODES = [
   { key: 'live', label: 'Live', hint: 'Sends each employee their own briefing, to their own inbox.' },
 ];
 
+// Outlook card on the briefing email (backend daily_briefing.card_style).
+// A saved true from the earlier on/off switch means the full card.
+const CARD_STYLES = [
+  { key: 'off', label: 'Off', hint: 'Everyone gets the designed email. Buttons open a confirm page in the browser.' },
+  { key: 'quick', label: 'Quick Actions', hint: 'The designed email, plus a small collapsed "decisions waiting" block at the top whose Approve and Reject work inside Outlook. Outlook draws that block in its own style.' },
+  { key: 'full', label: 'Full Card', hint: 'Outlook shows the whole briefing as its own card instead of the designed email: sections collapse and every button works inside Outlook, but Outlook controls the colors and buttons.' },
+];
+const cardStyle = (v) => (v === true ? 'full' : ['quick', 'full'].includes(v) ? v : 'off');
+
 export default function DailyBriefingSettings() {
   const { can } = useRole();
   const [tab, setTab] = useState('settings');   // settings | log
@@ -69,7 +78,7 @@ export default function DailyBriefingSettings() {
       const patch = {
         mode: cfg.mode,
         test_recipients: recipientsInput.split(',').map((s) => s.trim()).filter(Boolean),
-        outlook_card: !!cfg.outlook_card,
+        outlook_card: cardStyle(cfg.outlook_card),
       };
       const next = await api.updateDailyBriefingConfig(patch);
       setCfg(next);
@@ -134,18 +143,28 @@ export default function DailyBriefingSettings() {
 
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Outlook Card</label>
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', border: `1px solid ${NX.border}`, borderRadius: 8, cursor: 'pointer' }}>
-          <input type="checkbox" checked={!!cfg.outlook_card} style={{ marginTop: 3 }}
-            onChange={(e) => setCfg((c) => ({ ...c, outlook_card: e.target.checked }))} />
-          <span>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Send the Outlook card version</div>
-            <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>
-              Outlook shows its own card layout instead of the email design: sections collapse and buttons work inside
-              Outlook, but Outlook controls the colors and button styles. Leave off to send everyone the email design;
-              the My Briefing page in Nexus has collapsible sections and one-click actions either way.
-            </div>
-          </span>
-        </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {CARD_STYLES.map((c) => {
+            const on = cardStyle(cfg.outlook_card) === c.key;
+            return (
+              <label key={c.key} style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px',
+                border: `1px solid ${on ? NX.blue : NX.border}`, borderRadius: 8,
+                background: on ? 'var(--wk-brand-tint)' : 'transparent', cursor: 'pointer',
+              }}>
+                <input type="radio" name="briefing-card" checked={on} style={{ marginTop: 3 }}
+                  onChange={() => setCfg((x) => ({ ...x, outlook_card: c.key }))} />
+                <span>
+                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{c.label}</div>
+                  <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>{c.hint}</div>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+          Outlook only shows a card to people covered by the Actionable Messages registration; everyone else gets the designed email.
+        </div>
       </div>
 
       {goingLive && (

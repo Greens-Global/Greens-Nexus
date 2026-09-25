@@ -51,12 +51,21 @@ _SETTINGS_KEY = "daily_briefing_config"
 _DEFAULT_SETTINGS = {
     "mode": "off",              # off|test|live
     "test_recipients": [],
-    # Outlook card version of the email (briefing_card.py). Off by default
-    # (Sep 26): Outlook dictates the card's colors and buttons, so everyone
-    # gets the HTML design, and the My Briefing page is where sections
-    # collapse and actions run in one click.
-    "outlook_card": False,
+    # Outlook card on the email (briefing_card.py), off | quick | full. Off by
+    # default (Sep 26): Outlook dictates a card's colors and buttons.
+    #   quick - our designed email plus a small collapsed "decisions waiting"
+    #           card on top whose Approve / Reject act inside Outlook.
+    #   full  - the whole briefing as a card, replacing the designed email.
+    # A saved True from the earlier on/off switch means "full".
+    "outlook_card": "off",
 }
+
+
+def card_style(cfg: dict) -> str:
+    v = cfg.get("outlook_card")
+    if v is True:
+        return "full"
+    return v if v in ("quick", "full") else "off"
 
 TRIGGER_MINUTES_BEFORE_SHIFT = 150   # 2.5h - agreed on the call
 SCAN_EVERY_SEC = 15 * 60             # tight enough to catch a shift-relative
@@ -1082,6 +1091,12 @@ def outlook_card(db: Session, email: str, first_name: str, sections: dict, brief
         outcome=outcome)
 
 
+def quick_card(sections: dict, briefing_date: str, since_iso: str, outcome: str = ""):
+    """Option A (briefing_card.build_quick_card): None when nothing needs a decision."""
+    return briefing_card.build_quick_card(action_rows=sections.get("action_required") or [],
+                                          briefing_date=briefing_date, since_iso=since_iso, outcome=outcome)
+
+
 def with_card(html: str, card: dict) -> str:
     """Embeds the card the same way task_mail_actions.decorate() does."""
     card_json = json.dumps(card, ensure_ascii=False).replace("</", "<\\/")
@@ -1183,10 +1198,13 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
     # to approve other people's items from a preview copy.
     test_own = mode == "test" and emp.work_email.lower() in {
         (e or "").strip().lower() for e in (cfg.get("test_recipients") or [])}
-    if cfg.get("outlook_card") and task_mail_actions.am_enabled() and sections and (mode == "live" or test_own):
-        card = outlook_card(db, emp.work_email, first_name, sections, briefing_date, since_iso,
-                            greeting=greeting, logo_url=logo_url)
-        html = with_card(html, card)
+    style = card_style(cfg)
+    if style != "off" and task_mail_actions.am_enabled() and sections and (mode == "live" or test_own):
+        card = (quick_card(sections, briefing_date, since_iso) if style == "quick" else
+                outlook_card(db, emp.work_email, first_name, sections, briefing_date, since_iso,
+                             greeting=greeting, logo_url=logo_url))
+        if card:
+            html = with_card(html, card)
     sent_at = ""
     if mode in ("test", "live") and sections:
         to = [emp.work_email] if mode == "live" else list(cfg.get("test_recipients") or [])

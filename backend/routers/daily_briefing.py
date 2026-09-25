@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Union
 
 import models
 from auth import get_current_user, require_administrator
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/daily-briefing", tags=["Daily Briefing"])
 class ConfigIn(BaseModel):
     mode: Optional[str] = None                 # off|test|live
     test_recipients: Optional[list] = None
-    outlook_card: Optional[bool] = None
+    outlook_card: Optional[Union[bool, str]] = None     # off | quick | full (True = full)
 
 
 # ── My Briefing page (any signed-in employee, their own briefing only) ─────
@@ -76,6 +76,8 @@ def update_config(body: ConfigIn, user: dict = Depends(require_administrator), d
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     if patch.get("mode") not in (None, "off", "test", "live"):
         patch.pop("mode", None)
+    if "outlook_card" in patch:
+        patch["outlook_card"] = daily_briefing.card_style({"outlook_card": patch["outlook_card"]})
     return daily_briefing.save_settings(db, patch, user["email"])
 
 
