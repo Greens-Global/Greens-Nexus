@@ -67,14 +67,16 @@ def _decision_actions(ctx: dict, kind: str, action_id: str, email: str) -> list:
     if kind == "ticket_approval":
         # Nexus requires a reason to reject a ticket request.
         note_id = ctx["next_id"]("note")
-        out.append({"type": "Action.ShowCard", "title": "Reject", "card": {
+        out.append({"type": "Action.ShowCard", "title": "Reject", "style": "destructive", "card": {
             "type": "AdaptiveCard",
             "body": [{"type": "Input.Text", "id": note_id, "isMultiline": True,
                       "placeholder": "Reason for rejecting (required)"}],
-            "actions": [_post(ctx, "Confirm Reject", f"{{{{{note_id}.value}}}}", kind="decision", token=reject)],
+            "actions": [_post(ctx, "Confirm Reject", f"{{{{{note_id}.value}}}}", style="destructive",
+                              kind="decision", token=reject)],
         }})
     else:
-        out.append(_post(ctx, "Reject", kind="decision", token=reject))
+        # "destructive" is the card's red button style.
+        out.append(_post(ctx, "Reject", style="destructive", kind="decision", token=reject))
     return out
 
 
@@ -248,8 +250,10 @@ def build_card(*, sections: dict, first_name: str, greeting: str, weekday_date: 
                 {"type": "Column", "width": "stretch", "style": _SECTION[k][1], "items": [
                     {"type": "TextBlock", "text": str(len(sections[k])), "size": "extraLarge",
                      "weight": "bolder", "color": _SECTION[k][2]},
-                    {"type": "TextBlock", "text": _SECTION[k][3], "isSubtle": True, "size": "small",
-                     "spacing": "none", "wrap": True}]}
+                    # Label in the section color too: Outlook picks the tile's
+                    # background from its own theme, so the text carries the color.
+                    {"type": "TextBlock", "text": _SECTION[k][3], "color": _SECTION[k][2], "weight": "bolder",
+                     "size": "small", "spacing": "none", "wrap": True}]}
                 for k in present]}]})
         body.append({"type": "TextBlock", "text": "Select a section to show or hide it.", "isSubtle": True,
                      "size": "small", "spacing": "small"})

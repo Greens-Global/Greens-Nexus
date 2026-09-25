@@ -795,11 +795,14 @@ def _recipient_local_now(db: Session, email: str) -> datetime:
     return _employee_now(db, email)
 
 
-def _button(label: str, url: str, primary: bool) -> str:
+# Button colors (Pranshu, Sep 26): Approve and Open in Nexus green, Reject red.
+_BUTTON_COLOR = {"approve": "#15803d", "reject": "#b91c1c", "open": "#166534"}
+
+
+def _button(label: str, url: str, kind: str) -> str:
+    color = _BUTTON_COLOR[kind]
     style = ("display:inline-block;padding:5px 14px;border-radius:4px;font-size:12px;font-weight:600;"
-             "text-decoration:none;margin:0 6px 4px 0;")
-    style += (f"background:#15803d;color:#ffffff;border:1px solid #15803d" if primary
-              else f"background:#ffffff;color:{_BODY};border:1px solid #d1d5db")
+             f"text-decoration:none;margin:0 6px 4px 0;background:{color};color:#ffffff;border:1px solid {color}")
     return f"<a href='{escape(url)}' class='nx-btn' style='{style}'>{escape(label)}</a>"
 
 
@@ -817,8 +820,8 @@ def _decision_buttons(kind: str, action_id: str, email: str) -> str:
     # Email link scanners (Outlook Safe Links, Gmail) prefetch every URL in a
     # message; each link opens a one-tap confirm page
     # (routers/briefing_actions.py) that only acts on its own POST.
-    return (_button("Approve", briefing_mail_actions.action_url(kind, action_id, "approve", email), True) +
-            _button("Reject", briefing_mail_actions.action_url(kind, action_id, "reject", email), False))
+    return (_button("Approve", briefing_mail_actions.action_url(kind, action_id, "approve", email), "approve") +
+            _button("Reject", briefing_mail_actions.action_url(kind, action_id, "reject", email), "reject"))
 
 
 def _row_actions_html(row: dict) -> str:
@@ -836,10 +839,10 @@ def _row_actions_html(row: dict) -> str:
         links += [("Comment", f"{base}&do=comment"), ("React", f"{base}&do=react")]
         if row.get("task_open"):
             links += [("Change Status", f"{base}&do=status"), ("Mark Complete", f"{base}&do=complete")]
-    if row.get("url"):
-        links.append(("Open in Nexus", row["url"]))
     if links:
         parts.append(f"<div style='margin-top:6px;line-height:1.8'>{_links(links)}</div>")
+    if row.get("url"):
+        parts.append(f"<div style='margin-top:8px'>{_button('Open in Nexus', row['url'], 'open')}</div>")
     return "".join(parts)
 
 
@@ -975,13 +978,14 @@ def _summary_html(sections: dict) -> str:
     cells = []
     for i, k in enumerate(present):
         _, accent, noun = _SECTION_META[k]
-        tone = _TONE[k]
-        # A white gap between tiles, so each keeps its own section color.
+        # Solid section color with white text (Pranshu, Sep 26: the light
+        # tints were too faint to read at a glance). A white gap between
+        # tiles keeps them separate.
         gap = "border-left:6px solid #ffffff;" if i else ""
-        cells.append(f"<td class='nx-kpi' width='{100 // len(present)}%' bgcolor='{tone[0]}' "
-                     f"style='{gap}background:{tone[0]};border-top:3px solid {accent};padding:14px 18px;vertical-align:top'>"
-                     f"<div style='font-size:24px;font-weight:600;color:{accent};line-height:1'>{len(sections[k])}</div>"
-                     f"<div style='font-size:12px;color:{_MUTED};margin-top:6px'>{escape(noun)}</div></td>")
+        cells.append(f"<td class='nx-kpi' width='{100 // len(present)}%' bgcolor='{accent}' "
+                     f"style='{gap}background:{accent};padding:14px 18px;vertical-align:top'>"
+                     f"<div style='font-size:24px;font-weight:600;color:#ffffff;line-height:1'>{len(sections[k])}</div>"
+                     f"<div style='font-size:12px;color:#ffffff;margin-top:6px'>{escape(noun)}</div></td>")
     return (f"<table width='100%' cellpadding='0' cellspacing='0' style='border-collapse:collapse'>"
             f"<tr>{''.join(cells)}</tr></table>")
 
