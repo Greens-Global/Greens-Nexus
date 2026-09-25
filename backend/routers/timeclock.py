@@ -174,6 +174,26 @@ def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "") -> dict:
     return verdict
 
 
+def _healed_geo(db: Session, email: str, punches: list) -> dict:
+    """Read-time re-check of punches stamped "no_location" that DID carry
+    coordinates (Charmi, Sep 26). The verdict is stamped at punch time, so a
+    punch made before its company had any geofenced work site came out as
+    "Location off" forever, even though the browser shared its position.
+    Judged against today's sites exactly like a live punch (_geofence); the
+    stored row is never touched. Punches with no coordinates stay no_location.
+    Returns {punch_id: geo dict} for the rows that now resolve."""
+    todo = [p for p in punches if (p.geo_status or "no_location") == "no_location"
+            and (p.lat or "").strip() and (p.lng or "").strip()]
+    if not todo:
+        return {}
+    out = {}
+    for p in todo:
+        g = _geofence(db, p.lat, p.lng, int(p.accuracy_m or 0), email=email)
+        if g["geo_status"] != "no_location":
+            out[p.id] = g
+    return out
+
+
 def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     """Bell + email to the manager for one out-of-fence punch. The email is
     best-effort on a thread (Graph is outbound HTTP; a punch must never wait
@@ -5304,6 +5324,13 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # the module-level `date` name across this whole function scope)
     _end_fetch = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d") if end else end
     punches = _live_punches(db, em, start, _end_fetch)
+    _geo_fix = _healed_geo(db, em, punches)
+
+    def _geo_of(p):
+        g = _geo_fix.get(p.id)
+        if g:
+            return g["geo_status"], g.get("work_site_name") or "", g.get("work_site_id") or ""
+        return (p.geo_status or ""), (p.work_site_name or ""), (p.work_site_id or "")
     # SwipeClock-parity rounding: rounded times drive ALL math below; the raw
     # punch strings are still emitted per segment so the UI can offer a
     # "show unrounded times" view, mirroring SwipeClock exactly.
@@ -5383,13 +5410,13 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             open_in, open_in_at, open_in_id, open_in_date = t, p.at, p.id, p.local_date
             open_in_at_r = t.strftime("%Y-%m-%dT%H:%M:%S")
             open_in_note = (p.note or "").strip()
-            open_in_site, open_in_geo, open_in_site_id = (p.work_site_name or ""), (p.geo_status or ""), (p.work_site_id or "")
+            open_in_geo, open_in_site, open_in_site_id = _geo_of(p)
             open_in_cat = getattr(p, "category", "") or ""
             open_in_pend, open_in_estat, open_in_ereason = (p.pending_at or ""), (p.edit_status or ""), (p.edit_reason or "")
             open_in_adjnote = (p.adjust_note or "")
             open_break, brk, sflags = None, 0.0, set()
             open_break_at, seg_breaks = "", []
-            if p.geo_status == "out_of_fence":
+            if open_in_geo == "out_of_fence":
                 sflags.add("out_of_fence")
             if p.source in ("manual", "self_manual"):
                 sflags.add("manual")
@@ -5428,7 +5455,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "note": (p.note or "").strip(),
                          "workSite": open_in_site or "", "workSiteId": open_in_site_id or "",
                          "geo": open_in_geo or "", "category": open_in_cat or "",
-                         "geoOut": p.geo_status or "", "workSiteOut": p.work_site_name or "", "workSiteOutId": p.work_site_id or "",
+                         "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2],
                          "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
                          "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
                          "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})
@@ -5461,7 +5488,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                      "breaks": list(seg_breaks),
                      "note": _notes,
                      "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or "",
-                     "geoOut": p.geo_status or "", "workSiteOut": p.work_site_name or "", "workSiteOutId": p.work_site_id or "",
+                     "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2],
                      "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
                      "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
                      "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})
