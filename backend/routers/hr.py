@@ -2600,6 +2600,18 @@ def _assert_site_editable(db: Session, site_id: str, scope) -> None:
         raise HTTPException(403, "Another company uses this work site - ask an admin with access to every company")
 
 
+def _require_pin(lat, lng) -> None:
+    """A work site is only a geofence if it has a map pin. A site saved with a
+    name/address alone is skipped by the punch check, so every punch at that
+    company came out "Location off" (Charmi, Sep 26) - refuse it at save."""
+    try:
+        la, ln = float((lat or "").strip()), float((lng or "").strip())
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Pick the site's location on the map (latitude and longitude are required) - without it punches can't be matched to this site")
+    if not (-90 <= la <= 90 and -180 <= ln <= 180):
+        raise HTTPException(400, "Latitude must be between -90 and 90 and longitude between -180 and 180")
+
+
 @router.get("/work-sites")
 def list_work_sites(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """The global work-site library - every site, with the companies using it.
@@ -2614,6 +2626,7 @@ def list_work_sites(user: dict = Depends(require_hr_read), db: Session = Depends
 def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     if not body.name.strip():
         raise HTTPException(400, "name is required")
+    _require_pin(body.latitude, body.longitude)
     company = (body.company or "").strip()
     scope = hr_scope(user, db)
     if scope is not None and company not in scope:
@@ -2646,6 +2659,9 @@ def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(re
     _assert_site_editable(db, site_id, hr_scope(user, db))
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
+    if body.latitude is not None or body.longitude is not None:
+        _require_pin(body.latitude if body.latitude is not None else row.latitude,
+                     body.longitude if body.longitude is not None else row.longitude)
     for key, value in body.model_dump(exclude_unset=True).items():
         if value is None:
             continue

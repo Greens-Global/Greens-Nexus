@@ -76,5 +76,16 @@ class TimecardGeoHealTest(unittest.TestCase):
             db.close()
 
 
+class WorkSitePinRequiredTest(unittest.TestCase):
+    """A site without a map pin is skipped by the geofence - refuse it at save."""
+    def test_create_and_update_need_coordinates(self):
+        from fastapi import HTTPException
+        from routers.hr import _require_pin
+        for lat, lng in (("", ""), ("33.1", ""), ("abc", "-117"), ("95", "-117"), ("33", "-190")):
+            with self.assertRaises(HTTPException):
+                _require_pin(lat, lng)
+        _require_pin("33.1192", "-117.0864")   # a real pin passes
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3653,6 +3653,12 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
 const SITE_BLANK = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, notes: '' };
 const siteForm = s => ({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, notes: s.notes || '' });
 const siteLine = s => [s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '-';
+// A site with no map pin is skipped by the punch geofence, so punches there
+// show "Location off" (Charmi, Sep 26) - call it out wherever sites are listed.
+const hasPin = s => !!(String(s.latitude || '').trim() && String(s.longitude || '').trim());
+const NoPinWarn = () => (
+  <div style={{ fontSize: 11.5, color: '#b91c1c', fontWeight: 600, marginTop: 2 }}>No map pin - punches can't be matched to this site and show Location off. Edit it and pick the spot on the map.</div>
+);
 
 function WorkSiteForm({ f, set, busy, onBack, onSave, hint }) {
   const field = (label, key, props = {}) => (
@@ -3681,9 +3687,10 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint }) {
       </div>
       <div style={{ flex: '1 1 100%', display: 'flex', gap: 10, marginTop: 4 }}>
         <button className="secondary-btn" onClick={onBack} disabled={busy}>Back</button>
-        <button className="primary-btn" onClick={onSave} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
+        <button className="primary-btn" onClick={onSave} disabled={!f.name.trim() || !hasPin(f) || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || !hasPin(f) || busy) ? 0.6 : 1 }}>
           {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
         </button>
+        {!hasPin(f) && <span style={{ alignSelf: 'center', fontSize: 12, color: 'var(--muted)' }}>Pick the location on the map (or enter latitude and longitude) to save.</span>}
       </div>
     </div>
   );
@@ -3705,7 +3712,7 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
   const startEdit = s => { setF(siteForm(s)); setMode(s.id); };
 
   async function save() {
-    if (!f.name.trim() || busy) return; setBusy(true);
+    if (!f.name.trim() || !hasPin(f) || busy) return; setBusy(true);
     try {
       const body = { ...f, radius_m: Number(f.radius_m) || 150 };
       // New from here = into the library AND onto this company's list.
@@ -3744,6 +3751,7 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{siteLine(s)}</div>
+            {!hasPin(s) && <NoPinWarn />}
           </div>
           <button className="secondary-btn" onClick={() => startEdit(s)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
           <button className="secondary-btn" onClick={() => unlink(s)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))' }}><X size={13} /> Remove</button>
@@ -4950,7 +4958,7 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
   async function save() {
-    if (!f.name.trim() || busy) return; setBusy(true);
+    if (!f.name.trim() || !hasPin(f) || busy) return; setBusy(true);
     try {
       const body = { ...f, radius_m: Number(f.radius_m) || 150 };
       if (mode === 'new') await api.createWorkSite(body); else await api.updateWorkSite(mode, body);
@@ -4993,6 +5001,7 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}</div>
               <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{siteLine(s)}</div>
+              {!hasPin(s) && <NoPinWarn />}
               <div style={{ fontSize: 11.5, color: used.length ? 'var(--ink)' : 'var(--muted)', marginTop: 2 }}>{used.length ? `Used by ${used.join(', ')}` : 'Not used by any company yet'}</div>
             </div>
             <button className="secondary-btn" onClick={() => { setF(siteForm(s)); setMode(s.id); }} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
