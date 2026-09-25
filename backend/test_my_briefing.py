@@ -36,6 +36,21 @@ from routers.task_util import gen_id, now_iso            # noqa: E402
 
 ME = "sagar@greensglobal.com"
 
+# What Outlook on iOS / Android / Mac can render: Adaptive Card 1.0 only.
+_V1_0_TYPES = {"AdaptiveCard", "TextBlock", "Image", "Container", "ColumnSet", "Column", "FactSet", "ImageSet",
+               "Input.Text", "Input.Number", "Input.Date", "Input.Time", "Input.Toggle", "Input.ChoiceSet",
+               "Action.OpenUrl", "Action.Submit", "Action.ShowCard", "Action.Http"}
+_V1_2_ONLY_KEYS = {"selectAction", "isVisible", "style", "targetElements", "bleed", "minHeight",
+                   "verticalContentAlignment"}
+
+
+def _assert_card_v1_0(test, card):
+    test.assertEqual(card["version"], "1.0")
+    for node in _walk(card):
+        if "type" in node:
+            test.assertIn(node["type"], _V1_0_TYPES, node)
+        test.assertFalse(_V1_2_ONLY_KEYS & set(node), node)
+
 
 def _walk(node):
     if isinstance(node, dict):
@@ -165,10 +180,15 @@ class OutlookCardSwitchTests(_DBCase):
         self.assertIn("GREENS GLOBAL", html)                 # the designed email is still the body
         texts = [n.get("text") for n in _walk(card)]
         self.assertIn("1 decision waiting on you", texts)
-        by_id = {n["id"]: n for n in _walk(card) if "id" in n}
-        self.assertFalse(by_id["qa-list"]["isVisible"])     # collapsed on arrival
+        # Collapsed on arrival: the decision is a ShowCard button, and its
+        # Approve / Reject only appear once it is opened.
+        self.assertEqual([a["type"] for a in card["actions"]], ["Action.ShowCard"])
+        self.assertEqual(card["actions"][0]["title"], "Budget")
+        inner = [a["title"] for a in card["actions"][0]["card"]["actions"]]
+        self.assertEqual(inner, ["Approve", "Reject"])
         urls = [n["url"] for n in _walk(card) if n.get("type") == "Action.Http"]
         self.assertTrue(urls and all("v=quick" in u for u in urls))
+        _assert_card_v1_0(self, card)
 
     def test_quick_card_is_skipped_when_nothing_needs_a_decision(self):
         t = self._task(title="Plain task")
@@ -191,6 +211,47 @@ class OutlookCardSwitchTests(_DBCase):
             self.assertEqual(r.json()["outlook_card"], saved)
 
 
+class QuickCardShapeTests(unittest.TestCase):
+    def _rows(self, n):
+        return [{"title": f"Approve: Item {i}", "detail": "Waiting on your decision", "module": "tasks",
+                 "action_kind": "task_approval", "action_id": f"t{i}", "action_email": ME} for i in range(n)]
+
+    def _card(self, rows, **kw):
+        import briefing_card
+        return briefing_card.build_quick_card(action_rows=rows, briefing_date="2026-09-26",
+                                              since_iso="2026-09-25T00:00:00",
+                                              briefing_url="https://nexus/briefing", **kw)
+
+    def test_nothing_to_decide_means_no_card(self):
+        self.assertIsNone(self._card([{"title": "Hand over: Drill", "detail": "", "module": "items"}]))
+
+    def test_each_time_off_request_gets_its_own_button(self):
+        rows = [{"title": "Approve: Aarav Shah's time off (2 requests)", "detail": "2 pending", "module": "time_off",
+                 "sub_actions": [{"detail": "10/02/2026 - 10/03/2026 (PTO)", "action_kind": "timeoff_approval",
+                                  "action_id": "r1", "action_email": ME},
+                                 {"detail": "10/20/2026 - 10/21/2026", "action_kind": "timeoff_approval",
+                                  "action_id": "r2", "action_email": ME}]}]
+        card = self._card(rows)
+        self.assertEqual(len(card["actions"]), 2)
+        self.assertTrue(card["actions"][0]["title"].startswith("Aarav Shah's time off - 10/02/2026"))
+        _assert_card_v1_0(self, card)
+
+    def test_long_lists_cap_and_link_to_my_briefing(self):
+        card = self._card(self._rows(9))
+        self.assertEqual(sum(a["type"] == "Action.ShowCard" for a in card["actions"]), 6)
+        self.assertEqual(card["actions"][-1], {"type": "Action.OpenUrl", "title": "Open My Briefing",
+                                               "url": "https://nexus/briefing"})
+        self.assertIn("3 more in the briefing below.", [n.get("text") for n in _walk(card)])
+
+    def test_ticket_reject_still_asks_for_a_reason(self):
+        rows = [{"title": "Access request", "detail": "TCK-1", "module": "tickets", "action_kind": "ticket_approval",
+                 "action_id": "k1", "action_email": ME}]
+        inner = self._card(rows)["actions"][0]["card"]["actions"]
+        self.assertEqual(inner[1]["type"], "Action.ShowCard")
+        self.assertEqual(inner[1]["card"]["body"][0]["type"], "Input.Text")
+        self.assertEqual(inner[1]["card"]["actions"][0]["title"], "Confirm Reject")
+
+
 class QuickCardEndpointTests(_DBCase):
     def test_click_on_the_quick_card_redraws_the_quick_card(self):
         import briefing_mail_actions
@@ -209,9 +270,8 @@ class QuickCardEndpointTests(_DBCase):
         texts = [n.get("text") for n in _walk(card)]
         self.assertIn("Budget approved. Done by you.", texts)
         self.assertIn("1 decision waiting on you", texts)
-        self.assertIn("Approve: Hiring plan", texts)
-        by_id = {n["id"]: n for n in _walk(card) if "id" in n}
-        self.assertTrue(by_id["qa-list"]["isVisible"])      # stays open after a click
+        self.assertEqual([a["title"] for a in card["actions"]], ["Hiring plan"])
+        _assert_card_v1_0(self, card)
         self.assertEqual(self._reload(a.id).approval_status, "approved")
         self.assertEqual(self._reload(b.id).approval_status, "pending")
 

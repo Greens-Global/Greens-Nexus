@@ -28,7 +28,7 @@ const MODES = [
 const CARD_STYLES = [
   { key: 'off', label: 'Off', hint: 'Everyone gets the designed email. Buttons open a confirm page in the browser.' },
   { key: 'quick', label: 'Quick Actions', hint: 'The designed email, plus a small collapsed "decisions waiting" block at the top whose Approve and Reject work inside Outlook. Outlook draws that block in its own style.' },
-  { key: 'full', label: 'Full Card', hint: 'Outlook shows the whole briefing as its own card instead of the designed email: sections collapse and every button works inside Outlook, but Outlook controls the colors and buttons.' },
+  { key: 'full', label: 'Full Card', hint: 'Outlook shows the whole briefing as its own card instead of the designed email: sections collapse and every button works inside Outlook, but Outlook controls the colors and buttons. Desktop and web only: Outlook on phones and Mac cannot show this card, so they get the designed email.' },
 ];
 const cardStyle = (v) => (v === true ? 'full' : ['quick', 'full'].includes(v) ? v : 'off');
 

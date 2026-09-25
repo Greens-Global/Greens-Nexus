@@ -1094,7 +1094,8 @@ def outlook_card(db: Session, email: str, first_name: str, sections: dict, brief
 def quick_card(sections: dict, briefing_date: str, since_iso: str, outcome: str = ""):
     """Option A (briefing_card.build_quick_card): None when nothing needs a decision."""
     return briefing_card.build_quick_card(action_rows=sections.get("action_required") or [],
-                                          briefing_date=briefing_date, since_iso=since_iso, outcome=outcome)
+                                          briefing_date=briefing_date, since_iso=since_iso, outcome=outcome,
+                                          briefing_url=f"{app_url()}/briefing")
 
 
 def with_card(html: str, card: dict) -> str:
