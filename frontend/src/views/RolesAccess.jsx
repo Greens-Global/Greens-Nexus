@@ -294,7 +294,7 @@ export default function RolesAccess({ embedded = false }) {
         {(() => {
           const mem = (r.members || []).filter(inFilter);
           return mem.length ? (
-            <span title={`${mem.length} ${mem.length === 1 ? 'person' : 'people'}${filterOn ? ` in this filter (${r.member_count} total)` : ''}: ${mem.map(nameOf).join(', ')}`}
+            <span title={`${mem.length} ${mem.length === 1 ? 'person' : 'people'}${filterOn ? ` in this filter (${r.member_count} total)` : ''}: ${mem.map(e => nameOf(e)).join(', ')}`}
               style={{ display: 'inline-flex', alignItems: 'center' }}>
               {mem.slice(0, 8).map((em, i) => (
                 <span key={em} style={{ marginLeft: i ? -7 : 0, display: 'inline-flex', borderRadius: '50%', border: '2px solid var(--card)' }}>

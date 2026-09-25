@@ -41,7 +41,8 @@ export function useNameResolver() {
     // or for emails People doesn't know.
     const e = (email || '').toLowerCase();
     if (e && dir[e]) return dir[e];
-    const s = cleanName((storedName || '').trim());
+    // typeof guard: a bare `.map(nameOf)` passes the array index here
+    const s = cleanName(typeof storedName === 'string' ? storedName.trim() : '');
     return s || emailToName(email);
   }, [dir]);
 }
