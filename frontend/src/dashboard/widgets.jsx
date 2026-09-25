@@ -7,6 +7,7 @@ import {
   ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
   CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
   Bookmark, Plus, Link2, Lock,
+  PenLine, Contact, ShoppingCart, Cake,
   Ticket as TicketIcon,
 } from 'lucide-react';
 import { formatTime } from '../lib/datetime';
@@ -36,6 +37,13 @@ const ProjectsPanel     = lazyPanel('ProjectsPanel');
 const TeamCalendarPanel = lazyPanel('TeamCalendarPanel');
 const CalendarPanel     = lazyPanel('CalendarPanel');
 
+// Workday tiles (phase 2, Sep 24) - own lazy chunk, same idea as panels.jsx.
+const lazyWorkday = (name) => lazy(() => import('./workdayWidgets.jsx').then(m => ({ default: m[name] })));
+const TimeClockWidget  = lazyWorkday('TimeClockWidget');
+const MyRequestsWidget = lazyWorkday('MyRequestsWidget');
+const DueBackWidget    = lazyWorkday('DueBackWidget');
+const ComingUpWidget   = lazyWorkday('ComingUpWidget');
+
 // Fire the app's cross-view navigation event (see CLAUDE.md).
 export function navigate(view, sub) {
   window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub: sub || null } }));
@@ -53,6 +61,7 @@ export const KPI_CATALOG = {
   my_checkouts:         { label: 'My Active Checkouts',     color: 'green',  Icon: Boxes,         hint: 'Currently with you',   nav: { view: 'inventory', sub: 'checkouts' } },
   my_assignments:       { label: 'Items Assigned to Me',    color: 'green',  Icon: Package,       hint: 'Your equipment',       nav: { view: 'inventory' } },
   unread_notifications: { label: 'Unread Notifications',    color: 'blue',   Icon: Bell,          hint: 'Tap to review' },
+  signatures_needed:    { label: 'Signatures Needed',       color: 'green',  Icon: PenLine,       hint: 'Waiting on you',       nav: { view: 'myhr' } },
   warranties_expiring:  { label: 'Warranties Expiring',     color: 'red',    Icon: ShieldCheck,   hint: 'Within 60 days',       nav: { view: 'property-asset' } },
   open_tickets:         { label: 'Open Tickets',            color: 'red',    Icon: TicketIcon,    hint: 'Across the team',      nav: { view: 'tickets' } },
   // Manager Dashboard folded into the one Dashboard (Sep 3) - these KPI tiles
@@ -85,7 +94,7 @@ const labelFor = (t) => SHORTCUT_TARGETS.find(s => s.view === t.view && (s.sub |
   || t.label || t.view;
 
 // ── Native card shells (match the Overview screen exactly) ────────────────────
-function DashCard({ title, sub, action, children, onClick, style }) {
+export function DashCard({ title, sub, action, children, onClick, style }) {
   return (
     <div className="dash-card" onClick={onClick}
       style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', cursor: onClick ? 'pointer' : 'default', ...style }}>
@@ -599,6 +608,10 @@ export const QUICK_ACTIONS = [
   { key: 'email',         label: 'New Email',         act: 'email',         color: 'brand',  Icon: Mail },
   { key: 'personal-link', label: 'Add Personal Link', act: 'personal-link', color: 'purple', Icon: Link2 },
   { key: 'request-item',  label: 'Request an Item',   view: 'inventory', sub: 'catalog', color: 'orange', Icon: Package },
+  { key: 'time-off',      label: 'Request Time Off',  view: 'timeclock', sub: 'timeoff',   color: 'orange', Icon: CalendarClock },
+  { key: 'punch-fix',     label: 'Punch Correction',  view: 'timeclock', sub: 'timesheet', color: 'green',  Icon: Timer },
+  { key: 'ask-hr',        label: 'Ask HR',            view: 'myhr',                        color: 'blue',   Icon: Contact },
+  { key: 'purchase',      label: 'New Purchase Request', view: 'purchase',                 color: 'purple', Icon: ShoppingCart },
   { key: 'timeclock',     label: 'Time Clock',        view: 'timeclock',    color: 'green',  Icon: Clock },
   { key: 'kb',            label: 'Knowledge Base',    view: 'sop',          color: 'brand',  Icon: BookOpen },
 ];
@@ -761,6 +774,10 @@ const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
 export const WIDGETS = {
   kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi' },
   'kpi-bar':     { title: 'KPI Bar Chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget },
+  'time-clock':  { title: 'Time Clock',      cat: 'Workday',   icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 4 }, render: TimeClockWidget },
+  'my-requests': { title: 'My Requests',     cat: 'Workday',   icon: ClipboardList, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: MyRequestsWidget },
+  'due-back':    { title: 'Due Back Soon',   cat: 'Workday',   icon: Boxes,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: DueBackWidget },
+  'coming-up':   { title: 'Coming Up',       cat: 'Workday',   icon: Cake,         size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 5 }, render: ComingUpWidget },
   shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut' },
   links:         { title: 'Quick Links',     cat: 'Links',     icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
   'links-folder': { title: 'Links Folder',   cat: 'Links',     icon: FolderOpen,   size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder' },
