@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react';
 import { Mail, Save, AlertTriangle, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 import { api } from '../api';
+import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle } from '../tasks/theme';
 
@@ -231,9 +232,13 @@ function DeliveryLog() {
   const [offset, setOffset] = useState(0);
   const [err, setErr] = useState('');
   const [resendingId, setResendingId] = useState('');
+  // Bulk Force Resend (Sep 26): tick several rows, send them all at once.
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulk, setBulk] = useState(null);   // { done, total } while sending, then { summary }
 
   const load = () => {
     setRows(null);
+    setSelected(new Set());
     api.getDailyBriefingLog({ ...(emailFilter ? { employee_email: emailFilter.trim() } : {}), limit: LOG_LIMIT, offset })
       .then(({ rows: r, total: t }) => { setRows(r); setTotal(t); })
       .catch((e) => { setErr(e.message || String(e)); setRows([]); setTotal(0); });
@@ -267,6 +272,55 @@ function DeliveryLog() {
     finally { setResendingId(''); }
   };
 
+  const toggleRow = (id) => setSelected((cur) => {
+    const next = new Set(cur);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const allOnPage = !!rows?.length && rows.every((r) => selected.has(r.id));
+  const toggleAll = () => setSelected(allOnPage ? new Set() : new Set((rows || []).map((r) => r.id)));
+
+  const bulkResend = async () => {
+    // One send per employee: two ticked rows for the same person (different
+    // days) would otherwise email them twice. Rows are newest first, so the
+    // first one seen is that person's latest.
+    const byEmployee = new Map();
+    (rows || []).filter((r) => selected.has(r.id)).forEach((r) => {
+      if (!byEmployee.has(r.employeeEmail)) byEmployee.set(r.employeeEmail, r);
+    });
+    const targets = [...byEmployee.values()];
+    if (!targets.length) return;
+    const alreadySent = targets.filter((r) => r.sentAt).length;
+    const ok = await dialog.confirm(
+      `Send ${targets.length === 1 ? "this employee's briefing" : `briefings for ${targets.length} employees`} right now?` +
+      (alreadySent ? ` ${alreadySent} of them already went out successfully, so they will get a second email.` : '') +
+      ' This sends immediately, regardless of shift windows, and does not change anyone else\'s schedule.',
+      { title: 'Force Resend Selected', confirmText: `Send ${targets.length}` },
+    );
+    if (!ok) return;
+    const tally = { sent: 0, nothing: 0, off: 0, failed: [] };
+    setBulk({ done: 0, total: targets.length });
+    for (const [i, r] of targets.entries()) {
+      try {
+        const res = await api.forceResendDailyBriefing(r.id);
+        if (res.sentNow) tally.sent += 1;
+        else if (res.mode === 'off') tally.off += 1;
+        else if (!res.hadContent) tally.nothing += 1;
+        else tally.failed.push(r.employeeEmail);
+      } catch (e) {
+        console.error('[daily-briefing] bulk resend failed', r.employeeEmail, e);
+        tally.failed.push(r.employeeEmail);
+      }
+      setBulk({ done: i + 1, total: targets.length });
+    }
+    const parts = [`${tally.sent} sent`];
+    if (tally.nothing) parts.push(`${tally.nothing} had nothing to report`);
+    if (tally.off) parts.push(`${tally.off} not sent because Mode is Off`);
+    if (tally.failed.length) parts.push(`${tally.failed.length} failed (${tally.failed.join(', ')})`);
+    setBulk({ summary: `${parts.join(', ')}.`, failed: tally.failed.length > 0 });
+    load();
+  };
+
   const currentPage = Math.floor(offset / LOG_LIMIT) + 1;
   const totalPages = Math.max(1, Math.ceil(total / LOG_LIMIT));
 
@@ -278,7 +332,22 @@ function DeliveryLog() {
           placeholder="Filter by employee email…" style={{ ...inputStyle, width: 260 }} />
         <button style={btn('ghost')} onClick={() => { setOffset(0); load(); }} title="Refresh"><RefreshCw size={14} /></button>
         {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
+        <span style={{ flex: 1 }} />
+        {selected.size > 0 && !bulk?.total && (
+          <button style={btn('ghost')} onClick={() => setSelected(new Set())}>Clear</button>
+        )}
+        <button style={{ ...btn('primary'), opacity: selected.size && !bulk?.total ? 1 : 0.5 }}
+          disabled={!selected.size || !!bulk?.total} onClick={bulkResend}>
+          {bulk?.total ? `Sending ${bulk.done} of ${bulk.total}…` : `Force Resend Selected${selected.size ? ` (${selected.size})` : ''}`}
+        </button>
       </div>
+      {bulk?.summary && (
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, marginBottom: 12,
+          color: bulk.failed ? NX.red : NX.green, fontWeight: 600 }}>
+          {bulk.failed ? <XCircle size={14} /> : <CheckCircle2 size={14} />} {bulk.summary}
+          <button style={{ ...btn('ghost'), fontSize: 11.5, padding: '2px 8px' }} onClick={() => setBulk(null)}>Dismiss</button>
+        </div>
+      )}
       {rows === null ? (
         <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>Loading…</div>
       ) : rows.length === 0 ? (
@@ -286,10 +355,18 @@ function DeliveryLog() {
       ) : (
         <>
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: `1px solid ${NX.border2}`,
+              fontSize: 12, fontWeight: 600, color: NX.dim, cursor: 'pointer' }}>
+              <input type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label="Select all rows on this page" />
+              {selected.size ? `${selected.size} selected` : 'Select all on this page'}
+            </label>
             {rows.map((r) => {
               const meta = statusOf(r);
               return (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5 }}>
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5,
+                  background: selected.has(r.id) ? 'var(--wk-brand-tint)' : 'transparent' }}>
+                  <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)}
+                    aria-label={`Select ${r.employeeEmail} ${r.briefingDate}`} style={{ flexShrink: 0 }} />
                   <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.employeeEmail}>{r.employeeEmail}</span>
                   <span style={{ color: NX.dim, flexShrink: 0, width: 90 }}>{r.briefingDate}</span>
