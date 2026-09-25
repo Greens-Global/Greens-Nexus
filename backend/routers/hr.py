@@ -3180,6 +3180,8 @@ def employee_bod_log(eid: str, start: str = "", end: str = "",
 def _geofence_payload(emp: NexusEmployee) -> dict:
     return {
         "remote": bool(emp.work_remote or 0),
+        # Optional assigned work site (Sep 25): '' = any company site.
+        "workSiteId": (emp.work_site_id or "").strip(),
         "setBy": emp.geofence_set_by or "",
         "setAt": emp.geofence_set_at or "",
     }
@@ -3213,6 +3215,8 @@ def get_geofence(eid: str, user: dict = Depends(require_hr_read), db: Session = 
 
 class GeofenceIn(BaseModel):
     remote:   Optional[bool] = None
+    # An HrWorkSite.id to pin this person to, "" to clear (any site). Omitted = unchanged.
+    work_site_id: Optional[str] = None
     # Sent by builds older than Sep 19; accepted so they do not 422, never used.
     lat:      Optional[str] = None
     lng:      Optional[str] = None
@@ -3228,10 +3232,16 @@ def set_geofence(eid: str, body: GeofenceIn, user: dict = Depends(require_hr_wri
     if not emp:
         raise HTTPException(404, "Employee not found")
     _assert_scope(emp, hr_scope(user, db))
-    if body.remote is None:
+    if body.remote is None and body.work_site_id is None:
         raise HTTPException(400, "Personal work locations were retired - mark the person remote, "
                                  "or leave them on-site to punch from any company work site.")
-    emp.work_remote = 1 if body.remote else 0
+    if body.remote is not None:
+        emp.work_remote = 1 if body.remote else 0
+    if body.work_site_id is not None:
+        sid = body.work_site_id.strip()
+        if sid and not db.query(HrWorkSite).filter(HrWorkSite.id == sid).first():
+            raise HTTPException(404, "Work site not found")
+        emp.work_site_id = sid
     emp.geofence_set_by = user["email"]
     emp.geofence_set_at = datetime.now(timezone.utc).isoformat()
     emp.updated_at = emp.geofence_set_at

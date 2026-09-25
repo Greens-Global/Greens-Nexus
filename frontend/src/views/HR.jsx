@@ -651,7 +651,21 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
   const remote = !!gf.remote;
   const lp = data?.lastPunchLocation || null;
   const sites = data?.workSites || [];
+  const assignedSite = gf.workSiteId || '';
   const firstName = employee.firstName || employee.first_name || 'This person';
+
+  // Optional single site (Sep 25): blank = any company site is inside the fence.
+  const chooseSite = async (sid) => {
+    if (busy || !canEdit || sid === assignedSite) return;
+    setBusy(true);
+    try {
+      const r = await api.setGeofence(employee.id, { work_site_id: sid });
+      setData(d => ({ ...(d || {}), geofence: r }));
+      const nm = sites.find(x => x.id === sid)?.name;
+      toastOk(sid ? `${firstName} now punches from ${nm || 'one site'} - anywhere else is outside the fence.` : `${firstName} may punch from any company work site.`);
+    } catch (e) { toastErr(e?.message || 'Could not save the work site.'); }
+    finally { setBusy(false); }
+  };
 
   const choose = async (next) => {
     if (busy || !canEdit || next === remote) return;
@@ -713,17 +727,31 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
           {!remote && (
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
               <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Work sites {firstName} can punch from</div>
+              {sites.length > 0 && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--muted)' }}>Assigned site</span>
+                  <select value={assignedSite} disabled={!canEdit || busy} onChange={e => chooseSite(e.target.value)}
+                    style={{ padding: '5px 8px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', minWidth: 200 }}>
+                    <option value="">Any company work site</option>
+                    {sites.map(st => <option key={st.id} value={st.id}>{st.name || 'Unnamed site'} ({st.radiusM} m)</option>)}
+                  </select>
+                  <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>{assignedSite ? 'Only this site counts as inside the fence.' : 'A punch inside any site’s radius is on-site.'}</span>
+                </label>
+              )}
               {sites.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
                   No work site has a location yet, so no punch can be judged on-site. Add them under Settings - Companies - Work Sites.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {sites.map(st => (
-                    <span key={st.id} style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 20, background: 'var(--mist)', border: '1px solid var(--line)' }}>
-                      {st.name || 'Unnamed site'}
-                    </span>
-                  ))}
+                  {sites.map(st => {
+                    const on = !assignedSite || st.id === assignedSite;
+                    return (
+                      <span key={st.id} title={`${st.radiusM} m fence`} style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 20, background: on ? 'var(--mist)' : 'transparent', border: `1px solid ${on ? 'var(--pine)' : 'var(--line)'}`, color: on ? 'var(--ink)' : 'var(--muted)', textDecoration: on ? 'none' : 'line-through' }}>
+                        {st.name || 'Unnamed site'} · {st.radiusM} m
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </div>

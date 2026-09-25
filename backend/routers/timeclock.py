@@ -154,10 +154,68 @@ def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "") -> dict:
         plat, plng = float(lat), float(lng)
     except (TypeError, ValueError):
         return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
-    verdict = _geofence_site(db, plat, plng, accuracy_m)
+    # An assigned work site (Visesh, Sep 25) narrows "any company site" to that
+    # one; the default (no assignment) keeps every site in play.
+    sites = None
+    if email:
+        emp = (db.query(NexusEmployee)
+               .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
+        if emp and (emp.work_site_id or "").strip():
+            site = db.query(HrWorkSite).filter(HrWorkSite.id == emp.work_site_id.strip()).first()
+            if site:
+                sites = [site]
+    verdict = _geofence_site(db, plat, plng, accuracy_m, sites=sites)
     if verdict["geo_status"] != "in_fence" and email and _is_remote(db, email):
         return {"geo_status": "remote", "work_site_id": "", "work_site_name": "Remote", "distance_m": 0}
     return verdict
+
+
+def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
+    """Bell + email to the manager for one out-of-fence punch. The email is
+    best-effort on a thread (Graph is outbound HTTP; a punch must never wait
+    on it or fail because of it)."""
+    who = f"{emp.first_name} {emp.last_name}".strip() or emp.work_email
+    verb = "punched in" if row.kind == "in" else "punched out"
+    site = geo.get("work_site_name") or "the nearest work site"
+    dist = int(geo.get("distance_m") or 0)
+    when = _fmt_local(row.at, row.tz_offset_min or 0)
+    _hr_notify(db, emp.manager_email, "Out-of-fence punch",
+               f"{who} {verb} at {when}, {dist:,}m from {site} - outside the geofence. Open the timecard to review.",
+               ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    try:
+        from graph_mail import graph_configured, send_mail, DEFAULT_FROM_EMAIL, GraphMailError  # noqa: F401
+    except Exception:
+        return
+    if not graph_configured():
+        return
+    lat, lng = (row.lat or "").strip(), (row.lng or "").strip()
+    maps = f"https://www.google.com/maps?q={lat},{lng}" if lat and lng else ""
+    html = (f"<p>{who} <b>{verb}</b> at <b>{when}</b> outside the geofence.</p>"
+            f"<p>Nearest work site: <b>{site}</b> - {dist:,} m away"
+            f"{' (GPS accuracy ±' + str(int(row.accuracy_m or 0)) + ' m)' if row.accuracy_m else ''}.</p>"
+            + (f"<p>Location: <a href='{maps}'>{lat}, {lng}</a></p>" if maps else "<p>No coordinates were captured.</p>")
+            + "<p>Open Nexus - People - Time to review the punch on the map.</p>")
+    subject = f"Out-of-fence punch: {who} {verb} at {when}"
+    to = [emp.manager_email]
+
+    def _send():
+        try:
+            send_mail(from_email=DEFAULT_FROM_EMAIL, to=to, cc=None, subject=subject, html=html)
+        except Exception as e:  # GraphMailError or network - never surfaces to the punch
+            print(f"[timeclock] out-of-fence email to {to} failed: {e}")
+
+    import threading
+    threading.Thread(target=_send, daemon=True).start()
+
+
+def _fmt_local(iso: str, tz_offset_min: int) -> str:
+    """'09/23/2026 7:40 PM' in the punch's own local time (tz_offset_min is the
+    browser's getTimezoneOffset: minutes to ADD to local to reach UTC)."""
+    t = _parse_iso(iso)
+    if t is None:
+        return iso or ""
+    local = t - timedelta(minutes=int(tz_offset_min or 0))
+    return local.strftime("%m/%d/%Y %I:%M %p").replace(" 0", " ")   # MM/DD/YYYY h:mm AM/PM
 
 
 def _is_remote(db: Session, email: str) -> bool:
@@ -616,14 +674,13 @@ def punch(body: PunchIn, request: Request,
                     ip=ip, user_agent=ua, source="web",
                     created_by=email, created_at=now, **geo)
     db.add(row)
-    # Soft-gate escalation: flag lands with the employee's manager (bell only)
-    if geo["geo_status"] == "out_of_fence" and body.kind == "in":
+    # Soft-gate escalation (Charmi / Visesh, Sep 25): an out-of-fence punch IN
+    # or OUT goes to the employee's manager as a bell notification AND an email
+    # ("email manager when punches out of the geofence").
+    if geo["geo_status"] == "out_of_fence" and body.kind in ("in", "out"):
         emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
         if emp and emp.manager_email:
-            _hr_notify(db, emp.manager_email, "Out-of-fence punch",
-                       f"{emp.first_name} {emp.last_name} punched in {geo['distance_m']}m from "
-                       f"{geo['work_site_name'] or 'the nearest site'} - flagged for review.",
-                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+            _notify_out_of_fence(db, emp, row, geo)
     # First punch-in → offer the Beginning-of-day message; punch-out → offer the
     # End-of-day message (each skipped automatically once recorded that day).
     first_in_today = False
@@ -3824,6 +3881,53 @@ def track_live(user: dict = Depends(require_team_read), db: Session = Depends(ge
     return {"crew": crew}
 
 
+@router.get("/geofence-punches")
+def geofence_punches(email: str = "", start: str = "", end: str = "",
+                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Every located punch one person made in a date range, with the fence
+    verdict, plus the company work sites and their fences - the "Geofence
+    Punch" view (Charmi, Sep 25: SwipeClock's map of a person's punches, All /
+    Out of Fence, with the site, coordinates and accuracy). Own punches for
+    anyone; someone else's only inside the viewer's team scope."""
+    target = (email or "").strip().lower() or user["email"].lower()
+    if target != user["email"].lower():
+        require_team_read(user=user, db=db)          # 403 unless a manager / HR viewer
+        scope = _visible_emails(db, user)
+        if scope is not None and target not in scope:
+            raise HTTPException(403, "Not in your team")
+    q = db.query(TimePunch).filter(TimePunch.employee_email == target, TimePunch.voided == 0)
+    if start:
+        q = q.filter(TimePunch.local_date >= start[:10])
+    if end:
+        q = q.filter(TimePunch.local_date <= end[:10])
+    punches = q.order_by(TimePunch.at.asc()).all()
+    emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == target).first()
+    assigned = (emp.work_site_id or "").strip() if emp else ""
+    sites = []
+    for st in db.query(HrWorkSite).order_by(HrWorkSite.name).all():
+        try:
+            lat, lng = float(st.latitude), float(st.longitude)
+        except (TypeError, ValueError):
+            continue
+        sites.append({"id": st.id, "name": st.name or "", "lat": lat, "lng": lng, "radiusM": max(25, int(st.radius_m or 150)),
+                      "address": st.address or "", "assigned": st.id == assigned})
+    rows = []
+    for p in punches:
+        if p.kind not in ("in", "out"):
+            continue
+        rows.append({
+            "id": p.id, "at": p.at, "localDate": p.local_date, "tzOffsetMin": p.tz_offset_min or 0,
+            "kind": p.kind, "lat": (p.lat or ""), "lng": (p.lng or ""), "accuracyM": int(p.accuracy_m or 0),
+            "geoStatus": p.geo_status or "no_location", "workSiteId": p.work_site_id or "",
+            "workSiteName": p.work_site_name or "", "distanceM": int(p.distance_m or 0),
+            "source": p.source or "", "note": p.note or "",
+        })
+    name = f"{emp.first_name} {emp.last_name}".strip() if emp else target
+    return {"email": target, "name": name, "remote": bool(emp and (emp.work_remote or 0)), "assignedSiteId": assigned,
+            "start": start, "end": end, "sites": sites, "punches": rows,
+            "outOfFence": sum(1 for r in rows if r["geoStatus"] == "out_of_fence")}
+
+
 @router.get("/locations")
 def team_locations(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
     """Each employee's LATEST punch location, for the Locations map. Scoped to the
@@ -5227,6 +5331,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
              "breaks": list(seg_breaks),
              "note": open_in_note,
              "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or "",
+             "geoOut": "", "workSiteOut": "", "workSiteOutId": "",
              "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
              "outPendingAt": "", "outEditStatus": "", "outEditReason": "",
              "inAdjustNote": open_in_adjnote, "outAdjustNote": ""})
@@ -5289,6 +5394,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "note": (p.note or "").strip(),
                          "workSite": open_in_site or "", "workSiteId": open_in_site_id or "",
                          "geo": open_in_geo or "", "category": open_in_cat or "",
+                         "geoOut": p.geo_status or "", "workSiteOut": p.work_site_name or "", "workSiteOutId": p.work_site_id or "",
                          "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
                          "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
                          "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})
@@ -5321,6 +5427,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                      "breaks": list(seg_breaks),
                      "note": _notes,
                      "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or "",
+                     "geoOut": p.geo_status or "", "workSiteOut": p.work_site_name or "", "workSiteOutId": p.work_site_id or "",
                      "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
                      "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
                      "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})

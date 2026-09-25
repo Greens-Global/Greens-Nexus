@@ -1205,6 +1205,8 @@ export const api = {
   timeSelfPunch:     (data)      => req('/timeclock/punch/manual', { method: 'POST', body: JSON.stringify(data) }),
   timeMy:            (start, end) => req(`/timeclock/me?start=${start || ''}&end=${end || ''}`),
   timeTeam:          (start, end) => req(`/timeclock/team?start=${start || ''}&end=${end || ''}`),
+  // Geofence Punch view (Sep 25): one person's located In/Out punches + fence circles for a period.
+  timeGeofencePunches: (email, start, end) => req(`/timeclock/geofence-punches?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}`),
   timeAdjustPunch:   (id, data)  => req(`/timeclock/punches/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeAddPunch:      (data)      => req('/timeclock/punches', { method: 'POST', body: JSON.stringify(data) }),
   timeExportCsv:     (start, end, mode) => reqBlob(`/timeclock/export.csv?start=${start || ''}&end=${end || ''}&mode=${mode || 'summary'}`),

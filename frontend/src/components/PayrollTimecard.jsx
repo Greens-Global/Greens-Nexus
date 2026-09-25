@@ -12,6 +12,7 @@ import WorkLogDrawer, { WorkLogButton } from './WorkLogDrawer';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
+import GeofencePunchModal from './GeofencePunchModal';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -91,13 +92,22 @@ function LocCell({ seg }) {
   if (!seg) return <span style={{ color: 'var(--muted)' }}>-</span>;
   const geo = seg.geo || '';
   const site = seg.workSite || '';
+  // The Out punch is judged on its own (Sep 25): call it out when it differs.
+  const geoOut = seg.geoOut || '';
+  const outDiffers = !!seg.out && geoOut && (geoOut !== geo || (seg.workSiteOut || '') !== site);
+  const outTail = outDiffers ? (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: geoOut === 'out_of_fence' ? '#b45309' : geoOut === 'no_location' ? '#b91c1c' : 'var(--muted)' }}
+      title={geoOut === 'out_of_fence' ? `Out punch: ${seg.workSiteOut || 'nearest site'} - off-site` : geoOut === 'no_location' ? 'Out punch: no location shared' : `Out punch: ${seg.workSiteOut || geoOut}`}>
+      <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out off-site' : geoOut === 'no_location' ? 'Out: location off' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
+    </span>
+  ) : null;
   if (geo === 'no_location') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#b91c1c', fontWeight: 700 }}
       title="No location was shared for this punch - turned off or not allowed in the browser.">
-      <MapPinOff size={12} style={{ flexShrink: 0 }} /> Location off
+      <MapPinOff size={12} style={{ flexShrink: 0 }} /> Location off{outTail}
     </span>
   );
-  if (!site && geo !== 'out_of_fence') return <span style={{ color: 'var(--muted)' }}>-</span>;
+  if (!site && geo !== 'out_of_fence') return outTail || <span style={{ color: 'var(--muted)' }}>-</span>;
   const color = geo === 'in_fence' ? 'hsl(var(--color-green))'
     : geo === 'out_of_fence' ? '#b45309' : 'var(--muted)';
   return (
@@ -107,6 +117,7 @@ function LocCell({ seg }) {
       <span style={{ color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
         {site || 'Off-site'}{geo === 'out_of_fence' && site ? ' ⚠' : ''}
       </span>
+      {outTail}
     </span>
   );
 }
@@ -150,6 +161,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const [workLogDay, setWorkLogDay] = useState(null);   // date string - opens the Work Log drawer for this day
   // Location dot on a punch links to the Locations map, for viewers who can reach it.
   const hourlyLocate = (!self || isAdmin) ? (data?.email || email || '') : '';
+  const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
 
   const start = isoDate(pStart);
   const end = isoDate(pStart.getTime() + 13 * DAY);
@@ -654,7 +666,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
                   <td style={{ ...td, textAlign: 'left' }}>{r.seg
-                    ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} />
+                    ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
                     : self && !fin
                       ? <button onClick={() => setEditDay({ date: r.ds, seg: null })} title="Add a punch for this day - goes to your approver"
                           style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.75 }}>+ add</button>
@@ -662,7 +674,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, textAlign: 'left' }}>
                     {r.seg ? (r.seg.out
                       ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} />
+                          <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
                           {(r.seg.flags || []).includes('auto_clock_out') && (
                             <span title="Nexus closed this shift automatically - no clock-out was recorded. 0 paid hours until the real end time is set."
                               style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '2px 7px', borderRadius: 6 }}>
@@ -864,6 +876,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           onDone={() => { setBreakFix(null); load(); }} onClose={() => setBreakFix(null)}
           toastOk={toastOk} toastErr={toastErr} />
       )}
+      {geoMap && (
+        <GeofencePunchModal email={geoMap} name={data?.name || nameFor?.(geoMap) || geoMap} start={perStart} end={perEnd} onClose={() => setGeoMap('')} />
+      )}
       {tour && <GuidedTour onClose={() => setTour(false)} steps={[
         { target: 'pr-sidebar', title: 'Start with the employee list',
           body: 'Everyone in this pay period. M = missing punches, E = exceptions - the red numbers are your to-do list each morning. Click a name to open their card.' },
@@ -905,6 +920,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
 function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay }) {
+  const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
   const T = data.totals || {};
   const fin = data.finalized;
@@ -1042,10 +1058,10 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               // The location dot links to the Locations map (only for viewers who can
               // reach it: HR/managers on someone else's card, or an admin on their own).
               const locateEmail = (!self || isAdmin) ? (data.email || '') : '';
-              const inCell = (seg) => <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} />;
+              const inCell = (seg) => <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />;
               const outCell = (seg) => seg.out
                 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} />
+                    <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />
                     {(seg.flags || []).includes('auto_clock_out') && (
                       <span title="Nexus closed this shift automatically - no clock-out was recorded. 0 paid hours until the real end time is set."
                         style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '2px 7px', borderRadius: 6 }}>
@@ -1280,11 +1296,14 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           onDone={() => { setEditDay(null); load(); }} onClose={() => setEditDay(null)}
           toastOk={toastOk} toastErr={toastErr} self={self} />
       )}
+      {geoMap && (
+        <GeofencePunchModal email={geoMap} name={data?.name || nameFor?.(geoMap) || geoMap} start={data?.periodStart || ''} end={data?.periodEnd || ''} onClose={() => setGeoMap('')} />
+      )}
     </div>
   );
 }
 
-function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEmail }) {
+function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEmail, onLocate }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState('');
   const punchId = k === 'in' ? seg?.inId : seg?.outId;   // always available (for approve/reject)
@@ -1324,17 +1343,21 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEm
       }}
       style={{ fontSize: 12, padding: '2px 4px', width: 172 }} />
   );
-  const geo = seg.geo || '';
+  // Each punch is judged on its own: the In dot is the in punch, the Out dot the out punch.
+  const geo = (k === 'out' ? seg.geoOut : seg.geo) || '';
+  const siteName = (k === 'out' ? seg.workSiteOut : seg.workSite) || '';
   const mini = { border: 'none', background: 'none', cursor: 'pointer', padding: '0 2px', fontWeight: 800, fontSize: 12, lineHeight: 1 };
   const dotColor = geo === 'in_fence' ? 'hsl(var(--color-green))' : geo === 'out_of_fence' ? '#b91c1c' : 'var(--line-strong,var(--line))';
-  // Clicking the location dot jumps to the Locations map, focused on this person.
-  const openMap = (e) => { e.stopPropagation(); if (!locateEmail) return; sessionStorage.setItem('nexus:locateEmail', locateEmail); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'employee-tracking', sub: 'locations' } })); };
+  // Clicking the location dot opens the Geofence Punch view for this person and
+  // period (SwipeClock-style map + punch table, Charmi Sep 25).
+  const openMap = (e) => { e.stopPropagation(); if (!locateEmail) return; onLocate?.(); };
+  const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Outside geofence${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : 'GPS only');
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {geo && (locateEmail
-        ? <button onClick={openMap} aria-label="See on map" title="See this person's last location on the map"
+        ? <button onClick={openMap} aria-label="Open the geofence punch map" title={`${dotTitle} - click for the punch map`}
             style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, padding: 0, cursor: 'pointer', border: 'none', background: dotColor, boxShadow: `0 0 0 2px var(--card), 0 0 0 3px ${dotColor}` }} />
-        : <span title={geo === 'in_fence' ? 'On site' : geo === 'out_of_fence' ? 'Off site' : geo === 'remote' ? 'Remote' : 'No location'}
+        : <span title={dotTitle}
             style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: dotColor }} />)}
       <button onClick={() => { if (!id) return; setVal(utcToInput(raw)); setEditing(true); }}
         title={id ? (self ? 'Propose a new time - goes to your approver; pay unchanged until approved' : 'Click to edit this punch time - the original stays on record') : ''}
