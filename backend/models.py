@@ -830,6 +830,10 @@ class NexusEmployee(Base):
     # location. We're tagging them to our locations."). The geofence_* columns
     # stay for history; nothing judges a punch against them anymore.
     work_remote       = Column(Integer, default=0)
+    # Optional assigned work site (Visesh, Sep 25): '' = may punch from ANY
+    # company work site (the default for everyone); an HrWorkSite.id = punches
+    # are judged against that one site's fence only.
+    work_site_id      = Column(String, default="")
     # Email signature overrides (Sep 16, Neil): name/role/company email are NOT
     # editable here - they stay pulled live from the directory fields above so
     # the signature can't drift from who someone actually is ("keeps everybody

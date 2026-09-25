@@ -753,6 +753,8 @@ def _run_migrations():
             # in the same statement, so it matches nothing on any later start.
             "ALTER TABLE nexus_employees ADD COLUMN work_remote INTEGER DEFAULT 0",
             "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
+            # Optional assigned work site (Sep 25) - '' = any company site.
+            "ALTER TABLE nexus_employees ADD COLUMN work_site_id TEXT DEFAULT ''",
             # Emoji reactions on tasks - see the matching Postgres migration below.
             "ALTER TABLE tasks ADD COLUMN reactions JSON DEFAULT '{}'",
             # Company Manager goes multi (Neil, Sep 22 call) - see the matching
@@ -1588,6 +1590,8 @@ def _run_migrations():
         # migration above. Same one-shot carry-over.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_remote INTEGER DEFAULT 0",
         "UPDATE nexus_employees SET work_remote = 1, geofence_radius_m = 0 WHERE geofence_radius_m > 0",
+        # Optional assigned work site (Sep 25) - '' = any company site.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_site_id TEXT DEFAULT ''",
         # Emoji reactions on tasks - same one-shot addition as the SQLite list above.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb",
         # Nexus Assistant (Phase 0, Sep 2026) - new tables, create_all builds them;
