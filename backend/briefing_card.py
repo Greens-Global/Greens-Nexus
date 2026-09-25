@@ -67,14 +67,16 @@ def _decision_actions(ctx: dict, kind: str, action_id: str, email: str) -> list:
     if kind == "ticket_approval":
         # Nexus requires a reason to reject a ticket request.
         note_id = ctx["next_id"]("note")
-        out.append({"type": "Action.ShowCard", "title": "Reject", "card": {
+        out.append({"type": "Action.ShowCard", "title": "Reject", "style": "destructive", "card": {
             "type": "AdaptiveCard",
             "body": [{"type": "Input.Text", "id": note_id, "isMultiline": True,
                       "placeholder": "Reason for rejecting (required)"}],
-            "actions": [_post(ctx, "Confirm Reject", f"{{{{{note_id}.value}}}}", kind="decision", token=reject)],
+            "actions": [_post(ctx, "Confirm Reject", f"{{{{{note_id}.value}}}}", style="destructive",
+                              kind="decision", token=reject)],
         }})
     else:
-        out.append(_post(ctx, "Reject", kind="decision", token=reject))
+        # "destructive" is the card's red button style.
+        out.append(_post(ctx, "Reject", style="destructive", kind="decision", token=reject))
     return out
 
 
@@ -115,11 +117,16 @@ def _task_actions(ctx: dict, row: dict) -> list:
 
 
 def _row(ctx: dict, row: dict, first: bool) -> dict:
+    """One table row: item on the left, update on the right - the same Item /
+    Update columns as the HTML version - with comments and buttons on their
+    own full-width lines underneath, so a row of buttons is never cut off."""
     title = row["title"] if not row.get("ref") else f"{row['ref']}  {row['title']}"
-    items = [{"type": "TextBlock", "text": title, "weight": "bolder", "wrap": True}]
-    if row.get("detail"):
-        items.append({"type": "TextBlock", "text": row["detail"], "isSubtle": True, "wrap": True,
-                      "spacing": "none"})
+    items = [{"type": "ColumnSet", "columns": [
+        {"type": "Column", "width": 64, "items": [
+            {"type": "TextBlock", "text": title, "weight": "bolder", "wrap": True}]},
+        {"type": "Column", "width": 36, "items": [
+            {"type": "TextBlock", "text": row.get("detail") or "", "wrap": True, "isSubtle": True}]},
+    ]}]
     if row.get("comments"):
         items.append({"type": "Container", "style": "emphasis", "spacing": "small", "items": [
             {"type": "TextBlock", "text": "Recent Comments", "size": "small", "weight": "bolder",
@@ -139,27 +146,37 @@ def _row(ctx: dict, row: dict, first: bool) -> dict:
         actions.append({"type": "Action.OpenUrl", "title": "Open in Nexus", "url": row["url"]})
     if actions:
         items.append({"type": "ActionSet", "spacing": "small", "actions": actions})
-    return {"type": "Container", "items": items, "separator": not first, "spacing": "medium"}
+    return {"type": "Container", "separator": True, "spacing": "medium", "items": items}
 
 
-def _module(ctx: dict, module: str, rows: list, view_url: str) -> list:
+def _module(ctx: dict, module: str, rows: list, view_url: str, style: str) -> list:
+    """A module is one box in its section's color (Pranshu, Sep 26: same boxes
+    as the HTML version): a header row, then one row per item."""
     label = _MODULE_LABEL.get(module, module.replace("_", " ").title())
-    out = [{"type": "TextBlock", "text": f"{label} ({len(rows)})", "weight": "bolder",
-            "size": "medium", "spacing": "large", "wrap": True}]
-    out += [_row(ctx, r, i == 0) for i, r in enumerate(rows[:_ROWS_SHOWN])]
+    head = {"type": "ColumnSet", "columns": [
+        {"type": "Column", "width": 64, "items": [
+            {"type": "TextBlock", "text": "ITEM", "size": "small", "weight": "bolder", "isSubtle": True}]},
+        {"type": "Column", "width": 36, "items": [
+            {"type": "TextBlock", "text": "UPDATE", "size": "small", "weight": "bolder", "isSubtle": True}]},
+    ]}
+    box = [head] + [_row(ctx, r, i == 0) for i, r in enumerate(rows[:_ROWS_SHOWN])]
     more = rows[_ROWS_SHOWN:_ROWS_IN_CARD]
     footer = []
     if more:
         more_id = ctx["next_id"]("more")
-        out.append({"type": "Container", "id": more_id, "isVisible": False,
+        box.append({"type": "Container", "id": more_id, "isVisible": False, "spacing": "none",
                     "items": [_row(ctx, r, False) for r in more]})
         footer.append({"type": "Action.ToggleVisibility", "title": f"Show {len(more)} More",
                        "targetElements": [more_id]})
     if len(rows) > _ROWS_IN_CARD and view_url:
         footer.append({"type": "Action.OpenUrl", "title": f"View All {len(rows)} in Nexus", "url": view_url})
     if footer:
-        out.append({"type": "ActionSet", "spacing": "small", "actions": footer})
-    return out
+        box.append({"type": "ActionSet", "separator": True, "spacing": "medium", "actions": footer})
+    return [
+        {"type": "TextBlock", "text": f"{label} ({len(rows)})", "weight": "bolder",
+         "spacing": "large", "wrap": True},
+        {"type": "Container", "style": style, "spacing": "small", "items": box},
+    ]
 
 
 def _section(ctx: dict, key: str, rows: list, view_urls: dict) -> list:
@@ -171,7 +188,7 @@ def _section(ctx: dict, key: str, rows: list, view_urls: dict) -> list:
     order = [m for m in _MODULE_ORDER if m in buckets] + [m for m in buckets if m not in _MODULE_ORDER]
     content = []
     for m in order:
-        content += _module(ctx, m, buckets[m], view_urls.get(m, ""))
+        content += _module(ctx, m, buckets[m], view_urls.get(m, ""), style)
     header = {
         "type": "Container", "style": style, "spacing": "large",
         # The whole header row is the toggle - clicking anywhere on it opens
@@ -228,13 +245,15 @@ def build_card(*, sections: dict, first_name: str, greeting: str, weekday_date: 
     ]
     present = [k for k in _ORDER if sections.get(k)]
     if present:
-        body.append({"type": "Container", "style": "emphasis", "spacing": "medium", "items": [
+        body.append({"type": "Container", "spacing": "medium", "items": [
             {"type": "ColumnSet", "columns": [
-                {"type": "Column", "width": "stretch", "items": [
+                {"type": "Column", "width": "stretch", "style": _SECTION[k][1], "items": [
                     {"type": "TextBlock", "text": str(len(sections[k])), "size": "extraLarge",
                      "weight": "bolder", "color": _SECTION[k][2]},
-                    {"type": "TextBlock", "text": _SECTION[k][3], "isSubtle": True, "size": "small",
-                     "spacing": "none", "wrap": True}]}
+                    # Label in the section color too: Outlook picks the tile's
+                    # background from its own theme, so the text carries the color.
+                    {"type": "TextBlock", "text": _SECTION[k][3], "color": _SECTION[k][2], "weight": "bolder",
+                     "size": "small", "spacing": "none", "wrap": True}]}
                 for k in present]}]})
         body.append({"type": "TextBlock", "text": "Select a section to show or hide it.", "isSubtle": True,
                      "size": "small", "spacing": "small"})
