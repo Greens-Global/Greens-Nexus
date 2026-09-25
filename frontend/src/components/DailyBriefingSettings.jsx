@@ -69,6 +69,7 @@ export default function DailyBriefingSettings() {
       const patch = {
         mode: cfg.mode,
         test_recipients: recipientsInput.split(',').map((s) => s.trim()).filter(Boolean),
+        outlook_card: !!cfg.outlook_card,
       };
       const next = await api.updateDailyBriefingConfig(patch);
       setCfg(next);
@@ -130,6 +131,22 @@ export default function DailyBriefingSettings() {
           </div>
         </div>
       )}
+
+      <div style={{ marginBottom: 16 }}>
+        <label style={fieldLabel}>Outlook Card</label>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', border: `1px solid ${NX.border}`, borderRadius: 8, cursor: 'pointer' }}>
+          <input type="checkbox" checked={!!cfg.outlook_card} style={{ marginTop: 3 }}
+            onChange={(e) => setCfg((c) => ({ ...c, outlook_card: e.target.checked }))} />
+          <span>
+            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Send the Outlook card version</div>
+            <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>
+              Outlook shows its own card layout instead of the email design: sections collapse and buttons work inside
+              Outlook, but Outlook controls the colors and button styles. Leave off to send everyone the email design;
+              the My Briefing page in Nexus has collapsible sections and one-click actions either way.
+            </div>
+          </span>
+        </label>
+      </div>
 
       {goingLive && (
         <div style={{
