@@ -259,11 +259,28 @@ def kpis(scope: str = "self", user: dict = Depends(get_current_user), db: Sessio
             return sum(1 for k in latest.values() if k != "out")
         if team:
             safe("clocked_in_now", clocked_in)
-            safe("time_off_pending", lambda: db.query(M.TimeOffRequest).filter(M.TimeOffRequest.status == "pending").count())
+            safe("time_off_pending", lambda: _time_off_pending(db, user, email))
         return out
 
     out = cache.dashboard_kpis.get_or_load((email, team), _compute)
     return {"kpis": out, "at": _now()}
+
+
+def _time_off_pending(db: Session, user: dict, email: str) -> int:
+    """Pending time off this person should review (Pranshu, Sep 25): a Global
+    Admin (level 5) sees the whole company's; everyone else only their DIRECT
+    reports'. It used to count every pending request company-wide for anyone
+    with team widgets, so managers saw other teams' leave."""
+    import models as M
+    q = db.query(M.TimeOffRequest).filter(M.TimeOffRequest.status == "pending")
+    if int(user.get("level", 0)) < 5:
+        reports = [(e.work_email or "").lower() for e in db.query(M.NexusEmployee.work_email)
+                   .filter(func.lower(M.NexusEmployee.manager_email) == email.lower()).all()
+                   if e.work_email]
+        if not reports:
+            return 0
+        q = q.filter(func.lower(M.TimeOffRequest.employee_email).in_(reports))
+    return q.count()
 
 
 # ── BI insights (Neil, Sep 14) ──────────────────────────────────────────────

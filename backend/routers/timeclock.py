@@ -46,7 +46,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
-                    NexusSetting, NexusNotification, HrCompanyHoliday)
+                    NexusSetting, NexusNotification, HrCompanyHoliday, NexusRole)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
@@ -1346,22 +1346,53 @@ def _display_name(db: Session, email: str) -> str:
     return (email or "").split("@")[0].replace(".", " ").title()
 
 
+def _team_alert_recipients(db: Session, employee_email: str, actor_email: str = "") -> list[str]:
+    """Who hears about one person's time and leave (Pranshu, Sep 25): THEIR
+    manager plus the Global Admins (role 'owner') - nobody else. These used to
+    broadcast (recipient='') whenever the manager was the actor or no manager
+    was on file, and a broadcast reaches EVERY manager-level account, so one
+    team's leave and timecard edits landed on unrelated managers' home
+    screens. Never the actor (they already know), never the employee
+    themself (their own copy, if any, is sent separately)."""
+    employee_email = (employee_email or "").strip().lower()
+    actor_email = (actor_email or "").strip().lower()
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == employee_email).first()
+    out = []
+    mgr = (emp.manager_email or "").strip().lower() if emp else ""
+    if mgr:
+        out.append(mgr)
+    for r in db.query(NexusRole).filter(NexusRole.role == "owner").all():
+        e = (r.email or "").strip().lower()
+        if e and e not in out:
+            out.append(e)
+    return [e for e in out if e not in (actor_email, employee_email)]
+
+
+def _notify_team_alert(db: Session, *, employee_email: str, actor_email: str, title: str,
+                       body: str, ref_id: str = "", action: Optional[dict] = None,
+                       requested_by: str = "") -> None:
+    """One targeted bell row per recipient of _team_alert_recipients - never a
+    broadcast."""
+    now = _now_iso()
+    for recipient in _team_alert_recipients(db, employee_email, actor_email):
+        db.add(NexusNotification(
+            id=str(uuid.uuid4()), type="custom_alert", recipient=recipient,
+            title=title, body=body, ref_id=ref_id, item_name="",
+            requested_by=requested_by or actor_email,
+            action=json.dumps(action) if action else "",
+            actioned=False, read_by="", created_at=now))
+
+
 def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: str,
                             body: str, ref_id: str = "") -> None:
     """Oversight for DIRECT timecard edits (Visesh, Aug 11): a punch changed
     without going through a request/approval must still be seen by someone
-    OTHER than the person who changed it. Target the employee's approver
-    (manager); when the actor IS that approver - or no manager is on file -
-    broadcast to all managers instead (recipient=''), which reaches HR and
-    the global admins, so an edit is never visible only to its author."""
-    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == employee_email).first()
-    mgr = (emp.manager_email or "").strip().lower() if emp else ""
-    recipient = mgr if (mgr and mgr != (actor_email or "").lower()) else ""
-    db.add(NexusNotification(
-        id=str(uuid.uuid4()), type="custom_alert", recipient=recipient,
-        title="Timecard edited", body=body, ref_id=ref_id, item_name="",
-        requested_by=actor_email, action=json.dumps({"view": "hr", "sub": "hr-time"}),
-        actioned=False, read_by="", created_at=_now_iso()))
+    OTHER than the person who changed it - the employee's manager and the
+    Global Admins (see _team_alert_recipients), so a manager's edit to their
+    own report still reaches a Global Admin."""
+    _notify_team_alert(db, employee_email=employee_email, actor_email=actor_email,
+                       title="Timecard edited", body=body, ref_id=ref_id,
+                       action={"view": "hr", "sub": "hr-time"})
 
 
 @router.patch("/punches/{punch_id}")
@@ -2308,16 +2339,12 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
 
 def _notify_approvers(db: Session, *, employee_email: str, title: str, body: str,
                       ref_id: str = "", action: Optional[dict] = None) -> None:
-    """Route a timecard request to whoever approves this person: their manager if
-    one is set, otherwise BROADCAST to all managers (recipient='') so it is never
-    silently dropped for an employee with no manager on file."""
-    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == employee_email).first()
-    mgr = (emp.manager_email or "").strip().lower() if emp else ""
-    db.add(NexusNotification(
-        id=str(uuid.uuid4()), type="custom_alert", recipient=mgr,   # '' = all managers
-        title=title, body=body, ref_id=ref_id, item_name="", requested_by=employee_email,
-        action=json.dumps(action) if action else "", actioned=False, read_by="",
-        created_at=_now_iso()))
+    """Route a timecard request to the employee's manager and the Global Admins
+    (_team_alert_recipients) - never a broadcast to every manager. With no
+    manager on file the Global Admins still get it, so it is never dropped."""
+    _notify_team_alert(db, employee_email=employee_email, actor_email=employee_email,
+                       title=title, body=body, ref_id=ref_id, action=action,
+                       requested_by=employee_email)
 
 
 class PunchEditIn(BaseModel):
@@ -6249,12 +6276,12 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
                          start_time=st, end_time=et,
                          note=(body.note or "").strip()[:400], created_at=now)
     db.add(row)
-    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == user["email"]).first()
-    if emp and emp.manager_email:
-        _hr_notify(db, emp.manager_email, "Time-off request",
-                   f"{emp.first_name} {emp.last_name} requested {body.type} "
-                   f"{body.start_date} → {body.end_date}{_timeoff_window(st, et)}.",
-                   ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    who = _display_name(db, user["email"])
+    _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
+                       title="Time-off request",
+                       body=f"{who} requested {body.type} "
+                            f"{body.start_date} → {body.end_date}{_timeoff_window(st, et)}.",
+                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
     return _ser_timeoff(row)
 
@@ -6303,11 +6330,11 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
                    f"{filer} requested {body.type} time off {body.start_date} → {body.end_date}{_timeoff_window(st, et)} "
                    "on your behalf - you'll hear once it's decided.",
                    ref_id=row.id, action={"view": "timeclock", "sub": ""})
-    if emp.manager_email and emp.manager_email.strip().lower() != user["email"]:
-        _hr_notify(db, emp.manager_email, "Time-off request",
-                   f"{filer} filed a {body.type} request for {emp.first_name} {emp.last_name}: "
-                   f"{body.start_date} → {body.end_date}{_timeoff_window(st, et)}.",
-                   ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    _notify_team_alert(db, employee_email=target, actor_email=user["email"],
+                       title="Time-off request",
+                       body=f"{filer} filed a {body.type} request for {emp.first_name} {emp.last_name}: "
+                            f"{body.start_date} → {body.end_date}{_timeoff_window(st, et)}.",
+                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
     return _ser_timeoff(row)
 
@@ -6381,12 +6408,12 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     was_approved = row.status == "approved"
     row.status = "cancelled"
     row.decided_at = _now_iso()
-    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == user["email"]).first()
-    if was_approved and emp and emp.manager_email:
-        _hr_notify(db, emp.manager_email, "Time off cancelled",
-                   f"{_display_name(db, user['email'])} cancelled their {row.type} request "
-                   f"{row.start_date} → {row.end_date}"
-                   f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}.",
-                   ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    if was_approved:
+        _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
+                           title="Time off cancelled",
+                           body=f"{_display_name(db, user['email'])} cancelled their {row.type} request "
+                                f"{row.start_date} → {row.end_date}"
+                                f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}.",
+                           ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
     return _ser_timeoff(row)
