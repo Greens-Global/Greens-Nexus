@@ -33,6 +33,12 @@ designed email plus a small collapsed "decisions waiting" card on top -
 Outlook always draws a card above the body, never inside it), or **Full
 Card** (the whole briefing as a card, replacing the designed email).
 
+Outlook on iOS, Android and Mac only renders Adaptive Card **1.0** (Microsoft's
+support table), so any card that must show on phones has to stay 1.0: no
+Action.ToggleVisibility, ActionSet, container styles or button styles. The
+Quick Actions card and the task email card are 1.0; the Full Card uses 1.2
+and therefore appears on desktop and web only.
+
 ## What changed on Sep 22
 
 Microsoft retired the legacy Actionable Messages token on June 8, 2026.

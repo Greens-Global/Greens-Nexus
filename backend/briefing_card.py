@@ -290,23 +290,62 @@ def outcome_only_card(outcome: str, app_url: str) -> dict:
 # ── Quick Actions card (Sep 26, option A) ────────────────────────────────
 # Outlook always draws a card ABOVE the email body and cannot place buttons
 # inside our HTML, so this keeps our designed email as the body
-# (hideOriginalBody: False) and adds one compact block on top: a single
-# "N decisions waiting on you" line that opens the list of Approve / Reject
-# buttons. Only plain yes/no decisions belong here - everything else stays in
-# the email.
-_QUICK_MAX = 10
+# (hideOriginalBody: False) and adds one compact block on top.
+#
+# Adaptive Card 1.0 ONLY (Sep 26): Outlook on iOS, Android and Mac renders
+# nothing above version 1.0 (Microsoft's support table), so a 1.2 card - show /
+# hide toggles, buttons inside rows - silently vanished on phones. The task
+# email card is 1.0 for the same reason. Collapsing therefore uses 1.0's own
+# Action.ShowCard: one button per pending decision, which opens that
+# decision's Approve / Reject. No ToggleVisibility, ActionSet, container
+# styles or button styles (all 1.2).
+_QUICK_MAX = 6
 
 
 def _decision_rows(rows: list) -> list:
     return [r for r in rows if r.get("action_kind") or r.get("sub_actions")]
 
 
-def build_quick_card(*, action_rows: list, briefing_date: str, since_iso: str, outcome: str = ""):
+def _short(text: str, limit: int = 42) -> str:
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "\u2026"
+
+
+def _quick_entries(rows: list) -> list:
+    """One entry per decision; a bundled row (several time-off requests for
+    one person) becomes one entry per request."""
+    out = []
+    for row in _decision_rows(rows):
+        name = row["title"].removeprefix("Approve: ")
+        if row.get("action_kind"):
+            out.append({"label": name, "title": row["title"], "detail": row.get("detail") or "",
+                        "kind": row["action_kind"], "id": row["action_id"], "email": row["action_email"]})
+        for sub in row.get("sub_actions") or []:
+            out.append({"label": f"{name.split(' (')[0]} - {sub['detail']}", "title": row["title"],
+                        "detail": sub["detail"], "kind": sub["action_kind"], "id": sub["action_id"],
+                        "email": sub["action_email"]})
+    return out
+
+
+def _strip_styles(node):
+    """Button styles are a 1.2 property - dropped so the card stays pure 1.0."""
+    if isinstance(node, dict):
+        if str(node.get("type", "")).startswith("Action."):
+            node.pop("style", None)
+        for v in node.values():
+            _strip_styles(v)
+    elif isinstance(node, list):
+        for v in node:
+            _strip_styles(v)
+    return node
+
+
+def build_quick_card(*, action_rows: list, briefing_date: str, since_iso: str, outcome: str = "",
+                     briefing_url: str = ""):
     """None when there is nothing to decide - the email then goes out with no
-    card at all. After a click (`outcome`) the card is redrawn with the list
-    open, since the person is in the middle of deciding."""
-    decisions = _decision_rows(action_rows)
-    if not decisions and not outcome:
+    card at all. After a click (`outcome`) the card is redrawn with what is
+    still waiting."""
+    entries = _quick_entries(action_rows)
+    if not entries and not outcome:
         return None
     counter = {"n": 0}
 
@@ -315,58 +354,33 @@ def build_quick_card(*, action_rows: list, briefing_date: str, since_iso: str, o
         return f"{prefix}{counter['n']}"
 
     ctx = {"briefing_date": briefing_date, "since_iso": since_iso, "next_id": next_id, "variant": "quick"}
-    list_id, show_id, hide_id = "qa-list", "qa-show", "qa-hide"
-    opened = bool(outcome)
-    n = len(decisions)
+    n = len(entries)
     body = []
     if outcome:
-        body.append({"type": "Container", "style": "good", "items": [
-            {"type": "TextBlock", "text": outcome, "weight": "bolder", "wrap": True}]})
-    header = {"type": "Container", "spacing": "small" if outcome else "none", "items": [
-        {"type": "ColumnSet", "columns": [
-            {"type": "Column", "width": "stretch", "verticalContentAlignment": "center", "items": [
-                {"type": "TextBlock", "weight": "bolder", "wrap": True,
-                 "text": f"{n} decision{'' if n == 1 else 's'} waiting on you" if n else "Nothing left to decide."}]
-                + ([{"type": "TextBlock", "text": "Approve or reject here without leaving Outlook.",
-                     "isSubtle": True, "size": "small", "wrap": True, "spacing": "none"}] if n else [])},
-        ] + ([{"type": "Column", "width": "auto", "verticalContentAlignment": "center", "items": [
-            {"type": "TextBlock", "id": show_id, "text": "Show", "color": "accent", "weight": "bolder",
-             "isVisible": not opened},
-            {"type": "TextBlock", "id": hide_id, "text": "Hide", "color": "accent", "weight": "bolder",
-             "isVisible": opened, "spacing": "none"}]}] if n else [])}]}
+        body.append({"type": "TextBlock", "text": outcome, "weight": "bolder", "color": "good", "wrap": True})
+    body.append({"type": "TextBlock", "weight": "bolder", "size": "medium", "wrap": True,
+                 "spacing": "medium" if outcome else "none",
+                 "text": f"{n} decision{'' if n == 1 else 's'} waiting on you" if n else "Nothing left to decide."})
     if n:
-        header["selectAction"] = {"type": "Action.ToggleVisibility", "title": "Show or hide decisions",
-                                  "targetElements": [list_id, show_id, hide_id]}
-    body.append(header)
-
-    items = []
-    for row in decisions[:_QUICK_MAX]:
-        cols = [{"type": "Column", "width": "stretch", "verticalContentAlignment": "center", "items": [
-            {"type": "TextBlock", "text": row["title"], "weight": "bolder", "wrap": True},
-            {"type": "TextBlock", "text": row.get("detail") or "", "isSubtle": True, "size": "small",
-             "wrap": True, "spacing": "none"}]}]
-        if row.get("action_kind"):
-            cols.append({"type": "Column", "width": "auto", "verticalContentAlignment": "center", "items": [
-                {"type": "ActionSet", "actions": _decision_actions(
-                    ctx, row["action_kind"], row["action_id"], row["action_email"])}]})
-        entry = [{"type": "ColumnSet", "columns": cols}]
-        for sub in row.get("sub_actions") or []:
-            entry.append({"type": "ColumnSet", "spacing": "small", "columns": [
-                {"type": "Column", "width": "stretch", "verticalContentAlignment": "center", "items": [
-                    {"type": "TextBlock", "text": sub["detail"], "size": "small", "wrap": True}]},
-                {"type": "Column", "width": "auto", "verticalContentAlignment": "center", "items": [
-                    {"type": "ActionSet", "actions": _decision_actions(
-                        ctx, sub["action_kind"], sub["action_id"], sub["action_email"])}]},
-            ]})
-        items.append({"type": "Container", "separator": True, "spacing": "medium", "items": entry})
+        body.append({"type": "TextBlock", "isSubtle": True, "wrap": True, "spacing": "none",
+                     "text": "Select one to approve or reject it here, without leaving Outlook."})
+    actions = []
+    for e in entries[:_QUICK_MAX]:
+        actions.append({"type": "Action.ShowCard", "title": _short(e["label"]), "card": {
+            "type": "AdaptiveCard",
+            "body": [{"type": "TextBlock", "text": e["title"], "weight": "bolder", "wrap": True},
+                     {"type": "TextBlock", "text": e["detail"], "isSubtle": True, "wrap": True, "spacing": "none"}],
+            "actions": _decision_actions(ctx, e["kind"], e["id"], e["email"]),
+        }})
     if n > _QUICK_MAX:
-        items.append({"type": "TextBlock", "text": f"{n - _QUICK_MAX} more in the briefing below.",
-                      "isSubtle": True, "size": "small", "separator": True})
-    if items:
-        body.append({"type": "Container", "id": list_id, "isVisible": opened, "items": items})
-    return {
-        "type": "AdaptiveCard", "version": "1.2", "originator": task_mail_actions.AM_ORIGINATOR,
+        body.append({"type": "TextBlock", "isSubtle": True, "wrap": True,
+                     "text": f"{n - _QUICK_MAX} more in the briefing below."})
+        if briefing_url:
+            actions.append({"type": "Action.OpenUrl", "title": "Open My Briefing", "url": briefing_url})
+    return _strip_styles({
+        "type": "AdaptiveCard", "version": "1.0", "originator": task_mail_actions.AM_ORIGINATOR,
         # On top of our designed email, not instead of it.
         "hideOriginalBody": False,
         "body": body,
-    }
+        "actions": actions,
+    })
