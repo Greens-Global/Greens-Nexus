@@ -545,7 +545,7 @@ def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> li
             continue
         seen_tasks.add(t.id)
         rows.append({
-            "ref": t.code or "", "title": a.entity_title or t.title,
+            "title": a.entity_title or t.title,
             # Activity text is stored lowercase ("completed this task") and the
             # bare type is a snake_case key - both need to read as a sentence.
             "detail": _sentence(a.detail or (a.type or "").replace("_", " ")),
@@ -598,7 +598,7 @@ def _green_rows(db: Session, email: str, since_iso: str) -> list:
         if email.lower() not in task_assignees(t):
             continue
         rows.append({
-            "ref": t.code or "", "title": t.title,
+            "title": t.title,
             "detail": "Completed",
             "url": f"{app_url()}/tasks/mine?task={t.id}",
             "module": "tasks", "task_id": t.id, "action_email": email,
@@ -632,7 +632,7 @@ def _manager_task_completion_rows(db: Session, email: str, since_iso: str, my_re
     for rep_email, tasks in by_report.items():
         emp = my_reports.get(rep_email)
         name = f"{emp.first_name} {emp.last_name}".strip() if emp else rep_email
-        titles = [f"{t.code or 'Task'} - {t.title}" for t in tasks]
+        titles = [t.title for t in tasks]
         shown, hidden = titles[:3], titles[3:]
         detail = "; ".join(shown) + (f"; and {len(hidden)} more" if hidden else "")
         n = len(tasks)
@@ -786,7 +786,10 @@ def _button(label: str, url: str, primary: bool) -> str:
 
 
 def _links(pairs: list) -> str:
-    sep = f"<span style='color:#d1d5db'>&nbsp;&nbsp;|&nbsp;&nbsp;</span>"
+    # Plain spacing, not "|" dividers: a divider is left dangling at the end
+    # of a line when the links wrap. The trailing ordinary space is the only
+    # break point, so each link wraps whole.
+    sep = "&nbsp;&nbsp;&nbsp; "
     return sep.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:12.5px;font-weight:600;"
                     f"text-decoration:none;white-space:nowrap'>{escape(label)}</a>" for label, url in pairs)
 
