@@ -67,6 +67,7 @@ router = APIRouter(prefix="/esign", tags=["esign"])
 # resolves this during Azure's staging-slot warm-up (see app_url.py) would
 # otherwise bake in the wrong URL for its whole process lifetime.
 from app_url import app_url as _app_url_fn
+import email_theme
 
 # ── Local-dev storage fallback (E-Sign only) ──────────────────────────────────
 # Every real deployment (Azure) always has SUPABASE_URL/SUPABASE_SERVICE_KEY
@@ -970,6 +971,20 @@ def _report_email_mailto(party: HrSignParty, req: HrSignRequest) -> str:
     return f"mailto:{quote(_SUPPORT_CONTACT)}?subject={quote(subject)}&body={quote(body)}"
 
 
+def _esign_logo(th) -> str:
+    """The shared email theme's logo above the "Nexus Sign" title, or nothing
+    (today's look) when no logo is set. Nexus Sign mail never used the module
+    logo settings, so only the theme logo applies here."""
+    if not th.logoUrl:
+        return ""
+    return th.logo_block(height=28) + '<div style="height:12px"></div>'
+
+
+def _esign_footer_lines() -> str:
+    lines = email_theme.current().footer_lines("#9ca3af")
+    return f'<div style="font-size:11px;line-height:1.55">{lines}</div>' if lines else ""
+
+
 def _email_legal_footer(party: HrSignParty, req: HrSignRequest, sender: dict) -> str:
     """The strip every Nexus Sign email ends with.
 
@@ -1011,7 +1026,7 @@ def _email_legal_footer(party: HrSignParty, req: HrSignRequest, sender: dict) ->
         &nbsp;&middot;&nbsp;
         <a href="{_report_email_mailto(party, req)}" style="{link}">Report Email</a></p>
       <p style="margin:0;font-size:11px;color:#9ca3af;line-height:1.55">
-        &copy; {datetime.now(timezone.utc).year} {escape(_SOR_OPERATOR)}. All rights reserved.{f' {address}' if address else ''}</p>
+        &copy; {datetime.now(timezone.utc).year} {escape(_SOR_OPERATOR)}. All rights reserved.{f' {address}' if address else ''}</p>{_esign_footer_lines()}
     </td></tr>"""
 
 
@@ -1046,9 +1061,10 @@ def _sign_email_html(party: HrSignParty, req: HrSignRequest, sender: dict, link:
         contact.append(f'<span style="color:#6b7280">&#128222;</span> '
                        f'<a href="tel:{escape(re.sub(r"[^+0-9]", "", sender["phone"]))}" '
                        f'style="color:#374151;text-decoration:none">{escape(sender["phone"])}</a>')
+    th = email_theme.current()
     return f"""<div style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#f3f4f6;padding:28px 12px">
   <table style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border-collapse:collapse;width:100%">
-    <tr><td style="background:#14532d;padding:26px 36px">
+    <tr><td style="background:{th.color('#14532d')};padding:26px 36px">{_esign_logo(th)}
       <div style="color:#ffffff;font-size:20px;font-weight:800">Nexus Sign</div>
       <div style="color:#bbf7d0;font-size:12.5px;margin-top:4px">Signature Requested</div>
     </td></tr>
@@ -1075,7 +1091,7 @@ def _sign_email_html(party: HrSignParty, req: HrSignRequest, sender: dict, link:
     </td></tr>
     <tr><td style="padding:22px 36px 28px">
       <p style="margin:0 0 16px"><a href="{link}"
-        style="background:#15803d;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:13px 32px;border-radius:9px;display:inline-block">
+        style="background:{th.color('#15803d')};color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:13px 32px;border-radius:9px;display:inline-block">
         Review &amp; Sign</a></p>
       <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.6">
         The link above is unique to you and lets whoever holds it sign in your name.
@@ -1121,11 +1137,31 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
     ATTACHED (their retained copy, ESIGN retention), plus the three actions the
     review asked for: View, Download and Open in Nexus. Oversized documents
     fall back to link-only, and say so."""
-    from html import escape
     from_addr = os.getenv("NEXUS_FROM_EMAIL", "")
     if not (to_email and from_addr):
         return False, "no recipient email" if not to_email else "NEXUS_FROM_EMAIL not set"
     attach = len(pdf) <= _ATTACH_MAX
+    html = _sealed_email_html(to_name, req, attach, open_link, view_link, note, sender, party)
+    safe = re.sub(r'[\/:*?"<>|]+', " ", req.title or "Document").strip()[:80] or "Document"
+    # Same shape as the request: what happened, then which document - and the
+    # same MIME path, so the completion notice and the request agree on who
+    # sent them.
+    return _graph_send_mail(
+        from_addr=from_addr,
+        display_name=_from_display(sender["name"]) if (sender and sender.get("name")) else _SOR_NAME,
+        to_email=to_email,
+        subject=f"Completed: All parties have signed {req.title}",
+        html=html,
+        reply_to=((sender or {}).get("email") or ""),
+        pdf=((f"{safe} (signed).pdf", pdf) if attach else None),
+        timeout=30.0,
+    )
+
+
+def _sealed_email_html(to_name: str, req: HrSignRequest, attach: bool, open_link: str,
+                       view_link: str = "", note: str = "", sender: Optional[dict] = None,
+                       party: Optional[HrSignParty] = None) -> str:
+    from html import escape
     doc_line = ("The sealed document, with its Certificate of Completion, is attached."
                 if attach else
                 "The sealed document (with its Certificate of Completion) is too large to attach - "
@@ -1134,25 +1170,27 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
     # the browser, Download saves it. Where there is no separate viewing link
     # (an internal recipient, whose copy lives behind their Nexus login) the
     # button is simply not rendered rather than pointed somewhere unhelpful.
+    th = email_theme.current()
+    solid, deep = th.color('#15803d'), th.color('#14532d')
     btn = ('display:inline-block;text-decoration:none;font-weight:700;font-size:14px;'
            'padding:11px 22px;border-radius:9px;margin:0 8px 8px 0')
     actions = []
     if view_link:
-        actions.append(f'<a href="{view_link}" style="{btn};background:#15803d;color:#ffffff">View</a>')
-        actions.append(f'<a href="{view_link}" style="{btn};background:#ffffff;color:#14532d;'
-                       f'border:1.5px solid #15803d">Download</a>')
+        actions.append(f'<a href="{view_link}" style="{btn};background:{solid};color:#ffffff">View</a>')
+        actions.append(f'<a href="{view_link}" style="{btn};background:#ffffff;color:{deep};'
+                       f'border:1.5px solid {solid}">Download</a>')
     # "Open in Nexus" only for someone who HAS a Nexus login. An external
     # signer has no account, so the button could only ever take them to a sign-in
     # screen they cannot pass (Sagar, Sep 22 2026) - View and Download are their
     # copy, and those need no account.
     if not (party is not None and (party.kind or "") == "external"):
         actions.append(f'<a href="{open_link}" style="{btn};background:'
-                       f'{"#ffffff" if view_link else "#15803d"};color:'
-                       f'{"#14532d" if view_link else "#ffffff"}'
-                       f'{";border:1.5px solid #15803d" if view_link else ""}">Open in Nexus</a>')
+                       f'{"#ffffff" if view_link else solid};color:'
+                       f'{deep if view_link else "#ffffff"}'
+                       f'{";border:1.5px solid " + solid if view_link else ""}">Open in Nexus</a>')
     html = f"""<div style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#f3f4f6;padding:28px 12px">
   <table style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border-collapse:collapse;width:100%">
-    <tr><td style="background:#14532d;padding:26px 36px">
+    <tr><td style="background:{th.color('#14532d')};padding:26px 36px">{_esign_logo(th)}
       <div style="color:#ffffff;font-size:20px;font-weight:800">Nexus Sign</div>
       <div style="color:#bbf7d0;font-size:12.5px;margin-top:4px">Your document has been completed</div>
     </td></tr>
@@ -1168,23 +1206,10 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
     {_email_legal_footer(party, req, sender) if (party is not None and sender is not None) else
      '<tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 36px;'
      'font-size:11.5px;color:#6b7280;line-height:1.5">This is an automated message. '
-     'Please do not reply.</td></tr>'}
+     'Please do not reply.' + th.footer_lines() + '</td></tr>'}
   </table>
 </div>"""
-    safe = re.sub(r'[\/:*?"<>|]+', " ", req.title or "Document").strip()[:80] or "Document"
-    # Same shape as the request: what happened, then which document - and the
-    # same MIME path, so the completion notice and the request agree on who
-    # sent them.
-    return _graph_send_mail(
-        from_addr=from_addr,
-        display_name=_from_display(sender["name"]) if (sender and sender.get("name")) else _SOR_NAME,
-        to_email=to_email,
-        subject=f"Completed: All parties have signed {req.title}",
-        html=html,
-        reply_to=((sender or {}).get("email") or ""),
-        pdf=((f"{safe} (signed).pdf", pdf) if attach else None),
-        timeout=30.0,
-    )
+    return html
 
 
 def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_name: str) -> None:
