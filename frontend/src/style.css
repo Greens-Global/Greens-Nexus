@@ -4788,3 +4788,103 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   .docs-hero { padding: 18px 16px; }
   .docs-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Documentation: a section reached from a help search is outlined briefly. */
+.docs-flash { animation: docs-flash 2.2s ease-out; border-radius: 12px; }
+@keyframes docs-flash {
+  0%, 35% { box-shadow: 0 0 0 3px var(--wk-brand, #2b45e1); }
+  100%    { box-shadow: 0 0 0 3px transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .docs-flash { animation: none; outline: 3px solid var(--wk-brand, #2b45e1); } }
+
+/* ── Help menu ("?" in the header, support/HelpMenu.jsx) ─────────────────────
+   A compact popover under the button on desktop. On phones the header button
+   is hidden (the phone menu's Help row opens it instead - a 4th right-side
+   icon collides with the centered wordmark) and the panel becomes a
+   full-width sheet under the header, so nothing scrolls sideways. */
+.help-menu-wrap { position: relative; display: flex; }
+.help-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 380px;
+  max-height: min(640px, calc(100vh - 88px));
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0,0,0,.16);
+  z-index: 500;
+  font-family: 'Inter', sans-serif;
+  color: var(--ink);
+}
+.help-panel-close {
+  width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  border: none; background: transparent; border-radius: 7px; color: var(--muted); cursor: pointer; flex-shrink: 0;
+}
+.help-panel-close:hover { background: var(--mist); color: var(--ink); }
+.help-search {
+  display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 38px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--mist);
+}
+.help-search:focus-within { border-color: var(--wk-brand, #2b45e1); background: var(--card); }
+.help-search input {
+  flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+  font: inherit; font-size: 13.5px; color: var(--ink);
+}
+.help-search input::placeholder { color: var(--muted); }
+.help-row {
+  width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 8px;
+  border: none; background: transparent; border-radius: 8px; cursor: pointer; text-align: left;
+  font: inherit; color: var(--ink);
+}
+.help-row:hover, .help-row.active { background: var(--mist); }
+.help-row:focus-visible, .help-page-head:focus-visible, .help-page-link:focus-visible {
+  outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px;
+}
+.help-row-icon {
+  width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--mist); border: 1px solid var(--line); color: var(--muted);
+}
+.help-row-title { display: block; font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--ink); }
+.help-row-sub {
+  font-size: 12px; line-height: 1.4; color: var(--muted); margin-top: 1px;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.help-section-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin: 2px 2px 6px;
+}
+.help-page-card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.help-page-head {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border: none; background: var(--mist); cursor: pointer; text-align: left; font: inherit;
+}
+.help-page-link {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  border: none; border-top: 1px solid var(--line); background: var(--card); cursor: pointer; text-align: left;
+  font: inherit; font-size: 12.5px; color: var(--ink);
+}
+.help-page-head:hover, .help-page-link:hover { background: var(--mist); }
+.help-page-link:hover { color: var(--wk-brand, #2b45e1); }
+.help-panel-hint { padding: 0 14px 10px; font-size: 11.5px; color: var(--muted); }
+.help-panel-hint kbd {
+  font: inherit; font-size: 11px; font-weight: 700; padding: 0 5px; border-radius: 4px;
+  border: 1px solid var(--line); background: var(--mist); color: var(--ink);
+}
+@media (max-width: 900px) {
+  .help-menu-btn { display: none; }
+  .help-panel {
+    position: fixed; top: 70px; left: 12px; right: 12px; width: auto;
+    max-height: calc(100dvh - 86px);
+  }
+  .help-panel-hint { display: none; }
+}
+
+/* ── Suggested Articles in the ticket form (support/TicketDeflection.jsx) ── */
+.deflect-row { border: 1px solid var(--line); border-radius: 9px; background: var(--card); overflow: hidden; }
+.deflect-head {
+  width: 100%; display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px;
+  border: none; background: transparent; cursor: pointer; text-align: left; font: inherit; color: var(--ink);
+}
+.deflect-head:hover { background: var(--mist); }
+.deflect-head:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }

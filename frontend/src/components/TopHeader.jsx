@@ -3,6 +3,7 @@ import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, Chevron
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
+import HelpMenu from "../support/HelpMenu";
 import { useHeaderTabs } from "./ModuleTabs";
 import MyProfileModal from "./MyProfileModal";
 import EmailSettingsModal from "./EmailSettingsModal";
@@ -495,6 +496,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
             )}
           </div>
         )}
+        {/* "?" Help menu: search the guide, help for this page, then Contact
+            Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
+        <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
         <NotificationBell onNavigate={onNavigate} />
 
         {/* Unseen-changelog eye icon: only rendered while there's a published
