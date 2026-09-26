@@ -41,18 +41,21 @@
 // a select on phones, plus a filter box); everything that belongs to one
 // legal entity lives under Company Settings. Sub keys: 'global' (Organization
 // category), 'global-<category>' for the other categories, 'company',
-// 'access', 'actas', 'audit'. The old 'settings' sub still lands on Global
+// 'access', 'audit'. The old 'settings' sub still lands on Global
 // Settings.
+//
+// Settings are configuration, Tools are actions (Neil, Sep 26): Act As and
+// the Microsoft 365 directory sync moved out to the header's Tools menu
+// (components/ToolsMenu.jsx). An old 'actas' link lands on Global Settings.
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronDown, Tag, Shield,
-  Headset, Bell, Mail, Building2, RefreshCw, Loader2, Timer,
-  UserCog, Activity, DoorOpen, Signature, Check, Eye, X,
+  Headset, Bell, Mail, Building2, Loader2, Timer,
+  Activity, Signature, Check, Eye, X,
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
   Globe, ListChecks, Package, Search,
 } from 'lucide-react';
 import { api } from '../api';
-import { useRole } from '../contexts/RoleContext';
 import ModuleTabs from '../components/ModuleTabs';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -75,10 +78,6 @@ const RolesAccess = lazy(() => import('./RolesAccess'));
 // header AdminPanel drawer that used to render this is gone; AuditLogs is
 // named-exported from that file and embedded directly here now.
 const AuditLogs = lazy(() => import('../components/AdminPanel').then(m => ({ default: m.AuditLogs })));
-// Act As (Sep 11) - ActAsPicker is the search box + people list, shared with
-// the header dropdown's fixed-overlay ActAsModal so both stay in lockstep;
-// here it just renders inline instead of behind a modal.
-const ActAsPicker = lazy(() => import('../components/ActAsModal').then(m => ({ default: m.ActAsPicker })));
 // TaskNotifySettings needs TasksContext (task lookups for its delivery log's
 // "open task" link) - wrapped in its own TasksProvider here, same trick
 // Support.jsx uses for its Tasks-borrowed composers, since Admin has no
@@ -109,7 +108,7 @@ function SectionFallback() {
 // can never disagree about what a section is called.
 const GLOBAL_CATEGORIES = [
   { key: 'organization',   label: 'Organization',   Icon: Building2,
-    desc: 'Email signatures, the Microsoft 365 directory, and the work sites employees punch in at.' },
+    desc: 'Email signatures and the work sites employees punch in at.' },
   { key: 'service-desk',   label: 'Service Desk',   Icon: Headset,
     desc: 'How tickets are routed, who is notified, and the response targets agents work to.' },
   { key: 'tasks',          label: 'Tasks',          Icon: ListChecks,
@@ -125,9 +124,6 @@ const GLOBAL_SECTIONS = [
   { id: 'email-signature', category: 'organization', icon: Signature, title: 'Email Signature',
     sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in My Profile.',
     keywords: 'template sign-off logo sender override shared inbox branding' },
-  { id: 'm365-sync', category: 'organization', icon: RefreshCw, title: 'Microsoft 365 Directory Sync',
-    sub: 'Sync employee records and profile photos between Nexus and the Microsoft 365 directory.',
-    keywords: 'm365 office entra azure directory people photos sync' },
   { id: 'work-sites', category: 'organization', icon: MapPinned, title: 'Work Site Library',
     sub: 'Every location employees can punch in at, with its geofence. Each company chooses its own sites from this list.',
     keywords: 'geofence location address time clock punch map' },
@@ -799,61 +795,6 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
   );
 }
 
-// ── People: Company Setup, Work Sites, Sync M365 ──────────────────────────────
-// M365 directory sync only now - Company Setup and Work Sites moved out to
-// their own top-level "Company Setup" tab (Pranshu, Sep 18), since a company
-// has too much on it (departments, per-company work sites, holiday calendar)
-// to keep managing from a popup nested inside this accordion.
-function M365SyncSection({ toastOk, toastErr, defaultOpen }) {
-  const [syncBusy, setSyncBusy] = useState(false);
-  const [syncLabel, setSyncLabel] = useState('');
-
-  // Same handler as HR.jsx's "Sync M365" button - kicks off the server-side
-  // background job and polls its status.
-  async function runSync() {
-    if (syncBusy) return;
-    setSyncBusy(true);
-    setSyncLabel('Starting…');
-    try {
-      await api.syncM365TwoWay();
-      let s = null;
-      for (;;) {
-        await new Promise(r => setTimeout(r, 2500));
-        try { s = await api.syncM365TwoWayStatus(); } catch { continue; }
-        if (s.phase === 'pull') setSyncLabel('Reading directory…');
-        else if (s.phase === 'push') setSyncLabel(`Updating ${s.done} of ${s.total}…`);
-        else break;
-      }
-      if (s?.phase === 'failed') {
-        toastErr(`Microsoft 365 sync failed: ${s.errors?.[0]?.error || 'please try again'}.`);
-      } else {
-        const bits = [];
-        const p = s?.pull || {};
-        if (p.created) bits.push(`${p.created} added`);
-        bits.push(`${p.linked || 0} linked`, `${p.updated || 0} updated`);
-        bits.push(`${s?.pushedOk || 0} sent to Microsoft 365`);
-        try {
-          setSyncLabel('Syncing photos…');
-          const ph = await api.syncM365Photos();
-          if (ph.updated) bits.push(`${ph.updated} photos`);
-        } catch { /* photo pass is best-effort */ }
-        toastOk(`Microsoft 365 sync complete: ${bits.join(' · ')}.`);
-      }
-    } catch (err) { toastErr(err?.message || 'Sync failed.'); }
-    setSyncBusy(false);
-    setSyncLabel('');
-  }
-
-  return (
-    <Section {...SECTION_META['m365-sync']} defaultOpen={defaultOpen}>
-      <button className="secondary-btn" onClick={runSync} disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={14} />}
-        {syncBusy && syncLabel ? syncLabel : 'Sync Now'}
-      </button>
-    </Section>
-  );
-}
-
 // ── Work Site Library (Neil, Sep 25) - every site entered once, here; each
 // company picks its own from Company Settings -> the company -> Work Sites.
 function WorkSiteLibrarySection({ toastOk, toastErr, defaultOpen }) {
@@ -893,53 +834,6 @@ function CompanySetupSection({ toastOk, toastErr }) {
       <CompanySetupPage entities={entities} employees={employees} sites={sites}
         onChangedEntities={loadEntities} onChangedSites={loadSites} toastOk={toastOk} toastErr={toastErr} />
     </Suspense>
-  );
-}
-
-// ── Act As ───────────────────────────────────────────────────────────────────
-// The people list shows straight away (Pranshu, Sep 11) - no accordion to
-// open, no dropdown/modal to click through first, same as picking someone in
-// a search box anywhere else in Nexus. Reuses useRole's startActAs/stopActAs,
-// same as the header dropdown's own Act As entry point.
-function ActAsSection() {
-  const { actingAs, startActAs, stopActAs } = useRole();
-  const [stopping, setStopping] = useState(false);
-
-  async function handleExit() {
-    setStopping(true);
-    try { await stopActAs(); } finally { setStopping(false); }
-  }
-
-  return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-        <span style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-          <UserCog size={14} style={{ color: 'var(--ink)' }} />
-        </span>
-        <span>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>Act As</div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Use Nexus as another employee sees it, to troubleshoot their access. Limited to people whose role is below your own.</div>
-        </span>
-      </div>
-
-      {actingAs ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
-          <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>
-            Currently acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}).
-          </span>
-          <button className="secondary-btn" onClick={handleExit} disabled={stopping}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'hsl(var(--color-red))' }}>
-            <DoorOpen size={14} /> {stopping ? 'Exiting…' : 'Exit Act As'}
-          </button>
-        </div>
-      ) : (
-        <div style={{ marginTop: 14 }}>
-          <Suspense fallback={<SectionFallback />}>
-            <ActAsPicker onStart={startActAs} autoFocus={false} />
-          </Suspense>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -985,7 +879,6 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
     const key = `${id}-${single}`;
     switch (id) {
       case 'email-signature':      return <EmailSignatureSection key={key} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
-      case 'm365-sync':            return <M365SyncSection key={key} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'work-sites':           return <WorkSiteLibrarySection key={key} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'service-desk':         return <ServiceDeskSection key={key} defaultOpen={single} />;
       case 'ticket-notifications': return <TicketNotificationsSection key={key} defaultOpen={single} />;
@@ -1080,7 +973,6 @@ const TOP_TABS = [
   { key: 'global',  label: 'Global Settings',  Icon: Globe },
   { key: 'company', label: 'Company Settings', Icon: Building2 },
   { key: 'access',  label: 'Roles & Access',   Icon: Shield },
-  { key: 'actas',   label: 'Act As',           Icon: UserCog },
   { key: 'audit',   label: 'Audit Logs',       Icon: Activity },
 ];
 
@@ -1088,7 +980,7 @@ const TOP_TABS = [
 // 'global-<category>' the others; the old 'settings' key (bookmarks, links
 // from before the split) and anything unknown land on Global Settings.
 function resolveSub(sub) {
-  if (!sub || sub === 'settings' || sub === 'global') return { tab: 'global', category: 'organization' };
+  if (!sub || sub === 'settings' || sub === 'global' || sub === 'actas') return { tab: 'global', category: 'organization' };
   if (sub.startsWith('global-')) {
     const c = sub.slice('global-'.length);
     return { tab: 'global', category: CATEGORY_KEYS.has(c) ? c : 'organization' };
@@ -1097,8 +989,6 @@ function resolveSub(sub) {
 }
 
 export default function AdminConsole({ activeSub, onSubChange }) {
-  const { can, myGrantedModules, actingAs } = useRole();
-  const canActAs = (can?.('manager') ?? false) || !!myGrantedModules?.has?.('act-as');
   const [toast, setToast] = useState(null); // { msg, kind }
   const showToast = useCallback((msg, kind = 'success') => {
     setToast({ msg, kind });
@@ -1107,7 +997,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
   const toastOk = useCallback((msg) => showToast(msg, 'success'), [showToast]);
   const toastErr = useCallback((msg) => showToast(msg, 'error'), [showToast]);
 
-  const visibleTabs = TOP_TABS.filter(({ key }) => key !== 'actas' || canActAs || actingAs);
+  const visibleTabs = TOP_TABS;
   const resolved = resolveSub(activeSub);
   const topTab = visibleTabs.some(t => t.key === resolved.tab) ? resolved.tab : 'global';
   const setTopTab = (id) => onSubChange ? onSubChange(id) : undefined;
@@ -1153,8 +1043,6 @@ export default function AdminConsole({ activeSub, onSubChange }) {
         <Suspense fallback={<SkeletonBlocks count={4} height={56} borderRadius={10} />}>
           <AuditLogs />
         </Suspense>
-      ) : topTab === 'actas' ? (
-        <ActAsSection />
       ) : (
         <GlobalSettings category={resolved.category} onCategory={setCategory}
           toast={showToast} toastOk={toastOk} toastErr={toastErr} />

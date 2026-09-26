@@ -1145,11 +1145,10 @@ export const DOCS = [
     tagline: 'Organization-wide settings, per-company setup, who can access what, and the audit trail.',
     where: 'Left menu > Settings',
     access: 'IT Admin and Global Admin, or anyone given the Settings grant',
-    purpose: 'Settings is where admins shape Nexus. Global Settings apply to every company; Company Settings are managed one company at a time. Roles & Access decides who sees which module, Act As lets you check what another person sees, and Audit Logs record every change.',
+    purpose: 'Settings is where admins shape Nexus. Global Settings apply to every company; Company Settings are managed one company at a time. Roles & Access decides who sees which module, and Audit Logs record every change. Actions such as Act As and the Microsoft 365 sync are not settings, so they live in the Tools menu at the top of every screen.',
     gains: [
       'Change a setting once for the whole organization, or for just one company.',
       'Give someone exactly the access they need, in one place.',
-      'See Nexus as another person sees it, to fix access problems fast.',
       'A full record of who changed what.',
     ],
     shot: 'access',
@@ -1182,17 +1181,16 @@ export const DOCS = [
       {
         title: 'See What Someone Else Sees',
         steps: [
-          'Click the Act As tab.',
-          'Pick the person. Nexus shows their view, with a banner saying who you are acting as.',
+          'Click Tools (the wrench) at the top of the screen. On a phone, open the menu and tap Tools.',
+          'Click Act As and pick the person. Nexus shows their view, with a banner saying who you are acting as.',
           'Stop acting as them from the banner when you are done.',
         ],
       },
     ],
     features: [
-      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature, Microsoft 365 Directory Sync and the Work Site Library. Service Desk: Service Desk & Escalation, Ticket Notifications, and SLA & Ticket Types. Tasks: Task Notifications. Communications: Daily Briefing. Items: Item Types & Custom Fields.' },
+      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Service Desk: Service Desk & Escalation, Ticket Notifications, and SLA & Ticket Types. Tasks: Task Notifications. Communications: Daily Briefing. Items: Item Types & Custom Fields.' },
       { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
       { name: 'Roles & Access', desc: 'Job roles (the baseline), Access Groups (extras on top), per-person overrides and seniority tiers.' },
-      { name: 'Act As', desc: 'View Nexus as another person, for troubleshooting.' },
       { name: 'Audit Logs', desc: 'Every access and settings change, with who and when.' },
     ],
     manager: {

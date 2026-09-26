@@ -31,8 +31,9 @@ describe('AdminConsole', () => {
     expect(screen.getByText('Applies to every company.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Organization' })).toBeInTheDocument();
     expect(screen.getByText('Email Signature')).toBeInTheDocument();
-    expect(screen.getByText('Microsoft 365 Directory Sync')).toBeInTheDocument();
     expect(screen.getByText('Work Site Library')).toBeInTheDocument();
+    // The Microsoft 365 sync is an action - it moved to the header's Tools menu.
+    expect(screen.queryByText('Microsoft 365 Directory Sync')).not.toBeInTheDocument();
     // Other categories' sections stay out of view until picked.
     expect(screen.queryByText('Service Desk & Escalation')).not.toBeInTheDocument();
   });
@@ -73,14 +74,23 @@ describe('AdminConsole', () => {
     expect(screen.getByText('Task Notifications')).toBeInTheDocument();
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 
+    fireEvent.change(box, { target: { value: 'geofence' } });
+    expect(screen.getByText('Work Site Library')).toBeInTheDocument();
+    expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
+
     fireEvent.change(box, { target: { value: 'microsoft' } });
-    expect(screen.getByText('Microsoft 365 Directory Sync')).toBeInTheDocument();
-    expect(screen.queryByText('Work Site Library')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Sync Now/ })).toBeInTheDocument();
+    expect(screen.getByText(/No settings match/)).toBeInTheDocument();
 
     fireEvent.change(box, { target: { value: 'nothing like this' } });
     expect(screen.getByText(/No settings match/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Clear Filter' }));
+    expect(screen.getByText('Email Signature')).toBeInTheDocument();
+  });
+
+  it('has no Act As tab, and an old actas link lands on Global Settings', () => {
+    render(<AdminConsole activeSub="actas" onSubChange={() => {}} />);
+    expect(screen.queryByRole('button', { name: /Act As/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Applies to every company.')).toBeInTheDocument();
     expect(screen.getByText('Email Signature')).toBeInTheDocument();
   });
 

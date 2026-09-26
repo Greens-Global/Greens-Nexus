@@ -3577,8 +3577,10 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
 
 // ── Main E-Sign tab (lives in the Documents module) ──────────────────────────
 // Bell/toast deep-links: navSub 'documents-esign' → Inbox,
-// 'documents-esign-requests' → Sent.
-const NAV_TAB = { 'documents-esign': 'inbox', 'documents-esign-requests': 'requests' };
+// 'documents-esign-requests' → Sent. 'documents-esign-new' (the header Tools
+// menu's Send for Signature) lands on Sent with the send wizard already open.
+const NAV_TAB = { 'documents-esign': 'inbox', 'documents-esign-requests': 'requests', 'documents-esign-new': 'requests' };
+const NAV_NEW = 'documents-esign-new';
 
 export default function ESign({ employees = [], entities = [], prefill = null, navSub = '', onPrefillConsumed, onSentRequest, toastOk, toastErr }) {
   const [sub, setSub] = useState(NAV_TAB[navSub] || 'inbox');
@@ -3586,7 +3588,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   const [requests, setRequests] = useState(null);
   const [templates, setTemplates] = useState(null);
   const [signParty, setSignParty] = useState(null);
-  const [sendOpen, setSendOpen] = useState(false);
+  const [sendOpen, setSendOpen] = useState(navSub === NAV_NEW);
   const [detailId, setDetailId] = useState(null);
   const [reqSearch, setReqSearch] = useState('');
   const [reqFilter, setReqFilter] = useState('all');
@@ -3627,6 +3629,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
     const onNav = (e) => {
       const t = NAV_TAB[e.detail?.sub];
       if (e.detail?.view === 'documents' && t) switchSub(t);
+      if (e.detail?.view === 'documents' && e.detail?.sub === NAV_NEW) setSendOpen(true);
     };
     window.addEventListener('nexus:navigate', onNav);
     return () => window.removeEventListener('nexus:navigate', onNav);

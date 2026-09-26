@@ -6,6 +6,7 @@ import PageHelp from "./PageHelp";
 import { useHeaderTabs } from "./ModuleTabs";
 import MyProfileModal from "./MyProfileModal";
 import EmailSettingsModal from "./EmailSettingsModal";
+import ToolsMenu from "./ToolsMenu";
 
 // ?emailSettings=1 - the "Email Settings" link in task emails. Read when this
 // module LOADS, not when the header mounts: the app's boot (auth, then routing
@@ -495,6 +496,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
             )}
           </div>
         )}
+        <ToolsMenu />
         <NotificationBell onNavigate={onNavigate} />
 
         {/* Unseen-changelog eye icon: only rendered while there's a published
