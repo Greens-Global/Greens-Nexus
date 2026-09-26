@@ -15,7 +15,6 @@ GET / replace-all PUT is the pragmatic, low-risk shape. Later phases can promote
 warranty/inspection date columns for expiry notifications.
 """
 import time
-import uuid
 from datetime import datetime, timezone, date
 from typing import Any, Dict, List, Optional
 
@@ -25,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import require_module_grant
-from models import PropertyAsset, PropertyRecord, PropertyActivityLog, PropertyWorkspaceMeta, NexusNotification
+from models import PropertyAsset, PropertyRecord, PropertyActivityLog, PropertyWorkspaceMeta
 
 router = APIRouter(tags=["Asset Management"])
 
