@@ -74,7 +74,7 @@ describe('CreateTicketModal suggested articles', () => {
     fireEvent.click(screen.getByRole('button', { name: /This Solved My Problem/ }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(createTicket).not.toHaveBeenCalled();
-    expect(document.querySelector('.help-toast')?.textContent).toMatch(/No ticket was created/);
+    expect(document.querySelector('.help-toast')?.textContent).toMatch(/Ticket not submitted/);
   });
 
   it('"Still Need Help" hides the suggestions and the ticket still submits', async () => {
