@@ -21,6 +21,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
   const [departments, setDepartments] = useState([]);
   const [selId, setSelId] = useState(null);
   const [editing, setEditing] = useState(undefined);   // undefined = closed, object = edit / new seed
+  const [editingShared, setEditingShared] = useState(null);   // a shared role open in the editor
   const [assignFor, setAssignFor] = useState(null);
   const { data: dir } = usePeopleDirectory();
   const nameOf = useNameResolver();
@@ -185,7 +186,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
       <div style={{ marginTop: 28 }}>
         <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Shared Across Companies</h4>
         <p style={{ margin: '4px 0 12px', fontSize: 12.5, color: 'var(--muted)', maxWidth: '72ch' }}>
-          These roles apply in every company, and people from any company can hold them. Move one here when everyone in it works at {entity.name}, or duplicate it to give {entity.name} its own version.
+          These roles apply in every company, and people from any company can hold them. Editing one changes it everywhere. Move one here when everyone in it works at {entity.name}, or duplicate it to give {entity.name} its own version.
         </p>
         {shared.length === 0 ? (
           <div style={{ color: 'var(--muted)', fontSize: 13 }}>No shared roles.</div>
@@ -200,6 +201,8 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
                     <span style={{ fontWeight: 700, fontSize: 13.5, flex: 1, minWidth: 140 }}>{r.name}</span>
                     <TierBadge tier={r.tier} />
                     <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>{r.member_count} {r.member_count === 1 ? 'person' : 'people'}</span>
+                    <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditingShared(r)}
+                      title="Edit this shared role (applies in every company)" aria-label={`Edit ${r.name}`}><Pencil size={13} /></button>
                     {/* The wrapper carries the tooltip: a disabled button gets no hover events. */}
                     <span title={blocker || `Only people at ${entity.name} will be offered this role.`}>
                       <button className="secondary-btn" disabled={!!blocker} onClick={() => moveHere(r)}
@@ -225,6 +228,14 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
         <RoleEditor role={editing} jobRoles={own} companyId={entity.id} departments={departments}
           onClose={() => setEditing(undefined)} onErr={toastErr}
           onSaved={r => { setEditing(undefined); toastOk(`Saved “${r.name}”.`); setSelId(r.id); load(); }} />
+      )}
+      {/* A shared role keeps company_id '' on save (RoleEditor only sets a
+          company when creating), and its departments come from the other
+          shared roles, not this company's list. */}
+      {editingShared && (
+        <RoleEditor role={editingShared} jobRoles={shared}
+          onClose={() => setEditingShared(null)} onErr={toastErr}
+          onSaved={r => { setEditingShared(null); toastOk(`Saved “${r.name}”. It applies in every company.`); load(); }} />
       )}
       {assignFor && (
         <AssignModal role={assignFor} onClose={() => setAssignFor(null)} onErr={toastErr}

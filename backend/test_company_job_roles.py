@@ -220,6 +220,19 @@ class CompanyJobRoleTests(unittest.TestCase):
         self.assertEqual(eff["job_role"]["id"], SHARED_MIXED)
         self.assertEqual(eff["job_role"]["company_id"], "")
 
+    # The generic groups routes must not get around the job-role checks.
+    def test_groups_route_cannot_move_job_role_company(self):
+        r = self.client.put(f"/groups/{SHARED_MIXED}", json={"company_id": COA})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.put(f"/groups/{ROLE_A}", json={"name": "cjr Alpha Crew", "company_id": COA})
+        self.assertEqual(r.status_code, 200)   # unchanged company is fine
+
+    def test_groups_route_cannot_add_other_company_member(self):
+        r = self.client.post(f"/groups/{ROLE_A}/members", json={"emails": [BEMP]})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post(f"/groups/{ROLE_A}/members", json={"emails": [AEMP2, NOCO]})
+        self.assertEqual(r.status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

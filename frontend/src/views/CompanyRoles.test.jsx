@@ -55,6 +55,8 @@ describe('CompanyRoles', () => {
     expect(mixed.getByRole('button', { name: /Move to This Company/ })).toBeDisabled();
     expect(mixed.getByText(/1 of 2 people in this role doesn't work at Alpha Co/)).toBeInTheDocument();
     expect(mixed.getByRole('button', { name: /Duplicate for This Company/ })).toBeEnabled();
+    // A shared role that can't move is still editable in place.
+    expect(mixed.getByRole('button', { name: 'Edit Crew Member' })).toBeEnabled();
 
     const local = within(screen.getByTestId('shared-role-r-office'));
     expect(local.getByRole('button', { name: /Move to This Company/ })).toBeEnabled();
