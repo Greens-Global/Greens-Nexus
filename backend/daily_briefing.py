@@ -26,12 +26,23 @@ reimplementing shift lookup - those already handle ScheduledShift ->
 ShiftAssignment -> preset fallback and, as of Sep 11, the Shift preset's own
 `timezone` field (e.g. GG India's shift stays anchored to IST) instead of
 guessing the employee's zone from their last punch's browser offset.
+
+Timing (Sep 27): the before-shift lead is `leadMinutes` in the config (30 to
+360, default 150). People with NO shift on their local "today" (a day off on
+their Shift preset, a weekend, or no preset and no published scheduled shift)
+used to never get a briefing. With `includeNoShift` on they get one at
+`defaultSendTime` (local HH:MM) in their own zone: their assigned Shift
+preset's timezone when they have one, else `defaultTimeZone`. Off by default
+so a deploy never starts mailing a new group of people on its own.
 """
 import asyncio
 import json
+import re
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time as dtime
 from html import escape
+
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
@@ -58,6 +69,14 @@ _DEFAULT_SETTINGS = {
     #   full  - the whole briefing as a card, replacing the designed email.
     # A saved True from the earlier on/off switch means "full".
     "outlook_card": "off",
+    # Timing (Sep 27). leadMinutes = how long before a shift starts the
+    # briefing goes out. The other three cover people with no shift today:
+    # off by default, sent at defaultSendTime (local 24h HH:MM) in the
+    # person's own zone, else defaultTimeZone.
+    "leadMinutes": 150,
+    "includeNoShift": False,
+    "defaultSendTime": "07:00",
+    "defaultTimeZone": "America/Los_Angeles",
 }
 
 
@@ -74,6 +93,63 @@ SCAN_EVERY_SEC = 15 * 60             # tight enough to catch a shift-relative
                                       # for a similar per-person threshold
 LOOKBACK_HOURS_FIRST_RUN = 48        # "since" window when an employee has no
                                       # prior briefing logged yet
+LEAD_MINUTES_MIN, LEAD_MINUTES_MAX = 30, 360
+NO_SHIFT_CATCH_UP_MIN = 240          # a no-shift send still goes out if the
+                                      # scan (or a restart) runs up to 4h after
+                                      # the default time; later than that the
+                                      # day is skipped rather than mailing at night
+_FALLBACK_TZ = "America/Los_Angeles"
+_HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
+def _valid_zone(name) -> bool:
+    if not isinstance(name, str) or not name.strip():
+        return False
+    try:
+        ZoneInfo(name.strip())
+        return True
+    except (ZoneInfoNotFoundError, ValueError):
+        return False
+
+
+def validate_timing(patch: dict) -> dict:
+    """Checks and normalizes the timing keys of a config patch. Raises
+    ValueError with a readable message on a bad value; keys not present are
+    left alone."""
+    out = dict(patch)
+    if "leadMinutes" in out:
+        v = out["leadMinutes"]
+        if isinstance(v, bool) or not isinstance(v, int) or not (LEAD_MINUTES_MIN <= v <= LEAD_MINUTES_MAX):
+            raise ValueError(f"Minutes before shift must be a whole number from {LEAD_MINUTES_MIN} to {LEAD_MINUTES_MAX}.")
+    if "includeNoShift" in out and not isinstance(out["includeNoShift"], bool):
+        raise ValueError("includeNoShift must be true or false.")
+    if "defaultSendTime" in out:
+        v = str(out["defaultSendTime"] or "").strip()
+        if not _HHMM.match(v):
+            raise ValueError("Default send time must be HH:MM (24-hour), for example 07:00.")
+        out["defaultSendTime"] = v
+    if "defaultTimeZone" in out:
+        if not _valid_zone(out["defaultTimeZone"]):
+            raise ValueError("Default time zone must be a valid IANA name, for example America/Los_Angeles.")
+        out["defaultTimeZone"] = out["defaultTimeZone"].strip()
+    return out
+
+
+def lead_minutes(cfg: dict) -> int:
+    v = cfg.get("leadMinutes")
+    if isinstance(v, int) and not isinstance(v, bool) and LEAD_MINUTES_MIN <= v <= LEAD_MINUTES_MAX:
+        return v
+    return TRIGGER_MINUTES_BEFORE_SHIFT
+
+
+def _default_send_time(cfg: dict) -> dtime:
+    m = _HHMM.match(str(cfg.get("defaultSendTime") or ""))
+    return dtime(int(m.group(1)), int(m.group(2))) if m else dtime(7, 0)
+
+
+def _default_zone(cfg: dict) -> str:
+    v = cfg.get("defaultTimeZone")
+    return v.strip() if _valid_zone(v) else _FALLBACK_TZ
 
 
 def _now_iso() -> str:
@@ -139,7 +215,7 @@ def _already_logged_today(db: Session, email: str, briefing_date: str) -> bool:
             .first()) is not None
 
 
-def _trigger_due(db: Session, email: str) -> tuple:
+def _trigger_due(db: Session, email: str, lead: int = TRIGGER_MINUTES_BEFORE_SHIFT) -> tuple:
     """(due: bool, briefing_date: str, local_now: datetime) - due once the
     employee's SHIFT's own timezone has reached shift_start minus
     TRIGGER_MINUTES_BEFORE_SHIFT, for a shift on today's or tomorrow's date in
@@ -162,10 +238,51 @@ def _trigger_due(db: Session, email: str) -> tuple:
         hh, mm = shift[0].split(":")
         local_now = _shift_local_now(shift[2])
         shift_start = datetime.combine(dd, datetime.min.time()).replace(hour=int(hh), minute=int(mm))
-        trigger_at = shift_start - timedelta(minutes=TRIGGER_MINUTES_BEFORE_SHIFT)
+        trigger_at = shift_start - timedelta(minutes=lead)
         if trigger_at <= local_now < shift_start and not _already_logged_today(db, email, dd.isoformat()):
             return True, dd.isoformat(), local_now
     return False, "", _shift_local_now("America/Los_Angeles")
+
+
+def _no_shift_eligible(emp: "models.NexusEmployee") -> bool:
+    """Who the no-shift default may mail: active, not deleted, internal
+    (Microsoft 365) staff. Shift sends never needed this filter since only a
+    current employee has a shift; without it a default time would reach
+    offboarded people and HR-record-only externals."""
+    return ((emp.status or "active") == "active" and not (emp.deleted_at or "")
+            and (emp.identity_type or "internal") == "internal")
+
+
+def _person_zone(db: Session, email: str, cfg: dict) -> str:
+    """The person's own time zone when Nexus knows it (their assigned Shift
+    preset's timezone, which still holds on their days off), else the
+    configured default. NexusEmployee has no timezone column."""
+    assign = db.query(models.ShiftAssignment).filter(models.ShiftAssignment.employee_email == email).first()
+    if assign and assign.shift_id:
+        preset = db.query(models.Shift).filter(models.Shift.id == assign.shift_id).first()
+        if preset and _valid_zone(preset.timezone):
+            return preset.timezone.strip()
+    return _default_zone(cfg)
+
+
+def _no_shift_due(db: Session, email: str, cfg: dict) -> tuple:
+    """(due, briefing_date, local_now) for a person with no shift on their
+    local today. "No shift" is decided by the same _shift_start_for the shift
+    path uses: no published ScheduledShift on that date and, if they have a
+    Shift preset, the weekday is not one of its working days. Due from the
+    default send time until NO_SHIFT_CATCH_UP_MIN later. The dedupe row is per
+    local date, so a person whose shift path already logged today (or a shift
+    published after this sent) is never mailed twice for the same day."""
+    local_now = _shift_local_now(_person_zone(db, email, cfg))
+    today = local_now.date()
+    if _shift_start_for(db, email, today):
+        return False, "", local_now
+    send_at = datetime.combine(today, _default_send_time(cfg))
+    if not (send_at <= local_now < send_at + timedelta(minutes=NO_SHIFT_CATCH_UP_MIN)):
+        return False, "", local_now
+    if _already_logged_today(db, email, today.isoformat()):
+        return False, "", local_now
+    return True, today.isoformat(), local_now
 
 
 # ── Content ───────────────────────────────────────────────────────────────
@@ -1057,7 +1174,7 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
     </tr>
     <tr>
       <td class="nx-pad" style="background:{_SOFT};border-top:1px solid {_LINE};padding:16px 32px;font-size:11.5px;line-height:1.6;color:{_MUTED}">
-        You receive one briefing a day, before your shift starts. It lists what needs your attention in Nexus since your last briefing.
+        You receive one briefing a day, before your shift starts (or at a set time on a day without a shift). It lists what needs your attention in Nexus since your last briefing.
       </td>
     </tr>
   </table>
@@ -1179,7 +1296,8 @@ def my_briefing(db: Session, email: str) -> dict:
 
 # ── Send + scan ─────────────────────────────────────────────────────────
 
-def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date: str) -> None:
+def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date: str,
+              local_now: datetime = None) -> None:
     since_iso = ""
     last = _last_log(db, emp.work_email)
     if last and last.sent_at:
@@ -1189,7 +1307,7 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
 
     sections = build_sections(db, emp.work_email, since_iso, briefing_date)
     first_name = (emp.first_name or "").strip()
-    greeting = _greeting(_recipient_local_now(db, emp.work_email))
+    greeting = _greeting(local_now or _recipient_local_now(db, emp.work_email))
     logo_url = _logo_url(db)
     subject, html = render_email(first_name, briefing_date, sections, greeting=greeting, logo_url=logo_url)
 
@@ -1273,6 +1391,8 @@ def _scan_once() -> int:
     sent = 0
     try:
         cfg = get_settings(db)
+        lead = lead_minutes(cfg)
+        no_shift = cfg.get("includeNoShift") is True
         employees = (db.query(models.NexusEmployee)
                      .filter(models.NexusEmployee.work_email != "").all())
         for emp in employees:
@@ -1282,11 +1402,13 @@ def _scan_once() -> int:
                 # _send_one's own commit releases it on the due path, the
                 # explicit rollback below releases it on the not-due path.
                 _acquire_employee_lock(db, emp.work_email)
-                due, briefing_date, _ = _trigger_due(db, emp.work_email)
+                due, briefing_date, local_now = _trigger_due(db, emp.work_email, lead)
+                if not due and no_shift and _no_shift_eligible(emp):
+                    due, briefing_date, local_now = _no_shift_due(db, emp.work_email, cfg)
                 if not due:
                     db.rollback()
                     continue
-                _send_one(db, emp, cfg, briefing_date)
+                _send_one(db, emp, cfg, briefing_date, local_now)
                 sent += 1
             except Exception as e:
                 db.rollback()

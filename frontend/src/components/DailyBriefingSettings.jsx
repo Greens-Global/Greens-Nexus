@@ -15,6 +15,7 @@ import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle } from '../tasks/theme';
+import { formatTime } from '../lib/datetime';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 
@@ -31,6 +32,12 @@ const CARD_STYLES = [
   { key: 'quick', label: 'Quick Actions', hint: 'The designed email, plus a small collapsed "decisions waiting" block at the top whose Approve and Reject work inside Outlook. Outlook draws that block in its own style.' },
   { key: 'full', label: 'Full Card', hint: 'Outlook shows the whole briefing as its own card instead of the designed email: sections collapse and every button works inside Outlook, but Outlook controls the colors and buttons. Desktop and web only: Outlook on phones and Mac cannot show this card, so they get the designed email.' },
 ];
+// Timing (Sep 27). Stored as 24h "HH:MM", shown 12-hour; same bounds as the
+// backend's daily_briefing.validate_timing.
+const SLOTS = Array.from({ length: 48 }, (_, i) => `${String(i >> 1).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
+let ZONES = [];
+try { ZONES = Intl.supportedValuesOf('timeZone'); } catch { /* older browser: current zone only */ }
+const withCurrent = (list, v) => (v && !list.includes(v) ? [v, ...list] : list);
 const cardStyle = (v) => (v === true ? 'full' : ['quick', 'full'].includes(v) ? v : 'off');
 
 export default function DailyBriefingSettings() {
@@ -72,14 +79,23 @@ export default function DailyBriefingSettings() {
   // "the checkbox does nothing" (Pranshu, Sep 23).
   const switchingToLive = goingLive && savedMode !== 'live' && !confirmLive;
 
+  const lead = Number(cfg.leadMinutes ?? 150);
   const save = async () => {
     if (switchingToLive) return;
+    if (!Number.isInteger(lead) || lead < 30 || lead > 360) {
+      setErr('Minutes before shift must be a whole number from 30 to 360.');
+      return;
+    }
     setSaving(true); setErr(''); setSaved(false);
     try {
       const patch = {
         mode: cfg.mode,
         test_recipients: recipientsInput.split(',').map((s) => s.trim()).filter(Boolean),
         outlook_card: cardStyle(cfg.outlook_card),
+        leadMinutes: lead,
+        includeNoShift: !!cfg.includeNoShift,
+        defaultSendTime: cfg.defaultSendTime || '07:00',
+        defaultTimeZone: cfg.defaultTimeZone || 'America/Los_Angeles',
       };
       const next = await api.updateDailyBriefingConfig(patch);
       setCfg(next);
@@ -141,6 +157,34 @@ export default function DailyBriefingSettings() {
           </div>
         </div>
       )}
+
+      <div style={{ marginBottom: 16, fontSize: 13 }}>
+        <label style={fieldLabel}>Timing</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+          Send before shift start:
+          <input type="number" min={30} max={360} step={5} aria-label="Minutes before shift start"
+            value={cfg.leadMinutes ?? 150} onChange={(e) => setCfg((c) => ({ ...c, leadMinutes: e.target.value }))}
+            style={{ ...inputStyle, width: 80 }} /> minutes
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!cfg.includeNoShift}
+              onChange={(e) => setCfg((c) => ({ ...c, includeNoShift: e.target.checked }))} />
+            People with no shift today: send at
+          </label>
+          <select aria-label="Default send time" disabled={!cfg.includeNoShift} value={cfg.defaultSendTime || '07:00'}
+            onChange={(e) => setCfg((c) => ({ ...c, defaultSendTime: e.target.value }))} style={{ ...inputStyle, width: 'auto' }}>
+            {withCurrent(SLOTS, cfg.defaultSendTime).map((t) => <option key={t} value={t}>{formatTime(`2000-01-01T${t}:00`)}</option>)}
+          </select>
+          <select aria-label="Default time zone" disabled={!cfg.includeNoShift} value={cfg.defaultTimeZone || 'America/Los_Angeles'}
+            onChange={(e) => setCfg((c) => ({ ...c, defaultTimeZone: e.target.value }))} style={{ ...inputStyle, width: 'auto' }}>
+            {withCurrent(ZONES, cfg.defaultTimeZone || 'America/Los_Angeles').map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
+          </select>
+        </div>
+        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+          On a day off or with no shift, the briefing goes out at this time in the person's shift time zone, else the one picked here. Turning it on starts mailing people who get none today.
+        </div>
+      </div>
 
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Outlook Card</label>
