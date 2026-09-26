@@ -7,7 +7,6 @@ import HelpMenu from "../support/HelpMenu";
 import { useHeaderTabs } from "./ModuleTabs";
 import MyProfileModal from "./MyProfileModal";
 import EmailSettingsModal from "./EmailSettingsModal";
-import ToolsMenu from "./ToolsMenu";
 
 // ?emailSettings=1 - the "Email Settings" link in task emails. Read when this
 // module LOADS, not when the header mounts: the app's boot (auth, then routing
@@ -497,7 +496,6 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
             )}
           </div>
         )}
-        <ToolsMenu />
         {/* "?" Help menu: search the guide, help for this page, then Contact
             Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
         <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
@@ -616,8 +614,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                 </button>
               )}
 
-              {/* Act As lives in the Tools menu (ToolsMenu.jsx, Sep 26) and Audit
-                  Logs in Settings - neither belongs in this personal menu.
+              {/* Act As and Audit Logs live in Settings (the Tools and Audit
+                  Logs tabs) - neither belongs in this personal menu.
                   The "Exit Act As" affordance stays available at all times via
                   the sticky orange banner below, independent of this menu. */}
 

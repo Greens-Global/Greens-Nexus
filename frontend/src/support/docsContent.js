@@ -105,7 +105,7 @@ export const DOCS = [
         'Your role tier (Employee, Supervisor, Manager, IT Admin, Global Admin) sets what you can approve.',
         'Your job role gives you a standard set of modules. Access Groups add extra modules on top.',
         'Each module grant has a level: Viewer, Editor, Full or Owner.',
-        'Admins set job roles per company in Settings > Company Settings, and everything else in Settings > Access. See the Settings page of this guide.',
+        'Admins set job roles per company in Settings > Company Settings, and everything else in Settings > Global Settings > Access. See the Settings page of this guide.',
       ],
     },
     tips: [
@@ -471,7 +471,7 @@ export const DOCS = [
       title: 'Desk Leads & Admins',
       points: [
         'To Route holds new tickets waiting for an owner. To Approve holds tickets waiting on your approval.',
-        'Settings > Global Settings > Service Desk holds Service Desk & Escalation (default agents), Ticket Notifications, and SLA & Ticket Types (intake questions and SLA hours).',
+        'Settings > Global Settings > Notifications & Communications holds Service Desk & Escalation (default agents), Ticket Notifications, and SLA & Ticket Types (intake questions and SLA hours).',
         'Reports shows recurring issues, so you can fix the cause, not just the ticket.',
       ],
     },
@@ -1145,7 +1145,7 @@ export const DOCS = [
     tagline: 'Organization-wide settings, per-company setup, who can access what, and the audit trail.',
     where: 'Left menu > Settings',
     access: 'IT Admin and Global Admin, or anyone given the Settings grant',
-    purpose: 'Settings is where admins shape Nexus. Global Settings apply to every company; Company Settings, including each company\'s job roles, are managed one company at a time. Access decides who sees which module, and Audit Logs record every change. Actions such as Act As and the Microsoft 365 sync are not settings, so they live in the Tools menu at the top of every screen.',
+    purpose: 'Settings is where admins shape Nexus. Global Settings apply to every company; Company Settings, including each company\'s job roles, are managed one company at a time. Access, under Global Settings, decides who sees which module. Tools holds actions rather than settings, such as Act As and the Microsoft 365 sync, and Audit Logs record every change.',
     gains: [
       'Change a setting once for the whole organization, or for just one company.',
       'Give someone exactly the access they need, in one place.',
@@ -1172,7 +1172,7 @@ export const DOCS = [
       {
         title: 'Give Someone Access to a Module',
         steps: [
-          'Open Settings and click the Access tab.',
+          'Open Settings. In Global Settings, click Access in the category list.',
           'Pick a person.',
           'Change their job role (only their company\'s roles and shared roles are offered), or add them to an Access Group that grants the module.',
           'Pick the access level (Viewer, Editor, Full or Owner). It saves right away.',
@@ -1181,17 +1181,18 @@ export const DOCS = [
       {
         title: 'See What Someone Else Sees',
         steps: [
-          'Click Tools (the wrench) at the top of the screen. On a phone, open the menu and tap Tools.',
+          'Open Settings and click the Tools tab.',
           'Click Act As and pick the person. Nexus shows their view, with a banner saying who you are acting as.',
           'Stop acting as them from the banner when you are done.',
         ],
       },
     ],
     features: [
-      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Service Desk: Service Desk & Escalation, Ticket Notifications, and SLA & Ticket Types. Tasks: Task Notifications. Communications: Daily Briefing. Items: Item Types & Custom Fields.' },
+      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Notifications & Communications: Service Desk & Escalation, Ticket Notifications, SLA & Ticket Types, Task Notifications and the Daily Briefing. Access: who can open which module. Items: Item Types & Custom Fields.' },
       { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
       { name: 'Company Roles', desc: 'Each company\'s job roles, grouped by its departments: the baseline set of modules, seniority tier and default approver. Roles shared across companies are listed there too, and can be moved into a company when everyone holding them works there.' },
-      { name: 'Access', desc: 'Each person\'s effective access, Access Groups (extras on top of a job role), per-person overrides and the full access matrix.' },
+      { name: 'Access', desc: 'In Global Settings: each person\'s effective access, Access Groups (extras on top of a job role), per-person overrides and the full access matrix.' },
+      { name: 'Tools', desc: 'Actions rather than settings: Act As, the Microsoft 365 directory sync, and troubleshooting (a live check of the Nexus server and diagnostic info to paste into a support ticket).' },
       { name: 'Audit Logs', desc: 'Every access and settings change, with who and when.' },
     ],
     manager: {

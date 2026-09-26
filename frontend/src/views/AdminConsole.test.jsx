@@ -1,17 +1,20 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
-// Settings (AdminConsole): Global Settings and Company Settings render as two
-// separate areas, old 'settings' links still land on Global Settings, category
-// subs map both ways, and the filter narrows the org-wide sections.
+// Settings (AdminConsole): Global Settings, Company Settings and Tools render
+// as separate areas, Access is a Global Settings category (admins only), old
+// links still land somewhere sensible, and the filter narrows the org-wide
+// sections.
 
 // Every api call resolves empty - no section that renders here needs data.
 vi.mock('../api', () => ({
   api: new Proxy({}, { get: () => vi.fn(() => Promise.resolve([])) }),
 }));
+const roleState = { admin: true };
 vi.mock('../contexts/RoleContext', () => ({
   useRole: () => ({
-    can: () => true, myGrantedModules: new Set(), actingAs: null,
+    can: (min) => (min === 'administrator' ? roleState.admin : true),
+    myGrantedModules: new Set(), actingAs: null,
     startActAs: vi.fn(), stopActAs: vi.fn(),
   }),
 }));
@@ -20,21 +23,31 @@ vi.mock('./HR', () => ({
   CompanySetupPage: () => <div>Company list</div>,
   WorkSiteLibrary: () => <div>Site list</div>,
 }));
+vi.mock('./RolesAccess', () => ({ default: () => <div>Access panel</div> }));
+vi.mock('./SettingsTools', () => ({ default: () => <div>Tools panel</div> }));
 
 const AdminConsole = (await import('./AdminConsole')).default;
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); roleState.admin = true; });
 
 describe('AdminConsole', () => {
+  it('has Global Settings, Company Settings, Tools and Audit Logs tabs, and no Access tab', () => {
+    render(<AdminConsole activeSub="global" onSubChange={() => {}} />);
+    for (const name of ['Global Settings', 'Company Settings', 'Tools', 'Audit Logs']) {
+      expect(screen.getByRole('button', { name: new RegExp(name) })).toBeInTheDocument();
+    }
+    // The only "Access" left is the Global Settings rail entry.
+    expect(screen.getAllByRole('button', { name: /Access/ })).toHaveLength(1);
+    expect(screen.getByRole('navigation', { name: 'Global settings categories' })).toContainElement(
+      screen.getByRole('button', { name: /Access/ }));
+  });
+
   it('shows Global Settings with the Organization category by default', () => {
     render(<AdminConsole activeSub="global" onSubChange={() => {}} />);
     expect(screen.getByText('Applies to every company.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Organization' })).toBeInTheDocument();
     expect(screen.getByText('Email Signature')).toBeInTheDocument();
     expect(screen.getByText('Work Site Library')).toBeInTheDocument();
-    // The Microsoft 365 sync is an action - it moved to the header's Tools menu.
-    expect(screen.queryByText('Microsoft 365 Directory Sync')).not.toBeInTheDocument();
-    // Other categories' sections stay out of view until picked.
     expect(screen.queryByText('Service Desk & Escalation')).not.toBeInTheDocument();
   });
 
@@ -44,12 +57,13 @@ describe('AdminConsole', () => {
     expect(screen.getByText('Email Signature')).toBeInTheDocument();
   });
 
-  it('opens a category from its sub, and writes the sub when one is picked', () => {
+  it('keeps ticket, task and briefing emails in one Notifications & Communications category', () => {
     const onSubChange = vi.fn();
-    render(<AdminConsole activeSub="global-service-desk" onSubChange={onSubChange} />);
-    expect(screen.getByText('Service Desk & Escalation')).toBeInTheDocument();
-    expect(screen.getByText('Ticket Notifications')).toBeInTheDocument();
-    expect(screen.getByText('SLA & Ticket Types')).toBeInTheDocument();
+    render(<AdminConsole activeSub="global-notifications" onSubChange={onSubChange} />);
+    expect(screen.getByRole('heading', { name: 'Notifications & Communications' })).toBeInTheDocument();
+    for (const t of ['Service Desk & Escalation', 'Ticket Notifications', 'SLA & Ticket Types', 'Task Notifications', 'Daily Briefing']) {
+      expect(screen.getByText(t)).toBeInTheDocument();
+    }
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Items/ }));
@@ -58,10 +72,37 @@ describe('AdminConsole', () => {
     expect(onSubChange).toHaveBeenLastCalledWith('global');
   });
 
+  it.each(['global-service-desk', 'global-tasks', 'global-communications'])(
+    'sends the retired %s link to Notifications & Communications', (sub) => {
+      render(<AdminConsole activeSub={sub} onSubChange={() => {}} />);
+      expect(screen.getByRole('heading', { name: 'Notifications & Communications' })).toBeInTheDocument();
+    });
+
+  it('shows Access as a Global Settings category, and old access links land on it', async () => {
+    render(<AdminConsole activeSub="access" onSubChange={() => {}} />);
+    expect(screen.getByText('Applies to every company.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Access' })).toBeInTheDocument();
+    expect(await screen.findByText('Access panel')).toBeInTheDocument();
+  });
+
+  it('hides the Access category from non-admins', () => {
+    roleState.admin = false;
+    render(<AdminConsole activeSub="global-access" onSubChange={() => {}} />);
+    expect(screen.queryByRole('button', { name: /Access/ })).not.toBeInTheDocument();
+    // Falls back to the first category it can show.
+    expect(screen.getByRole('heading', { name: 'Organization' })).toBeInTheDocument();
+  });
+
   it('shows Company Settings as its own per-company area', async () => {
     render(<AdminConsole activeSub="company" onSubChange={() => {}} />);
     expect(screen.getByText('Applies to one company at a time.')).toBeInTheDocument();
     expect(await screen.findByText('Company list')).toBeInTheDocument();
+    expect(screen.queryByText('Applies to every company.')).not.toBeInTheDocument();
+  });
+
+  it('opens Tools from an old actas link', async () => {
+    render(<AdminConsole activeSub="actas" onSubChange={() => {}} />);
+    expect(await screen.findByText('Tools panel')).toBeInTheDocument();
     expect(screen.queryByText('Applies to every company.')).not.toBeInTheDocument();
   });
 
@@ -78,19 +119,12 @@ describe('AdminConsole', () => {
     expect(screen.getByText('Work Site Library')).toBeInTheDocument();
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 
-    fireEvent.change(box, { target: { value: 'microsoft' } });
-    expect(screen.getByText(/No settings match/)).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: 'permissions' } });
+    expect(screen.getByRole('heading', { name: 'Access' })).toBeInTheDocument();
 
     fireEvent.change(box, { target: { value: 'nothing like this' } });
     expect(screen.getByText(/No settings match/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Clear Filter' }));
-    expect(screen.getByText('Email Signature')).toBeInTheDocument();
-  });
-
-  it('has no Act As tab, and an old actas link lands on Global Settings', () => {
-    render(<AdminConsole activeSub="actas" onSubChange={() => {}} />);
-    expect(screen.queryByRole('button', { name: /Act As/ })).not.toBeInTheDocument();
-    expect(screen.getByText('Applies to every company.')).toBeInTheDocument();
     expect(screen.getByText('Email Signature')).toBeInTheDocument();
   });
 
@@ -103,7 +137,7 @@ describe('AdminConsole', () => {
     const onSubChange = vi.fn();
     render(<AdminConsole activeSub="global" onSubChange={onSubChange} />);
     expect(screen.queryByRole('navigation', { name: 'Global settings categories' })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'tasks' } });
-    expect(onSubChange).toHaveBeenLastCalledWith('global-tasks');
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'notifications' } });
+    expect(onSubChange).toHaveBeenLastCalledWith('global-notifications');
   });
 });

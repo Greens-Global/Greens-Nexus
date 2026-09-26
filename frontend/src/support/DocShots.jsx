@@ -358,9 +358,9 @@ const SHOTS = {
     ),
   },
   access: {
-    legend: ['Access tab', 'Pick the person', 'Their job role - the baseline set of modules', 'Access level for a module: Viewer, Editor, Full or Owner'],
+    legend: ['Global Settings > Access', 'Pick the person', 'Their job role - the baseline set of modules', 'Access level for a module: Viewer, Editor, Full or Owner'],
     render: () => (
-      <Frame title="Settings" tabs={['Global Settings', 'Company Settings', 'Access', 'Audit Logs']} active="Access" activeRail={-1} tabMark={1}>
+      <Frame title="Settings" tabs={['Global Settings', 'Company Settings', 'Tools', 'Audit Logs']} active="Global Settings" activeRail={-1} tabMark={1}>
         <Row style={{ alignItems: 'stretch' }} gap={14}>
           <Mark n={2} style={{ flex: 0.8, minWidth: 0 }}>
             <Card style={{ width: '100%', padding: 0 }}>

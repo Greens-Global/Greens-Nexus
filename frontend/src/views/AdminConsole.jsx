@@ -41,21 +41,26 @@
 // a select on phones, plus a filter box); everything that belongs to one
 // legal entity lives under Company Settings. Sub keys: 'global' (Organization
 // category), 'global-<category>' for the other categories, 'company',
-// 'access', 'audit'. The old 'settings' sub still lands on Global
-// Settings.
+// 'tools', 'audit'. The old 'settings' sub still lands on Global Settings.
 //
-// Settings are configuration, Tools are actions (Neil, Sep 26): Act As and
-// the Microsoft 365 directory sync moved out to the header's Tools menu
-// (components/ToolsMenu.jsx). An old 'actas' link lands on Global Settings.
+// Access (people, groups, the matrix) is a Global Settings category, not its
+// own tab - it is org-wide; job roles are per company, under Company Settings.
+// Ticket, task and briefing email settings share one Notifications &
+// Communications category. Act As and the Microsoft 365 sync are actions,
+// not settings, so they sit on the Tools tab (views/SettingsTools.jsx).
+// Old links: 'access' -> the Access category, 'actas' -> Tools, and the
+// retired 'global-service-desk' / '-tasks' / '-communications' categories
+// -> Notifications & Communications.
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronDown, Tag, Shield,
   Headset, Bell, Mail, Building2, Loader2, Timer,
   Activity, Signature, Check, Eye, X,
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
-  Globe, ListChecks, Package, Search,
+  Globe, Package, Search, Wrench,
 } from 'lucide-react';
 import { api } from '../api';
+import { useRole } from '../contexts/RoleContext';
 import ModuleTabs from '../components/ModuleTabs';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -74,6 +79,7 @@ const WorkSiteLibrary = lazy(() => import('./HR').then(m => ({ default: m.WorkSi
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
 // `embedded` skips its own page header, since it gets one from the tab here.
 const RolesAccess = lazy(() => import('./RolesAccess'));
+const SettingsTools = lazy(() => import('./SettingsTools'));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone; AuditLogs is
 // named-exported from that file and embedded directly here now.
@@ -109,16 +115,16 @@ function SectionFallback() {
 const GLOBAL_CATEGORIES = [
   { key: 'organization',   label: 'Organization',   Icon: Building2,
     desc: 'Email signatures and the work sites employees punch in at.' },
-  { key: 'service-desk',   label: 'Service Desk',   Icon: Headset,
-    desc: 'How tickets are routed, who is notified, and the response targets agents work to.' },
-  { key: 'tasks',          label: 'Tasks',          Icon: ListChecks,
-    desc: 'How task emails are sent, batched and followed up.' },
-  { key: 'communications', label: 'Communications', Icon: Mail,
-    desc: 'Scheduled emails Nexus sends to employees.' },
+  { key: 'notifications',  label: 'Notifications & Communications', Icon: Bell,
+    desc: 'Where tickets go and who hears about them, how task emails are sent and batched, and the daily briefing.' },
+  { key: 'access',         label: 'Access',         Icon: Shield, adminOnly: true,
+    desc: 'Who can open which module: each person\'s access, access groups, and the full access matrix. Job roles are set per company, under Company Settings.' },
   { key: 'items',          label: 'Items',          Icon: Package,
     desc: 'The catalog options used when adding items in Item Management.' },
 ];
 const CATEGORY_KEYS = new Set(GLOBAL_CATEGORIES.map(c => c.key));
+// Categories that were folded into another one - old links still land.
+const LEGACY_CATEGORIES = { 'service-desk': 'notifications', tasks: 'notifications', communications: 'notifications' };
 
 const GLOBAL_SECTIONS = [
   { id: 'email-signature', category: 'organization', icon: Signature, title: 'Email Signature',
@@ -127,21 +133,25 @@ const GLOBAL_SECTIONS = [
   { id: 'work-sites', category: 'organization', icon: MapPinned, title: 'Work Site Library',
     sub: 'Every location employees can punch in at, with its geofence. Each company chooses its own sites from this list.',
     keywords: 'geofence location address time clock punch map' },
-  { id: 'service-desk', category: 'service-desk', icon: Headset, title: 'Service Desk & Escalation',
+  { id: 'service-desk', category: 'notifications', icon: Headset, title: 'Service Desk & Escalation',
     sub: 'The agents who receive new tickets for each company, and the department heads alerted when a ticket is escalated.',
     keywords: 'agents routing queue departments escalation tickets' },
-  { id: 'ticket-notifications', category: 'service-desk', icon: Bell, title: 'Ticket Notifications',
+  { id: 'ticket-notifications', category: 'notifications', icon: Bell, title: 'Ticket Notifications',
     sub: 'Which ticket events send email, the sending mailbox, and when resolved tickets close automatically.',
     keywords: 'email mailbox cc reply-to auto-close delivery log tickets' },
-  { id: 'ticket-sla', category: 'service-desk', icon: Timer, title: 'SLA & Ticket Types',
+  { id: 'ticket-sla', category: 'notifications', icon: Timer, title: 'SLA & Ticket Types',
     sub: 'Response targets for each priority, and the ticket types and questions requesters answer when they submit.',
     keywords: 'sla priority hours types intake questions fields tickets' },
-  { id: 'task-notifications', category: 'tasks', icon: Bell, title: 'Task Notifications',
+  { id: 'task-notifications', category: 'notifications', icon: Bell, title: 'Task Notifications',
     sub: 'The mailbox task emails come from, due-date reminders, how updates are batched into one email, and how email replies are posted.',
     keywords: 'email mailbox reminders overdue batch replies delivery log' },
-  { id: 'daily-briefing', category: 'communications', icon: Mail, title: 'Daily Briefing',
+  { id: 'daily-briefing', category: 'notifications', icon: Mail, title: 'Daily Briefing',
     sub: 'A daily summary email for each employee. Send it to everyone, or to a few test recipients first.',
     keywords: 'digest summary email morning test recipients' },
+  // Rendered whole (not in an accordion): it is a full screen of its own.
+  { id: 'access', category: 'access', icon: Shield, title: 'People & Access Groups',
+    sub: 'Each person\'s effective access, access groups that add modules on top of a job role, and the full access matrix.',
+    keywords: 'roles permissions people groups modules grant level viewer editor owner matrix audit walls' },
   { id: 'item-types', category: 'items', icon: Tag, title: 'Item Types & Custom Fields',
     sub: 'The item types and extra fields available to everyone when adding or editing items.',
     keywords: 'inventory equipment catalog fields types' },
@@ -855,22 +865,28 @@ function ScopeNote({ icon: Icon, title, children }) {
 // that searches every category at once. The selected category lives in the
 // URL sub (see AdminConsole below); the filter text is local.
 function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
+  const { can } = useRole();
   const narrow = useIsMobile('(max-width: 900px)');
   const [query, setQuery] = useState('');
   const needle = query.trim().toLowerCase();
-  const matches = useMemo(() => (needle ? GLOBAL_SECTIONS.filter(s => sectionMatches(s, needle)) : null), [needle]);
+  // Access is administrator-only (RolesAccess and its routes say so too), so
+  // it is left out of the rail and the filter for anyone else.
+  const isAdmin = can('administrator');
+  const categories = useMemo(() => GLOBAL_CATEGORIES.filter(c => !c.adminOnly || isAdmin), [isAdmin]);
+  const sections = useMemo(() => GLOBAL_SECTIONS.filter(s => categories.some(c => c.key === s.category)), [categories]);
+  const matches = useMemo(() => (needle ? sections.filter(s => sectionMatches(s, needle)) : null), [needle, sections]);
   const counts = useMemo(() => {
     if (!matches) return null;
     const m = {};
     for (const s of matches) m[s.category] = (m[s.category] || 0) + 1;
     return m;
   }, [matches]);
-  const activeCat = GLOBAL_CATEGORIES.find(c => c.key === category) || GLOBAL_CATEGORIES[0];
+  const activeCat = categories.find(c => c.key === category) || categories[0];
   const pickCategory = (key) => { setQuery(''); onCategory(key); };
 
   const groups = matches
-    ? GLOBAL_CATEGORIES.map(c => ({ cat: c, sections: matches.filter(s => s.category === c.key) })).filter(g => g.sections.length)
-    : [{ cat: activeCat, sections: GLOBAL_SECTIONS.filter(s => s.category === activeCat.key) }];
+    ? categories.map(c => ({ cat: c, sections: matches.filter(s => s.category === c.key) })).filter(g => g.sections.length)
+    : [{ cat: activeCat, sections: sections.filter(s => s.category === activeCat.key) }];
   const total = groups.reduce((n, g) => n + g.sections.length, 0);
   // A lone section opens straight away - nothing else to choose between.
   const single = total === 1;
@@ -886,6 +902,12 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'task-notifications':   return <TaskNotificationsSection key={key} defaultOpen={single} />;
       case 'daily-briefing':       return <DailyBriefingSection key={key} defaultOpen={single} />;
       case 'item-types':           return <ItemSettingsSection key={key} defaultOpen={single} toast={toast} />;
+      case 'access':
+        return (
+          <Suspense key={key} fallback={<SkeletonBlocks count={4} height={56} borderRadius={10} />}>
+            <RolesAccess embedded />
+          </Suspense>
+        );
       default:                     return null;
     }
   }
@@ -931,7 +953,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
               onChange={e => e.target.value && pickCategory(e.target.value)}
               style={{ flex: '1 1 160px', minWidth: 0 }}>
               {matches && <option value="" disabled>Matching Settings</option>}
-              {GLOBAL_CATEGORIES.map(c => (
+              {categories.map(c => (
                 <option key={c.key} value={c.key}>{c.label}{counts ? ` (${counts[c.key] || 0})` : ''}</option>
               ))}
             </select>
@@ -943,7 +965,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
         <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', gap: 24, alignItems: 'start' }}>
           <nav aria-label="Global settings categories" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <div style={{ marginBottom: 10 }}>{filterBox}</div>
-            {GLOBAL_CATEGORIES.map(({ key, label, Icon }) => {
+            {categories.map(({ key, label, Icon }) => {
               const active = !matches && key === activeCat.key;
               const n = counts ? (counts[key] || 0) : null;
               return (
@@ -972,7 +994,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
 const TOP_TABS = [
   { key: 'global',  label: 'Global Settings',  Icon: Globe },
   { key: 'company', label: 'Company Settings', Icon: Building2 },
-  { key: 'access',  label: 'Access',           Icon: Shield },
+  { key: 'tools',   label: 'Tools',            Icon: Wrench },
   { key: 'audit',   label: 'Audit Logs',       Icon: Activity },
 ];
 
@@ -980,9 +1002,11 @@ const TOP_TABS = [
 // 'global-<category>' the others; the old 'settings' key (bookmarks, links
 // from before the split) and anything unknown land on Global Settings.
 function resolveSub(sub) {
-  if (!sub || sub === 'settings' || sub === 'global' || sub === 'actas') return { tab: 'global', category: 'organization' };
+  if (!sub || sub === 'settings' || sub === 'global') return { tab: 'global', category: 'organization' };
+  if (sub === 'access') return { tab: 'global', category: 'access' };
+  if (sub === 'actas') return { tab: 'tools', category: 'organization' };
   if (sub.startsWith('global-')) {
-    const c = sub.slice('global-'.length);
+    const c = LEGACY_CATEGORIES[sub.slice('global-'.length)] || sub.slice('global-'.length);
     return { tab: 'global', category: CATEGORY_KEYS.has(c) ? c : 'organization' };
   }
   return { tab: sub, category: 'organization' };
@@ -1035,9 +1059,9 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           </ScopeNote>
           <CompanySetupSection toastOk={toastOk} toastErr={toastErr} />
         </>
-      ) : topTab === 'access' ? (
-        <Suspense fallback={<SkeletonBlocks count={4} height={56} borderRadius={10} />}>
-          <RolesAccess embedded />
+      ) : topTab === 'tools' ? (
+        <Suspense fallback={<SkeletonBlocks count={3} height={120} borderRadius={12} />}>
+          <SettingsTools toastOk={toastOk} toastErr={toastErr} />
         </Suspense>
       ) : topTab === 'audit' ? (
         <Suspense fallback={<SkeletonBlocks count={4} height={56} borderRadius={10} />}>
