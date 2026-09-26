@@ -24,8 +24,8 @@ import { BFF_MODE, clearSignedOutMarker } from "../bffAuth";
 import { externalAuthPost, useResendTimer } from "../lib/externalAuth";
 
 // Accent is a saved company setting, not hardcoded - see
-// backend/routers/branding.py (no admin UI to change it any more as of Sep
-// 9). The hero panel needs three gradient stops (not just one brand color),
+// backend/routers/branding.py (set in Settings > Branding & Policies > Brand
+// Color since Sep 26). The hero panel needs three gradient stops (not just one brand color),
 // so this keeps its own small
 // palette rather than trying to force everything through the single
 // --wk-brand var the rest of the app reads (see lib/brandAccent.js).

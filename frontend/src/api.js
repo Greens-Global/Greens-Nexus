@@ -1263,7 +1263,7 @@ export const api = {
   timeBodTemplate:   (kind)      => req(`/timeclock/bod/template?kind=${kind || 'bod'}`),
   // Sign-in company-policy & monitoring acknowledgment
   policyStatus:      ()          => req('/policy/status'),
-  policyAccept:      ()          => req('/policy/accept', { method: 'POST' }),
+  policyAccept:      (version)   => req('/policy/accept', { method: 'POST', body: JSON.stringify({ version }) }),
   policyMyAcks:      ()          => req('/policy/acknowledgments'),
 
   // ── Customizable dashboards (drag-and-drop widget layouts) ──
@@ -1638,6 +1638,16 @@ export const api = {
   // administrator+, PUT is Global Admin only; a null value resets to default.
   getSecuritySettings:    ()                        => req('/security-settings'),
   updateSecuritySettings: (values, confirmWeaken)   => req('/security-settings', { method: 'PUT', body: JSON.stringify({ values, confirmWeaken: !!confirmWeaken }) }),
+  // Settings > Branding & Policies (Sep 26) - email theme + editable sign-in policy
+  getEmailTheme:      ()     => req('/branding/email-theme'),
+  updateEmailTheme:   (data) => req('/branding/email-theme', { method: 'PUT', body: JSON.stringify(data) }),
+  previewEmailTheme:  (data) => req('/branding/email-theme/preview', { method: 'POST', body: JSON.stringify(data) }),
+  policyConfig:       ()     => req('/policy/config'),
+  policySaveDraft:    (data) => req('/policy/draft', { method: 'PUT', body: JSON.stringify(data) }),
+  policyDiscardDraft: ()     => req('/policy/draft', { method: 'DELETE' }),
+  policyPublish:      (data) => req('/policy/publish', { method: 'POST', body: JSON.stringify(data) }),
+  policyReport:       ()     => req('/policy/report'),
+  policyReportCsv:    ()     => reqBlob('/policy/report.csv'),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

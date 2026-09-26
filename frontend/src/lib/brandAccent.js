@@ -1,7 +1,9 @@
 import { api } from '../api';
 
-// Applies the saved company accent (backend routers/branding.py; no admin UI
-// to change it any more as of Sep 9 - see AdminPanel.jsx) as the --wk-brand
+// Applies the saved company accent (backend routers/branding.py; set in
+// Settings > Global Settings > Branding & Policies > Brand Color since Sep 26 -
+// views/BrandingPoliciesSettings.jsx, which calls this again after a save so
+// the change shows at once) as the --wk-brand
 // family every "Work OS" surface already reads from - one fetch, applied once
 // per app load, post-login (MainApp) and pre-login (LoginPage has its own richer
 // multi-stop hero palette but reads the same underlying choice). Best-effort: a
@@ -20,7 +22,7 @@ import { api } from '../api';
 // --wk-brand-hov must move WITH --wk-brand: style.css:3058 uses it for
 // .primary-btn:hover, so setting only the base color left every primary button
 // green at rest and cobalt on hover.
-const ACCENT_VARS = {
+export const ACCENT_VARS = {
   // hover is the same hue a shade darker, matching how the cobalt pair is built
   green: { brand: 'hsl(var(--color-green))', hov: 'hsl(142,60%,27%)', tint: 'hsla(var(--color-green),0.12)' },
   blue:  { brand: '#2b45e1',                 hov: '#1f36c7',          tint: '#e8ecfd' },

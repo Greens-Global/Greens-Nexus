@@ -57,7 +57,7 @@ import {
   Headset, Bell, Mail, Building2, Loader2, Timer,
   Activity, Signature, Check, Eye, X,
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
-  Globe, Package, Search, Wrench, CalendarClock, ShieldCheck,
+  Globe, Package, Search, Wrench, CalendarClock, ShieldCheck, Palette, FileCheck,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -83,6 +83,10 @@ const SettingsTools = lazy(() => import('./SettingsTools'));
 const HrReminderSettings = lazy(() => import('../components/HrReminderSettings'));
 // Security > Sign-In & Sessions (Sep 26) - lazy like the other admin panels.
 const SecuritySettings = lazy(() => import('./SecuritySettings'));
+// Branding & Policies (Sep 26) - brand color, email appearance, sign-in policy.
+const BrandColorPanel = lazy(() => import('./BrandingPoliciesSettings').then(m => ({ default: m.BrandColorPanel })));
+const EmailAppearancePanel = lazy(() => import('./BrandingPoliciesSettings').then(m => ({ default: m.EmailAppearancePanel })));
+const SignInPolicyPanel = lazy(() => import('./BrandingPoliciesSettings').then(m => ({ default: m.SignInPolicyPanel })));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone; AuditLogs is
 // named-exported from that file and embedded directly here now.
@@ -126,6 +130,8 @@ const GLOBAL_CATEGORIES = [
     desc: 'The catalog options used when adding items in Item Management.' },
   { key: 'security',       label: 'Security',       Icon: ShieldCheck, adminOnly: true,
     desc: 'How people sign in and how long sessions last. Only a Global Admin can change these.' },
+  { key: 'branding',       label: 'Branding & Policies', Icon: Palette, adminOnly: true,
+    desc: 'The Nexus brand color, how every Nexus email looks, and the policy everyone accepts at sign-in.' },
 ];
 const CATEGORY_KEYS = new Set(GLOBAL_CATEGORIES.map(c => c.key));
 // Categories that were folded into another one - old links still land.
@@ -160,6 +166,15 @@ const GLOBAL_SECTIONS = [
   { id: 'sign-in-sessions', category: 'security', icon: ShieldCheck, title: 'Sign-In & Sessions',
     sub: 'Re-authentication for sensitive screens, how long web, Act As and Credential Vault sessions last, and guest sign-in codes.',
     keywords: 'step-up reauthentication mfa multi-factor session timeout idle act as vault unlock guest partner code lockout invite security' },
+  { id: 'brand-color', category: 'branding', icon: Palette, title: 'Brand Color',
+    sub: 'The accent color used across Nexus and on the sign-in screen.',
+    keywords: 'accent theme green blue login color' },
+  { id: 'email-appearance', category: 'branding', icon: Mail, title: 'Email Appearance',
+    sub: 'One logo, accent color and footer for every email Nexus sends: tasks, tickets, Nexus Sign, invitations and welcome emails.',
+    keywords: 'email template logo header footer accent color address preview notifications' },
+  { id: 'signin-policy', category: 'branding', icon: FileCheck, title: 'Sign-In Policy',
+    sub: 'The company policies and monitoring disclosure everyone accepts at sign-in, and who has not accepted the current version.',
+    keywords: 'policy terms monitoring disclosure acknowledgment accept consent version publish report' },
 ];
 const SECTION_META = Object.fromEntries(GLOBAL_SECTIONS.map(s => [s.id, s]));
 
@@ -195,9 +210,10 @@ function Section({ icon: Icon, title, sub, children, defaultOpen = false, onTogg
   );
 }
 
-// Branding (accent color) is NOT here - Pranshu, Sep 9: it's an individual
-// employee's own choice, not an admin-team decision, so it stays in the
-// header's AdminPanel drawer where it originally lived (components/AdminPanel.jsx).
+// Branding (accent color) was left out on Sep 9 (Pranshu: an individual's
+// own choice). The company accent itself - the one saved setting every
+// screen and the sign-in page read - now lives under Branding & Policies
+// (Sep 26); each person's own Work OS theme stays in My Profile.
 
 // ── Item Management: types + custom fields ────────────────────────────────────
 function ItemSettingsSection({ toast, defaultOpen }) {
@@ -316,6 +332,13 @@ function HrRemindersSection({ defaultOpen }) {
     <Section {...SECTION_META['hr-reminders']} defaultOpen={defaultOpen}>
       <Suspense fallback={<SectionFallback />}>
         <HrReminderSettings />
+// ── Branding & Policies (Sep 26) - a lazy panel inside the usual accordion;
+// it mounts (and fetches) only once the section is opened.
+function LazyPanelSection({ id, Panel, defaultOpen, toastOk, toastErr }) {
+  return (
+    <Section {...SECTION_META[id]} defaultOpen={defaultOpen}>
+      <Suspense fallback={<SectionFallback />}>
+        <Panel toastOk={toastOk} toastErr={toastErr} />
       </Suspense>
     </Section>
   );
@@ -942,6 +965,9 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
             </Suspense>
           </Section>
         );
+      case 'brand-color':          return <LazyPanelSection key={key} id={id} Panel={BrandColorPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'email-appearance':     return <LazyPanelSection key={key} id={id} Panel={EmailAppearancePanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'signin-policy':        return <LazyPanelSection key={key} id={id} Panel={SignInPolicyPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'access':
         return (
           <Suspense key={key} fallback={<SkeletonBlocks count={4} height={56} borderRadius={10} />}>

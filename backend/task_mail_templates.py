@@ -7,6 +7,7 @@ should hand-roll HTML.
 """
 from html import escape
 
+import email_theme
 from mail_text import Rich, rich_to_email_html
 
 STATUS_META = {
@@ -57,11 +58,8 @@ def task_email_html(*, task_title: str, status: str, heading: str,
     "TASK TASK-1983" eyebrow above the title; the number means nothing to the
     recipient, and it is now hidden across the whole task module, so an email
     quoting one would be the only place it still leaked."""
-    logo_block = (
-        f"<img src='{escape(logo_url)}' alt='Company logo' height='28' style='display:block' />"
-        if logo_url else
-        "<span style='color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px'>GREENS GLOBAL</span>"
-    )
+    th = email_theme.current()
+    logo_block = th.logo_block(logo_url)
     secondary_html = ""
     if secondary_ctas:
         links = "&nbsp;&nbsp;·&nbsp;&nbsp;".join(
@@ -74,7 +72,7 @@ def task_email_html(*, task_title: str, status: str, heading: str,
     return f"""<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <table align="center" width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
     <tr>
-      <td style="background:#0f3d2e;padding:18px 28px">{logo_block}</td>
+      <td style="background:{th.color('#0f3d2e')};padding:18px 28px">{logo_block}</td>
     </tr>
     <tr>
       <td style="padding:26px 28px 8px">
@@ -91,7 +89,7 @@ def task_email_html(*, task_title: str, status: str, heading: str,
     </tr>
     <tr>
       <td style="padding:4px 28px 28px;text-align:center">
-        <a href="{escape(cta_url)}" style="display:inline-block;background:#248f4b;color:#ffffff;text-decoration:none;
+        <a href="{escape(cta_url)}" style="display:inline-block;background:{th.color('#248f4b')};color:#ffffff;text-decoration:none;
           font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">{escape(cta_label)}</a>
         {secondary_html}
         <!--NEXUS-MAIL-ACTIONS-->
@@ -100,7 +98,7 @@ def task_email_html(*, task_title: str, status: str, heading: str,
     </tr>
     <tr>
       <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
-        This is an automated notification from the Task Management System. Use the buttons above, or open the task, to provide updates or responses.
+        This is an automated notification from the Task Management System. Use the buttons above, or open the task, to provide updates or responses.{th.footer_lines()}
         <!--NEXUS-MAIL-FOOTER-->
       </td>
     </tr>
@@ -369,15 +367,12 @@ def reminder_digest_email(*, items: list[dict], base_url: str, logo_url: str,
         return (f"<h3 style='margin:18px 0 4px;font-size:15px;color:{color}'>{escape(title)} ({len(rows)})</h3>"
                 f"<table width='100%' cellpadding='0' cellspacing='0' style='border-collapse:collapse'>{trs}</table>")
 
-    logo_block = (
-        f"<img src='{escape(logo_url)}' alt='Company logo' height='28' style='display:block' />"
-        if logo_url else
-        "<span style='color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px'>GREENS GLOBAL</span>"
-    )
+    th = email_theme.current()
+    logo_block = th.logo_block(logo_url)
     hello = f"Hi {escape(recipient_name.split(' ')[0])}," if recipient_name else "Hi,"
     html = f"""<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <table align="center" width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
-    <tr><td style="background:#0f3d2e;padding:18px 28px">{logo_block}</td></tr>
+    <tr><td style="background:{th.color('#0f3d2e')};padding:18px 28px">{logo_block}</td></tr>
     <tr><td style="padding:24px 28px 8px">
       <h2 style="margin:0 0 8px;font-size:19px;color:#111827">Your task reminders</h2>
       <p style="margin:0;font-size:13.5px;line-height:1.6;color:#374151">{hello} here is everything that needs your attention today, in one email.</p>
@@ -385,10 +380,10 @@ def reminder_digest_email(*, items: list[dict], base_url: str, logo_url: str,
       {section("Due Soon", soon, "#b45309")}
     </td></tr>
     <tr><td style="padding:10px 28px 26px;text-align:center">
-      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:#248f4b;color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open My Tasks</a>
+      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:{th.color('#248f4b')};color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open My Tasks</a>
     </td></tr>
     <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
-      You get one summary a day because of your email settings. Use the links under each task to act on it without opening Nexus.
+      You get one summary a day because of your email settings. Use the links under each task to act on it without opening Nexus.{th.footer_lines()}
       <!--NEXUS-MAIL-FOOTER-->
     </td></tr>
   </table>
@@ -420,27 +415,24 @@ def batch_email(*, items: list[dict], base_url: str, logo_url: str, recipient_na
                   for line in i["lines"])
         + f"<div style='margin-top:6px'>{i['links']}</div></td></tr>"
         for i in items)
-    logo_block = (
-        f"<img src='{escape(logo_url)}' alt='Company logo' height='28' style='display:block' />"
-        if logo_url else
-        "<span style='color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px'>GREENS GLOBAL</span>"
-    )
+    th = email_theme.current()
+    logo_block = th.logo_block(logo_url)
     hello = f"Hi {escape(recipient_name.split(' ')[0])}," if recipient_name else "Hi,"
     window = (f"{window_minutes // 60} hour{'s' if window_minutes >= 120 else ''}"
               if window_minutes % 60 == 0 else f"{window_minutes} minutes")
     html = f"""<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <table align="center" width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
-    <tr><td style="background:#0f3d2e;padding:18px 28px">{logo_block}</td></tr>
+    <tr><td style="background:{th.color('#0f3d2e')};padding:18px 28px">{logo_block}</td></tr>
     <tr><td style="padding:24px 28px 8px">
       <h2 style="margin:0 0 8px;font-size:19px;color:#111827">{escape(headline or f"Updates on {n} task{'s' if n != 1 else ''}")}</h2>
       <p style="margin:0;font-size:13.5px;line-height:1.6;color:#374151">{hello} here is what changed on your tasks, in one email.</p>
       <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:10px">{trs}</table>
     </td></tr>
     <tr><td style="padding:10px 28px 26px;text-align:center">
-      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:#248f4b;color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open My Tasks</a>
+      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:{th.color('#248f4b')};color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open My Tasks</a>
     </td></tr>
     <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
-      Task updates are gathered for up to {escape(window)} and sent together, so a run of changes arrives as one email. Mentions and urgent tasks still arrive right away.
+      Task updates are gathered for up to {escape(window)} and sent together, so a run of changes arrives as one email. Mentions and urgent tasks still arrive right away.{th.footer_lines()}
       <!--NEXUS-MAIL-FOOTER-->
     </td></tr>
   </table>

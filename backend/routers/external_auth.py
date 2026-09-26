@@ -50,6 +50,7 @@ import bff_session as bff
 import graph_mail
 import sentdm
 from app_url import app_url
+import email_theme
 from database import SessionLocal
 from models import AuditLog, ExternalLoginCode, NexusEmployee
 import security_config as _sec
@@ -246,14 +247,23 @@ def _live_code_row(db, email: str, purpose: str):
 
 # ── delivery (patched in tests - nothing here may log the code) ──────────────
 
-_BRAND_HEADER = """<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+# Header, footer and accent come from the shared email theme (email_theme.py,
+# Settings > Branding & Policies > Email Appearance); the defaults render
+# exactly what these two constants used to hold.
+_WORDMARK = '<span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px">GREENS GLOBAL</span>'
+
+
+def _brand_header(th) -> str:
+    return f"""<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <table align="center" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
-    <tr><td style="background:#0f3d2e;padding:18px 28px">
-      <span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px">GREENS GLOBAL</span>
+    <tr><td style="background:{th.color('#0f3d2e')};padding:18px 28px">
+      {th.logo_block(wordmark=_WORDMARK)}
     </td></tr>"""
 
-_BRAND_FOOTER = """<tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
-      Sent via Nexus, the Greens Global company portal. If you weren't expecting this email, you can ignore it.
+
+def _brand_footer(th) -> str:
+    return f"""<tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
+      Sent via Nexus, the Greens Global company portal. If you weren't expecting this email, you can ignore it.{th.footer_lines()}
     </td></tr></table></div>"""
 
 
@@ -265,10 +275,17 @@ def _send_invite_email(to_email: str, display_name: str, inviter_name: str,
                        company: str, token: str) -> None:
     """The branded invitation. Raises GraphMailError on failure (caller records
     invite_status='failed'). The activation link is the only secret inside."""
+    html = _invite_email_html(display_name, inviter_name, company, token)
+    graph_mail.send_mail(from_email=_from_email(), to=[to_email], cc=None,
+                         subject="Greens Global invited you to Nexus", html=html)
+
+
+def _invite_email_html(display_name: str, inviter_name: str, company: str, token: str) -> str:
     link = f"{app_url()}/activate/{token}"
     invite_days = _sec.get("guestInviteTtlDays")
     first = (display_name or "").split(" ")[0] or "there"
-    html = f"""{_BRAND_HEADER}
+    th = email_theme.current()
+    html = f"""{_brand_header(th)}
     <tr><td style="padding:26px 28px 8px">
       <h2 style="margin:0 0 14px;font-size:19px;color:#111827;line-height:1.35">Greens Global invited you to Nexus</h2>
       <p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#1f2937">Hi {first},</p>
@@ -277,30 +294,34 @@ def _send_invite_email(to_email: str, display_name: str, inviter_name: str,
         our company portal - tasks, tickets, and documents shared with you, in one place.</p>
       <p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:#1f2937">
         Press the button to set up your access. The link works once and expires in {invite_days} day{"" if invite_days == 1 else "s"}.</p>
-      <table cellpadding="0" cellspacing="0" style="margin:0 0 18px"><tr><td style="border-radius:9px;background:#0f3d2e">
+      <table cellpadding="0" cellspacing="0" style="margin:0 0 18px"><tr><td style="border-radius:9px;background:{th.color('#0f3d2e')}">
         <a href="{link}" style="display:inline-block;padding:12px 26px;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none">Accept Invitation</a>
       </td></tr></table>
       <p style="margin:0 0 16px;font-size:12px;line-height:1.6;color:#6b7280">
         Button not working? Paste this link into your browser:<br>{link}</p>
     </td></tr>
-    {_BRAND_FOOTER}"""
-    graph_mail.send_mail(from_email=_from_email(), to=[to_email], cc=None,
-                         subject="Greens Global invited you to Nexus", html=html)
+    {_brand_footer(th)}"""
+    return html
 
 
 def _send_email_code(to_email: str, code: str) -> None:
     """The 6-digit code by email. Raises GraphMailError on failure."""
+    graph_mail.send_mail(from_email=_from_email(), to=[to_email], cc=None,
+                         subject="Your Nexus sign-in code", html=_code_email_html(code))
+
+
+def _code_email_html(code: str) -> str:
     code_min = _sec.get("guestCodeTtlMin")
-    html = f"""{_BRAND_HEADER}
+    th = email_theme.current()
+    html = f"""{_brand_header(th)}
     <tr><td style="padding:26px 28px 8px">
       <h2 style="margin:0 0 14px;font-size:19px;color:#111827;line-height:1.35">Your Nexus sign-in code</h2>
       <p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#1f2937">Enter this code to continue. It expires in {code_min} minutes.</p>
-      <div style="margin:0 0 18px;font-size:30px;font-weight:800;letter-spacing:8px;color:#0f3d2e">{code}</div>
+      <div style="margin:0 0 18px;font-size:30px;font-weight:800;letter-spacing:8px;color:{th.color('#0f3d2e')}">{code}</div>
       <p style="margin:0 0 16px;font-size:12px;line-height:1.6;color:#6b7280">Never share this code. Greens Global will never ask you for it.</p>
     </td></tr>
-    {_BRAND_FOOTER}"""
-    graph_mail.send_mail(from_email=_from_email(), to=[to_email], cc=None,
-                         subject="Your Nexus sign-in code", html=html)
+    {_brand_footer(th)}"""
+    return html
 
 
 def _deliver_code(db, emp: NexusEmployee, purpose: str, ip: str,
