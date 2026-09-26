@@ -100,10 +100,6 @@ export default function TaskNotifySettings() {
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-        <Mail size={18} style={{ color: NX.dim }} />
-        <div style={{ fontSize: 18, fontWeight: 700 }}>Task Email Notifications</div>
-      </div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: `1px solid ${NX.border}` }}>
         {[['settings', 'Settings'], ['log', 'Delivery Log'], ['replies', 'Replies']].map(([k, lab]) => (
           <button key={k} onClick={() => setTab(k)} style={{
@@ -125,7 +121,7 @@ export default function TaskNotifySettings() {
               once Admin went full-bleed) instead of capping out early. */}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1fr) minmax(320px, 1fr)', gap: 16, alignItems: 'start' }}>
             <div style={{ ...card, padding: 18 }}>
-              <Field label="Shared mailbox (sender)" hint="Blank falls back to the NEXUS_FROM_EMAIL env var.">
+              <Field label="Shared mailbox (sender)" hint="Leave blank to send from the default Nexus mailbox.">
                 <input value={cfg.fromMailbox || ''} onChange={(e) => set('fromMailbox', e.target.value)}
                   placeholder="tasks@companydomain.com" style={inputStyle} />
               </Field>

@@ -105,7 +105,7 @@ export const DOCS = [
         'Your role tier (Employee, Supervisor, Manager, IT Admin, Global Admin) sets what you can approve.',
         'Your job role gives you a standard set of modules. Access Groups add extra modules on top.',
         'Each module grant has a level: Viewer, Editor, Full or Owner.',
-        'Admins manage all of this in Settings > Roles & Access. See the Settings page of this guide.',
+        'Admins set job roles per company in Settings > Company Settings, and everything else in Settings > Global Settings > Access. See the Settings page of this guide.',
       ],
     },
     tips: [
@@ -471,7 +471,7 @@ export const DOCS = [
       title: 'Desk Leads & Admins',
       points: [
         'To Route holds new tickets waiting for an owner. To Approve holds tickets waiting on your approval.',
-        'Settings > Company Settings holds Ticket SLA & Types (intake questions and SLA hours), Ticket Email Notifications, and Service Desk & Escalation (default agents).',
+        'Settings > Global Settings > Notifications & Communications has the Ticket Manager section, with tabs for Routing & Escalation (default agents), Notifications, and SLA & Ticket Types (intake questions and SLA hours).',
         'Reports shows recurring issues, so you can fix the cause, not just the ticket.',
       ],
     },
@@ -773,7 +773,7 @@ export const DOCS = [
         'Manage tab: Add Item, Edit Item, Import Items From CSV or Excel, Export Report, assign to a person or location, and the Recycle Bin.',
         'Who Has What shows holdings by person or location. Send Alert nudges someone about an overdue item.',
         'Activity Log records every change with who and when, and most changes can be undone.',
-        'Admins set item types and custom fields in Settings > Company Settings.',
+        'Admins set item types and custom fields in Settings > Global Settings > Items.',
       ],
     },
     tips: [
@@ -1142,50 +1142,70 @@ export const DOCS = [
   },
   {
     id: 'settings', name: 'Settings', group: 'System', icon: 'Settings', view: 'admin-console',
-    tagline: 'Company-wide setup, who can access what, and the audit trail.',
+    tagline: 'Organization-wide settings, per-company setup, who can access what, and the audit trail.',
     where: 'Left menu > Settings',
     access: 'IT Admin and Global Admin, or anyone given the Settings grant',
-    purpose: 'Settings is where admins shape Nexus for everyone: company-wide options, the company structure, job roles and Access Groups that decide who sees which module, acting as another user to check what they see, and the audit logs.',
+    purpose: 'Settings is where admins shape Nexus. Global Settings apply to every company; Company Settings, including each company\'s job roles, are managed one company at a time. Access, under Global Settings, decides who sees which module. Tools holds actions rather than settings, such as Act As and the Microsoft 365 sync, and Logs record every change.',
     gains: [
+      'Change a setting once for the whole organization, or for just one company.',
       'Give someone exactly the access they need, in one place.',
-      'See Nexus as another person sees it, to fix access problems fast.',
       'A full record of who changed what.',
     ],
     shot: 'access',
     walkthroughs: [
       {
+        title: 'Find and Change a Global Setting',
+        steps: [
+          'Open Settings. Global Settings opens first.',
+          'Pick a category on the left (on a phone, from the Category list), or type in Filter Settings to search every category.',
+          'Click a section to open it, make your change and click Save.',
+        ],
+      },
+      {
+        title: 'Set Up a Company',
+        steps: [
+          'Click the Company Settings tab.',
+          'Click Edit on the company, or Add Company.',
+          'Use its tabs for the profile, workforce analytics policy, departments, work sites and holiday calendar.',
+        ],
+      },
+      {
         title: 'Give Someone Access to a Module',
         steps: [
-          'Open Settings and click the Roles & Access tab.',
+          'Open Settings. In Global Settings, click Access in the category list.',
           'Pick a person.',
-          'Change their job role, or add them to an Access Group that grants the module.',
+          'Change their job role (only their company\'s roles and shared roles are offered), or add them to an Access Group that grants the module.',
           'Pick the access level (Viewer, Editor, Full or Owner). It saves right away.',
         ],
       },
       {
         title: 'See What Someone Else Sees',
         steps: [
-          'Click the Act As tab.',
-          'Pick the person. Nexus shows their view, with a banner saying who you are acting as.',
+          'Open Settings and click the Tools tab.',
+          'Click Act As and pick the person. Nexus shows their view, with a banner saying who you are acting as.',
           'Stop acting as them from the banner when you are done.',
         ],
       },
     ],
     features: [
-      { name: 'Company Settings', desc: 'Ticket SLA & Types, Ticket Email Notifications, Service Desk & Escalation, Task Notifications, Daily Briefing, Email Signature, Item Types & Custom Fields, and M365 Sync.' },
-      { name: 'Company Setup', desc: 'Companies, divisions and departments, with logos.' },
-      { name: 'Roles & Access', desc: 'Job roles (the baseline), Access Groups (extras on top), per-person overrides and seniority tiers.' },
-      { name: 'Act As', desc: 'View Nexus as another person, for troubleshooting.' },
-      { name: 'Audit Logs', desc: 'Every access and settings change, with who and when.' },
+      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Notifications & Communications: Ticket Manager (ticket routing and escalation, ticket email, and SLA & Ticket Types), Task Notifications and the Daily Briefing. Access: who can open which module. Items: Item Types & Custom Fields.' },
+      { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
+      { name: 'Company Roles', desc: 'Each company\'s job roles, grouped by its departments: the baseline set of modules, seniority tier and default approver. Roles shared across companies are listed there too, and can be moved into a company when everyone holding them works there.' },
+      { name: 'Access', desc: 'In Global Settings: each person\'s effective access, Access Groups (extras on top of a job role), per-person overrides and the full access matrix.' },
+      { name: 'Tools', desc: 'Actions rather than settings: Act As (search or page through the people you can act as) and the Microsoft 365 directory sync.' },
+      { name: 'Logs', desc: 'Every access and settings change, with who and when.' },
     ],
     manager: {
       title: 'Who Can Do What',
       points: [
         'IT Admins can grant access up to Manager. Only Global Admins can manage other admins.',
-        'Same job with more access? Duplicate the job role rather than adding many one-off overrides.',
+        'Same job in another company? Duplicate the role for that company rather than sharing one role across companies.',
         'Set an approver for a whole role once, instead of for each person.',
       ],
     },
-    tips: ['Changes to a job role apply to everyone with that role right away.'],
+    tips: [
+      'Changes to a job role apply to everyone with that role right away.',
+      'Not sure which category a setting is in? Type a word like "email" or "SLA" in Filter Settings.',
+    ],
   },
 ];

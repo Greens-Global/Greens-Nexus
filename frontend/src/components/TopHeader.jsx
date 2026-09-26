@@ -3,6 +3,7 @@ import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, Chevron
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
+import HelpMenu from "../support/HelpMenu";
 import { useHeaderTabs } from "./ModuleTabs";
 import MyProfileModal from "./MyProfileModal";
 import EmailSettingsModal from "./EmailSettingsModal";
@@ -173,7 +174,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
     return MODULES.filter(m => {
-      if (m.id === 'admin' && !can?.('administrator')) return false;
+      // 'admin' is a permission id only now - its old screen was retired (Sep 26).
+      if (m.id === 'admin') return false;
       // Grant-driven below admin: a restricted screen only appears in search if
       // the user is admin+ or an Access Group grants it (Jun 17).
       if (RESTRICTED_MIN_SUPERVISOR.has(m.id) && !can?.('administrator') && !myGrantedModules?.has(m.id)) return false;
@@ -495,6 +497,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
             )}
           </div>
         )}
+        {/* "?" Help menu: search the guide, help for this page, then Contact
+            Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
+        <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
         <NotificationBell onNavigate={onNavigate} />
 
         {/* Unseen-changelog eye icon: only rendered while there's a published
@@ -610,9 +615,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                 </button>
               )}
 
-              {/* Act As and Audit Logs removed from here (Pranshu, Sep 11) - both
-                  moved whole into the Admin module (sidebar → Admin → Act As /
-                  Audit Logs tabs), same treatment as Roles & Access on Sep 9.
+              {/* Act As and Audit Logs live in Settings (the Tools and Audit
+                  Logs tabs) - neither belongs in this personal menu.
                   The "Exit Act As" affordance stays available at all times via
                   the sticky orange banner below, independent of this menu. */}
 

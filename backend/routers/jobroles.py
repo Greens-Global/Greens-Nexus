@@ -16,16 +16,25 @@ additional groups, exactly as today.
 Tier guardrails mirror roles.py / groups.assign_group_role: only IT/Global Admins
 can assign, only below their own level (unless owner), and a non-owner can't
 reassign someone who is already an admin.
+
+Company roles (Sep 2026, Neil: "Roles should be given company-wise, whereas
+Access should remain in Global Settings"): a job role may carry a company_id
+(an HrEntity id). '' keeps it shared across every company, as before. Because
+holding a company-scoped group places a person inside that company's wall
+(auth.company_scope), a company role only ever goes to people of that company:
+assigning someone from another company is refused, and so is moving a role
+into a company while any member belongs elsewhere.
 """
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 
 from database import get_db
-from models import NexusGroup, NexusGroupMember, NexusRole, NexusEmployee
-from auth import get_current_user, require_administrator, invalidate_role_cache, _MODULE_LEVEL_RANK
+from models import NexusGroup, NexusGroupMember, NexusRole, NexusEmployee, HrEntity
+from auth import get_current_user, require_administrator, invalidate_role_cache, company_scope, _MODULE_LEVEL_RANK
 from routers.roles import VALID_ROLES, ROLE_LEVEL, _get_role
 from routers.groups import ModuleGrant, _parse_modules, _modules_csv
 
@@ -85,6 +94,7 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
         "monitoring_exempt": bool(getattr(jr, "monitoring_exempt", False)),
         "bod_exempt": bool(getattr(jr, "bod_exempt", False)),
         "default_manager_email": (getattr(jr, "default_manager_email", "") or ""),
+        "company_id": (jr.company_id or ""),
         "created_by": jr.created_by,
         "created_at": jr.created_at,
     }
@@ -101,6 +111,7 @@ class JobRoleBody(BaseModel):
     monitoring_exempt: Optional[bool] = False
     bod_exempt: Optional[bool] = False
     default_manager_email: Optional[str] = ""
+    company_id: Optional[str] = ""            # HrEntity.id, or '' = shared across companies
 
 class JobRoleUpdate(BaseModel):
     name: Optional[str] = None
@@ -111,6 +122,7 @@ class JobRoleUpdate(BaseModel):
     monitoring_exempt: Optional[bool] = None
     bod_exempt: Optional[bool] = None
     default_manager_email: Optional[str] = None
+    company_id: Optional[str] = None
 
 class AssignBody(BaseModel):
     email: str
@@ -133,13 +145,60 @@ def _guard_can_assign_tier(user: dict, tier: str):
         raise HTTPException(status_code=403, detail="You can only assign roles below your own level")
 
 
+# ── Company roles ────────────────────────────────────────────────────────────
+
+def _company_name(db: Session, company_id: str) -> str:
+    ent = db.query(HrEntity).filter(HrEntity.id == company_id).first() if company_id else None
+    return (ent.name if ent else "") or "another company"
+
+
+def _clean_company(db: Session, company_id: Optional[str]) -> str:
+    """'' (shared) or the id of a company that exists - anything else is a 400,
+    so a typo can never create a role nobody can be placed into."""
+    cid = (company_id or "").strip()
+    if cid and not db.query(HrEntity.id).filter(HrEntity.id == cid).first():
+        raise HTTPException(status_code=400, detail="That company doesn't exist")
+    return cid
+
+
+def _guard_company_in_scope(user: dict, db: Session, company_id: str):
+    """Once the company walls are armed, an admin confined to some companies can
+    only create or move roles within those companies."""
+    if not company_id:
+        return
+    scope = company_scope(user, db)
+    if scope is not None and company_id not in scope:
+        raise HTTPException(status_code=403, detail="You can only manage roles for your own company")
+
+
+def _employee_company(db: Session, email: str) -> Optional[str]:
+    """The person's home company: an HrEntity id, '' when their People record
+    has no company, or None when they have no People record at all."""
+    emp = (db.query(NexusEmployee.company)
+           .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
+    return None if emp is None else (emp.company or "").strip()
+
+
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @router.get("")
-def list_job_roles(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+def list_job_roles(company_id: Optional[str] = None, include_shared: bool = False,
+                   user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Every job role, or with ?company_id= only that company's roles (an empty
+    company_id= means only the shared ones). include_shared=true adds the shared
+    roles to a company's list."""
     _seed_if_empty(db)
-    roles = db.query(NexusGroup).filter(NexusGroup.is_job_role == 1).order_by(NexusGroup.name).all()  # noqa: E712
-    return [_serialize(r, db) for r in roles]
+    q = db.query(NexusGroup).filter(NexusGroup.is_job_role == 1)  # noqa: E712
+    if company_id is not None:
+        cid = company_id.strip()
+        shared = or_(NexusGroup.company_id == "", NexusGroup.company_id.is_(None))
+        if not cid:
+            q = q.filter(shared)
+        elif include_shared:
+            q = q.filter(or_(NexusGroup.company_id == cid, shared))
+        else:
+            q = q.filter(NexusGroup.company_id == cid)
+    return [_serialize(r, db) for r in q.order_by(NexusGroup.name).all()]
 
 
 @router.post("")
@@ -149,6 +208,8 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
         raise HTTPException(status_code=400, detail="Job role name is required")
     tier = _clean_tier(body.tier)
     _guard_can_assign_tier(user, tier)  # can't create a role whose tier you couldn't grant
+    company_id = _clean_company(db, body.company_id)
+    _guard_company_in_scope(user, db, company_id)
 
     now = _ts()
     jr = NexusGroup(
@@ -162,6 +223,7 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
         monitoring_exempt=1 if body.monitoring_exempt else 0,
         bod_exempt=1 if body.bod_exempt else 0,
         default_manager_email=(body.default_manager_email or "").lower().strip(),
+        company_id=company_id,
         created_by=user["email"],
         created_at=now,
     )
@@ -193,6 +255,31 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
         jr.bod_exempt = 1 if body.bod_exempt else 0
     if body.default_manager_email is not None:
         jr.default_manager_email = body.default_manager_email.lower().strip()
+
+    if body.company_id is not None:
+        new_company = _clean_company(db, body.company_id)
+        old_company = (jr.company_id or "").strip()
+        if new_company != old_company:
+            # Moving a role between companies moves every holder across the
+            # company wall, so it takes what reassigning them would take: the
+            # right to grant this role's tier, and both companies in the
+            # caller's scope. Nobody is carried into a company they don't
+            # belong to - members from elsewhere must come off the role first.
+            _guard_can_assign_tier(user, _clean_tier(jr.tier or "employee"))
+            _guard_company_in_scope(user, db, old_company)
+            _guard_company_in_scope(user, db, new_company)
+            members = _member_emails(db, jr.id)
+            if new_company:
+                outsiders = [e for e in members if _employee_company(db, e) not in (None, "", new_company)]
+                if outsiders:
+                    n = len(outsiders)
+                    raise HTTPException(status_code=400, detail=(
+                        f"{n} {'person' if n == 1 else 'people'} in this role "
+                        f"{'belongs' if n == 1 else 'belong'} to another company, so it can't move to "
+                        f"{_company_name(db, new_company)}. Duplicate it for that company instead."))
+            jr.company_id = new_company
+            for email in members:
+                invalidate_role_cache(email)
 
     tier_changed = False
     if body.tier is not None:
@@ -254,6 +341,24 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
     if user["role"] != "owner" and ROLE_LEVEL.get(_get_role(email, db), 1) >= ROLE_LEVEL["administrator"]:
         raise HTTPException(status_code=403, detail="Only a Global Admin can change another admin's access")
 
+    # Company roles stay inside their company. Holding one places the person in
+    # that company's wall (auth.company_scope), so handing it to someone from
+    # another company would quietly open that company to them - refuse it.
+    # Someone with no company on record is allowed (people are often set up
+    # before their People record is complete), but the caller is told, since
+    # the role is now what places them.
+    warning = ""
+    role_company = (jr.company_id or "").strip()
+    if role_company:
+        person_company = _employee_company(db, email)
+        if person_company and person_company != role_company:
+            raise HTTPException(status_code=400, detail=(
+                f"This role belongs to {_company_name(db, role_company)} and this person works for "
+                f"{_company_name(db, person_company)}. Pick one of their company's roles or a shared role."))
+        if not person_company:
+            warning = (f"This person has no company on their People record. Holding this role "
+                       f"places them in {_company_name(db, role_company)}.")
+
     now = _ts()
     # single primary: drop membership in every OTHER job-role group
     other_ids = [g.id for g in db.query(NexusGroup.id).filter(
@@ -297,7 +402,8 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
     invalidate_role_cache(email)
 
     db.commit()
-    return {"assigned": email, "job_role": jr.name, "tier": tier}
+    return {"assigned": email, "job_role": jr.name, "tier": tier,
+            "company_id": role_company, "warning": warning}
 
 
 @router.post("/{jr_id}/unassign")
@@ -369,7 +475,8 @@ def effective_access(email: str, user: dict = Depends(require_administrator), db
     for g in groups:
         is_role = bool(g.is_job_role)
         if is_role:
-            job_role = {"id": g.id, "name": g.name, "tier": (g.tier or "employee"), "description": g.description or ""}
+            job_role = {"id": g.id, "name": g.name, "tier": (g.tier or "employee"),
+                        "description": g.description or "", "company_id": g.company_id or ""}
         else:
             extra_groups.append({"id": g.id, "name": g.name})
         for grant in _parse_modules(g.allowed_modules or ""):

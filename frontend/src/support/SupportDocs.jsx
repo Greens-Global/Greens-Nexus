@@ -7,7 +7,7 @@
 // what it is for, a picture, step-by-step walkthroughs (every step is one
 // action, so the count on each card is the click count), every feature, what
 // managers/admins get, and tips.
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, ArrowUpRight, ChevronLeft, ChevronRight, CheckCircle2, MousePointerClick,
   ShieldCheck, Lightbulb, MapPin, UserCheck, BookOpen, X,
@@ -17,8 +17,10 @@ import {
 } from 'lucide-react';
 import { DOCS, DOC_GROUPS, ROLE_TIERS, ACCESS_LEVELS } from './docsContent';
 import DocShot, { shotLegend } from './DocShots';
-import { NAV } from '../components/Sidebar';
-import { useRole } from '../contexts/RoleContext';
+import { useDocAccess } from './docsAccess';
+import { searchDocs, sectionDomId, walkthroughAnchor, featureAnchor, TIPS_ANCHOR, MANAGER_ANCHOR } from './docsSearch';
+import { DOCS_OPEN_EVENT, PENDING_DOCS_KIND, decodeDocTarget } from './openDoc';
+import { takePendingOpen } from '../lib/pendingOpen';
 
 const ICONS = {
   Sparkles, LayoutDashboard, Contact, MonitorDot, CheckSquare, HardDrive, Ticket,
@@ -62,9 +64,9 @@ function StepNumber({ n }) {
   );
 }
 
-function Walkthrough({ w }) {
+function Walkthrough({ w, id }) {
   return (
-    <div className="docs-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div id={id} className="docs-card" style={{ display: 'flex', flexDirection: 'column', gap: 12, scrollMarginTop: 90 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
         <div style={{ flex: 1, fontWeight: 700, fontSize: 14, color: 'var(--ink)', lineHeight: 1.35 }}>{w.title}</div>
         <span title="Each step is one action" style={{
@@ -93,7 +95,7 @@ function Article({ doc, onPrev, onNext, prev, next }) {
   }));
 
   return (
-    <article style={{ display: 'flex', flexDirection: 'column', gap: 26, minWidth: 0 }}>
+    <article id={sectionDomId(doc.id)} style={{ display: 'flex', flexDirection: 'column', gap: 26, minWidth: 0, scrollMarginTop: 80 }}>
       {/* Header */}
       <header style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div style={{
@@ -159,7 +161,7 @@ function Article({ doc, onPrev, onNext, prev, next }) {
         <section>
           <SectionTitle icon={MousePointerClick}>How To Use It, Step by Step</SectionTitle>
           <div className="docs-grid">
-            {doc.walkthroughs.map((w) => <Walkthrough key={w.title} w={w} />)}
+            {doc.walkthroughs.map((w) => <Walkthrough key={w.title} w={w} id={sectionDomId(doc.id, walkthroughAnchor(w.title))} />)}
           </div>
         </section>
       )}
@@ -170,7 +172,7 @@ function Article({ doc, onPrev, onNext, prev, next }) {
           <SectionTitle icon={Sparkles}>Every Feature, Explained</SectionTitle>
           <div className="docs-feature-grid">
             {doc.features.map((f) => (
-              <div key={f.name} style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)' }}>
+              <div key={f.name} id={sectionDomId(doc.id, featureAnchor(f.name))} style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', scrollMarginTop: 90 }}>
                 <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>{f.name}</div>
                 <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--muted)' }}>{f.desc}</div>
               </div>
@@ -206,7 +208,7 @@ function Article({ doc, onPrev, onNext, prev, next }) {
       {/* Managers & admins */}
       {doc.manager?.points?.length > 0 && (
         <section>
-          <div className="docs-card" style={{ borderLeft: `4px solid ${BRAND}` }}>
+          <div id={sectionDomId(doc.id, MANAGER_ANCHOR)} className="docs-card" style={{ borderLeft: `4px solid ${BRAND}`, scrollMarginTop: 90 }}>
             <SectionTitle icon={ShieldCheck}>{doc.manager.title}</SectionTitle>
             <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
               {doc.manager.points.map((p) => <li key={p} style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink)' }}>{p}</li>)}
@@ -217,7 +219,7 @@ function Article({ doc, onPrev, onNext, prev, next }) {
 
       {/* Tips */}
       {doc.tips?.length > 0 && (
-        <section>
+        <section id={sectionDomId(doc.id, TIPS_ANCHOR)} style={{ scrollMarginTop: 90 }}>
           <SectionTitle icon={Lightbulb}>Good To Know</SectionTitle>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {doc.tips.map((t) => (
@@ -242,29 +244,79 @@ function Article({ doc, onPrev, onNext, prev, next }) {
   );
 }
 
+// ?doc=<id>&section=<anchor> - the "open in a new tab" link from a ticket's
+// Suggested Articles (openDoc.js docUrl). Taken once and dropped from the URL
+// so a refresh does not keep jumping back to that section.
+function takeUrlTarget() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const docId = params.get('doc');
+    if (!docId) return null;
+    const anchor = params.get('section');
+    params.delete('doc'); params.delete('section');
+    const rest = params.toString();
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
+    return { docId, anchor };
+  } catch { return null; }
+}
+
 export default function SupportDocs() {
-  const { can, myGrantedModules, isExternal } = useRole();
-  const [activeId, setActiveId] = useState(() => readLast() || DOCS[0].id);
+  // Where to open: a deep link (URL, or a help search that navigated here)
+  // wins over the page this person last read.
+  const [initialTarget] = useState(() => takeUrlTarget() || decodeDocTarget(takePendingOpen(PENDING_DOCS_KIND)));
+  const [activeId, setActiveId] = useState(() => initialTarget?.docId || readLast() || DOCS[0].id);
+  // Section to scroll to and flash once the page for it has rendered.
+  const [flash, setFlash] = useState(() => (initialTarget ? { ...initialTarget, at: Date.now() } : null));
 
   // Only the modules this person can actually open - the same rule as the
-  // left menu (Sidebar.jsx): baseline screens for everyone, gated ones for
-  // admins or an explicit Access Group / job-role grant; external guests get
-  // only what they were granted. Guide-only pages (no `view`, e.g. Getting
-  // Started) are for everyone. Nobody reads up on a module they cannot see.
-  const allowed = useMemo(() => DOCS.filter((d) => {
-    if (!d.view) return true;
-    if (isExternal) return myGrantedModules.has(d.view);
-    const item = NAV.find((n) => n.view === d.view);
-    return !item?.minRole || can('administrator') || myGrantedModules.has(d.view);
-  }), [can, myGrantedModules, isExternal]);
+  // left menu (see docsAccess.js). Nobody reads up on a module they cannot see.
+  const { allowed } = useDocAccess();
   const [query, setQuery] = useState('');
   const topRef = useRef(null);
+
+  // A help search result picked while this tab is already open.
+  useEffect(() => {
+    const onOpen = (e) => {
+      const { docId, anchor } = e.detail || {};
+      if (!docId) return;
+      takePendingOpen(PENDING_DOCS_KIND);   // served here; don't replay it on a later mount
+      setQuery('');
+      setActiveId(docId);
+      writeLast(docId);
+      setFlash({ docId, anchor: anchor || null, at: Date.now() });
+    };
+    window.addEventListener(DOCS_OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(DOCS_OPEN_EVENT, onOpen);
+  }, []);
+
+  // Scroll to the requested section and outline it briefly, so the eye lands
+  // on the answer rather than the top of a long page.
+  useEffect(() => {
+    if (!flash) return undefined;
+    let timer;
+    let el = null;
+    const raf = requestAnimationFrame(() => {
+      el = document.getElementById(sectionDomId(flash.docId, flash.anchor))
+        || document.getElementById(sectionDomId(flash.docId));
+      if (!el) return;
+      el.scrollIntoView?.({ block: flash.anchor ? 'center' : 'start', behavior: 'smooth' });
+      if (flash.anchor) {
+        el.classList.add('docs-flash');
+        timer = setTimeout(() => el.classList.remove('docs-flash'), 2200);
+      }
+    });
+    return () => { cancelAnimationFrame(raf); clearTimeout(timer); el?.classList.remove('docs-flash'); };
+  }, [flash]);
 
   const q = query.trim().toLowerCase();
   const matches = useMemo(() => {
     if (!q) return null;
     const words = q.split(/\s+/);
-    return new Set(INDEX.filter((e) => words.every((w) => e.text.includes(w))).map((e) => e.id));
+    const hits = new Set(INDEX.filter((e) => words.every((w) => e.text.includes(w))).map((e) => e.id));
+    // Plus the help search's matches, so the words people actually use
+    // ("pto", "my laptop is broken") find the module whose page answers them.
+    for (const r of searchDocs(q, { limit: 12, perDoc: 1 })) hits.add(r.docId);
+    return hits;
   }, [q]);
   const visible = matches ? allowed.filter((d) => matches.has(d.id)) : allowed;
 

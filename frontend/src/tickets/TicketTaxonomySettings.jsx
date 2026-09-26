@@ -14,7 +14,7 @@
 // already-open ticket screen picks up the change immediately, the same way
 // TicketDeskSettings/TicketNotifySettings's saves take effect live.
 import { useEffect, useState } from 'react';
-import { Timer, ListTree, Building2, Plus, ChevronDown, ChevronUp, Save, RotateCcw } from 'lucide-react';
+import { ListTree, Building2, Plus, ChevronDown, ChevronUp, Save, RotateCcw } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
@@ -233,10 +233,6 @@ export default function TicketTaxonomySettings() {
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-        <Timer size={18} style={{ color: NX.dim }} />
-        <div style={{ fontSize: 18, fontWeight: 700 }}>Ticket SLA & Types</div>
-      </div>
 
       {/* Side by side (Sep 19, Pranshu: "utilize the blank space, move the
           company field intake beside SLA") - SLA's own grid tops out at 4
@@ -276,7 +272,7 @@ export default function TicketTaxonomySettings() {
           </label>
           {cfg.companyField.enabled && (
             companies.length === 0 ? (
-              <div style={{ fontSize: 12, color: NX.faint }}>No companies set up yet - add one under Company Setup first.</div>
+              <div style={{ fontSize: 12, color: NX.faint }}>No companies yet. Add one in Settings under Company Settings first.</div>
             ) : (
               <>
                 <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, letterSpacing: '.04em', marginBottom: 8 }}>OFFERED AT INTAKE</div>

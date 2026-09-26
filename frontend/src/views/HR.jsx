@@ -23,7 +23,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
-import { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
+import { LevelPill, ModuleLevelPill, TierBadge, RoleOptions, rolesForCompany } from './RolesAccess';
 // External tab folded into People (Neil, Aug 24: one master list) - only the
 // shared pieces remain in use: badge, invite modal, lifecycle section.
 import { ExternalBadge, InviteExternalModal, inviteOutcomeToast, ExternalPersonSection } from './ExternalUsersPanel';
@@ -39,6 +39,8 @@ import LocationPickerMap from '../components/LocationPickerMap';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
+// A company's Roles tab (Company Settings) - lazy for the same reason.
+const CompanyRoles = lazy(() => import('./CompanyRoles'));
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -325,7 +327,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           <div>
             <label style={FL}>COMPANY / ENTITY</label>
             <select className="form-input" style={{ width: '100%' }} value={f.company}
-              onChange={e => { set('company', e.target.value); set('department', ''); setAddingDept(false); }}>
+              onChange={e => { set('company', e.target.value); set('department', ''); setAddingDept(false); setJobRoleId(''); }}>
               <option value="">- not set -</option>
               {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
             </select>
@@ -404,7 +406,8 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
               <label style={FL}>JOB ROLE &amp; ACCESS</label>
               <select className="form-input" style={{ width: '100%' }} value={jobRoleId} onChange={e => setJobRoleId(e.target.value)}>
                 <option value="">- set later on the Access tab -</option>
-                {jobRoles.map(r => <option key={r.id} value={r.id}>{r.name} · {ROLES[r.tier]?.label || r.tier}</option>)}
+                <RoleOptions roles={rolesForCompany(jobRoles, f.company)} companyName={id => entities.find(en => en.id === id)?.name || 'Another company'}
+                  label={r => `${r.name} · ${ROLES[r.tier]?.label || r.tier}`} />
               </select>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>Sets their access &amp; seniority tier from a job role at onboarding. Needs a work email; otherwise assign it later on their card.</div>
             </div>
@@ -1329,7 +1332,7 @@ function AccessPicker({ title, items, onPick, onClose, renderItem }) {
   );
 }
 
-function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, onChanged }) {
+function EmployeeAccess({ email, identityType = 'internal', companyId = '', toastOk, toastErr, onChanged }) {
   const [data, setData] = useState(null);
   const [roles, setRoles] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -1350,7 +1353,7 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
   // onChanged refreshes the parent employee record too - assigning a job role
   // now also rewrites the person's job TITLE (server-side), so the card header
   // must re-read it, not just the access panel.
-  const assign = async jr => { try { await api.assignJobRole(jr.id, email); setPick(null); toastOk(`Job role set to “${jr.name}” - their title now matches.`); load(); onChanged?.(); } catch (err) { toastErr(err?.message || 'Could not set job role.'); } };
+  const assign = async jr => { try { const res = await api.assignJobRole(jr.id, email); setPick(null); toastOk(`Job role set to “${jr.name}” - their title now matches.${res?.warning ? ` ${res.warning}` : ''}`); load(); onChanged?.(); } catch (err) { toastErr(err?.message || 'Could not set job role.'); } };
   const addGroup = async g => { try { await api.addGroupMembers(g.id, [email]); setPick(null); toastOk(`Added “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not add group.'); } };
   const removeGroup = async g => { try { await api.removeGroupMember(g.id, email); toastOk(`Removed “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not remove.'); } };
   const held = new Set((data.extra_groups || []).map(g => g.id));
@@ -1471,8 +1474,8 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
         </div>
       )}
 
-      {pick === 'role' && <AccessPicker title="Choose a Job Role" items={roles} onClose={() => setPick(null)} onPick={assign}
-        renderItem={jr => (<><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{jr.name}</div><div style={{ marginTop: 3 }}><TierBadge tier={jr.tier} /></div></div><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.member_count} ppl</span></>)} />}
+      {pick === 'role' && <AccessPicker title="Choose a Job Role" items={rolesForCompany(roles, companyId)} onClose={() => setPick(null)} onPick={assign}
+        renderItem={jr => (<><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{jr.name}</div><div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 7 }}><TierBadge tier={jr.tier} /><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.company_id ? entityName(jr.company_id) : 'All companies'}</span></div></div><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.member_count} ppl</span></>)} />}
       {pick === 'group' && <AccessPicker title="Add a Group" items={groups.filter(g => !held.has(g.id))} onClose={() => setPick(null)} onPick={addGroup}
         renderItem={g => (<div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{g.name}</div><div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(g.allowed_modules || []).map(mm => <ModuleLevelPill key={mm.id} moduleId={mm.id} level={mm.level} />)}</div></div>)} />}
       <style>{`@media (max-width:640px){.acc-grid{grid-template-columns:1fr !important}}`}</style>
@@ -1776,7 +1779,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
-        {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
+        {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
 
@@ -3328,6 +3331,7 @@ const COMPANY_TABS = [
   { key: 'sites', label: 'Work Sites' },
   { key: 'holidays', label: 'Holiday Calendar' },
 ];
+const COMPANY_ROLES_TAB = { key: 'roles', label: 'Roles' };
 
 export function CompanySetupPage({ entities, employees = [], sites = [], onChangedEntities, onChangedSites, toastOk, toastErr }) {
   // linkedin_url is deliberately NOT in this form state (Sep 18: removed from
@@ -3338,6 +3342,8 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
+  const { can } = useRole();
+  const companyTabs = can('administrator') ? [...COMPANY_TABS, COMPANY_ROLES_TAB] : COMPANY_TABS;
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
@@ -3454,7 +3460,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{mode === 'new' ? 'Add Company' : editingEntity?.name || 'Edit Company'}</h3>
         </div>
 
-        {mode !== 'new' && <ModuleTabs tabs={COMPANY_TABS} active={tab} onChange={setTab} inline />}
+        {mode !== 'new' && <ModuleTabs tabs={companyTabs} active={tab} onChange={setTab} inline />}
 
         {(mode === 'new' || tab === 'overview') && (
           <>
@@ -3596,6 +3602,15 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
             ? <CompanyHolidaysTab entity={editingEntity} entities={entities} toastOk={toastOk} toastErr={toastErr} />
             : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
         )}
+        {mode !== 'new' && tab === 'roles' && can('administrator') && (
+          editingEntity
+            ? (
+              <Suspense fallback={<div style={{ padding: '16px 4px' }}><SkeletonBlocks count={4} height={54} /></div>}>
+                <CompanyRoles entity={editingEntity} toastOk={toastOk} toastErr={toastErr} />
+              </Suspense>
+            )
+            : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
+        )}
 
         {guard.confirming && (
           <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={backToList} onSave={f.name.trim() ? guard.saveAndClose : undefined} saving={busy} />
@@ -3608,7 +3623,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>Group manager</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Group Manager</div>
           <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Oversees every company - the escalation step above each company's manager.</div>
         </div>
         <select className="form-input" disabled={groupMgrBusy} value={groupMgr} onChange={e => saveGroupMgr(e.target.value)} style={{ width: 220, fontSize: 12.5, flexShrink: 0 }}>
@@ -4936,7 +4951,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
 
 // ── Work Site Library (Neil, Sep 25) - every work site, entered once; each
 // company then picks its own from its Work Sites tab. Lives under Settings ->
-// Company Settings (the global settings), not inside any one company.
+// Global Settings, not inside any one company.
 export function WorkSiteLibrary({ toastOk, toastErr }) {
   const [sites, setSites] = useState(null);
   const [entities, setEntities] = useState([]);
@@ -4977,7 +4992,7 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Each company chooses which of these its employees can punch at (Company Setup - a company - Work Sites).</p>
+        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Each company chooses which of these sites its employees can punch in at, from its Work Sites tab in Company Settings.</p>
         <div style={{ position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
           <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search sites" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />

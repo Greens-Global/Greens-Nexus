@@ -428,7 +428,7 @@ export default function ExternalUsersPanel({ toastOk, toastErr, onChanged }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 640, lineHeight: 1.55 }}>
-          Partner-company people who sign in passwordlessly with a one-time code. Inviting someone sends them a branded activation email; they only ever see the modules granted to them, never appear in people pickers or the directory, and never receive company-wide notifications. Grant access on their card in Roles & Access, like any employee.
+          Partner-company people who sign in passwordlessly with a one-time code. Inviting someone sends them a branded activation email; they only ever see the modules granted to them, never appear in people pickers or the directory, and never receive company-wide notifications. Grant access on their card in Settings &gt; Access, like any employee.
         </div>
         <button className="primary-btn" onClick={() => setEditing(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
           <MailPlus size={15} /> Invite External User

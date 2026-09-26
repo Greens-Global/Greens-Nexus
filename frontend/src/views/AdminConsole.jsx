@@ -1,6 +1,6 @@
 // Admin - the one place admin-team UI settings live (Pranshu, Sep 9).
-// Deliberately separate from the search-only "Nexus Access Manager"
-// (roles/access grants, module id 'admin') - not touched here. The header's
+// The old search-only "Nexus Access Manager" (module id 'admin') was retired
+// Sep 26 - Global Settings > Access replaces it and /admin lands there. The header's
 // old AdminPanel drawer (Audit Logs) is gone (Sep 11) - see the Audit Logs
 // tab below.
 //
@@ -35,16 +35,35 @@
 // (Pranshu, Sep 11) - unused. Workforce Analytics Policy (the old Policy tab
 // under Employee Tracking) moved in as its replacement in the Company
 // Settings list.
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+//
+// Global Settings / Company Settings split (Neil, Sep 26): org-wide sections
+// live under Global Settings, grouped into categories (left rail on desktop,
+// a select on phones, plus a filter box); everything that belongs to one
+// legal entity lives under Company Settings. Sub keys: 'global' (Organization
+// category), 'global-<category>' for the other categories, 'company',
+// 'tools', 'audit'. The old 'settings' sub still lands on Global Settings.
+//
+// Access (people, groups, the matrix) is a Global Settings category, not its
+// own tab - it is org-wide; job roles are per company, under Company Settings.
+// Ticket, task and briefing email settings share one Notifications &
+// Communications category. Act As and the Microsoft 365 sync are actions,
+// not settings, so they sit on the Tools tab (views/SettingsTools.jsx).
+// Old links: 'access' -> the Access category, 'actas' -> Tools, and the
+// retired 'global-service-desk' / '-tasks' / '-communications' categories
+// -> Notifications & Communications.
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
-  Settings2, ChevronDown, Tag, Shield, SlidersHorizontal,
-  Headset, Bell, Mail, Building2, RefreshCw, Loader2, Timer,
-  UserCog, Activity, DoorOpen, Signature, Check, Eye, X,
+  Settings2, ChevronDown, Tag, Shield,
+  Headset, Bell, Mail, Building2, Loader2, Timer,
+  Activity, Signature, Check, Eye, X,
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
+  Globe, Package, Search, Wrench,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import ModuleTabs from '../components/ModuleTabs';
+import { SkeletonBlocks } from '../components/AsyncState';
+import { useIsMobile } from '../lib/useIsMobile';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
@@ -60,14 +79,11 @@ const WorkSiteLibrary = lazy(() => import('./HR').then(m => ({ default: m.WorkSi
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
 // `embedded` skips its own page header, since it gets one from the tab here.
 const RolesAccess = lazy(() => import('./RolesAccess'));
+const SettingsTools = lazy(() => import('./SettingsTools'));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone; AuditLogs is
 // named-exported from that file and embedded directly here now.
 const AuditLogs = lazy(() => import('../components/AdminPanel').then(m => ({ default: m.AuditLogs })));
-// Act As (Sep 11) - ActAsPicker is the search box + people list, shared with
-// the header dropdown's fixed-overlay ActAsModal so both stay in lockstep;
-// here it just renders inline instead of behind a modal.
-const ActAsPicker = lazy(() => import('../components/ActAsModal').then(m => ({ default: m.ActAsPicker })));
 // TaskNotifySettings needs TasksContext (task lookups for its delivery log's
 // "open task" link) - wrapped in its own TasksProvider here, same trick
 // Support.jsx uses for its Tasks-borrowed composers, since Admin has no
@@ -88,11 +104,70 @@ function ModalFallback() {
   );
 }
 
+function SectionFallback() {
+  return <SkeletonBlocks count={2} height={44} borderRadius={10} />;
+}
+
+// ── Global Settings: categories + section registry ───────────────────────────
+// One place for every org-wide section's title, description and search
+// keywords, so the category rail, the filter and the sections themselves
+// can never disagree about what a section is called.
+const GLOBAL_CATEGORIES = [
+  { key: 'organization',   label: 'Organization',   Icon: Building2,
+    desc: 'Email signatures and the work sites employees punch in at.' },
+  { key: 'notifications',  label: 'Notifications & Communications', Icon: Bell,
+    desc: 'Where tickets go and who hears about them, how task emails are sent and batched, and the daily briefing.' },
+  { key: 'access',         label: 'Access',         Icon: Shield, adminOnly: true,
+    desc: 'Who can open which module: each person\'s access, access groups, and the full access matrix. Job roles are set per company, under Company Settings.' },
+  { key: 'items',          label: 'Items',          Icon: Package,
+    desc: 'The catalog options used when adding items in Item Management.' },
+];
+const CATEGORY_KEYS = new Set(GLOBAL_CATEGORIES.map(c => c.key));
+// Categories that were folded into another one - old links still land.
+const LEGACY_CATEGORIES = { 'service-desk': 'notifications', tasks: 'notifications', communications: 'notifications' };
+
+const GLOBAL_SECTIONS = [
+  { id: 'email-signature', category: 'organization', icon: Signature, title: 'Email Signature',
+    sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in My Profile.',
+    keywords: 'template sign-off logo sender override shared inbox branding' },
+  { id: 'work-sites', category: 'organization', icon: MapPinned, title: 'Work Site Library',
+    sub: 'Every location employees can punch in at, with its geofence. Each company chooses its own sites from this list.',
+    keywords: 'geofence location address time clock punch map' },
+  { id: 'service-desk', category: 'notifications', icon: Headset, title: 'Ticket Manager',
+    sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
+    keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields' },
+  { id: 'task-notifications', category: 'notifications', icon: Bell, title: 'Task Notifications',
+    sub: 'The mailbox task emails come from, due-date reminders, how updates are batched into one email, and how email replies are posted.',
+    keywords: 'email mailbox reminders overdue batch replies delivery log' },
+  { id: 'daily-briefing', category: 'notifications', icon: Mail, title: 'Daily Briefing',
+    sub: 'A daily summary email for each employee. Send it to everyone, or to a few test recipients first.',
+    keywords: 'digest summary email morning test recipients' },
+  // Rendered whole (not in an accordion): it is a full screen of its own.
+  { id: 'access', category: 'access', icon: Shield, title: 'People & Access Groups',
+    sub: 'Each person\'s effective access, access groups that add modules on top of a job role, and the full access matrix.',
+    keywords: 'roles permissions people groups modules grant level viewer editor owner matrix audit walls' },
+  { id: 'item-types', category: 'items', icon: Tag, title: 'Item Types & Custom Fields',
+    sub: 'The item types and extra fields available to everyone when adding or editing items.',
+    keywords: 'inventory equipment catalog fields types' },
+];
+const SECTION_META = Object.fromEntries(GLOBAL_SECTIONS.map(s => [s.id, s]));
+
+// Every word typed has to appear somewhere in the section's title,
+// description, keywords or category name.
+function sectionMatches(s, needle) {
+  const cat = GLOBAL_CATEGORIES.find(c => c.key === s.category)?.label || '';
+  const hay = `${s.title} ${s.sub} ${s.keywords} ${cat}`.toLowerCase();
+  return needle.split(/\s+/).filter(Boolean).every(w => hay.includes(w));
+}
+
 function Section({ icon: Icon, title, sub, children, defaultOpen = false, onToggle }) {
   const [open, setOpen] = useState(defaultOpen);
+  // A section that starts open still needs its lazy load to run.
+  useEffect(() => { if (defaultOpen) onToggle?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', marginBottom: 12, overflow: 'hidden' }}>
       <button
+        aria-expanded={open}
         onClick={() => { const next = !open; setOpen(next); if (next) onToggle?.(); }}
         style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
         <span style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
@@ -114,7 +189,7 @@ function Section({ icon: Icon, title, sub, children, defaultOpen = false, onTogg
 // header's AdminPanel drawer where it originally lived (components/AdminPanel.jsx).
 
 // ── Item Management: types + custom fields ────────────────────────────────────
-function ItemSettingsSection({ toast }) {
+function ItemSettingsSection({ toast, defaultOpen }) {
   const [itemTypes, setItemTypes]   = useState([]);
   const [typeCounts, setTypeCounts] = useState({});
   const [customFields, setCustomFields] = useState([]);
@@ -138,8 +213,7 @@ function ItemSettingsSection({ toast }) {
   }, [loaded, refreshTypes, refreshFields]);
 
   return (
-    <Section icon={Tag} title="Item Types & Custom Fields" onToggle={load}
-      sub="The item taxonomy everyone picks from company-wide - originally in Item Management's own toolbar.">
+    <Section {...SECTION_META['item-types']} defaultOpen={defaultOpen} onToggle={load}>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <button className="secondary-btn" onClick={() => setTypesOpen(true)}>Manage Item Types</button>
         <button className="secondary-btn" onClick={() => setFieldsOpen(true)}>Manage Custom Fields</button>
@@ -160,41 +234,64 @@ function ItemSettingsSection({ toast }) {
   );
 }
 
-// ── Tickets: Service Desk + Notifications ─────────────────────────────────────
-// Both panels are self-contained (own data fetch, own role gate) - reused
-// exactly as Tickets → Manage renders them, just also mounted here.
-function TicketSettingsSections() {
+// ── Service Desk + Tasks ───────────────────────────────────────────────────────
+// Service Desk is one section with three panels (Pranshu, Sep 26: routing,
+// ticket email and SLAs are one subject to an admin). Each panel is
+// self-contained (own data fetch, own role gate, own Save). A panel mounts the
+// first time its tab is opened and then stays mounted, hidden, so switching
+// tabs never throws away edits that haven't been saved yet.
+const SERVICE_DESK_TABS = [
+  { key: 'routing',       label: 'Routing & Escalation', Icon: Headset, Panel: TicketDeskSettings },
+  { key: 'notifications', label: 'Notifications',        Icon: Bell,    Panel: TicketNotifySettings },
+  { key: 'sla',           label: 'SLA & Ticket Types',   Icon: Timer,   Panel: TicketTaxonomySettings },
+];
+
+function ServiceDeskSection({ defaultOpen }) {
+  const [tab, setTab] = useState('routing');
+  const [seen, setSeen] = useState(() => new Set(['routing']));
+  const pick = (key) => { setTab(key); setSeen(prev => (prev.has(key) ? prev : new Set(prev).add(key))); };
   return (
-    <>
-      <Section icon={Headset} title="Service Desk & Escalation" defaultOpen={false}
-        sub="Who owns incoming tickets and where escalations route - originally under Tickets → Manage.">
-        <TicketDeskSettings />
-      </Section>
-      <Section icon={Bell} title="Ticket Email Notifications" defaultOpen={false}
-        sub="Company-wide notification routing for the ticket desk - originally under Tickets → Manage.">
-        <TicketNotifySettings />
-      </Section>
-      <Section icon={Timer} title="Ticket SLA & Types" defaultOpen={false}
-        sub="SLA target hours per priority, and each type's intake questions - previously hardcoded, no UI existed until now.">
-        <TicketTaxonomySettings />
-      </Section>
-      <Section icon={Bell} title="Task Notifications" defaultOpen={false}
-        sub="Shared mailbox, reminder cadence, and reply handling for task emails - originally under Tasks → Manage.">
-        <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>}>
-          <TaskNotifySettingsWrapped />
-        </Suspense>
-      </Section>
-    </>
+    <Section {...SECTION_META['service-desk']} defaultOpen={defaultOpen}>
+      <div role="tablist" aria-label="Ticket Manager" className="scroll-tabs"
+        style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', marginBottom: 16 }}>
+        {SERVICE_DESK_TABS.map(({ key, label, Icon }) => {
+          const active = key === tab;
+          return (
+            <button key={key} type="button" role="tab" aria-selected={active} onClick={() => pick(key)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', whiteSpace: 'nowrap',
+                border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
+                fontWeight: 600, color: active ? 'var(--wk-brand)' : 'var(--muted)', marginBottom: -1,
+                borderBottom: `2px solid ${active ? 'var(--wk-brand)' : 'transparent'}`,
+              }}>
+              <Icon size={14} /> {label}
+            </button>
+          );
+        })}
+      </div>
+      {SERVICE_DESK_TABS.filter(t => seen.has(t.key)).map(({ key, Panel }) => (
+        <div key={key} role="tabpanel" hidden={key !== tab}><Panel /></div>
+      ))}
+    </Section>
+  );
+}
+
+function TaskNotificationsSection({ defaultOpen }) {
+  return (
+    <Section {...SECTION_META['task-notifications']} defaultOpen={defaultOpen}>
+      <Suspense fallback={<SectionFallback />}>
+        <TaskNotifySettingsWrapped />
+      </Suspense>
+    </Section>
   );
 }
 
 // ── Daily Briefing ─────────────────────────────────────────────────────────
-// Global-Admin only (see DailyBriefingSettings.jsx) - was "callable directly"
-// via the API with no UI at all until now (Pranshu, Sep 20).
-function DailyBriefingSection() {
+// Global-Admin only (see DailyBriefingSettings.jsx, which shows its own
+// "access required" note to anyone else).
+function DailyBriefingSection({ defaultOpen }) {
   return (
-    <Section icon={Mail} title="Daily Briefing" defaultOpen={false}
-      sub="Turn the one-email-a-day digest on for everyone, or test it against a few recipients first.">
+    <Section {...SECTION_META['daily-briefing']} defaultOpen={defaultOpen}>
       <DailyBriefingSettings />
     </Section>
   );
@@ -249,7 +346,7 @@ function SignatureZoomModal({ title, html, onClose }) {
   );
 }
 
-function EmailSignatureSection({ toastOk, toastErr }) {
+function EmailSignatureSection({ toastOk, toastErr, defaultOpen }) {
   const [entities, setEntities] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [companyId, setCompanyId] = useState('');
@@ -312,7 +409,7 @@ function EmailSignatureSection({ toastOk, toastErr }) {
     setSaveBusy(true);
     try {
       await api.updateEntity(companyId, { signature_template: selectedTemplate });
-      toastOk('Company signature template updated - every employee at this company picks it up automatically.');
+      toastOk('Signature template saved. It applies to every employee at this company.');
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
     setSaveBusy(false);
   }
@@ -330,10 +427,9 @@ function EmailSignatureSection({ toastOk, toastErr }) {
   }
 
   return (
-    <Section icon={Signature} title="Email Signature" onToggle={load}
-      sub="One visual template per company, applied to every employee's signature automatically - name/role/e-mail still come from their own directory record. Sign-off and LinkedIn are each employee's own choice, set from My Profile.">
+    <Section {...SECTION_META['email-signature']} defaultOpen={defaultOpen} onToggle={load}>
       {entities.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{loaded ? 'No companies set up yet - add one under Company Setup first.' : 'Loading…'}</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{loaded ? 'No companies yet. Add one under Company Settings first.' : 'Loading…'}</div>
       ) : (
         <>
           <div style={{ marginBottom: 14 }}>
@@ -390,7 +486,7 @@ function EmailSignatureSection({ toastOk, toastErr }) {
           Sender Template Overrides
         </label>
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>
-          Applies across every company, regardless of which one is selected above. Type in any email address (a real employee's, or a shared inbox with no Nexus record at all) and fully author its signature - its own fields, its own template, its own field order. Nothing here is pulled from the directory.
+          A custom signature for specific email addresses, such as a shared inbox or someone who needs a different layout. Overrides apply in every company, and every field is entered here rather than taken from the directory.
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
           {overrides.map((grp, idx) => (
@@ -607,7 +703,7 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
               onChange={e => setEmailDraft(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ',' || e.key === 'Tab') { e.preventDefault(); commitEmailDraft(); } }}
               onBlur={commitEmailDraft} />
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Any address - a real employee's or a shared inbox with no Nexus record.</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>An employee's address or a shared inbox. It does not need a Nexus account.</div>
           </div>
 
           <div>
@@ -668,7 +764,7 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
 
           <div>
             <label style={labelStyle}>Field Order</label>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Drag to change which fields show and in what order (a blank field never shows, regardless of position).</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Drag to set the order fields appear in. Blank fields are left out.</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {rowKeys.map(key => {
                 const rowLabel = key.startsWith('custom:')
@@ -708,7 +804,7 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }}>
             <Check size={14} /> Save
           </button>
-          <div style={{ fontSize: 11, color: 'var(--muted)' }}>Staged only - click Save in the Email Signature section below to apply.</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>Changes take effect when you click Save under Sender Template Overrides.</div>
         </div>
       </div>
       {zoomed && (
@@ -718,67 +814,12 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
   );
 }
 
-// ── People: Company Setup, Work Sites, Sync M365 ──────────────────────────────
-// M365 directory sync only now - Company Setup and Work Sites moved out to
-// their own top-level "Company Setup" tab (Pranshu, Sep 18), since a company
-// has too much on it (departments, per-company work sites, holiday calendar)
-// to keep managing from a popup nested inside this accordion.
-function M365SyncSection({ toastOk, toastErr }) {
-  const [syncBusy, setSyncBusy] = useState(false);
-  const [syncLabel, setSyncLabel] = useState('');
-
-  // Same handler as HR.jsx's "Sync M365" button - kicks off the server-side
-  // background job and polls its status.
-  async function runSync() {
-    if (syncBusy) return;
-    setSyncBusy(true);
-    setSyncLabel('Starting…');
-    try {
-      await api.syncM365TwoWay();
-      let s = null;
-      for (;;) {
-        await new Promise(r => setTimeout(r, 2500));
-        try { s = await api.syncM365TwoWayStatus(); } catch { continue; }
-        if (s.phase === 'pull') setSyncLabel('Pulling directory…');
-        else if (s.phase === 'push') setSyncLabel(`Pushing ${s.done}/${s.total}…`);
-        else break;
-      }
-      if (s?.phase === 'failed') {
-        toastErr(`M365 sync failed: ${s.errors?.[0]?.error || 'see server logs'}.`);
-      } else {
-        const bits = [];
-        const p = s?.pull || {};
-        if (p.created) bits.push(`${p.created} added`);
-        bits.push(`${p.linked || 0} linked`, `${p.updated || 0} updated`);
-        bits.push(`${s?.pushedOk || 0} pushed to M365`);
-        try {
-          setSyncLabel('Syncing photos…');
-          const ph = await api.syncM365Photos();
-          if (ph.updated) bits.push(`${ph.updated} photos`);
-        } catch { /* photo pass is best-effort */ }
-        toastOk(`M365 sync: ${bits.join(' · ')}.`);
-      }
-    } catch (err) { toastErr(err?.message || 'Sync failed.'); }
-    setSyncBusy(false);
-    setSyncLabel('');
-  }
-
-  return (
-    <Section icon={RefreshCw} title="M365 Sync" sub="Pull/push the M365 directory - originally on the People → Overview screen.">
-      <button className="secondary-btn" onClick={runSync} disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={14} />}
-        {syncBusy && syncLabel ? syncLabel : 'Sync M365'}
-      </button>
-    </Section>
-  );
-}
-
 // ── Work Site Library (Neil, Sep 25) - every site entered once, here; each
-// company picks its own from Company Setup -> the company -> Work Sites.
-function WorkSiteLibrarySection({ toastOk, toastErr }) {
+// company picks its own from Company Settings -> the company -> Work Sites.
+function WorkSiteLibrarySection({ toastOk, toastErr, defaultOpen }) {
   return (
-    <Section icon={MapPinned} title="Work Site Library" sub="Every geofenced work site - companies pick theirs from this list.">
-      <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)' }}>Loading…</div>}>
+    <Section {...SECTION_META['work-sites']} defaultOpen={defaultOpen}>
+      <Suspense fallback={<SectionFallback />}>
         <WorkSiteLibrary toastOk={toastOk} toastErr={toastErr} />
       </Suspense>
     </Section>
@@ -808,71 +849,177 @@ function CompanySetupSection({ toastOk, toastErr }) {
   }, [loaded, loadEntities, loadSites]);
 
   return (
-    <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0' }}>Loading…</div>}>
+    <Suspense fallback={<SkeletonBlocks count={4} height={56} borderRadius={10} />}>
       <CompanySetupPage entities={entities} employees={employees} sites={sites}
         onChangedEntities={loadEntities} onChangedSites={loadSites} toastOk={toastOk} toastErr={toastErr} />
     </Suspense>
   );
 }
 
-// ── Act As ───────────────────────────────────────────────────────────────────
-// The people list shows straight away (Pranshu, Sep 11) - no accordion to
-// open, no dropdown/modal to click through first, same as picking someone in
-// a search box anywhere else in Nexus. Reuses useRole's startActAs/stopActAs,
-// same as the header dropdown's own Act As entry point.
-function ActAsSection() {
-  const { actingAs, startActAs, stopActAs } = useRole();
-  const [stopping, setStopping] = useState(false);
-
-  async function handleExit() {
-    setStopping(true);
-    try { await stopActAs(); } finally { setStopping(false); }
-  }
-
+// Scope line at the top of Global Settings / Company Settings, so it is
+// never ambiguous whether a change hits every company or just one.
+function ScopeNote({ icon: Icon, title, children }) {
   return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-        <span style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--paper)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-          <UserCog size={14} style={{ color: 'var(--ink)' }} />
-        </span>
-        <span>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>Act As</div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Temporarily see and act in Nexus as another employee, scoped to roles below your own.</div>
-        </span>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--paper)', marginBottom: 16 }}>
+      <Icon size={15} style={{ color: 'var(--muted)', marginTop: 2, flexShrink: 0 }} />
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, minWidth: 0 }}>
+        <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{title}</strong> {children}
       </div>
-
-      {actingAs ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
-          <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>
-            Currently acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}).
-          </span>
-          <button className="secondary-btn" onClick={handleExit} disabled={stopping}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'hsl(var(--color-red))' }}>
-            <DoorOpen size={14} /> {stopping ? 'Exiting…' : 'Exit Act As'}
-          </button>
-        </div>
-      ) : (
-        <div style={{ marginTop: 14 }}>
-          <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>}>
-            <ActAsPicker onStart={startActAs} autoFocus={false} />
-          </Suspense>
-        </div>
-      )}
     </div>
   );
 }
 
+// ── Global Settings ──────────────────────────────────────────────────────────
+// Category rail on the left (desktop), a select on phones, and a filter box
+// that searches every category at once. The selected category lives in the
+// URL sub (see AdminConsole below); the filter text is local.
+function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
+  const { can } = useRole();
+  const narrow = useIsMobile('(max-width: 900px)');
+  const [query, setQuery] = useState('');
+  const needle = query.trim().toLowerCase();
+  // Access is administrator-only (RolesAccess and its routes say so too), so
+  // it is left out of the rail and the filter for anyone else.
+  const isAdmin = can('administrator');
+  const categories = useMemo(() => GLOBAL_CATEGORIES.filter(c => !c.adminOnly || isAdmin), [isAdmin]);
+  const sections = useMemo(() => GLOBAL_SECTIONS.filter(s => categories.some(c => c.key === s.category)), [categories]);
+  const matches = useMemo(() => (needle ? sections.filter(s => sectionMatches(s, needle)) : null), [needle, sections]);
+  const counts = useMemo(() => {
+    if (!matches) return null;
+    const m = {};
+    for (const s of matches) m[s.category] = (m[s.category] || 0) + 1;
+    return m;
+  }, [matches]);
+  const activeCat = categories.find(c => c.key === category) || categories[0];
+  const pickCategory = (key) => { setQuery(''); onCategory(key); };
+
+  const groups = matches
+    ? categories.map(c => ({ cat: c, sections: matches.filter(s => s.category === c.key) })).filter(g => g.sections.length)
+    : [{ cat: activeCat, sections: sections.filter(s => s.category === activeCat.key) }];
+  const total = groups.reduce((n, g) => n + g.sections.length, 0);
+  // A lone section opens straight away - nothing else to choose between.
+  const single = total === 1;
+
+  function renderSection(id) {
+    const key = `${id}-${single}`;
+    switch (id) {
+      case 'email-signature':      return <EmailSignatureSection key={key} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'work-sites':           return <WorkSiteLibrarySection key={key} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'service-desk':         return <ServiceDeskSection key={key} defaultOpen={single} />;
+      case 'task-notifications':   return <TaskNotificationsSection key={key} defaultOpen={single} />;
+      case 'daily-briefing':       return <DailyBriefingSection key={key} defaultOpen={single} />;
+      case 'item-types':           return <ItemSettingsSection key={key} defaultOpen={single} toast={toast} />;
+      case 'access':
+        return (
+          <Suspense key={key} fallback={<SkeletonBlocks count={4} height={56} borderRadius={10} />}>
+            <RolesAccess embedded />
+          </Suspense>
+        );
+      default:                     return null;
+    }
+  }
+
+  const filterBox = (
+    <div style={{ position: 'relative', minWidth: 0 }}>
+      <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
+      <input className="form-input" type="search" value={query} onChange={e => setQuery(e.target.value)}
+        placeholder="Filter settings" aria-label="Filter settings"
+        style={{ width: '100%', paddingLeft: 28, fontSize: 12.5, boxSizing: 'border-box' }} />
+    </div>
+  );
+
+  const content = (
+    <div style={{ minWidth: 0 }}>
+      {groups.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>
+          <div style={{ marginBottom: 12 }}>No settings match "{query.trim()}".</div>
+          <button className="secondary-btn" onClick={() => setQuery('')}>Clear Filter</button>
+        </div>
+      ) : groups.map(g => (
+        <section key={g.cat.key} style={{ marginBottom: 20 }}>
+          <div style={{ marginBottom: 12 }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>{g.cat.label}</h3>
+            {!matches && <p style={{ margin: '3px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>{g.cat.desc}</p>}
+          </div>
+          {g.sections.map(s => renderSection(s.id))}
+        </section>
+      ))}
+    </div>
+  );
+
+  return (
+    <>
+      <ScopeNote icon={Globe} title="Applies to every company.">
+        Changes here affect everyone in Nexus. Settings for a single company are under Company Settings.
+      </ScopeNote>
+
+      {narrow ? (
+        <>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+            <select className="form-input" aria-label="Category" value={matches ? '' : activeCat.key}
+              onChange={e => e.target.value && pickCategory(e.target.value)}
+              style={{ flex: '1 1 160px', minWidth: 0 }}>
+              {matches && <option value="" disabled>Matching Settings</option>}
+              {categories.map(c => (
+                <option key={c.key} value={c.key}>{c.label}{counts ? ` (${counts[c.key] || 0})` : ''}</option>
+              ))}
+            </select>
+            <div style={{ flex: '1 1 160px', minWidth: 0 }}>{filterBox}</div>
+          </div>
+          {content}
+        </>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', gap: 24, alignItems: 'start' }}>
+          <nav aria-label="Global settings categories" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div style={{ marginBottom: 10 }}>{filterBox}</div>
+            {categories.map(({ key, label, Icon }) => {
+              const active = !matches && key === activeCat.key;
+              const n = counts ? (counts[key] || 0) : null;
+              return (
+                <button key={key} onClick={() => pickCategory(key)} aria-current={active ? 'page' : undefined}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px',
+                    borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
+                    textAlign: 'left', background: active ? 'var(--wk-brand-tint)' : 'transparent',
+                    color: active ? 'var(--wk-brand)' : 'var(--ink)', fontWeight: active ? 600 : 500,
+                    opacity: n === 0 ? 0.45 : 1,
+                  }}>
+                  <Icon size={15} style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0 }}>{label}</span>
+                  {n > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>{n}</span>}
+                </button>
+              );
+            })}
+          </nav>
+          {content}
+        </div>
+      )}
+    </>
+  );
+}
+
 const TOP_TABS = [
-  { key: 'settings', label: 'Company Settings', Icon: SlidersHorizontal },
-  { key: 'company',  label: 'Company Setup',    Icon: Building2 },
-  { key: 'access',   label: 'Roles & Access',   Icon: Shield },
-  { key: 'actas',    label: 'Act As',           Icon: UserCog },
-  { key: 'audit',    label: 'Audit Logs',       Icon: Activity },
+  { key: 'global',  label: 'Global Settings',  Icon: Globe },
+  { key: 'company', label: 'Company Settings', Icon: Building2 },
+  { key: 'tools',   label: 'Tools',            Icon: Wrench },
+  { key: 'audit',   label: 'Logs',             Icon: Activity },
 ];
 
+// activeSub -> { tab, category }. 'global' is the Organization category and
+// 'global-<category>' the others; the old 'settings' key (bookmarks, links
+// from before the split) and anything unknown land on Global Settings.
+function resolveSub(sub) {
+  if (!sub || sub === 'settings' || sub === 'global') return { tab: 'global', category: 'organization' };
+  if (sub === 'access') return { tab: 'global', category: 'access' };
+  if (sub === 'actas') return { tab: 'tools', category: 'organization' };
+  if (sub.startsWith('global-')) {
+    const c = LEGACY_CATEGORIES[sub.slice('global-'.length)] || sub.slice('global-'.length);
+    return { tab: 'global', category: CATEGORY_KEYS.has(c) ? c : 'organization' };
+  }
+  return { tab: sub, category: 'organization' };
+}
+
 export default function AdminConsole({ activeSub, onSubChange }) {
-  const { can, myGrantedModules, actingAs } = useRole();
-  const canActAs = (can?.('manager') ?? false) || !!myGrantedModules?.has?.('act-as');
   const [toast, setToast] = useState(null); // { msg, kind }
   const showToast = useCallback((msg, kind = 'success') => {
     setToast({ msg, kind });
@@ -881,9 +1028,11 @@ export default function AdminConsole({ activeSub, onSubChange }) {
   const toastOk = useCallback((msg) => showToast(msg, 'success'), [showToast]);
   const toastErr = useCallback((msg) => showToast(msg, 'error'), [showToast]);
 
-  const visibleTabs = TOP_TABS.filter(({ key }) => key !== 'actas' || canActAs || actingAs);
-  const topTab = visibleTabs.some(t => t.key === activeSub) ? activeSub : 'settings';
+  const visibleTabs = TOP_TABS;
+  const resolved = resolveSub(activeSub);
+  const topTab = visibleTabs.some(t => t.key === resolved.tab) ? resolved.tab : 'global';
   const setTopTab = (id) => onSubChange ? onSubChange(id) : undefined;
+  const setCategory = (key) => setTopTab(key === 'organization' ? 'global' : `global-${key}`);
 
   // Full-bleed, like every other module (HR, Item Management, Tickets) - no
   // maxWidth cap or extra padding of its own. .viewport (App.jsx) already
@@ -901,7 +1050,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           </span>
           <div className="view-title-group">
             <h2 style={{ fontFamily: 'var(--wk-font)' }}>Settings</h2>
-            <p>Company-wide settings and access control, all in one place - no code change required for any of it.</p>
+            <p>Configure Nexus for the whole organization and for each company, and manage who can access what.</p>
           </div>
         </div>
       </div>
@@ -911,29 +1060,23 @@ export default function AdminConsole({ activeSub, onSubChange }) {
       <ModuleTabs tabs={visibleTabs} active={topTab} onChange={setTopTab} />
 
       {topTab === 'company' ? (
-        <CompanySetupSection toastOk={toastOk} toastErr={toastErr} />
-      ) : topTab === 'access' ? (
-        <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0' }}>Loading…</div>}>
-          <RolesAccess embedded />
+        <>
+          <ScopeNote icon={Building2} title="Applies to one company at a time.">
+            Open a company to manage its profile, managers and HR contact, workforce analytics policy, departments, work sites and holiday calendar. Settings shared by every company are under Global Settings.
+          </ScopeNote>
+          <CompanySetupSection toastOk={toastOk} toastErr={toastErr} />
+        </>
+      ) : topTab === 'tools' ? (
+        <Suspense fallback={<SkeletonBlocks count={3} height={120} borderRadius={12} />}>
+          <SettingsTools />
         </Suspense>
       ) : topTab === 'audit' ? (
-        <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0' }}>Loading…</div>}>
+        <Suspense fallback={<SkeletonBlocks count={4} height={56} borderRadius={10} />}>
           <AuditLogs />
         </Suspense>
-      ) : topTab === 'actas' ? (
-        <ActAsSection />
       ) : (
-        <>
-          <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', letterSpacing: '.06em', marginBottom: 8 }}>
-            COMPANY SETTINGS
-          </div>
-          <ItemSettingsSection toast={showToast} />
-          <TicketSettingsSections />
-          <DailyBriefingSection />
-          <WorkSiteLibrarySection toastOk={toastOk} toastErr={toastErr} />
-          <EmailSignatureSection toastOk={toastOk} toastErr={toastErr} />
-          <M365SyncSection toastOk={toastOk} toastErr={toastErr} />
-        </>
+        <GlobalSettings category={resolved.category} onCategory={setCategory}
+          toast={showToast} toastOk={toastOk} toastErr={toastErr} />
       )}
 
       {toast && (
