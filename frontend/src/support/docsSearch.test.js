@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   searchDocs, suggestForTicket, resultPath, stem, words, withinOneEdit, buildSections,
   docForView, sectionDomId, walkthroughAnchor, SYNONYM_GROUPS, DOC_KEYWORDS, MIN_SCORE,
+  makeKbCorpus, buildKbSections,
 } from './docsSearch';
 import { DOCS } from './docsContent';
 
@@ -194,5 +195,61 @@ describe('ticket suggestions', () => {
 
   it('returns at most three', () => {
     expect(suggestForTicket('laptop monitor password vpn time off', 'wifi paystub sick vacation').length).toBeLessThanOrEqual(3);
+  });
+});
+
+describe('Knowledge Base documents and courses', () => {
+  const kbDocs = [
+    { id: 'kb1', title: 'Forklift Safety Procedure', status: 'approved', doc_type: 'SOP', departments: ['Operations'],
+      tags: ['safety'], body: { purpose: 'How to operate the warehouse forklift safely.' }, content_text: 'Inspect the forklift before every shift.' },
+    { id: 'kb2', title: 'Expense Report Policy', status: 'approved', doc_type: 'Policy', departments: ['Finance'],
+      body: { purpose: 'How to submit expenses for reimbursement.' }, content_text: 'Receipts are required over $25.' },
+    { id: 'kb3', title: 'Forklift Draft', status: 'draft', body: {}, content_text: 'forklift' },
+    { id: 'kb4', title: 'Old Forklift Rules', status: 'archived', body: {}, content_text: 'forklift' },
+  ];
+  const kbCourses = [
+    { id: 'c1', title: 'Forklift Operator Training', status: 'published', description: 'Certification for forklift drivers.', overview: [], departments: [] },
+    { id: 'c2', title: 'Forklift Unpublished', status: 'draft', description: 'forklift', overview: [], departments: [] },
+  ];
+  const kb = makeKbCorpus(kbDocs, kbCourses);
+
+  it('indexes approved documents and published courses only', () => {
+    const ids = buildKbSections(kbDocs, kbCourses).map((s) => s.docId);
+    expect(ids).toEqual(['kb:kb1', 'kb:kb2', 'course:c1']);
+    expect(buildKbSections(null, undefined)).toEqual([]);
+  });
+
+  it('finds them with the same engine, labeled by source', () => {
+    const r = searchDocs('forklift', { kb });
+    const sources = new Set(r.map((x) => x.source));
+    expect(sources.has('kb')).toBe(true);
+    expect(sources.has('course')).toBe(true);
+    const titles = r.map((x) => x.title);
+    expect(titles).not.toContain('Forklift Draft');
+    expect(titles).not.toContain('Forklift Unpublished');
+    expect(titles).not.toContain('Old Forklift Rules');
+    expect(r.find((x) => x.source === 'kb').kbId).toBe('kb1');
+    expect(resultPath(r.find((x) => x.source === 'course'))).toBe('Course > Forklift Operator Training');
+  });
+
+  it('uses the stemming and synonyms for them too', () => {
+    expect(searchDocs('submitting expenses', { kb })[0].title).toBe('Expense Report Policy');
+    expect(searchDocs('forklift certification courses', { kb })[0].title).toBe('Forklift Operator Training');
+  });
+
+  it('keeps guide answers alongside, and junk still returns nothing', () => {
+    expect(searchDocs('how do i request pto', { kb })[0].title).toBe('Request Time Off');
+    expect(searchDocs('banana smoothie recipe', { kb })).toEqual([]);
+    expect(searchDocs('asdf qwerty', { kb })).toEqual([]);
+  });
+
+  it('the guide access rule does not hide Knowledge Base rows (the server already scoped them)', () => {
+    const r = searchDocs('forklift', { kb, allow: () => false });
+    expect(r.length).toBeGreaterThan(0);
+    expect(r.every((x) => x.source !== 'guide')).toBe(true);
+  });
+
+  it('without a corpus, searches the guide alone', () => {
+    expect(searchDocs('forklift')).toEqual([]);
   });
 });

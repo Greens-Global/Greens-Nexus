@@ -33,6 +33,9 @@ export const FIELD_WEIGHTS = {
   tip: 3,         // a "Good To Know" line: short, and usually the exact answer
   keywords: 4,    // curated search terms for a module (DOC_KEYWORDS below)
   context: 2,     // parent module name, on child sections
+  kbtitle: 6,     // Knowledge Base document / course title
+  kbsummary: 3,   // its purpose line or course description
+  kbmeta: 2,      // type, departments, service, tags
   body: 1,        // steps, descriptions, purpose, gains, tips, points
 };
 
@@ -323,8 +326,59 @@ function buildSynonyms() {
   return { groups, byKey, maxLen };
 }
 
-function buildIndex(docs) {
-  const sections = buildSections(docs);
+// ── Knowledge Base corpus ───────────────────────────────────────────────────
+// Documents and courses from the Knowledge Base (/knowledge-base/documents and
+// /courses, exactly as the server returns them to this person), indexed with
+// the same tokenizer, synonyms, weights and floors as the guide. Only what a
+// reader would find in the library itself: approved documents and published
+// courses. Drafts, items in review and archived documents are left out even
+// when the list endpoint returns them (it does, to managers and authors).
+const KB_BODY_CHARS = 4000;   // the opening of a long document says what it is about
+
+const kbText = (v) => (Array.isArray(v) ? v.join(' ') : String(v || ''));
+
+/** Knowledge Base rows -> search sections. Exported for tests. */
+export function buildKbSections(kbDocs = [], kbCourses = []) {
+  const out = [];
+  for (const d of Array.isArray(kbDocs) ? kbDocs : []) {
+    if (!d || !d.id || !d.title || d.status !== 'approved') continue;
+    const purpose = kbText(d.body?.purpose);
+    out.push({
+      source: 'kb', kind: 'kb-doc', kbId: d.id, docId: `kb:${d.id}`, docName: 'Knowledge Base',
+      group: 'Knowledge Base', view: 'sop', sub: null, anchor: null,
+      title: d.title, snippet: trimSentence(purpose || [d.doc_type, kbText(d.departments)].filter(Boolean).join(' - ')),
+      body: purpose ? [purpose] : [], meta: [d.doc_code, d.doc_type].filter(Boolean).join(' - '),
+      fields: [
+        field('kbtitle', d.title),
+        field('kbsummary', purpose),
+        field('kbmeta', [d.doc_type, kbText(d.departments), d.service, kbText(d.tags)].join(' ')),
+        field('body', kbText(d.content_text).slice(0, KB_BODY_CHARS)),
+      ],
+    });
+  }
+  for (const c of Array.isArray(kbCourses) ? kbCourses : []) {
+    if (!c || !c.id || !c.title || c.status !== 'published') continue;
+    const desc = kbText(c.description);
+    out.push({
+      source: 'course', kind: 'course', kbId: c.id, docId: `course:${c.id}`, docName: 'Course',
+      group: 'Knowledge Base', view: 'sop', sub: 'lms', anchor: null,
+      title: c.title, snippet: trimSentence(desc), body: [desc, ...(Array.isArray(c.overview) ? c.overview : [])].filter(Boolean),
+      meta: [c.course_code, c.est_minutes ? `${c.est_minutes} min` : '', c.lesson_count ? `${c.lesson_count} lessons` : ''].filter(Boolean).join(' - '),
+      fields: [
+        field('kbtitle', c.title),
+        field('kbsummary', desc),
+        field('kbmeta', kbText(c.departments)),
+        field('body', kbText(c.overview)),
+      ],
+    });
+  }
+  return out;
+}
+
+function buildIndex(docs, extra = []) {
+  const guide = buildSections(docs);
+  guide.forEach((x) => { x.source = 'guide'; });
+  const sections = [...guide, ...extra];
   // Document frequency per stem, for rarity weighting.
   const df = new Map();
   for (const s of sections) {
@@ -344,16 +398,31 @@ function buildIndex(docs) {
       ...(d.manager?.points || []), ...(d.tips || []), DOC_KEYWORDS[d.id] || '', ...(d.keywords || [])].join(' ');
     for (const w of words(text)) if (!rawVocab.has(w)) rawVocab.set(w, stem(w));
   }
+  for (const x of extra) {
+    for (const w of words(`${x.title} ${x.snippet}`)) if (!rawVocab.has(w)) rawVocab.set(w, stem(w));
+  }
   const maxIdf = Math.log(1 + N);
   return { docs, sections, idf, maxIdf, vocab: df, rawVocab, syn: buildSynonyms() };
 }
 
 let cached = null;
+// Guide + Knowledge Base, keyed on the corpus object so it is built once per
+// fetch (see makeKbCorpus) and dropped with it.
+const withKb = new WeakMap();
 /** The index for DOCS, built on first use. Pass `docs` to index something else (tests). */
-export function getIndex(docs = DOCS) {
-  if (docs !== DOCS) return buildIndex(docs);
+export function getIndex(docs = DOCS, kb = null) {
+  if (docs !== DOCS) return buildIndex(docs, kb?.sections || []);
+  if (kb) {
+    if (!withKb.has(kb)) withKb.set(kb, buildIndex(DOCS, kb.sections));
+    return withKb.get(kb);
+  }
   if (!cached) cached = buildIndex(DOCS);
   return cached;
+}
+
+/** Wrap fetched Knowledge Base rows as a corpus searchDocs can take (`kb`). */
+export function makeKbCorpus(kbDocs, kbCourses) {
+  return { sections: buildKbSections(kbDocs, kbCourses) };
 }
 
 // ── Query parsing ───────────────────────────────────────────────────────────
@@ -531,7 +600,7 @@ function scoreSection(section, concepts, index, coverageWeight = 0.6) {
 
   // The section's own title answers the whole query ("request time off").
   const titleField = section.fields[0];
-  if (['name', 'wtitle', 'fname', 'mtitle', 'tip'].includes(titleField.name)) {
+  if (['name', 'wtitle', 'fname', 'mtitle', 'tip', 'kbtitle'].includes(titleField.name)) {
     const inTitle = new Set((hitsByField.get(titleField.name) || []).map((h) => h.ci));
     if (concepts.length && inTitle.size === concepts.length) total *= 1.35;
   }
@@ -557,13 +626,17 @@ function enoughCoverage(matched, n) {
  * @returns {Array<{id, docId, docName, kind, title, anchor, snippet, body, view, sub, score}>}
  */
 export function searchDocs(text, opts = {}) {
-  const { limit = 8, allow, perDoc = 3, minScore = MIN_SCORE, docs, coverage = enoughCoverage, coverageWeight = 0.6 } = opts;
-  const index = getIndex(docs);
+  const { limit = 8, allow, perDoc = 3, minScore = MIN_SCORE, docs, kb = null, sources = null,
+    coverage = enoughCoverage, coverageWeight = 0.6 } = opts;
+  const index = getIndex(docs, kb);
   const concepts = parseQuery(text || '', index);
   if (!concepts.length) return [];
   const scored = [];
   for (const s of index.sections) {
-    if (allow && !allow(s.docId)) continue;
+    if (sources && !sources.includes(s.source)) continue;
+    // Guide pages follow the left menu's access rule; Knowledge Base rows were
+    // already scoped by the server to what this person may read.
+    if (allow && s.source === 'guide' && !allow(s.docId)) continue;
     const r = scoreSection(s, concepts, index, coverageWeight);
     if (!r || r.score < minScore || !coverage(r.matched, concepts.length)) continue;
     scored.push({ s, score: r.score });
@@ -585,6 +658,7 @@ export function searchDocs(text, opts = {}) {
     out.push({
       id: s.id, docId: s.docId, docName: s.docName, group: s.group, kind: s.kind, title: s.title,
       anchor: s.anchor, snippet: s.snippet, body: s.body, covers: s.covers || [], view: s.view, sub: s.sub,
+      source: s.source || 'guide', kbId: s.kbId || null, meta: s.meta || '',
       score: Math.round(score * 10) / 10,
     });
     if (out.length >= limit) break;
@@ -631,8 +705,12 @@ export function docForView(view) {
   return DOCS.find((d) => d.view === view) || null;
 }
 
+/** Label for where a result comes from. */
+export const SOURCE_LABEL = { guide: 'Guide', kb: 'Knowledge Base', course: 'Course' };
+
 /** "Workday > Request Time Off" style breadcrumb for a result. */
 export function resultPath(r) {
+  if (r.source === 'kb' || r.source === 'course') return `${SOURCE_LABEL[r.source]} > ${r.title}`;
   if (r.kind === 'module') return r.docName;
   if (r.kind === 'tip') return `${r.docName} > Good To Know`;
   return `${r.docName} > ${r.title}`;

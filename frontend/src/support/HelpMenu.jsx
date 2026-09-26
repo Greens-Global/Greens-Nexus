@@ -1,18 +1,43 @@
-// The "?" Help menu in the top header: search the guide, read the page for the
-// screen you are on, or reach a person - in that order, so self-service comes
-// first (Neil, Sep 26: "we want everyone to self-service as much as possible").
+// The "?" in the top header and the Help widget it opens (HelpWidget.jsx - a
+// messenger-style panel anchored bottom-right: Home, Messages, Help). Self-
+// service comes first (Neil, Sep 26: "we want everyone to self-service as much
+// as possible"): search the guide and the Knowledge Base, then ask a person.
 //
-// Opens from the header button, the "?" key anywhere outside a text field, or
-// a `nexus:help-open` window event (the phone menu's Help row - the header
-// button is hidden on phones, where a 4th right-side icon collides with the
-// centered wordmark). The panel itself (HelpPanel.jsx) loads on first open.
+// This file owns the trigger and the lifecycle:
+//   - opens from the button, the "?" key anywhere outside a text field, or a
+//     `nexus:help-open` window event (the phone menu's Help row - the header
+//     button is hidden on phones, where a 4th right-side icon collides with
+//     the centered wordmark)
+//   - Esc closes and hands focus back to the "?" button; a click outside
+//     closes it too
+//   - remembers the last tab for the session
+//   - mounts the Ticket module's own create form for Ask a Question / Send Us
+//     a Message (the same trick Support.jsx uses), so there is one ticket form
+// The widget's code loads on first open (or on hover of the button).
 import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { CircleHelp } from 'lucide-react';
 
-const loadPanel = () => import('./HelpPanel');
-const HelpPanel = lazy(loadPanel);
+const loadWidget = () => import('./HelpWidget');
+const HelpWidget = lazy(loadWidget);
+
+// The Ticket module's create form, with the provider it reads createTicket
+// from - see TicketComposer in views/Support.jsx.
+const TicketComposer = lazy(async () => {
+  const [{ TasksProvider }, { CreateTicketModal }] = await Promise.all([
+    import('../tasks/TasksContext'),
+    import('../tickets/TicketsView'),
+  ]);
+  return {
+    default: ({ onClose }) => (
+      <TasksProvider><CreateTicketModal onClose={onClose} /></TasksProvider>
+    ),
+  };
+});
 
 export const HELP_OPEN_EVENT = 'nexus:help-open';
+
+// Last tab this session - reopening lands where the person left off.
+let lastTab = 'home';
 
 /** Typing in a field (or a rich-text editor) owns the "?" key. */
 function isTypingTarget(el) {
@@ -22,32 +47,31 @@ function isTypingTarget(el) {
   return !!el.isContentEditable || !!el.closest?.('[contenteditable="true"], [contenteditable=""]');
 }
 
-// Shown for the moment the panel's code is loading, so the click never looks
-// like it did nothing.
-function PanelLoading() {
+// Shown while the widget's code loads, so the click never looks like it did nothing.
+function WidgetLoading() {
   return (
-    <div className="help-panel" role="dialog" aria-label="Help" aria-busy="true" style={{ padding: 14 }}>
-      {[70, 100, 100, 85].map((w, i) => (
-        <div key={i} style={{ height: i === 0 ? 14 : 34, width: `${w}%`, borderRadius: 8, background: 'var(--mist)', marginBottom: 10 }} />
-      ))}
+    <div className="help-widget" role="dialog" aria-label="Help" aria-busy="true">
+      <div className="hw-hero" style={{ minHeight: 150 }} />
+      <div style={{ padding: 16 }}>
+        {[0, 1, 2].map((i) => <div key={i} className="hw-skeleton" style={{ height: 56 }} />)}
+      </div>
     </div>
   );
 }
 
-// The panel sits in the header on every screen, so a failure inside it (or a
-// chunk that fails to load after a deploy) must stay inside it rather than
-// take the header down with it.
-class PanelBoundary extends Component {
+// The widget floats over every screen, so a failure inside it (or a chunk
+// that fails to load after a deploy) must stay inside it.
+class WidgetBoundary extends Component {
   constructor(props) { super(props); this.state = { failed: false }; }
   static getDerivedStateFromError() { return { failed: true }; }
   render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <div className="help-panel" role="dialog" aria-label="Help" style={{ padding: 14, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
+      <div className="help-widget" role="dialog" aria-label="Help" style={{ padding: 18, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
         Help could not load right now. Refresh the page, or{' '}
         <button type="button" onClick={this.props.onContact}
           style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', fontWeight: 600, cursor: 'pointer' }}>
-          contact support
+          go to Support
         </button>.
       </div>
     );
@@ -56,25 +80,22 @@ class PanelBoundary extends Component {
 
 export default function HelpMenu({ activeView, onWhatsNew }) {
   const [open, setOpen] = useState(false);
+  const [composing, setComposing] = useState(false);
   const wrapRef = useRef(null);
-  const returnFocusRef = useRef(null);
+  const btnRef = useRef(null);
 
-  const show = useCallback(() => {
-    returnFocusRef.current = document.activeElement;
-    setOpen(true);
-  }, []);
-  // restoreFocus: Esc / the close button hand focus back to where it was;
-  // picking something (which navigates) or clicking elsewhere does not.
+  const show = useCallback(() => setOpen(true), []);
+  // restoreFocus: Esc / the close button hand focus back to the "?" button;
+  // anything that navigates away, or a click elsewhere, does not.
   const close = useCallback((restoreFocus = true) => {
     setOpen(false);
-    const el = returnFocusRef.current;
-    returnFocusRef.current = null;
-    if (restoreFocus && el && el !== document.body && document.contains(el)) el.focus?.();
+    if (restoreFocus) btnRef.current?.focus();
   }, []);
 
-  // "?" anywhere (Shift+/ on US keyboards), plus the phone menu's event.
+  // "?" anywhere (Shift+/ on US keyboards), Esc while open, and the phone menu's event.
   useEffect(() => {
     const onKey = (e) => {
+      if (open && e.key === 'Escape') { e.preventDefault(); close(true); return; }
       if (e.key !== '?' || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
       if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
       e.preventDefault();
@@ -86,36 +107,45 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener(HELP_OPEN_EVENT, onEvent); };
   }, [open, show, close]);
 
-  // A click or tap anywhere else closes it.
+  // A click anywhere else closes it (on phones it covers the screen, so there
+  // is no "elsewhere").
   useEffect(() => {
     if (!open) return undefined;
     const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) close(false); };
     document.addEventListener('mousedown', onDown);
-    document.addEventListener('touchstart', onDown, { passive: true });
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('touchstart', onDown);
-    };
+    return () => document.removeEventListener('mousedown', onDown);
   }, [open, close]);
+
+  const ask = useCallback(() => { setOpen(false); setComposing(true); }, []);
 
   return (
     <div className="help-menu-wrap" ref={wrapRef}>
-      <button type="button" className="icon-btn help-menu-btn" aria-label="Help" title="Help"
+      <button ref={btnRef} type="button" className="icon-btn help-menu-btn" aria-label="Help" title="Help"
         aria-haspopup="dialog" aria-expanded={open} aria-keyshortcuts="?"
-        onMouseEnter={loadPanel} onFocus={loadPanel}
+        onMouseEnter={loadWidget} onFocus={loadWidget}
         onClick={() => (open ? close() : show())}>
         <CircleHelp style={{ width: 17, height: 17 }} />
       </button>
       {open && (
-        <PanelBoundary onContact={() => {
+        <WidgetBoundary onContact={() => {
           close(false);
           window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'support' } }));
         }}>
-          <Suspense fallback={<PanelLoading />}>
-            <HelpPanel activeView={activeView} onWhatsNew={onWhatsNew} onClose={close} />
+          <Suspense fallback={<WidgetLoading />}>
+            <HelpWidget activeView={activeView} initialTab={lastTab}
+              onTabChange={(t) => { lastTab = t; }}
+              onWhatsNew={onWhatsNew} onAsk={ask} onClose={close} />
           </Suspense>
-        </PanelBoundary>
+        </WidgetBoundary>
+      )}
+      {composing && (
+        <Suspense fallback={null}>
+          <TicketComposer onClose={() => setComposing(false)} />
+        </Suspense>
       )}
     </div>
   );
 }
+
+/** Test seam - forget the remembered tab. */
+export function __resetHelpTab() { lastTab = 'home'; }
