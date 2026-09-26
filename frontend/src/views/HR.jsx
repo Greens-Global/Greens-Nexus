@@ -4936,7 +4936,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
 
 // ── Work Site Library (Neil, Sep 25) - every work site, entered once; each
 // company then picks its own from its Work Sites tab. Lives under Settings ->
-// Company Settings (the global settings), not inside any one company.
+// Global Settings, not inside any one company.
 export function WorkSiteLibrary({ toastOk, toastErr }) {
   const [sites, setSites] = useState(null);
   const [entities, setEntities] = useState([]);
@@ -4977,7 +4977,7 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Each company chooses which of these its employees can punch at (Company Setup - a company - Work Sites).</p>
+        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Each company chooses which of these sites its employees can punch in at, from its Work Sites tab in Company Settings.</p>
         <div style={{ position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
           <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search sites" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />

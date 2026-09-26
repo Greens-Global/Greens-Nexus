@@ -360,7 +360,7 @@ const SHOTS = {
   access: {
     legend: ['Roles & Access tab', 'Pick the person', 'Their job role - the baseline set of modules', 'Access level for a module: Viewer, Editor, Full or Owner'],
     render: () => (
-      <Frame title="Settings" tabs={['Company Settings', 'Roles & Access', 'Act As', 'Audit Logs']} active="Roles & Access" activeRail={-1} tabMark={1}>
+      <Frame title="Settings" tabs={['Global Settings', 'Company Settings', 'Roles & Access', 'Act As', 'Audit Logs']} active="Roles & Access" activeRail={-1} tabMark={1}>
         <Row style={{ alignItems: 'stretch' }} gap={14}>
           <Mark n={2} style={{ flex: 0.8, minWidth: 0 }}>
             <Card style={{ width: '100%', padding: 0 }}>

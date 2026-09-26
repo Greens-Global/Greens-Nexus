@@ -1142,17 +1142,34 @@ export const DOCS = [
   },
   {
     id: 'settings', name: 'Settings', group: 'System', icon: 'Settings', view: 'admin-console',
-    tagline: 'Company-wide setup, who can access what, and the audit trail.',
+    tagline: 'Organization-wide settings, per-company setup, who can access what, and the audit trail.',
     where: 'Left menu > Settings',
     access: 'IT Admin and Global Admin, or anyone given the Settings grant',
-    purpose: 'Settings is where admins shape Nexus for everyone: company-wide options, the company structure, job roles and Access Groups that decide who sees which module, acting as another user to check what they see, and the audit logs.',
+    purpose: 'Settings is where admins shape Nexus. Global Settings apply to every company; Company Settings are managed one company at a time. Roles & Access decides who sees which module, Act As lets you check what another person sees, and Audit Logs record every change.',
     gains: [
+      'Change a setting once for the whole organization, or for just one company.',
       'Give someone exactly the access they need, in one place.',
       'See Nexus as another person sees it, to fix access problems fast.',
       'A full record of who changed what.',
     ],
     shot: 'access',
     walkthroughs: [
+      {
+        title: 'Find and Change a Global Setting',
+        steps: [
+          'Open Settings. Global Settings opens first.',
+          'Pick a category on the left (on a phone, from the Category list), or type in Filter Settings to search every category.',
+          'Click a section to open it, make your change and click Save.',
+        ],
+      },
+      {
+        title: 'Set Up a Company',
+        steps: [
+          'Click the Company Settings tab.',
+          'Click Edit on the company, or Add Company.',
+          'Use its tabs for the profile, workforce analytics policy, departments, work sites and holiday calendar.',
+        ],
+      },
       {
         title: 'Give Someone Access to a Module',
         steps: [
@@ -1172,8 +1189,8 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Company Settings', desc: 'Ticket SLA & Types, Ticket Email Notifications, Service Desk & Escalation, Task Notifications, Daily Briefing, Email Signature, Item Types & Custom Fields, and M365 Sync.' },
-      { name: 'Company Setup', desc: 'Companies, divisions and departments, with logos.' },
+      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature, Microsoft 365 Directory Sync and the Work Site Library. Service Desk: Service Desk & Escalation, Ticket Notifications, and SLA & Ticket Types. Tasks: Task Notifications. Communications: Daily Briefing. Items: Item Types & Custom Fields.' },
+      { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
       { name: 'Roles & Access', desc: 'Job roles (the baseline), Access Groups (extras on top), per-person overrides and seniority tiers.' },
       { name: 'Act As', desc: 'View Nexus as another person, for troubleshooting.' },
       { name: 'Audit Logs', desc: 'Every access and settings change, with who and when.' },
@@ -1186,6 +1203,9 @@ export const DOCS = [
         'Set an approver for a whole role once, instead of for each person.',
       ],
     },
-    tips: ['Changes to a job role apply to everyone with that role right away.'],
+    tips: [
+      'Changes to a job role apply to everyone with that role right away.',
+      'Not sure which category a setting is in? Type a word like "email" or "SLA" in Filter Settings.',
+    ],
   },
 ];

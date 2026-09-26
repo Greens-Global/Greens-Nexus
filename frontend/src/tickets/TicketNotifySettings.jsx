@@ -104,7 +104,7 @@ export default function TicketNotifySettings() {
               controls, not one flow that reads top-to-bottom. */}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 480px) minmax(320px, 420px)', gap: 16, alignItems: 'start' }}>
             <div style={{ ...card, padding: 18 }}>
-              <Field label="Shared mailbox (sender)" hint="Blank falls back to the NEXUS_FROM_EMAIL env var.">
+              <Field label="Shared mailbox (sender)" hint="Leave blank to send from the default Nexus mailbox.">
                 <input value={cfg.fromMailbox || ''} onChange={(e) => set('fromMailbox', e.target.value)}
                   placeholder="support@companydomain.com" style={inputStyle} />
               </Field>

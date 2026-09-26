@@ -420,7 +420,7 @@ const DEFAULT_SUBS = {
   // activeSub sync for that half).
   myhr:              "overview",
   timeclock:         "clock",
-  "admin-console":   "settings",
+  "admin-console":   "global",
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 

@@ -276,7 +276,7 @@ export default function TicketTaxonomySettings() {
           </label>
           {cfg.companyField.enabled && (
             companies.length === 0 ? (
-              <div style={{ fontSize: 12, color: NX.faint }}>No companies set up yet - add one under Company Setup first.</div>
+              <div style={{ fontSize: 12, color: NX.faint }}>No companies yet. Add one in Settings under Company Settings first.</div>
             ) : (
               <>
                 <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, letterSpacing: '.04em', marginBottom: 8 }}>OFFERED AT INTAKE</div>

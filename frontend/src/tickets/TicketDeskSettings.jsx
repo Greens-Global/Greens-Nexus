@@ -95,7 +95,7 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
   };
   const remove = async (d) => {
     if (!await dialog.confirm(
-      `Delete the "${d.name}" department from ${companyName}'s ticket desk? Tickets already filed against it are untouched - it just stops being a pickable choice. This only affects the ticket desk, not Company Setup.`,
+      `Delete the "${d.name}" department from ${companyName}'s ticket desk? Tickets already filed against it are untouched - it just stops being a pickable choice. This only affects the ticket desk, not the company's own department list in Company Settings.`,
       { title: 'Delete department', confirmText: 'Delete', danger: true })) return;
     try { await onDelete(d.id); }
     catch (e) { alert(e.message || 'Could not delete department.'); }
