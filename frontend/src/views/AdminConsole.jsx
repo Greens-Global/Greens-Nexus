@@ -57,7 +57,7 @@ import {
   Headset, Bell, Mail, Building2, Loader2, Timer,
   Activity, Signature, Check, Eye, X,
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
-  Globe, Package, Search, Wrench,
+  Globe, Package, Search, Wrench, CalendarClock,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -80,6 +80,7 @@ const WorkSiteLibrary = lazy(() => import('./HR').then(m => ({ default: m.WorkSi
 // `embedded` skips its own page header, since it gets one from the tab here.
 const RolesAccess = lazy(() => import('./RolesAccess'));
 const SettingsTools = lazy(() => import('./SettingsTools'));
+const HrReminderSettings = lazy(() => import('../components/HrReminderSettings'));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone; AuditLogs is
 // named-exported from that file and embedded directly here now.
@@ -116,7 +117,7 @@ const GLOBAL_CATEGORIES = [
   { key: 'organization',   label: 'Organization',   Icon: Building2,
     desc: 'Email signatures and the work sites employees punch in at.' },
   { key: 'notifications',  label: 'Notifications & Communications', Icon: Bell,
-    desc: 'Where tickets go and who hears about them, how task emails are sent and batched, and the daily briefing.' },
+    desc: 'Where tickets go and who hears about them, how task emails are sent and batched, the daily briefing, and when HR is reminded about expiring documents.' },
   { key: 'access',         label: 'Access',         Icon: Shield, adminOnly: true,
     desc: 'Who can open which module: each person\'s access, access groups, and the full access matrix. Job roles are set per company, under Company Settings.' },
   { key: 'items',          label: 'Items',          Icon: Package,
@@ -142,6 +143,9 @@ const GLOBAL_SECTIONS = [
   { id: 'daily-briefing', category: 'notifications', icon: Mail, title: 'Daily Briefing',
     sub: 'A daily summary email for each employee. Send it to everyone, or to a few test recipients first.',
     keywords: 'digest summary email morning test recipients' },
+  { id: 'hr-reminders', category: 'notifications', icon: CalendarClock, title: 'HR & Compliance Reminders',
+    sub: 'Choose how many days ahead HR is warned about visa and right-to-work expiry, contract ends, new starters, expiring documents and unsigned signature requests.',
+    keywords: 'hr people visa right to work immigration expiry expiring contract end new starter onboarding document compliance e-sign signature chase nudge reminder days before alerts timing bell' },
   // Rendered whole (not in an accordion): it is a full screen of its own.
   { id: 'access', category: 'access', icon: Shield, title: 'People & Access Groups',
     sub: 'Each person\'s effective access, access groups that add modules on top of a job role, and the full access matrix.',
@@ -293,6 +297,19 @@ function DailyBriefingSection({ defaultOpen }) {
   return (
     <Section {...SECTION_META['daily-briefing']} defaultOpen={defaultOpen}>
       <DailyBriefingSettings />
+    </Section>
+  );
+}
+
+// ── HR & Compliance Reminders ──────────────────────────────────────────────
+// Lazy: its chunk only loads when the section is opened. The panel reads its
+// own edit permission from the API (canEdit) and goes read-only without it.
+function HrRemindersSection({ defaultOpen }) {
+  return (
+    <Section {...SECTION_META['hr-reminders']} defaultOpen={defaultOpen}>
+      <Suspense fallback={<SectionFallback />}>
+        <HrReminderSettings />
+      </Suspense>
     </Section>
   );
 }
@@ -908,6 +925,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'service-desk':         return <ServiceDeskSection key={key} defaultOpen={single} />;
       case 'task-notifications':   return <TaskNotificationsSection key={key} defaultOpen={single} />;
       case 'daily-briefing':       return <DailyBriefingSection key={key} defaultOpen={single} />;
+      case 'hr-reminders':         return <HrRemindersSection key={key} defaultOpen={single} />;
       case 'item-types':           return <ItemSettingsSection key={key} defaultOpen={single} toast={toast} />;
       case 'access':
         return (
