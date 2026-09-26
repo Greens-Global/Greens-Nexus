@@ -1630,6 +1630,10 @@ export const api = {
   askAssistant:            (data) => req("/assistant/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   getAssistantConversations: ()   => req("/assistant/conversations"),
   getAssistantMessages:    (id)   => req(`/assistant/conversations/${id}/messages`),
+
+  // HR & Compliance Reminders timing - see backend/hr_reminder_config.py
+  getHrReminderSettings:    ()     => req("/hr-reminder-settings"),
+  updateHrReminderSettings: (data) => req("/hr-reminder-settings", { method: "PUT", body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

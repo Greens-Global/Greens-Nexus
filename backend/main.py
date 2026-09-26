@@ -2687,3 +2687,6 @@ app.include_router(assistant_router.router)  # Nexus Assistant (Phase 0) - see a
 
 from routers import timesheet_reviews  # noqa: E402
 app.include_router(timesheet_reviews.router)  # Timesheet review hand-offs before signing in Nexus Sign - see timesheet_review.py
+
+from routers import hr_reminder_settings  # noqa: E402
+app.include_router(hr_reminder_settings.router)  # HR & Compliance Reminders timing - see hr_reminder_config.py
