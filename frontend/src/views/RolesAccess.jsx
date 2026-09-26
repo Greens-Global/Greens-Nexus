@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
-  LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User, TrendingUp, MailPlus,
+  LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User, TrendingUp, MailPlus, ChevronLeft,
 } from 'lucide-react';
 import { InviteExternalModal, ExternalPersonSection, ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
 import { api } from '../api';
@@ -48,6 +48,7 @@ const FAMILIES = [
 ].map(f => ({ ...f, modules: f.modules.filter(id => GRANTABLE.some(m => m.id === id)) }));
 
 const moduleLabel = id => MODULES.find(m => m.id === id)?.label || id;
+const PEOPLE_PAGE_SIZE = 10;
 
 // Tiny face for chips and rows - falls back to an initial when there's no photo.
 export function Avatar({ name, src, size = 20 }) {
@@ -689,6 +690,13 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   // Company/department scoping happens upstream (the universal selector in the
   // tab strip hands this tab already-scoped people); only search lives here.
   const filtered = useMemo(() => matchPeople(people, q), [people, q]);
+  // Ten people a page (Pranshu, Sep 26) instead of a long scrolling list. A
+  // search starts again at page one; the company/department filters above
+  // can also shrink the list, so the page is clamped rather than trusted.
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PEOPLE_PAGE_SIZE));
+  const pageIdx = Math.min(page, pageCount - 1);
+  const pageRows = filtered.slice(pageIdx * PEOPLE_PAGE_SIZE, (pageIdx + 1) * PEOPLE_PAGE_SIZE);
 
   useEffect(() => {
     if (!person) { setEff(null); return; }
@@ -749,7 +757,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
         <div data-tour="people-search" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <div style={{ position: 'relative', flex: 1 }}>
             <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search anyone…"
+            <input value={q} onChange={e => { setQ(e.target.value); setPage(0); }} placeholder="Search anyone…"
               onKeyDown={onEnterPickFirst(filtered, (p) => setPerson(p.email))}
               style={{ ...input, paddingLeft: 34 }} />
           </div>
@@ -759,8 +767,8 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
             <MailPlus size={14} /> Invite External User
           </button>
         </div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6, maxHeight: '64vh', overflow: 'auto' }}>
-          {!people.length ? <Spinner /> : filtered.length === 0 ? <Empty text="No matches." /> : filtered.slice(0, 120).map(p => {
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
+          {!people.length ? <Spinner /> : filtered.length === 0 ? <Empty text="No matches." /> : pageRows.map(p => {
             const mem = membership[p.email];
             const active = person === p.email;
             return (
@@ -781,6 +789,23 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
               </button>
             );
           })}
+          {filtered.length > PEOPLE_PAGE_SIZE && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 6px 2px', marginTop: 4, borderTop: '1px solid var(--line)' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {pageIdx * PEOPLE_PAGE_SIZE + 1}-{Math.min((pageIdx + 1) * PEOPLE_PAGE_SIZE, filtered.length)} of {filtered.length}
+              </span>
+              <span style={{ display: 'inline-flex', gap: 6 }}>
+                <button className="secondary-btn" onClick={() => setPage(pageIdx - 1)} disabled={pageIdx === 0}
+                  aria-label="Previous page" style={{ padding: '5px 9px', display: 'inline-flex', alignItems: 'center' }}>
+                  <ChevronLeft size={14} />
+                </button>
+                <button className="secondary-btn" onClick={() => setPage(pageIdx + 1)} disabled={pageIdx >= pageCount - 1}
+                  aria-label="Next page" style={{ padding: '5px 9px', display: 'inline-flex', alignItems: 'center' }}>
+                  <ChevronRight size={14} />
+                </button>
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
