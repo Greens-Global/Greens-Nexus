@@ -95,7 +95,14 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // report comparison columns, dimension filters, the monthly cash forecast and
 // the per-entity reconciliation list. Measured 9403 before the batch, so the
 // headroom is for the batch itself.
-const TOTAL_KB     = 9600;
+// Sep 26, 2026: 9600 -> 9650. Settings split into Global / Company Settings,
+// per-company job roles, the Settings Tools tab, and self-service help (the
+// "?" help widget, a hand-written search over the guide and Knowledge Base,
+// and suggested articles in the ticket form). CI measured 9640 KB, +~65 KB
+// net. Paid for most of it first: the legacy Nexus Access Manager screen
+// (views/Admin.jsx, 37 KB, a duplicate of Settings > Access) was deleted in
+// the same PR. The 50 KB bump covers the rest with a little headroom.
+const TOTAL_KB     = 9650;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

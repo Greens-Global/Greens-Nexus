@@ -174,7 +174,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
     return MODULES.filter(m => {
-      if (m.id === 'admin' && !can?.('administrator')) return false;
+      // 'admin' is a permission id only now - its old screen was retired (Sep 26).
+      if (m.id === 'admin') return false;
       // Grant-driven below admin: a restricted screen only appears in search if
       // the user is admin+ or an Access Group grants it (Jun 17).
       if (RESTRICTED_MIN_SUPERVISOR.has(m.id) && !can?.('administrator') && !myGrantedModules?.has(m.id)) return false;

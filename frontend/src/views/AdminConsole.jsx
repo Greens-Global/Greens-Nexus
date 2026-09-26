@@ -1,6 +1,6 @@
 // Admin - the one place admin-team UI settings live (Pranshu, Sep 9).
-// Deliberately separate from the search-only "Nexus Access Manager"
-// (roles/access grants, module id 'admin') - not touched here. The header's
+// The old search-only "Nexus Access Manager" (module id 'admin') was retired
+// Sep 26 - Global Settings > Access replaces it and /admin lands there. The header's
 // old AdminPanel drawer (Audit Logs) is gone (Sep 11) - see the Audit Logs
 // tab below.
 //

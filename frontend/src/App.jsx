@@ -55,7 +55,6 @@ const HR                  = lazy(() => import("./views/HR"));
 const Documents           = lazy(() => import("./views/Documents"));
 const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
 const Marketing           = lazy(() => import("./views/Marketing"));
-const Admin               = lazy(() => import("./views/Admin"));
 const AdminConsole         = lazy(() => import("./views/AdminConsole"));
 // External Links folded into Dashboard as a tab (Sep 3) - Dashboard.jsx lazy-
 // imports views/ExternalLinks itself now; no separate top-level route.
@@ -346,7 +345,6 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     // top-level route working: land on Documents' PDF Editor tab.
     case "pdf-editor":         return <Documents activeSub="documents-pdf" onSubChange={onSubChange} />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
-    case "admin":              return <Admin />;
     case "admin-console":      return <AdminConsole activeSub={activeSub} onSubChange={onSubChange} />;
     case "support":            return <Support activeSub={activeSub} onSubChange={onSubChange} />;
     case "timeclock":          return <TimeClock initialTab="clock" activeSub={activeSub} onSubChange={onSubChange} />;
@@ -397,6 +395,9 @@ function parsePath() {
   // /external-links and /dashboard/external-links forms still land there.
   if (raw === 'links' || raw === 'external-links') return { view: 'dashboard', sub: 'links' };
   if (raw === 'dashboard' && segs[1] === 'external-links') return { view: 'dashboard', sub: 'links' };
+  // The old Nexus Access Manager (/admin) was retired Sep 26 - Settings >
+  // Global Settings > Access does the same job; old links land there.
+  if (raw === 'admin') return { view: 'admin-console', sub: 'access' };
   return { view: PATH_TO_VIEW[raw] || raw, sub: segs[1] || null };
 }
 
@@ -607,6 +608,8 @@ function MainApp() {
     // reasoning. The tab key is 'links' (Sep 22); the old key still maps.
     if (view === 'external-links' || view === 'links') { view = 'dashboard'; sub = 'links'; }
     if (view === 'dashboard' && sub === 'external-links') sub = 'links';
+    // Retired Nexus Access Manager -> Settings > Access (see parsePath).
+    if (view === 'admin') { view = 'admin-console'; sub = 'access'; }
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);
