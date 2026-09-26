@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, ChevronRight, ChevronLeft, LogOut, Moon, Sun, Wrench } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, LogOut, Moon, Sun, Wrench, CircleHelp } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { BFF_MODE, bffLogout } from '../bffAuth';
 import { useRole, ROLES, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
@@ -160,6 +160,13 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         <button className="mobile-menu-row"
           onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('nexus:tools-open')); }}>
           <span className="mobile-menu-row-label"><Wrench style={{ width: 19, height: 19, flexShrink: 0 }} /><span>Tools</span></span>
+          <ChevronRight size={17} />
+        </button>
+        {/* Help: the header's "?" button has no room on a phone, so the same
+            Help menu (support/HelpMenu.jsx) opens from here. */}
+        <button className="mobile-menu-row"
+          onClick={() => { onClose(); setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:help-open')), 0); }}>
+          <span className="mobile-menu-row-label"><CircleHelp style={{ width: 19, height: 19, flexShrink: 0 }} /><span>Help</span></span>
           <ChevronRight size={17} />
         </button>
         <button className="mobile-menu-row signout"

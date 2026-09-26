@@ -44,6 +44,7 @@ import {
 import { SkeletonBlocks } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
 import { buildTicketTourSteps } from './ticketTourSteps';
+import TicketDeflection from '../support/TicketDeflection';
 import { toViewUrl, toDownloadUrl } from '../lib/storageView';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
@@ -1978,6 +1979,12 @@ export function CreateTicketModal({ onClose }) {
         <label style={label}>Description</label>
         <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={3} placeholder="Add detail…" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
       </div>
+
+      {/* Self-service before a ticket (Neil, Sep 26): guide articles that
+          match what is being typed. Advisory only - it never blocks Create
+          Ticket, and shows nothing when nothing is a confident match.
+          "This Solved My Problem" closes the form without creating one. */}
+      <TicketDeflection subject={form.subject} description={form.description} onSolved={onClose} />
 
       {/* Type-specific details - the point of the ticket, so it's prominent. */}
       {typeFieldDefs.length > 0 && (
