@@ -7,8 +7,9 @@
 //
 // A type's KEY, icon and color stay defined in ticketMeta.js (compiled-in
 // React components/tokens aren't JSON) - this only overrides label, hint,
-// whether/where it shows at intake, and its intake field list. Adding a
-// brand-new type with a new icon is still a code change.
+// whether/where it shows at intake, its intake field list, and whether new
+// tickets of it require approval. Adding a brand-new type with a new icon is
+// still a code change.
 //
 // Saving here calls refreshTicketConfig() (ticketConfig.js) so every
 // already-open ticket screen picks up the change immediately, the same way
@@ -40,9 +41,10 @@ function Field({ label, hint, children }) {
   );
 }
 
-function Toggle({ on, onChange, title }) {
+function Toggle({ on, onChange, title, label }) {
   return (
-    <button type="button" onClick={onChange} title={title || (on ? 'Enabled' : 'Disabled')} style={{
+    <button type="button" role="switch" aria-checked={!!on} aria-label={label} onClick={onChange}
+      title={title || (on ? 'Enabled' : 'Disabled')} style={{
       position: 'relative', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer',
       background: on ? NX.green : NX.border, transition: 'background 0.15s', flexShrink: 0,
     }}>
@@ -140,6 +142,9 @@ function TypeRow({ typeKey, meta, shown, onToggleShown, canMoveUp, canMoveDown, 
   const label = typeCfg.label ?? meta.label;
   const hint = typeCfg.hint ?? (meta.hint || '');
   const fields = typeCfg.fields ?? [];
+  // The server fills the flag in for the default-gated types, so anything
+  // without it is off - no default list is repeated here.
+  const requiresApproval = typeCfg.requiresApproval === true;
 
   return (
     <div style={{ ...card, padding: 0, marginBottom: 10, overflow: 'hidden' }}>
@@ -158,6 +163,18 @@ function TypeRow({ typeKey, meta, shown, onToggleShown, canMoveUp, canMoveDown, 
         <button onClick={() => setOpen((o) => !o)} style={{ ...btn('ghost'), display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 10px', whiteSpace: 'nowrap' }}>
           {fields.length} question{fields.length === 1 ? '' : 's'} {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         </button>
+      </div>
+      {/* Approval switch (Sep 2026) - read server-side when a ticket is
+          created or re-typed; the decision is stored on the ticket, so a
+          flip never moves one that already exists. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px 10px 40px', flexWrap: 'wrap' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12, color: NX.ink, fontWeight: 600, whiteSpace: 'nowrap' }}>
+          <Toggle on={requiresApproval} onChange={() => onChangeType({ requiresApproval: !requiresApproval })}
+            label={`Requires Approval: ${label}`} title="Requires Approval" /> Requires Approval
+        </label>
+        <span style={{ fontSize: 11.5, color: NX.faint }}>
+          New tickets of this type wait for an approver's sign-off before they can be assigned. Tickets already raised keep their current state.
+        </span>
       </div>
       {open && (
         <div style={{ borderTop: `1px solid ${NX.border}`, padding: '12px 14px', background: NX.surface2 }}>
@@ -307,7 +324,7 @@ export default function TicketTaxonomySettings() {
         <div style={{ fontSize: 13.5, fontWeight: 700 }}>Ticket types & intake questions</div>
       </div>
       <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
-        Label, hint, intake order/visibility, and the questions each type asks are all editable. A retired question
+        Label, hint, intake order/visibility, whether it requires approval, and the questions each type asks are all editable. A retired question
         stays on tickets that already answered it - it just stops being asked. Icon and color aren't editable here.
       </div>
 
