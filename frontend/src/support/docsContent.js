@@ -105,7 +105,7 @@ export const DOCS = [
         'Your role tier (Employee, Supervisor, Manager, IT Admin, Global Admin) sets what you can approve.',
         'Your job role gives you a standard set of modules. Access Groups add extra modules on top.',
         'Each module grant has a level: Viewer, Editor, Full or Owner.',
-        'Admins manage all of this in Settings > Roles & Access. See the Settings page of this guide.',
+        'Admins set job roles per company in Settings > Company Settings, and everything else in Settings > Access. See the Settings page of this guide.',
       ],
     },
     tips: [
@@ -1145,7 +1145,7 @@ export const DOCS = [
     tagline: 'Organization-wide settings, per-company setup, who can access what, and the audit trail.',
     where: 'Left menu > Settings',
     access: 'IT Admin and Global Admin, or anyone given the Settings grant',
-    purpose: 'Settings is where admins shape Nexus. Global Settings apply to every company; Company Settings are managed one company at a time. Roles & Access decides who sees which module, and Audit Logs record every change. Actions such as Act As and the Microsoft 365 sync are not settings, so they live in the Tools menu at the top of every screen.',
+    purpose: 'Settings is where admins shape Nexus. Global Settings apply to every company; Company Settings, including each company\'s job roles, are managed one company at a time. Access decides who sees which module, and Audit Logs record every change. Actions such as Act As and the Microsoft 365 sync are not settings, so they live in the Tools menu at the top of every screen.',
     gains: [
       'Change a setting once for the whole organization, or for just one company.',
       'Give someone exactly the access they need, in one place.',
@@ -1172,9 +1172,9 @@ export const DOCS = [
       {
         title: 'Give Someone Access to a Module',
         steps: [
-          'Open Settings and click the Roles & Access tab.',
+          'Open Settings and click the Access tab.',
           'Pick a person.',
-          'Change their job role, or add them to an Access Group that grants the module.',
+          'Change their job role (only their company\'s roles and shared roles are offered), or add them to an Access Group that grants the module.',
           'Pick the access level (Viewer, Editor, Full or Owner). It saves right away.',
         ],
       },
@@ -1190,14 +1190,15 @@ export const DOCS = [
     features: [
       { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Service Desk: Service Desk & Escalation, Ticket Notifications, and SLA & Ticket Types. Tasks: Task Notifications. Communications: Daily Briefing. Items: Item Types & Custom Fields.' },
       { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
-      { name: 'Roles & Access', desc: 'Job roles (the baseline), Access Groups (extras on top), per-person overrides and seniority tiers.' },
+      { name: 'Company Roles', desc: 'Each company\'s job roles, grouped by its departments: the baseline set of modules, seniority tier and default approver. Roles shared across companies are listed there too, and can be moved into a company when everyone holding them works there.' },
+      { name: 'Access', desc: 'Each person\'s effective access, Access Groups (extras on top of a job role), per-person overrides and the full access matrix.' },
       { name: 'Audit Logs', desc: 'Every access and settings change, with who and when.' },
     ],
     manager: {
       title: 'Who Can Do What',
       points: [
         'IT Admins can grant access up to Manager. Only Global Admins can manage other admins.',
-        'Same job with more access? Duplicate the job role rather than adding many one-off overrides.',
+        'Same job in another company? Duplicate the role for that company rather than sharing one role across companies.',
         'Set an approver for a whole role once, instead of for each person.',
       ],
     },

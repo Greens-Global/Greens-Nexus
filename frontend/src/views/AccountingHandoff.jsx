@@ -65,7 +65,7 @@ export default function AccountingHandoff({ next }) {
               <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Access Denied</h2>
             </div>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.5, margin: 0 }}>
-              Nexus Accounting is limited to people who have been granted the Nexus Accounting App in Roles &amp; Access. Ask an administrator to add you, then try again.
+              Nexus Accounting is limited to people who have been granted the Nexus Accounting App in Settings &gt; Access. Ask an administrator to add you, then try again.
             </p>
           </>
         ) : (

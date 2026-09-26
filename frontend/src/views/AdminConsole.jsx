@@ -972,7 +972,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
 const TOP_TABS = [
   { key: 'global',  label: 'Global Settings',  Icon: Globe },
   { key: 'company', label: 'Company Settings', Icon: Building2 },
-  { key: 'access',  label: 'Roles & Access',   Icon: Shield },
+  { key: 'access',  label: 'Access',           Icon: Shield },
   { key: 'audit',   label: 'Audit Logs',       Icon: Activity },
 ];
 
