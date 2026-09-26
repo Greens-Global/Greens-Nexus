@@ -1,10 +1,11 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
-from models import NexusGroup, NexusGroupMember, NexusRole
+from models import NexusGroup, NexusGroupMember, NexusRole, NexusEmployee
 from auth import get_current_user, require_administrator, invalidate_role_cache, _MODULE_LEVEL_RANK
 from routers.roles import VALID_ROLES, ROLE_LEVEL, _get_role
 
@@ -196,7 +197,13 @@ def update_group(group_id: str, body: GroupUpdate, user: dict = Depends(require_
     if body.bod_exempt is not None:
         group.bod_exempt = 1 if body.bod_exempt else 0
     if body.company_id is not None:
-        group.company_id = (body.company_id or "").strip()
+        new_company = (body.company_id or "").strip()
+        # A job role's company decides which company wall its holders sit
+        # behind, so moving one goes through PUT /jobroles/{id}, which checks
+        # every holder's company and the caller's scope. Not here.
+        if group.is_job_role and new_company != (group.company_id or "").strip():
+            raise HTTPException(status_code=400, detail="Change a job role's company from Settings > Company Settings > Roles")
+        group.company_id = new_company
     if body.is_global_admin is not None:
         group.is_global_admin = 1 if body.is_global_admin else 0
 
@@ -221,6 +228,17 @@ def add_members(group_id: str, body: MembersUpdate, user: dict = Depends(require
     group = db.query(NexusGroup).filter(NexusGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+
+    # Same rule as POST /jobroles/{id}/assign: a company job role never goes to
+    # someone who works for a different company (it would open that company's
+    # wall to them). People with no company on record are allowed.
+    role_company = (group.company_id or "").strip() if group.is_job_role else ""
+    if role_company:
+        for email in body.emails or []:
+            emp = (db.query(NexusEmployee.company)
+                   .filter(func.lower(NexusEmployee.work_email) == email.lower().strip()).first())
+            if emp and (emp.company or "").strip() not in ("", role_company):
+                raise HTTPException(status_code=400, detail=f"{email} works for another company, so they can't hold this company's role")
 
     now = _ts()
     existing = {m.email for m in db.query(NexusGroupMember).filter(NexusGroupMember.group_id == group_id).all()}
