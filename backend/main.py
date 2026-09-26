@@ -2690,3 +2690,5 @@ app.include_router(timesheet_reviews.router)  # Timesheet review hand-offs befor
 
 from routers import hr_reminder_settings  # noqa: E402
 app.include_router(hr_reminder_settings.router)  # HR & Compliance Reminders timing - see hr_reminder_config.py
+from routers import security_settings  # noqa: E402
+app.include_router(security_settings.router)  # Settings > Global > Security: step-up, session lifetimes, guest sign-in (security_config.py)
