@@ -57,7 +57,7 @@ import {
   Headset, Bell, Mail, Building2, Loader2, Timer,
   Activity, Signature, Check, Eye, X,
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
-  Globe, Package, Search, Wrench,
+  Globe, Package, Search, Wrench, ShieldCheck,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -80,6 +80,8 @@ const WorkSiteLibrary = lazy(() => import('./HR').then(m => ({ default: m.WorkSi
 // `embedded` skips its own page header, since it gets one from the tab here.
 const RolesAccess = lazy(() => import('./RolesAccess'));
 const SettingsTools = lazy(() => import('./SettingsTools'));
+// Security > Sign-In & Sessions (Sep 26) - lazy like the other admin panels.
+const SecuritySettings = lazy(() => import('./SecuritySettings'));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone; AuditLogs is
 // named-exported from that file and embedded directly here now.
@@ -121,6 +123,8 @@ const GLOBAL_CATEGORIES = [
     desc: 'Who can open which module: each person\'s access, access groups, and the full access matrix. Job roles are set per company, under Company Settings.' },
   { key: 'items',          label: 'Items',          Icon: Package,
     desc: 'The catalog options used when adding items in Item Management.' },
+  { key: 'security',       label: 'Security',       Icon: ShieldCheck, adminOnly: true,
+    desc: 'How people sign in and how long sessions last. Only a Global Admin can change these.' },
 ];
 const CATEGORY_KEYS = new Set(GLOBAL_CATEGORIES.map(c => c.key));
 // Categories that were folded into another one - old links still land.
@@ -149,6 +153,9 @@ const GLOBAL_SECTIONS = [
   { id: 'item-types', category: 'items', icon: Tag, title: 'Item Types & Custom Fields',
     sub: 'The item types and extra fields available to everyone when adding or editing items.',
     keywords: 'inventory equipment catalog fields types' },
+  { id: 'sign-in-sessions', category: 'security', icon: ShieldCheck, title: 'Sign-In & Sessions',
+    sub: 'Re-authentication for sensitive screens, how long web, Act As and Credential Vault sessions last, and guest sign-in codes.',
+    keywords: 'step-up reauthentication mfa multi-factor session timeout idle act as vault unlock guest partner code lockout invite security' },
 ];
 const SECTION_META = Object.fromEntries(GLOBAL_SECTIONS.map(s => [s.id, s]));
 
@@ -909,6 +916,14 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'task-notifications':   return <TaskNotificationsSection key={key} defaultOpen={single} />;
       case 'daily-briefing':       return <DailyBriefingSection key={key} defaultOpen={single} />;
       case 'item-types':           return <ItemSettingsSection key={key} defaultOpen={single} toast={toast} />;
+      case 'sign-in-sessions':
+        return (
+          <Section key={key} icon={ShieldCheck} title={SECTION_META[id].title} sub={SECTION_META[id].sub} defaultOpen={single}>
+            <Suspense fallback={<SectionFallback />}>
+              <SecuritySettings toastOk={toastOk} toastErr={toastErr} />
+            </Suspense>
+          </Section>
+        );
       case 'access':
         return (
           <Suspense key={key} fallback={<SkeletonBlocks count={4} height={56} borderRadius={10} />}>

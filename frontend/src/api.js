@@ -1630,6 +1630,11 @@ export const api = {
   askAssistant:            (data) => req("/assistant/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   getAssistantConversations: ()   => req("/assistant/conversations"),
   getAssistantMessages:    (id)   => req(`/assistant/conversations/${id}/messages`),
+
+  // Settings > Global > Security (backend/security_config.py). GET is
+  // administrator+, PUT is Global Admin only; a null value resets to default.
+  getSecuritySettings:    ()                        => req('/security-settings'),
+  updateSecuritySettings: (values, confirmWeaken)   => req('/security-settings', { method: 'PUT', body: JSON.stringify({ values, confirmWeaken: !!confirmWeaken }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

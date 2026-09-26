@@ -37,9 +37,13 @@ from sqlalchemy.orm import Session
 from database import get_db
 from auth import get_current_user, require_level_or_module, _role_for, _LEVELS
 from models import ActAsSession, NexusRole, NexusEmployee
+import security_config as _sec
 
 router = APIRouter(prefix="/act-as", tags=["Act As"])
 
+# Default Act As lifetime. Sep 2026: the live value is the Security setting
+# `actAsMinutes` (security_config.py, 15 minutes to 8 hours), read when a
+# session starts; this constant is only what applies when nothing is saved.
 SESSION_TTL_HOURS = 4
 # Mirrors auth.py's _role_cache pattern: an impersonating admin's every request
 # carries the session header, so without a short cache this would add a DB
@@ -168,7 +172,7 @@ def start_session(body: StartIn, request: Request,
     now = _now()
     row = ActAsSession(
         id=str(uuid.uuid4()), real_email=user["email"], target_email=target_email,
-        started_at=_iso(now), expires_at=_iso(now + timedelta(hours=SESSION_TTL_HOURS)),
+        started_at=_iso(now), expires_at=_iso(now + timedelta(minutes=_sec.get("actAsMinutes", db))),
         ip=ip, user_agent=ua,
     )
     db.add(row)
