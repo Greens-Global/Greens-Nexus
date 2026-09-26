@@ -81,6 +81,7 @@ const WorkSiteLibrary = lazy(() => import('./HR').then(m => ({ default: m.WorkSi
 const RolesAccess = lazy(() => import('./RolesAccess'));
 const SettingsTools = lazy(() => import('./SettingsTools'));
 const HrReminderSettings = lazy(() => import('../components/HrReminderSettings'));
+const EquipmentReminderSettings = lazy(() => import('../components/EquipmentReminderSettings'));
 // Security > Sign-In & Sessions (Sep 26) - lazy like the other admin panels.
 const SecuritySettings = lazy(() => import('./SecuritySettings'));
 // Branding & Policies (Sep 26) - brand color, email appearance, sign-in policy.
@@ -123,7 +124,7 @@ const GLOBAL_CATEGORIES = [
   { key: 'organization',   label: 'Organization',   Icon: Building2,
     desc: 'Email signatures and the work sites employees punch in at.' },
   { key: 'notifications',  label: 'Notifications & Communications', Icon: Bell,
-    desc: 'Where tickets go and who hears about them, how task emails are sent and batched, the daily briefing, and when HR is reminded about expiring documents.' },
+    desc: 'Where tickets go and who hears about them, how task emails are sent and batched, the daily briefing, when HR is reminded about expiring documents, and equipment reminders.' },
   { key: 'access',         label: 'Access',         Icon: Shield, adminOnly: true,
     desc: 'Who can open which module: each person\'s access, access groups, and the full access matrix. Job roles are set per company, under Company Settings.' },
   { key: 'items',          label: 'Items',          Icon: Package,
@@ -156,6 +157,9 @@ const GLOBAL_SECTIONS = [
   { id: 'hr-reminders', category: 'notifications', icon: CalendarClock, title: 'HR & Compliance Reminders',
     sub: 'Choose how many days ahead HR is warned about visa and right-to-work expiry, contract ends, new starters, expiring documents and unsigned signature requests.',
     keywords: 'hr people visa right to work immigration expiry expiring contract end new starter onboarding document compliance e-sign signature chase nudge reminder days before alerts timing bell' },
+  { id: 'equipment-reminders', category: 'notifications', icon: CalendarClock, title: 'Equipment Reminders',
+    sub: 'Chase items that are checked out past their due date, and choose how early asset managers are warned about warranties, inspections, registration, insurance and service.',
+    keywords: 'items inventory checkout overdue return late borrower asset property vehicle equipment warranty inspection registration insurance service manager reminder days before alerts timing bell' },
   // Rendered whole (not in an accordion): it is a full screen of its own.
   { id: 'access', category: 'access', icon: Shield, title: 'People & Access Groups',
     sub: 'Each person\'s effective access, access groups that add modules on top of a job role, and the full access matrix.',
@@ -961,6 +965,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'task-notifications':   return <TaskNotificationsSection key={key} defaultOpen={single} />;
       case 'daily-briefing':       return <DailyBriefingSection key={key} defaultOpen={single} />;
       case 'hr-reminders':         return <HrRemindersSection key={key} defaultOpen={single} />;
+      case 'equipment-reminders':  return <LazyPanelSection key={key} id={id} Panel={EquipmentReminderSettings} defaultOpen={single} />;
       case 'item-types':           return <ItemSettingsSection key={key} defaultOpen={single} toast={toast} />;
       case 'sign-in-sessions':
         return (

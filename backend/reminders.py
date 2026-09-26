@@ -645,6 +645,13 @@ async def reminders_loop():
             await asyncio.to_thread(run_daily_scan)
         except Exception as e:
             print(f"[reminders] loop error: {e}")
+        # Equipment reminders (overdue checkouts, asset date alerts): own
+        # session + commit, so neither scan's failure rolls back the other.
+        try:
+            import equipment_reminders
+            await asyncio.to_thread(equipment_reminders.run_daily)
+        except Exception as e:
+            print(f"[reminders] equipment loop error: {e}")
         now = datetime.now(timezone.utc)
         nxt = now.replace(hour=_SCAN_HOUR_UTC, minute=0, second=0, microsecond=0)
         if nxt <= now:
