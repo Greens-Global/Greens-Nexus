@@ -1634,6 +1634,9 @@ export const api = {
   // HR & Compliance Reminders timing - see backend/hr_reminder_config.py
   getHrReminderSettings:    ()     => req("/hr-reminder-settings"),
   updateHrReminderSettings: (data) => req("/hr-reminder-settings", { method: "PUT", body: JSON.stringify(data) }),
+  // Equipment Reminders timing - see backend/equipment_reminder_config.py
+  getEquipmentReminderSettings:    ()     => req("/equipment-reminder-settings"),
+  updateEquipmentReminderSettings: (data) => req("/equipment-reminder-settings", { method: "PUT", body: JSON.stringify(data) }),
   // Settings > Global > Security (backend/security_config.py). GET is
   // administrator+, PUT is Global Admin only; a null value resets to default.
   getSecuritySettings:    ()                        => req('/security-settings'),
