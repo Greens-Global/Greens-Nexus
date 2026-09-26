@@ -471,7 +471,7 @@ export const DOCS = [
       title: 'Desk Leads & Admins',
       points: [
         'To Route holds new tickets waiting for an owner. To Approve holds tickets waiting on your approval.',
-        'Settings > Company Settings holds Ticket SLA & Types (intake questions and SLA hours), Ticket Email Notifications, and Service Desk & Escalation (default agents).',
+        'Settings > Global Settings > Service Desk holds Service Desk & Escalation (default agents), Ticket Notifications, and SLA & Ticket Types (intake questions and SLA hours).',
         'Reports shows recurring issues, so you can fix the cause, not just the ticket.',
       ],
     },
@@ -773,7 +773,7 @@ export const DOCS = [
         'Manage tab: Add Item, Edit Item, Import Items From CSV or Excel, Export Report, assign to a person or location, and the Recycle Bin.',
         'Who Has What shows holdings by person or location. Send Alert nudges someone about an overdue item.',
         'Activity Log records every change with who and when, and most changes can be undone.',
-        'Admins set item types and custom fields in Settings > Company Settings.',
+        'Admins set item types and custom fields in Settings > Global Settings > Items.',
       ],
     },
     tips: [

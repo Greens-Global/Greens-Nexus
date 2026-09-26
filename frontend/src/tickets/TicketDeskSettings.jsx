@@ -277,10 +277,6 @@ export default function TicketDeskSettings() {
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-        <Headset size={18} style={{ color: NX.dim }} />
-        <div style={{ fontSize: 18, fontWeight: 700 }}>Service Desk</div>
-      </div>
       <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14, maxWidth: 900 }}>
         Every new ticket goes to these people. They route requests for approval, assign the work,
         and see the To Route and To Assign queues. A ticket is routed by the company it belongs to

@@ -2,7 +2,7 @@
 // Manager+ only (mirrors the backend's require_manager gate on these
 // endpoints - this UI hides the controls, the backend is the real boundary).
 import { useEffect, useState } from 'react';
-import { Mail, RefreshCw, Save, AlertTriangle, CheckCircle2, Clock, RotateCcw } from 'lucide-react';
+import { RefreshCw, Save, AlertTriangle, CheckCircle2, Clock, RotateCcw } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
@@ -83,10 +83,6 @@ export default function TicketNotifySettings() {
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-        <Mail size={18} style={{ color: NX.dim }} />
-        <div style={{ fontSize: 18, fontWeight: 700 }}>Ticket Email Notifications</div>
-      </div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: `1px solid ${NX.border}` }}>
         {[['settings', 'Settings'], ['log', 'Delivery Log']].map(([k, lab]) => (
           <button key={k} onClick={() => setTab(k)} style={{
