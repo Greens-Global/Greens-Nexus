@@ -332,6 +332,11 @@ function HrRemindersSection({ defaultOpen }) {
     <Section {...SECTION_META['hr-reminders']} defaultOpen={defaultOpen}>
       <Suspense fallback={<SectionFallback />}>
         <HrReminderSettings />
+      </Suspense>
+    </Section>
+  );
+}
+
 // ── Branding & Policies (Sep 26) - a lazy panel inside the usual accordion;
 // it mounts (and fetches) only once the section is opened.
 function LazyPanelSection({ id, Panel, defaultOpen, toastOk, toastErr }) {
