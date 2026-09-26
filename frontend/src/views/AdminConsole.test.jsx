@@ -34,11 +34,12 @@ const AdminConsole = (await import('./AdminConsole')).default;
 afterEach(() => { cleanup(); vi.restoreAllMocks(); roleState.admin = true; });
 
 describe('AdminConsole', () => {
-  it('has Global Settings, Company Settings, Tools and Audit Logs tabs, and no Access tab', () => {
+  it('has Global Settings, Company Settings, Tools and Logs tabs, and no Access tab', () => {
     render(<AdminConsole activeSub="global" onSubChange={() => {}} />);
-    for (const name of ['Global Settings', 'Company Settings', 'Tools', 'Audit Logs']) {
-      expect(screen.getByRole('button', { name: new RegExp(name) })).toBeInTheDocument();
+    for (const name of ['Global Settings', 'Company Settings', 'Tools', 'Logs']) {
+      expect(screen.getByRole('button', { name: new RegExp(`^${name}$`) })).toBeInTheDocument();
     }
+    expect(screen.queryByRole('button', { name: /Audit Logs/ })).not.toBeInTheDocument();
     // The only "Access" left is the Global Settings rail entry.
     expect(screen.getAllByRole('button', { name: /Access/ })).toHaveLength(1);
     expect(screen.getByRole('navigation', { name: 'Global settings categories' })).toContainElement(
@@ -51,7 +52,7 @@ describe('AdminConsole', () => {
     expect(screen.getByRole('heading', { name: 'Organization' })).toBeInTheDocument();
     expect(screen.getByText('Email Signature')).toBeInTheDocument();
     expect(screen.getByText('Work Site Library')).toBeInTheDocument();
-    expect(screen.queryByText('Service Desk')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ticket Manager')).not.toBeInTheDocument();
   });
 
   it('lands an old "settings" sub on Global Settings', () => {
@@ -64,10 +65,10 @@ describe('AdminConsole', () => {
     const onSubChange = vi.fn();
     render(<AdminConsole activeSub="global-notifications" onSubChange={onSubChange} />);
     expect(screen.getByRole('heading', { name: 'Notifications & Communications' })).toBeInTheDocument();
-    for (const t of ['Service Desk', 'Task Notifications', 'Daily Briefing']) {
+    for (const t of ['Ticket Manager', 'Task Notifications', 'Daily Briefing']) {
       expect(screen.getByText(t)).toBeInTheDocument();
     }
-    // Routing, ticket email and SLAs are one Service Desk section now.
+    // Routing, ticket email and SLAs are one Ticket Manager section now.
     expect(screen.queryByText('Ticket Notifications')).not.toBeInTheDocument();
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 
@@ -77,9 +78,9 @@ describe('AdminConsole', () => {
     expect(onSubChange).toHaveBeenLastCalledWith('global');
   });
 
-  it('switches Service Desk panels with tabs, keeping an opened panel mounted', () => {
+  it('switches Ticket Manager panels with tabs, keeping an opened panel mounted', () => {
     render(<AdminConsole activeSub="global-notifications" onSubChange={() => {}} />);
-    fireEvent.click(screen.getByText('Service Desk'));
+    fireEvent.click(screen.getByText('Ticket Manager'));
     expect(screen.getByRole('tab', { name: /Routing & Escalation/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText('Desk panel')).toBeVisible();
 
@@ -129,7 +130,7 @@ describe('AdminConsole', () => {
     const box = screen.getByLabelText('Filter settings');
 
     fireEvent.change(box, { target: { value: 'notifications' } });
-    expect(screen.getByText('Service Desk')).toBeInTheDocument();
+    expect(screen.getByText('Ticket Manager')).toBeInTheDocument();
     expect(screen.getByText('Task Notifications')).toBeInTheDocument();
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 

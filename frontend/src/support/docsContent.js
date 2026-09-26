@@ -471,7 +471,7 @@ export const DOCS = [
       title: 'Desk Leads & Admins',
       points: [
         'To Route holds new tickets waiting for an owner. To Approve holds tickets waiting on your approval.',
-        'Settings > Global Settings > Notifications & Communications has the Service Desk section, with tabs for Routing & Escalation (default agents), Notifications, and SLA & Ticket Types (intake questions and SLA hours).',
+        'Settings > Global Settings > Notifications & Communications has the Ticket Manager section, with tabs for Routing & Escalation (default agents), Notifications, and SLA & Ticket Types (intake questions and SLA hours).',
         'Reports shows recurring issues, so you can fix the cause, not just the ticket.',
       ],
     },
@@ -1145,7 +1145,7 @@ export const DOCS = [
     tagline: 'Organization-wide settings, per-company setup, who can access what, and the audit trail.',
     where: 'Left menu > Settings',
     access: 'IT Admin and Global Admin, or anyone given the Settings grant',
-    purpose: 'Settings is where admins shape Nexus. Global Settings apply to every company; Company Settings, including each company\'s job roles, are managed one company at a time. Access, under Global Settings, decides who sees which module. Tools holds actions rather than settings, such as Act As and the Microsoft 365 sync, and Audit Logs record every change.',
+    purpose: 'Settings is where admins shape Nexus. Global Settings apply to every company; Company Settings, including each company\'s job roles, are managed one company at a time. Access, under Global Settings, decides who sees which module. Tools holds actions rather than settings, such as Act As and the Microsoft 365 sync, and Logs record every change.',
     gains: [
       'Change a setting once for the whole organization, or for just one company.',
       'Give someone exactly the access they need, in one place.',
@@ -1188,12 +1188,12 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Notifications & Communications: Service Desk (ticket routing and escalation, ticket email, and SLA & Ticket Types), Task Notifications and the Daily Briefing. Access: who can open which module. Items: Item Types & Custom Fields.' },
+      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Notifications & Communications: Ticket Manager (ticket routing and escalation, ticket email, and SLA & Ticket Types), Task Notifications and the Daily Briefing. Access: who can open which module. Items: Item Types & Custom Fields.' },
       { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
       { name: 'Company Roles', desc: 'Each company\'s job roles, grouped by its departments: the baseline set of modules, seniority tier and default approver. Roles shared across companies are listed there too, and can be moved into a company when everyone holding them works there.' },
       { name: 'Access', desc: 'In Global Settings: each person\'s effective access, Access Groups (extras on top of a job role), per-person overrides and the full access matrix.' },
-      { name: 'Tools', desc: 'Actions rather than settings: Act As, the Microsoft 365 directory sync, and troubleshooting (a live check of the Nexus server and diagnostic info to paste into a support ticket).' },
-      { name: 'Audit Logs', desc: 'Every access and settings change, with who and when.' },
+      { name: 'Tools', desc: 'Actions rather than settings: Act As (search or page through the people you can act as) and the Microsoft 365 directory sync.' },
+      { name: 'Logs', desc: 'Every access and settings change, with who and when.' },
     ],
     manager: {
       title: 'Who Can Do What',

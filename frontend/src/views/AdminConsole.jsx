@@ -133,7 +133,7 @@ const GLOBAL_SECTIONS = [
   { id: 'work-sites', category: 'organization', icon: MapPinned, title: 'Work Site Library',
     sub: 'Every location employees can punch in at, with its geofence. Each company chooses its own sites from this list.',
     keywords: 'geofence location address time clock punch map' },
-  { id: 'service-desk', category: 'notifications', icon: Headset, title: 'Service Desk',
+  { id: 'service-desk', category: 'notifications', icon: Headset, title: 'Ticket Manager',
     sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
     keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields' },
   { id: 'task-notifications', category: 'notifications', icon: Bell, title: 'Task Notifications',
@@ -252,7 +252,7 @@ function ServiceDeskSection({ defaultOpen }) {
   const pick = (key) => { setTab(key); setSeen(prev => (prev.has(key) ? prev : new Set(prev).add(key))); };
   return (
     <Section {...SECTION_META['service-desk']} defaultOpen={defaultOpen}>
-      <div role="tablist" aria-label="Service Desk" className="scroll-tabs"
+      <div role="tablist" aria-label="Ticket Manager" className="scroll-tabs"
         style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', marginBottom: 16 }}>
         {SERVICE_DESK_TABS.map(({ key, label, Icon }) => {
           const active = key === tab;
@@ -1002,7 +1002,7 @@ const TOP_TABS = [
   { key: 'global',  label: 'Global Settings',  Icon: Globe },
   { key: 'company', label: 'Company Settings', Icon: Building2 },
   { key: 'tools',   label: 'Tools',            Icon: Wrench },
-  { key: 'audit',   label: 'Audit Logs',       Icon: Activity },
+  { key: 'audit',   label: 'Logs',             Icon: Activity },
 ];
 
 // activeSub -> { tab, category }. 'global' is the Organization category and
@@ -1068,7 +1068,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
         </>
       ) : topTab === 'tools' ? (
         <Suspense fallback={<SkeletonBlocks count={3} height={120} borderRadius={12} />}>
-          <SettingsTools toastOk={toastOk} toastErr={toastErr} />
+          <SettingsTools />
         </Suspense>
       ) : topTab === 'audit' ? (
         <Suspense fallback={<SkeletonBlocks count={4} height={56} borderRadius={10} />}>

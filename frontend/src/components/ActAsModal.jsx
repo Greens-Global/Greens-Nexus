@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Search, X, UserCog } from "lucide-react";
+import { Search, X, UserCog, ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../api";
 import { matchPeople, onEnterPickFirst } from "../lib/peopleSearch";
 
@@ -9,12 +9,16 @@ import { matchPeople, onEnterPickFirst } from "../lib/peopleSearch";
 // search/select/start. Named-exported (Sep 11) so the Admin module's Act As
 // tab can show it inline, no dropdown/click-to-open in between; ActAsModal
 // below just wraps it in the header dropdown's overlay chrome.
-export function ActAsPicker({ onStart, onDone, autoFocus = true }) {
+// pageSize (Settings > Tools passes 10): show the list a page at a time with
+// Previous/Next instead of one long scroll. Omitted = the whole list, as the
+// fixed-height modal below wants it.
+export function ActAsPicker({ onStart, onDone, autoFocus = true, pageSize = 0 }) {
   const [people, setPeople]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ]             = useState("");
   const [starting, setStarting] = useState("");
   const [error, setError]     = useState("");
+  const [page, setPage]       = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,6 +30,9 @@ export function ActAsPicker({ onStart, onDone, autoFocus = true }) {
   }, []);
 
   const filtered = useMemo(() => matchPeople(people, q), [people, q]);
+  const pageCount = pageSize ? Math.max(1, Math.ceil(filtered.length / pageSize)) : 1;
+  const pageIdx = Math.min(page, pageCount - 1);   // a narrower search can leave `page` past the end
+  const shown = pageSize ? filtered.slice(pageIdx * pageSize, (pageIdx + 1) * pageSize) : filtered;
 
   async function pick(person) {
     if (starting) return;
@@ -44,7 +51,7 @@ export function ActAsPicker({ onStart, onDone, autoFocus = true }) {
     <>
       <div style={{ position: 'relative' }}>
         <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-        <input autoFocus={autoFocus} value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…"
+        <input autoFocus={autoFocus} value={q} onChange={e => { setQ(e.target.value); setPage(0); }} placeholder="Search people…"
           onKeyDown={onEnterPickFirst(filtered, pick)}
           style={{ width: '100%', padding: '8px 10px 8px 30px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'Inter, sans-serif', fontSize: 13, background: 'var(--bg)', color: 'var(--ink)', boxSizing: 'border-box' }} />
       </div>
@@ -54,14 +61,14 @@ export function ActAsPicker({ onStart, onDone, autoFocus = true }) {
 
       {error && <div style={{ margin: '4px 2px', fontSize: 12, color: 'hsl(var(--color-red))' }}>{error}</div>}
 
-      <div style={{ overflowY: 'auto', maxHeight: 360, padding: '4px 0' }}>
+      <div style={pageSize ? { padding: '4px 0' } : { overflowY: 'auto', maxHeight: 360, padding: '4px 0' }}>
         {loading && <div style={{ padding: 16, fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>Loading…</div>}
         {!loading && filtered.length === 0 && (
           <div style={{ padding: 16, fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
             {people.length === 0 ? "No one is eligible - Act As only works on roles strictly below your own." : "No matches."}
           </div>
         )}
-        {filtered.map(p => (
+        {shown.map(p => (
           <button key={p.email} onClick={() => pick(p)} disabled={!!starting}
             style={{
               width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px',
@@ -82,6 +89,24 @@ export function ActAsPicker({ onStart, onDone, autoFocus = true }) {
           </button>
         ))}
       </div>
+
+      {pageSize > 0 && filtered.length > pageSize && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+            {pageIdx * pageSize + 1}-{Math.min((pageIdx + 1) * pageSize, filtered.length)} of {filtered.length}
+          </span>
+          <span style={{ display: 'inline-flex', gap: 6 }}>
+            <button className="secondary-btn" onClick={() => setPage(pageIdx - 1)} disabled={pageIdx === 0}
+              aria-label="Previous page" style={{ padding: '5px 9px', display: 'inline-flex', alignItems: 'center' }}>
+              <ChevronLeft size={14} />
+            </button>
+            <button className="secondary-btn" onClick={() => setPage(pageIdx + 1)} disabled={pageIdx >= pageCount - 1}
+              aria-label="Next page" style={{ padding: '5px 9px', display: 'inline-flex', alignItems: 'center' }}>
+              <ChevronRight size={14} />
+            </button>
+          </span>
+        </div>
+      )}
     </>
   );
 }

@@ -23,13 +23,14 @@
 // own roster now. The flat list above becomes the DEFAULT: it's what a
 // company with no roster of its own falls back to, before the backend's last
 // resort of "every administrator" (see ticket_notify.ticket_agents).
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Headset, Save, Building2, Siren, Plus, ChevronDown, ChevronRight, Pencil, X } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, card } from '../tasks/theme';
 import { PersonMultiSelect, PersonSelect, usePeople } from '../tasks/components';
+import { useIsMobile } from '../lib/useIsMobile';
 
 // The fallback chain, spelled out for whoever's reading it: a company's own
 // agents, if any -> the Default Agents list, if any -> every administrator.
@@ -67,14 +68,14 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // their specific department. Lives here (not People -> Companies) so setting
 // it doesn't require an HR module grant - same reasoning as /ticket-companies
 // and /ticket-departments existing as their own read endpoints.
-function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead, onRename, onDelete }) {
+function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead, onRename, onDelete, defaultOpen = false }) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   // Collapsed by default - a company with a lot of departments (a real one
   // has 11) made its card towering over its grid neighbors, forcing scroll
   // through every card just to reach the Save button. Independent per card,
   // no need to persist across reloads.
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [editId, setEditId] = useState(null);   // department being renamed
   const [editName, setEditName] = useState('');
   const cancelRef = useRef(false);   // set on Escape so the ensuing onBlur doesn't SAVE
@@ -203,6 +204,16 @@ function defaultStatus(value, companiesCount) {
   };
 }
 
+// One line for the list on the left - the same rungs as companyStatus() and
+// defaultStatus(), shortened to fit a row.
+function rowStatus(value, defaultAgents, isDefault) {
+  if (value.length > 0) return { tone: 'ok', text: plural(value.length, 'agent') };
+  if (!isDefault && defaultAgents.length > 0) return { tone: 'warn', text: 'Uses Default Agents' };
+  return { tone: 'danger', text: 'Falls back to admins' };
+}
+
+const DEFAULT_KEY = '__default';
+
 export default function TicketDeskSettings() {
   const { myLevel } = useRole();
   const people = usePeople();
@@ -213,6 +224,11 @@ export default function TicketDeskSettings() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
+  // List on the left, one desk at a time on the right (Pranshu, Sep 26: a card
+  // per company, each with its departments, made one very long page).
+  const [selected, setSelected] = useState(DEFAULT_KEY);
+  const [baseline, setBaseline] = useState('');   // last saved rosters, to flag unsaved edits
+  const narrow = useIsMobile('(max-width: 900px)');
 
   useEffect(() => {
     if (myLevel < 3) return;
@@ -220,11 +236,15 @@ export default function TicketDeskSettings() {
       .then(([c, comps, dep]) => {
         setAgents(c.agentEmails || []);
         setByCompany(c.agentEmailsByCompany || {});
+        setBaseline(JSON.stringify([c.agentEmails || [], c.agentEmailsByCompany || {}]));
         setCompanies(comps || []);
         setDepts(dep || []);
       })
       .catch((e) => setErr(e.message || String(e)));
   }, [myLevel]);
+
+  const dirty = useMemo(() => agents !== null && byCompany !== null
+    && JSON.stringify([agents, byCompany]) !== baseline, [agents, byCompany, baseline]);
 
   // Its own tab now, so this cannot return null - that would render the tab
   // blank with nothing explaining why (see CLAUDE.md: never let a screen render
@@ -269,68 +289,103 @@ export default function TicketDeskSettings() {
       const next = await api.updateTicketNotifySettings({ agentEmails: agents, agentEmailsByCompany: byCompany });
       setAgents(next.agentEmails || []);
       setByCompany(next.agentEmailsByCompany || {});
+      setBaseline(JSON.stringify([next.agentEmails || [], next.agentEmailsByCompany || {}]));
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e) { setErr(e.message || String(e)); }
     finally { setSaving(false); }
   };
 
+  const company = companies.find((c) => c.id === selected) || null;
+  const current = company ? company.id : DEFAULT_KEY;
+  const entries = [
+    { key: DEFAULT_KEY, name: 'Default Agents', Icon: Headset, value: agents },
+    ...companies.map((c) => ({ key: c.id, name: c.name, Icon: Building2, value: byCompany[c.id] || [] })),
+  ];
+
+  const list = narrow ? (
+    <select className="form-input" aria-label="Desk" value={current} onChange={(e) => setSelected(e.target.value)}
+      style={{ width: '100%', marginBottom: 14 }}>
+      {entries.map((e) => (
+        <option key={e.key} value={e.key}>{e.name} - {rowStatus(e.value, agents, e.key === DEFAULT_KEY).text}</option>
+      ))}
+    </select>
+  ) : (
+    <nav aria-label="Ticket desks" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {entries.map((e, i) => {
+        const st = rowStatus(e.value, agents, e.key === DEFAULT_KEY);
+        const active = e.key === current;
+        return (
+          <div key={e.key}>
+            {i === 1 && <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint, margin: '10px 10px 4px' }}>Companies</div>}
+            <button type="button" onClick={() => setSelected(e.key)} aria-current={active ? 'true' : undefined}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', borderRadius: 8,
+                border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: FONT,
+                background: active ? 'var(--wk-brand-tint)' : 'transparent',
+              }}>
+              <e.Icon size={14} style={{ color: active ? 'var(--wk-brand)' : NX.dim, flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: active ? 700 : 600, color: active ? 'var(--wk-brand)' : NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name}</span>
+                <span style={{ display: 'block', fontSize: 11.5, color: TONE[st.tone] }}>{st.text}</span>
+              </span>
+              <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: TONE[st.tone], flexShrink: 0 }} />
+            </button>
+          </div>
+        );
+      })}
+    </nav>
+  );
+
+  const detail = company ? (
+    <DeskRoster
+      title={company.name} icon={<Building2 size={15} style={{ color: NX.dim }} />}
+      hint="The agents who receive this company's tickets."
+      value={byCompany[company.id] || []} people={people}
+      onChange={(next) => setCompanyRoster(company.id, next)}
+      status={companyStatus(byCompany[company.id] || [], agents, company.name)}
+    >
+      <DepartmentHeads key={company.id} defaultOpen companyId={company.id} companyName={company.name} people={people}
+        depts={depts.filter((d) => d.companyId === company.id)}
+        onAdd={addDept} onSetHead={setDeptHead} onRename={renameDept} onDelete={deleteDept} />
+    </DeskRoster>
+  ) : (
+    <DeskRoster
+      title="Default Agents" icon={<Headset size={15} style={{ color: NX.dim }} />}
+      hint="Used for any company with no agents of its own, and for tickets with no company on file."
+      value={agents} people={people} onChange={setAgents}
+      status={defaultStatus(agents, companies.length)}
+    />
+  );
+
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
-      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14, maxWidth: 900 }}>
-        Every new ticket goes to these people. They route requests for approval, assign the work,
-        and see the To Route and To Assign queues. A ticket is routed by the company it belongs to
-        (set from the requester's People record) - give each company its own agents so one company's
-        tickets don't page another's.
+      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14, maxWidth: 900, lineHeight: 1.5 }}>
+        New tickets go to the agents of the company they belong to. A company with no agents uses
+        Default Agents, and if that is empty too, every administrator is notified.
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {/* Default Agents stands alone, full width - it's the one every other
-            card can fall back to, so it reads as the anchor, not one tile
-            among equals. The companies below flow into a grid: with 4 (and
-            growing) legal entities, a stacked single column just left most of
-            a wide monitor blank instead of showing more desks at once. */}
-        <DeskRoster
-          title="Default Agents" icon={<Headset size={15} style={{ color: NX.dim }} />}
-          hint="Used for any company below with no agents of its own, and for tickets with no company on file."
-          value={agents} people={people} onChange={setAgents}
-          status={defaultStatus(agents, companies.length)}
-        />
-
-        {companies.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 14 }}>
-            {companies.map((c) => (
-              <DeskRoster key={c.id}
-                title={c.name} icon={<Building2 size={15} style={{ color: NX.dim }} />}
-                value={byCompany[c.id] || []} people={people}
-                onChange={(next) => setCompanyRoster(c.id, next)}
-                status={companyStatus(byCompany[c.id] || [], agents, c.name)}
-              >
-                <DepartmentHeads companyId={c.id} companyName={c.name} people={people}
-                  depts={depts.filter((d) => d.companyId === c.id)}
-                  onAdd={addDept} onSetHead={setDeptHead} onRename={renameDept} onDelete={deleteDept} />
-              </DeskRoster>
-            ))}
+      <div style={narrow ? undefined : { display: 'grid', gridTemplateColumns: '250px minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
+        {list}
+        <div style={{ minWidth: 0 }}>
+          {detail}
+          {companies.length === 0 && (
+            <div style={{ fontSize: 12, color: NX.faint, marginTop: 10 }}>
+              No companies are set up yet. Add one in Settings &gt; Company Settings to give it its own agents.
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
+            <button onClick={save} disabled={saving || !dirty} style={{ ...btn('primary'), opacity: saving || !dirty ? 0.6 : 1 }}>
+              <Save size={14} /> {saving ? 'Saving…' : 'Save'}
+            </button>
+            {dirty && !saving && <span style={{ fontSize: 12.5, color: NX.amber, fontWeight: 600 }}>Unsaved changes</span>}
+            {saved && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved</span>}
+            {err && <span style={{ fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</span>}
           </div>
-        )}
-
-        {companies.length === 0 && (
-          <div style={{ fontSize: 12, color: NX.faint }}>
-            No companies are set up yet (People → Companies). Add one there to give it its own desk.
+          <div style={{ fontSize: 11.5, color: NX.faint, lineHeight: 1.5, marginTop: 10 }}>
+            Agents don't need administrator access. Administrators can always act on tickets, so a
+            mistake here can never lock anyone out. Department heads save as soon as you pick them.
           </div>
-        )}
-
-        <div style={{ fontSize: 11.5, color: NX.faint, lineHeight: 1.5, maxWidth: 900 }}>
-          An agent does not need administrator access. Administrators can always act on tickets
-          regardless of these lists, so a mistake here can never lock you out.
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={save} disabled={saving} style={btn('primary')}>
-            <Save size={14} /> {saving ? 'Saving…' : 'Save'}
-          </button>
-          {saved && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved</span>}
-          {err && <span style={{ fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</span>}
         </div>
       </div>
     </div>
