@@ -65,7 +65,7 @@ describe('AdminConsole', () => {
     const onSubChange = vi.fn();
     render(<AdminConsole activeSub="global-notifications" onSubChange={onSubChange} />);
     expect(screen.getByRole('heading', { name: 'Notifications & Communications' })).toBeInTheDocument();
-    for (const t of ['Ticket Manager', 'Task Notifications', 'Daily Briefing']) {
+    for (const t of ['Ticket Manager', 'Task Notifications', 'Daily Briefing', 'HR & Compliance Reminders']) {
       expect(screen.getByText(t)).toBeInTheDocument();
     }
     // Routing, ticket email and SLAs are one Ticket Manager section now.
@@ -137,6 +137,10 @@ describe('AdminConsole', () => {
     fireEvent.change(box, { target: { value: 'geofence' } });
     expect(screen.getByText('Work Site Library')).toBeInTheDocument();
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
+
+    fireEvent.change(box, { target: { value: 'visa expiry' } });
+    expect(screen.getByText('HR & Compliance Reminders')).toBeInTheDocument();
+    expect(screen.queryByText('Task Notifications')).not.toBeInTheDocument();
 
     fireEvent.change(box, { target: { value: 'permissions' } });
     expect(screen.getByRole('heading', { name: 'Access' })).toBeInTheDocument();

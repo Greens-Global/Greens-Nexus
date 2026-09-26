@@ -37,7 +37,7 @@ import {
   ticketNo, ticketNoShort, normalizeCode,
   SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
 } from './ticketMeta';
-import { useTicketConfig, COMPANY_FIELD } from './ticketConfig';
+import { useTicketConfig, COMPANY_FIELD, typeRequiresApproval } from './ticketConfig';
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
 } from './TicketAtoms';
@@ -1891,6 +1891,13 @@ export function CreateTicketModal({ onClose }) {
               the plain-English "is this me?" for whichever one is selected. */}
           {TICKET_TYPE_META[form.type]?.hint && (
             <div style={{ fontSize: 12, color: NX.dim, marginTop: 5 }}>{TICKET_TYPE_META[form.type].hint}</div>
+          )}
+          {/* Admin switch per type (Settings > Ticket Manager > SLA & Ticket
+              Types) - read from the loaded taxonomy, never a hardcoded list. */}
+          {typeRequiresApproval(form.type) && (
+            <div style={{ fontSize: 11.5, color: NX.amber, marginTop: 4 }}>
+              This type needs approval before the team can start work on it.
+            </div>
           )}
           <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
             {typeFieldDefs.length + svcFieldDefs.length} extra question{typeFieldDefs.length + svcFieldDefs.length === 1 ? '' : 's'} on the next step.

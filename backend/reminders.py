@@ -1,12 +1,18 @@
 """Daily HR reminder job (roadmap Section H).
 
 One background task, started from main.py, that scans every morning for:
-  - right-to-work / visa documents expiring within 60 days
-  - contractor contract ends within 30 days
-  - HR documents (uploads with expires_on) within 30 days
-  - new starters in the next 7 days
+  - right-to-work / visa documents nearing (or just past) expiry
+  - contractor contract ends
+  - HR documents (uploads with expires_on) nearing expiry
+  - upcoming new starters
   - candidate interviews happening today
-  - pending e-sign requests expiring within 3 days
+  - pending e-sign requests nearing their expiry date
+
+Which days each of those fires on (and whether it fires at all) is set by an
+admin in Settings > Global Settings > Notifications & Communications, stored
+by hr_reminder_config.py (defaults = the values that used to be hard-coded
+here). A reminder fires only on a day whose offset is IN the configured list,
+so changing the list can never replay a day that has already passed.
 
 Notifications go to the HR team (every member of an Access Group granting the
 hr module) via the standard server-side bell - plus the reporting manager for
@@ -20,6 +26,7 @@ import json
 import uuid
 from datetime import datetime, timezone, timedelta
 
+import hr_reminder_config
 from database import SessionLocal
 from models import (
     NexusEmployee,
@@ -35,11 +42,13 @@ from models import (
 
 _SCAN_HOUR_UTC = 13  # ~6am PT / 6:30pm IST - start of the US workday
 
-# E-sign auto-chase (see section 9 of run_daily_scan). Deliberately gentle:
-# three days of silence before the first nudge, and at most three nudges ever -
-# after that the envelope is the sender's problem, not the signer's inbox's.
-_CHASE_AFTER_DAYS = 3
-_MAX_AUTO_CHASES = 3
+# E-sign auto-chase (see section 9 of run_daily_scan). Deliberately gentle by
+# default: three days of silence before a nudge, and at most three nudges
+# ever - after that the envelope is the sender's problem, not the signer's
+# inbox's. Both numbers are admin-set now (hr_reminder_config "esignChase");
+# these are the defaults it ships with.
+_CHASE_AFTER_DAYS = hr_reminder_config.DEFAULTS["esignChase"]["firstNudgeAfterDays"]
+_MAX_AUTO_CHASES = hr_reminder_config.DEFAULTS["esignChase"]["maxNudges"]
 
 
 def _now_iso() -> str:
@@ -130,6 +139,22 @@ def _days_until(date_str: str):
         return None
 
 
+def _fires(entry: dict, d) -> bool:
+    """Whether a date reminder configured by `entry` (one hr_reminder_config
+    type) fires today, for something `d` days away (negative = already past).
+
+    Exact offsets only: a day fires when it is IN the list, never "within N
+    days". So adding an earlier day (say 90 while a visa is 45 days out)
+    cannot retro-fire a day that has passed, and a shortened list simply
+    stops firing - together with the per-day dedupe in _notify, changing the
+    list mid-period can neither duplicate nor flood."""
+    if d is None or not entry.get("enabled"):
+        return False
+    if d >= 0:
+        return d in entry.get("daysBefore", ())
+    return -d in entry.get("daysAfter", ())
+
+
 def run_esign_chase(db) -> int:
     """Chase the signer who is holding a pending envelope up. Returns how many
     notifications were created (the nudge itself is a bell + email to the
@@ -147,6 +172,11 @@ def run_esign_chase(db) -> int:
     contact" to today, so tomorrow's scan skips it).
     """
     sent = 0
+    chase_cfg = hr_reminder_config.get_config(db)["esignChase"]
+    after_days = chase_cfg["firstNudgeAfterDays"]
+    max_chases = chase_cfg["maxNudges"]
+    if not chase_cfg["enabled"] or max_chases <= 0:
+        return 0
     from routers.esign import _its_their_turn, _notify_party, _log
 
     _today_d = datetime.now(timezone.utc).date()
@@ -185,14 +215,15 @@ def run_esign_chase(db) -> int:
                 1 for e in events
                 if e.type == "reminded" and (e.detail or "").startswith("automatic")
             )
-            if auto_sent >= _MAX_AUTO_CHASES:
+            # A cap lowered below what was already sent just stops chasing.
+            if auto_sent >= max_chases:
                 continue
             try:
                 last = datetime.fromisoformat(max(contacts)).date()
             except ValueError:
                 continue
             quiet_days = (_today_d - last).days
-            if quiet_days < _CHASE_AFTER_DAYS:
+            if quiet_days < after_days:
                 continue
             sender = (req.created_by or "").split("@")[0].replace(".", " ").title()
             try:
@@ -206,13 +237,13 @@ def run_esign_chase(db) -> int:
                 "reminded",
                 f"automatic reminder - no response in {quiet_days} day"
                 f"{'s' if quiet_days != 1 else ''} "
-                f"({auto_sent + 1} of {_MAX_AUTO_CHASES})",
+                f"({auto_sent + 1} of {max_chases})",
                 party_id=p.id,
             )
             chased += 1
             # Last automatic nudge: hand it back to the sender, who can
             # still Remind, extend or void by hand.
-            if auto_sent + 1 >= _MAX_AUTO_CHASES:
+            if auto_sent + 1 >= max_chases:
                 sent += _notify(
                     db,
                     "esign_stalled",
@@ -326,6 +357,11 @@ def run_daily_scan() -> int:
             .all()
         )
         act = {"view": "hr", "sub": "hr-people"}
+        # Admin-set timing (hr_reminder_config). Exact-offset matching only.
+        rcfg = hr_reminder_config.get_config(db)
+        rtw, cend_cfg = rcfg["rightToWork"], rcfg["contractEnd"]
+        starter_cfg, doc_cfg = rcfg["newStarter"], rcfg["documentExpiry"]
+        esx_cfg = rcfg["esignExpiring"]
 
         # Timecard sign reminder: one day before the bi-weekly pay period ends,
         # nudge each employee to review + sign their timecard so payroll can close
@@ -357,7 +393,7 @@ def run_daily_scan() -> int:
             # 1. Right-to-work / visa doc expiry (compliance.expiryDate)
             exp = (e.compliance or {}).get("expiryDate", "")
             d = _days_until(exp) if exp else None
-            if d is not None and (d in (60, 30, 14, 7, 3, 1, 0) or -7 <= d < 0):
+            if _fires(rtw, d):
                 msg = (
                     f"{name}'s right-to-work document expired {abs(d)}d ago."
                     if d < 0
@@ -377,7 +413,7 @@ def run_daily_scan() -> int:
             # 2. Contractor contract end (contractor.contract_end)
             cend = (e.contractor or {}).get("contract_end", "")
             d = _days_until(cend) if cend else None
-            if d is not None and d in (30, 14, 7, 1, 0):
+            if _fires(cend_cfg, d):
                 msg = f"{name}'s contract ends in {d} day{'s' if d != 1 else ''} ({cend})."
                 for r in hr_team:
                     sent += _notify(
@@ -396,7 +432,7 @@ def run_daily_scan() -> int:
                 if e.start_date and e.status == "onboarding"
                 else None
             )
-            if d is not None and d in (7, 3, 1, 0):
+            if _fires(starter_cfg, d):
                 when = "today" if d == 0 else f"in {d} day{'s' if d != 1 else ''}"
                 msg = f"{name} ({e.job_title or e.department or 'new hire'}) starts {when}."
                 for r in set(
@@ -413,9 +449,10 @@ def run_daily_scan() -> int:
                     )
 
         # 4. HR document expiries (uploads with expires_on)
-        for doc in db.query(HrDocument).filter(HrDocument.expires_on != "").all():
+        for doc in (db.query(HrDocument).filter(HrDocument.expires_on != "").all()
+                    if doc_cfg["enabled"] else []):
             d = _days_until(doc.expires_on)
-            if d is not None and d in (30, 14, 7, 1, 0):
+            if _fires(doc_cfg, d):
                 emp = (
                     db.query(NexusEmployee)
                     .filter(NexusEmployee.id == doc.employee_id)
@@ -461,14 +498,15 @@ def run_daily_scan() -> int:
                     requested_by=cand,
                 )
 
-        # 6. Pending e-sign requests expiring within 3 days (sender)
+        # 6. Pending e-sign requests close to their expiry date (sender)
         for req in (
             db.query(HrSignRequest)
             .filter(HrSignRequest.status == "pending", HrSignRequest.expires_on != "")
             .all()
+            if esx_cfg["enabled"] else []
         ):
             d = _days_until(req.expires_on)
-            if d is not None and 0 <= d <= 3:
+            if _fires(esx_cfg, d):
                 sent += _notify(
                     db,
                     "esign_expiring",
@@ -607,6 +645,13 @@ async def reminders_loop():
             await asyncio.to_thread(run_daily_scan)
         except Exception as e:
             print(f"[reminders] loop error: {e}")
+        # Equipment reminders (overdue checkouts, asset date alerts): own
+        # session + commit, so neither scan's failure rolls back the other.
+        try:
+            import equipment_reminders
+            await asyncio.to_thread(equipment_reminders.run_daily)
+        except Exception as e:
+            print(f"[reminders] equipment loop error: {e}")
         now = datetime.now(timezone.utc)
         nxt = now.replace(hour=_SCAN_HOUR_UTC, minute=0, second=0, microsecond=0)
         if nxt <= now:

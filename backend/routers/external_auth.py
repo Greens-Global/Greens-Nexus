@@ -23,7 +23,10 @@ in-memory counters do not cross gunicorn's worker processes):
 - codes/tokens hashed at rest, single-use, short-lived; never logged
 - new code invalidates prior ones; 5 failed verifies kills the code and locks
   the email for 15 minutes; max 5 code requests per email AND per IP per hour;
-  30s resend throttle
+  30s resend throttle (Sep 2026: code lifetime, attempts, lockout, invite
+  lifetime and the hourly cap are Settings > Global > Security values within
+  hard bounds - security_config.py - read per request; the numbers above are
+  the defaults)
 - request-code always answers the same generic 200 (no account enumeration)
 - audit rows for invite sent / activated / login success / lockout
 
@@ -47,18 +50,21 @@ import bff_session as bff
 import graph_mail
 import sentdm
 from app_url import app_url
+import email_theme
 from database import SessionLocal
 from models import AuditLog, ExternalLoginCode, NexusEmployee
+import security_config as _sec
 
 router = APIRouter(prefix="/external-auth", tags=["External Auth"])
 
 _EXTERNAL_TYPES = ("guest", "external")
 
-CODE_TTL_MIN = 10
-INVITE_TTL_DAYS = 7
-MAX_ATTEMPTS = 5           # failed verifies per code, then lockout
-LOCKOUT_MIN = 15
-MAX_REQUESTS_PER_HOUR = 5  # per email AND per IP
+# Defaults only - the live values come from _sec.get(...) at each use.
+CODE_TTL_MIN = _sec.DEFAULTS["guestCodeTtlMin"]            # 10
+INVITE_TTL_DAYS = _sec.DEFAULTS["guestInviteTtlDays"]      # 7
+MAX_ATTEMPTS = _sec.DEFAULTS["guestMaxAttempts"]           # 5 failed verifies per code, then lockout
+LOCKOUT_MIN = _sec.DEFAULTS["guestLockoutMin"]             # 15
+MAX_REQUESTS_PER_HOUR = _sec.DEFAULTS["guestRequestsPerHour"]  # 5, per email AND per IP
 RESEND_THROTTLE_S = 30
 
 # The one answer /request-code ever gives - identical for unknown emails,
@@ -159,11 +165,12 @@ def _invalidate_codes(db, email: str, purposes: tuple = ("activate", "login")) -
 
 
 def _locked_out(db, email: str) -> bool:
-    """True while a code that hit MAX_ATTEMPTS was killed within LOCKOUT_MIN."""
-    cutoff = _iso(_now_dt() - timedelta(minutes=LOCKOUT_MIN))
+    """True while a code that hit the attempt limit was killed within the
+    lockout window (both Security settings)."""
+    cutoff = _iso(_now_dt() - timedelta(minutes=_sec.get("guestLockoutMin", db)))
     return bool(db.query(ExternalLoginCode)
                 .filter(ExternalLoginCode.email == email,
-                        ExternalLoginCode.attempts >= MAX_ATTEMPTS,
+                        ExternalLoginCode.attempts >= _sec.get("guestMaxAttempts", db),
                         ExternalLoginCode.consumed_at > cutoff).first())
 
 
@@ -172,12 +179,13 @@ def _rate_limited(db, email: str, ip: str) -> bool:
     the 30s resend throttle. Invite TOKENS are excluded - those are minted by
     admin actions, not by the anonymous endpoints this protects."""
     hour_ago = _iso(_now_dt() - timedelta(hours=1))
+    per_hour = _sec.get("guestRequestsPerHour", db)
     q = db.query(ExternalLoginCode).filter(
         ExternalLoginCode.purpose.in_(("activate", "activate2", "login")),
         ExternalLoginCode.created_at > hour_ago)
-    if q.filter(ExternalLoginCode.email == email).count() >= MAX_REQUESTS_PER_HOUR:
+    if q.filter(ExternalLoginCode.email == email).count() >= per_hour:
         return True
-    if ip and q.filter(ExternalLoginCode.created_ip == ip).count() >= MAX_REQUESTS_PER_HOUR:
+    if ip and q.filter(ExternalLoginCode.created_ip == ip).count() >= per_hour:
         return True
     throttle = _iso(_now_dt() - timedelta(seconds=RESEND_THROTTLE_S))
     recent = (db.query(ExternalLoginCode)
@@ -197,7 +205,7 @@ def _issue_code(db, email: str, purpose: str, channel: str, ip: str) -> str:
     db.add(ExternalLoginCode(
         id=str(uuid.uuid4()), email=email, code_hash=_hash_code(code),
         purpose=purpose, channel=channel,
-        expires_at=_iso(_now_dt() + timedelta(minutes=CODE_TTL_MIN)),
+        expires_at=_iso(_now_dt() + timedelta(minutes=_sec.get("guestCodeTtlMin", db))),
         attempts=0, created_ip=ip, consumed_at="", created_at=_iso()))
     db.commit()
     return code
@@ -239,14 +247,23 @@ def _live_code_row(db, email: str, purpose: str):
 
 # ── delivery (patched in tests - nothing here may log the code) ──────────────
 
-_BRAND_HEADER = """<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+# Header, footer and accent come from the shared email theme (email_theme.py,
+# Settings > Branding & Policies > Email Appearance); the defaults render
+# exactly what these two constants used to hold.
+_WORDMARK = '<span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px">GREENS GLOBAL</span>'
+
+
+def _brand_header(th) -> str:
+    return f"""<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <table align="center" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
-    <tr><td style="background:#0f3d2e;padding:18px 28px">
-      <span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px">GREENS GLOBAL</span>
+    <tr><td style="background:{th.color('#0f3d2e')};padding:18px 28px">
+      {th.logo_block(wordmark=_WORDMARK)}
     </td></tr>"""
 
-_BRAND_FOOTER = """<tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
-      Sent via Nexus, the Greens Global company portal. If you weren't expecting this email, you can ignore it.
+
+def _brand_footer(th) -> str:
+    return f"""<tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
+      Sent via Nexus, the Greens Global company portal. If you weren't expecting this email, you can ignore it.{th.footer_lines()}
     </td></tr></table></div>"""
 
 
@@ -258,9 +275,17 @@ def _send_invite_email(to_email: str, display_name: str, inviter_name: str,
                        company: str, token: str) -> None:
     """The branded invitation. Raises GraphMailError on failure (caller records
     invite_status='failed'). The activation link is the only secret inside."""
+    html = _invite_email_html(display_name, inviter_name, company, token)
+    graph_mail.send_mail(from_email=_from_email(), to=[to_email], cc=None,
+                         subject="Greens Global invited you to Nexus", html=html)
+
+
+def _invite_email_html(display_name: str, inviter_name: str, company: str, token: str) -> str:
     link = f"{app_url()}/activate/{token}"
+    invite_days = _sec.get("guestInviteTtlDays")
     first = (display_name or "").split(" ")[0] or "there"
-    html = f"""{_BRAND_HEADER}
+    th = email_theme.current()
+    html = f"""{_brand_header(th)}
     <tr><td style="padding:26px 28px 8px">
       <h2 style="margin:0 0 14px;font-size:19px;color:#111827;line-height:1.35">Greens Global invited you to Nexus</h2>
       <p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#1f2937">Hi {first},</p>
@@ -268,30 +293,35 @@ def _send_invite_email(to_email: str, display_name: str, inviter_name: str,
         {inviter_name} invited you{f" ({company})" if company else ""} to collaborate on Greens Global Nexus,
         our company portal - tasks, tickets, and documents shared with you, in one place.</p>
       <p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:#1f2937">
-        Press the button to set up your access. The link works once and expires in {INVITE_TTL_DAYS} days.</p>
-      <table cellpadding="0" cellspacing="0" style="margin:0 0 18px"><tr><td style="border-radius:9px;background:#0f3d2e">
+        Press the button to set up your access. The link works once and expires in {invite_days} day{"" if invite_days == 1 else "s"}.</p>
+      <table cellpadding="0" cellspacing="0" style="margin:0 0 18px"><tr><td style="border-radius:9px;background:{th.color('#0f3d2e')}">
         <a href="{link}" style="display:inline-block;padding:12px 26px;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none">Accept Invitation</a>
       </td></tr></table>
       <p style="margin:0 0 16px;font-size:12px;line-height:1.6;color:#6b7280">
         Button not working? Paste this link into your browser:<br>{link}</p>
     </td></tr>
-    {_BRAND_FOOTER}"""
-    graph_mail.send_mail(from_email=_from_email(), to=[to_email], cc=None,
-                         subject="Greens Global invited you to Nexus", html=html)
+    {_brand_footer(th)}"""
+    return html
 
 
 def _send_email_code(to_email: str, code: str) -> None:
     """The 6-digit code by email. Raises GraphMailError on failure."""
-    html = f"""{_BRAND_HEADER}
+    graph_mail.send_mail(from_email=_from_email(), to=[to_email], cc=None,
+                         subject="Your Nexus sign-in code", html=_code_email_html(code))
+
+
+def _code_email_html(code: str) -> str:
+    code_min = _sec.get("guestCodeTtlMin")
+    th = email_theme.current()
+    html = f"""{_brand_header(th)}
     <tr><td style="padding:26px 28px 8px">
       <h2 style="margin:0 0 14px;font-size:19px;color:#111827;line-height:1.35">Your Nexus sign-in code</h2>
-      <p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#1f2937">Enter this code to continue. It expires in {CODE_TTL_MIN} minutes.</p>
-      <div style="margin:0 0 18px;font-size:30px;font-weight:800;letter-spacing:8px;color:#0f3d2e">{code}</div>
+      <p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#1f2937">Enter this code to continue. It expires in {code_min} minutes.</p>
+      <div style="margin:0 0 18px;font-size:30px;font-weight:800;letter-spacing:8px;color:{th.color('#0f3d2e')}">{code}</div>
       <p style="margin:0 0 16px;font-size:12px;line-height:1.6;color:#6b7280">Never share this code. Greens Global will never ask you for it.</p>
     </td></tr>
-    {_BRAND_FOOTER}"""
-    graph_mail.send_mail(from_email=_from_email(), to=[to_email], cc=None,
-                         subject="Your Nexus sign-in code", html=html)
+    {_brand_footer(th)}"""
+    return html
 
 
 def _deliver_code(db, emp: NexusEmployee, purpose: str, ip: str,
@@ -342,7 +372,7 @@ def issue_invite(db, emp: NexusEmployee, inviter_name: str) -> tuple[str, str]:
     db.add(ExternalLoginCode(
         id=str(uuid.uuid4()), email=email, code_hash=_hash_token(token),
         purpose="invite", channel="email",
-        expires_at=_iso(_now_dt() + timedelta(days=INVITE_TTL_DAYS)),
+        expires_at=_iso(_now_dt() + timedelta(days=_sec.get("guestInviteTtlDays", db))),
         attempts=0, created_ip="", consumed_at="", created_at=_iso()))
     db.commit()
     try:
@@ -695,23 +725,25 @@ def _verify_code(db, email: str, purpose: str, code: str, ip: str,
                  pattern: str = r"\d{6}"):
     """Shared verify: True on success (code consumed, phone stamped for SMS),
     else a JSONResponse error. Counts attempts on the ROW (cross-worker) and
-    kills it at MAX_ATTEMPTS, which starts the 15-minute lockout. `pattern`
+    kills it at the attempt limit, which starts the lockout (both Security
+    settings; 5 attempts / 15 minutes by default). `pattern`
     matches the code shape (6-digit OTP by default; 8-char staged test code)."""
+    lockout_min = _sec.get("guestLockoutMin", db)
+    max_attempts = _sec.get("guestMaxAttempts", db)
+    locked_msg = f"Too many incorrect codes - wait {lockout_min} minutes and request a new one."
     if _locked_out(db, email):
-        return JSONResponse(status_code=429, content={
-            "detail": "Too many incorrect codes - wait 15 minutes and request a new one."})
+        return JSONResponse(status_code=429, content={"detail": locked_msg})
     row = _live_code_row(db, email, purpose)
     if not row or not re.fullmatch(pattern, code or ""):
         return JSONResponse(status_code=400, content={"detail": "Invalid or expired code."})
     if not _code_matches(code, row.code_hash):
         row.attempts = (row.attempts or 0) + 1
-        if row.attempts >= MAX_ATTEMPTS:
+        if row.attempts >= max_attempts:
             row.consumed_at = _iso()     # dead + timestamps the lockout window
             db.commit()
             _audit(db, email, "external_login_lockout",
-                   f"{MAX_ATTEMPTS} failed code attempts", ip)
-            return JSONResponse(status_code=429, content={
-                "detail": "Too many incorrect codes - wait 15 minutes and request a new one."})
+                   f"{max_attempts} failed code attempts", ip)
+            return JSONResponse(status_code=429, content={"detail": locked_msg})
         db.commit()
         return JSONResponse(status_code=400, content={"detail": "Invalid or expired code."})
     row.consumed_at = _iso()

@@ -180,12 +180,21 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
 
 
 # ── Approval workflow rules ──────────────────────────────────────────────────
-# Which types are gated. Everything else goes straight to the fulfilment queue.
+# Which types are gated is an admin switch per type (Sep 2026) - the
+# `requiresApproval` flag in the ticket taxonomy config, read through
+# ticket_taxonomy.requires_approval(). It used to be a hardcoded set here; the
+# defaults (ticket_taxonomy.DEFAULT_APPROVAL_TYPES) are exactly that old set,
+# so nothing changed on deploy. Everything not gated goes straight to the
+# fulfillment queue.
 #
-# These three commit somebody else's money, access or production config, so a
-# second person signs off. A bug report or a question commits nothing, and
-# gating those would only add a step between a user and help.
-APPROVAL_REQUIRED_TYPES = {"service_request", "change_request", "access_request"}
+# The switch is consulted ONLY where the gate is decided - create_ticket, and
+# update_ticket when a ticket is re-typed. The decision lands on the ticket as
+# approval_status, and everything downstream (request_approval,
+# decide_approval, the assignment block, the "To Route" / "To Approve" queues,
+# ticket_notify, the daily briefing) keys off that stored status, never off
+# the type. So flipping the switch affects new tickets only: one already
+# waiting for approval stays pending, one already approved/rejected keeps its
+# decision, and one that was never gated stays ungated.
 
 # Legacy: tickets raised before the IT Admin flow captured an approver in a
 # per-type intake field. Nothing writes or reads these now - the fields are
@@ -570,7 +579,8 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         # at submit time is just a same-request UI preview.
         sla_due_on=_sla_due_from_priority(db, now, body.priority or "medium"), resolved_at="", created_at=now, modified_at=now,
     )
-    # Approval gate, decided by the TYPE and never trusted from the client, so a
+    # Approval gate, decided by the TYPE's admin switch (requiresApproval in the
+    # ticket taxonomy, read at this moment) and never trusted from the client, so a
     # caller cannot post approval_status="approved" to skip it.
     #
     # No approver is named here. A gated ticket parks as pending with the
@@ -579,7 +589,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     # requester never chooses their own approver, and neither does the server
     # guess - the desk that sees the request decides who it needs.
     t.approver_email = ""
-    t.approval_status = "pending" if (t.type or "") in APPROVAL_REQUIRED_TYPES else "none"
+    t.approval_status = "pending" if ticket_taxonomy.requires_approval(db, t.type or "") else "none"
     if t.approval_status == "pending" and t.assignee_email:
         # Same rule update_ticket enforces, applied at the door: a request cannot
         # be born already assigned, or the gate is skippable by whoever files it.
@@ -768,8 +778,13 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # an Access Request kept approval_status "none" - it read as an access request
     # everywhere while never having been approved by anyone, which is precisely
     # the thing the gate exists to prevent.
+    #
+    # Re-typing is a new decision, so it reads the type's CURRENT switch
+    # (ticket_taxonomy.requires_approval). A ticket that is not re-typed is
+    # never re-evaluated here, which is what keeps a switch flip from
+    # touching existing tickets.
     if (t.type or "") != prev_type:
-        now_gated = (t.type or "") in APPROVAL_REQUIRED_TYPES
+        now_gated = ticket_taxonomy.requires_approval(db, t.type or "")
         if now_gated and prev_approval == "none":
             t.approval_status = "pending"
             t.approver_email = ""
@@ -1531,7 +1546,10 @@ def get_ticket_taxonomy_settings(user: dict = Depends(get_current_user), db: Ses
 
 @router.put("/task-tickets/taxonomy/settings")
 def put_ticket_taxonomy_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
-    return ticket_taxonomy.save_config(db, patch, user["email"])
+    try:
+        return ticket_taxonomy.save_config(db, patch, user["email"])
+    except ticket_taxonomy.TaxonomyError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.get("/task-tickets/notify/log", dependencies=[Depends(require_ticket_desk)])

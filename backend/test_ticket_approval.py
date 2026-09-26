@@ -40,6 +40,7 @@ from fastapi import BackgroundTasks, HTTPException
 
 import database
 import models
+import ticket_taxonomy
 from routers import tickets
 
 models.Base.metadata.create_all(bind=database.engine)
@@ -107,7 +108,9 @@ class IntakeGateTests(_Case):
     """What happens the moment a ticket is filed."""
 
     def test_spending_access_and_change_are_gated(self):
-        self.assertEqual(tickets.APPROVAL_REQUIRED_TYPES,
+        """The default switch set - exactly the three types that were hardcoded
+        before approval became an admin switch per type."""
+        self.assertEqual(set(ticket_taxonomy.DEFAULT_APPROVAL_TYPES),
                          {"service_request", "change_request", "access_request"})
 
     def test_a_gated_ticket_parks_with_nobody_named(self):
@@ -473,6 +476,128 @@ class GateBypassTests(_Case):
         self._patch(t["id"], assignee_email=AGENT)
         self._patch(t["id"], status="resolved")
         self.assertEqual(self._patch(t["id"], status="reopened")["approvalStatus"], "none")
+
+
+class ApprovalSwitchTests(_Case):
+    """Approval per ticket type is an admin switch (Sep 2026) - the
+    `requiresApproval` flag in the ticket taxonomy config. The switch decides
+    the gate for NEW tickets only; the decision is stored on the ticket, so
+    flipping it never moves a ticket that already exists."""
+
+    ALL_TYPES = ("bug", "incident", "service_request", "feature_request", "task",
+                 "question", "change_request", "access_request", "request", "other")
+
+    def _switch(self, **flags):
+        ticket_taxonomy.save_config(
+            self.db, {"types": {k: {"requiresApproval": v} for k, v in flags.items()}}, ADMIN)
+
+    def _patch(self, ticket_id, actor=ADMIN, level=4, **kw):
+        return tickets.update_ticket(ticket_id, tickets.TicketUpdate(**kw), BackgroundTasks(),
+                                     user=self._user(actor, level), db=self.db)
+
+    # ── defaults ─────────────────────────────────────────────────────────
+    def test_default_parity_with_the_old_hardcoded_set(self):
+        """Nothing saved: exactly the old three are gated, everything else is not."""
+        for type_ in self.ALL_TYPES:
+            expected = "pending" if type_ in ("service_request", "change_request", "access_request") else "none"
+            self.assertEqual(self._create(type_)["approvalStatus"], expected, type_)
+
+    def test_the_config_reports_the_defaults_explicitly(self):
+        types = ticket_taxonomy.get_config(self.db)["types"]
+        for key in ("service_request", "change_request", "access_request"):
+            self.assertIs(types[key]["requiresApproval"], True)
+        self.assertNotIn("requiresApproval", types.get("bug", {}))
+
+    def test_an_unrelated_save_keeps_the_default_gates(self):
+        """Editing a gated type's label (entry sent without the flag) must not
+        silently drop its gate."""
+        ticket_taxonomy.save_config(self.db, {"types": {"access_request": {"label": "Access"}}}, ADMIN)
+        self.assertEqual(self._create("access_request")["approvalStatus"], "pending")
+
+    def test_a_type_with_no_default_is_ungated_until_switched_on(self):
+        """Any other type key - including one only an admin has configured -
+        defaults to off."""
+        ticket_taxonomy.save_config(self.db, {"types": {"question": {"label": "Ask Us"}}}, ADMIN)
+        self.assertFalse(ticket_taxonomy.requires_approval(self.db, "question"))
+        self.assertFalse(ticket_taxonomy.requires_approval(self.db, "custom_type"))
+        self.assertEqual(self._create("question")["approvalStatus"], "none")
+
+    # ── switching ────────────────────────────────────────────────────────
+    def test_turning_approval_on_routes_new_tickets_to_approval(self):
+        self._switch(bug=True)
+        t = self._create("bug")
+        self.assertEqual(t["approvalStatus"], "pending")
+        self.assertIsNone(t["approverId"])
+        # Same routing as the old hardcoded types: the IT Admins are told to route it.
+        self.assertEqual([n.title for n in self._bells(ADMIN)], ["Ticket needs approval routing"])
+        # ...and nobody can be handed it yet.
+        with self.assertRaises(HTTPException) as e:
+            self._patch(t["id"], assignee_email=AGENT)
+        self.assertEqual(e.exception.status_code, 409)
+
+    def test_turning_approval_off_skips_approval(self):
+        self._switch(access_request=False)
+        t = self._create("access_request")
+        self.assertEqual(t["approvalStatus"], "none")
+        # Straight to the regular queue - it can be born assigned, like any ungated ticket.
+        self.assertEqual(self._create("access_request", assignee_email=AGENT)["assigneeId"], AGENT)
+
+    def test_re_typing_reads_the_current_switch(self):
+        """Re-typing is a fresh decision, so it follows the switch as it is now."""
+        self._switch(bug=True)
+        t = self._create("incident")
+        self.assertEqual(self._patch(t["id"], type="bug")["approvalStatus"], "pending")
+
+    # ── existing tickets are untouched ───────────────────────────────────
+    def test_an_existing_pending_ticket_is_unaffected_by_turning_the_switch_off(self):
+        t = self._create("access_request")
+        self._switch(access_request=False)
+        # Still pending, still unassignable, and still routable/decidable.
+        self.assertEqual(self._row(t["id"]).approval_status, "pending")
+        with self.assertRaises(HTTPException) as e:
+            self._patch(t["id"], assignee_email=AGENT)
+        self.assertEqual(e.exception.status_code, 409)
+        # An unrelated edit does not re-decide the gate either.
+        self.assertEqual(self._patch(t["id"], priority="high")["approvalStatus"], "pending")
+        tickets.request_approval(t["id"], tickets.ApprovalRequestBody(approver_email=APPROVER),
+                                 BackgroundTasks(), user=self._user(ADMIN, 4), db=self.db)
+        out = tickets.decide_approval(t["id"], tickets.ApprovalBody(decision="approve", note=""),
+                                      BackgroundTasks(), user=self._user(APPROVER), db=self.db)
+        self.assertEqual(out["approvalStatus"], "approved")
+
+    def test_an_existing_ungated_ticket_is_unaffected_by_turning_the_switch_on(self):
+        t = self._create("bug")
+        self._patch(t["id"], assignee_email=AGENT)
+        self._switch(bug=True)
+        out = self._patch(t["id"], priority="high")
+        self.assertEqual(out["approvalStatus"], "none")
+        self.assertEqual(out["assigneeId"], AGENT)
+
+    def test_an_approved_ticket_is_unaffected_by_the_switch(self):
+        t = self._create("service_request")
+        tickets.request_approval(t["id"], tickets.ApprovalRequestBody(approver_email=APPROVER),
+                                 BackgroundTasks(), user=self._user(ADMIN, 4), db=self.db)
+        tickets.decide_approval(t["id"], tickets.ApprovalBody(decision="approve", note=""),
+                                BackgroundTasks(), user=self._user(APPROVER), db=self.db)
+        self._switch(service_request=False)
+        self.assertEqual(self._patch(t["id"], priority="low")["approvalStatus"], "approved")
+        self._switch(service_request=True)
+        self.assertEqual(self._patch(t["id"], priority="high")["approvalStatus"], "approved")
+
+    # ── validation ───────────────────────────────────────────────────────
+    def test_a_non_boolean_switch_is_refused(self):
+        for bad in ("yes", 1, None, "true"):
+            with self.assertRaises(HTTPException) as e:
+                tickets.put_ticket_taxonomy_settings(
+                    {"types": {"bug": {"requiresApproval": bad}}}, user=self._user(ADMIN, 4), db=self.db)
+            self.assertEqual(e.exception.status_code, 400, bad)
+        self.assertEqual(self._create("bug")["approvalStatus"], "none")   # nothing was saved
+
+    def test_a_malformed_types_patch_is_refused(self):
+        for bad in ({"types": []}, {"types": {"bug": "on"}}, {"types": {"Bad Key!": {}}}):
+            with self.assertRaises(HTTPException) as e:
+                tickets.put_ticket_taxonomy_settings(bad, user=self._user(ADMIN, 4), db=self.db)
+            self.assertEqual(e.exception.status_code, 400, bad)
 
 
 class AssignedByTests(_Case):

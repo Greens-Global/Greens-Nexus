@@ -7,12 +7,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 const getDailyBriefingConfig = vi.fn();
 const getDailyBriefingLog = vi.fn();
 const forceResendDailyBriefing = vi.fn();
+const updateDailyBriefingConfig = vi.fn();
 vi.mock('../api', () => ({
   api: {
     getDailyBriefingConfig: (...a) => getDailyBriefingConfig(...a),
     getDailyBriefingLog: (...a) => getDailyBriefingLog(...a),
     forceResendDailyBriefing: (...a) => forceResendDailyBriefing(...a),
-    updateDailyBriefingConfig: vi.fn(),
+    updateDailyBriefingConfig: (...a) => updateDailyBriefingConfig(...a),
   },
 }));
 const confirm = vi.fn();
@@ -80,5 +81,48 @@ describe('Delivery Log bulk Force Resend', () => {
     fireEvent.click(screen.getByLabelText('Select all rows on this page'));
     fireEvent.click(screen.getByText('Force Resend Selected (3)'));
     expect(await screen.findByText(/1 failed \(visesh\.lodha@greensglobal\.com\)/)).toBeTruthy();
+  });
+});
+
+// Timing block (Sep 27): lead minutes, and the default send time for people
+// with no shift today. Stored 24h, shown 12-hour.
+describe('Timing', () => {
+  const TIMING = { mode: 'test', test_recipients: [], outlook_card: 'off',
+    leadMinutes: 150, includeNoShift: false, defaultSendTime: '07:00', defaultTimeZone: 'America/Los_Angeles' };
+  beforeEach(() => {
+    getDailyBriefingConfig.mockResolvedValue(TIMING);
+    updateDailyBriefingConfig.mockReset().mockImplementation((p) => Promise.resolve({ ...TIMING, ...p }));
+  });
+
+  it('shows the saved values, with the no-shift controls off by default', async () => {
+    render(<DailyBriefingSettings />);
+    expect((await screen.findByLabelText('Minutes before shift start')).value).toBe('150');
+    const time = screen.getByLabelText('Default send time');
+    expect(time.value).toBe('07:00');
+    expect(time.selectedOptions[0].textContent).toBe('7:00 AM');
+    expect(time.disabled).toBe(true);
+    expect(screen.getByLabelText('Default time zone').value).toBe('America/Los_Angeles');
+    expect(screen.getByLabelText(/People with no shift today/).checked).toBe(false);
+  });
+
+  it('saves the timing the admin picked', async () => {
+    render(<DailyBriefingSettings />);
+    fireEvent.change(await screen.findByLabelText('Minutes before shift start'), { target: { value: '90' } });
+    fireEvent.click(screen.getByLabelText(/People with no shift today/));
+    fireEvent.change(screen.getByLabelText('Default send time'), { target: { value: '18:30' } });
+    expect(screen.getByLabelText('Default send time').selectedOptions[0].textContent).toBe('6:30 PM');
+    fireEvent.click(screen.getByText('Save Settings'));
+    await waitFor(() => expect(updateDailyBriefingConfig).toHaveBeenCalled());
+    expect(updateDailyBriefingConfig.mock.calls[0][0]).toMatchObject({
+      leadMinutes: 90, includeNoShift: true, defaultSendTime: '18:30', defaultTimeZone: 'America/Los_Angeles',
+    });
+  });
+
+  it('refuses a lead outside 30 to 360 minutes without calling the server', async () => {
+    render(<DailyBriefingSettings />);
+    fireEvent.change(await screen.findByLabelText('Minutes before shift start'), { target: { value: '400' } });
+    fireEvent.click(screen.getByText('Save Settings'));
+    expect(await screen.findByText(/whole number from 30 to 360/)).toBeTruthy();
+    expect(updateDailyBriefingConfig).not.toHaveBeenCalled();
   });
 });
