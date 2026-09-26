@@ -26,6 +26,11 @@ class ConfigIn(BaseModel):
     mode: Optional[str] = None                 # off|test|live
     test_recipients: Optional[list] = None
     outlook_card: Optional[Union[bool, str]] = None     # off | quick | full (True = full)
+    # Timing (Sep 27) - checked by daily_briefing.validate_timing.
+    leadMinutes: Optional[int] = None                    # 30..360 before shift start
+    includeNoShift: Optional[bool] = None
+    defaultSendTime: Optional[str] = None                # local "HH:MM", 24h
+    defaultTimeZone: Optional[str] = None                # IANA name
 
 
 # ── My Briefing page (any signed-in employee, their own briefing only) ─────
@@ -78,6 +83,10 @@ def update_config(body: ConfigIn, user: dict = Depends(require_administrator), d
         patch.pop("mode", None)
     if "outlook_card" in patch:
         patch["outlook_card"] = daily_briefing.card_style({"outlook_card": patch["outlook_card"]})
+    try:
+        patch = daily_briefing.validate_timing(patch)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return daily_briefing.save_settings(db, patch, user["email"])
 
 
@@ -144,7 +153,7 @@ def force_resend(log_id: str, db: Session = Depends(get_db)):
         # fall back to today's UTC date otherwise - _trigger_due returns ""
         # for briefing_date exactly when it's not due, which is also the
         # case we're deliberately overriding here.
-        _due, briefing_date, _ = daily_briefing._trigger_due(db, email)
+        _due, briefing_date, _ = daily_briefing._trigger_due(db, email, daily_briefing.lead_minutes(cfg))
         if not briefing_date:
             briefing_date = datetime.now(timezone.utc).date().isoformat()
         daily_briefing._send_one(db, emp, cfg, briefing_date)   # commits internally

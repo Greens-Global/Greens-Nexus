@@ -263,7 +263,7 @@ def build_card(*, sections: dict, first_name: str, greeting: str, weekday_date: 
     else:
         body.append({"type": "TextBlock", "text": "Nothing new since your last briefing.", "isSubtle": True,
                      "wrap": True, "spacing": "medium"})
-    body.append({"type": "TextBlock", "text": "You receive one briefing a day, before your shift starts.",
+    body.append({"type": "TextBlock", "text": "You receive one briefing a day, before your shift starts (or at a set time on a day without a shift).",
                  "isSubtle": True, "size": "small", "wrap": True, "spacing": "extraLarge", "separator": True})
     return {
         "type": "AdaptiveCard", "version": "1.2", "originator": task_mail_actions.AM_ORIGINATOR,
