@@ -3589,6 +3589,19 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   const [templates, setTemplates] = useState(null);
   const [signParty, setSignParty] = useState(null);
   const [sendOpen, setSendOpen] = useState(navSub === NAV_NEW);
+  // Once the wizard is open, the address drops back to plain Sent (same
+  // history entry), so a refresh or Back doesn't open a second wizard. Next
+  // tick, because App writes the address bar in its own effect after ours.
+  useEffect(() => {
+    if (!sendOpen) return undefined;
+    const t = setTimeout(() => {
+      const path = window.location.pathname;
+      if (path.endsWith(`/${NAV_NEW}`)) {
+        window.history.replaceState(window.history.state, '', path.replace(new RegExp(`/${NAV_NEW}$`), '/documents-esign-requests'));
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [sendOpen]);
   const [detailId, setDetailId] = useState(null);
   const [reqSearch, setReqSearch] = useState('');
   const [reqFilter, setReqFilter] = useState('all');

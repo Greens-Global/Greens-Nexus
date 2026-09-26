@@ -612,9 +612,8 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                 </button>
               )}
 
-              {/* Act As and Audit Logs removed from here (Pranshu, Sep 11) - both
-                  moved whole into the Admin module (sidebar → Admin → Act As /
-                  Audit Logs tabs), same treatment as Roles & Access on Sep 9.
+              {/* Act As lives in the Tools menu (ToolsMenu.jsx, Sep 26) and Audit
+                  Logs in Settings - neither belongs in this personal menu.
                   The "Exit Act As" affordance stays available at all times via
                   the sticky orange banner below, independent of this menu. */}
 
