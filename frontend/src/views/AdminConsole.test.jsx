@@ -23,6 +23,9 @@ vi.mock('./HR', () => ({
   CompanySetupPage: () => <div>Company list</div>,
   WorkSiteLibrary: () => <div>Site list</div>,
 }));
+vi.mock('../tickets/TicketDeskSettings', () => ({ default: () => <div>Desk panel</div> }));
+vi.mock('../tickets/TicketNotifySettings', () => ({ default: () => <div>Notify panel</div> }));
+vi.mock('../tickets/TicketTaxonomySettings', () => ({ default: () => <div>SLA panel</div> }));
 vi.mock('./RolesAccess', () => ({ default: () => <div>Access panel</div> }));
 vi.mock('./SettingsTools', () => ({ default: () => <div>Tools panel</div> }));
 
@@ -48,7 +51,7 @@ describe('AdminConsole', () => {
     expect(screen.getByRole('heading', { name: 'Organization' })).toBeInTheDocument();
     expect(screen.getByText('Email Signature')).toBeInTheDocument();
     expect(screen.getByText('Work Site Library')).toBeInTheDocument();
-    expect(screen.queryByText('Service Desk & Escalation')).not.toBeInTheDocument();
+    expect(screen.queryByText('Service Desk')).not.toBeInTheDocument();
   });
 
   it('lands an old "settings" sub on Global Settings', () => {
@@ -61,15 +64,30 @@ describe('AdminConsole', () => {
     const onSubChange = vi.fn();
     render(<AdminConsole activeSub="global-notifications" onSubChange={onSubChange} />);
     expect(screen.getByRole('heading', { name: 'Notifications & Communications' })).toBeInTheDocument();
-    for (const t of ['Service Desk & Escalation', 'Ticket Notifications', 'SLA & Ticket Types', 'Task Notifications', 'Daily Briefing']) {
+    for (const t of ['Service Desk', 'Task Notifications', 'Daily Briefing']) {
       expect(screen.getByText(t)).toBeInTheDocument();
     }
+    // Routing, ticket email and SLAs are one Service Desk section now.
+    expect(screen.queryByText('Ticket Notifications')).not.toBeInTheDocument();
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Items/ }));
     expect(onSubChange).toHaveBeenLastCalledWith('global-items');
     fireEvent.click(screen.getByRole('button', { name: /Organization/ }));
     expect(onSubChange).toHaveBeenLastCalledWith('global');
+  });
+
+  it('switches Service Desk panels with tabs, keeping an opened panel mounted', () => {
+    render(<AdminConsole activeSub="global-notifications" onSubChange={() => {}} />);
+    fireEvent.click(screen.getByText('Service Desk'));
+    expect(screen.getByRole('tab', { name: /Routing & Escalation/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Desk panel')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('tab', { name: /SLA & Ticket Types/ }));
+    expect(screen.getByText('SLA panel')).toBeVisible();
+    // Still mounted (unsaved edits survive), just hidden.
+    expect(screen.getByText('Desk panel')).not.toBeVisible();
+    expect(screen.queryByText('Notify panel')).not.toBeInTheDocument();
   });
 
   it.each(['global-service-desk', 'global-tasks', 'global-communications'])(
@@ -111,7 +129,7 @@ describe('AdminConsole', () => {
     const box = screen.getByLabelText('Filter settings');
 
     fireEvent.change(box, { target: { value: 'notifications' } });
-    expect(screen.getByText('Ticket Notifications')).toBeInTheDocument();
+    expect(screen.getByText('Service Desk')).toBeInTheDocument();
     expect(screen.getByText('Task Notifications')).toBeInTheDocument();
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 

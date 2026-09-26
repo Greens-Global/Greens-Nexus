@@ -133,15 +133,9 @@ const GLOBAL_SECTIONS = [
   { id: 'work-sites', category: 'organization', icon: MapPinned, title: 'Work Site Library',
     sub: 'Every location employees can punch in at, with its geofence. Each company chooses its own sites from this list.',
     keywords: 'geofence location address time clock punch map' },
-  { id: 'service-desk', category: 'notifications', icon: Headset, title: 'Service Desk & Escalation',
-    sub: 'The agents who receive new tickets for each company, and the department heads alerted when a ticket is escalated.',
-    keywords: 'agents routing queue departments escalation tickets' },
-  { id: 'ticket-notifications', category: 'notifications', icon: Bell, title: 'Ticket Notifications',
-    sub: 'Which ticket events send email, the sending mailbox, and when resolved tickets close automatically.',
-    keywords: 'email mailbox cc reply-to auto-close delivery log tickets' },
-  { id: 'ticket-sla', category: 'notifications', icon: Timer, title: 'SLA & Ticket Types',
-    sub: 'Response targets for each priority, and the ticket types and questions requesters answer when they submit.',
-    keywords: 'sla priority hours types intake questions fields tickets' },
+  { id: 'service-desk', category: 'notifications', icon: Headset, title: 'Service Desk',
+    sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
+    keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields' },
   { id: 'task-notifications', category: 'notifications', icon: Bell, title: 'Task Notifications',
     sub: 'The mailbox task emails come from, due-date reminders, how updates are batched into one email, and how email replies are posted.',
     keywords: 'email mailbox reminders overdue batch replies delivery log' },
@@ -241,28 +235,43 @@ function ItemSettingsSection({ toast, defaultOpen }) {
 }
 
 // ── Service Desk + Tasks ───────────────────────────────────────────────────────
-// Each panel is self-contained (own data fetch, own role gate) - reused
-// exactly as Tickets → Manage renders them, just also mounted here.
+// Service Desk is one section with three panels (Pranshu, Sep 26: routing,
+// ticket email and SLAs are one subject to an admin). Each panel is
+// self-contained (own data fetch, own role gate, own Save). A panel mounts the
+// first time its tab is opened and then stays mounted, hidden, so switching
+// tabs never throws away edits that haven't been saved yet.
+const SERVICE_DESK_TABS = [
+  { key: 'routing',       label: 'Routing & Escalation', Icon: Headset, Panel: TicketDeskSettings },
+  { key: 'notifications', label: 'Notifications',        Icon: Bell,    Panel: TicketNotifySettings },
+  { key: 'sla',           label: 'SLA & Ticket Types',   Icon: Timer,   Panel: TicketTaxonomySettings },
+];
+
 function ServiceDeskSection({ defaultOpen }) {
+  const [tab, setTab] = useState('routing');
+  const [seen, setSeen] = useState(() => new Set(['routing']));
+  const pick = (key) => { setTab(key); setSeen(prev => (prev.has(key) ? prev : new Set(prev).add(key))); };
   return (
     <Section {...SECTION_META['service-desk']} defaultOpen={defaultOpen}>
-      <TicketDeskSettings />
-    </Section>
-  );
-}
-
-function TicketNotificationsSection({ defaultOpen }) {
-  return (
-    <Section {...SECTION_META['ticket-notifications']} defaultOpen={defaultOpen}>
-      <TicketNotifySettings />
-    </Section>
-  );
-}
-
-function TicketSlaSection({ defaultOpen }) {
-  return (
-    <Section {...SECTION_META['ticket-sla']} defaultOpen={defaultOpen}>
-      <TicketTaxonomySettings />
+      <div role="tablist" aria-label="Service Desk" className="scroll-tabs"
+        style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', marginBottom: 16 }}>
+        {SERVICE_DESK_TABS.map(({ key, label, Icon }) => {
+          const active = key === tab;
+          return (
+            <button key={key} type="button" role="tab" aria-selected={active} onClick={() => pick(key)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', whiteSpace: 'nowrap',
+                border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
+                fontWeight: 600, color: active ? 'var(--wk-brand)' : 'var(--muted)', marginBottom: -1,
+                borderBottom: `2px solid ${active ? 'var(--wk-brand)' : 'transparent'}`,
+              }}>
+              <Icon size={14} /> {label}
+            </button>
+          );
+        })}
+      </div>
+      {SERVICE_DESK_TABS.filter(t => seen.has(t.key)).map(({ key, Panel }) => (
+        <div key={key} role="tabpanel" hidden={key !== tab}><Panel /></div>
+      ))}
     </Section>
   );
 }
@@ -897,8 +906,6 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'email-signature':      return <EmailSignatureSection key={key} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'work-sites':           return <WorkSiteLibrarySection key={key} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'service-desk':         return <ServiceDeskSection key={key} defaultOpen={single} />;
-      case 'ticket-notifications': return <TicketNotificationsSection key={key} defaultOpen={single} />;
-      case 'ticket-sla':           return <TicketSlaSection key={key} defaultOpen={single} />;
       case 'task-notifications':   return <TaskNotificationsSection key={key} defaultOpen={single} />;
       case 'daily-briefing':       return <DailyBriefingSection key={key} defaultOpen={single} />;
       case 'item-types':           return <ItemSettingsSection key={key} defaultOpen={single} toast={toast} />;
