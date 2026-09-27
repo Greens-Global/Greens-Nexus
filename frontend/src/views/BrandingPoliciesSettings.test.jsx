@@ -115,7 +115,11 @@ describe('EmailAppearancePanel', () => {
     expect(screen.getByLabelText('Header Text').value).toBe('GREENS GLOBAL');
     fireEvent.change(style, { target: { value: 'logo_title' } });
     expect(screen.getByText(/Until a logo is added/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /^Preview$/ }));
+    // The panel previews once on load and keeps Preview disabled until that
+    // returns; on a slow CI box a click before then is a no-op, so wait for it.
+    const previewBtn = screen.getByRole('button', { name: /^Preview$/ });
+    await waitFor(() => expect(previewBtn).toBeEnabled());
+    fireEvent.click(previewBtn);
     await waitFor(() => expect(mockApi.previewEmailTheme).toHaveBeenLastCalledWith(expect.objectContaining({ headerStyle: 'logo_title' })));
   });
 
