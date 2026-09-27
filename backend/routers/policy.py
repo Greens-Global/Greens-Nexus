@@ -300,8 +300,11 @@ def _report(db: Session) -> dict:
 
     pending = sorted((person(em, e) for em, e in people.items() if em not in accepted),
                      key=lambda p: p["name"].lower())
+    # Newest acceptance first - the question is usually "who just did it".
+    done = sorted(({**person(em, people[em]), "acceptedAt": at} for em, at in accepted.items()),
+                  key=lambda p: p["acceptedAt"] or "", reverse=True)
     return {"version": version, "total": len(people), "accepted": len(accepted),
-            "pending": pending}
+            "pending": pending, "acceptedPeople": done}
 
 
 @router.get("/report")
@@ -309,14 +312,34 @@ def admin_report(user: dict = Depends(require_administrator), db: Session = Depe
     return _report(db)
 
 
+def _us_datetime_utc(iso: str) -> str:
+    """ISO timestamp -> '09/26/2026 5:04 PM' in UTC (the column header says so)."""
+    try:
+        d = datetime.fromisoformat((iso or "").replace("Z", "+00:00")).astimezone(timezone.utc)
+    except ValueError:
+        return iso or ""
+    return f"{d:%m/%d/%Y} {d.hour % 12 or 12}:{d:%M} {'AM' if d.hour < 12 else 'PM'}"
+
+
 @router.get("/report.csv")
-def admin_report_csv(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    """Everyone who has not accepted the current version, for follow-up."""
+def admin_report_csv(status: str = "not_accepted", user: dict = Depends(require_administrator),
+                     db: Session = Depends(get_db)):
+    """One list of the report, for follow-up: ?status=not_accepted (the
+    default, what this export always returned) or ?status=accepted."""
+    if status not in ("accepted", "not_accepted"):
+        raise HTTPException(400, "status must be accepted or not_accepted")
     rep = _report(db)
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["Name", "Email", "Department", "Company", "Policy Version"])
-    for p in rep["pending"]:
-        w.writerow([p["name"], p["email"], p["department"], p["company"], rep["version"]])
+    if status == "accepted":
+        w.writerow(["Name", "Email", "Department", "Company", "Policy Version", "Accepted (UTC)"])
+        for p in rep["acceptedPeople"]:
+            w.writerow([p["name"], p["email"], p["department"], p["company"], rep["version"],
+                        _us_datetime_utc(p["acceptedAt"])])
+    else:
+        w.writerow(["Name", "Email", "Department", "Company", "Policy Version"])
+        for p in rep["pending"]:
+            w.writerow([p["name"], p["email"], p["department"], p["company"], rep["version"]])
+    name = "policy-accepted.csv" if status == "accepted" else "policy-not-accepted.csv"
     return Response(buf.getvalue(), media_type="text/csv",
-                    headers={"Content-Disposition": 'attachment; filename="policy-not-accepted.csv"'})
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})

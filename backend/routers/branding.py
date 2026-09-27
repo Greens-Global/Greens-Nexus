@@ -23,8 +23,29 @@ import models
 router = APIRouter(prefix="/branding", tags=["Branding"])
 
 _SETTINGS_KEY = "branding_config"
-_VALID_ACCENTS = ("green", "blue")
+_VALID_ACCENTS = ("green", "blue", "custom")
 _DEFAULT_ACCENT = "green"
+# Custom accent (Sep 27): any hex color plus an opacity. The floor keeps
+# white button text legible - below ~30% a button is mostly page background
+# and its label all but disappears (and every hover/focus tint derived from
+# it drops out of sight too).
+OPACITY_MIN, OPACITY_MAX = 30, 100
+
+
+def _clean_accent(cfg: dict) -> dict:
+    """Stored/posted value -> {accent, customHex, opacity}. Anything invalid
+    falls back to the default green, so an old or broken row still loads."""
+    import email_theme
+    accent = cfg.get("accent") if cfg.get("accent") in _VALID_ACCENTS else _DEFAULT_ACCENT
+    hexv = email_theme.normalize_hex(str(cfg.get("customHex") or "")) or ""
+    try:
+        opacity = int(cfg.get("opacity", OPACITY_MAX))
+    except (TypeError, ValueError):
+        opacity = OPACITY_MAX
+    opacity = min(max(opacity, OPACITY_MIN), OPACITY_MAX)
+    if accent == "custom" and not hexv:
+        accent = _DEFAULT_ACCENT
+    return {"accent": accent, "customHex": hexv, "opacity": opacity}
 
 
 def _get_config(db: Session) -> dict:
@@ -36,20 +57,21 @@ def _get_config(db: Session) -> dict:
     if cached is not None:
         return cached
     row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
-    cfg = {"accent": _DEFAULT_ACCENT}
+    cfg = {}
     if row and row.value:
         try:
             cfg = json.loads(row.value)
         except (TypeError, ValueError):
-            cfg = {"accent": _DEFAULT_ACCENT}
-        if cfg.get("accent") not in _VALID_ACCENTS:
-            cfg["accent"] = _DEFAULT_ACCENT
+            cfg = {}
+    cfg = _clean_accent(cfg if isinstance(cfg, dict) else {})
     cache.settings_config.set(_SETTINGS_KEY, cfg)
     return cfg
 
 
 class BrandingIn(BaseModel):
     accent: str
+    customHex: str = ""
+    opacity: int = OPACITY_MAX
 
 
 @router.get("/config")
@@ -59,20 +81,29 @@ def get_config(db: Session = Depends(get_db)):
 
 @router.put("/config")
 def update_config(body: BrandingIn, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    accent = body.accent if body.accent in _VALID_ACCENTS else _DEFAULT_ACCENT
+    import email_theme
+    if body.accent not in _VALID_ACCENTS:
+        raise HTTPException(400, "Brand color must be green, blue or custom")
+    if body.accent == "custom" and not email_theme.normalize_hex(body.customHex):
+        raise HTTPException(400, "Custom color must be a hex color such as #0f3d2e")
+    if not OPACITY_MIN <= body.opacity <= OPACITY_MAX:
+        raise HTTPException(400, f"Opacity must be between {OPACITY_MIN}% and {OPACITY_MAX}%")
+    cfg = _clean_accent(body.model_dump())
+    accent = cfg["accent"]
     row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
     if not row:
         row = models.NexusSetting(key=_SETTINGS_KEY)
         db.add(row)
-    row.value = json.dumps({"accent": accent})
+    row.value = json.dumps(cfg)
     row.updated_by = user["email"]
     now = datetime.now(timezone.utc).isoformat()
     row.updated_at = now
     db.add(models.AuditLog(timestamp=now, user_email=user["email"], user_role=user.get("role", ""),
-                           action=f"Set the brand color to {accent}", resource_type="branding",
-                           resource_id=_SETTINGS_KEY))
+                           action=("Set the brand color to "
+                                   + (f"{cfg['customHex']} at {cfg['opacity']}%" if accent == "custom" else accent)),
+                           resource_type="branding", resource_id=_SETTINGS_KEY))
     db.commit()
-    return {"accent": accent}
+    return cfg
 
 
 # ── Email Appearance (Sep 26, 2026) ──────────────────────────────────────────
@@ -85,6 +116,8 @@ class EmailThemeIn(BaseModel):
     accentColor: str = ""
     footerText: str = ""
     companyAddressLine: str = ""
+    headerText: str = ""
+    headerStyle: str = "auto"
 
 
 class EmailThemePreviewIn(EmailThemeIn):
@@ -115,8 +148,15 @@ def _clean_theme(body: EmailThemeIn):
         raise HTTPException(400, f"Footer text must be {email_theme.FOOTER_MAX} characters or fewer")
     if len(address) > email_theme.ADDRESS_MAX:
         raise HTTPException(400, f"Address line must be {email_theme.ADDRESS_MAX} characters or fewer")
+    header = (body.headerText or "").strip()
+    if len(header) > email_theme.HEADER_TEXT_MAX:
+        raise HTTPException(400, f"Header text must be {email_theme.HEADER_TEXT_MAX} characters or fewer")
+    if body.headerStyle not in email_theme.HEADER_STYLES:
+        raise HTTPException(400, "Unknown header style")
     return email_theme.Theme(logoUrl=logo, accentColor=accent, footerText=footer,
-                             companyAddressLine=address)
+                             companyAddressLine=address,
+                             headerText=header or email_theme.DEFAULT_HEADER_TEXT,
+                             headerStyle=body.headerStyle)
 
 
 @router.get("/email-theme")

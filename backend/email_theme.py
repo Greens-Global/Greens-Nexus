@@ -44,6 +44,11 @@ SETTINGS_KEY = "email_theme_config"
 DEFAULT_ACCENT = "#0f3d2e"
 FOOTER_MAX = 500
 ADDRESS_MAX = 200
+HEADER_TEXT_MAX = 60
+DEFAULT_HEADER_TEXT = "GREENS GLOBAL"
+# Header layout. "auto" (the default) is what every email did before this
+# setting existed: the logo when one is set, else the title.
+HEADER_STYLES = ("auto", "title", "logo", "logo_title")
 
 _HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
@@ -69,6 +74,8 @@ class Theme:
     accentColor: str = DEFAULT_ACCENT
     footerText: str = ""
     companyAddressLine: str = ""
+    headerText: str = DEFAULT_HEADER_TEXT
+    headerStyle: str = "auto"
 
     @classmethod
     def from_dict(cls, d: dict | None) -> "Theme":
@@ -79,6 +86,8 @@ class Theme:
             accentColor=accent,
             footerText=str(d.get("footerText") or "").strip()[:FOOTER_MAX],
             companyAddressLine=str(d.get("companyAddressLine") or "").strip()[:ADDRESS_MAX],
+            headerText=str(d.get("headerText") or "").strip()[:HEADER_TEXT_MAX] or DEFAULT_HEADER_TEXT,
+            headerStyle=d.get("headerStyle") if d.get("headerStyle") in HEADER_STYLES else "auto",
         )
 
     def as_dict(self) -> dict:
@@ -99,14 +108,27 @@ class Theme:
 
     def logo_block(self, module_logo: str = "", wordmark: str = WORDMARK, height: int = 28,
                    align: str = "") -> str:
-        """The header's logo image, or the family's wordmark when there is no
-        logo. Single quotes, matching the templates this came out of."""
+        """The header: the title, the logo, or the logo left of the title
+        (headerStyle). `wordmark` is the family's own title markup containing
+        DEFAULT_HEADER_TEXT, swapped for the saved header text. A style that
+        needs a logo falls back to the title when there is none, so a header
+        is never empty. Single quotes and a layout table, like the templates
+        this came out of: email clients ignore <style> sheets and flexbox."""
         url = self.logo_url(module_logo)
-        if not url:
-            return wordmark
-        margin = ";margin:0 auto" if align == "center" else ""
-        return (f"<img src='{escape(url)}' alt='Company logo' height='{height}' "
-                f"style='display:block{margin}' />")
+        title = wordmark.replace(DEFAULT_HEADER_TEXT, escape(self.headerText))
+        style = self.headerStyle if self.headerStyle != "auto" else ("logo" if url else "title")
+        if not url or style == "title":
+            return title
+        center = align == "center"
+        margin = ";margin:0 auto" if center and style == "logo" else ""
+        img = (f"<img src='{escape(url)}' alt='Company logo' height='{height}' "
+               f"style='display:block{margin}' />")
+        if style == "logo":
+            return img
+        table_align = " align='center'" if center else ""
+        return (f"<table role='presentation' cellpadding='0' cellspacing='0'{table_align}>"
+                f"<tr><td style='vertical-align:middle;padding-right:12px'>{img}</td>"
+                f"<td style='vertical-align:middle'>{title}</td></tr></table>")
 
     def footer_lines(self, color: str = "#6b7280") -> str:
         """Extra footer lines (the company text and address), or '' when

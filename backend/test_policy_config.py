@@ -166,6 +166,41 @@ class PolicyConfigTests(unittest.TestCase):
         self.assertIn(EMP2, r.text)
         self.assertNotIn(EMP + ",", r.text)
 
+    def test_report_lists_who_accepted_newest_first_with_both_csvs(self):
+        db = database.SessionLocal()
+        try:
+            db.add(models.PolicyAcknowledgment(id="pcfg-a1", email=EMP, version="2026-07-21",
+                                               accepted_at="2026-09-01T15:04:00+00:00"))
+            db.add(models.PolicyAcknowledgment(id="pcfg-a2", email=EMP2, version="2026-07-21",
+                                               accepted_at="2026-09-20T02:30:00+00:00"))
+            db.add(models.PolicyAcknowledgment(id="pcfg-a3", email=GUEST, version="2026-07-21",
+                                               accepted_at="2026-09-21T02:30:00+00:00"))
+            db.commit()
+        finally:
+            db.close()
+        rep = self.client.get("/policy/report").json()
+        self.assertEqual([p["email"] for p in rep["acceptedPeople"]], [EMP2, EMP])
+        self.assertEqual(rep["acceptedPeople"][0]["acceptedAt"], "2026-09-20T02:30:00+00:00")
+        self.assertEqual(rep["accepted"], 2)
+        self.assertEqual({p["email"] for p in rep["pending"]}, {ADMIN})
+
+        acc = self.client.get("/policy/report.csv?status=accepted")
+        self.assertEqual(acc.status_code, 200)
+        self.assertIn('filename="policy-accepted.csv"', acc.headers["content-disposition"])
+        lines = acc.text.strip().splitlines()
+        self.assertIn("Accepted (UTC)", lines[0])
+        self.assertIn(EMP2, lines[1])
+        self.assertTrue(lines[1].endswith("09/20/2026 2:30 AM"), lines[1])
+        self.assertTrue(lines[2].endswith("09/01/2026 3:04 PM"), lines[2])
+        self.assertNotIn(ADMIN, acc.text)
+
+        for url in ("/policy/report.csv", "/policy/report.csv?status=not_accepted"):
+            r = self.client.get(url)
+            self.assertIn('filename="policy-not-accepted.csv"', r.headers["content-disposition"])
+            self.assertIn(ADMIN, r.text)
+            self.assertNotIn(EMP2, r.text)
+        self.assertEqual(self.client.get("/policy/report.csv?status=everyone").status_code, 400)
+
     def test_validation(self):
         self.assertEqual(self.client.put("/policy/draft", json={"title": "", "body": "x"}).status_code, 400)
         self.assertEqual(self.client.post("/policy/publish", json={"title": "x", "body": " "}).status_code, 400)
