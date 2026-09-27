@@ -5,7 +5,8 @@ import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
 import { useNameResolver } from '../lib/useNameResolver';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
-import { RoleEditor, AssignModal, ApproverPicker, TierBadge, ModuleLevelPill, Avatar } from './RolesAccess';
+import { RoleEditor, AssignModal, ApproverPicker, TierBadge, ModuleLevelPill, Avatar, PENDING_ACCESS_TAB } from './RolesAccess';
+import { setPendingOpen } from '../lib/pendingOpen';
 
 // ── Company Settings > [company] > Roles ─────────────────────────────────────
 // Job roles are given company by company (Neil, Sep 2026); who can reach what
@@ -184,7 +185,18 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
       </div>
 
       <div style={{ marginTop: 28 }}>
-        <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Shared Across Companies</h4>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800, flex: 1 }}>Shared Across Companies</h4>
+          {/* Shared roles are org-wide, so creating and deleting them lives in
+              Global Settings > Access > Shared Roles; this jumps there. */}
+          <button className="secondary-btn" style={{ fontSize: 12.5 }}
+            onClick={() => {
+              setPendingOpen(PENDING_ACCESS_TAB, 'jobroles');
+              window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'access' } }));
+            }}>
+            Manage Shared Roles
+          </button>
+        </div>
         <p style={{ margin: '4px 0 12px', fontSize: 12.5, color: 'var(--muted)', maxWidth: '72ch' }}>
           These roles apply in every company, and people from any company can hold them. Editing one changes it everywhere. Move one here when everyone in it works at {entity.name}, or duplicate it to give {entity.name} its own version.
         </p>

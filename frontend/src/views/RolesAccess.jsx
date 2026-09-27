@@ -13,6 +13,7 @@ import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext'
 import { useNameResolver } from '../lib/useNameResolver';
 import { capabilityText } from '../lib/moduleCapabilities';
 import GuidedTour from '../components/GuidedTour';
+import { takePendingOpen } from '../lib/pendingOpen';
 
 // ── Roles & Access - people-first restructure (Jul 27) ───────────────────────
 // One rule: a person's access = their ONE job role (baseline) + extra groups
@@ -139,14 +140,20 @@ export function RoleOptions({ roles, companyName, label = r => r.name }) {
 }
 
 // Externals live INSIDE the People tab (Visesh, Aug 18) - no separate tab.
-// Embedded in Settings the Roles tab is left out: roles are set up per company
-// in Company Settings, and this screen is Access.
+// Embedded in Settings (Global Settings > Access) the Roles tab becomes
+// "Shared Roles": each company's own roles are managed in Company Settings, and
+// the roles people at ANY company can hold are org-wide, so they are managed
+// here (Pranshu, Sep 27 - they had no create/delete anywhere after the split).
 const TABS = [['people', 'People', User], ['jobroles', 'Roles', Shield], ['groups', 'Groups', Users], ['audit', 'Audit', LayoutGrid]];
+const EMBEDDED_TABS = [['people', 'People', User], ['groups', 'Groups', Users], ['jobroles', 'Shared Roles', Shield], ['audit', 'Audit', LayoutGrid]];
+// Company Settings' "Manage Shared Roles" link leaves this note so Access opens
+// straight on the Shared Roles tab.
+export const PENDING_ACCESS_TAB = 'access-tab';
 
 export default function RolesAccess({ embedded = false }) {
   const { can, assignRole, myLevel } = useRole();
   const nameOf = useNameResolver();   // email → real name, never a raw email
-  const [sub, setSub] = useState('people');
+  const [sub, setSub] = useState(() => (embedded && takePendingOpen(PENDING_ACCESS_TAB) === 'jobroles' ? 'jobroles' : 'people'));
   const [jobRoles, setJobRoles] = useState(null);
   const [groups, setGroups] = useState(null);
   const { data: dir } = usePeopleDirectory();
@@ -198,7 +205,7 @@ export default function RolesAccess({ embedded = false }) {
     api.getEntities().then(list => setEntities(list || [])).catch(() => setEntities([]));
   }, []);
   const companyName = id => entities.find(en => en.id === id)?.name || 'Another company';
-  const tabs = embedded ? TABS.filter(([key]) => key !== 'jobroles') : TABS;
+  const tabs = embedded ? EMBEDDED_TABS : TABS;
 
   // Which tiers this admin may grant (mirrors the backend: owner gives any, others
   // only strictly below their own level).
@@ -308,11 +315,14 @@ export default function RolesAccess({ embedded = false }) {
 
   // Group the role list by department (roles with none fall under "Other", shown
   // last). Departments sort alphabetically so the list reads like an org chart.
+  // Embedded, the roles tab lists shared roles only (company roles live in
+  // Company Settings); a new role made here has no company, so it is shared.
+  const listedRoles = useMemo(() => (embedded ? (jobRoles || []).filter(r => !r.company_id) : (jobRoles || [])), [embedded, jobRoles]);
   const rolesByDept = useMemo(() => {
     const g = {};
-    (jobRoles || []).forEach(r => { const d = (r.department || '').trim() || 'Other'; (g[d] = g[d] || []).push(r); });
+    listedRoles.forEach(r => { const d = (r.department || '').trim() || 'Other'; (g[d] = g[d] || []).push(r); });
     return Object.entries(g).sort(([a], [b]) => (a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b)));
-  }, [jobRoles]);
+  }, [listedRoles]);
 
   const roleCard = r => (
     <button key={r.id} onClick={() => setSelId(r.id)}
@@ -461,11 +471,16 @@ export default function RolesAccess({ embedded = false }) {
       {sub === 'jobroles' && (
         !jobRoles ? <Spinner /> : (
           <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 18 }} className="ra-grid">
-            <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="primary-btn" data-tour="new-role" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> New job role</button>
+            <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+              {embedded && (
+                <p style={{ margin: 0, flex: 1, minWidth: 240, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  Roles people at any company can hold. Editing one changes it for everyone who has it. A company's own roles are in Company Settings.
+                </p>
+              )}
+              <button className="primary-btn" data-tour="new-role" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> {embedded ? 'New Shared Role' : 'New Job Role'}</button>
             </div>
             <div data-tour="role-cards" style={{ display: 'flex', flexDirection: 'column', gap: 8, alignSelf: 'start' }}>
-              {jobRoles.length === 0 ? <Empty text="No job roles yet." /> : rolesByDept.map(([deptName, deptRoles]) => {
+              {listedRoles.length === 0 ? <Empty text={embedded ? 'No shared roles yet.' : 'No job roles yet.'} /> : rolesByDept.map(([deptName, deptRoles]) => {
                 const open = !collapsedDepts.has(deptName);
                 const isDropTarget = dragRole && dropDept === deptName;
                 return (
