@@ -1521,7 +1521,7 @@ export const api = {
 
   // Diagnostics
   reportClientError:    (body)    => req('/client-errors', { method: 'POST', body: JSON.stringify(body) }),
-  updateBrandingConfig: (accent)  => req('/branding/config', { method: 'PUT', body: JSON.stringify({ accent }) }),
+  updateBrandingConfig: (cfg)     => req('/branding/config', { method: 'PUT', body: JSON.stringify(typeof cfg === 'string' ? { accent: cfg } : cfg) }),
 
   // ── Investor Relations (GP capital management: funds, LPs, calls, distributions) ──
   // List endpoints drop empty/undefined params so filters never send "undefined".
@@ -1650,7 +1650,7 @@ export const api = {
   policyDiscardDraft: ()     => req('/policy/draft', { method: 'DELETE' }),
   policyPublish:      (data) => req('/policy/publish', { method: 'POST', body: JSON.stringify(data) }),
   policyReport:       ()     => req('/policy/report'),
-  policyReportCsv:    ()     => reqBlob('/policy/report.csv'),
+  policyReportCsv:    (status = 'not_accepted') => reqBlob(`/policy/report.csv?status=${status}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

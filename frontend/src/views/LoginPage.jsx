@@ -5,7 +5,7 @@ one calm action on the right.
 OWN-WORLD: Work OS (DESIGN.md) - brand panel with floating module cards
 (CSS-drawn, no fabricated numbers), white sign-in column, Figtree type, one
 Microsoft action. Accent defaults to green (Pranshu, Jul 28) and is a Global
-Admin-configurable setting, not hardcoded - see ACCENT_PALETTES below and
+Admin-configurable setting, not hardcoded - see lib/brandAccent.js and
 backend/routers/branding.py.
 STORY: an employee lands, sees what Nexus IS (tasks, time, people) at a
 glance, presses the single button, and is at work.
@@ -20,20 +20,15 @@ import { CheckSquare, Clock, Users, Boxes, Gauge, Receipt, FolderOpen, FileSigna
          Lock, CircleUserRound } from "lucide-react";
 import { loginRequest } from "../authConfig";
 import { useBranding } from "../lib/queries";
+import { accentVars } from "../lib/brandAccent";
 import { BFF_MODE, clearSignedOutMarker } from "../bffAuth";
 import { externalAuthPost, useResendTimer } from "../lib/externalAuth";
 
 // Accent is a saved company setting, not hardcoded - see
 // backend/routers/branding.py (set in Settings > Branding & Policies > Brand
-// Color since Sep 26). The hero panel needs three gradient stops (not just one brand color),
-// so this keeps its own small
-// palette rather than trying to force everything through the single
-// --wk-brand var the rest of the app reads (see lib/brandAccent.js).
-const ACCENT_PALETTES = {
-  blue:  { light: "#3a52e6", base: "#2b45e1", dark: "#1f36c7", tint: "#e8ecfd", shadow: "rgba(43,69,225,.28)" },
-  green: { light: "hsl(142,55%,42%)", base: "hsl(142,60%,35%)", dark: "hsl(142,65%,25%)", tint: "hsla(142,60%,35%,0.14)", shadow: "hsla(142,60%,35%,.28)" },
-};
-
+// Color). The hero panel needs three gradient stops, not just one brand
+// color; lib/brandAccent.js derives them (`.login`) for the presets and for
+// a custom color, so the sign-in screen always matches the app.
 export default function LoginPage() {
   const { instance } = useMsal();
   const [on, setOn] = useState(false);
@@ -47,7 +42,6 @@ export default function LoginPage() {
     } catch { return ''; }
   });
   const { data: branding } = useBranding();
-  const accent = branding?.accent === "blue" ? "blue" : "green";
 
   useEffect(() => {
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
@@ -120,7 +114,7 @@ export default function LoginPage() {
     }
   };
 
-  const P = ACCENT_PALETTES[accent];
+  const P = accentVars(branding).login;
   // What Nexus IS, at a glance. Insights & BI carries its own card next to
   // Operations rather than living inside the Operations line (Sagar, Sep 15).
   // Subtitles are Pranshu's wording from a2b2738 (#211), kept when that change

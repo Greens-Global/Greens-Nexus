@@ -75,6 +75,52 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(CUSTOM.logo_url("https://a/module.png"), "https://a/module.png")
         self.assertEqual(CUSTOM.logo_url(""), LOGO)
 
+    # ── header style (Sep 27) ───────────────────────────────────────────
+    def test_header_title_only_ignores_the_logo_and_uses_the_header_text(self):
+        th = email_theme.Theme(logoUrl=LOGO, headerText="Greens & Co", headerStyle="title")
+        for name, html in email_theme_samples.render_all(th).items():
+            if name.startswith("esign"):
+                self.assertNotIn("logo.png", html, name)   # Nexus Sign: title only adds nothing
+                continue
+            self.assertNotIn("logo.png", html, name)
+            self.assertIn("Greens &amp; Co", html, name)
+            self.assertNotIn("GREENS GLOBAL", html, name)
+
+    def test_header_logo_only_shows_just_the_logo(self):
+        th = email_theme.Theme(logoUrl=LOGO, headerStyle="logo")
+        for name, html in email_theme_samples.render_all(th).items():
+            self.assertIn("logo.png", html, name)
+            self.assertIn("alt='Company logo' height=", html, name)
+            self.assertNotIn(">GREENS GLOBAL<", html, name)
+
+    def test_header_logo_and_title_puts_the_logo_left_of_the_title(self):
+        th = email_theme.Theme(logoUrl=LOGO, headerText="Greens Global", headerStyle="logo_title")
+        for name, html in email_theme_samples.render_all(th).items():
+            m = re.search(r"<table role='presentation'[^>]*><tr><td style='vertical-align:middle;padding-right:12px'>"
+                          r"<img src='[^']*logo\.png'[^>]*/></td><td style='vertical-align:middle'>(.*?)</td></tr></table>", html)
+            self.assertIsNotNone(m, name)
+            self.assertIn("Greens Global", m.group(1), name)
+        # The centered welcome header keeps the pair centered.
+        self.assertIn("<table role='presentation' cellpadding='0' cellspacing='0' align='center'>",
+                      email_theme_samples.render("welcome", th))
+
+    def test_a_style_that_needs_a_logo_falls_back_to_the_title_without_one(self):
+        for style in ("logo", "logo_title"):
+            th = email_theme.Theme(headerStyle=style)
+            self.assertEqual(th.logo_block(), email_theme.WORDMARK)
+
+    def test_the_module_logo_is_used_by_every_header_style(self):
+        mod = "https://a/module.png"
+        self.assertIn(mod, email_theme.Theme(headerStyle="logo").logo_block(mod))
+        self.assertIn(mod, email_theme.Theme(headerStyle="logo_title").logo_block(mod))
+        self.assertNotIn(mod, email_theme.Theme(headerStyle="title").logo_block(mod))
+        # auto: exactly the old behavior - a module logo replaces the wordmark.
+        self.assertNotIn("GREENS GLOBAL", email_theme.DEFAULT_THEME.logo_block(mod))
+
+    def test_header_text_is_escaped(self):
+        th = email_theme.Theme(headerText="<b>x</b>")
+        self.assertIn("&lt;b&gt;x&lt;/b&gt;", th.logo_block())
+
     def test_hex_normalizing(self):
         self.assertEqual(email_theme.normalize_hex("#ABC"), "#aabbcc")
         self.assertEqual(email_theme.normalize_hex("#1D4ED8"), "#1d4ed8")
@@ -118,7 +164,8 @@ class EndpointTests(unittest.TestCase):
         db = database.SessionLocal()
         try:
             db.query(models.NexusSetting).filter(
-                models.NexusSetting.key == email_theme.SETTINGS_KEY).delete()
+                models.NexusSetting.key.in_([email_theme.SETTINGS_KEY, "branding_config"])).delete(
+                    synchronize_session=False)
             db.query(models.NexusRole).filter(models.NexusRole.email.like("etheme.%")).delete(
                 synchronize_session=False)
             db.query(models.AuditLog).filter(models.AuditLog.user_email.like("etheme.%")).delete(
@@ -171,6 +218,50 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(email_theme.get_saved(), email_theme.DEFAULT_THEME)
         self.assertEqual(self.client.post("/branding/email-theme/preview",
                                           json={"sample": "nope"}).status_code, 400)
+
+    def test_header_fields_save_and_validate(self):
+        r = self.client.put("/branding/email-theme", json={**CUSTOM.as_dict(), "headerText": "Acme",
+                                                           "headerStyle": "logo_title"})
+        self.assertEqual(r.status_code, 200, r.text)
+        saved = email_theme.get_saved()
+        self.assertEqual((saved.headerText, saved.headerStyle), ("Acme", "logo_title"))
+        self.assertEqual(self.client.put("/branding/email-theme", json={"headerStyle": "banner"}).status_code, 400)
+        self.assertEqual(self.client.put("/branding/email-theme",
+                                         json={"headerText": "x" * 61}).status_code, 400)
+        # Blank header text means the default wordmark.
+        self.client.put("/branding/email-theme", json={"headerText": "  "})
+        self.assertEqual(email_theme.get_saved().headerText, "GREENS GLOBAL")
+
+    # ── Brand Color (Sep 27: any color + opacity) ───────────────────────
+    def test_brand_color_custom_is_saved_and_public(self):
+        r = self.client.put("/branding/config", json={"accent": "custom", "customHex": "#AB12CD", "opacity": 80})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json(), {"accent": "custom", "customHex": "#ab12cd", "opacity": 80})
+        cache.settings_config.invalidate()
+        self.assertEqual(self.client.get("/branding/config").json()["customHex"], "#ab12cd")
+
+    def test_brand_color_validation(self):
+        for body in ({"accent": "purple"}, {"accent": "custom", "customHex": "nope"},
+                     {"accent": "custom", "customHex": "#123456", "opacity": 29},
+                     {"accent": "custom", "customHex": "#123456", "opacity": 101}):
+            self.assertEqual(self.client.put("/branding/config", json=body).status_code, 400, body)
+
+    def test_old_brand_color_values_keep_working(self):
+        for old, want in (('{"accent": "blue"}', "blue"), ('{"accent": "teal"}', "green"),
+                          ('{"accent": "custom"}', "green"), ("not json", "green")):
+            db = database.SessionLocal()
+            try:
+                db.query(models.NexusSetting).filter(models.NexusSetting.key == "branding_config").delete()
+                db.add(models.NexusSetting(key="branding_config", value=old))
+                db.commit()
+            finally:
+                db.close()
+            cache.settings_config.invalidate()
+            got = self.client.get("/branding/config").json()
+            self.assertEqual(got["accent"], want, old)
+            self.assertEqual(got["opacity"], 100, old)
+        # The old client body (accent only) is still accepted.
+        self.assertEqual(self.client.put("/branding/config", json={"accent": "blue"}).json()["accent"], "blue")
 
     def test_employees_cannot_read_or_change_it(self):
         self._as(EMP)

@@ -974,10 +974,14 @@ def _report_email_mailto(party: HrSignParty, req: HrSignRequest) -> str:
 def _esign_logo(th) -> str:
     """The shared email theme's logo above the "Nexus Sign" title, or nothing
     (today's look) when no logo is set. Nexus Sign mail never used the module
-    logo settings, so only the theme logo applies here."""
-    if not th.logoUrl:
+    logo settings, so only the theme logo applies here. "Nexus Sign" is the
+    title of these emails, so the company header text only appears in the
+    Logo and Title style, next to the logo; Title Only adds nothing."""
+    if not th.logoUrl or th.headerStyle == "title":
         return ""
-    return th.logo_block(height=28) + '<div style="height:12px"></div>'
+    title = ('<span style="color:#ffffff;font-size:14px;font-weight:700;letter-spacing:2px">'
+             f'{email_theme.DEFAULT_HEADER_TEXT}</span>')
+    return th.logo_block(wordmark=title, height=28) + '<div style="height:12px"></div>'
 
 
 def _esign_footer_lines() -> str:
