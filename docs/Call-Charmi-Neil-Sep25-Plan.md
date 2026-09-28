@@ -20,6 +20,7 @@ any site yet), ✅ live on PRODUCTION.
 
 Nothing is live on a site yet except the database fix for the September
 zeros (A3), which took effect when its migration was applied on 09/28.
+Everything else is built, tested and waiting on three pushes.
 
 Where everything is:
 - Accounting database (production): all three migrations APPLIED -
@@ -27,53 +28,44 @@ Where everything is:
   `20260928110000_nexus_reports_book_columns_entry.sql`,
   `20260929100000_nexus_report_columns.sql`.
 - Accounting repo: branch `feature/nexus-reports-sep25` (3 commits on main
-  e3cc9a7) is PUSHED to GitHub as a branch. `main` is untouched, so nothing
-  is deployed.
-- Nexus repo, local only, not pushed:
-  - `feature/charmi-neil-sep25` - the whole batch, with dev (e078df92)
-    merged in. This is what goes to `dev`.
-  - `release/charmi-neil-sep25` - the batch cherry-picked onto production
-    `main` (508347c6), nothing of anyone else's unreleased dev work in it.
-    This is what goes to `main`.
+  e3cc9a7) is on GitHub as a branch. `main` is untouched, so nothing is
+  deployed.
+- Nexus repo, local only:
+  - `feature/charmi-neil-sep25` - the whole batch with dev (ec0d6ae2)
+    merged in. A fast forward of `dev`.
+  - `release/charmi-neil-sep25` - production `main` (d5122233, the dev ->
+    main release of 09/29 04:42) with the batch merged in. A fast forward of
+    `main`; its files are identical to the dev branch's.
 
 To release, in this order (the accounting app first, Nexus calls it):
-1. Accounting: merge `feature/nexus-reports-sep25` into `main` and push
+1. `git push origin feature/nexus-reports-sep25:main` in the accounting repo
    (Cloudflare deploys it). Until this is live the new Nexus screens have
    nothing to call, and the Cash book would show accrual figures.
-2. Nexus dev: `git push origin feature/charmi-neil-sep25:dev` (a fast
-   forward). Run `get_advisors` on dev.
-3. Nexus production: push `release/charmi-neil-sep25` and merge it into
-   `main`. Run `get_advisors` on prod. Nine new tables are created on boot
-   with RLS on: `accounting_saved_reports`, `accounting_report_packages`,
+2. `git push origin feature/charmi-neil-sep25:dev` in the Nexus repo. Run
+   `get_advisors` on dev.
+3. `git push origin release/charmi-neil-sep25:main` in the Nexus repo. Run
+   `get_advisors` on prod. Nine new tables are created on boot with RLS on:
+   `accounting_saved_reports`, `accounting_report_packages`,
    `accounting_user_prefs`, `pfs_profiles`, `pfs_lines`, `pfs_statements`,
    `leases`, `lease_rates`, `lease_months`.
 4. After release, on production:
    - Roles & Access: grant "Personal Financial Statements" to whoever builds
      the statements with Charmi (nobody has it by default; administrators are
      not let in by role, Global Admins are).
-   - People - Companies: check each company has its HR contact (needed once
-     F-item "HR hears requests" is released, see below).
+   - People - Companies: check each company has its HR contact, since punch
+     and time-off requests now reach that person.
    - F3: set the eight named people to Exempt.
 
-Held back from production: "the company's HR contact hears punch and time-off
-requests". It builds on the team alert recipients Pranshu added on dev on
-09/26, which are not on `main` yet, so it goes out with the next dev -> main
-release. It IS in the dev branch. The screen half of the same commit (alerts
-off the Time screen, header switches behind Options) is in the release.
+Bundle budget: the Shifts work and this batch together measure 9,902 KB, so
+the cap goes from 9,800 to 10,000 - that needs the owner's nod like the
+earlier bumps.
 
-Bundle budget: the release build measures 9,483 KB against production's cap
-of 9,600, so `main` needs no change. On dev the Shifts work and this batch
-together measure 9,900 KB, so the dev branch raises the cap to 10,000 - that
-needs the owner's nod like the earlier bumps.
-
-Verified locally:
-- dev branch: 1,007 frontend tests, production build, the batch's backend
-  tests (52). Of the 118 backend test files, 111 pass; the 7 that fail
-  (e-sign paper return, roles and upload fields, external auth and users,
-  policy config, task batch mail) fail the same way on dev without this
-  batch.
-- release branch: 786 frontend tests, production build, the batch's backend
-  tests (45), the app starts.
+Verified locally (the dev branch and the release branch hold the same files):
+- 1,009 frontend tests, production build, the batch's backend tests (52), the
+  app starts.
+- Of the 118 backend test files, 111 pass; the 7 that fail (e-sign paper
+  return, roles and upload fields, external auth and users, policy config,
+  task batch mail) fail the same way on dev without this batch.
 - Every screen opened in a browser against a local stand-in for the
   accounting service with made-up figures; the PDF with a column per month
   opened and read.
