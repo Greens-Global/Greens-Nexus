@@ -857,6 +857,9 @@ _SECTION_META = {
     "action_required": ("Action Required",                    "#b91c1c", "Need your action"),
     "needs_to_know":   ("Updates for You",                     "#b45309", "Updates for you"),
     "completed":       ("Completed Since Your Last Briefing",  "#15803d", "Completed"),
+    # Weekly Digest (weekly_digest.py, Sep 28) - rendered by the same code.
+    "overdue":         ("Overdue Tasks",                       "#b91c1c", "Overdue"),
+    "team_overdue":    ("Your Team's Overdue Work",            "#b45309", "Team members behind"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
 # Each section's tables carry that section's color (Pranshu, Sep 26): a light
@@ -867,6 +870,8 @@ _TONE = {
     "action_required": ("#fef5f5", "#fce4e4", "#f1c7c7"),
     "needs_to_know":   ("#fffaf0", "#fdefd5", "#f0d6a8"),
     "completed":       ("#f3fbf5", "#dff3e6", "#bfe3cb"),
+    "overdue":         ("#fef5f5", "#fce4e4", "#f1c7c7"),
+    "team_overdue":    ("#fffaf0", "#fdefd5", "#f0d6a8"),
 }
 
 _MODULE_META = {
@@ -972,8 +977,18 @@ def _row_actions_html(row: dict) -> str:
             links += [("Change Status", f"{base}&do=status"), ("Mark Complete", f"{base}&do=complete")]
     if links:
         parts.append(f"<div style='margin-top:6px;line-height:1.8'>{_links(links)}</div>")
+    buttons = ""
+    if row.get("task_extend") and row.get("task_id"):
+        # Weekly Digest (Neil, Sep 28): "an option to extend the tasks" - the
+        # same signed one-tap page as the links above, do=extend
+        # (routers/mail_actions.py), which applies the app's own due-date rule.
+        tok = task_mail_actions.sign_token(row["task_id"], row.get("action_email", ""))
+        buttons += _button("Extend Due Date",
+                           f"{task_mail_actions.api_base()}/mail-actions/page?token={tok}&do=extend", "approve")
     if row.get("url"):
-        parts.append(f"<div style='margin-top:8px'>{_button('Open in Nexus', row['url'], 'open')}</div>")
+        buttons += _button("Open in Nexus", row["url"], "open")
+    if buttons:
+        parts.append(f"<div style='margin-top:8px'>{buttons}</div>")
     return "".join(parts)
 
 
@@ -1077,7 +1092,7 @@ def _module_table_html(section: str, module: str, label: str, rows: list) -> str
             f"<tr class='nx-head'>{head}</tr>{body}</table>")
 
 
-def _section_html(key: str, rows: list) -> str:
+def _section_html(key: str, rows: list, expanded: bool = False) -> str:
     heading, accent, _ = _SECTION_META[key]
     tables = "".join(_module_table_html(key, m, label, grows) for m, label, grows in _group_by_module(rows))
     sid = f"nx-sec-{key}"
@@ -1088,7 +1103,7 @@ def _section_html(key: str, rows: list) -> str:
     # (Sep 22).
     return f"""
     <tr><td class="nx-pad" style="padding:26px 32px 0">
-      <input type="checkbox" id="{sid}" class="nx-acc" style="display:none;mso-hide:all">
+      <input type="checkbox" id="{sid}" class="nx-acc"{" checked" if expanded else ""} style="display:none;mso-hide:all">
       <label for="{sid}" class="nx-acc-label" style="display:block;cursor:pointer">
         <table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:2px solid {accent}">
           <tr>
@@ -1102,8 +1117,8 @@ def _section_html(key: str, rows: list) -> str:
     </td></tr>"""
 
 
-def _summary_html(sections: dict) -> str:
-    present = [k for k in _ORDER if sections.get(k)]
+def _summary_html(sections: dict, order: list = None) -> str:
+    present = [k for k in (order or _ORDER) if sections.get(k)]
     if not present:
         return f"<div style='font-size:13.5px;color:{_MUTED}'>Nothing new since your last briefing.</div>"
     cells = []
@@ -1121,16 +1136,31 @@ def _summary_html(sections: dict) -> str:
             f"<tr>{''.join(cells)}</tr></table>")
 
 
+_DAILY_FOOTER = ("You receive one briefing a day, before your shift starts (or at a set time on a day without "
+                 "a shift). It lists what needs your attention in Nexus since your last briefing.")
+
+
 def render_email(first_name: str, briefing_date: str, sections: dict,
-                 greeting: str = "Hello", logo_url: str = "") -> tuple:
+                 greeting: str = "Hello", logo_url: str = "", *,
+                 title: str = "Daily Briefing", date_label: str = "",
+                 intro: str = "Here is what changed since your last briefing.",
+                 footer: str = _DAILY_FOOTER, order: list = None, expanded: bool = False,
+                 cta_label: str = "Open My Briefing", cta_path: str = "/briefing",
+                 cta_hint: str = "Collapse sections and approve, comment or complete in one click.") -> tuple:
+    """The briefing email. The keyword-only arguments exist for the Weekly
+    Digest (weekly_digest.py), which reuses this layout with its own section;
+    their defaults are the daily email exactly. `expanded` starts sections
+    open instead of collapsed; cta_* is the page the top link and the closing
+    button open."""
+    order = order or _ORDER
     _d = datetime.strptime(briefing_date, "%Y-%m-%d")
-    weekday_date = f"{_d.strftime('%A')}, {_d.strftime('%m/%d/%Y')}"
-    subject = f"Your Daily Briefing - {weekday_date}"
+    weekday_date = date_label or f"{_d.strftime('%A')}, {_d.strftime('%m/%d/%Y')}"
+    subject = f"Your {title} - {weekday_date}"
     logo = (f"<img src='{escape(logo_url)}' alt='Greens Global' height='26' style='display:block;border:0'>"
             if logo_url else
             "<span style='color:#ffffff;font-size:14px;font-weight:700;letter-spacing:.18em'>GREENS GLOBAL</span>")
     salutation = f"{greeting}, {escape(first_name)}." if first_name else f"{greeting}."
-    body_sections = "".join(_section_html(k, sections[k]) for k in _ORDER if sections.get(k))
+    body_sections = "".join(_section_html(k, sections[k], expanded) for k in order if sections.get(k))
     html = f"""<div style="background:#f3f4f6;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <style>
     .nx-acc:not(:checked) ~ .nx-content {{ display:none !important; }}
@@ -1157,24 +1187,24 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
     </tr>
     <tr>
       <td class="nx-pad" style="padding:28px 32px 0">
-        <div style="font-size:21px;font-weight:600;color:{_INK}">Daily Briefing</div>
-        <div style="font-size:14px;line-height:1.55;color:{_BODY};margin-top:6px">{salutation} Here is what changed since your last briefing.</div>
+        <div style="font-size:21px;font-weight:600;color:{_INK}">{escape(title)}</div>
+        <div style="font-size:14px;line-height:1.55;color:{_BODY};margin-top:6px">{salutation} {escape(intro)}</div>
       </td>
     </tr>
-    <tr><td class="nx-pad" style="padding:20px 32px 0">{_summary_html(sections)}</td></tr>
+    <tr><td class="nx-pad" style="padding:20px 32px 0">{_summary_html(sections, order)}</td></tr>
     <tr><td class="nx-pad" style="padding:12px 32px 0;font-size:13px">
-      <a href="{escape(app_url())}/briefing" style="color:{_LINK};font-weight:600;text-decoration:none">Open My Briefing in Nexus &rarr;</a>
+      <a href="{escape(app_url())}{escape(cta_path)}" style="color:{_LINK};font-weight:600;text-decoration:none">{escape(cta_label)} in Nexus &rarr;</a>
     </td></tr>
     {body_sections}
     <tr>
       <td class="nx-pad" style="padding:32px 32px 28px">
-        <a href="{escape(app_url())}/briefing" class="nx-btn" style="display:inline-block;padding:10px 22px;border-radius:4px;background:{_BRAND};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px">Open My Briefing</a>
-        <div style="font-size:12px;color:{_MUTED};margin-top:8px">Collapse sections and approve, comment or complete in one click.</div>
+        <a href="{escape(app_url())}{escape(cta_path)}" class="nx-btn" style="display:inline-block;padding:10px 22px;border-radius:4px;background:{_BRAND};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px">{escape(cta_label)}</a>
+        <div style="font-size:12px;color:{_MUTED};margin-top:8px">{escape(cta_hint)}</div>
       </td>
     </tr>
     <tr>
       <td class="nx-pad" style="background:{_SOFT};border-top:1px solid {_LINE};padding:16px 32px;font-size:11.5px;line-height:1.6;color:{_MUTED}">
-        You receive one briefing a day, before your shift starts (or at a set time on a day without a shift). It lists what needs your attention in Nexus since your last briefing.
+        {escape(footer)}
       </td>
     </tr>
   </table>

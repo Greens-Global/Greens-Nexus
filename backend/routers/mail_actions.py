@@ -185,6 +185,8 @@ def _perform(request: Request, db, *, user: dict, task_id: str, action: str, tex
         t.reactions = reactions
         db.commit()
         return f"Reacted {text}" if toggled_on else f"Removed your {text} reaction"
+    if action == "extend":
+        return _extend(request, db, user=user, task_id=task_id, new_due=text, bt=bt)
     if action == "mute":
         # The recipient's own preference, not a change to the task - so no
         # task role is needed, only that the signed link was theirs.
@@ -192,6 +194,42 @@ def _perform(request: Request, db, *, user: dict, task_id: str, action: str, tex
         task_notify_prefs.mute_task(db, user["email"], task_id)
         return "Emails muted for this task. You can unmute it in your email settings"
     raise HTTPException(400, "Unknown action")
+
+
+def _extend_mode(t) -> str:
+    """How an Extend Due Date request lands, by the app's own rule (task_due.py,
+    Neil Sep 24): a date nobody has agreed to yet ("pending" / "proposed") can
+    only be PROPOSED to whoever asked for the work; an agreed date is changed
+    directly and counted as an extension."""
+    return "propose" if (t.due_agreement or "") in ("pending", "proposed") else "change"
+
+
+def _extend(request: Request, db, *, user: dict, task_id: str, new_due: str, bt: BackgroundTasks) -> str:
+    """Extend Due Date from the Weekly Digest (Neil, Sep 28). Goes through the
+    same endpoints the task drawer uses - propose_due or update_task - so the
+    permission checks, due history, extension count, manager alert and the
+    requester's notification all behave exactly as in Nexus."""
+    from datetime import date
+    from routers import tasks as tasks_router
+    import task_due
+    t = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not t:
+        raise HTTPException(404, "Task not found")
+    try:
+        picked = date.fromisoformat((new_due or "").strip()[:10])
+    except ValueError:
+        raise HTTPException(422, "Pick a new due date.")
+    if picked < date.today():
+        raise HTTPException(422, "Pick a date from today onward.")
+    if picked.isoformat() == (t.due_on or "")[:10]:
+        raise HTTPException(422, "Pick a date different from the current due date.")
+    when = task_due.us_date(picked.isoformat())
+    if _extend_mode(t) == "propose":
+        tasks_router.propose_due(tasks_router.DueProposal(due_on=picked.isoformat()), task_id, user=user, db=db)
+        who = task_due.requester_of(t)
+        return f"Asked {_name(db, who) if who else 'the requester'} to move the due date to {when}"
+    tasks_router.update_task(task_id, tasks_router.TaskUpdate(due_on=picked.isoformat()), bt, user=user, db=db)
+    return f"Due date moved to {when}"
 
 
 def _name(db, email: str) -> str:
@@ -258,7 +296,8 @@ def _card_error(message: str, status: int) -> JSONResponse:
 # ── Fallback page (non-Outlook clients) ──────────────────────────────────────
 
 _PAGE_TITLES = {"comment": "Add Comment", "reply": "Reply", "status": "Change Status",
-                "complete": "Mark Complete", "react": "React", "mute": "Mute This Task"}
+                "complete": "Mark Complete", "react": "React", "mute": "Mute This Task",
+                "extend": "Extend Due Date"}
 
 
 def _page(title: str, inner: str) -> HTMLResponse:
@@ -322,6 +361,22 @@ def action_page(token: str = "", do: str = "comment"):
                      "You will still be emailed if someone mentions you on it.</p>")
         elif do == "complete":
             field = "<p style='margin:0;font-size:14px'>Mark this task as complete?</p>"
+        elif do == "extend":
+            import task_due
+            from datetime import date, timedelta
+            if _extend_mode(t) == "propose":
+                who = task_due.requester_of(t)
+                how = (f"{escape(_name(db, who)) if who else 'Whoever asked for this task'} set this date and it is "
+                       "not agreed yet, so your new date is sent to them to accept.")
+            else:
+                how = "The new date replaces the current one and is recorded as an extension."
+            field = (f"<p style='margin:0 0 10px;font-size:14px'>Current due date: "
+                     f"<b>{escape(task_due.us_date(t.due_on or '') or 'none')}</b></p>"
+                     f"<label style='display:block;font-size:13px;font-weight:600;margin-bottom:6px' for='nx-due'>New Due Date</label>"
+                     f"<input id='nx-due' type='date' name='text' required min='{date.today().isoformat()}' "
+                     f"value='{(date.today() + timedelta(days=7)).isoformat()}' style='width:100%;box-sizing:border-box;"
+                     "border:1px solid #d1d5db;border-radius:8px;padding:9px;font:inherit;font-size:14px'>"
+                     f"<p style='margin:10px 0 0;font-size:12.5px;color:#6b7280'>{how}</p>")
         form = (f"<form method='post' action='/mail-actions/page'>"
                 f"<input type='hidden' name='token' value='{escape(token)}'>"
                 f"<input type='hidden' name='action' value='{escape(do)}'>{field}"

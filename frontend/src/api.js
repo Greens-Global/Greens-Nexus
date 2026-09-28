@@ -606,6 +606,12 @@ export const api = {
   // not the automatic per-shift trigger. No effect on any other employee or
   // on the normal 15-minute scan schedule. Returns {sentNow, mode, hadContent}.
   forceResendDailyBriefing: (logId) => req(`/daily-briefing/log/${logId}`, { method: "DELETE" }),
+  // Weekly Digest (Sep 28) - backend routers/weekly_digest.py; same Global-Admin
+  // bar and log/resend shape as the Daily Briefing's.
+  getWeeklyDigestConfig: () => req("/weekly-digest/config"),
+  updateWeeklyDigestConfig: (patch) => req("/weekly-digest/config", { method: "PUT", body: JSON.stringify(patch) }),
+  getWeeklyDigestLog: (params = {}) => req(`/weekly-digest/log?${new URLSearchParams(params).toString()}`),
+  forceResendWeeklyDigest: (logId) => req(`/weekly-digest/log/${logId}`, { method: "DELETE" }),
   // Replies mailed back to a task notification (manager+). The drain normally
   // runs itself every minute on the deployed API; this triggers one pass now.
   getTaskInboundLog: (params = {}) => req(`/tasks/inbound/log?${new URLSearchParams(params).toString()}`),

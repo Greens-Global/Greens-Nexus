@@ -4433,3 +4433,21 @@ class TimesheetReview(Base):
     created_at         = Column(String, default="")
     updated_at         = Column(String, default="")
 
+
+
+class NexusWeeklyDigestLog(Base):
+    """One row per employee per (employee-local) week a Weekly Digest was
+    generated (weekly_digest.py, Sep 28 2026) - the once-a-week dedupe check,
+    and what the admin Delivery Log reads. Its own table rather than rows in
+    nexus_daily_briefing_log: the daily briefing reads its latest row per
+    person as ITS "since" cursor, so a weekly row there would shift that window.
+    New table - create_all builds it; RLS must be enabled on dev and prod."""
+    __tablename__ = "nexus_weekly_digest_log"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    week_start     = Column(String, index=True, nullable=False)  # Monday of the digest's week, YYYY-MM-DD
+    sent_at        = Column(String, default="")          # UTC iso; '' when nothing was mailed
+    mode           = Column(String, default="off")       # off|test|live - which config this run used
+    overdue_count  = Column(Integer, default=0)          # their own overdue tasks
+    team_count     = Column(Integer, default=0)          # manager: direct reports with overdue work
+    created_at     = Column(String, default="")
