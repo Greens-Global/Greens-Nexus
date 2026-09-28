@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { X, Upload, Loader2, Clock, Star, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { TIMEOFF_LABELS, timeOffLabel, parseScheduleSheet } from './shiftScheduleLib';
+import { formatDate } from '../lib/datetime';
 
 const hm12 = (hhmm) => {
   const [h, m] = (hhmm || '0:0').split(':').map(Number);
@@ -219,7 +220,7 @@ export function Avatar({ name, photoUrl, size = 26 }) {
   const [broken, setBroken] = useState(false);
   const base = { width: size, height: size, borderRadius: '50%', flexShrink: 0 };
   if (photoUrl && !broken) {
-    return <img src={photoUrl} alt="" onError={() => setBroken(true)} style={{ ...base, objectFit: 'cover', border: '1px solid var(--line)' }} />;
+    return <img src={photoUrl} alt="" draggable={false} onError={() => setBroken(true)} style={{ ...base, objectFit: 'cover', border: '1px solid var(--line)' }} />;
   }
   return (
     <span style={{ ...base, background: 'var(--bg)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.38, fontWeight: 800, color: 'var(--muted)' }}>
@@ -302,6 +303,49 @@ export function ShiftPalette({ presets, onStart }) {
           {`${p.code || p.name} ${p.start ? `${short12(p.start)}-${short12(p.end)}` : ''}`.trim()}
         </span>
       ))}
+    </div>
+  );
+}
+
+// ── Shift details (the magnifier on a shift, Teams parity) ─────────────
+export function ShiftDetails({ at, shift: s, name, status, onEdit, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const left = Math.max(8, Math.min(at.x + 8, window.innerWidth - 300));
+  const top = Math.max(8, Math.min(at.y + 8, window.innerHeight - 320));
+  const row = (label, value) => value ? (
+    <div style={{ display: 'flex', gap: 8, fontSize: 12.5, padding: '2px 0' }}>
+      <span style={{ width: 78, color: 'var(--muted)', flexShrink: 0 }}>{label}</span><span style={{ minWidth: 0 }}>{value}</span>
+    </div>
+  ) : null;
+  const day = new Date(`${s.date}T00:00`).toLocaleDateString('en-US', { weekday: 'long' });
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1500 }} onClick={onClose}>
+      <div role="dialog" aria-label="Shift Details" onClick={e => e.stopPropagation()}
+        style={{ position: 'fixed', left, top, width: 290, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+          boxShadow: '0 10px 30px rgba(0,0,0,0.18)', padding: 14, fontFamily: 'Inter,sans-serif', borderTop: `4px solid ${s.color || '#64748b'}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
+          <span style={{ fontSize: 14, fontWeight: 800, flex: 1 }}>{s.code || s.label || 'Shift'}</span>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={15} /></button>
+        </div>
+        {row('Who', name)}
+        {row('When', `${day}, ${formatDate(s.date)}`)}
+        {row('Time', `${hm12(s.start)} - ${hm12(s.end)}`)}
+        {row('Break', s.breakMin ? `${s.breakMin} min unpaid` : '')}
+        {row('Label', s.label)}
+        {row('Note', s.note)}
+        {row('Activities', (s.activities || []).map(a => `${hm12(a.start)} - ${hm12(a.end)} ${a.label}`).join('; '))}
+        {row('Status', status)}
+        {s.conflicts?.length > 0 && (
+          <div style={{ marginTop: 6, fontSize: 12, color: '#b45309' }}>{s.conflicts.map((c, i) => <div key={i}>{c}</div>)}</div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+          <button type="button" className="primary-btn" onClick={onEdit} style={{ fontSize: 12.5 }}><Pencil size={12} /> Edit Shift</button>
+        </div>
+      </div>
     </div>
   );
 }

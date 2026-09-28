@@ -442,6 +442,38 @@ describe('Views, filter, export, drag and drop, day notes, activities', () => {
     expect(toastOk).toHaveBeenCalledWith('Shift copied here as a draft.');
   });
 
+  it('the grid never selects text, and shifts show Teams\' hover tools', async () => {
+    timeSchedule.mockResolvedValue({ ...data([shift({ label: 'Front', note: 'Keys at desk' })]),
+      timeoff: [{ email: 'bob@greensglobal.com', startDate: monday, endDate: monday, type: 'vacation', status: 'approved', note: '' }] });
+    render(<ShiftSchedule toastOk={toastOk} />);
+    const chip = (await screen.findByText('GST')).closest('.sched-chip');
+    const grid = chip.closest('[style*="user-select"]');
+    expect(grid.style.userSelect).toBe('none');
+    const dragEvt = createEvent.dragStart(screen.getByText('Off'));
+    fireEvent(screen.getByText('Off'), dragEvt);
+    expect(dragEvt.defaultPrevented).toBe(true);              // a time-off card is never dragged as text
+    fireEvent.click(within(chip).getByLabelText('Shift details'));
+    const card = screen.getByRole('dialog', { name: 'Shift Details' });
+    expect(card.textContent).toContain('Keys at desk');
+    expect(card.textContent).toContain(`${formatUs(monday)}`);
+    fireEvent.click(within(card).getByText('Edit Shift'));
+    expect(await screen.findByText('Save')).toBeTruthy();
+  });
+
+  it('drags a shift to another person in Day view', async () => {
+    const t = new Date();
+    const today = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+    timeSchedule.mockResolvedValue(data([shift({ date: today })]));
+    const { container } = render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('GST');
+    fireEvent.click(screen.getByText('Day'));
+    await waitFor(() => expect(container.querySelector('[data-drop^="bob@greensglobal.com|"]')).toBeTruthy());
+    const bar = screen.getByLabelText(/^Shift 9a to 5p/);
+    const track = container.querySelector('[data-drop^="bob@greensglobal.com|"]');
+    mouseDrag(bar, track);
+    await waitFor(() => expect(timeSchedMove).toHaveBeenCalledWith('s1', expect.objectContaining({ employee_email: 'bob@greensglobal.com', duplicate: false })));
+  });
+
   it('a press without moving is a click, and never starts a drag', async () => {
     timeSchedule.mockResolvedValue(data([shift()]));
     render(<ShiftSchedule toastOk={toastOk} />);
