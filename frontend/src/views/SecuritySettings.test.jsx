@@ -56,19 +56,27 @@ describe('SecuritySettings', () => {
   it('renders the three groups with sources and ranges', async () => {
     getSecuritySettings.mockResolvedValue(payload(true));
     render(<SecuritySettings />);
-    await screen.findByText('Re-Authentication for Sensitive Actions');
-    expect(screen.getByText('Sessions')).toBeTruthy();
+    await screen.findByText('Sign In Again for Sensitive Screens');
+    expect(screen.getByText('How Long People Stay Signed In')).toBeTruthy();
     expect(screen.getByText('Guest Sign-In')).toBeTruthy();
-    expect(screen.getByText('Set by server config')).toBeTruthy();
+    expect(screen.getByText('Set Automatically')).toBeTruthy();
     expect(screen.getByText('Saved')).toBeTruthy();
     expect(screen.getByText('Allowed: 15 to 480 minutes')).toBeTruthy();
+    // A seconds-stored range leads with the minutes an admin actually
+    // thinks in, with the exact seconds kept alongside for anyone who wants
+    // them - every seconds-based field here is bounded 60-1800, i.e. 1-30
+    // minutes (four fields share that range, so several rows show it).
+    expect(screen.getAllByText('Allowed: 1 to 30 minutes (60 to 1800 seconds)').length).toBe(4);
+    // A live plain-language read next to a value landing on a whole unit -
+    // the Act As default of 240 minutes reads as a clean 4 hours.
+    expect(screen.getByText('= 4 hours')).toBeTruthy();
     expect(screen.getByText('Save Changes').closest('button').disabled).toBe(true);
   });
 
   it('enables Save when dirty, blocks out-of-range values, and saves only the change', async () => {
     getSecuritySettings.mockResolvedValue(payload(true));
     render(<SecuritySettings />);
-    const input = await screen.findByLabelText('Act As Session Length');
+    const input = await screen.findByLabelText('How Long an Act As Session Lasts');
     fireEvent.change(input, { target: { value: '600' } });
     expect(screen.getByText('Must be 15 to 480 minutes.')).toBeTruthy();
     expect(screen.getByText('Save Changes').closest('button').disabled).toBe(true);
@@ -84,7 +92,7 @@ describe('SecuritySettings', () => {
     getSecuritySettings.mockResolvedValue(payload(true));
     confirm.mockResolvedValueOnce(false);
     render(<SecuritySettings />);
-    fireEvent.click(await screen.findByLabelText('Require Re-Authentication'));
+    fireEvent.click(await screen.findByLabelText('Ask People to Sign In Again'));
     fireEvent.click(screen.getByText('Save Changes'));
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     expect(updateSecuritySettings).not.toHaveBeenCalled();
@@ -95,9 +103,9 @@ describe('SecuritySettings', () => {
   it('Reset to Default sends null for a saved value', async () => {
     getSecuritySettings.mockResolvedValue(payload(true, { actAsMinutes: int(60, 15, 480, 'minutes', 'saved', { default: 240 }) }));
     render(<SecuritySettings />);
-    await screen.findByText('Sessions');
-    fireEvent.click(screen.getByLabelText('Reset Act As Session Length to Default'));
-    expect(screen.getByLabelText('Act As Session Length').value).toBe('240');
+    await screen.findByText('How Long People Stay Signed In');
+    fireEvent.click(screen.getByLabelText('Reset How Long an Act As Session Lasts to Default'));
+    expect(screen.getByLabelText('How Long an Act As Session Lasts').value).toBe('240');
     fireEvent.click(screen.getByText('Save Changes'));
     await waitFor(() => expect(updateSecuritySettings).toHaveBeenCalledWith({ actAsMinutes: null }, false));
   });
@@ -108,9 +116,9 @@ describe('SecuritySettings', () => {
     }));
     render(<SecuritySettings />);
     await screen.findByText('You can view these settings. Only a Global Admin can change them.');
-    expect(screen.getByLabelText('Act As Session Length').disabled).toBe(true);
-    expect(screen.getByLabelText('Require Multi-Factor Verification').disabled).toBe(true);
-    expect(screen.getByText('Required by server config')).toBeTruthy();
+    expect(screen.getByLabelText('How Long an Act As Session Lasts').disabled).toBe(true);
+    expect(screen.getByLabelText('Also Require a Phone Approval or Code').disabled).toBe(true);
+    expect(screen.getByText('Always On for This Organization')).toBeTruthy();
     expect(screen.queryByText('Save Changes')).toBeNull();
   });
 

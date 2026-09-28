@@ -12,69 +12,87 @@ import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { SkeletonBlocks } from '../components/AsyncState';
 
+// Copy for every field is plain, everyday language on purpose (Pranshu, Sep
+// 28: "a person with a non-technical background" reads this too) - no bare
+// acronyms (MFA, TTL), no "server config" or "env var", nothing that assumes
+// the reader knows how sign-in or sessions work under the hood. The field
+// keys, and everything they control, are unchanged - only the words are.
 const GROUPS = [
   {
-    title: 'Re-Authentication for Sensitive Actions',
-    desc: 'Before showing vault secrets, other people\'s pay and confidential HR records, Nexus can ask the person to sign in to Microsoft again.',
+    title: 'Sign In Again for Sensitive Screens',
+    desc: 'Before someone can see sensitive information, such as vault secrets, other people\'s pay or private HR records, Nexus can make them sign in to Microsoft one more time to prove it is really them.',
     fields: [
-      { key: 'stepupEnforce', label: 'Require Re-Authentication',
-        desc: 'When on, sensitive screens ask for a fresh Microsoft sign-in first. Turning it off removes that check for everyone.' },
-      { key: 'stepupRequireMfa', label: 'Require Multi-Factor Verification',
-        desc: 'When on, the fresh sign-in must include a second factor (Authenticator, text message). Turn it on only once MFA is enabled for every account, or people will be blocked.' },
-      { key: 'stepupTtlSec', label: 'Unlock Duration',
-        desc: 'How long one re-authentication unlocks sensitive screens. Longer means fewer prompts but a longer window if a signed-in computer is left unattended.' },
-      { key: 'stepupMaxAgeSec', label: 'Sign-In Freshness',
-        desc: 'How recent the Microsoft sign-in must be to count. Shorter is stricter; too short can reject people on slow connections.' },
+      { key: 'stepupEnforce', label: 'Ask People to Sign In Again',
+        desc: 'When this is on, sensitive screens ask the person to sign in again before showing anything. Turn it off and that extra check goes away for everyone.' },
+      { key: 'stepupRequireMfa', label: 'Also Require a Phone Approval or Code',
+        desc: 'When this is on, signing in again is not enough by itself - the person also has to approve it with their phone or enter a text message code. Only turn this on once every account has that set up, or people could get locked out.' },
+      { key: 'stepupTtlSec', label: 'How Long the Unlock Lasts',
+        desc: 'How long a single sign-in keeps sensitive screens unlocked before asking again. A longer time means fewer interruptions, but a bigger risk if someone walks away from a signed-in computer.' },
+      { key: 'stepupMaxAgeSec', label: 'How Recent the Sign-In Must Be',
+        desc: 'How new the sign-in has to be to count. A shorter time is stricter. Too short can reject people with a slow internet connection.' },
     ],
   },
   {
-    title: 'Sessions',
-    desc: 'How long people stay signed in and how long temporary access lasts.',
+    title: 'How Long People Stay Signed In',
+    desc: 'How long people stay signed in, and how long temporary access lasts before it ends on its own.',
     fields: [
-      { key: 'webSessionIdleDays', label: 'Web Session Idle Limit',
-        desc: 'A browser that has not used Nexus for this long is signed out. Lowering it signs out anyone already idle longer, on their next visit.' },
-      { key: 'actAsMinutes', label: 'Act As Session Length',
-        desc: 'How long an Act As session lasts before it ends on its own. Applies to sessions started after the change.' },
-      { key: 'vaultOtpUnlockSec', label: 'Credential Vault Unlock (Code)',
-        desc: 'How long a verified text or email code unlocks revealing and sharing company vault credentials.' },
+      { key: 'webSessionIdleDays', label: 'Sign Out After No Activity',
+        desc: 'If someone has not used Nexus in this many days, they are signed out automatically. Lowering this number signs out anyone already away longer, the next time they open Nexus.' },
+      { key: 'actAsMinutes', label: 'How Long an Act As Session Lasts',
+        desc: 'How long someone can use Act As before it ends on its own. This only applies to Act As sessions started after you save this change.' },
+      { key: 'vaultOtpUnlockSec', label: 'Vault Unlock After a Text or Email Code',
+        desc: 'After someone verifies a text or email code, how long they can view and share company vault passwords before it locks again.' },
       { key: 'vaultPersonalUnlockSec', label: 'Personal Vault Unlock',
-        desc: 'The longest a Personal Vault stays unlocked after the password is entered. The screen still locks itself sooner when idle.' },
+        desc: 'The longest someone\'s Personal Vault stays unlocked after they type their password. It can still lock itself sooner if they step away.' },
     ],
   },
   {
     title: 'Guest Sign-In',
     desc: 'Partners and guests sign in with a one-time code instead of a Microsoft account.',
     fields: [
-      { key: 'guestCodeTtlMin', label: 'Sign-In Code Lifetime',
-        desc: 'How long an emailed or texted code works. Shorter is safer; longer helps when email is slow.' },
-      { key: 'guestMaxAttempts', label: 'Wrong Code Attempts',
-        desc: 'Wrong codes allowed before the code is cancelled and the account is locked out for a while.' },
-      { key: 'guestLockoutMin', label: 'Lockout Duration',
-        desc: 'How long a guest must wait after too many wrong codes.' },
+      { key: 'guestCodeTtlMin', label: 'How Long a Sign-In Code Works',
+        desc: 'How long an emailed or texted code stays valid. Shorter is safer. Longer helps when email is slow.' },
+      { key: 'guestMaxAttempts', label: 'Wrong Codes Allowed',
+        desc: 'How many wrong codes someone can enter before the code is cancelled and they are locked out for a while.' },
+      { key: 'guestLockoutMin', label: 'How Long They Are Locked Out',
+        desc: 'How long a guest must wait after entering too many wrong codes.' },
       { key: 'guestRequestsPerHour', label: 'Code Requests per Hour',
-        desc: 'Codes one email address, or one network address, can request in an hour. Limits guessing and message flooding.' },
-      { key: 'guestInviteTtlDays', label: 'Invitation Link Lifetime',
-        desc: 'How long the link in an invitation email works before it has to be resent.' },
+        desc: 'How many codes one email address, or one network address, can request in an hour. This limits guessing and message flooding.' },
+      { key: 'guestInviteTtlDays', label: 'How Long an Invite Link Works',
+        desc: 'How long the link in an invitation email works before it needs to be sent again.' },
     ],
   },
 ];
 
-const SOURCE_LABEL = { saved: 'Saved', env: 'Set by server config', default: 'Default' };
+// "Set Automatically" (never "server config" or "env var" - an admin reading
+// this screen shouldn't need to know Nexus runs on a server with config
+// files). The locked badge only ever appears on the two safety toggles above,
+// when whoever deployed Nexus turned them on for everyone.
+const SOURCE_LABEL = { saved: 'Saved', env: 'Set Automatically', default: 'Default' };
+const LOCKED_LABEL = 'Always On for This Organization';
 const LABELS = Object.fromEntries(GROUPS.flatMap(g => g.fields.map(f => [f.key, f.label])));
 
+// A plain-language read of a value in its stored unit - "5 minutes" next to
+// a "300 seconds" field, or "1 hour" next to "60 minutes". Only seconds and
+// minutes ever convert (days, attempts and requests are already everyday
+// words); returns null rather than a rounded, misleading conversion when the
+// value doesn't land on a whole unit.
 function friendly(value, unit) {
   if (unit === 'seconds') {
     if (value % 60 === 0) { const m = value / 60; return `${m} minute${m === 1 ? '' : 's'}`; }
-    return `${value} seconds`;
+    return null;
   }
   if (unit === 'minutes' && value >= 60 && value % 60 === 0) { const h = value / 60; return `${h} hour${h === 1 ? '' : 's'}`; }
   return null;
 }
 
+// The plain-language range leads; the exact stored unit follows in
+// parentheses for anyone who wants it, instead of the other way around.
 function rangeText(s) {
   const lo = friendly(s.min, s.unit), hi = friendly(s.max, s.unit);
   const base = `${s.min} to ${s.max} ${s.unit}`;
-  return lo && hi && s.unit !== 'minutes' ? `${base} (${lo} to ${hi})` : base;
+  const friendlyUnit = s.unit === 'seconds' ? 'minutes' : s.unit === 'minutes' ? 'hours' : null;
+  return lo && hi && friendlyUnit ? `${parseInt(lo, 10)} to ${parseInt(hi, 10)} ${friendlyUnit} (${base})` : base;
 }
 
 function Badge({ children, tone = 'muted' }) {
@@ -202,9 +220,9 @@ export default function SecuritySettings({ toastOk, toastErr }) {
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.5 }}>{f.desc}</div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, alignItems: 'center' }}>
                       <Badge tone={shownSource === 'saved' ? 'brand' : 'muted'}>{SOURCE_LABEL[shownSource]}{(f.key in changes) ? ' (unsaved)' : ''}</Badge>
-                      {s.locked && <Badge>Required by server config</Badge>}
+                      {s.locked && <Badge>{LOCKED_LABEL}</Badge>}
                       {s.type === 'int' && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Allowed: {rangeText(s)}</span>}
-                      {s.outOfRange && <span style={{ fontSize: 11.5, color: 'hsl(var(--color-amber, 38 92% 50%))' }}>The server config value is outside the allowed range.</span>}
+                      {s.outOfRange && <span style={{ fontSize: 11.5, color: 'hsl(var(--color-amber, 38 92% 50%))' }}>This value is outside the allowed range.</span>}
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -222,6 +240,13 @@ export default function SecuritySettings({ toastOk, toastErr }) {
                           onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.value === '' ? '' : Number(e.target.value) }))}
                           style={{ width: 96 }} />
                         <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{s.unit}</span>
+                        {/* A live plain-language read of what's actually typed
+                            ("300 seconds" -> "= 5 minutes"), so a non-technical
+                            admin isn't left to do the math themselves. Blank
+                            for a value that doesn't land on a whole minute. */}
+                        {typeof v === 'number' && friendly(v, s.unit) && (
+                          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>= {friendly(v, s.unit)}</span>
+                        )}
                       </>
                     )}
                     {canEdit && !s.locked && !pendingReset && (s.source === 'saved' || f.key in draft) && (
