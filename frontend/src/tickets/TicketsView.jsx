@@ -37,13 +37,14 @@ import {
   ticketNo, ticketNoShort, normalizeCode,
   SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
 } from './ticketMeta';
-import { useTicketConfig, COMPANY_FIELD } from './ticketConfig';
+import { useTicketConfig, COMPANY_FIELD, typeRequiresApproval } from './ticketConfig';
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
 } from './TicketAtoms';
 import { SkeletonBlocks } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
 import { buildTicketTourSteps } from './ticketTourSteps';
+import TicketDeflection from '../support/TicketDeflection';
 import { toViewUrl, toDownloadUrl } from '../lib/storageView';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
@@ -1891,6 +1892,13 @@ export function CreateTicketModal({ onClose }) {
           {TICKET_TYPE_META[form.type]?.hint && (
             <div style={{ fontSize: 12, color: NX.dim, marginTop: 5 }}>{TICKET_TYPE_META[form.type].hint}</div>
           )}
+          {/* Admin switch per type (Settings > Ticket Manager > SLA & Ticket
+              Types) - read from the loaded taxonomy, never a hardcoded list. */}
+          {typeRequiresApproval(form.type) && (
+            <div style={{ fontSize: 11.5, color: NX.amber, marginTop: 4 }}>
+              This type needs approval before the team can start work on it.
+            </div>
+          )}
           <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
             {typeFieldDefs.length + svcFieldDefs.length} extra question{typeFieldDefs.length + svcFieldDefs.length === 1 ? '' : 's'} on the next step.
           </div>
@@ -1978,6 +1986,12 @@ export function CreateTicketModal({ onClose }) {
         <label style={label}>Description</label>
         <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={3} placeholder="Add detail…" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
       </div>
+
+      {/* Self-service before a ticket (Neil, Sep 26): guide articles that
+          match what is being typed. Advisory only - it never blocks Create
+          Ticket, and shows nothing when nothing is a confident match.
+          "This Solved My Problem" closes the form without creating one. */}
+      <TicketDeflection subject={form.subject} description={form.description} onSolved={onClose} />
 
       {/* Type-specific details - the point of the ticket, so it's prominent. */}
       {typeFieldDefs.length > 0 && (

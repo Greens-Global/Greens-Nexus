@@ -23,7 +23,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
-import { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
+import { LevelPill, ModuleLevelPill, TierBadge, RoleOptions, rolesForCompany } from './RolesAccess';
 // External tab folded into People (Neil, Aug 24: one master list) - only the
 // shared pieces remain in use: badge, invite modal, lifecycle section.
 import { ExternalBadge, InviteExternalModal, inviteOutcomeToast, ExternalPersonSection } from './ExternalUsersPanel';
@@ -39,6 +39,8 @@ import LocationPickerMap from '../components/LocationPickerMap';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
+// A company's Roles tab (Company Settings) - lazy for the same reason.
+const CompanyRoles = lazy(() => import('./CompanyRoles'));
 
 // ── HR module - Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -325,7 +327,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           <div>
             <label style={FL}>COMPANY / ENTITY</label>
             <select className="form-input" style={{ width: '100%' }} value={f.company}
-              onChange={e => { set('company', e.target.value); set('department', ''); setAddingDept(false); }}>
+              onChange={e => { set('company', e.target.value); set('department', ''); setAddingDept(false); setJobRoleId(''); }}>
               <option value="">- not set -</option>
               {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
             </select>
@@ -404,7 +406,8 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
               <label style={FL}>JOB ROLE &amp; ACCESS</label>
               <select className="form-input" style={{ width: '100%' }} value={jobRoleId} onChange={e => setJobRoleId(e.target.value)}>
                 <option value="">- set later on the Access tab -</option>
-                {jobRoles.map(r => <option key={r.id} value={r.id}>{r.name} · {ROLES[r.tier]?.label || r.tier}</option>)}
+                <RoleOptions roles={rolesForCompany(jobRoles, f.company)} companyName={id => entities.find(en => en.id === id)?.name || 'Another company'}
+                  label={r => `${r.name} · ${ROLES[r.tier]?.label || r.tier}`} />
               </select>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>Sets their access &amp; seniority tier from a job role at onboarding. Needs a work email; otherwise assign it later on their card.</div>
             </div>
@@ -1329,7 +1332,7 @@ function AccessPicker({ title, items, onPick, onClose, renderItem }) {
   );
 }
 
-function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, onChanged }) {
+function EmployeeAccess({ email, identityType = 'internal', companyId = '', toastOk, toastErr, onChanged }) {
   const [data, setData] = useState(null);
   const [roles, setRoles] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -1350,7 +1353,7 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
   // onChanged refreshes the parent employee record too - assigning a job role
   // now also rewrites the person's job TITLE (server-side), so the card header
   // must re-read it, not just the access panel.
-  const assign = async jr => { try { await api.assignJobRole(jr.id, email); setPick(null); toastOk(`Job role set to “${jr.name}” - their title now matches.`); load(); onChanged?.(); } catch (err) { toastErr(err?.message || 'Could not set job role.'); } };
+  const assign = async jr => { try { const res = await api.assignJobRole(jr.id, email); setPick(null); toastOk(`Job role set to “${jr.name}” - their title now matches.${res?.warning ? ` ${res.warning}` : ''}`); load(); onChanged?.(); } catch (err) { toastErr(err?.message || 'Could not set job role.'); } };
   const addGroup = async g => { try { await api.addGroupMembers(g.id, [email]); setPick(null); toastOk(`Added “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not add group.'); } };
   const removeGroup = async g => { try { await api.removeGroupMember(g.id, email); toastOk(`Removed “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not remove.'); } };
   const held = new Set((data.extra_groups || []).map(g => g.id));
@@ -1471,8 +1474,8 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr, o
         </div>
       )}
 
-      {pick === 'role' && <AccessPicker title="Choose a Job Role" items={roles} onClose={() => setPick(null)} onPick={assign}
-        renderItem={jr => (<><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{jr.name}</div><div style={{ marginTop: 3 }}><TierBadge tier={jr.tier} /></div></div><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.member_count} ppl</span></>)} />}
+      {pick === 'role' && <AccessPicker title="Choose a Job Role" items={rolesForCompany(roles, companyId)} onClose={() => setPick(null)} onPick={assign}
+        renderItem={jr => (<><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{jr.name}</div><div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 7 }}><TierBadge tier={jr.tier} /><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.company_id ? entityName(jr.company_id) : 'All companies'}</span></div></div><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.member_count} ppl</span></>)} />}
       {pick === 'group' && <AccessPicker title="Add a Group" items={groups.filter(g => !held.has(g.id))} onClose={() => setPick(null)} onPick={addGroup}
         renderItem={g => (<div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{g.name}</div><div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(g.allowed_modules || []).map(mm => <ModuleLevelPill key={mm.id} moduleId={mm.id} level={mm.level} />)}</div></div>)} />}
       <style>{`@media (max-width:640px){.acc-grid{grid-template-columns:1fr !important}}`}</style>
@@ -1776,7 +1779,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
-        {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
+        {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
 
@@ -3328,6 +3331,7 @@ const COMPANY_TABS = [
   { key: 'sites', label: 'Work Sites' },
   { key: 'holidays', label: 'Holiday Calendar' },
 ];
+const COMPANY_ROLES_TAB = { key: 'roles', label: 'Roles' };
 
 export function CompanySetupPage({ entities, employees = [], sites = [], onChangedEntities, onChangedSites, toastOk, toastErr }) {
   // linkedin_url is deliberately NOT in this form state (Sep 18: removed from
@@ -3338,6 +3342,8 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
+  const { can } = useRole();
+  const companyTabs = can('administrator') ? [...COMPANY_TABS, COMPANY_ROLES_TAB] : COMPANY_TABS;
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
@@ -3454,7 +3460,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{mode === 'new' ? 'Add Company' : editingEntity?.name || 'Edit Company'}</h3>
         </div>
 
-        {mode !== 'new' && <ModuleTabs tabs={COMPANY_TABS} active={tab} onChange={setTab} inline />}
+        {mode !== 'new' && <ModuleTabs tabs={companyTabs} active={tab} onChange={setTab} inline />}
 
         {(mode === 'new' || tab === 'overview') && (
           <>
@@ -3596,6 +3602,15 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
             ? <CompanyHolidaysTab entity={editingEntity} entities={entities} toastOk={toastOk} toastErr={toastErr} />
             : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
         )}
+        {mode !== 'new' && tab === 'roles' && can('administrator') && (
+          editingEntity
+            ? (
+              <Suspense fallback={<div style={{ padding: '16px 4px' }}><SkeletonBlocks count={4} height={54} /></div>}>
+                <CompanyRoles entity={editingEntity} toastOk={toastOk} toastErr={toastErr} />
+              </Suspense>
+            )
+            : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
+        )}
 
         {guard.confirming && (
           <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={backToList} onSave={f.name.trim() ? guard.saveAndClose : undefined} saving={busy} />
@@ -3608,7 +3623,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>Group manager</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Group Manager</div>
           <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Oversees every company - the escalation step above each company's manager.</div>
         </div>
         <select className="form-input" disabled={groupMgrBusy} value={groupMgr} onChange={e => saveGroupMgr(e.target.value)} style={{ width: 220, fontSize: 12.5, flexShrink: 0 }}>
@@ -4936,7 +4951,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
 
 // ── Work Site Library (Neil, Sep 25) - every work site, entered once; each
 // company then picks its own from its Work Sites tab. Lives under Settings ->
-// Company Settings (the global settings), not inside any one company.
+// Global Settings, not inside any one company.
 export function WorkSiteLibrary({ toastOk, toastErr }) {
   const [sites, setSites] = useState(null);
   const [entities, setEntities] = useState([]);
@@ -4977,7 +4992,7 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Each company chooses which of these its employees can punch at (Company Setup - a company - Work Sites).</p>
+        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Each company chooses which of these sites its employees can punch in at, from its Work Sites tab in Company Settings.</p>
         <div style={{ position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
           <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search sites" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
@@ -5060,160 +5075,6 @@ function StatusDonut({ segments, total }) {
       <text x={42} y={41} textAnchor="middle" style={{ fontFamily: 'var(--wk-font)', fontSize: 20, fontWeight: 700, fill: 'var(--ink)' }}>{total}</text>
       <text x={42} y={54} textAnchor="middle" style={{ fontFamily: 'var(--wk-font)', fontSize: 8.5, fill: 'var(--muted)' }}>people</text>
     </svg>
-  );
-}
-
-// Mini bar chart for hires by start year: one hue with a soft vertical
-// gradient, current year emphasized, 4px rounded data-ends on the baseline,
-// year labels under every bar, native tooltips.
-export function HiresBars({ employees }) { // exported for reuse in other modules' sweeps
-  const nowYear = new Date().getFullYear();
-  const years = [nowYear - 3, nowYear - 2, nowYear - 1, nowYear];
-  const buckets = years.map(y => ({
-    year: y,
-    n: employees.filter(e => (e.startDate || '').slice(0, 4) === String(y)).length,
-  }));
-  const max = Math.max(...buckets.map(b => b.n), 1);
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', height: 96 }}>
-        {buckets.map(b => (
-          <div key={b.year} title={`${b.year}: ${b.n} hire${b.n === 1 ? '' : 's'}`}
-            style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 5, height: '100%' }}>
-            {b.n > 0 && (
-              <span style={{ fontSize: 12, fontWeight: 700, color: b.year === nowYear ? 'var(--wk-brand)' : 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums' }}>{b.n}</span>
-            )}
-            <div style={{
-              width: '100%',
-              height: b.n === 0 ? 3 : Math.max(10, Math.round((b.n / max) * 74)),
-              borderRadius: '6px 6px 0 0',
-              background: b.n === 0 ? 'var(--mist)'
-                : (b.year === nowYear
-                  ? 'linear-gradient(180deg, #5f74ec 0%, var(--wk-brand) 100%)'
-                  : 'linear-gradient(180deg, var(--wk-brand-tint) 0%, #ccd5f8 100%)'),
-            }} />
-          </div>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
-        {buckets.map(b => (
-          <span key={b.year} style={{ flex: 1, textAlign: 'center', fontSize: 11.5, color: 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums' }}>{b.year}</span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Cumulative headcount area chart (the reference dashboard's hero form):
-// gradient area under a 2px line, live crosshair + tooltip on hover, and
-// working time-range chips. Counts are real - everyone whose start date is
-// on or before each month's end.
-export function HeadcountArea({ employees }) { // exported for reuse in other modules' sweeps
-  const [months, setMonths] = useState(12);
-  const [hover, setHover] = useState(null); // { i, xPct }
-  const W = 320, H = 96, PAD = 4;
-
-  const now = new Date();
-  const buckets = [];
-  for (let i = months - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i + 1, 0); // month end
-    const iso = d.toISOString().slice(0, 10);
-    buckets.push({
-      label: d.toLocaleString('en-US', { month: 'short' }) + (d.getMonth() === 0 || buckets.length === 0 ? ` ’${String(d.getFullYear()).slice(2)}` : ''),
-      n: employees.filter(e => e.startDate && e.startDate <= iso).length,
-    });
-  }
-  const max = Math.max(...buckets.map(b => b.n), 1);
-  const px = i => PAD + (i / (buckets.length - 1)) * (W - PAD * 2);
-  const py = n => H - PAD - (n / max) * (H - PAD * 2);
-
-  const onMove = ev => {
-    const r = ev.currentTarget.getBoundingClientRect();
-    const frac = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
-    setHover({ i: Math.round(frac * (buckets.length - 1)) });
-  };
-  const hb = hover ? buckets[hover.i] : null;
-
-  // Smooth curve (research refs: soft bezier, not a jagged polyline)
-  const pts = buckets.map((b, i) => ({ x: px(i), y: py(b.n) }));
-  const curve = pts.reduce((acc, p, i, arr) => {
-    if (!i) return `M ${p.x} ${p.y}`;
-    const p0 = arr[i - 1], cx = (p0.x + p.x) / 2;
-    return `${acc} C ${cx} ${p0.y}, ${cx} ${p.y}, ${p.x} ${p.y}`;
-  }, '');
-  const areaPath = `${curve} L ${pts[pts.length - 1].x} ${H - PAD} L ${PAD} ${H - PAD} Z`;
-  const last = pts[pts.length - 1];
-
-  return (
-    <div>
-      {/* Segmented range control (Stella's Day/Week/Month pattern) */}
-      <div className="wk-seg" style={{ marginBottom: 12, alignSelf: 'flex-start' }}>
-        {[[12, '12 months'], [24, '2 years'], [48, '4 years']].map(([m, label]) => (
-          <button key={m} className={months === m ? 'on' : ''} onClick={() => setMonths(m)}>{label}</button>
-        ))}
-      </div>
-      <div style={{ position: 'relative' }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" role="img"
-          aria-label={`Headcount over the last ${months} months, now ${buckets[buckets.length - 1].n}`}>
-          <defs>
-            <linearGradient id="hcArea" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--wk-brand)" stopOpacity="0.22" />
-              <stop offset="100%" stopColor="var(--wk-brand)" stopOpacity="0.02" />
-            </linearGradient>
-          </defs>
-          <path d={areaPath} fill="url(#hcArea)" />
-          <path d={curve} fill="none" stroke="var(--wk-brand)" strokeWidth={2}
-            strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-          {hover && (
-            <line x1={px(hover.i)} y1={PAD} x2={px(hover.i)} y2={H - PAD}
-              stroke="var(--wk-line)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-          )}
-        </svg>
-        {/* Persistent end-of-line marker + value callout (the "$451"-style tag
-            every reference kit uses) - hidden while hovering elsewhere */}
-        {!hover && (
-          <>
-            <span style={{
-              position: 'absolute', left: `${(last.x / W) * 100}%`, top: `${(last.y / H) * 100}%`,
-              width: 9, height: 9, borderRadius: '50%', background: 'var(--wk-brand)',
-              border: '2px solid var(--card)', transform: 'translate(-50%, -50%)', pointerEvents: 'none',
-              boxShadow: '0 1px 4px rgba(29,33,57,.25)',
-            }} />
-            <span style={{
-              position: 'absolute', left: `${(last.x / W) * 100}%`, top: `${(last.y / H) * 100}%`,
-              transform: 'translate(-105%, -135%)',
-              background: 'var(--wk-brand)', color: '#fff', borderRadius: 7, padding: '3px 9px',
-              fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)', pointerEvents: 'none',
-              fontVariantNumeric: 'tabular-nums',
-            }}>{buckets[buckets.length - 1].n}</span>
-          </>
-        )}
-        {hover && (
-          <>
-            <span style={{
-              position: 'absolute', left: `${(px(hover.i) / W) * 100}%`, top: `${(py(hb.n) / H) * 100}%`,
-              width: 9, height: 9, borderRadius: '50%', background: 'var(--wk-brand)',
-              border: '2px solid var(--card)', transform: 'translate(-50%, -50%)', pointerEvents: 'none',
-              boxShadow: '0 1px 4px rgba(29,33,57,.25)',
-            }} />
-            <div style={{
-              position: 'absolute', left: `${(px(hover.i) / W) * 100}%`, top: `${(py(hb.n) / H) * 100}%`,
-              transform: `translate(${hover.i > buckets.length / 2 ? '-108%' : '8%'}, -130%)`,
-              background: 'var(--ink)', color: 'var(--card)', borderRadius: 7,
-              padding: '5px 9px', fontSize: 11, fontFamily: 'var(--wk-font)', fontWeight: 600,
-              whiteSpace: 'nowrap', pointerEvents: 'none', boxShadow: '0 4px 12px rgba(29,33,57,.2)', zIndex: 5,
-            }}>
-              {hb.label.trim()} · {hb.n} {hb.n === 1 ? 'person' : 'people'}
-            </div>
-          </>
-        )}
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3, fontSize: 10, color: 'var(--wk-faint)' }}>
-          <span>{buckets[0].label.trim()}</span>
-          <span>{buckets[Math.floor(buckets.length / 2)].label.trim()}</span>
-          <span>{buckets[buckets.length - 1].label.trim()}</span>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -5444,8 +5305,10 @@ export default function HR({ activeSub, onSubChange }) {
   const isScoped = Array.isArray(hrScope) && hrScope.length > 0;
   const scopeNames = isScoped ? hrScope.map(id => entities.find(en => en.id === id)?.name || null).filter(Boolean) : [];
 
-  const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
-  const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
+  // Stable across renders: children key their loaders on these, and a new
+  // function per render made every toast reload the Time screens.
+  const toastErr = useCallback(msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); }, []);
+  const toastOk  = useCallback(msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); }, []);
 
   // Deep link from a person hover card anywhere in Nexus (openPersonProfile).
   // Two triggers, because this view may or may not be mounted when the jump
@@ -5678,7 +5541,7 @@ export default function HR({ activeSub, onSubChange }) {
       )}
       {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-time' && <TimeAdmin employees={employees} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-time' && <TimeAdmin toastOk={toastOk} toastErr={toastErr} />}
 
       {sub === 'hr-people' && (<>
         <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />

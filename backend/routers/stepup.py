@@ -28,7 +28,6 @@ Setup to activate (all FREE, no Premium):
   • Enable Security Defaults (or per-user MFA) so the re-login challenges MFA.
   • Set NEXUS_STEPUP_ENFORCE=true (and optionally NEXUS_STEPUP_REQUIRE_MFA=true).
 """
-import os
 import time
 import uuid
 import jwt as pyjwt
@@ -41,20 +40,22 @@ from typing import Optional
 from database import get_db
 from auth import get_current_user, _get_public_key, CLIENT_ID, ISSUER, SKIP_AUTH
 from models import StepUpSession
+import security_config as _sec
 
 router = APIRouter(prefix="/stepup", tags=["Step-up auth"])
 
-# ── Config (env-overridable; the frontend reads /stepup/config) ────────────────
-STEPUP_TTL_SEC   = int(os.getenv("NEXUS_STEPUP_TTL_SEC", "300"))       # how long one step-up unlocks (5 min)
-STEPUP_MAX_AGE   = int(os.getenv("NEXUS_STEPUP_MAX_AGE", "120"))       # re-auth must be this fresh (auth_time)
-# Require the re-login to have used an MFA factor (amr shows mfa/otp/sms/...).
-# Off by default so the feature works before MFA is enabled tenant-wide; turn on
-# once Security Defaults / per-user MFA is active to hard-enforce MFA.
-STEPUP_REQUIRE_MFA = os.getenv("NEXUS_STEPUP_REQUIRE_MFA", "").lower() in ("1", "true", "yes")
-# Master switch. Off by default so the feature ships + wires end-to-end BEFORE
-# any Entra changes - require_stepup is a no-op until this is true, so nothing
-# breaks pre-config. Flip NEXUS_STEPUP_ENFORCE=true to activate.
-STEPUP_ENFORCE   = os.getenv("NEXUS_STEPUP_ENFORCE", "").lower() in ("1", "true", "yes")
+# ── Config (the frontend reads /stepup/config) ─────────────────────────────────
+# Sep 2026: these moved to Settings > Global > Security (security_config.py) and
+# are read at the point of use. Precedence: saved admin value > the env var
+# below > default, so nothing changes until an admin saves something.
+#   stepupTtlSec     NEXUS_STEPUP_TTL_SEC     300  how long one step-up unlocks
+#   stepupMaxAgeSec  NEXUS_STEPUP_MAX_AGE     120  re-auth must be this fresh (auth_time)
+#   stepupRequireMfa NEXUS_STEPUP_REQUIRE_MFA off  re-login must have used an MFA
+#       factor (amr shows mfa/otp/sms/...). Off by default so the feature works
+#       before MFA is enabled tenant-wide.
+#   stepupEnforce    NEXUS_STEPUP_ENFORCE     off  master switch - require_stepup
+#       is a no-op until this is on, so nothing breaks pre-config.
+# Env set to true is a floor for the two switches: the UI cannot turn them off.
 
 _MFA_AMR = {"mfa", "ngcmfa", "otp", "sms", "phone", "fido", "wia", "swk"}
 
@@ -80,10 +81,11 @@ def _amr_list(claims: dict) -> list[str]:
     return [str(a).lower() for a in amr]
 
 
-def _validate_reauth_token(token: str, email: str) -> dict:
+def _validate_reauth_token(token: str, email: str, cfg: Optional[dict] = None) -> dict:
     """Decode + verify a FRESH-login ID token. Raises 400/401 on any problem;
     returns the claims. Verifies signature, issuer, audience, same user, and that
     the authentication just happened (auth_time freshness)."""
+    cfg = cfg if cfg is not None else _sec.effective()
     try:
         public_key = _get_public_key(token)
         claims = pyjwt.decode(
@@ -108,10 +110,10 @@ def _validate_reauth_token(token: str, email: str) -> dict:
             "message": "Sign-in time is unavailable. An admin must add the "
                        "'auth_time' optional claim to the app registration.",
         })
-    if (int(time.time()) - int(auth_time)) > STEPUP_MAX_AGE:
+    if (int(time.time()) - int(auth_time)) > cfg["stepupMaxAgeSec"]:
         raise HTTPException(status_code=401, detail="Sign-in wasn’t recent enough - please verify again.")
 
-    if STEPUP_REQUIRE_MFA and not (_MFA_AMR & set(_amr_list(claims))):
+    if cfg["stepupRequireMfa"] and not (_MFA_AMR & set(_amr_list(claims))):
         raise HTTPException(status_code=401, detail={
             "code": "mfa_required",
             "message": "Multi-factor verification is required for this action.",
@@ -144,7 +146,7 @@ def require_stepup(user: dict = Depends(get_current_user), db: Session = Depends
     """Dependency: admit the request only if step-up enforcement is off (feature
     not yet enabled), OR the caller holds an unexpired step-up session. On a
     miss, 403 with a machine code the frontend catches to launch the re-auth."""
-    if not STEPUP_ENFORCE or SKIP_AUTH:
+    if SKIP_AUTH or not _sec.get("stepupEnforce", db):
         return user
     if has_active_stepup(db, user["email"]):
         return user
@@ -158,10 +160,12 @@ def require_stepup(user: dict = Depends(get_current_user), db: Session = Depends
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/config")
-def stepup_config():
-    """Frontend reads these so behaviour can change without a rebuild."""
-    return {"enforced": STEPUP_ENFORCE, "ttlSec": STEPUP_TTL_SEC,
-            "requireMfa": STEPUP_REQUIRE_MFA, "mode": "reauth"}
+def stepup_config(db: Session = Depends(get_db)):
+    """Frontend reads these so behavior can change without a rebuild. Cached
+    (security_config), so this public endpoint is not a DB lever."""
+    cfg = _sec.effective(db)
+    return {"enforced": cfg["stepupEnforce"], "ttlSec": cfg["stepupTtlSec"],
+            "requireMfa": cfg["stepupRequireMfa"], "mode": "reauth"}
 
 
 @router.get("/status")
@@ -189,21 +193,23 @@ def stepup_verify(body: VerifyIn, request: Request,
     the supplied ID token (real deployments) or opens a session directly when
     running under the local NEXUS_SKIP_AUTH dev bypass (no Entra available)."""
     ip, ua = _client_meta(request)
+    cfg = _sec.effective(db)
+    ttl = cfg["stepupTtlSec"]
     if SKIP_AUTH:
         method = "dev"
     else:
         if not (body.token or "").strip():
             raise HTTPException(status_code=400, detail="Verification token is required")
-        claims = _validate_reauth_token(body.token.strip(), user["email"])
+        claims = _validate_reauth_token(body.token.strip(), user["email"], cfg)
         method = _method_from_claims(claims)
 
     now = _now()
     row = StepUpSession(
         id=str(uuid.uuid4()), email=user["email"].lower(), method=method, acr="reauth",
-        granted_at=_iso(now), expires_at=_iso(now + timedelta(seconds=STEPUP_TTL_SEC)),
+        granted_at=_iso(now), expires_at=_iso(now + timedelta(seconds=ttl)),
         ip=ip, user_agent=ua,
     )
     db.add(row)
     db.commit()
     return {"ok": True, "method": method, "expiresAt": row.expires_at,
-            "secondsRemaining": STEPUP_TTL_SEC}
+            "secondsRemaining": ttl}

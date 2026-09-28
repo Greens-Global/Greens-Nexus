@@ -25,6 +25,11 @@ router = APIRouter(prefix="/auth", tags=["Auth (BFF)"])
 # {APP_URL}/api/auth/callback and post-login redirects go back to {APP_URL}.
 APP_URL = os.getenv("NEXUS_APP_URL", "").rstrip("/")
 _LOGIN_MAX_AGE = 600
+# Cookie lifetime stays at the 30-day default on purpose, even when Settings >
+# Security lowers the idle limit: max-age is ABSOLUTE from sign-in (the cookie
+# is not re-set on activity), so tying it to the idle setting would turn "idle
+# 7 days" into "signed out every 7 days however active". The server-side idle
+# check (bff_session._idle_expired) enforces the setting; 30 is also its max.
 _SESSION_MAX_AGE = bff.SESSION_IDLE_DAYS * 86400
 
 

@@ -55,7 +55,6 @@ const HR                  = lazy(() => import("./views/HR"));
 const Documents           = lazy(() => import("./views/Documents"));
 const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
 const Marketing           = lazy(() => import("./views/Marketing"));
-const Admin               = lazy(() => import("./views/Admin"));
 const AdminConsole         = lazy(() => import("./views/AdminConsole"));
 // External Links folded into Dashboard as a tab (Sep 3) - Dashboard.jsx lazy-
 // imports views/ExternalLinks itself now; no separate top-level route.
@@ -75,13 +74,15 @@ const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
 const Egnyte              = lazy(() => import("./views/Egnyte"));
 const EmployeeTracking    = lazy(() => import("./components/TimeTrackingAdmin"));
+const Shifts              = lazy(() => import("./views/Shifts"));
+const MyBriefing          = lazy(() => import("./views/MyBriefing"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
 // title-cased version of their id so breadcrumbs never show raw lowercase ids.
 // Acronyms the title-caser would mangle ("pdf-editor" -> "Pdf Editor"). These
 // views live in Sidebar's NAV but not in MODULES, so they hit the fallback.
-const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions' };
+const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing' };
 const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
   || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -143,7 +144,14 @@ const VIEW_MIN_ROLES = {
   // can see regardless of the viewer's own Egnyte permissions. Gated at
   // supervisor for that reason - see the note in src/egnyte/EgnyteApp.jsx.
   'egnyte':             'supervisor',
+  // Shifts (Sep 29): its own module, opened by the People (hr) grant - see
+  // VIEW_GRANT below and the NAV entry's `grant` in Sidebar.jsx.
+  'shifts':             'supervisor',
 };
+
+// A view whose Access Group grant has another module's id. Shifts left People >
+// Time for its own module (Sep 29) but kept its audience: the People grant.
+const VIEW_GRANT = { shifts: 'hr' };
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
@@ -295,9 +303,10 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   // External (B2B guest) accounts: ONLY explicitly granted modules - the
   // baseline employee screens are internal-only. The backend enforces the
   // same boundary per request (auth.apply_external_policy).
+  const grantKey = VIEW_GRANT[activeView] || activeView;
   const hasAccess = isExternal
-    ? myGrantedModules.has(activeView)
-    : (!minRole || can('administrator') || (minRole !== 'administrator' && myGrantedModules.has(activeView)));
+    ? myGrantedModules.has(grantKey)
+    : (!minRole || can('administrator') || (minRole !== 'administrator' && myGrantedModules.has(grantKey)));
 
   // An external landing on a non-granted view (e.g. the default 'dashboard'
   // after login) is bounced to their first granted module instead of being
@@ -345,7 +354,6 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     // top-level route working: land on Documents' PDF Editor tab.
     case "pdf-editor":         return <Documents activeSub="documents-pdf" onSubChange={onSubChange} />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
-    case "admin":              return <Admin />;
     case "admin-console":      return <AdminConsole activeSub={activeSub} onSubChange={onSubChange} />;
     case "support":            return <Support activeSub={activeSub} onSubChange={onSubChange} />;
     case "timeclock":          return <TimeClock initialTab="clock" activeSub={activeSub} onSubChange={onSubChange} />;
@@ -354,8 +362,10 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "credvault":          return <CredentialVault />;
     case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
     case "employee-tracking":  return <EmployeeTracking initialSub={activeSub} module />;
+    case "shifts":             return <Shifts activeSub={activeSub} onSubChange={onSubChange} />;
     case "privacy-policy":     return <PrivacyPolicy embedded />;
     case "terms-conditions":   return <TermsConditions embedded />;
+    case "briefing":           return <MyBriefing />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }
@@ -395,6 +405,9 @@ function parsePath() {
   // /external-links and /dashboard/external-links forms still land there.
   if (raw === 'links' || raw === 'external-links') return { view: 'dashboard', sub: 'links' };
   if (raw === 'dashboard' && segs[1] === 'external-links') return { view: 'dashboard', sub: 'links' };
+  // The old Nexus Access Manager (/admin) was retired Sep 26 - Settings >
+  // Global Settings > Access does the same job; old links land there.
+  if (raw === 'admin') return { view: 'admin-console', sub: 'access' };
   return { view: PATH_TO_VIEW[raw] || raw, sub: segs[1] || null };
 }
 
@@ -412,13 +425,14 @@ const DEFAULT_SUBS = {
   accounting:        "overview",
   egnyte:            "browse",
   "employee-tracking": "coverage",
+  shifts:            "schedule",
   // Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
   // id lands on its own natural tab so the URL is meaningful from the first
   // click, not just after switching tabs once (see TimeClock.jsx's own
   // activeSub sync for that half).
   myhr:              "overview",
   timeclock:         "clock",
-  "admin-console":   "settings",
+  "admin-console":   "global",
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 
@@ -605,6 +619,8 @@ function MainApp() {
     // reasoning. The tab key is 'links' (Sep 22); the old key still maps.
     if (view === 'external-links' || view === 'links') { view = 'dashboard'; sub = 'links'; }
     if (view === 'dashboard' && sub === 'external-links') sub = 'links';
+    // Retired Nexus Access Manager -> Settings > Access (see parsePath).
+    if (view === 'admin') { view = 'admin-console'; sub = 'access'; }
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);

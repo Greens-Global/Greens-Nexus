@@ -95,7 +95,23 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // report comparison columns, dimension filters, the monthly cash forecast and
 // the per-entity reconciliation list. Measured 9403 before the batch, so the
 // headroom is for the batch itself.
-const TOTAL_KB     = 9600;
+// Sep 26, 2026: 9600 -> 9650. Settings split into Global / Company Settings,
+// per-company job roles, the Settings Tools tab, and self-service help (the
+// "?" help widget, a hand-written search over the guide and Knowledge Base,
+// and suggested articles in the ticket form). CI measured 9640 KB, +~65 KB
+// net. Paid for most of it first: the legacy Nexus Access Manager screen
+// (views/Admin.jsx, 37 KB, a duplicate of Settings > Access) was deleted in
+// the same PR. The 50 KB bump covers the rest with a little headroom.
+// Sep 28, 2026: 9650 -> 9700. dev itself measured 9650 KB on CI - zero
+// headroom left - so the Tasks mobile fix (floating + on Home, New Task sheet
+// kept above the iPhone keyboard) tipped it with under 1 KB. Owner asked
+// (Sagar). The mammoth note above is still the real lever.
+// Sep 29, 2026: 9700 -> 9800. Shifts QA gap list item 6 (Day and Month
+// views, filter, Excel export, drag and drop, day notes, shift activities)
+// plus D3 measured 9717 KB on CI - 17 KB over. Owner asked (Sagar). Splitting
+// the Shifts screen into lazy chunks would not move this number (the budget
+// sums every shipped .js file); only dropping a dependency does.
+const TOTAL_KB     = 9800;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

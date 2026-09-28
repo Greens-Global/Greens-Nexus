@@ -33,6 +33,7 @@ export default function LocationPickerMap({ onLocationPicked, initialLatLng, pla
   onPickedRef.current = onLocationPicked;
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
+  const [noMatch, setNoMatch] = useState(false);
 
   useEffect(() => {
     let map;
@@ -75,7 +76,8 @@ export default function LocationPickerMap({ onLocationPicked, initialLatLng, pla
     setSearching(true);
     try {
       const hit = await geocodeSearch(q);
-      if (!hit) return;
+      if (!hit) { setNoMatch(true); return; }
+      setNoMatch(false);
       const [lat, lng] = hit.coord;
       const map = mapRef.current;
       if (!map) return;
@@ -95,7 +97,7 @@ export default function LocationPickerMap({ onLocationPicked, initialLatLng, pla
       <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
         <input
           className="form-input" style={{ flex: 1, fontSize: 12.5 }} placeholder={placeholder}
-          value={query} onChange={e => setQuery(e.target.value)}
+          value={query} onChange={e => { setQuery(e.target.value); setNoMatch(false); }}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); runSearch(); } }}
         />
         <button type="button" className="secondary-btn" onClick={runSearch} disabled={searching || !query.trim()} style={{ padding: '0 12px', display: 'inline-flex', alignItems: 'center' }}>
@@ -103,7 +105,9 @@ export default function LocationPickerMap({ onLocationPicked, initialLatLng, pla
         </button>
       </div>
       <div ref={mapElRef} style={{ width: '100%', height: '100%', minHeight: 560, borderRadius: 10, border: '1px solid var(--line)', overflow: 'hidden' }} />
-      <p style={{ fontSize: 11, color: 'var(--muted)', margin: '6px 0 0' }}>Search, or click/drag the pin on the map.</p>
+      <p style={{ fontSize: 11, color: noMatch ? 'hsl(var(--color-red))' : 'var(--muted)', margin: '6px 0 0' }}>
+        {noMatch ? "No match found. Try the street and ZIP only, or click the spot on the map." : 'Search, or click/drag the pin on the map.'}
+      </p>
     </div>
   );
 }

@@ -598,11 +598,24 @@ export const api = {
   getDailyBriefingConfig: () => req("/daily-briefing/config"),
   updateDailyBriefingConfig: (patch) => req("/daily-briefing/config", { method: "PUT", body: JSON.stringify(patch) }),
   getDailyBriefingLog: (params = {}) => req(`/daily-briefing/log?${new URLSearchParams(params).toString()}`),
+  // My Briefing page (views/MyBriefing.jsx) - the signed-in person's own briefing.
+  getMyBriefing: () => req("/daily-briefing/me"),
+  actOnMyBriefing: (payload) => req("/daily-briefing/me/act", { method: "POST", body: JSON.stringify(payload) }),
   // Clears one dedupe row AND immediately sends that employee's briefing
   // right now, bypassing their shift window - a deliberate admin override,
   // not the automatic per-shift trigger. No effect on any other employee or
   // on the normal 15-minute scan schedule. Returns {sentNow, mode, hadContent}.
   forceResendDailyBriefing: (logId) => req(`/daily-briefing/log/${logId}`, { method: "DELETE" }),
+  // Weekly Digest (Sep 28) - backend routers/weekly_digest.py; same Global-Admin
+  // bar and log/resend shape as the Daily Briefing's.
+  getWeeklyDigestConfig: () => req("/weekly-digest/config"),
+  updateWeeklyDigestConfig: (patch) => req("/weekly-digest/config", { method: "PUT", body: JSON.stringify(patch) }),
+  getWeeklyDigestLog: (params = {}) => req(`/weekly-digest/log?${new URLSearchParams(params).toString()}`),
+  forceResendWeeklyDigest: (logId) => req(`/weekly-digest/log/${logId}`, { method: "DELETE" }),
+  // Builds one employee's real digest now and mails it only to the test
+  // recipients (else the caller), in any mode. Logs nothing.
+  sendTestWeeklyDigest: (employeeEmail) =>
+    req("/weekly-digest/test-send", { method: "POST", body: JSON.stringify({ employee_email: employeeEmail }) }),
   // Replies mailed back to a task notification (manager+). The drain normally
   // runs itself every minute on the deployed API; this triggers one pass now.
   getTaskInboundLog: (params = {}) => req(`/tasks/inbound/log?${new URLSearchParams(params).toString()}`),
@@ -641,8 +654,6 @@ export const api = {
   getCampaigns: () => req("/marketing-campaigns"),
 
   // SOP
-  getSops: () => req("/sop-updates"),
-  createSop: (data) => req("/sop-updates", { method: "POST", body: JSON.stringify(data) }),
 
   // Knowledge Base - DB-backed SOP / Manual / Guide library
   getKbDocs:     ()         => req("/knowledge-base/documents"),
@@ -656,7 +667,6 @@ export const api = {
   aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   askKb:         (data)     => req("/knowledge-base/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   getPageHelp:        (key, label = '') => req(`/help/page?key=${encodeURIComponent(key)}&label=${encodeURIComponent(label)}`, { timeoutMs: AI_TIMEOUT_MS }),
-  regeneratePageHelp: (key, label = '') => req('/help/page/regenerate', { method: 'POST', body: JSON.stringify({ key, label }), timeoutMs: AI_TIMEOUT_MS }),
   getKbAcks:        (id)        => req(`/knowledge-base/documents/${id}/acknowledgements`),
   acknowledgeKbDoc: (id)        => req(`/knowledge-base/documents/${id}/acknowledge`, { method: "POST" }),
   setKbAckRequired: (id, value) => req(`/knowledge-base/documents/${id}/ack-required`, { method: "POST", body: JSON.stringify({ value }) }),
@@ -789,7 +799,6 @@ export const api = {
   getMyRole:    ()                    => cachedGet('/roles/me'),
   getAllRoles:   ()                   => req('/roles'),
   assignRole:   (email, role, by, displayName) => req(`/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role, assigned_by: by, display_name: displayName || '' }) }),
-  syncRoles:    (emails)             => req('/roles/sync', { method: 'POST', body: JSON.stringify({ emails }) }),
 
   // Access Groups
   getGroups:         ()                  => cachedGet('/groups', 30_000),
@@ -819,6 +828,8 @@ export const api = {
   unassignJobRole:   (id, email)         => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email }) }),
   getEffectiveAccess: (email)            => req(`/jobroles/effective/${encodeURIComponent(email)}`),
   applyJobRoleManager: (id, manager_email) => req(`/jobroles/${id}/apply-manager`, { method: 'POST', body: JSON.stringify({ manager_email }) }),
+  // One company's job roles plus the shared ones (Company Settings > Roles).
+  getCompanyJobRoles: (companyId)        => req(`/jobroles?company_id=${encodeURIComponent(companyId)}&include_shared=true`),
   // Row-level access scopes (sandbox external users to specific companies)
   getAccessScopes:   (email)             => req(`/access-scopes/${encodeURIComponent(email)}`),
   // Multi-company walls: the master arm switch (admin only)
@@ -1119,8 +1130,6 @@ export const api = {
   // HR - provisioning
   getProvisionSkus:  ()             => req('/hr/provision/skus'),
   provisionEmployee: (empId, data)  => req(`/hr/employees/${empId}/provision`, { method: 'POST', body: JSON.stringify(data) }),
-  getProvisionRuns:  (empId)        => req(`/hr/employees/${empId}/provision/runs`),
-  syncM365:          ()             => req('/hr/employees/sync-m365', { method: 'POST' }),
   syncM365Photos:    ()             => req('/hr/employees/sync-photos', { method: 'POST' }),
   syncM365TwoWay:       () => req('/hr/employees/sync-m365-two-way', { method: 'POST' }),
   syncM365TwoWayStatus: () => req('/hr/employees/sync-m365-two-way/status'),
@@ -1234,8 +1243,6 @@ export const api = {
   // Employee self-edit of a punch time (applies to display now, to pay only on approval)
   timePunchEditCreate:    (data)     => req('/timeclock/punch-edits', { method: 'POST', body: JSON.stringify(data) }),
   timePunchEditDecide:    (id, data) => req(`/timeclock/punch-edits/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  timePendingPunchEdits:  ()         => req('/timeclock/punch-edits'),
-  timeSignMyTimecard:     (start)    => req('/timeclock/my-timecard/sign', { method: 'POST', body: JSON.stringify({ start: start || '' }) }),
   // Timesheet review before signing in Nexus Sign (Sep 2026) - timesheet_review.py.
   timesheetReviewSubmit:   (start, note = '') => req('/timesheet-review/submit', { method: 'POST', body: JSON.stringify({ start: start || '', note }) }),
   timesheetReviewSendBack: (id, note)         => req(`/timesheet-review/${id}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
@@ -1252,14 +1259,11 @@ export const api = {
   timeApprove:       (data)      => req('/timeclock/approvals', { method: 'POST', body: JSON.stringify(data) }),
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
-  timeBodLast:       ()          => req('/timeclock/bod/last'),
   // My Teams chats, listed server-side via the session's Graph token (no MSAL popup).
   timeMyChats:       ()          => req('/timeclock/my-chats', { timeoutMs: 30000 }),
-  timeBodTemplate:   (kind)      => req(`/timeclock/bod/template?kind=${kind || 'bod'}`),
   // Sign-in company-policy & monitoring acknowledgment
   policyStatus:      ()          => req('/policy/status'),
-  policyAccept:      ()          => req('/policy/accept', { method: 'POST' }),
-  policyMyAcks:      ()          => req('/policy/acknowledgments'),
+  policyAccept:      (version)   => req('/policy/accept', { method: 'POST', body: JSON.stringify({ version }) }),
 
   // ── Customizable dashboards (drag-and-drop widget layouts) ──
   dashViews:      (target)     => req(`/dashboards/views?target=${encodeURIComponent(target)}`),
@@ -1348,21 +1352,44 @@ export const api = {
   timeMyChat:        ()          => req('/timeclock/my-chat'),
   timeSchedule:      (start, end) => req(`/timeclock/schedule?start=${start}&end=${end}`),
   timeMySchedule:    (start, end) => req(`/timeclock/my-schedule?start=${start}&end=${end}`),
+  // Shift self-service (Sep 29): open-shift requests, swaps, offers, manager inbox.
+  shiftRequestsMine:       (start = '', end = '') => req(`/timeclock/shift-requests/mine?start=${start}&end=${end}`),
+  shiftRequestCreate:      (data)      => req('/timeclock/shift-requests', { method: 'POST', body: JSON.stringify(data) }),
+  shiftRequestCancel:      (id)        => req(`/timeclock/shift-requests/${id}/cancel`, { method: 'POST' }),
+  shiftRequestRespond:     (id, data)  => req(`/timeclock/shift-requests/${id}/respond`, { method: 'POST', body: JSON.stringify(data) }),
+  shiftRequestsInbox:      ()          => req('/timeclock/shift-requests'),
+  shiftRequestDecide:      (id, data)  => req(`/timeclock/shift-requests/${id}/decide`, { method: 'POST', body: JSON.stringify(data) }),
+  shiftRequestSettingsSave: (data)     => req('/timeclock/shift-requests/settings', { method: 'PUT', body: JSON.stringify(data) }),
   timeSchedCreate:   (data)      => req('/timeclock/schedule', { method: 'POST', body: JSON.stringify(data) }),
   timeSchedBulk:     (data)      => req('/timeclock/schedule/bulk', { method: 'POST', body: JSON.stringify(data) }),
   timeSchedAssign:   (id, email) => req(`/timeclock/schedule/${id}/assign`, { method: 'POST', body: JSON.stringify({ employee_email: email }) }),
   timeSchedUpdate:   (id, data)  => req(`/timeclock/schedule/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
   timeSchedPublish:  (data)      => req('/timeclock/schedule/publish', { method: 'POST', body: JSON.stringify(data) }),
+  // Drop a published shift's unshared edit / pending removal (Sep 28).
+  timeSchedDiscard:  (id)        => req(`/timeclock/schedule/${id}/discard`, { method: 'POST' }),
+  // Warnings a shift WOULD have (overlap / time off / holiday) - never blocks a save.
+  timeSchedCheck:    (params)    => req(`/timeclock/schedule/check?${new URLSearchParams(params).toString()}`),
+  // Copy a range forward as drafts / clear a range (drafts deleted, published marked for removal).
+  timeSchedCopy:     (data)      => req('/timeclock/schedule/copy', { method: 'POST', body: JSON.stringify(data) }),
+  timeSchedClear:    (data)      => req('/timeclock/schedule/clear', { method: 'POST', body: JSON.stringify(data) }),
+  // Drag and drop (duplicate = Ctrl-drag copy) and team day notes (Sep 29).
+  timeSchedMove:     (id, data)  => req(`/timeclock/schedule/${id}/move`, { method: 'POST', body: JSON.stringify(data) }),
+  // Undo every unpublished edit/removal on published shifts in a range (Sep 29).
+  timeSchedDiscardAll: (data)    => req('/timeclock/schedule/discard-all', { method: 'POST', body: JSON.stringify(data) }),
+  // Shifts extras (Sep 29): spreadsheet import, staff availability, custom time-off reasons.
+  timeSchedImport:   (data)      => req('/timeclock/schedule/import', { method: 'POST', body: JSON.stringify(data) }),
+  availabilityMine:  ()          => req('/timeclock/availability/mine'),
+  availabilitySave:  (data)      => req('/timeclock/availability/mine', { method: 'PUT', body: JSON.stringify(data) }),
+  timeOffTypes:      ()          => req('/timeclock/timeoff/types'),
+  timeOffTypesSave:  (data)      => req('/timeclock/timeoff/types', { method: 'PUT', body: JSON.stringify(data) }),
+  timeSchedDayNote:  (data)      => req('/timeclock/schedule/day-note', { method: 'PUT', body: JSON.stringify(data) }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
   timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),
-  timeAutoLunchGet:  ()          => req('/timeclock/payroll/autolunch'),
   timeAutoLunchSet:  (data)      => req('/timeclock/payroll/autolunch', { method: 'PUT', body: JSON.stringify(data) }),
-  timeRoundingGet:   ()          => req('/timeclock/payroll/rounding'),
   timeRoundingSet:   (data)      => req('/timeclock/payroll/rounding', { method: 'PUT', body: JSON.stringify(data) }),
   // Break policy: CA paid rest breaks + long/unended-break flags (Charmi, Aug 21)
-  timeBreakPolicyGet: ()         => req('/timeclock/payroll/breakpolicy'),
   timeBreakPolicySet: (data)     => req('/timeclock/payroll/breakpolicy', { method: 'PUT', body: JSON.stringify(data) }),
   timeFinalize:      (data)      => req('/timeclock/finalize', { method: 'POST', body: JSON.stringify(data) }),
   timeUnfinalize:    (data)      => req('/timeclock/unfinalize', { method: 'POST', body: JSON.stringify(data) }),
@@ -1516,7 +1543,7 @@ export const api = {
 
   // Diagnostics
   reportClientError:    (body)    => req('/client-errors', { method: 'POST', body: JSON.stringify(body) }),
-  updateBrandingConfig: (accent)  => req('/branding/config', { method: 'PUT', body: JSON.stringify({ accent }) }),
+  updateBrandingConfig: (cfg)     => req('/branding/config', { method: 'PUT', body: JSON.stringify(typeof cfg === 'string' ? { accent: cfg } : cfg) }),
 
   // ── Investor Relations (GP capital management: funds, LPs, calls, distributions) ──
   // List endpoints drop empty/undefined params so filters never send "undefined".
@@ -1623,8 +1650,27 @@ export const api = {
 
   // Nexus Assistant (Phase 0) - see backend/ai_assistant.py
   askAssistant:            (data) => req("/assistant/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
-  getAssistantConversations: ()   => req("/assistant/conversations"),
-  getAssistantMessages:    (id)   => req(`/assistant/conversations/${id}/messages`),
+
+  // HR & Compliance Reminders timing - see backend/hr_reminder_config.py
+  getHrReminderSettings:    ()     => req("/hr-reminder-settings"),
+  updateHrReminderSettings: (data) => req("/hr-reminder-settings", { method: "PUT", body: JSON.stringify(data) }),
+  // Equipment Reminders timing - see backend/equipment_reminder_config.py
+  getEquipmentReminderSettings:    ()     => req("/equipment-reminder-settings"),
+  updateEquipmentReminderSettings: (data) => req("/equipment-reminder-settings", { method: "PUT", body: JSON.stringify(data) }),
+  // Settings > Global > Security (backend/security_config.py). GET is
+  // administrator+, PUT is Global Admin only; a null value resets to default.
+  getSecuritySettings:    ()                        => req('/security-settings'),
+  updateSecuritySettings: (values, confirmWeaken)   => req('/security-settings', { method: 'PUT', body: JSON.stringify({ values, confirmWeaken: !!confirmWeaken }) }),
+  // Settings > Branding & Policies (Sep 26) - email theme + editable sign-in policy
+  getEmailTheme:      ()     => req('/branding/email-theme'),
+  updateEmailTheme:   (data) => req('/branding/email-theme', { method: 'PUT', body: JSON.stringify(data) }),
+  previewEmailTheme:  (data) => req('/branding/email-theme/preview', { method: 'POST', body: JSON.stringify(data) }),
+  policyConfig:       ()     => req('/policy/config'),
+  policySaveDraft:    (data) => req('/policy/draft', { method: 'PUT', body: JSON.stringify(data) }),
+  policyDiscardDraft: ()     => req('/policy/draft', { method: 'DELETE' }),
+  policyPublish:      (data) => req('/policy/publish', { method: 'POST', body: JSON.stringify(data) }),
+  policyReport:       ()     => req('/policy/report'),
+  policyReportCsv:    (status = 'not_accepted') => reqBlob(`/policy/report.csv?status=${status}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

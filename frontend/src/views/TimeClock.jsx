@@ -463,6 +463,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const [toBusy, setToBusy] = useState(false);
   const [toCancelling, setToCancelling] = useState(null);
   useEffect(() => { api.timeOffMine().then(setTimeoff).catch(() => setTimeoff([])); }, []);
+  // Custom reasons and the admins' requests switch (Sep 29, Shifts settings).
+  const [toTypes, setToTypes] = useState(null);
+  useEffect(() => { api.timeOffTypes().then(setToTypes).catch(() => setToTypes(null)); }, []);
+  const toOptions = [...Object.entries(TIMEOFF_TYPES), ...(toTypes?.custom || []).map(t => [t, t])];
   const toPartialOk = !toForm.allDay && toForm.start && toForm.end && toForm.start === toForm.end;
   // Live preview of what "Total" will show - same math as the year-at-a-
   // glance sidebar's approved-days tally, so the two numbers always agree.
@@ -1050,13 +1054,15 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
             rather than competing with Note for room. Explicit gridRow on
             every cell (not auto-flow) keeps this correct whether or not the
             specific-hours row is present. */}
-        {(() => {
+        {toTypes && toTypes.requestsOn === false ? (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Time-off requests are turned off. Ask your manager to add your time off.</div>
+        ) : (() => {
           const noteRow = toForm.allDay ? 2 : 3;
           return (
             <div style={{ display: 'grid', gridTemplateColumns: '140px 150px auto 150px auto 1fr auto', gap: 10, alignItems: 'center' }}>
               <select className="form-input" value={toForm.type} onChange={e => setToForm(f => ({ ...f, type: e.target.value }))}
                 style={{ gridColumn: 1, gridRow: 1, fontSize: 12.5 }}>
-                {Object.entries(TIMEOFF_TYPES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                {toOptions.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
               <input className="form-input" type="date" value={toForm.start}
                 onChange={e => setToForm(f => ({ ...f, start: e.target.value, end: f.allDay ? f.end : e.target.value }))}

@@ -25,8 +25,10 @@ import { NX, FONT, btn as btnStyle } from '../tasks/theme';
 import ModuleTabs from '../components/ModuleTabs';
 import GuidedTour from '../components/GuidedTour';
 import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
+import TasksLoading from '../tasks/TasksLoading';
+import { useTasks } from '../tasks/TasksContext';
 import PersonView from '../tasks/PersonView';
-import { EMPTY_FILTER } from '../tasks/lib';
+import { EMPTY_FILTER, taskIdFromUrl } from '../tasks/lib';
 import { buildTaskTourSteps } from '../tasks/taskTourSteps';
 import { api } from '../api';
 
@@ -52,11 +54,14 @@ const TASK_SUBS = ['home', 'mine', 'projects', 'portfolios', 'templates', 'teams
 // part - the button is where your thumb already is when you're looking at the
 // list you want to add to (Sagar, Sept 1 2026). The full menu is always a
 // click away in the bar's "+ Create".
-// Home and Teams are deliberately absent (Sagar, Sept 2 2026): Home's bar
+// Home and Teams were deliberately absent (Sagar, Sept 2 2026): Home's bar
 // already carries Create next to Customize and Manage, and a team is made from
 // Manage, not from the browsing screen.
+// Home gained a "+" (Sagar, Sept 28 2026): at phone width that bar is down to
+// Manage alone (inlineCreate below), which left Home - the screen the module
+// opens on - with no way to create a task at all.
 const FAB_CREATES = {
-  mine: 'task', tasks: 'task',
+  home: 'task', mine: 'task', tasks: 'task',
   projects: 'project', portfolios: 'portfolio', templates: 'template',
   // Teams gained a "+" (Neil, Sept 9), reversing "a team is made from Manage"
   // (Sagar, Sept 2). What changed is that a team made HERE is personal - it is
@@ -95,6 +100,9 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   const requested = ALL_SUBS.includes(activeSub) ? activeSub : DEFAULT_SUB;
   const sub = (requested === 'manage' && !canManage) ? DEFAULT_SUB : requested;
   const isMobile = useIsMobile();
+  // Until the first task data is in, every sub-view would render from an
+  // empty store ("0 Tasks", "No Tasks") - see TasksLoading.jsx.
+  const { loading } = useTasks();
   const [tour, setTour] = useState(false);
   const [projectId, setProjectId] = useState(null);
   const [searchTaskId, setSearchTaskId] = useState(null);   // task opened from header search
@@ -284,7 +292,12 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
       )}
 
       <div style={{ flex: 1, minHeight: 0 }} data-tour={`task-screen-${sub}`}>
-        {searchAll ? (
+        {loading ? (
+          /* Nothing below mounts until the data is in, so a ?task= link from
+             an email is still in the URL when My Tasks reads it and opens the
+             drawer - this just says that is what is happening. */
+          <TasksLoading opening={!!taskIdFromUrl()} />
+        ) : searchAll ? (
           <TasksWorkspace
             key={`search-${searchAll}`}
             title={`Search · "${searchAll}"`}

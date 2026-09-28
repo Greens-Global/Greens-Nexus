@@ -89,7 +89,7 @@ export default function Accounting({ activeSub, onSubChange }) {
             </button>
           ) : (
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: 280, textAlign: 'right' }}>
-              The Nexus Accounting app is granted separately in Roles &amp; Access.
+              The Nexus Accounting app is granted separately in Settings &gt; Access.
             </span>
           )}
           {launchError && <span style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{launchError}</span>}

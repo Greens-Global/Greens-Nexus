@@ -139,11 +139,25 @@ def _seconds_since(iso: str) -> float:
 # fresh Entra re-login, the user picks SMS or Email and types the 6-digit code
 # they receive. A verified code opens a VaultOtpSession (short burst, mirrors
 # StepUpSession) that require_vault_otp checks.
-OTP_SESSION_TTL_SEC = int(os.getenv("NEXUS_VAULT_OTP_TTL_SEC", "300"))     # how long a verified code unlocks reveal/share
+# The two unlock windows are Settings > Global > Security values (Sep 2026,
+# security_config.py `vaultOtpUnlockSec` / `vaultPersonalUnlockSec`, 1-30 min):
+# saved value > env (NEXUS_VAULT_OTP_TTL_SEC, default 300 - how long a verified
+# code unlocks reveal/share; NEXUS_VAULT_PERSONAL_TTL_SEC, default 600 - the
+# personal-vault server ceiling, the UI auto-locks sooner at 2 min idle).
+# Read per request via _otp_ttl() / _personal_ttl().
 OTP_CODE_TTL_SEC    = 600     # 10 minutes to type the code in
 OTP_MAX_ATTEMPTS    = 5
 OTP_RESEND_COOLDOWN_SEC = 30
-PERSONAL_UNLOCK_TTL_SEC = int(os.getenv("NEXUS_VAULT_PERSONAL_TTL_SEC", "600"))  # server ceiling; the UI auto-locks sooner (2 min idle)
+
+
+def _otp_ttl(db) -> int:
+    import security_config
+    return int(security_config.get("vaultOtpUnlockSec", db))
+
+
+def _personal_ttl(db) -> int:
+    import security_config
+    return int(security_config.get("vaultPersonalUnlockSec", db))
 
 # sent.dm SMS goes through the ONE shared client (backend/sentdm.py) - same
 # x-api-key auth and the same NEXUS_SENTDM_KEY as external login. This file
@@ -874,14 +888,15 @@ def otp_request(body: OtpRequestIn, user: dict = Depends(get_current_user), db: 
 @router.post("/otp/verify")
 def otp_verify(body: OtpVerifyIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     ch = _consume_otp_challenge(db, body.challengeId, user["email"], "reveal_share", body.code)
+    ttl = _otp_ttl(db)
     sess = models.VaultOtpSession(
         id=str(uuid.uuid4()), email=user["email"], purpose=ch.purpose, channel=ch.channel,
-        expires_at=(datetime.now(timezone.utc) + timedelta(seconds=OTP_SESSION_TTL_SEC)).isoformat(),
+        expires_at=(datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat(),
         created_at=_now(),
     )
     db.add(sess)
     db.commit()
-    return {"ok": True, "expiresInSec": OTP_SESSION_TTL_SEC}
+    return {"ok": True, "expiresInSec": ttl}
 
 
 # ── Personal vault (strictly owner-scoped - no admin bypass) ─────────────────
@@ -895,12 +910,15 @@ class PersonalResetIn(BaseModel):
     newPassword: str = ""
 
 
-def _open_personal_unlock(db: Session, email: str) -> None:
+def _open_personal_unlock(db: Session, email: str) -> int:
+    """Opens the unlock window and returns its length in seconds."""
+    ttl = _personal_ttl(db)
     db.add(models.VaultPersonalUnlockSession(
         id=str(uuid.uuid4()), email=email,
-        expires_at=(datetime.now(timezone.utc) + timedelta(seconds=PERSONAL_UNLOCK_TTL_SEC)).isoformat(),
+        expires_at=(datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat(),
         created_at=_now(),
     ))
+    return ttl
 
 
 @router.get("/personal/lock/status")
@@ -924,9 +942,9 @@ def personal_lock_setup(body: PersonalAuthIn, user: dict = Depends(get_current_u
         db.add(row)
     row.password_hash = _hash_password(body.password.strip())
     row.updated_at = _now()
-    _open_personal_unlock(db, user["email"])
+    ttl = _open_personal_unlock(db, user["email"])
     db.commit()
-    return {"ok": True, "expiresInSec": PERSONAL_UNLOCK_TTL_SEC}
+    return {"ok": True, "expiresInSec": ttl}
 
 
 @router.post("/personal/lock/verify")
@@ -936,9 +954,9 @@ def personal_lock_verify(body: PersonalAuthIn, user: dict = Depends(get_current_
         raise HTTPException(400, "No Personal Vault password set yet")
     if not _verify_password(body.password or "", row.password_hash):
         raise HTTPException(401, "Incorrect password")
-    _open_personal_unlock(db, user["email"])
+    ttl = _open_personal_unlock(db, user["email"])
     db.commit()
-    return {"ok": True, "expiresInSec": PERSONAL_UNLOCK_TTL_SEC}
+    return {"ok": True, "expiresInSec": ttl}
 
 
 @router.post("/personal/lock/forgot")
@@ -961,9 +979,9 @@ def personal_lock_reset(body: PersonalResetIn, user: dict = Depends(get_current_
         db.add(row)
     row.password_hash = _hash_password(body.newPassword.strip())
     row.updated_at = _now()
-    _open_personal_unlock(db, user["email"])
+    ttl = _open_personal_unlock(db, user["email"])
     db.commit()
-    return {"ok": True, "expiresInSec": PERSONAL_UNLOCK_TTL_SEC}
+    return {"ok": True, "expiresInSec": ttl}
 
 
 class PersonalIn(BaseModel):

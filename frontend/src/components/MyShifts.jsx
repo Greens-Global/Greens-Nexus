@@ -1,7 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, Users } from 'lucide-react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, Users, StickyNote } from 'lucide-react';
 import { api } from '../api';
+import { formatDate } from '../lib/datetime';
 import { SkeletonBlocks } from './AsyncState';
+import { ShiftActions, RequestDialog, OpenShifts, ShiftRequestsList } from './ShiftSelfService';
+import { useShiftRequests } from './useShiftRequests';
+import MyAvailability from './MyAvailability';
+
+// A shift group's scheduler builds that group's schedule from here (Sep 29,
+// Teams "scheduling owner" per team) - loaded only when they open it.
+const ShiftSchedule = lazy(() => import('./ShiftSchedule'));
 
 // My Workday > Shifts (Neil, Sep 23): a read-only week of the signed-in
 // person's own shifts. Scheduling stays in People > Shifts; this only shows
@@ -23,7 +31,8 @@ const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function dateKey(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
-function startOfWeek(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return addDays(x, -x.getDay()); }
+// Monday-Sunday, the same week the schedule grid shows.
+function startOfWeek(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return addDays(x, -((x.getDay() + 6) % 7)); }
 function hhmmTo12(hhmm) {
   const [h, m] = (hhmm || '').split(':').map(Number);
   if (Number.isNaN(h)) return hhmm || '';
@@ -38,10 +47,9 @@ function covers(s, nowMin) {
   return a <= b ? nowMin >= a && nowMin < b : nowMin >= a || nowMin < b;
 }
 function fmtRange(a, b) {
-  const md = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return `${md(a)} – ${md(b)}`;
+  return `${formatDate(dateKey(a))} - ${formatDate(dateKey(b))}`;
 }
-// "9a–5:30p": the team grid has seven columns to fit, so the times shrink.
+// "9a-5:30p": the team grid has seven columns to fit, so the times shrink.
 function compact12(hhmm) {
   const [h, m] = (hhmm || '').split(':').map(Number);
   if (Number.isNaN(h)) return hhmm || '';
@@ -72,14 +80,21 @@ export default function MyShifts() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
   const [teamId, setTeamId] = useState(''); // which group's grid shows, when in more than one
+  const [manage, setManage] = useState(false);   // a group scheduler's schedule grid
 
   const start = dateKey(weekStart), end = dateKey(addDays(weekStart, 6));
+  const [reload, setReload] = useState(0);
   useEffect(() => {
     let live = true;
     setData(null); setError(false);
     api.timeMySchedule(start, end).then(r => { if (live) setData(r); }).catch(() => { if (live) setError(true); });
     return () => { live = false; };
-  }, [start, end]);
+  }, [start, end, reload]);
+  // Self-service (Sep 29): my requests, what waits on me, open shifts I could take.
+  const [reqs, reloadReqs] = useShiftRequests(start, end);
+  const [ask, setAsk] = useState(null);          // { kind, shift } while the swap/offer form is open
+  const [flash, setFlash] = useState('');
+  const done = (msg) => { setAsk(null); setFlash(msg); reloadReqs(); setReload(n => n + 1); };
 
   const todayKey = dateKey(now);
   // One entry per day: placed shifts win; otherwise the default preset on
@@ -93,6 +108,9 @@ export default function MyShifts() {
     const off = data.timeoff || [];
     const hol = {};
     for (const h of data.holidays || []) if (h?.date) hol[h.date] = h.name || h.title || h.label || 'Company holiday';
+    // Day notes from the manager (Sep 29), e.g. "Inventory day".
+    const dayNote = {};
+    for (const n of data.dayNotes || []) dayNote[n.date] = dayNote[n.date] ? `${dayNote[n.date]} · ${n.note}` : n.note;
     return Array.from({ length: 7 }, (_, i) => {
       const d = addDays(weekStart, i);
       const key = dateKey(d);
@@ -100,7 +118,7 @@ export default function MyShifts() {
       const shifts = placed[key]
         || (preset && presetDays.has(iso) ? [{ id: `preset-${key}`, start: preset.start, end: preset.end, code: preset.code, label: preset.name, color: preset.color, fromPreset: true }] : []);
       const timeoff = off.filter(t => t.startDate <= key && t.endDate >= key);
-      return { date: d, key, shifts, timeoff, holiday: hol[key] || null, isToday: key === todayKey };
+      return { date: d, key, shifts, timeoff, holiday: hol[key] || null, note: dayNote[key] || '', isToday: key === todayKey };
     });
   }, [data, weekStart, todayKey]);
 
@@ -110,7 +128,7 @@ export default function MyShifts() {
     const nowMin = now.getHours() * 60 + now.getMinutes();
     const today = days.find(d => d.isToday);
     const on = today?.shifts.find(s => covers(s, nowMin));
-    if (on) return { on: true, text: `On shift now · ${hhmmTo12(on.start)} – ${hhmmTo12(on.end)}${on.label && !on.fromPreset ? ` · ${on.label}` : on.fromPreset && on.label ? ` · ${on.label}` : ''}` };
+    if (on) return { on: true, text: `On shift now · ${hhmmTo12(on.start)} - ${hhmmTo12(on.end)}${on.label && !on.fromPreset ? ` · ${on.label}` : on.fromPreset && on.label ? ` · ${on.label}` : ''}` };
     // next shift, this week, after now
     for (const d of days) {
       if (d.key < todayKey) continue;
@@ -152,9 +170,31 @@ export default function MyShifts() {
     });
   }, [team, teamRows, now, thisWeek]);
 
+  const schedulerOf = data?.schedulerOf || [];
+  const manageBtn = schedulerOf.length > 0 && (
+    <button type="button" className="secondary-btn" onClick={() => { setManage(m => !m); setFlash(''); }} style={{ fontSize: 12.5 }}>
+      {manage ? 'Back to My Shifts' : 'Manage Schedule'}
+    </button>
+  );
+  if (manage && schedulerOf.length) {
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+          {manageBtn}
+          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>You schedule {schedulerOf.map(g => g.name).join(', ')}.</span>
+        </div>
+        {flash && <div role="status" style={{ marginBottom: 12, fontSize: 12.5, fontWeight: 600 }}>{flash}</div>}
+        <Suspense fallback={<SkeletonBlocks count={4} height={60} />}>
+          <ShiftSchedule toastOk={setFlash} toastErr={setFlash} />
+        </Suspense>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+        {manageBtn}
         <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden', background: 'var(--card)' }}>
           <button type="button" onClick={() => setWeekStart(w => addDays(w, -7))} title="Previous Week" aria-label="Previous week"
             style={{ border: 'none', background: 'none', padding: '7px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><ChevronLeft size={16} /></button>
@@ -196,6 +236,9 @@ export default function MyShifts() {
               {d.holiday && (
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}><CalendarDays size={12} /> {d.holiday}</div>
               )}
+              {d.note && (
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#b45309', display: 'flex', alignItems: 'flex-start', gap: 6 }}><StickyNote size={12} style={{ flexShrink: 0, marginTop: 2 }} /> {d.note}</div>
+              )}
               {d.timeoff.map((t, i) => (
                 <div key={i} style={{ fontSize: 12, fontWeight: 600, textTransform: 'capitalize', color: t.status === 'approved' ? 'hsl(var(--color-green))' : '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <CalendarDays size={12} /> {t.type}{t.status === 'pending' ? ' (pending)' : ''}
@@ -207,15 +250,29 @@ export default function MyShifts() {
               {d.shifts.map(s => (
                 <div key={s.id} style={{ borderLeft: `3px solid ${s.color || 'var(--wk-brand)'}`, paddingLeft: 9 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Clock size={12} style={{ color: s.color || 'var(--wk-brand)', flexShrink: 0 }} />{hhmmTo12(s.start)} – {hhmmTo12(s.end)}
+                    <Clock size={12} style={{ color: s.color || 'var(--wk-brand)', flexShrink: 0 }} />{hhmmTo12(s.start)} - {hhmmTo12(s.end)}
                   </div>
                   {(s.code || s.label) && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{s.label || s.code}</div>}
                   {s.note && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{s.note}</div>}
+                  {(s.activities || []).map((a, i) => (
+                    <div key={i} style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{hhmmTo12(a.start)} - {hhmmTo12(a.end)} · {a.label}</div>
+                  ))}
+                  <ShiftActions shift={{ ...s, date: s.date || d.key }} todayKey={todayKey} reqs={reqs} onAsk={setAsk} />
                 </div>
               ))}
             </div>
           ))}
         </div>
+      )}
+
+      {flash && (
+        <div role="status" style={{ marginTop: 12, fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>{flash}</div>
+      )}
+      <ShiftRequestsList reqs={reqs} onDone={done} />
+      <OpenShifts reqs={reqs} onDone={done} />
+      {ask && (
+        <RequestDialog ask={ask} teammates={reqs?.teammates || []} todayKey={todayKey} onClose={() => setAsk(null)} onDone={done}
+          teamShifts={reqs?.swapShifts || {}} />
       )}
 
       {data && team && (
@@ -265,9 +322,9 @@ export default function MyShifts() {
                         ) : d.shifts.length === 0 ? (
                           <span style={{ fontSize: 12, color: 'var(--muted)' }}>Off</span>
                         ) : d.shifts.map(sh => (
-                          <div key={sh.id} title={`${hhmmTo12(sh.start)} – ${hhmmTo12(sh.end)}${sh.label ? ` · ${sh.label}` : ''}`}
+                          <div key={sh.id} title={`${hhmmTo12(sh.start)} - ${hhmmTo12(sh.end)}${sh.label ? ` · ${sh.label}` : ''}`}
                             style={{ borderLeft: `3px solid ${sh.color || 'var(--wk-brand)'}`, paddingLeft: 7, marginBottom: 4, lineHeight: 1.3 }}>
-                            <div style={{ fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{compact12(sh.start)}–{compact12(sh.end)}</div>
+                            <div style={{ fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{compact12(sh.start)}-{compact12(sh.end)}</div>
                             {(sh.code || sh.label) && <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>{sh.code || sh.label}</div>}
                           </div>
                         ))}
@@ -280,6 +337,8 @@ export default function MyShifts() {
           </div>
         </div>
       )}
+
+      <MyAvailability />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>
         <Info size={13} style={{ flexShrink: 0 }} />

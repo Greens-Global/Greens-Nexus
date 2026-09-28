@@ -368,8 +368,10 @@ export const ticketNo = (code) => (normalizeCode(code) ? `Ticket #${normalizeCod
 export const ticketNoShort = (code) => (normalizeCode(code) ? `#${normalizeCode(code)}` : '');
 
 // ── Approvals ────────────────────────────────────────────────────────────────
-// Service and access requests park the moment they're raised, with no approver
-// named. They go to the IT Admin pool, an admin sends the ticket on to whoever
+// Types whose admin switch says "Requires Approval" (the taxonomy config's
+// per-type requiresApproval, see ticketConfig.js; the server decides and
+// defaults it to Service, Change and Access Requests) park the moment they're
+// raised, with no approver named. They go to the IT Admin pool, an admin sends the ticket on to whoever
 // signs it off, and only once approved can it be assigned. The client never
 // picks the approver at intake - see ApprovalPanel in TicketsView.jsx.
 //

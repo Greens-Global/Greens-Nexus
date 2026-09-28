@@ -28,8 +28,29 @@ let _loading = null;
 // re-renders via useTicketConfig() without needing its own fetch.
 export const COMPANY_FIELD = { enabled: false, companyIds: [] };
 
+// Approval per type (Sep 2026): type key -> true for the types whose NEW
+// tickets park for approval, straight from the taxonomy's per-type
+// `requiresApproval` flag. Deliberately no compiled-in default list: the
+// server fills the flag in for its default-gated types and is the only
+// authority (create_ticket decides the gate there), so until the config
+// loads every type reads as "not gated" - this only drives hints, never the
+// gate itself. Mutated in place like the rest of this file.
+export const APPROVAL_REQUIRED = {};
+
+/** Whether a new ticket of this type will wait for approval, per the loaded
+ * taxonomy config. UI copy only - the backend decides and enforces the gate. */
+export function typeRequiresApproval(typeKey) {
+  return APPROVAL_REQUIRED[typeKey] === true;
+}
+
 function applyConfig(cfg) {
   if (cfg?.companyField) Object.assign(COMPANY_FIELD, cfg.companyField);
+  if (cfg?.types) {
+    for (const k of Object.keys(APPROVAL_REQUIRED)) delete APPROVAL_REQUIRED[k];
+    for (const [key, override] of Object.entries(cfg.types)) {
+      if (override?.requiresApproval === true) APPROVAL_REQUIRED[key] = true;
+    }
+  }
   if (cfg?.slaTargetHours) Object.assign(SLA_TARGET_HOURS, cfg.slaTargetHours);
   if (cfg?.types) {
     for (const [key, override] of Object.entries(cfg.types)) {

@@ -12,8 +12,10 @@
 import { useEffect, useState } from 'react';
 import { Mail, Save, AlertTriangle, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 import { api } from '../api';
+import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle } from '../tasks/theme';
+import { formatTime } from '../lib/datetime';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 
@@ -22,6 +24,21 @@ const MODES = [
   { key: 'test', label: 'Test', hint: 'Computes every employee’s real content, but every send is redirected to the test recipients below.' },
   { key: 'live', label: 'Live', hint: 'Sends each employee their own briefing, to their own inbox.' },
 ];
+
+// Outlook card on the briefing email (backend daily_briefing.card_style).
+// A saved true from the earlier on/off switch means the full card.
+const CARD_STYLES = [
+  { key: 'off', label: 'Off', hint: 'Everyone gets the designed email. Buttons open a confirm page in the browser.' },
+  { key: 'quick', label: 'Quick Actions', hint: 'The designed email, plus a small collapsed "decisions waiting" block at the top whose Approve and Reject work inside Outlook. Outlook draws that block in its own style.' },
+  { key: 'full', label: 'Full Card', hint: 'Outlook shows the whole briefing as its own card instead of the designed email: sections collapse and every button works inside Outlook, but Outlook controls the colors and buttons. Desktop and web only: Outlook on phones and Mac cannot show this card, so they get the designed email.' },
+];
+// Timing (Sep 27). Stored as 24h "HH:MM", shown 12-hour; same bounds as the
+// backend's daily_briefing.validate_timing.
+const SLOTS = Array.from({ length: 48 }, (_, i) => `${String(i >> 1).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
+let ZONES = [];
+try { ZONES = Intl.supportedValuesOf('timeZone'); } catch { /* older browser: current zone only */ }
+const withCurrent = (list, v) => (v && !list.includes(v) ? [v, ...list] : list);
+const cardStyle = (v) => (v === true ? 'full' : ['quick', 'full'].includes(v) ? v : 'off');
 
 export default function DailyBriefingSettings() {
   const { can } = useRole();
@@ -62,13 +79,23 @@ export default function DailyBriefingSettings() {
   // "the checkbox does nothing" (Pranshu, Sep 23).
   const switchingToLive = goingLive && savedMode !== 'live' && !confirmLive;
 
+  const lead = Number(cfg.leadMinutes ?? 150);
   const save = async () => {
     if (switchingToLive) return;
+    if (!Number.isInteger(lead) || lead < 30 || lead > 360) {
+      setErr('Minutes before shift must be a whole number from 30 to 360.');
+      return;
+    }
     setSaving(true); setErr(''); setSaved(false);
     try {
       const patch = {
         mode: cfg.mode,
         test_recipients: recipientsInput.split(',').map((s) => s.trim()).filter(Boolean),
+        outlook_card: cardStyle(cfg.outlook_card),
+        leadMinutes: lead,
+        includeNoShift: !!cfg.includeNoShift,
+        defaultSendTime: cfg.defaultSendTime || '07:00',
+        defaultTimeZone: cfg.defaultTimeZone || 'America/Los_Angeles',
       };
       const next = await api.updateDailyBriefingConfig(patch);
       setCfg(next);
@@ -130,6 +157,60 @@ export default function DailyBriefingSettings() {
           </div>
         </div>
       )}
+
+      <div style={{ marginBottom: 16, fontSize: 13 }}>
+        <label style={fieldLabel}>Timing</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+          Send before shift start:
+          <input type="number" min={30} max={360} step={5} aria-label="Minutes before shift start"
+            value={cfg.leadMinutes ?? 150} onChange={(e) => setCfg((c) => ({ ...c, leadMinutes: e.target.value }))}
+            style={{ ...inputStyle, width: 80 }} /> minutes
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!cfg.includeNoShift}
+              onChange={(e) => setCfg((c) => ({ ...c, includeNoShift: e.target.checked }))} />
+            People with no shift today: send at
+          </label>
+          <select aria-label="Default send time" disabled={!cfg.includeNoShift} value={cfg.defaultSendTime || '07:00'}
+            onChange={(e) => setCfg((c) => ({ ...c, defaultSendTime: e.target.value }))} style={{ ...inputStyle, width: 'auto' }}>
+            {withCurrent(SLOTS, cfg.defaultSendTime).map((t) => <option key={t} value={t}>{formatTime(`2000-01-01T${t}:00`)}</option>)}
+          </select>
+          <select aria-label="Default time zone" disabled={!cfg.includeNoShift} value={cfg.defaultTimeZone || 'America/Los_Angeles'}
+            onChange={(e) => setCfg((c) => ({ ...c, defaultTimeZone: e.target.value }))} style={{ ...inputStyle, width: 'auto' }}>
+            {withCurrent(ZONES, cfg.defaultTimeZone || 'America/Los_Angeles').map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
+          </select>
+        </div>
+        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+          On a day off or with no shift, the briefing goes out at this time in the person's shift time zone, else the one picked here. Turning it on starts mailing people who get none today.
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <label style={fieldLabel}>Outlook Card</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {CARD_STYLES.map((c) => {
+            const on = cardStyle(cfg.outlook_card) === c.key;
+            return (
+              <label key={c.key} style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px',
+                border: `1px solid ${on ? NX.blue : NX.border}`, borderRadius: 8,
+                background: on ? 'var(--wk-brand-tint)' : 'transparent', cursor: 'pointer',
+              }}>
+                <input type="radio" name="briefing-card" checked={on} style={{ marginTop: 3 }}
+                  onChange={() => setCfg((x) => ({ ...x, outlook_card: c.key }))} />
+                <span>
+                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{c.label}</div>
+                  <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>{c.hint}</div>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+          Outlook only shows a card to people covered by the Actionable Messages registration; everyone else gets the designed email.
+        </div>
+      </div>
 
       {goingLive && (
         <div style={{
@@ -195,9 +276,13 @@ function DeliveryLog() {
   const [offset, setOffset] = useState(0);
   const [err, setErr] = useState('');
   const [resendingId, setResendingId] = useState('');
+  // Bulk Force Resend (Sep 26): tick several rows, send them all at once.
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulk, setBulk] = useState(null);   // { done, total } while sending, then { summary }
 
   const load = () => {
     setRows(null);
+    setSelected(new Set());
     api.getDailyBriefingLog({ ...(emailFilter ? { employee_email: emailFilter.trim() } : {}), limit: LOG_LIMIT, offset })
       .then(({ rows: r, total: t }) => { setRows(r); setTotal(t); })
       .catch((e) => { setErr(e.message || String(e)); setRows([]); setTotal(0); });
@@ -231,6 +316,55 @@ function DeliveryLog() {
     finally { setResendingId(''); }
   };
 
+  const toggleRow = (id) => setSelected((cur) => {
+    const next = new Set(cur);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const allOnPage = !!rows?.length && rows.every((r) => selected.has(r.id));
+  const toggleAll = () => setSelected(allOnPage ? new Set() : new Set((rows || []).map((r) => r.id)));
+
+  const bulkResend = async () => {
+    // One send per employee: two ticked rows for the same person (different
+    // days) would otherwise email them twice. Rows are newest first, so the
+    // first one seen is that person's latest.
+    const byEmployee = new Map();
+    (rows || []).filter((r) => selected.has(r.id)).forEach((r) => {
+      if (!byEmployee.has(r.employeeEmail)) byEmployee.set(r.employeeEmail, r);
+    });
+    const targets = [...byEmployee.values()];
+    if (!targets.length) return;
+    const alreadySent = targets.filter((r) => r.sentAt).length;
+    const ok = await dialog.confirm(
+      `Send ${targets.length === 1 ? "this employee's briefing" : `briefings for ${targets.length} employees`} right now?` +
+      (alreadySent ? ` ${alreadySent} of them already went out successfully, so they will get a second email.` : '') +
+      ' This sends immediately, regardless of shift windows, and does not change anyone else\'s schedule.',
+      { title: 'Force Resend Selected', confirmText: `Send ${targets.length}` },
+    );
+    if (!ok) return;
+    const tally = { sent: 0, nothing: 0, off: 0, failed: [] };
+    setBulk({ done: 0, total: targets.length });
+    for (const [i, r] of targets.entries()) {
+      try {
+        const res = await api.forceResendDailyBriefing(r.id);
+        if (res.sentNow) tally.sent += 1;
+        else if (res.mode === 'off') tally.off += 1;
+        else if (!res.hadContent) tally.nothing += 1;
+        else tally.failed.push(r.employeeEmail);
+      } catch (e) {
+        console.error('[daily-briefing] bulk resend failed', r.employeeEmail, e);
+        tally.failed.push(r.employeeEmail);
+      }
+      setBulk({ done: i + 1, total: targets.length });
+    }
+    const parts = [`${tally.sent} sent`];
+    if (tally.nothing) parts.push(`${tally.nothing} had nothing to report`);
+    if (tally.off) parts.push(`${tally.off} not sent because Mode is Off`);
+    if (tally.failed.length) parts.push(`${tally.failed.length} failed (${tally.failed.join(', ')})`);
+    setBulk({ summary: `${parts.join(', ')}.`, failed: tally.failed.length > 0 });
+    load();
+  };
+
   const currentPage = Math.floor(offset / LOG_LIMIT) + 1;
   const totalPages = Math.max(1, Math.ceil(total / LOG_LIMIT));
 
@@ -242,7 +376,22 @@ function DeliveryLog() {
           placeholder="Filter by employee email…" style={{ ...inputStyle, width: 260 }} />
         <button style={btn('ghost')} onClick={() => { setOffset(0); load(); }} title="Refresh"><RefreshCw size={14} /></button>
         {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
+        <span style={{ flex: 1 }} />
+        {selected.size > 0 && !bulk?.total && (
+          <button style={btn('ghost')} onClick={() => setSelected(new Set())}>Clear</button>
+        )}
+        <button style={{ ...btn('primary'), opacity: selected.size && !bulk?.total ? 1 : 0.5 }}
+          disabled={!selected.size || !!bulk?.total} onClick={bulkResend}>
+          {bulk?.total ? `Sending ${bulk.done} of ${bulk.total}…` : `Force Resend Selected${selected.size ? ` (${selected.size})` : ''}`}
+        </button>
       </div>
+      {bulk?.summary && (
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, marginBottom: 12,
+          color: bulk.failed ? NX.red : NX.green, fontWeight: 600 }}>
+          {bulk.failed ? <XCircle size={14} /> : <CheckCircle2 size={14} />} {bulk.summary}
+          <button style={{ ...btn('ghost'), fontSize: 11.5, padding: '2px 8px' }} onClick={() => setBulk(null)}>Dismiss</button>
+        </div>
+      )}
       {rows === null ? (
         <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>Loading…</div>
       ) : rows.length === 0 ? (
@@ -250,10 +399,18 @@ function DeliveryLog() {
       ) : (
         <>
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: `1px solid ${NX.border2}`,
+              fontSize: 12, fontWeight: 600, color: NX.dim, cursor: 'pointer' }}>
+              <input type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label="Select all rows on this page" />
+              {selected.size ? `${selected.size} selected` : 'Select all on this page'}
+            </label>
             {rows.map((r) => {
               const meta = statusOf(r);
               return (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5 }}>
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5,
+                  background: selected.has(r.id) ? 'var(--wk-brand-tint)' : 'transparent' }}>
+                  <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)}
+                    aria-label={`Select ${r.employeeEmail} ${r.briefingDate}`} style={{ flexShrink: 0 }} />
                   <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.employeeEmail}>{r.employeeEmail}</span>
                   <span style={{ color: NX.dim, flexShrink: 0, width: 90 }}>{r.briefingDate}</span>

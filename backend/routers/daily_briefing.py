@@ -9,13 +9,13 @@ Frontend panel added Sep 20 (see AdminConsole.jsx / DailyBriefingSettings.jsx).
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Union
 
 import models
-from auth import require_administrator
+from auth import get_current_user, require_administrator
 from database import get_db
 import daily_briefing
 
@@ -25,6 +25,50 @@ router = APIRouter(prefix="/daily-briefing", tags=["Daily Briefing"])
 class ConfigIn(BaseModel):
     mode: Optional[str] = None                 # off|test|live
     test_recipients: Optional[list] = None
+    outlook_card: Optional[Union[bool, str]] = None     # off | quick | full (True = full)
+    # Timing (Sep 27) - checked by daily_briefing.validate_timing.
+    leadMinutes: Optional[int] = None                    # 30..360 before shift start
+    includeNoShift: Optional[bool] = None
+    defaultSendTime: Optional[str] = None                # local "HH:MM", 24h
+    defaultTimeZone: Optional[str] = None                # IANA name
+
+
+# ── My Briefing page (any signed-in employee, their own briefing only) ─────
+
+@router.get("/me")
+def my_briefing(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return daily_briefing.my_briefing(db, user["email"])
+
+
+class ActIn(BaseModel):
+    kind: str                  # decision | task
+    id: str
+    action: str                # decision: approve|reject; task: comment|react|status|complete
+    decision_kind: str = ""    # task_approval | timeoff_approval | ticket_approval
+    text: str = ""             # comment, reaction, status value, or rejection reason
+
+
+@router.post("/me/act")
+def act_on_my_briefing(body: ActIn, request: Request, bt: BackgroundTasks,
+                       user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Runs one action from the My Briefing page as the signed-in person,
+    through the same code the email links use (routers/briefing_actions and
+    routers/mail_actions), so permission checks and notifications behave
+    exactly as they do everywhere else in Nexus."""
+    if body.kind == "decision":
+        from routers.briefing_actions import _execute
+        if body.action not in ("approve", "reject"):
+            raise HTTPException(400, "Unknown action")
+        subject, status = _execute(db, bt, user=user, kind=body.decision_kind, entity_id=body.id,
+                                   action=body.action, note=body.text)
+        return {"ok": True, "message": f"{subject} {status}."}
+    if body.kind == "task":
+        from routers.mail_actions import _perform
+        if body.action not in ("comment", "react", "status", "complete"):
+            raise HTTPException(400, "Unknown action")
+        return {"ok": True, "message": _perform(request, db, user=user, task_id=body.id, action=body.action,
+                                                text=body.text, bt=bt) + "."}
+    raise HTTPException(400, "Unknown action")
 
 
 @router.get("/config", dependencies=[Depends(require_administrator)])
@@ -37,6 +81,12 @@ def update_config(body: ConfigIn, user: dict = Depends(require_administrator), d
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     if patch.get("mode") not in (None, "off", "test", "live"):
         patch.pop("mode", None)
+    if "outlook_card" in patch:
+        patch["outlook_card"] = daily_briefing.card_style({"outlook_card": patch["outlook_card"]})
+    try:
+        patch = daily_briefing.validate_timing(patch)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return daily_briefing.save_settings(db, patch, user["email"])
 
 
@@ -103,7 +153,7 @@ def force_resend(log_id: str, db: Session = Depends(get_db)):
         # fall back to today's UTC date otherwise - _trigger_due returns ""
         # for briefing_date exactly when it's not due, which is also the
         # case we're deliberately overriding here.
-        _due, briefing_date, _ = daily_briefing._trigger_due(db, email)
+        _due, briefing_date, _ = daily_briefing._trigger_due(db, email, daily_briefing.lead_minutes(cfg))
         if not briefing_date:
             briefing_date = datetime.now(timezone.utc).date().isoformat()
         daily_briefing._send_one(db, emp, cfg, briefing_date)   # commits internally

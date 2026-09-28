@@ -42,7 +42,8 @@ SESSION_COOKIE = "nx_session"     # opaque session id (HttpOnly)
 CSRF_COOKIE    = "nx_csrf"        # readable by JS, echoed back in X-CSRF-Token (double-submit)
 LOGIN_COOKIE   = "nx_login"       # short-lived: carries {state, verifier, next} across the redirect
 
-SESSION_IDLE_DAYS = 30            # no activity for this long -> session dead
+SESSION_IDLE_DAYS = 30            # no activity for this long -> session dead (default;
+                                  # the live value is session_idle_days(), Sep 2026)
 _REFRESH_SKEW = 120              # refresh the access token this many seconds before it expires
 
 
@@ -238,10 +239,18 @@ def revoke_sessions(db, email: str) -> int:
     return n
 
 
-def _idle_expired(row) -> bool:
+def session_idle_days(db=None) -> int:
+    """Settings > Global > Security `webSessionIdleDays` (1-30), else
+    SESSION_IDLE_DAYS. Cached, so the per-request check adds no DB trip."""
+    import security_config
+    return int(security_config.get("webSessionIdleDays", db))
+
+
+def _idle_expired(row, db=None) -> bool:
+    idle_days = session_idle_days(db)     # outside the try: a DB error must not read as "fresh"
     try:
         seen = datetime.fromisoformat(row.last_seen)
-        return (datetime.now(timezone.utc) - seen).total_seconds() > SESSION_IDLE_DAYS * 86400
+        return (datetime.now(timezone.utc) - seen).total_seconds() > idle_days * 86400
     except Exception:
         return False
 
@@ -256,7 +265,7 @@ def get_session(db, sid: str):
     row = db.query(ServerSession).filter(ServerSession.id == sid).first()
     if not row:
         return None
-    if _idle_expired(row):
+    if _idle_expired(row, db):
         db.delete(row)
         db.commit()
         return None

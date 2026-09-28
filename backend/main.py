@@ -35,6 +35,8 @@ from routers import stepup  # Step-up MFA for sensitive data (vault/payroll/HR) 
 import act_as  # Act As: Manager/IT Admin/Global Admin can impersonate a lower-role employee (Jul 2026)
 from routers import branding  # Branding settings: login-screen accent color (Jul 2026)
 from routers import daily_briefing as daily_briefing_router  # Daily Briefing admin config (Aug 2026) - see daily_briefing.py
+from routers import weekly_digest as weekly_digest_router  # Weekly Digest admin config (Sep 2026) - see weekly_digest.py
+from routers import shift_requests as shift_requests_router  # Shift swap/offer/open-shift requests (Sep 2026)
 from routers import egnyte  # Egnyte module: browse/upload at the right folder level (Jul 2026)
 from routers import external_links  # External Links directory rebuild (Aug 2026) - own file, see its docstring
 from routers import link_layouts  # Per-user Links Module personalization overlay (Aug 13) - own file, see its docstring
@@ -793,6 +795,18 @@ def _run_migrations():
             "INSERT OR IGNORE INTO hr_company_work_sites (id, company_id, site_id, created_by, created_at) "
             "SELECT company || ':' || id, company, id, created_by, created_at "
             "FROM hr_work_sites WHERE company IS NOT NULL AND company != ''",
+            # Unshared changes to published shifts (Sep 28) - see the Postgres list.
+            "ALTER TABLE scheduled_shifts ADD COLUMN pending_json TEXT DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
+            # Unpaid breaks in shifts (Sep 28) - see the Postgres list.
+            "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
+            "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
+            # Shift activities (Sep 29) - see the Postgres list.
+            "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''",
+            # Per-shift color (Sep 29) - see the Postgres list.
+            "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
+            # Group schedulers (Sep 29) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1689,6 +1703,27 @@ def _run_migrations():
         "SELECT company || ':' || id, company, id, created_by, created_at "
         "FROM hr_work_sites WHERE company IS NOT NULL AND company <> '' "
         "ON CONFLICT (id) DO NOTHING",
+        # Unshared changes to a PUBLISHED shift (Sep 28): an edit or removal
+        # waits here until Publish, so staff keep seeing the shift meanwhile
+        # instead of it vanishing (models.ScheduledShift).
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS pending_json TEXT DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS pending_delete INTEGER DEFAULT 0",
+        # Unpaid break minutes on shift presets and placed shifts (Sep 28), so
+        # the schedule's hour totals are paid hours (models.Shift.break_min).
+        "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS break_min INTEGER DEFAULT 0",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS break_min INTEGER DEFAULT 0",
+        # Shift self-service requests (Sep 29): new table, RLS per CLAUDE.md.
+        "ALTER TABLE shift_requests ENABLE ROW LEVEL SECURITY",
+        # Shift activities + schedule day notes (Sep 29). Day notes are a new
+        # table - RLS per CLAUDE.md.
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS activities_json TEXT DEFAULT ''",
+        "ALTER TABLE schedule_day_notes ENABLE ROW LEVEL SECURITY",
+        # A shift's own color, overriding its preset's (Sep 29).
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS color TEXT DEFAULT ''",
+        # Group schedulers + staff availability (Sep 29). Availability is a
+        # new table - RLS per CLAUDE.md.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS scheduler_emails TEXT DEFAULT ''",
+        "ALTER TABLE shift_availability ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2233,6 +2268,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] daily briefing loop skipped: {e}")
         try:
+            from weekly_digest import weekly_digest_loop
+            _tasks.append(_a.create_task(weekly_digest_loop()))
+        except Exception as e:
+            print(f"[startup] weekly digest loop skipped: {e}")
+        try:
+            from shift_notify import shift_reminder_loop
+            _tasks.append(_a.create_task(shift_reminder_loop()))
+        except Exception as e:
+            print(f"[startup] shift reminder loop skipped: {e}")
+        try:
             from accounting_sso import accounting_sso_sync_loop
             _tasks.append(_a.create_task(accounting_sso_sync_loop()))
         except Exception as e:
@@ -2385,6 +2430,9 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # Daily Briefing one-click actions: authorized by a signed per-decision
     # token, same reasoning - see routers/briefing_actions.py.
     "/briefing-actions/page",
+    # ...and the Outlook card version of the briefing (Outlook's own JWT names
+    # who clicked, same as /mail-actions/card).
+    "/briefing-actions/card",
     # Boot-failure beacon from public/guard.js: sent with credentials omitted
     # while the app cannot load, by a user who usually has no session at all -
     # see routers/client_errors.py.
@@ -2658,6 +2706,8 @@ app.include_router(stepup.router)         # Step-up MFA for sensitive data (vaul
 app.include_router(act_as.router)         # Act As: impersonate a lower-role employee's account
 app.include_router(branding.router)       # Branding settings: login-screen accent color
 app.include_router(daily_briefing_router.router)  # Daily Briefing admin config (mode/test recipients)
+app.include_router(weekly_digest_router.router)  # Weekly Digest admin config (mode/schedule/log)
+app.include_router(shift_requests_router.router)  # Shift swap/offer/open-shift requests + manager inbox
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
 from routers import client_errors          # noqa: E402
 app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs
@@ -2684,3 +2734,10 @@ app.include_router(assistant_router.router)  # Nexus Assistant (Phase 0) - see a
 
 from routers import timesheet_reviews  # noqa: E402
 app.include_router(timesheet_reviews.router)  # Timesheet review hand-offs before signing in Nexus Sign - see timesheet_review.py
+
+from routers import hr_reminder_settings  # noqa: E402
+app.include_router(hr_reminder_settings.router)  # HR & Compliance Reminders timing - see hr_reminder_config.py
+from routers import security_settings  # noqa: E402
+app.include_router(security_settings.router)  # Settings > Global > Security: step-up, session lifetimes, guest sign-in (security_config.py)
+from routers import equipment_reminder_settings  # noqa: E402
+app.include_router(equipment_reminder_settings.router)  # Equipment Reminders timing - see equipment_reminder_config.py

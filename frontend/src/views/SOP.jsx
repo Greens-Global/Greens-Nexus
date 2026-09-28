@@ -11,6 +11,8 @@ import { formatDateLong } from '../lib/datetime';
 import { useNameResolver } from '../lib/useNameResolver';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+import { takePendingOpen } from '../lib/pendingOpen';
+import { KB_OPEN_EVENT, PENDING_KB_KIND, decodeKbTarget } from '../support/openKb';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
@@ -1201,6 +1203,23 @@ export default function SOP({ activeSub, onSubChange }) {
     try { const c = await api.getKbCourse(id); setLmsCourse(c); setPlayer({ idx: 0, mode: 'lesson', answers: {}, lastScore: null, lastPassed: false, results: {} }); setLmsMode('player'); }
     catch (e) { setErr(e.message || 'Failed to open course'); }
   };
+  // Deep link from the Help widget's search (support/openKb.js): open one
+  // document or course. The event serves this view when it is already
+  // mounted; the pending note serves a first visit, while the chunk loads.
+  // A document waits for the library list to arrive; one this person cannot
+  // see simply is not found, and the library opens as usual.
+  const [kbTarget, setKbTarget] = useState(() => decodeKbTarget(takePendingOpen(PENDING_KB_KIND)));
+  useEffect(() => {
+    const onOpen = (e) => { takePendingOpen(PENDING_KB_KIND); setKbTarget(e.detail || null); };
+    window.addEventListener(KB_OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(KB_OPEN_EVENT, onOpen);
+  }, []);
+  useEffect(() => {
+    if (!kbTarget) return;
+    if (kbTarget.kind === 'course') { setKbTarget(null); openCourse(kbTarget.id); return; }
+    const d = docs.find((x) => x.id === kbTarget.id);
+    if (d) { setKbTarget(null); openDetail(d); } else if (!loading) setKbTarget(null);
+  }, [kbTarget, docs, loading]); // eslint-disable-line react-hooks/exhaustive-deps
   const reloadCourse = async () => { if (lmsCourse) { const c = await api.getKbCourse(lmsCourse.id); setLmsCourse(c); return c; } };
   const markLessonDone = async () => {
     const c = lmsCourse, lessons = c.lessons || [];

@@ -10,6 +10,7 @@ notification should hand-roll HTML.
 """
 from html import escape
 
+import email_theme
 from mail_text import Rich, rich_to_email_html
 
 from ticket_code import ticket_no
@@ -63,11 +64,8 @@ def ticket_email_html(*, ticket_code: str, ticket_subject: str, status: str, hea
                        note: str = "", logo_url: str = "",
                        comment_label: str = "", comment_text: str = "",
                        thread: list[dict] | None = None) -> str:
-    logo_block = (
-        f"<img src='{escape(logo_url)}' alt='Company logo' height='28' style='display:block' />"
-        if logo_url else
-        "<span style='color:#ffffff;font-size:16px;font-weight:700;letter-spacing:3px'>GREENS GLOBAL</span>"
-    )
+    th = email_theme.current()
+    logo_block = th.logo_block(logo_url)
     secondary_html = ""
     if secondary_ctas:
         links = "&nbsp;&nbsp;·&nbsp;&nbsp;".join(
@@ -85,14 +83,14 @@ def ticket_email_html(*, ticket_code: str, ticket_subject: str, status: str, hea
     <tr>
       <td style="padding:0 28px 18px">
         <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;margin:0 0 6px">{escape(comment_label or 'Latest comment')}</div>
-        <div style="background:#f3f4f6;border-left:3px solid #0f3d2e;border-radius:6px;padding:13px 16px;font-size:14px;line-height:1.6;color:#111827;white-space:pre-wrap;word-break:break-word">{rich_to_email_html(comment_text, 4000)}</div>
+        <div style="background:#f3f4f6;border-left:3px solid {th.color('#0f3d2e')};border-radius:6px;padding:13px 16px;font-size:14px;line-height:1.6;color:#111827;white-space:pre-wrap;word-break:break-word">{rich_to_email_html(comment_text, 4000)}</div>
       </td>
     </tr>"""
 
     return f"""<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <table align="center" width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
     <tr>
-      <td style="background:#0f3d2e;padding:18px 28px">{logo_block}</td>
+      <td style="background:{th.color('#0f3d2e')};padding:18px 28px">{logo_block}</td>
     </tr>
     <tr>
       <td style="padding:26px 28px 8px">
@@ -112,7 +110,7 @@ def ticket_email_html(*, ticket_code: str, ticket_subject: str, status: str, hea
     </tr>{_conversation_html(thread) if thread else comment_html}
     <tr>
       <td style="padding:4px 28px 28px;text-align:center">
-        <a href="{escape(cta_url)}" style="display:inline-block;background:#0f3d2e;color:#ffffff;text-decoration:none;
+        <a href="{escape(cta_url)}" style="display:inline-block;background:{th.color('#0f3d2e')};color:#ffffff;text-decoration:none;
           font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">{escape(cta_label)}</a>
         {secondary_html}
         {note_html}
@@ -120,7 +118,7 @@ def ticket_email_html(*, ticket_code: str, ticket_subject: str, status: str, hea
     </tr>
     <tr>
       <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
-        This is an automated notification from the Ticket Management System. Please open the ticket using the link above to provide updates or responses.
+        This is an automated notification from the Ticket Management System. Please open the ticket using the link above to provide updates or responses.{th.footer_lines()}
       </td>
     </tr>
   </table>
@@ -139,7 +137,8 @@ def _avatar_html(name: str, photo_url: str) -> str:
     if photo_url:
         return (f"<img src='{escape(photo_url)}' width='36' height='36' alt='{escape(_initials(name))}' "
                 "style='display:block;width:36px;height:36px;border-radius:50%;object-fit:cover;background:#e5e7eb' />")
-    return ("<div style='width:36px;height:36px;border-radius:50%;background:#0f3d2e;color:#ffffff;"
+    return ("<div style='width:36px;height:36px;border-radius:50%;"
+            f"background:{email_theme.current().color('#0f3d2e')};color:#ffffff;"
             "font-size:13px;font-weight:700;text-align:center;line-height:36px'>"
             f"{escape(_initials(name))}</div>")
 

@@ -9,6 +9,7 @@ Reference implementation: routers/items.py.
 """
 import calendar
 import io
+import json
 import re
 import time
 from datetime import date, datetime, timedelta
@@ -819,18 +820,47 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
     A series that fell behind (the scan was down, or nobody touched it for
     weeks) jumps to its most recent date on or before today rather than
     back-filling one stale task per missed day - the missed dates are not work
-    anyone can still do on time."""
+    anyone can still do on time.
+
+    ONE occurrence per series per date (Sep 28 fix). `nextOccurrenceId` only
+    guards a single row, and a series can hold several unmarked rows: every
+    occurrence completed before Sep 18 kept its rule with no marker (the
+    marker did not exist yet), so the first scheduled scan spawned a copy from
+    EACH of them - all on the same latest date - and every copy then carried
+    the series on as a chain of its own ("Take out all Trash" x13 on 09/28).
+    So rows are grouped by series (_series_key), only the series' newest
+    occurrence may roll forward, a date the series already has is never
+    created again, and every other unmarked row is stamped as rolled forward
+    so it can never start a chain. Tasks in the Recycle Bin never spawn."""
     spawned: list[models.Task] = []
     rows = (db.query(models.Task)
             .filter(models.Task.recurrence.isnot(None),
-                    (models.Task.parent_task_id == "") | (models.Task.parent_task_id.is_(None)))
+                    (models.Task.parent_task_id == "") | (models.Task.parent_task_id.is_(None)),
+                    (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None)))
             .all())
+    series: dict[tuple, list[models.Task]] = {}
     for t in rows:
         rec = t.recurrence
-        if (not isinstance(rec, dict) or rec.get("freq") not in _SCHEDULED_FREQS
-                or rec.get("nextOccurrenceId") or not t.due_on):
+        if isinstance(rec, dict) and rec.get("freq") in _SCHEDULED_FREQS and t.due_on:
+            series.setdefault(_series_key(t), []).append(t)
+    touched = False
+    for members in series.values():
+        dates = {(m.due_on or "")[:10]: m for m in members}
+        # The series' newest occurrence carries it forward; among several on
+        # that date, an open one first, then the oldest-created (stable).
+        latest_due = max((m.due_on or "")[:10] for m in members)
+        heads = sorted((m for m in members if (m.due_on or "")[:10] == latest_due),
+                       key=lambda m: (bool(m.completed), m.created_at or "", m.id))
+        head = heads[0]
+        # Everyone else is history - or a duplicate - and must never spawn.
+        for m in members:
+            if m is not head and not (m.recurrence or {}).get("nextOccurrenceId"):
+                m.recurrence = {**m.recurrence, "nextOccurrenceId": head.id}
+                touched = True
+        rec = head.recurrence
+        if rec.get("nextOccurrenceId"):
             continue
-        nd = _next_due(t.due_on, rec)
+        nd = _next_due(head.due_on, rec)
         if nd > today_iso:
             continue
         while True:
@@ -838,13 +868,29 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
             if after > today_iso or after == nd:
                 break
             nd = after
-        owner = t.owner_email or t.created_by or t.assignee_email or "system"
-        nxt = _spawn_next_occurrence(db, t, {"email": owner}, next_due_override=nd)
+        if nd in dates:
+            # The series already has this date - link to it instead of copying it.
+            head.recurrence = {**rec, "nextOccurrenceId": dates[nd].id}
+            touched = True
+            continue
+        owner = head.owner_email or head.created_by or head.assignee_email or "system"
+        nxt = _spawn_next_occurrence(db, head, {"email": owner}, next_due_override=nd)
         if nxt is not None:
             spawned.append(nxt)
-    if spawned:
+    if spawned or touched:
         db.commit()
     return spawned
+
+
+def _series_key(t: models.Task) -> tuple:
+    """What makes two tasks occurrences of the same recurring series. There is
+    no series id on a task, but every occurrence is a copy of the one before
+    it (_spawn_next_occurrence): same title, project, assignees and rule. The
+    rule is compared without its server-side markers (nextOccurrenceId, and
+    `count`, which counts down along the series)."""
+    rec = {k: v for k, v in (t.recurrence or {}).items() if k not in ("nextOccurrenceId", "count")}
+    return ((t.title or "").strip().lower(), t.project_id or "", tuple(sorted(task_assignees(t))),
+            json.dumps(rec, sort_keys=True, default=str))
 
 
 @router.get("")

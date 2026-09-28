@@ -26,12 +26,23 @@ reimplementing shift lookup - those already handle ScheduledShift ->
 ShiftAssignment -> preset fallback and, as of Sep 11, the Shift preset's own
 `timezone` field (e.g. GG India's shift stays anchored to IST) instead of
 guessing the employee's zone from their last punch's browser offset.
+
+Timing (Sep 27): the before-shift lead is `leadMinutes` in the config (30 to
+360, default 150). People with NO shift on their local "today" (a day off on
+their Shift preset, a weekend, or no preset and no published scheduled shift)
+used to never get a briefing. With `includeNoShift` on they get one at
+`defaultSendTime` (local HH:MM) in their own zone: their assigned Shift
+preset's timezone when they have one, else `defaultTimeZone`. Off by default
+so a deploy never starts mailing a new group of people on its own.
 """
 import asyncio
 import json
+import re
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time as dtime
 from html import escape
+
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
@@ -39,6 +50,7 @@ from sqlalchemy.orm import Session
 import models
 from database import SessionLocal
 import graph_mail
+import briefing_card
 import briefing_mail_actions
 import task_mail_actions
 import ticket_mail_templates
@@ -50,7 +62,29 @@ _SETTINGS_KEY = "daily_briefing_config"
 _DEFAULT_SETTINGS = {
     "mode": "off",              # off|test|live
     "test_recipients": [],
+    # Outlook card on the email (briefing_card.py), off | quick | full. Off by
+    # default (Sep 26): Outlook dictates a card's colors and buttons.
+    #   quick - our designed email plus a small collapsed "decisions waiting"
+    #           card on top whose Approve / Reject act inside Outlook.
+    #   full  - the whole briefing as a card, replacing the designed email.
+    # A saved True from the earlier on/off switch means "full".
+    "outlook_card": "off",
+    # Timing (Sep 27). leadMinutes = how long before a shift starts the
+    # briefing goes out. The other three cover people with no shift today:
+    # off by default, sent at defaultSendTime (local 24h HH:MM) in the
+    # person's own zone, else defaultTimeZone.
+    "leadMinutes": 150,
+    "includeNoShift": False,
+    "defaultSendTime": "07:00",
+    "defaultTimeZone": "America/Los_Angeles",
 }
+
+
+def card_style(cfg: dict) -> str:
+    v = cfg.get("outlook_card")
+    if v is True:
+        return "full"
+    return v if v in ("quick", "full") else "off"
 
 TRIGGER_MINUTES_BEFORE_SHIFT = 150   # 2.5h - agreed on the call
 SCAN_EVERY_SEC = 15 * 60             # tight enough to catch a shift-relative
@@ -59,6 +93,63 @@ SCAN_EVERY_SEC = 15 * 60             # tight enough to catch a shift-relative
                                       # for a similar per-person threshold
 LOOKBACK_HOURS_FIRST_RUN = 48        # "since" window when an employee has no
                                       # prior briefing logged yet
+LEAD_MINUTES_MIN, LEAD_MINUTES_MAX = 30, 360
+NO_SHIFT_CATCH_UP_MIN = 240          # a no-shift send still goes out if the
+                                      # scan (or a restart) runs up to 4h after
+                                      # the default time; later than that the
+                                      # day is skipped rather than mailing at night
+_FALLBACK_TZ = "America/Los_Angeles"
+_HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
+def _valid_zone(name) -> bool:
+    if not isinstance(name, str) or not name.strip():
+        return False
+    try:
+        ZoneInfo(name.strip())
+        return True
+    except (ZoneInfoNotFoundError, ValueError):
+        return False
+
+
+def validate_timing(patch: dict) -> dict:
+    """Checks and normalizes the timing keys of a config patch. Raises
+    ValueError with a readable message on a bad value; keys not present are
+    left alone."""
+    out = dict(patch)
+    if "leadMinutes" in out:
+        v = out["leadMinutes"]
+        if isinstance(v, bool) or not isinstance(v, int) or not (LEAD_MINUTES_MIN <= v <= LEAD_MINUTES_MAX):
+            raise ValueError(f"Minutes before shift must be a whole number from {LEAD_MINUTES_MIN} to {LEAD_MINUTES_MAX}.")
+    if "includeNoShift" in out and not isinstance(out["includeNoShift"], bool):
+        raise ValueError("includeNoShift must be true or false.")
+    if "defaultSendTime" in out:
+        v = str(out["defaultSendTime"] or "").strip()
+        if not _HHMM.match(v):
+            raise ValueError("Default send time must be HH:MM (24-hour), for example 07:00.")
+        out["defaultSendTime"] = v
+    if "defaultTimeZone" in out:
+        if not _valid_zone(out["defaultTimeZone"]):
+            raise ValueError("Default time zone must be a valid IANA name, for example America/Los_Angeles.")
+        out["defaultTimeZone"] = out["defaultTimeZone"].strip()
+    return out
+
+
+def lead_minutes(cfg: dict) -> int:
+    v = cfg.get("leadMinutes")
+    if isinstance(v, int) and not isinstance(v, bool) and LEAD_MINUTES_MIN <= v <= LEAD_MINUTES_MAX:
+        return v
+    return TRIGGER_MINUTES_BEFORE_SHIFT
+
+
+def _default_send_time(cfg: dict) -> dtime:
+    m = _HHMM.match(str(cfg.get("defaultSendTime") or ""))
+    return dtime(int(m.group(1)), int(m.group(2))) if m else dtime(7, 0)
+
+
+def _default_zone(cfg: dict) -> str:
+    v = cfg.get("defaultTimeZone")
+    return v.strip() if _valid_zone(v) else _FALLBACK_TZ
 
 
 def _now_iso() -> str:
@@ -124,7 +215,7 @@ def _already_logged_today(db: Session, email: str, briefing_date: str) -> bool:
             .first()) is not None
 
 
-def _trigger_due(db: Session, email: str) -> tuple:
+def _trigger_due(db: Session, email: str, lead: int = TRIGGER_MINUTES_BEFORE_SHIFT) -> tuple:
     """(due: bool, briefing_date: str, local_now: datetime) - due once the
     employee's SHIFT's own timezone has reached shift_start minus
     TRIGGER_MINUTES_BEFORE_SHIFT, for a shift on today's or tomorrow's date in
@@ -147,10 +238,51 @@ def _trigger_due(db: Session, email: str) -> tuple:
         hh, mm = shift[0].split(":")
         local_now = _shift_local_now(shift[2])
         shift_start = datetime.combine(dd, datetime.min.time()).replace(hour=int(hh), minute=int(mm))
-        trigger_at = shift_start - timedelta(minutes=TRIGGER_MINUTES_BEFORE_SHIFT)
+        trigger_at = shift_start - timedelta(minutes=lead)
         if trigger_at <= local_now < shift_start and not _already_logged_today(db, email, dd.isoformat()):
             return True, dd.isoformat(), local_now
     return False, "", _shift_local_now("America/Los_Angeles")
+
+
+def _no_shift_eligible(emp: "models.NexusEmployee") -> bool:
+    """Who the no-shift default may mail: active, not deleted, internal
+    (Microsoft 365) staff. Shift sends never needed this filter since only a
+    current employee has a shift; without it a default time would reach
+    offboarded people and HR-record-only externals."""
+    return ((emp.status or "active") == "active" and not (emp.deleted_at or "")
+            and (emp.identity_type or "internal") == "internal")
+
+
+def _person_zone(db: Session, email: str, cfg: dict) -> str:
+    """The person's own time zone when Nexus knows it (their assigned Shift
+    preset's timezone, which still holds on their days off), else the
+    configured default. NexusEmployee has no timezone column."""
+    assign = db.query(models.ShiftAssignment).filter(models.ShiftAssignment.employee_email == email).first()
+    if assign and assign.shift_id:
+        preset = db.query(models.Shift).filter(models.Shift.id == assign.shift_id).first()
+        if preset and _valid_zone(preset.timezone):
+            return preset.timezone.strip()
+    return _default_zone(cfg)
+
+
+def _no_shift_due(db: Session, email: str, cfg: dict) -> tuple:
+    """(due, briefing_date, local_now) for a person with no shift on their
+    local today. "No shift" is decided by the same _shift_start_for the shift
+    path uses: no published ScheduledShift on that date and, if they have a
+    Shift preset, the weekday is not one of its working days. Due from the
+    default send time until NO_SHIFT_CATCH_UP_MIN later. The dedupe row is per
+    local date, so a person whose shift path already logged today (or a shift
+    published after this sent) is never mailed twice for the same day."""
+    local_now = _shift_local_now(_person_zone(db, email, cfg))
+    today = local_now.date()
+    if _shift_start_for(db, email, today):
+        return False, "", local_now
+    send_at = datetime.combine(today, _default_send_time(cfg))
+    if not (send_at <= local_now < send_at + timedelta(minutes=NO_SHIFT_CATCH_UP_MIN)):
+        return False, "", local_now
+    if _already_logged_today(db, email, today.isoformat()):
+        return False, "", local_now
+    return True, today.isoformat(), local_now
 
 
 # ── Content ───────────────────────────────────────────────────────────────
@@ -556,6 +688,8 @@ def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> li
             # it, not just comment/react. Approval rows have their own
             # Approve/Reject; a completed row needs neither.
             "task_open": not bool(t.completed),
+            # For the Outlook card's Change Status list (briefing_card.py).
+            "project_id": t.project_id or "", "task_status": t.status or "",
         })
     _attach_task_comment_previews(db, rows)
     rows.extend(_item_needs_to_know_rows(db, email, since_iso, bool(my_reports)))
@@ -723,8 +857,22 @@ _SECTION_META = {
     "action_required": ("Action Required",                    "#b91c1c", "Need your action"),
     "needs_to_know":   ("Updates for You",                     "#b45309", "Updates for you"),
     "completed":       ("Completed Since Your Last Briefing",  "#15803d", "Completed"),
+    # Weekly Digest (weekly_digest.py, Sep 28) - rendered by the same code.
+    "overdue":         ("Overdue Tasks",                       "#b91c1c", "Overdue"),
+    "team_overdue":    ("Your Team's Overdue Work",            "#b45309", "Team members behind"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
+# Each section's tables carry that section's color (Pranshu, Sep 26): a light
+# tint for the rows, a deeper one for the header row, and a matching border,
+# so a table reads as part of its section at a glance.
+_TONE = {
+    # key: (row background, header background, border)
+    "action_required": ("#fef5f5", "#fce4e4", "#f1c7c7"),
+    "needs_to_know":   ("#fffaf0", "#fdefd5", "#f0d6a8"),
+    "completed":       ("#f3fbf5", "#dff3e6", "#bfe3cb"),
+    "overdue":         ("#fef5f5", "#fce4e4", "#f1c7c7"),
+    "team_overdue":    ("#fffaf0", "#fdefd5", "#f0d6a8"),
+}
 
 _MODULE_META = {
     "tasks":    "Tasks",
@@ -749,9 +897,15 @@ _MODULE_VIEW_URL = {
 _MODULE_CARD_CAP = 3
 _OVERFLOW_GROUP_CAP = 15
 
-_TH = (f"padding:8px 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;"
-       f"color:{_MUTED};text-align:left;background:{_SOFT};border-bottom:1px solid {_LINE}")
-_TD = f"padding:12px;vertical-align:top;border-top:1px solid {_LINE}"
+
+
+def _th(tone: tuple) -> str:
+    return (f"padding:8px 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;"
+            f"color:{_BODY};text-align:left;background:{tone[1]};border-bottom:1px solid {tone[2]}")
+
+
+def _td(tone: tuple) -> str:
+    return f"padding:12px;vertical-align:top;border-top:1px solid {tone[2]}"
 
 
 def _greeting(local_now: datetime) -> str:
@@ -777,11 +931,14 @@ def _recipient_local_now(db: Session, email: str) -> datetime:
     return _employee_now(db, email)
 
 
-def _button(label: str, url: str, primary: bool) -> str:
+# Button colors (Pranshu, Sep 26): Approve and Open in Nexus green, Reject red.
+_BUTTON_COLOR = {"approve": "#15803d", "reject": "#b91c1c", "open": "#166534"}
+
+
+def _button(label: str, url: str, kind: str) -> str:
+    color = _BUTTON_COLOR[kind]
     style = ("display:inline-block;padding:5px 14px;border-radius:4px;font-size:12px;font-weight:600;"
-             "text-decoration:none;margin:0 6px 4px 0;")
-    style += (f"background:#15803d;color:#ffffff;border:1px solid #15803d" if primary
-              else f"background:#ffffff;color:{_BODY};border:1px solid #d1d5db")
+             f"text-decoration:none;margin:0 6px 4px 0;background:{color};color:#ffffff;border:1px solid {color}")
     return f"<a href='{escape(url)}' class='nx-btn' style='{style}'>{escape(label)}</a>"
 
 
@@ -799,8 +956,8 @@ def _decision_buttons(kind: str, action_id: str, email: str) -> str:
     # Email link scanners (Outlook Safe Links, Gmail) prefetch every URL in a
     # message; each link opens a one-tap confirm page
     # (routers/briefing_actions.py) that only acts on its own POST.
-    return (_button("Approve", briefing_mail_actions.action_url(kind, action_id, "approve", email), True) +
-            _button("Reject", briefing_mail_actions.action_url(kind, action_id, "reject", email), False))
+    return (_button("Approve", briefing_mail_actions.action_url(kind, action_id, "approve", email), "approve") +
+            _button("Reject", briefing_mail_actions.action_url(kind, action_id, "reject", email), "reject"))
 
 
 def _row_actions_html(row: dict) -> str:
@@ -818,28 +975,38 @@ def _row_actions_html(row: dict) -> str:
         links += [("Comment", f"{base}&do=comment"), ("React", f"{base}&do=react")]
         if row.get("task_open"):
             links += [("Change Status", f"{base}&do=status"), ("Mark Complete", f"{base}&do=complete")]
-    if row.get("url"):
-        links.append(("Open in Nexus", row["url"]))
     if links:
         parts.append(f"<div style='margin-top:6px;line-height:1.8'>{_links(links)}</div>")
+    buttons = ""
+    if row.get("task_extend") and row.get("task_id"):
+        # Weekly Digest (Neil, Sep 28): "an option to extend the tasks" - the
+        # same signed one-tap page as the links above, do=extend
+        # (routers/mail_actions.py), which applies the app's own due-date rule.
+        tok = task_mail_actions.sign_token(row["task_id"], row.get("action_email", ""))
+        buttons += _button("Extend Due Date",
+                           f"{task_mail_actions.api_base()}/mail-actions/page?token={tok}&do=extend", "approve")
+    if row.get("url"):
+        buttons += _button("Open in Nexus", row["url"], "open")
+    if buttons:
+        parts.append(f"<div style='margin-top:8px'>{buttons}</div>")
     return "".join(parts)
 
 
-def _sub_actions_html(row: dict) -> str:
+def _sub_actions_html(row: dict, tone: tuple) -> str:
     """One Approve/Reject pair per request inside a bundled row (e.g. an
     employee with several pending time-off requests)."""
     subs = row.get("sub_actions") or []
     if not subs:
         return ""
     lines = "".join(
-        f"<tr><td style='padding:6px 0;font-size:12.5px;color:{_BODY};border-top:1px solid {_LINE}'>{escape(s['detail'])}</td>"
-        f"<td align='right' style='padding:6px 0 2px;border-top:1px solid {_LINE};white-space:nowrap'>"
+        f"<tr><td style='padding:6px 0;font-size:12.5px;color:{_BODY};border-top:1px solid {tone[2]}'>{escape(s['detail'])}</td>"
+        f"<td align='right' style='padding:6px 0 2px;border-top:1px solid {tone[2]};white-space:nowrap'>"
         f"{_decision_buttons(s['action_kind'], s['action_id'], s['action_email'])}</td></tr>"
         for s in subs)
     return f"<table width='100%' cellpadding='0' cellspacing='0' style='margin-top:8px;border-collapse:collapse'>{lines}</table>"
 
 
-def _comments_row_html(row: dict, colspan: int) -> str:
+def _comments_row_html(row: dict, colspan: int, tone: tuple) -> str:
     """Last 3 comments on a task (Sep 23), full width under its row so they
     stay readable instead of squeezed into one column."""
     if not row.get("comments"):
@@ -849,23 +1016,24 @@ def _comments_row_html(row: dict, colspan: int) -> str:
         f"<span style='font-weight:600;color:{_INK}'>{escape(c['author'])}:</span> {escape(c['body'])}</div>"
         for c in row["comments"])
     return (f"<tr><td colspan='{colspan}' class='nx-td' style='padding:0 12px 12px'>"
-            f"<div style='background:{_SOFT};border-left:3px solid #d1d5db;padding:8px 12px'>"
+            f"<div style='background:#ffffff;border-left:3px solid {tone[2]};padding:8px 12px'>"
             f"<div style='font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;"
             f"color:{_MUTED};margin-bottom:2px'>Recent Comments</div>{lines}</div></td></tr>")
 
 
-def _item_row_html(row: dict, with_ref: bool) -> str:
-    ref = (f"<td class='nx-td nx-ref' width='92' style='{_TD};font-size:12px;font-weight:600;color:{_MUTED};"
+def _item_row_html(row: dict, with_ref: bool, tone: tuple) -> str:
+    td = _td(tone)
+    ref = (f"<td class='nx-td nx-ref' width='92' style='{td};font-size:12px;font-weight:600;color:{_MUTED};"
            f"white-space:nowrap'>{escape(row.get('ref') or '')}</td>") if with_ref else ""
-    item = (f"<td class='nx-td' style='{_TD}'>"
+    item = (f"<td class='nx-td' style='{td}'>"
             f"<div style='font-size:13.5px;font-weight:600;color:{_INK};line-height:1.4'>{escape(row['title'])}</div>"
-            f"{_sub_actions_html(row)}{_row_actions_html(row)}</td>")
-    update = (f"<td class='nx-td nx-upd' width='34%' style='{_TD};font-size:13px;line-height:1.45;color:{_BODY}'>"
+            f"{_sub_actions_html(row, tone)}{_row_actions_html(row)}</td>")
+    update = (f"<td class='nx-td nx-upd' width='34%' style='{td};font-size:13px;line-height:1.45;color:{_BODY}'>"
               f"{escape(row.get('detail') or '')}</td>")
-    return f"<tr>{ref}{item}{update}</tr>{_comments_row_html(row, 3 if with_ref else 2)}"
+    return f"<tr>{ref}{item}{update}</tr>{_comments_row_html(row, 3 if with_ref else 2, tone)}"
 
 
-def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool) -> str:
+def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool, tone: tuple) -> str:
     """Compact title-only rows for everything past the cap - still in the
     same table, so the reader sees WHAT the rest is without leaving the email."""
     cols = 3 if with_ref else 2
@@ -876,7 +1044,7 @@ def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool) 
         g["count"] += 1
     by_title = list(groups.items())
     listed, overflow = by_title[:_OVERFLOW_GROUP_CAP], by_title[_OVERFLOW_GROUP_CAP:]
-    td = f"padding:8px 12px;vertical-align:top;border-top:1px solid {_LINE};font-size:12.5px;color:{_BODY}"
+    td = f"padding:8px 12px;vertical-align:top;border-top:1px solid {tone[2]};font-size:12.5px;color:{_BODY}"
     out = []
     for (ref, title), g in listed:
         count = f" <span style='color:{_MUTED}'>&times;{g['count']}</span>" if g["count"] > 1 else ""
@@ -889,8 +1057,8 @@ def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool) 
     if overflow:
         more = f"{sum(g['count'] for _, g in overflow)} more not listed. "
     view_url = (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}"
-    out.append(f"<tr><td colspan='{cols}' class='nx-td' style='padding:10px 12px;border-top:1px solid {_LINE};"
-               f"background:{_SOFT};font-size:12.5px;color:{_MUTED}'>{escape(more)}"
+    out.append(f"<tr><td colspan='{cols}' class='nx-td' style='padding:10px 12px;border-top:1px solid {tone[2]};"
+               f"background:{tone[1]};font-size:12.5px;color:{_BODY}'>{escape(more)}"
                f"{_links([(f'View All {len(shown) + len(hidden)} in Nexus', view_url)])}</td></tr>")
     return "".join(out)
 
@@ -905,24 +1073,28 @@ def _group_by_module(rows: list) -> list:
     return [(m, _MODULE_META.get(m, m.replace("_", " ").title()), buckets[m]) for m in order]
 
 
-def _module_table_html(module: str, label: str, rows: list) -> str:
+def _module_table_html(section: str, module: str, label: str, rows: list) -> str:
+    tone = _TONE[section]
     shown, hidden = rows[:_MODULE_CARD_CAP], rows[_MODULE_CARD_CAP:]
     with_ref = any(r.get("ref") for r in rows)
-    head = ((f"<th class='nx-th' style='{_TH}'>ID</th>" if with_ref else "") +
-            f"<th class='nx-th' style='{_TH}'>Item</th><th class='nx-th' style='{_TH}'>Update</th>")
-    body = "".join(_item_row_html(r, with_ref) for r in shown)
+    th = _th(tone)
+    head = ((f"<th class='nx-th' style='{th}'>ID</th>" if with_ref else "") +
+            f"<th class='nx-th' style='{th}'>Item</th><th class='nx-th' style='{th}'>Update</th>")
+    body = "".join(_item_row_html(r, with_ref, tone) for r in shown)
     if hidden:
-        body += _overflow_rows_html(module, shown, hidden, with_ref)
+        body += _overflow_rows_html(module, shown, hidden, with_ref, tone)
     return (f"<div style='margin:18px 0 8px;font-size:13px;font-weight:600;color:{_INK}'>{escape(label)} "
             f"<span style='font-weight:400;color:{_MUTED}'>({len(rows)})</span></div>"
-            f"<table width='100%' cellpadding='0' cellspacing='0' class='nx-tbl' "
-            f"style='border:1px solid {_LINE};border-collapse:collapse;border-radius:6px'>"
+            # bgcolor as well as the style: Outlook desktop honors the attribute
+            # on tables more reliably than a CSS background.
+            f"<table width='100%' cellpadding='0' cellspacing='0' class='nx-tbl' bgcolor='{tone[0]}' "
+            f"style='background:{tone[0]};border:1px solid {tone[2]};border-collapse:collapse;border-radius:6px'>"
             f"<tr class='nx-head'>{head}</tr>{body}</table>")
 
 
-def _section_html(key: str, rows: list) -> str:
+def _section_html(key: str, rows: list, expanded: bool = False) -> str:
     heading, accent, _ = _SECTION_META[key]
-    tables = "".join(_module_table_html(m, label, grows) for m, label, grows in _group_by_module(rows))
+    tables = "".join(_module_table_html(key, m, label, grows) for m, label, grows in _group_by_module(rows))
     sid = f"nx-sec-{key}"
     # Checkbox-hack collapse, collapsed by default where the <style> CSS runs.
     # The content's own inline style is display:block, so a client that
@@ -931,7 +1103,7 @@ def _section_html(key: str, rows: list) -> str:
     # (Sep 22).
     return f"""
     <tr><td class="nx-pad" style="padding:26px 32px 0">
-      <input type="checkbox" id="{sid}" class="nx-acc" style="display:none;mso-hide:all">
+      <input type="checkbox" id="{sid}" class="nx-acc"{" checked" if expanded else ""} style="display:none;mso-hide:all">
       <label for="{sid}" class="nx-acc-label" style="display:block;cursor:pointer">
         <table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:2px solid {accent}">
           <tr>
@@ -945,31 +1117,50 @@ def _section_html(key: str, rows: list) -> str:
     </td></tr>"""
 
 
-def _summary_html(sections: dict) -> str:
-    present = [k for k in _ORDER if sections.get(k)]
+def _summary_html(sections: dict, order: list = None) -> str:
+    present = [k for k in (order or _ORDER) if sections.get(k)]
     if not present:
         return f"<div style='font-size:13.5px;color:{_MUTED}'>Nothing new since your last briefing.</div>"
     cells = []
     for i, k in enumerate(present):
         _, accent, noun = _SECTION_META[k]
-        divider = f"border-left:1px solid {_LINE};" if i else ""
-        cells.append(f"<td class='nx-kpi' width='{100 // len(present)}%' style='{divider}padding:14px 18px;vertical-align:top'>"
-                     f"<div style='font-size:24px;font-weight:600;color:{accent};line-height:1'>{len(sections[k])}</div>"
-                     f"<div style='font-size:12px;color:{_MUTED};margin-top:6px'>{escape(noun)}</div></td>")
-    return (f"<table width='100%' cellpadding='0' cellspacing='0' style='border:1px solid {_LINE};"
-            f"border-collapse:collapse'><tr>{''.join(cells)}</tr></table>")
+        # Solid section color with white text (Pranshu, Sep 26: the light
+        # tints were too faint to read at a glance). A white gap between
+        # tiles keeps them separate.
+        gap = "border-left:6px solid #ffffff;" if i else ""
+        cells.append(f"<td class='nx-kpi' width='{100 // len(present)}%' bgcolor='{accent}' "
+                     f"style='{gap}background:{accent};padding:14px 18px;vertical-align:top'>"
+                     f"<div style='font-size:24px;font-weight:600;color:#ffffff;line-height:1'>{len(sections[k])}</div>"
+                     f"<div style='font-size:12px;color:#ffffff;margin-top:6px'>{escape(noun)}</div></td>")
+    return (f"<table width='100%' cellpadding='0' cellspacing='0' style='border-collapse:collapse'>"
+            f"<tr>{''.join(cells)}</tr></table>")
+
+
+_DAILY_FOOTER = ("You receive one briefing a day, before your shift starts (or at a set time on a day without "
+                 "a shift). It lists what needs your attention in Nexus since your last briefing.")
 
 
 def render_email(first_name: str, briefing_date: str, sections: dict,
-                 greeting: str = "Hello", logo_url: str = "") -> tuple:
+                 greeting: str = "Hello", logo_url: str = "", *,
+                 title: str = "Daily Briefing", date_label: str = "",
+                 intro: str = "Here is what changed since your last briefing.",
+                 footer: str = _DAILY_FOOTER, order: list = None, expanded: bool = False,
+                 cta_label: str = "Open My Briefing", cta_path: str = "/briefing",
+                 cta_hint: str = "Collapse sections and approve, comment or complete in one click.") -> tuple:
+    """The briefing email. The keyword-only arguments exist for the Weekly
+    Digest (weekly_digest.py), which reuses this layout with its own section;
+    their defaults are the daily email exactly. `expanded` starts sections
+    open instead of collapsed; cta_* is the page the top link and the closing
+    button open."""
+    order = order or _ORDER
     _d = datetime.strptime(briefing_date, "%Y-%m-%d")
-    weekday_date = f"{_d.strftime('%A')}, {_d.strftime('%m/%d/%Y')}"
-    subject = f"Your Daily Briefing - {weekday_date}"
+    weekday_date = date_label or f"{_d.strftime('%A')}, {_d.strftime('%m/%d/%Y')}"
+    subject = f"Your {title} - {weekday_date}"
     logo = (f"<img src='{escape(logo_url)}' alt='Greens Global' height='26' style='display:block;border:0'>"
             if logo_url else
             "<span style='color:#ffffff;font-size:14px;font-weight:700;letter-spacing:.18em'>GREENS GLOBAL</span>")
     salutation = f"{greeting}, {escape(first_name)}." if first_name else f"{greeting}."
-    body_sections = "".join(_section_html(k, sections[k]) for k in _ORDER if sections.get(k))
+    body_sections = "".join(_section_html(k, sections[k], expanded) for k in order if sections.get(k))
     html = f"""<div style="background:#f3f4f6;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <style>
     .nx-acc:not(:checked) ~ .nx-content {{ display:none !important; }}
@@ -996,20 +1187,24 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
     </tr>
     <tr>
       <td class="nx-pad" style="padding:28px 32px 0">
-        <div style="font-size:21px;font-weight:600;color:{_INK}">Daily Briefing</div>
-        <div style="font-size:14px;line-height:1.55;color:{_BODY};margin-top:6px">{salutation} Here is what changed since your last briefing.</div>
+        <div style="font-size:21px;font-weight:600;color:{_INK}">{escape(title)}</div>
+        <div style="font-size:14px;line-height:1.55;color:{_BODY};margin-top:6px">{salutation} {escape(intro)}</div>
       </td>
     </tr>
-    <tr><td class="nx-pad" style="padding:20px 32px 0">{_summary_html(sections)}</td></tr>
+    <tr><td class="nx-pad" style="padding:20px 32px 0">{_summary_html(sections, order)}</td></tr>
+    <tr><td class="nx-pad" style="padding:12px 32px 0;font-size:13px">
+      <a href="{escape(app_url())}{escape(cta_path)}" style="color:{_LINK};font-weight:600;text-decoration:none">{escape(cta_label)} in Nexus &rarr;</a>
+    </td></tr>
     {body_sections}
     <tr>
       <td class="nx-pad" style="padding:32px 32px 28px">
-        <a href="{escape(app_url())}" class="nx-btn" style="display:inline-block;padding:10px 22px;border-radius:4px;background:{_BRAND};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px">Open Nexus</a>
+        <a href="{escape(app_url())}{escape(cta_path)}" class="nx-btn" style="display:inline-block;padding:10px 22px;border-radius:4px;background:{_BRAND};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px">{escape(cta_label)}</a>
+        <div style="font-size:12px;color:{_MUTED};margin-top:8px">{escape(cta_hint)}</div>
       </td>
     </tr>
     <tr>
       <td class="nx-pad" style="background:{_SOFT};border-top:1px solid {_LINE};padding:16px 32px;font-size:11.5px;line-height:1.6;color:{_MUTED}">
-        You receive one briefing a day, before your shift starts. It lists what needs your attention in Nexus since your last briefing.
+        {escape(footer)}
       </td>
     </tr>
   </table>
@@ -1017,9 +1212,122 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
     return subject, html
 
 
+# ── Outlook card ────────────────────────────────────────────────────────
+
+def _logo_url(db: Session) -> str:
+    # Same logo the ticket emails carry (Ticket settings), so both read as one brand.
+    try:
+        import ticket_notify
+        return ticket_notify.get_settings(db).get("logoUrl") or ""
+    except Exception:
+        return ""
+
+
+def outlook_card(db: Session, email: str, first_name: str, sections: dict, briefing_date: str,
+                 since_iso: str, *, greeting: str, logo_url: str, outcome: str = "") -> dict:
+    """The briefing as an Outlook card (briefing_card.py). Also called by
+    routers/briefing_actions.py to redraw the card after a click."""
+    _d = datetime.strptime(briefing_date, "%Y-%m-%d")
+    base = app_url()
+    return briefing_card.build_card(
+        sections=sections, first_name=first_name, greeting=greeting,
+        weekday_date=f"{_d.strftime('%A')}, {_d.strftime('%m/%d/%Y')}",
+        briefing_date=briefing_date, since_iso=since_iso, logo_url=logo_url, app_url=base,
+        view_urls={m: f"{base}{path}" for m, path in _MODULE_VIEW_URL.items()},
+        status_options=lambda project_id: task_mail_actions.status_options(db, project_id),
+        outcome=outcome)
+
+
+def quick_card(sections: dict, briefing_date: str, since_iso: str, outcome: str = ""):
+    """Option A (briefing_card.build_quick_card): None when nothing needs a decision."""
+    return briefing_card.build_quick_card(action_rows=sections.get("action_required") or [],
+                                          briefing_date=briefing_date, since_iso=since_iso, outcome=outcome,
+                                          briefing_url=f"{app_url()}/briefing")
+
+
+def with_card(html: str, card: dict) -> str:
+    """Embeds the card the same way task_mail_actions.decorate() does."""
+    card_json = json.dumps(card, ensure_ascii=False).replace("</", "<\\/")
+    return ("<html><head><meta http-equiv='Content-Type' content='text/html; charset=utf-8'>"
+            f"<script type='application/adaptivecard+json'>{card_json}</script>"
+            f"</head><body>{html}</body></html>")
+
+
+# ── My Briefing page (Sep 26) ───────────────────────────────────────────
+# The briefing as a Nexus page (/briefing, frontend/src/views/MyBriefing.jsx):
+# same content as the email, but with collapsible sections and actions that
+# run in place. It covers the same window as the person's latest email,
+# extended to now, so it matches what they just read and stays current.
+
+def _page_window(db: Session, email: str) -> str:
+    sent = (db.query(models.NexusDailyBriefingLog)
+            .filter(models.NexusDailyBriefingLog.employee_email == email,
+                    models.NexusDailyBriefingLog.sent_at != "")
+            .order_by(models.NexusDailyBriefingLog.sent_at.desc()).limit(2).all())
+    if len(sent) == 2:
+        return sent[1].sent_at
+    anchor = datetime.now(timezone.utc)
+    if sent:
+        try:
+            anchor = datetime.strptime(sent[0].sent_at[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return (anchor - timedelta(hours=LOOKBACK_HOURS_FIRST_RUN)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _page_row(db: Session, row: dict, status_cache: dict) -> dict:
+    base = app_url()
+    url = row.get("url") or ""
+    out = {
+        "title": row["title"], "ref": row.get("ref") or "", "detail": row.get("detail") or "",
+        "module": row.get("module") or "other",
+        # In-app path, so the page navigates instead of reloading the whole app.
+        "path": url[len(base):] if base and url.startswith(base) else url,
+        "comments": row.get("comments") or [],
+    }
+    if row.get("action_kind"):
+        out["decision"] = {"kind": row["action_kind"], "id": row["action_id"]}
+    if row.get("sub_actions"):
+        out["subDecisions"] = [{"detail": x["detail"], "kind": x["action_kind"], "id": x["action_id"]}
+                               for x in row["sub_actions"]]
+    if row.get("task_id"):
+        out["taskId"] = row["task_id"]
+        out["taskOpen"] = bool(row.get("task_open"))
+        if row.get("task_open"):
+            pid = row.get("project_id") or ""
+            if pid not in status_cache:
+                status_cache[pid] = [{"value": k, "label": v} for k, v in task_mail_actions.status_options(db, pid)]
+            out["statusOptions"] = status_cache[pid]
+            out["taskStatus"] = row.get("task_status") or ""
+    return out
+
+
+def my_briefing(db: Session, email: str) -> dict:
+    email = (email or "").lower()
+    local_now = _recipient_local_now(db, email)
+    briefing_date = local_now.date().isoformat()
+    since_iso = _page_window(db, email)
+    sections = build_sections(db, email, since_iso, briefing_date)
+    emp = (db.query(models.NexusEmployee)
+           .filter(func.lower(models.NexusEmployee.work_email) == email).first())
+    status_cache: dict = {}
+    return {
+        "greeting": _greeting(local_now),
+        "firstName": ((emp.first_name if emp else "") or "").strip(),
+        "date": briefing_date,
+        "since": since_iso,
+        "reactions": task_mail_actions.REACTION_EMOJIS,
+        "sections": [{
+            "key": k, "label": _SECTION_META[k][0],
+            "rows": [_page_row(db, r, status_cache) for r in sections[k]],
+        } for k in _ORDER if sections.get(k)],
+    }
+
+
 # ── Send + scan ─────────────────────────────────────────────────────────
 
-def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date: str) -> None:
+def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date: str,
+              local_now: datetime = None) -> None:
     since_iso = ""
     last = _last_log(db, emp.work_email)
     if last and last.sent_at:
@@ -1028,16 +1336,24 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
         since_iso = (datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS_FIRST_RUN)).strftime("%Y-%m-%dT%H:%M:%S")
 
     sections = build_sections(db, emp.work_email, since_iso, briefing_date)
-    try:
-        import ticket_notify
-        logo_url = ticket_notify.get_settings(db).get("logoUrl") or ""
-    except Exception:
-        logo_url = ""
-    subject, html = render_email((emp.first_name or "").strip(), briefing_date, sections,
-                                 greeting=_greeting(_recipient_local_now(db, emp.work_email)),
-                                 logo_url=logo_url)
+    first_name = (emp.first_name or "").strip()
+    greeting = _greeting(local_now or _recipient_local_now(db, emp.work_email))
+    logo_url = _logo_url(db)
+    subject, html = render_email(first_name, briefing_date, sections, greeting=greeting, logo_url=logo_url)
 
     mode = cfg.get("mode", "off")
+    # Outlook card: in live mode for everyone; in test mode only on the tester's
+    # OWN briefing, since its buttons act for real and a tester must not be able
+    # to approve other people's items from a preview copy.
+    test_own = mode == "test" and emp.work_email.lower() in {
+        (e or "").strip().lower() for e in (cfg.get("test_recipients") or [])}
+    style = card_style(cfg)
+    if style != "off" and task_mail_actions.am_enabled() and sections and (mode == "live" or test_own):
+        card = (quick_card(sections, briefing_date, since_iso) if style == "quick" else
+                outlook_card(db, emp.work_email, first_name, sections, briefing_date, since_iso,
+                             greeting=greeting, logo_url=logo_url))
+        if card:
+            html = with_card(html, card)
     sent_at = ""
     if mode in ("test", "live") and sections:
         to = [emp.work_email] if mode == "live" else list(cfg.get("test_recipients") or [])
@@ -1105,6 +1421,8 @@ def _scan_once() -> int:
     sent = 0
     try:
         cfg = get_settings(db)
+        lead = lead_minutes(cfg)
+        no_shift = cfg.get("includeNoShift") is True
         employees = (db.query(models.NexusEmployee)
                      .filter(models.NexusEmployee.work_email != "").all())
         for emp in employees:
@@ -1114,11 +1432,13 @@ def _scan_once() -> int:
                 # _send_one's own commit releases it on the due path, the
                 # explicit rollback below releases it on the not-due path.
                 _acquire_employee_lock(db, emp.work_email)
-                due, briefing_date, _ = _trigger_due(db, emp.work_email)
+                due, briefing_date, local_now = _trigger_due(db, emp.work_email, lead)
+                if not due and no_shift and _no_shift_eligible(emp):
+                    due, briefing_date, local_now = _no_shift_due(db, emp.work_email, cfg)
                 if not due:
                     db.rollback()
                     continue
-                _send_one(db, emp, cfg, briefing_date)
+                _send_one(db, emp, cfg, briefing_date, local_now)
                 sent += 1
             except Exception as e:
                 db.rollback()

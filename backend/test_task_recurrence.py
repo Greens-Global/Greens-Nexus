@@ -140,3 +140,85 @@ class PeriodicSpawnTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class ScheduledSeriesTests(unittest.TestCase):
+    """The daily schedule creates ONE occurrence per series per date (Sep 28).
+    Before, every unmarked row of a series spawned its own copy - occurrences
+    completed before Sep 18 had no `nextOccurrenceId` marker - so a weekly
+    task showed up 13 times on the same Monday."""
+
+    WEEKLY_MON = {"freq": "weekly", "interval": 1, "daysOfWeek": [1]}
+    TODAY = "2026-09-28"   # a Monday
+
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self.db.query(models.Task).delete()
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.close()
+
+    def _task(self, due, *, completed=False, rec=None, assignee="gm04@greensstorage.com", **kw):
+        tid = gen_id()
+        self.db.add(models.Task(id=tid, title="Take out all Trash", due_on=due, completed=completed,
+                                completed_at=(due + "T17:00:00") if completed else "",
+                                assignee_email=assignee, assignee_emails=[assignee],
+                                recurrence=dict(rec or self.WEEKLY_MON), created_at=now_iso(), **kw))
+        self.db.commit()
+        return tid
+
+    def _run(self, today=None):
+        from routers.tasks import spawn_scheduled_occurrences
+        return spawn_scheduled_occurrences(self.db, today or self.TODAY)
+
+    def _open_on(self, due):
+        self.db.expire_all()
+        return self.db.query(models.Task).filter(models.Task.due_on == due,
+                                                 models.Task.completed == False).all()  # noqa: E712
+
+    def test_old_completed_occurrences_spawn_one_copy_not_one_each(self):
+        # Completed before Sep 18: each kept its rule and no marker.
+        for due in ("2026-09-07", "2026-09-14", "2026-09-21"):
+            self._task(due, completed=True)
+        self.assertEqual(len(self._run()), 1)
+        self.assertEqual(len(self._open_on("2026-09-28")), 1)
+        self.assertEqual(self._run(), [])   # same day again: nothing new
+
+    def test_existing_duplicate_chains_collapse_into_one(self):
+        # Three parallel chains, each with an open copy due last Monday.
+        for _ in range(3):
+            self._task("2026-09-21")
+        self.assertEqual(len(self._run()), 1)
+        self.assertEqual(len(self._open_on("2026-09-28")), 1)
+        # Next week still only one.
+        self.assertEqual(len(self._run("2026-10-05")), 1)
+        self.assertEqual(len(self._open_on("2026-10-05")), 1)
+
+    def test_a_date_the_series_already_has_is_not_created_again(self):
+        self._task("2026-09-21")
+        self._task("2026-09-28")    # this week's already exists
+        self.assertEqual(self._run(), [])
+        self.assertEqual(len(self._open_on("2026-09-28")), 1)
+
+    def test_completing_a_superseded_copy_does_not_start_a_new_chain(self):
+        a, b = self._task("2026-09-21"), self._task("2026-09-21")
+        self._run()   # one of them carries the series; the other is stamped
+        self.db.expire_all()
+        stamped = [t for t in self.db.query(models.Task).filter(models.Task.id.in_([a, b])).all()
+                   if (t.recurrence or {}).get("nextOccurrenceId")]
+        self.assertEqual(len(stamped), 2)
+
+    def test_tasks_in_the_recycle_bin_never_spawn(self):
+        self._task("2026-09-21", deleted_at="2026-09-22T00:00:00")
+        self.assertEqual(self._run(), [])
+
+    def test_different_series_each_get_their_own(self):
+        self._task("2026-09-21", assignee="gm04@greensstorage.com")
+        self._task("2026-09-21", assignee="gm05@greensstorage.com")
+        self.assertEqual(len(self._run()), 2)

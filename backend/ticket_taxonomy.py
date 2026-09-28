@@ -10,12 +10,22 @@ pattern ticket_notify.py and timeclock.py's auto-lunch rules use.
 
 Overrides only, not a full type catalogue: a type's KEY, icon and color stay
 defined in the frontend (ticketMeta.js) - this only overrides label, hint,
-whether/where it appears in the intake picker, and its intake field list.
-Adding a brand-new type (with a new icon) is still a code change; renaming,
-reordering, retiring from intake, and fully managing an existing type's
-questions is not.
+whether/where it appears in the intake picker, its intake field list, and
+whether it requires approval. Adding a brand-new type (with a new icon) is
+still a code change; renaming, reordering, retiring from intake, and fully
+managing an existing type's questions is not.
+
+Approval per type (Sep 2026): `types[<key>].requiresApproval` is the admin's
+on/off switch for whether a NEW ticket of that type parks for approval before
+the desk can work it. It replaces the hardcoded APPROVAL_REQUIRED_TYPES set
+that used to live in routers/tickets.py. The switch is read only at the
+moment the gate is decided (a ticket is created, or re-typed) and the outcome
+is stored on the ticket as approval_status, so flipping it never changes a
+ticket that already exists - see requires_approval() below.
 """
 import json
+import re
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -28,13 +38,33 @@ _SETTINGS_KEY = "ticket_taxonomy_config"
 # fresh override starts from in the Admin editor.
 _DEFAULT_SLA_HOURS = {"urgent": 24, "high": 48, "medium": 72, "low": 168}
 
+# The three types that were hardcoded as gated before the switch existed.
+# They stay gated until an admin turns them off, so nothing changes on
+# deploy. Every other type - including any type key an admin configures that
+# is not in this set - defaults to NOT requiring approval.
+#
+# Why these three: they commit somebody else's money, access or production
+# config, so a second person signs off. A bug report or a question commits
+# nothing, and gating those would only add a step between a user and help.
+DEFAULT_APPROVAL_TYPES = frozenset({"service_request", "change_request", "access_request"})
+
+# A type key as the rest of the ticket module writes them ("access_request").
+_TYPE_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+class TaxonomyError(ValueError):
+    """A save patch the server refuses - the router turns it into a 400."""
+
+
 _DEFAULTS = {
     "slaTargetHours": _DEFAULT_SLA_HOURS,
     # Every type key is absent by default - frontend falls back to its own
     # compiled-in TICKET_TYPE_META/TYPE_FIELDS/TICKET_TYPE_ORDER until an
     # admin actually edits a type, at which point that type's key gets an
-    # entry here: { label?, hint?, fields? }. typeOrder, if present, fully
-    # replaces the intake picker's order/membership.
+    # entry here: { label?, hint?, fields?, requiresApproval? }. typeOrder, if
+    # present, fully replaces the intake picker's order/membership.
+    # (get_config always fills requiresApproval in for DEFAULT_APPROVAL_TYPES,
+    # so those three keys are present in what it returns.)
     "types": {},
     "typeOrder": None,
     # Company field on intake (Sep 19, Pranshu: "End user don't have the
@@ -51,17 +81,43 @@ _DEFAULTS = {
 }
 
 
+def _fill_approval_defaults(types: dict) -> None:
+    """Makes `requiresApproval` explicit for the default-gated types that have
+    no saved choice yet, so the Admin editor (and every ticket screen) reads
+    the effective value straight off the config instead of re-deriving the
+    default. Any other type without the flag is simply not gated."""
+    for key in DEFAULT_APPROVAL_TYPES:
+        entry = types.setdefault(key, {})
+        if not isinstance(entry.get("requiresApproval"), bool):
+            entry["requiresApproval"] = True
+
+
+def _validate_types_patch(types: Any) -> None:
+    if not isinstance(types, dict):
+        raise TaxonomyError("types must be an object keyed by ticket type.")
+    for key, entry in types.items():
+        if not isinstance(key, str) or not _TYPE_KEY_RE.match(key):
+            raise TaxonomyError(f"Invalid ticket type key: {key!r}.")
+        if not isinstance(entry, dict):
+            raise TaxonomyError(f"Settings for ticket type {key!r} must be an object.")
+        if "requiresApproval" in entry and not isinstance(entry["requiresApproval"], bool):
+            raise TaxonomyError(f"requiresApproval for ticket type {key!r} must be true or false.")
+
+
 def get_config(db: Session) -> dict:
     row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
     if not row or not row.value:
-        return json.loads(json.dumps(_DEFAULTS))
+        merged = json.loads(json.dumps(_DEFAULTS))
+        _fill_approval_defaults(merged["types"])
+        return merged
     try:
         cfg = json.loads(row.value)
     except (TypeError, ValueError):
         cfg = {}
     merged = json.loads(json.dumps(_DEFAULTS))
     merged["slaTargetHours"] = {**_DEFAULT_SLA_HOURS, **(cfg.get("slaTargetHours") or {})}
-    merged["types"] = cfg.get("types") or {}
+    merged["types"] = {k: dict(v) for k, v in (cfg.get("types") or {}).items() if isinstance(v, dict)}
+    _fill_approval_defaults(merged["types"])
     if isinstance(cfg.get("typeOrder"), list):
         merged["typeOrder"] = cfg["typeOrder"]
     cf = cfg.get("companyField") or {}
@@ -73,11 +129,19 @@ def get_config(db: Session) -> dict:
 
 
 def save_config(db: Session, patch: dict, actor_email: str) -> dict:
+    if not isinstance(patch, dict):
+        raise TaxonomyError("Settings must be an object.")
+    if "types" in patch:
+        _validate_types_patch(patch["types"])
     merged = get_config(db)
     if "slaTargetHours" in patch and isinstance(patch["slaTargetHours"], dict):
         merged["slaTargetHours"] = {**merged["slaTargetHours"], **patch["slaTargetHours"]}
-    if "types" in patch and isinstance(patch["types"], dict):
-        merged["types"] = {**merged["types"], **patch["types"]}
+    if "types" in patch:
+        # Per-type entries replace wholesale (the editor always sends a type's
+        # full entry). A default-gated type whose entry arrives without the
+        # flag keeps its default (True) rather than silently losing its gate.
+        merged["types"] = {**merged["types"], **{k: dict(v) for k, v in patch["types"].items()}}
+        _fill_approval_defaults(merged["types"])
     if "typeOrder" in patch:
         merged["typeOrder"] = patch["typeOrder"]
     if "companyField" in patch and isinstance(patch["companyField"], dict):
@@ -114,3 +178,21 @@ def company_field(db: Session) -> dict:
     requester's own company_id choice is honoured, same never-trust-the-UI-
     alone posture as every other permission check in that file."""
     return get_config(db)["companyField"]
+
+
+def requires_approval(db: Session, type_: str) -> bool:
+    """Whether a ticket of this type, created (or re-typed) NOW, parks for
+    approval. The authoritative read for create_ticket / update_ticket in
+    routers/tickets.py, through the same get_config path sla_hours and
+    company_field use, so a saved switch takes effect on the next ticket with
+    no redeploy.
+
+    Only ever consulted at the moment the gate is decided. The outcome is
+    stored on the ticket (approval_status), so turning the switch on or off
+    later never re-gates, releases or otherwise changes an existing ticket."""
+    key = (type_ or "").strip()
+    entry = get_config(db)["types"].get(key)
+    flag = entry.get("requiresApproval") if isinstance(entry, dict) else None
+    if isinstance(flag, bool):
+        return flag
+    return key in DEFAULT_APPROVAL_TYPES

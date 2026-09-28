@@ -1830,6 +1830,7 @@ def sync_photos(user: dict = Depends(require_hr_write), db: Session = Depends(ge
 
 def _welcome_html(emp: NexusEmployee, upn: str) -> str:
     from html import escape
+    import email_theme
     first = escape(emp.first_name)
     role_line = " · ".join(x for x in (emp.job_title, emp.department) if x)
     detail_rows = "".join(
@@ -1843,11 +1844,17 @@ def _welcome_html(emp: NexusEmployee, upn: str) -> str:
             ("Location", emp.location or ""),
         ) if value
     )
+    # Header, accent and footer lines from the shared email theme
+    # (email_theme.py); the defaults render exactly today's welcome.
+    th = email_theme.current()
+    wordmark = '<div style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:4px">GREENS GLOBAL</div>'
+    # The details box is a light green tint; a custom accent gets a neutral one.
+    box_bg, box_line = ('#f9fafb', '#e5e7eb') if th.custom_accent else ('#f0f7f3', '#cde9d9')
     return f"""<div style="background:#f4f5f7;padding:32px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <table align="center" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
     <tr>
-      <td style="background:#0f3d2e;padding:34px 36px 30px;text-align:center">
-        <div style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:4px">GREENS GLOBAL</div>
+      <td style="background:{th.color('#0f3d2e')};padding:34px 36px 30px;text-align:center">
+        {th.logo_block(wordmark=wordmark, height=36, align="center")}
         <div style="color:#ffffff;font-size:26px;font-weight:800;margin-top:22px;line-height:1.3">Welcome aboard, {first}! 🎉</div>
         <div style="color:#cde9d9;font-size:14px;margin-top:8px">We're genuinely glad you're here.</div>
       </td>
@@ -1862,13 +1869,13 @@ def _welcome_html(emp: NexusEmployee, upn: str) -> str:
           Your company account gives you email, Teams, and the Nexus portal, the home for
           everything from equipment requests to time off. Here's everything you need for day one:
         </p>
-        <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f7f3;border:1px solid #cde9d9;border-radius:12px;border-collapse:separate;margin-bottom:20px">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:{box_bg};border:1px solid {box_line};border-radius:12px;border-collapse:separate;margin-bottom:20px">
           <tr><td style="padding:16px 20px 8px">
-            <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:#0f3d2e;margin-bottom:4px">YOUR DETAILS</div>
+            <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:{th.color('#0f3d2e')};margin-bottom:4px">YOUR DETAILS</div>
             <table cellpadding="0" cellspacing="0" width="100%">{detail_rows}</table>
           </td></tr>
         </table>
-        <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:#0f3d2e;margin-bottom:10px">YOUR FIRST STEPS</div>
+        <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:{th.color('#0f3d2e')};margin-bottom:10px">YOUR FIRST STEPS</div>
         <table cellpadding="0" cellspacing="0" width="100%" style="margin-bottom:6px">
           <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>1.</strong>&nbsp; Go to <a href="https://office.com" style="color:#15803d;font-weight:600">office.com</a> and sign in with <strong>{upn}</strong>.</td></tr>
           <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>2.</strong>&nbsp; Use the temporary password HR shares with you directly. You'll be asked to set your own right away. (We never email passwords.)</td></tr>
@@ -1887,7 +1894,7 @@ def _welcome_html(emp: NexusEmployee, upn: str) -> str:
     </tr>
     <tr>
       <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 36px;font-size:11.5px;color:#6b7280;line-height:1.5">
-        Sent via Nexus. This mailbox isn't monitored. For help, contact HR or your manager directly.
+        Sent via Nexus. This mailbox isn't monitored. For help, contact HR or your manager directly.{th.footer_lines()}
       </td>
     </tr>
   </table>

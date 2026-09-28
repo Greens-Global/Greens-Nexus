@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 
 // Support > Documentation: every module page must render (it is one big data
 // file, so a typo in one entry would otherwise only show up when someone
@@ -91,6 +91,35 @@ describe('Support documentation', () => {
     const names = indexButtons(container).map((b) => b.textContent);
     expect(names).toContain('Workday');
     expect(names).not.toContain('Investor Relations');
+  });
+
+  it('search understands the words people use, not just the words on the page', () => {
+    as({ admin: true });
+    const { container } = render(<SupportDocs />);
+    fireEvent.change(screen.getByLabelText('Search the documentation'), { target: { value: 'pto' } });
+    expect(indexButtons(container).map((b) => b.textContent)).toContain('Workday');
+  });
+
+  it('opens at a section a help search asked for (before mounting, and while open)', async () => {
+    const { openDoc } = await import('./openDoc');
+    const { sectionDomId, walkthroughAnchor } = await import('./docsSearch');
+    as({});
+    openDoc('workday', walkthroughAnchor('Request Time Off'));   // tab not mounted yet
+    const { container } = render(<SupportDocs />);
+    expect(screen.getByRole('heading', { level: 2, name: 'Workday' })).toBeTruthy();
+    expect(container.querySelector(`#${sectionDomId('workday', walkthroughAnchor('Request Time Off'))}`)).toBeTruthy();
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('nexus:docs-open', { detail: { docId: 'item-management', anchor: null } }));
+    });
+    expect(screen.getByRole('heading', { level: 2, name: 'Item Management' })).toBeTruthy();
+  });
+
+  it('opens the page named in a ?doc= link, then drops it from the URL', () => {
+    as({});
+    window.history.replaceState(null, '', '/support/documentation?doc=item-management&section=tips');
+    render(<SupportDocs />);
+    expect(screen.getByRole('heading', { level: 2, name: 'Item Management' })).toBeTruthy();
+    expect(window.location.search).toBe('');
   });
 
   it('content is complete and follows the house style', () => {
