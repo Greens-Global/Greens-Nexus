@@ -21,7 +21,11 @@ models.Base.metadata.create_all(bind=database.engine)
 from sqlalchemy import text as _text
 with database.engine.connect() as _c:
     for _sql in ("ALTER TABLE scheduled_shifts ADD COLUMN open_slots INTEGER DEFAULT 0",
-                 "ALTER TABLE scheduled_shifts ADD COLUMN published INTEGER DEFAULT 1"):
+                 "ALTER TABLE scheduled_shifts ADD COLUMN published INTEGER DEFAULT 1",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN pending_json TEXT DEFAULT ''",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
+                 "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0"):
         try:
             _c.execute(_text(_sql)); _c.commit()
         except Exception:
@@ -77,6 +81,7 @@ class ShiftPublishTests(unittest.TestCase):
                 db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == gid).delete(synchronize_session=False)
             db.query(models.Shift).filter(models.Shift.id == SHIFT).delete(synchronize_session=False)
             db.query(models.ScheduledShift).filter(models.ScheduledShift.work_date == DATE).delete(synchronize_session=False)
+            db.query(models.NexusNotification).filter(models.NexusNotification.recipient.like("pub.%")).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -119,26 +124,135 @@ class ShiftPublishTests(unittest.TestCase):
         self.assertEqual(len(got), 1)
         self.assertTrue(got[0]["published"])
 
-    def test_editing_a_published_shift_reverts_it_to_draft(self):
+    # ── Unshared changes to a PUBLISHED shift (QA D1/D2, Sep 28) ──────────
+    # Editing or removing a shift staff can already see used to make it vanish
+    # from their schedule at once. Now the published version stays live and
+    # the change waits for Publish, like Teams' "unshared changes".
+
+    def _published_shift(self, **extra):
+        self._as(ADMIN)
+        sid = self.client.post("/timeclock/schedule", json={
+            "employee_email": A, "work_date": DATE, "shift_id": SHIFT, **extra}).json()["id"]
+        self.client.post("/timeclock/schedule/publish", json={"start_date": DATE, "end_date": DATE})
+        return sid
+
+    def _mine(self, as_email):
+        self._as(as_email)
+        return [x for x in self._sched()["scheduled"] if x["email"] == A]
+
+    def _edit(self, sid, **fields):
+        self._as(ADMIN)
+        return self.client.patch(f"/timeclock/schedule/{sid}", json={
+            "employee_email": A, "work_date": DATE, "shift_id": SHIFT, **fields})
+
+    def test_editing_a_published_shift_keeps_it_visible_until_published(self):
+        sid = self._published_shift()
+        r = self._edit(sid, start_hhmm="10:00", end_hhmm="18:00", label="Front desk")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertFalse(r.json()["published"])
+        self.assertTrue(r.json()["hasChanges"])
+
+        # Staff still see the shift, with the times they were given.
+        got = self._mine(VIEWER)
+        self.assertEqual([(x["start"], x["end"], x["label"]) for x in got], [("09:00", "17:00", "")])
+
+        # The scheduler sees the change, marked as not yet shared.
+        got = self._mine(ADMIN)
+        self.assertEqual([(x["start"], x["label"], x["hasChanges"]) for x in got], [("10:00", "Front desk", True)])
+
+        # Publishing applies it.
+        self._as(ADMIN)
+        r = self.client.post("/timeclock/schedule/publish", json={"start_date": DATE, "end_date": DATE}).json()
+        self.assertEqual((r["published"], r["updated"]), (1, 1))
+        got = self._mine(VIEWER)
+        self.assertEqual([(x["start"], x["end"], x["label"]) for x in got], [("10:00", "18:00", "Front desk")])
+
+    def test_the_employee_keeps_seeing_their_published_shift_during_an_edit(self):
+        sid = self._published_shift()
+        self._edit(sid, start_hhmm="11:00")
+        self._as(A)
+        mine = self.client.get(f"/timeclock/my-schedule?start={DATE}&end={DATE}").json()["scheduled"]
+        self.assertEqual([x["start"] for x in mine], ["09:00"])
+
+    def test_removing_a_published_shift_waits_for_publish(self):
+        sid = self._published_shift()
+        self._as(ADMIN)
+        r = self.client.delete(f"/timeclock/schedule/{sid}")
+        self.assertEqual(r.json(), {"ok": True, "pending": True})
+
+        self.assertEqual(len(self._mine(VIEWER)), 1)          # still on their schedule
+        got = self._mine(ADMIN)
+        self.assertTrue(got[0]["pendingDelete"])
+        self.assertFalse(got[0]["published"])
+
+        self._as(ADMIN)
+        r = self.client.post("/timeclock/schedule/publish", json={"start_date": DATE, "end_date": DATE}).json()
+        self.assertEqual((r["published"], r["removed"]), (1, 1))
+        self.assertEqual(self._mine(VIEWER), [])
+        self.assertEqual(self._mine(ADMIN), [])
+
+    def test_discard_drops_an_unshared_edit_and_removal(self):
+        sid = self._published_shift()
+        self._edit(sid, label="Changed")
+        self._as(ADMIN)
+        self.client.delete(f"/timeclock/schedule/{sid}")
+        r = self.client.post(f"/timeclock/schedule/{sid}/discard")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["published"])
+        self.assertEqual((r.json()["label"], r.json()["pendingDelete"]), ("", False))
+        nothing = self.client.post("/timeclock/schedule/publish", json={"start_date": DATE, "end_date": DATE}).json()
+        self.assertEqual(nothing["published"], 0)
+
+    def test_editing_a_shift_marked_for_removal_keeps_it(self):
+        sid = self._published_shift()
+        self._as(ADMIN)
+        self.client.delete(f"/timeclock/schedule/{sid}")
+        r = self._edit(sid, label="Keep, but moved")
+        self.assertFalse(r.json()["pendingDelete"])
+        self.assertTrue(r.json()["hasChanges"])
+
+    def test_an_edit_back_to_the_published_values_leaves_nothing_to_publish(self):
+        sid = self._published_shift()
+        self._edit(sid, label="Temp")
+        r = self._edit(sid, start_hhmm="09:00", end_hhmm="17:00", label="")
+        self.assertTrue(r.json()["published"])
+        self.assertFalse(r.json()["hasChanges"])
+
+    def test_fill_schedule_overwrite_replaces_a_published_shift_only_on_publish(self):
+        self._published_shift()
+        self._as(ADMIN)
+        r = self.client.post("/timeclock/schedule/bulk", json={
+            "emails": [A], "start_date": DATE, "end_date": DATE, "start_hhmm": "12:00", "end_hhmm": "20:00",
+            "overwrite": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["replaced"], 1)
+        # Staff still have the old shift until the replacement is published.
+        self.assertEqual([x["start"] for x in self._mine(VIEWER)], ["09:00"])
+        self._as(ADMIN)
+        self.client.post("/timeclock/schedule/publish", json={"start_date": DATE, "end_date": DATE})
+        self.assertEqual([x["start"] for x in self._mine(VIEWER)], ["12:00"])
+
+    def test_a_draft_is_still_edited_and_removed_in_place(self):
         self._as(ADMIN)
         sid = self.client.post("/timeclock/schedule", json={
             "employee_email": A, "work_date": DATE, "shift_id": SHIFT}).json()["id"]
-        self.client.post("/timeclock/schedule/publish", json={"start_date": DATE, "end_date": DATE})
-
-        # Viewer can see the published shift.
-        self._as(VIEWER)
-        self.assertEqual(len([x for x in self._sched()["scheduled"] if x["email"] == A]), 1)
-
-        # Manager edits it (changes the label) -> becomes an unpublished change.
+        r = self._edit(sid, label="Draft edit")
+        self.assertEqual((r.json()["label"], r.json()["hasChanges"]), ("Draft edit", False))
         self._as(ADMIN)
-        r = self.client.patch(f"/timeclock/schedule/{sid}", json={
-            "employee_email": A, "work_date": DATE, "shift_id": SHIFT, "label": "Front desk"})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertFalse(r.json()["published"])
+        self.assertEqual(self.client.delete(f"/timeclock/schedule/{sid}").json(), {"ok": True, "pending": False})
+        self.assertEqual(self._mine(ADMIN), [])
+        self.assertEqual(self.client.post(f"/timeclock/schedule/{sid}/discard").status_code, 404)
 
-        # Viewer no longer sees it until it's re-published.
-        self._as(VIEWER)
-        self.assertEqual(len([x for x in self._sched()["scheduled"] if x["email"] == A]), 0)
+    def test_publishing_notifies_the_employee_not_the_publisher(self):
+        self._published_shift()
+        db = database.SessionLocal()
+        try:
+            bells = {n.recipient: n for n in db.query(models.NexusNotification)
+                     .filter(models.NexusNotification.recipient.like("pub.%")).all()}
+        finally:
+            db.close()
+        self.assertEqual(set(bells), {A})
+        self.assertEqual(bells[A].title, "Your schedule was updated")
 
     def test_publish_is_idempotent(self):
         self._as(ADMIN)

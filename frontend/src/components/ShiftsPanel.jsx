@@ -11,7 +11,7 @@ import { ZONE_GROUPS, zoneOptionLabel } from '../lib/worldClockZones';
 // and apply a shift to a whole group (or a hand-picked set) in one click.
 
 const DAYS = [['1', 'Mon'], ['2', 'Tue'], ['3', 'Wed'], ['4', 'Thu'], ['5', 'Fri'], ['6', 'Sat'], ['7', 'Sun']];
-const BLANK = { name: '', code: '', start_hhmm: '09:00', end_hhmm: '17:00', days: '1,2,3,4,5', grace_min: 10, color: '#2563eb', timezone: 'America/Los_Angeles' };
+const BLANK = { name: '', code: '', start_hhmm: '09:00', end_hhmm: '17:00', days: '1,2,3,4,5', grace_min: 10, break_min: 0, color: '#2563eb', timezone: 'America/Los_Angeles' };
 const COLORS = ['#2563eb', '#16a34a', '#8b5cf6', '#f59e0b', '#ec4899', '#0891b2', '#dc2626', '#64748b'];
 
 function daysLabel(csv) {
@@ -148,11 +148,11 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
                   ? <span style={{ fontSize: 10.5, fontWeight: 800, color: '#334155', background: (s.color || '#64748b') + '22', borderLeft: `3px solid ${s.color}`, borderRadius: 5, padding: '2px 6px', flexShrink: 0 }}>{s.code}</span>
                   : <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />}
                 <span style={{ fontSize: 13, fontWeight: 800, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
-                <button onClick={() => setForm({ ...s, start_hhmm: s.start, end_hhmm: s.end, grace_min: s.graceMin })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}>Edit</button>
+                <button onClick={() => setForm({ ...s, start_hhmm: s.start, end_hhmm: s.end, grace_min: s.graceMin, break_min: s.breakMin || 0 })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}>Edit</button>
                 <button onClick={() => delShift(s.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', display: 'flex' }}><Trash2 size={12} /></button>
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>{s.start}–{s.end} · {daysLabel(s.days)}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{s.graceMin}m grace · {zoneOptionLabel(s.timezone || 'America/Los_Angeles')}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{s.graceMin}m grace{s.breakMin ? ` · ${s.breakMin}m unpaid break` : ''} · {zoneOptionLabel(s.timezone || 'America/Los_Angeles')}</div>
             </div>
           ))}
         </div>
@@ -241,6 +241,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
                 <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>Start<input type="time" className="form-input" value={form.start_hhmm} onChange={e => setForm({ ...form, start_hhmm: e.target.value })} style={{ width: '100%', fontSize: 13 }} /></label>
                 <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>End<input type="time" className="form-input" value={form.end_hhmm} onChange={e => setForm({ ...form, end_hhmm: e.target.value })} style={{ width: '100%', fontSize: 13 }} /></label>
                 <label style={{ width: 74, fontSize: 11, color: 'var(--muted)' }}>Grace<input type="number" min="0" className="form-input" value={form.grace_min} onChange={e => setForm({ ...form, grace_min: e.target.value })} style={{ width: '100%', fontSize: 13 }} /></label>
+                <label style={{ width: 92, fontSize: 11, color: 'var(--muted)' }} title="Unpaid minutes inside the shift, e.g. a 30-minute lunch. Scheduled hours are shown without it.">Unpaid break<input type="number" min="0" max="480" step="5" className="form-input" value={form.break_min ?? 0} onChange={e => setForm({ ...form, break_min: e.target.value })} style={{ width: '100%', fontSize: 13 }} /></label>
               </div>
               <label style={{ fontSize: 11, color: 'var(--muted)' }}>
                 Time zone this team's shift runs on

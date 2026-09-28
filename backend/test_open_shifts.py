@@ -19,10 +19,16 @@ import models
 models.Base.metadata.create_all(bind=database.engine)
 from sqlalchemy import text as _text
 with database.engine.connect() as _c:
-    try:
-        _c.execute(_text("ALTER TABLE scheduled_shifts ADD COLUMN open_slots INTEGER DEFAULT 0")); _c.commit()
-    except Exception:
-        pass
+    # A local sqlite file older than these columns (CI builds a fresh one).
+    for _sql in ("ALTER TABLE scheduled_shifts ADD COLUMN open_slots INTEGER DEFAULT 0",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN pending_json TEXT DEFAULT ''",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
+                 "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0"):
+        try:
+            _c.execute(_text(_sql)); _c.commit()
+        except Exception:
+            pass
 
 ADMIN = "openshift.admin@greensglobal.com"
 A = "openshift.a@greensglobal.com"
