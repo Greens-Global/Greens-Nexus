@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckSquare, Database, ExternalLink, FileStack, FileText, Landmark, LayoutGrid, Loader2, ShieldCheck, TrendingUp, Wallet } from 'lucide-react';
+import { CheckSquare, Database, ExternalLink, FileStack, FileText, KeyRound, Landmark, LayoutGrid, Loader2, ShieldCheck, TrendingUp, Wallet } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -8,6 +8,7 @@ import ReportsTab from '../components/accounting/ReportsTab';
 import PackagesTab from '../components/accounting/PackagesTab';
 import AccessTab from '../components/accounting/AccessTab';
 import PfsTab from '../components/accounting/PfsTab';
+import LeasingTab from '../components/accounting/LeasingTab';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
 import { DashNav } from '../components/accounting/dashboard/registry';
@@ -42,11 +43,12 @@ const TABS = [
   { key: 'close', label: 'Close', Icon: CheckSquare },
   { key: 'reports', label: 'Reports', Icon: FileText },
   { key: 'packages', label: 'Packages', Icon: FileStack },
+  { key: 'leasing', label: 'Leasing', Icon: KeyRound },
   { key: 'pfs', label: 'PFS', Icon: Landmark },
   { key: 'data', label: 'Data', Icon: Database },
   { key: 'access', label: 'Access', Icon: ShieldCheck },
 ];
-const LIMITED_TABS = ['reports', 'packages'];
+const LIMITED_TABS = ['reports', 'packages', 'leasing'];
 
 export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
@@ -104,13 +106,14 @@ export default function Accounting({ activeSub, onSubChange }) {
     close: 'Month-end close: checklist, reconciliations, balance sheet flux and controls',
     reports: 'Financial reports from the Nexus Accounting ledger',
     packages: 'Sets of memorized reports, built into one PDF for a lender',
+    leasing: 'Tenants, rent, and what came in against what was expected',
     pfs: 'Personal financial statements of the guarantors, for any date',
     data: 'Loans, intercompany, investments, partner capital, cap rates, close plan and filing calendar',
     access: 'Which entities each person on the accounting team may read',
   }[sub];
   // Reports, Packages and Access are working screens: the statement has to
   // start high on the page (Neil, Sep 25), so their header is one line.
-  const slim = ['reports', 'packages', 'access', 'pfs'].includes(sub);
+  const slim = ['reports', 'packages', 'access', 'pfs', 'leasing'].includes(sub);
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -143,6 +146,7 @@ export default function Accounting({ activeSub, onSubChange }) {
         <div style={{ marginTop: 8 }}>
           {sub === 'reports' && <ReportsTab />}
           {sub === 'packages' && <PackagesTab />}
+          {sub === 'leasing' && <LeasingTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
         </div>
       ) : (
@@ -155,6 +159,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'close' && <CloseTab canEdit={canEdit} meName={meName} />}
               {sub === 'reports' && <ReportsTab />}
               {sub === 'packages' && <PackagesTab />}
+              {sub === 'leasing' && <LeasingTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
               {sub === 'data' && canEdit && <DataTab />}
               {sub === 'access' && canManage && <AccessTab />}

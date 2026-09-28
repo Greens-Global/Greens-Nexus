@@ -1040,6 +1040,17 @@ export const api = {
   getPfsSavedStatement: (statementId) => req(`/pfs/statements/${encodeURIComponent(statementId)}`),
   getPfsLedgerEntities: () => req("/pfs/ledger/entities"),
   getPfsLedgerAccounts: (entity, asof) => req(`/pfs/ledger/accounts?entity=${encodeURIComponent(entity)}&asof=${asof}`),
+  // Leasing: tenants, the rent as it changes, and each month's expected
+  // against what the ledger received.
+  getLeasingRentRoll: (year) => req(`/leasing/rent-roll?year=${year}`),
+  getLeasingLeases: () => req("/leasing/leases"),
+  getLeasingCustomers: () => req("/leasing/customers"),
+  createLeasingLease: (body) => req("/leasing/leases", { method: "POST", body: JSON.stringify(body) }),
+  updateLeasingLease: (id, body) => req(`/leasing/leases/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
+  replaceLeasingTenant: (id, body) => req(`/leasing/leases/${encodeURIComponent(id)}/replace`, { method: "POST", body: JSON.stringify(body) }),
+  deleteLeasingLease: (id) => req(`/leasing/leases/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setLeasingMonth: (id, month, body) =>
+    req(`/leasing/leases/${encodeURIComponent(id)}/months/${month}`, { method: "PUT", body: JSON.stringify(body) }),
   // Finance Dashboard (Overview / Cash / Performance / Close) - the same
   // aggregates and shared tables the accounting app's own dashboard uses,
   // proxied by backend/routers/accounting_dashboard.py.
