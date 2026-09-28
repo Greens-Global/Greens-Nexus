@@ -14,7 +14,7 @@ import {
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
   HardDrive, FolderOpen, ClipboardList,
-  MonitorDot, Gauge,
+  MonitorDot, Gauge, CalendarClock,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 
@@ -46,6 +46,16 @@ export const NAV = [
   // grant. Watching needs a viewer grant; remote control + device/policy admin
   // need a full grant.
   { view: "employee-tracking", code: "EMP", label: "Workforce Analytics",  icon: MonitorDot,   minRole: 'supervisor' },
+  // Shifts (Sep 29, Sagar): the schedule grid + presets/groups, moved out of
+  // People > Time into its own module. `grant` = the Access Group grant that
+  // opens it - the People (hr) grant, the audience the schedule API admits.
+  {
+    view: "shifts", code: "SFT", label: "Shifts", icon: CalendarClock, minRole: 'supervisor', grant: 'hr',
+    sub: [
+      { subview: "schedule", label: "Schedule",         icon: Calendar },
+      { subview: "presets",  label: "Presets & Groups", icon: ClipboardList },
+    ],
+  },
   { divider: true },
   // Tasks + Tickets are grant-driven like every other module (Aug 10): they
   // only appear when an Access Group / job role grants them (most job roles
@@ -263,8 +273,8 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
               // no baseline screens (Dashboard/Time Clock/My HR are internal-only).
               // Mirrors the server's path allowlist in auth.apply_external_policy.
               const visible = NAV.filter(item => (!item.qaGated || qaEnabled) && (isExternal
-                ? (!item.divider && myGrantedModules.has(item.view))
-                : (!item.minRole || can('administrator') || myGrantedModules.has(item.view))));
+                ? (!item.divider && myGrantedModules.has(item.grant || item.view))
+                : (!item.minRole || can('administrator') || myGrantedModules.has(item.grant || item.view))));
               const out = [];
               if (!collapsed && visible.length && !visible[0].divider) {
                 out.push(<li key="k0" className="nav-kicker">{KICKERS[0]}</li>);

@@ -5305,8 +5305,10 @@ export default function HR({ activeSub, onSubChange }) {
   const isScoped = Array.isArray(hrScope) && hrScope.length > 0;
   const scopeNames = isScoped ? hrScope.map(id => entities.find(en => en.id === id)?.name || null).filter(Boolean) : [];
 
-  const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
-  const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
+  // Stable across renders: children key their loaders on these, and a new
+  // function per render made every toast reload the Time screens.
+  const toastErr = useCallback(msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); }, []);
+  const toastOk  = useCallback(msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); }, []);
 
   // Deep link from a person hover card anywhere in Nexus (openPersonProfile).
   // Two triggers, because this view may or may not be mounted when the jump
@@ -5539,7 +5541,7 @@ export default function HR({ activeSub, onSubChange }) {
       )}
       {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-time' && <TimeAdmin employees={employees} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-time' && <TimeAdmin toastOk={toastOk} toastErr={toastErr} />}
 
       {sub === 'hr-people' && (<>
         <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />
