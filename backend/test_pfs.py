@@ -231,7 +231,10 @@ class PfsTests(unittest.TestCase):
         self.assertEqual([(x["asOf"], x["netWorth"], x["generatedBy"]) for x in listed], [("2026-09-28", 50000.0, VIEWER)])
         db = database.SessionLocal()
         try:
-            actions = {a.action for a in db.query(models.AuditLog).filter(models.AuditLog.resource_type == "pfs", models.AuditLog.resource_id == pid).all()}
+            rows = db.query(models.AuditLog).filter(models.AuditLog.resource_type == "pfs", models.AuditLog.resource_id == pid).all()
+            actions = {a.action for a in rows}
+            # The audit log says who did what; it never carries a figure.
+            self.assertFalse(any("50000" in (a.details or "") or "75000" in (a.details or "") for a in rows))
         finally:
             db.close()
         self.assertTrue({"pfs_profile_created", "pfs_line_added", "pfs_line_changed", "pfs_statement_produced", "pfs_statement_opened"} <= actions)

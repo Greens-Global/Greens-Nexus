@@ -236,7 +236,9 @@ def _save_statement(profile_id: str, as_of: str, payload: dict, user: dict) -> s
         sid = str(uuid.uuid4())
         db.add(models.PfsStatement(id=sid, profile_id=profile_id, as_of=as_of, payload=payload,
                                    generated_by=user["email"], generated_at=_now()))
-        _audit(db, user, "pfs_statement_produced", profile_id, {"statement": sid, "as_of": as_of, "net_worth": payload["totals"]["netWorth"]})
+        # Who, which guarantor, which date - never a figure: the audit log is
+        # read by people who may not see the statement itself.
+        _audit(db, user, "pfs_statement_produced", profile_id, {"statement": sid, "as_of": as_of})
         db.commit()
         return sid
     finally:

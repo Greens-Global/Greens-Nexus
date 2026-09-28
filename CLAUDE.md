@@ -178,6 +178,26 @@ keep the diff minimal.
   with tsc (see the accounting repo's CLAUDE.md), never edit the .js by hand.
   Writes carry the caller's name; each tab shows one section at a time.
 
+- Accounting entity access (Neil, Sep 25): the Accounting grant opens the
+  screen; WHICH entities a person reads is `nexus_access_scopes` rows with
+  module `accounting` (Accounting > Access tab, Full level). No rows = every
+  entity; an entity brings its sub-entities. Every new accounting read MUST
+  take `Depends(entity_scope)` and pass its entities through `_limit` (or
+  check them against `_with_children`) - `routers/accounting.py` is the
+  reference. One entity always travels as `location`: the accounting app reads
+  `locations` only when there are several. Anything that only exists
+  consolidated (the dashboard tabs, the accounting app) takes
+  `require_unlimited`.
+- Personal financial statements (`routers/pfs.py`, Sep 2026) are the most
+  sensitive records in Nexus: owners and the explicit `pfs` grant only
+  (`bypass_level="owner"` - an administrator's role does NOT open them). Never
+  store a full Social Security number, never log a figure, keep the audit rows.
+- Leasing (`routers/leasing.py`, Sep 2026): a tenant is an Intacct customer;
+  rent received is what posted to the lease's income accounts for that
+  customer in that month - never key a payment into Nexus. A tenant who leaves
+  is ENDED (`/replace`), never overwritten. Nothing is emailed to a tenant
+  automatically.
+
 ## Asana — removed (Sep 2026)
 
 The Asana workspace is gone and the two-way sync, import, OAuth, webhook and

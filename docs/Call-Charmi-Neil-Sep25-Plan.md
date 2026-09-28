@@ -16,7 +16,7 @@ monitor = Nexus prod Accounting Reports and the accounting app Reports page.
 Status key: ☐ not built, 🔨 built and committed locally (not pushed, not on
 any site yet), ✅ live on PRODUCTION.
 
-## Status - 09/28/2026
+## Status - 09/29/2026
 
 Branches, local only, nothing pushed:
 - Nexus `feature/charmi-neil-sep25` (off dev 6cd0263d)
@@ -27,9 +27,24 @@ Release order when it goes out (the accounting side first, Nexus needs it):
    `20260928100000_lms_core_same_month_tail.sql`,
    `20260928110000_nexus_reports_book_columns_entry.sql`.
 2. Push accounting `main` (Cloudflare deploys it).
-3. Push Nexus `dev`, then release to `main`. Three new Nexus tables
-   (`accounting_saved_reports`, `accounting_report_packages`,
-   `accounting_user_prefs`) are created on boot with RLS on.
+3. Push Nexus `dev`, then release to `main`. Nine new Nexus tables are
+   created on boot with RLS on: `accounting_saved_reports`,
+   `accounting_report_packages`, `accounting_user_prefs`, `pfs_profiles`,
+   `pfs_lines`, `pfs_statements`, `leases`, `lease_rates`, `lease_months`.
+   Run `get_advisors` on dev and prod after each.
+4. After release, on production:
+   - Roles & Access: grant "Personal Financial Statements" to whoever builds
+     the statements with Charmi (nobody has it by default; administrators are
+     not let in by role, Global Admins are).
+   - People - Companies: check each company has its HR contact, since punch
+     and time-off requests now reach that person.
+   - F3: set the eight named people to Exempt.
+
+Verified locally: 933 frontend tests, every backend test file, production
+build (9,786 KB of a 9,900 KB budget), and each screen opened in a browser
+against a local stand-in for the accounting service. NOT verified: anything
+against the real ledger - the migrations are not applied and nothing is
+deployed.
 
 
 ## A. Bugs seen live on production
@@ -129,7 +144,14 @@ get to the report, half your screen is already gone."
 - 🔨 E1. Reporting Package Builder (19:37). Pick 9 or 10 memorized reports
   into a named package, send it out as one PDF. Lenders read it, so the PDF
   has to look professional. Depends on B7.
-- ☐ E2. PFS Builder (14:36 - 36:20). Personal financial statement per
+- 🔨 E2 (first version). Accounting - PFS tab, for Global Admins and people
+  granted "Personal Financial Statements". A guarantor is set up once; each
+  line reads the ledger (an entity's accounts at the share owned) or is kept
+  by hand; the statement and its PDF are produced for any date and kept as
+  sent. NOT in this version: sending it for e-signature from the screen (the
+  PDF has signature lines; it can go through Nexus Sign by hand), and the
+  one-time mapping of accounts, which is a sitting with Charmi.
+  PFS Builder (14:36 - 36:20). Personal financial statement per
   guarantor, generated for a chosen date. Neil called this an emergency: the
   Velixo-driven Excel that did it is gone. Sections, in order: who the
   borrower is; assets (bank, retirement, investment and business accounts,
@@ -141,7 +163,14 @@ get to the report, half your screen is already gone."
   = net worth; standard history questions answered once; executive profile
   with photo; e-signed each time. One-time setup with Charmi maps Intacct
   accounts and ownership % to each person or trust. Needs D1 first.
-- ☐ E3. Leasing / Monthly Recurring Income (36:43 - 47:30). Tenant
+- 🔨 E3 (first version, built before the Monday walkthrough). Accounting -
+  Leasing tab: Rent Roll, Outstanding, Tenants. Received = what posted to the
+  lease's rental income account (41101 unless changed) for that customer in
+  that month - the rule the workbook used. NOT in this version: emails sent
+  to tenants automatically (a letter is prepared in the accountant's own
+  email; nothing goes out on its own) and rent-increase notices. Arrears from
+  before the year on screen are not carried in.
+  Leasing / Monthly Recurring Income (36:43 - 47:30). Tenant
   management, residential and commercial. Neil: build it as an app, not a
   copy of the Excel. A tenant is an Intacct customer picked from a dropdown,
   plus what Intacct cannot hold: rent, CAM, late-fee rule, lease start and
