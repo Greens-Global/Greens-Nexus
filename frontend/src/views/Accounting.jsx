@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckSquare, Database, ExternalLink, FileStack, FileText, LayoutGrid, Loader2, ShieldCheck, TrendingUp, Wallet } from 'lucide-react';
+import { CheckSquare, Database, ExternalLink, FileStack, FileText, Landmark, LayoutGrid, Loader2, ShieldCheck, TrendingUp, Wallet } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -7,6 +7,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import ReportsTab from '../components/accounting/ReportsTab';
 import PackagesTab from '../components/accounting/PackagesTab';
 import AccessTab from '../components/accounting/AccessTab';
+import PfsTab from '../components/accounting/PfsTab';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
 import { DashNav } from '../components/accounting/dashboard/registry';
@@ -41,6 +42,7 @@ const TABS = [
   { key: 'close', label: 'Close', Icon: CheckSquare },
   { key: 'reports', label: 'Reports', Icon: FileText },
   { key: 'packages', label: 'Packages', Icon: FileStack },
+  { key: 'pfs', label: 'PFS', Icon: Landmark },
   { key: 'data', label: 'Data', Icon: Database },
   { key: 'access', label: 'Access', Icon: ShieldCheck },
 ];
@@ -59,6 +61,10 @@ export default function Accounting({ activeSub, onSubChange }) {
   const canEdit = canAccessModule('accounting', 'administrator', 'editor');
   // Deciding who reads which entities takes the Full level.
   const canManage = canAccessModule('accounting', 'administrator', 'full');
+  // Personal financial statements: owners and the explicit grant, nobody else
+  // - an administrator does not see the tab (and the backend refuses them).
+  const canPfs = canAccessModule('pfs', 'owner', 'viewer');
+  const canPfsEdit = canAccessModule('pfs', 'owner', 'editor');
   // Am I limited to certain entities? Asked once; until the answer is in, no
   // tab is drawn, so a limited person never sees a dashboard tab flash by.
   const [access, setAccess] = useState(null);
@@ -70,7 +76,7 @@ export default function Accounting({ activeSub, onSubChange }) {
     return () => { alive = false; };
   }, []);
   const limited = !!access?.limited;
-  const tabs = TABS.filter((t) => (limited ? LIMITED_TABS.includes(t.key) : (t.key !== 'data' || canEdit) && (t.key !== 'access' || canManage)));
+  const tabs = TABS.filter((t) => (t.key === 'pfs' ? canPfs : limited ? LIMITED_TABS.includes(t.key) : (t.key !== 'data' || canEdit) && (t.key !== 'access' || canManage)));
   const sub = tabs.some((t) => t.key === activeSub) ? activeSub : tabs[0].key;
   useEffect(() => { if (access && sub !== activeSub) onSubChange?.(sub); }, [access, sub, activeSub, onSubChange]);
 
@@ -98,12 +104,13 @@ export default function Accounting({ activeSub, onSubChange }) {
     close: 'Month-end close: checklist, reconciliations, balance sheet flux and controls',
     reports: 'Financial reports from the Nexus Accounting ledger',
     packages: 'Sets of memorized reports, built into one PDF for a lender',
+    pfs: 'Personal financial statements of the guarantors, for any date',
     data: 'Loans, intercompany, investments, partner capital, cap rates, close plan and filing calendar',
     access: 'Which entities each person on the accounting team may read',
   }[sub];
   // Reports, Packages and Access are working screens: the statement has to
   // start high on the page (Neil, Sep 25), so their header is one line.
-  const slim = ['reports', 'packages', 'access'].includes(sub);
+  const slim = ['reports', 'packages', 'access', 'pfs'].includes(sub);
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -136,6 +143,7 @@ export default function Accounting({ activeSub, onSubChange }) {
         <div style={{ marginTop: 8 }}>
           {sub === 'reports' && <ReportsTab />}
           {sub === 'packages' && <PackagesTab />}
+          {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
         </div>
       ) : (
         <DashProvider>
@@ -147,6 +155,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'close' && <CloseTab canEdit={canEdit} meName={meName} />}
               {sub === 'reports' && <ReportsTab />}
               {sub === 'packages' && <PackagesTab />}
+              {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
               {sub === 'data' && canEdit && <DataTab />}
               {sub === 'access' && canManage && <AccessTab />}
             </div>

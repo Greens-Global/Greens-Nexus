@@ -1019,6 +1019,27 @@ export const api = {
   updateAccountingPackage: (id, body) =>
     req(`/accounting/packages/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteAccountingPackage: (id) => req(`/accounting/packages/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  // Personal Financial Statements: guarantor profiles, the lines they own and
+  // owe (read from the ledger or kept by hand), and the statement for a date.
+  // Owners and explicit "pfs" grants only.
+  getPfsMeta: () => req("/pfs/meta"),
+  getPfsProfiles: () => req("/pfs/profiles"),
+  getPfsProfile: (id) => req(`/pfs/profiles/${encodeURIComponent(id)}`),
+  createPfsProfile: (body) => req("/pfs/profiles", { method: "POST", body: JSON.stringify(body) }),
+  updatePfsProfile: (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
+  deletePfsProfile: (id) => req(`/pfs/profiles/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  addPfsLine: (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/lines`, { method: "POST", body: JSON.stringify(body) }),
+  updatePfsLine: (id, lineId, body) =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "PUT", body: JSON.stringify(body) }),
+  deletePfsLine: (id, lineId) =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "DELETE" }),
+  getPfsStatement: (id, asof) => req(`/pfs/profiles/${encodeURIComponent(id)}/statement?asof=${asof}`),
+  producePfsStatement: (id, asof) =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/statements`, { method: "POST", body: JSON.stringify({ asof }) }),
+  getPfsStatements: (id) => req(`/pfs/profiles/${encodeURIComponent(id)}/statements`),
+  getPfsSavedStatement: (statementId) => req(`/pfs/statements/${encodeURIComponent(statementId)}`),
+  getPfsLedgerEntities: () => req("/pfs/ledger/entities"),
+  getPfsLedgerAccounts: (entity, asof) => req(`/pfs/ledger/accounts?entity=${encodeURIComponent(entity)}&asof=${asof}`),
   // Finance Dashboard (Overview / Cash / Performance / Close) - the same
   // aggregates and shared tables the accounting app's own dashboard uses,
   // proxied by backend/routers/accounting_dashboard.py.

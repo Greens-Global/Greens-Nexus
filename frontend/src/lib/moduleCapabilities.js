@@ -45,6 +45,14 @@ export const MODULE_CAPABILITIES = {
     full:   'Accounting admin in Nexus Accounting: setup, imports, all records.',
     owner:  'Accounting admin, plus manage who else can open the app.',
   },
+  // The most sensitive screen in Nexus. Nobody has it by default, and an
+  // administrator's role does not open it: owners and this grant only.
+  pfs: {
+    viewer: 'Open personal financial statements and produce the PDF for a lender.',
+    editor: 'Also set up guarantors and the accounts, holdings and loans on their statement.',
+    full:   'Also delete a guarantor profile.',
+    owner:  'Full control, plus manage who else can open personal financial statements.',
+  },
   documents: {
     viewer: 'View documents and sign ones sent to them.',
     editor: 'Create and send documents / templates for signature.',

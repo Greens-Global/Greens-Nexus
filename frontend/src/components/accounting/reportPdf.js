@@ -12,12 +12,12 @@ import { bookLabel, canPickBook, dimsText, entityText, money, periodText } from 
 // what is sent out is what was on screen. Letter paper; a statement with a
 // comparison (four figure columns) turns landscape.
 
-const INK = rgb(0.09, 0.11, 0.16);
-const MUTED = rgb(0.42, 0.45, 0.52);
-const RULE = rgb(0.80, 0.82, 0.87);
-const BAND = rgb(0.955, 0.962, 0.978);
-const BRAND = rgb(0.169, 0.271, 0.882);
-const MARGIN = 54;
+export const INK = rgb(0.09, 0.11, 0.16);
+export const MUTED = rgb(0.42, 0.45, 0.52);
+export const RULE = rgb(0.80, 0.82, 0.87);
+export const BAND = rgb(0.955, 0.962, 0.978);
+export const BRAND = rgb(0.169, 0.271, 0.882);
+export const MARGIN = 54;
 const ROW = 15;
 const FLOOR = MARGIN + 8;
 
@@ -26,13 +26,13 @@ const FLOOR = MARGIN + 8;
 // plain forms (by character code, so this file stays plain text), and
 // whatever is still outside Latin-1 is dropped.
 const PLAIN = { 0x2013: '-', 0x2014: '-', 0x2018: "'", 0x2019: "'", 0x201c: '"', 0x201d: '"', 0x2026: '...', 0x2022: String.fromCharCode(0xb7), 0xa0: ' ' };
-const clean = (v) => Array.from(String(v ?? ''), (ch) => {
+export const clean = (v) => Array.from(String(v ?? ''), (ch) => {
   const code = ch.codePointAt(0);
   if (PLAIN[code] !== undefined) return PLAIN[code];
   return (code >= 0x20 && code <= 0x7e) || (code >= 0xa1 && code <= 0xff) ? ch : '';
 }).join('');
 
-function fit(font, size, text, width) {
+export function fit(font, size, text, width) {
   let t = clean(text);
   if (font.widthOfTextAtSize(t, size) <= width) return t;
   while (t.length > 1 && font.widthOfTextAtSize(`${t}...`, size) > width) t = t.slice(0, -1);
