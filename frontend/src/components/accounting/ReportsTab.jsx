@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FileDown, Loader2, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { Download, FileDown, Loader2, Maximize2, Minimize2, Search, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
@@ -7,10 +7,13 @@ import { useNameResolver } from '../../lib/useNameResolver';
 import LedgerSearch from './LedgerSearch';
 import { takePendingDrill } from './drill';
 import { useAccountingPrefs } from './prefs';
-import { ClearButton, DimensionsButton, EntitiesPicker, MemorizeButton, SavedReportsMenu, control } from './reportControls';
 import {
-  BOOKS, COMPARE, PRESETS, REPORTS, activeCompare, bookLabel, canPickBook, canUseDims, csvFileName, csvRows, defaultConfig,
-  dimsText, downloadBlob, downloadCsv, entityText, iso, money, periodText, presetRange, reportDef, resolveConfig, runReport,
+  AccountsPicker, ClearButton, CustomizeButton, DENSITIES, DepartmentsPicker, DimensionsButton, EntitiesPicker, MemorizeButton, PeriodStepper,
+  SavedReportsMenu, control,
+} from './reportControls';
+import {
+  BOOKS, REPORTS, activeColumns, bookLabel, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, csvFileName, csvRows,
+  defaultConfig, dimsText, downloadBlob, downloadCsv, entityText, iso, periodText, presetLabel, reportDef, resolveConfig, runReport,
 } from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
@@ -27,6 +30,13 @@ import {
 // to refresh by hand: the report follows the controls. "Memorize" keeps the
 // view under a name.
 //
+// Sep 29 (Visesh, from the same call: "the reports are better there"): the
+// row now carries every filter the accounting app's Reports page has - the
+// period stepper with its arrows, Columns (Total Only, By Month, By Quarter,
+// By Entity, By Vendor ... vs Prior Year), departments and accounts as their
+// own dropdowns, Customize, full screen - and the figures line above the
+// statement (Revenue, Expenses, Net Income, Net Margin).
+//
 // The search box is the global search (Neil, Sep 17): type a vendor, a
 // customer, an invoice number or an amount and every posted line containing
 // it replaces the report. Every account amount on a report is a drill-down
@@ -38,7 +48,8 @@ import {
 const storable = (c) => ({
   report: c.report, preset: c.preset, ...(c.preset === 'custom' ? { from: c.from, to: c.to } : {}),
   ...(c.asofToday === false ? { asof: c.asof, asofToday: false } : {}),
-  book: c.book, compare: c.compare, entities: c.entities, dims: c.dims,
+  book: c.book, cols: c.cols, entities: c.entities, dims: c.dims,
+  ...(c.accounts?.length ? { accounts: c.accounts } : {}), ...(c.suppressZero ? { suppressZero: true } : {}),
 });
 const sameView = (a, b) => JSON.stringify(storable(a)) === JSON.stringify(storable(b));
 
@@ -53,6 +64,17 @@ export default function ReportsTab() {
   const [prefs, setPrefs] = useAccountingPrefs();
   const nameOf = useNameResolver();
   const density = DENSITIES.some((d) => d.key === prefs.density) ? prefs.density : 'compact';
+  // Full screen: the toolbar and the statement take the whole window.
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    if (!full) return undefined;
+    const onKey = (e) => {
+      // Escape closes whatever is open on top first (a dropdown, an entry).
+      if (e.key === 'Escape' && !document.querySelector('.modal-overlay, [role="listbox"], [role="dialog"], [role="menu"]')) setFull(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [full]);
   const colW = Number(prefs.accountWidth) || 0;   // 0 = size to content
   const patch = useCallback((p) => setConfig((c) => resolveConfig({ ...c, ...p })), []);
   const toggleSection = (key) => setCollapsed((c) => { const n = new Set(c); if (n.has(key)) n.delete(key); else n.add(key); return n; });
@@ -61,7 +83,7 @@ export default function ReportsTab() {
   // after a pause so the ledger is not queried on every keystroke.
   const [searchText, setSearchText] = useState('');
   const [term, setTerm] = useState('');
-  const [drill, setDrill] = useState(null);   // { account, accountName, from, to, book }
+  const [drill, setDrill] = useState(null);   // { account, accountName, from, to, book, entity?, department?, party? }
   const [searchBusy, setSearchBusy] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setTerm(searchText.trim()), 300);
@@ -143,19 +165,26 @@ export default function ReportsTab() {
   };
 
   const def = reportDef(config.report);
-  const compare = activeCompare(config);
-  const showCompare = (config.report === 'pnl' || config.report === 'balance-sheet') && config.book !== 'both';
+  const cols = activeColumns(config);
+  const modes = columnModes(config.report);
+  const showColumns = modes.length > 1 && config.book !== 'both';
   const filters = dimsText(config);
   const entityLabel = entityText(config, entities);
-  const presetLabel = PRESETS.find((p) => p.key === config.preset)?.label || 'Custom';
+  // A column of one entity drills into that entity, whatever the report covers.
+  const drillEntities = drill?.entity ? [drill.entity] : config.entities;
+  const drillEntityLabel = drill?.entity ? entityText({ entities: [drill.entity] }, entities) : entityLabel;
   const sections = (result?.rows || []).filter((r) => r.kind === 'section');
   const shown = result && result.config.report === config.report ? result : null;
 
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
   const select = (active) => ({ ...control, fontWeight: active ? 600 : 400, color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', borderColor: active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)', maxWidth: 300 });
 
+  const shell = full
+    ? { position: 'fixed', inset: 0, zIndex: 400, overflow: 'auto', padding: 12, background: 'var(--bg-primary)', display: 'grid', gap: 10, alignContent: 'start' }
+    : { display: 'grid', gap: 10 };
+
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
+    <div style={shell}>
       {/* One slim row: search, then every control as a dropdown. */}
       <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
         <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200, maxWidth: 460 }}>
@@ -168,42 +197,15 @@ export default function ReportsTab() {
           {searchText && <ClearButton onClick={() => setSearchText('')} label="Clear search" />}
         </div>
 
-        <select value={config.report} onChange={(e) => { closeSearch(); setCollapsed(new Set()); patch({ report: e.target.value }); }} aria-label="Report" style={{ ...select(false), fontWeight: 600 }}>
+        <select value={config.report} onChange={(e) => { closeSearch(); setCollapsed(new Set()); patch({ report: e.target.value, accounts: [] }); }} aria-label="Report" style={{ ...select(false), fontWeight: 600 }}>
           {REPORTS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
         </select>
 
-        {def.period === 'range' ? (
-          <>
-            <select value={config.preset} onChange={(e) => patch({ preset: e.target.value })} aria-label="Period" style={select(false)}>
-              {PRESETS.map((p) => {
-                const r = p.key === 'custom' ? null : presetRange(p.key).map(iso);
-                return <option key={p.key} value={p.key}>{r ? `${p.label} · ${formatDate(r[0])} - ${formatDate(r[1])}` : 'Custom dates...'}</option>;
-              })}
-            </select>
-            {config.preset === 'custom' && (
-              <>
-                {/* No min / max on these: a calendar capped at the other date could not
-                    move to a later month at all (Charmi, Sep 25). Picking a start after
-                    the end moves the end with it. */}
-                <input type="date" value={config.from} aria-label="From" style={control}
-                  onChange={(e) => e.target.value && patch({ from: e.target.value, to: e.target.value > config.to ? e.target.value : config.to })} />
-                <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>to</span>
-                <input type="date" value={config.to} aria-label="To" style={control}
-                  onChange={(e) => e.target.value && patch({ to: e.target.value, from: e.target.value < config.from ? e.target.value : config.from })} />
-              </>
-            )}
-          </>
-        ) : (
-          <>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
-            <input type="date" value={config.asof} aria-label="As of" style={control}
-              onChange={(e) => e.target.value && patch({ asof: e.target.value, asofToday: e.target.value === iso(new Date()) })} />
-          </>
-        )}
+        <PeriodStepper config={config} period={def.period} onChange={patch} />
 
-        {showCompare && (
-          <select value={compare} onChange={(e) => patch({ compare: e.target.value })} aria-label="Compare" style={select(compare !== 'none')}>
-            {COMPARE[def.period].map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+        {showColumns && (
+          <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" style={select(cols !== 'total')}>
+            {modes.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
           </select>
         )}
 
@@ -214,12 +216,15 @@ export default function ReportsTab() {
         )}
 
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} />
+        {canUseDims(config) && <DepartmentsPicker value={config.dims.departments} onChange={(departments) => patch({ dims: { ...config.dims, departments } })} />}
         {canUseDims(config) && <DimensionsButton dims={config.dims} onChange={(dims) => patch({ dims })} />}
+        {canPickAccounts(config) && <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} />}
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <SavedReportsMenu reports={saved} loading={savedState.loading} error={savedState.error} activeId={activeSaved?.id}
             onOpen={openSaved} onDelete={deleteSaved} onShare={shareSaved} nameOf={nameOf} />
-          <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${def.period === 'asof' ? 'As of Date' : presetLabel}`} />
+          <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${def.period === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
+          <CustomizeButton density={density} onDensity={(d) => setPrefs({ density: d })} suppressZero={config.suppressZero} onSuppressZero={(v) => patch({ suppressZero: v })} />
           <button type="button" className="primary-btn" onClick={() => shown && downloadCsv(csvFileName(shown), csvRows(shown, entities))} disabled={!shown || searching}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
             <Download size={14} /> Export CSV
@@ -228,11 +233,15 @@ export default function ReportsTab() {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
             {pdfBusy ? <Loader2 size={14} className="spin" /> : <FileDown size={14} />} Export PDF
           </button>
+          <button type="button" onClick={() => setFull((v) => !v)} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
+            style={{ ...control, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+            {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
         </div>
       </div>
 
       {searching && (
-        <LedgerSearch term={term.length >= 2 ? term : ''} entities={config.entities} entityName={entityLabel}
+        <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel}
           dims={canUseDims(config) ? config.dims : null} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} />
       )}
 
@@ -245,20 +254,12 @@ export default function ReportsTab() {
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
               <h3 style={{ fontSize: '0.98rem', margin: 0 }}>{def.label}</h3>
               <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', canPickBook(config) ? bookLabel(config.book) : ''].filter(Boolean).join(' · ')}
+                {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : '', canPickBook(config) ? bookLabel(config.book) : ''].filter(Boolean).join(' · ')}
                 {loading ? ' · updating' : ''}
               </span>
               {filters.length > 0 && <span style={{ fontSize: '0.76rem', color: 'var(--wk-brand, #2b45e1)' }}>Filtered by {filters.join(' · ')}</span>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <div role="group" aria-label="Row density" style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-                {DENSITIES.map((d) => (
-                  <button key={d.key} type="button" onClick={() => setPrefs({ density: d.key })} title={d.title} aria-pressed={density === d.key}
-                    style={{ border: 'none', borderRight: '1px solid var(--border-color)', background: density === d.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: density === d.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', font: 'inherit', fontSize: '0.72rem', fontWeight: 600, padding: '4px 9px', cursor: 'pointer' }}>
-                    {d.label}
-                  </button>
-                ))}
-              </div>
               {sections.length > 0 && (
                 <button type="button" className="secondary-btn" style={{ fontSize: '0.75rem', padding: '4px 10px' }}
                   onClick={() => setCollapsed(collapsed.size ? new Set() : new Set(sections.map((x) => x.section)))}>
@@ -268,13 +269,23 @@ export default function ReportsTab() {
             </div>
           </div>
 
-          <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1 }}>
+          {shown.summary.length > 0 && (
+            <div aria-label="Summary" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 22px', margin: '0 2px 8px', fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums' }}>
+              {shown.summary.map((f) => (
+                <span key={f.label} style={{ color: 'var(--text-secondary)' }}>
+                  {f.label} <strong style={{ color: f.tone === 'good' ? 'var(--ok-fg, #15803d)' : f.tone === 'bad' ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}>{f.value}</strong>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }}>
             <table className="acct-report" style={{ '--acct-row-py': DENSITIES.find((d) => d.key === density)?.py || '5px' }}>
               <colgroup><col style={colW ? { width: colW, minWidth: colW } : undefined} /></colgroup>
               <thead>
                 <tr>
                   <ResizableHead width={colW} onResize={(w) => setPrefs({ accountWidth: w })}>Account</ResizableHead>
-                  {shown.columns.map((c) => <th key={c.key} className={c.type === 'date' ? undefined : 'acct-num'}>{c.label}</th>)}
+                  {shown.columns.map((c) => <th key={c.key} className={c.type === 'date' ? undefined : 'acct-num'} style={c.emphasis ? EMPHASIS : undefined}>{c.label}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -288,7 +299,7 @@ export default function ReportsTab() {
             </table>
           </div>
           <div style={{ marginTop: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            Generated {formatDate(shown.generatedAt)} from the Nexus Accounting ledger. Click any amount for the lines behind it; click a section to fold it; drag the edge of the Account heading to change its width (double-click resets).
+            Generated {formatDate(shown.generatedAt)} from the Nexus Accounting ledger. Click any underlined amount for the lines behind it; click a section to fold it; drag the edge of the Account heading to change its width (double-click resets).
           </div>
         </div>
       )}
@@ -296,12 +307,8 @@ export default function ReportsTab() {
   );
 }
 
-// Row density, the finance app's three steps.
-const DENSITIES = [
-  { key: 'comfortable', label: 'Comfortable', py: '10px', title: 'Roomy rows' },
-  { key: 'compact', label: 'Compact', py: '5px', title: 'Tight rows, like Intacct' },
-  { key: 'condensed', label: 'Condensed', py: '2px', title: 'As many rows on screen as possible' },
-];
+// The Total column beside a run of period or entity columns.
+const EMPHASIS = { fontWeight: 700, borderLeft: '2px solid var(--border-color)' };
 
 const tint = (v) => (v < 0 ? 'var(--bad-fg, #dc2626)' : v > 0 ? 'var(--ok-fg, #15803d)' : undefined);
 
@@ -314,8 +321,11 @@ function StatementRow({ row, columns, open, colW, onToggle, onDrill }) {
     const v = row.values[i];
     if (c.type === 'date') return <td key={c.key} style={{ color: 'var(--text-secondary)' }}>{v || (row.kind === 'account' ? '-' : '')}</td>;
     if (c.type === 'pct') return <td key={c.key} className="acct-num" style={{ color: tint(row.values[variance]) }}>{v || '-'}</td>;
-    if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ color: tint(v) }}>{Math.abs(v) < 0.005 ? '-' : money(v)}</td>;
-    const style = row.tone ? { color: v >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' } : c.key === 'other' && columns.length > 2 ? { color: 'var(--text-secondary)' } : row.kind === 'account' && v < 0 && columns.length === 2 && columns[1].type === 'date' ? { color: 'var(--bad-fg, #dc2626)' } : undefined;
+    if (row.kind === 'margin') return <td key={c.key} className="acct-num" style={{ ...(c.emphasis ? EMPHASIS : {}), color: tint(v) }}>{cellText(row, c, v) || '-'}</td>;
+    if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ color: tint(v) }}>{cellText(row, c, v)}</td>;
+    const money = (x) => cellText(row, c, x);
+    const look = row.tone ? { color: v >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' } : c.key === 'other' && columns.length > 2 ? { color: 'var(--text-secondary)' } : row.kind === 'account' && v < 0 && columns.length === 2 && columns[1].type === 'date' ? { color: 'var(--bad-fg, #dc2626)' } : undefined;
+    const style = c.emphasis ? { ...EMPHASIS, ...look } : look;
     return (
       <td key={c.key} className="acct-num" style={style}>
         {row.kind === 'account' && row.code && c.drill
@@ -349,7 +359,7 @@ function StatementRow({ row, columns, open, colW, onToggle, onDrill }) {
     );
   }
   return (
-    <tr className={row.kind === 'grand' ? 'acct-grand' : row.kind === 'subtotal' ? 'acct-subtotal' : undefined} style={row.kind === 'warn' ? { color: 'var(--bad-fg, #dc2626)' } : undefined}>
+    <tr className={row.kind === 'grand' ? 'acct-grand' : row.kind === 'subtotal' || row.kind === 'margin' ? 'acct-subtotal' : undefined} style={row.kind === 'warn' ? { color: 'var(--bad-fg, #dc2626)' } : undefined}>
       <td className="acct-label">{row.label}</td>
       {cells}
     </tr>

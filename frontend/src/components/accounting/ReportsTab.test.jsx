@@ -8,6 +8,9 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 //   is no Refresh and no chip row, the book is Accrual / Cash / both, the
 //   custom dates are not capped by each other, the search shows it is
 //   working, and Memorize keeps the view.
+//   Sep 29 (Visesh): the row has the accounting app's filters - the period
+//   stepper, Columns, departments, accounts, Customize, full screen - and the
+//   figures line sits above the statement.
 
 const pnl = {
   org: 'Greens Global',
@@ -27,7 +30,17 @@ vi.mock('../../api', () => ({
     getAccountingBalanceSheet: vi.fn(async () => ({ sections: [], totals: {} })),
     getAccountingCashPosition: vi.fn(async () => ({ accounts: [], total: 0 })),
     getAccountingTrialBalance: vi.fn(async () => ({ rows: [], totals: {} })),
-    getAccountingDimensionValues: vi.fn(async () => ({ values: [{ code: 'C-1', name: 'Valley Center' }, { code: 'C-2', name: 'Old Program (H)' }] })),
+    getAccountingBuckets: vi.fn(async () => ({
+      org: 'Greens Global', generated_at: '2026-09-25', labels: {},
+      rows: [
+        { account_no: '41000', title: 'Rental Income', section: 'revenue', bucket: '2026-08-01', debit: 0, credit: 600 },
+        { account_no: '41000', title: 'Rental Income', section: 'revenue', bucket: '2026-09-01', debit: 0, credit: 400 },
+        { account_no: '61000', title: 'Repairs', section: 'expense', bucket: '2026-09-01', debit: 250, credit: 0 },
+      ],
+    })),
+    getAccountingDimensionValues: vi.fn(async (kind) => (kind === 'department'
+      ? { values: [{ code: '9100', name: 'Property Management' }, { code: '9500', name: 'Old Division (H)' }] }
+      : { values: [{ code: 'C-1', name: 'Valley Center' }, { code: 'C-2', name: 'Old Program (H)' }] })),
     searchAccountingLedger: vi.fn(async () => ({ rows: [], total: 0, facets: {} })),
     getAccountingSavedReports: vi.fn(async () => []),
     saveAccountingReport: vi.fn(async (body) => ({ id: 'r1', ...body, mine: true })),
@@ -40,7 +53,7 @@ vi.mock('../../api', () => ({
 vi.mock('./LedgerSearch', () => ({
   default: ({ drill, term, onBusy }) => {
     onBusy?.(false);
-    return <div data-testid="ledger-search">{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>;
+    return <div data-testid="ledger-search" data-from={drill?.from}>{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>;
   },
 }));
 
@@ -58,8 +71,10 @@ describe('ReportsTab statement table', () => {
     const label = cell.closest('td');
     expect(label.className).toContain('acct-label');
     expect(within(label).getByText('41000').className).toContain('acct-code');
-    // Compact by default, dense rows.
+    // Compact by default, dense rows; the choice sits behind Customize.
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
     expect(screen.getByRole('button', { name: 'Compact' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
 
     // Fold Revenue: its accounts disappear, the total stays, the count shows.
     fireEvent.click(screen.getByRole('button', { name: 'Fold Revenue' }));
@@ -106,8 +121,8 @@ describe('ReportsTab controls', () => {
     const row = screen.getByText('Rental Income').closest('tr');
     expect(within(row).getByText('1,000.00')).toBeTruthy();
     expect(within(row).getByText('1,200.00')).toBeTruthy();
-    // Two books leave no room for a comparison.
-    expect(screen.queryByLabelText('Compare')).toBeNull();
+    // Two books leave no room for more columns.
+    expect(screen.queryByLabelText('Columns')).toBeNull();
     // The cash amount drills into the cash book.
     fireEvent.click(within(row).getByText('1,200.00'));
     expect(screen.getByTestId('ledger-search').textContent).toMatch(/^drill:41000:.*:cash$/);
@@ -165,8 +180,93 @@ describe('ReportsTab controls', () => {
     expect(body.name).toBe('GG Cash Income Statement');
     expect(body.shared).toBe(false);
     // The controls are kept, a named period by its name - never the figures.
-    expect(body.config).toMatchObject({ report: 'pnl', preset: 'ytd', book: 'cash', compare: 'none', entities: [] });
+    expect(body.config).toMatchObject({ report: 'pnl', preset: 'ytd', book: 'cash', cols: 'total', entities: [] });
     expect(body.config.from).toBeUndefined();
+  });
+
+  it('has the periods of the accounting app, and arrows that step through them', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    const period = screen.getByLabelText('Period');
+    expect([...period.options].map((o) => o.textContent.split(' · ')[0])).toEqual([
+      'This Month', 'Last Month', 'Month-to-Date', 'This Quarter', 'Last Quarter', 'Quarter-to-Date', 'This Year', 'Year-to-Date', 'Last Year', 'Trailing 12 Months', 'Custom Dates',
+    ]);
+    const year = new Date().getFullYear();
+    fireEvent.change(period, { target: { value: 'last-year' } });
+    await waitFor(() => expect(api.getAccountingPnl.mock.calls.at(-1).slice(0, 2)).toEqual([`${year - 1}-01-01`, `${year - 1}-12-31`]));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous period' }));
+    await waitFor(() => expect(api.getAccountingPnl.mock.calls.at(-1).slice(0, 2)).toEqual([`${year - 2}-01-01`, `${year - 2}-12-31`]));
+    // The stepped period shows as dates that can be edited.
+    expect(screen.getByLabelText('From').value).toBe(`${year - 2}-01-01`);
+  });
+
+  it('lays the statement out by month, each amount drilling into its month', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    const columns = screen.getByLabelText('Columns');
+    expect([...columns.options].map((o) => o.textContent).slice(0, 6)).toEqual(['Total Only', 'By Month', 'By Quarter', 'By Year', 'By Entity', 'By Department']);
+    fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'custom' } });
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-08-01' } });
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-09-25' } });
+    fireEvent.change(columns, { target: { value: 'month' } });
+    await screen.findByRole('columnheader', { name: 'Sep 2026' });
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Account', 'Sep 2026', 'Aug 2026', 'Total']);
+    expect(api.getAccountingBuckets.mock.calls.at(-1)[0]).toMatchObject({ from: '2026-08-01', to: '2026-09-25', by: 'month', book: 'accrual' });
+    const row = screen.getByText('Rental Income').closest('tr');
+    expect([...row.querySelectorAll('td.acct-num')].map((c) => c.textContent)).toEqual(['400.00', '600.00', '1,000.00']);
+    fireEvent.click(within(row).getByText('600.00'));
+    const lines = screen.getByTestId('ledger-search');
+    expect(lines.textContent).toBe('drill:41000:2026-08-31:accrual');
+    expect(lines.getAttribute('data-from')).toBe('2026-08-01');
+  });
+
+  it('offers the balance sheet its own column layouts', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.change(screen.getByLabelText('Report'), { target: { value: 'balance-sheet' } });
+    await waitFor(() => expect([...screen.getByLabelText('Columns').options].map((o) => o.textContent)).toEqual([
+      'Total Only', 'By Entity', 'By Department', 'Last 12 Month-Ends', 'Last 4 Quarter-Ends', 'vs Prior Month-End', 'vs Same Date Last Year', 'vs Last Year-End',
+    ]));
+    expect(screen.getByRole('button', { name: 'Previous month-end' })).toBeTruthy();
+    // A trial balance has one layout, so the dropdown is not shown.
+    fireEvent.change(screen.getByLabelText('Report'), { target: { value: 'trial-balance' } });
+    await waitFor(() => expect(screen.queryByLabelText('Columns')).toBeNull());
+  });
+
+  it('filters by department and by account from their own dropdowns', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.click(screen.getByRole('button', { name: 'Departments' }));
+    await screen.findByRole('option', { name: /Property Management/ });
+    expect(screen.queryByRole('option', { name: /Old Division/ })).toBeNull();
+    fireEvent.click(screen.getByRole('option', { name: /Property Management/ }));
+    await waitFor(() => expect(api.getAccountingPnl.mock.calls.at(-1)[3]?.departments).toEqual(['9100']));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Accounts' }));
+    // Every account of the statement, under its section.
+    expect(within(screen.getByRole('listbox', { name: 'Accounts' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['Rental Income41000', 'Parking Income41100', 'Repairs61000']);
+    fireEvent.click(screen.getByRole('option', { name: /Repairs/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.queryByText('Rental Income')).toBeNull());
+    expect(screen.getByText('Repairs')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Accounts' }).textContent).toContain('Account 61000');
+  });
+
+  it('shows the figures above the statement, hides zero balances, fills the screen', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    expect(screen.getByLabelText('Summary').textContent).toBe('Revenue 1,500.00Expenses 400.00Net Income 1,100.00Net Margin 73.3%');
+    expect(screen.getByText('Net Profit Margin %').closest('tr').textContent).toContain('73.3%');
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.click(screen.getByLabelText(/Hide zero balances/));
+    fireEvent.click(screen.getByRole('button', { name: /Memorize/ }));
+    fireEvent.change(screen.getByLabelText('What would you like to name it?'), { target: { value: 'No Zeros' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.saveAccountingReport).toHaveBeenCalled());
+    expect(api.saveAccountingReport.mock.calls[0][0].config.suppressZero).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Fill the screen' }));
+    expect(screen.getByRole('button', { name: 'Back to window size' }).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('shows the search is working from the first keystroke', async () => {

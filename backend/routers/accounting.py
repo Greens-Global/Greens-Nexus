@@ -254,6 +254,31 @@ async def report_cash_position(asof: str | None = None, location: str | None = N
     return {**parts[0], "location": None, "locations": codes, "accounts": rows, "total": round(sum(a["balance"] for a in rows), 2)}
 
 
+_BUCKET_BY = ("total", "month", "quarter", "year", "entity", "department", "vendor", "customer", "employee", "project", "item")
+
+
+@router.get("/reports/buckets")
+async def report_buckets(
+    to: str = Query(...), from_: str | None = Query(default=None, alias="from"), by: str = "total", location: str | None = None,
+    locations: str | None = None, departments: str | None = None, vendor: str | None = None, customer: str | None = None,
+    employee: str | None = None, project: str | None = None, item: str | None = None,
+    book: str | None = None, scope: dict = Depends(entity_scope),
+):
+    """Sums per account per COLUMN, for the Columns dropdown on Reports (Sep 29:
+    the same layouts the accounting app's Reports page offers - By Month, By
+    Quarter, By Year, By Entity, By Department, By Vendor ...). `from` left out
+    reads from the start of the books, which is what a balance sheet column
+    needs. The screen lays the statement out; this only adds up. A person
+    limited to certain entities gets columns for those entities only."""
+    if by not in _BUCKET_BY:
+        raise HTTPException(status_code=400, detail=f"by must be one of {', '.join(_BUCKET_BY)}")
+    location, locations = await _limit(scope, location, locations)
+    return await _acct_get("/api/internal/reports/buckets", {
+        "from": from_, "to": to, "by": by, "location": location, "book": _book(book),
+        **_dims(locations, departments, vendor, customer, employee, project, item),
+    })
+
+
 _COLUMN_KEYS = ("date", "entry", "doc", "description", "account", "entity", "department", "party", "vendor", "customer", "employee", "journal", "debit", "credit")
 
 

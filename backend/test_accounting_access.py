@@ -197,6 +197,24 @@ class AccountingAccessTests(unittest.TestCase):
         self.assertEqual(r["accounts"], [{"gl_code": "10100", "account_name": "Operating", "balance": 150.75, "last_activity": "2026-09-20"}])
         self.assertEqual(sorted(p["location"] for p in self._sent("/reports/cash-position")), ["15000", "56000"])
 
+    def test_columns_are_held_to_the_same_limit(self):
+        # The Columns layouts (By Month, By Entity ...) read through one route.
+        _as(OPEN)
+        r = self.client.get("/accounting/reports/buckets?from=2026-01-01&to=2026-09-28&by=month&book=cash&vendor=V1")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._sent("/reports/buckets")[-1], {"from": "2026-01-01", "to": "2026-09-28", "by": "month", "book": "cash", "vendor": "V1"})
+        # A balance sheet column has no start.
+        self.client.get("/accounting/reports/buckets?to=2026-09-28&by=entity")
+        self.assertEqual(self._sent("/reports/buckets")[-1], {"to": "2026-09-28", "by": "entity"})
+        self.assertEqual(self.client.get("/accounting/reports/buckets?to=2026-09-28&by=weekday").status_code, 400)
+        _as(LIMITED)
+        self.client.get("/accounting/reports/buckets?to=2026-09-28&by=entity")
+        self.assertEqual(self._sent("/reports/buckets")[-1], {"to": "2026-09-28", "by": "entity", "locations": "15000,56000"})
+        self.assertEqual(self.client.get("/accounting/reports/buckets?to=2026-09-28&by=entity&location=12000").status_code, 403)
+        _as(ONE)
+        self.client.get("/accounting/reports/buckets?to=2026-09-28&by=department")
+        self.assertEqual(self._sent("/reports/buckets")[-1], {"to": "2026-09-28", "by": "department", "location": "15000"})
+
     # ── search, entry ───────────────────────────────────────────────────────
     def test_search_limit_and_column_filters(self):
         _as(LIMITED)

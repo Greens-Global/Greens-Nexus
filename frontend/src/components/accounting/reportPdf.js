@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { formatDate } from '../../lib/datetime';
-import { bookLabel, canPickBook, dimsText, entityText, money, periodText } from './reportModel';
+import { bookLabel, canPickBook, cellText, dimsText, entityText, periodText } from './reportModel';
 
 // A reporting package as one PDF (Neil, Sep 25): a lender opens this, so it
 // has to read like a statement from an accounting firm - a cover with the
@@ -10,7 +10,9 @@ import { bookLabel, canPickBook, dimsText, entityText, money, periodText } from 
 //
 // Built in the browser from the same result the screen draws (runReport), so
 // what is sent out is what was on screen. Letter paper; a statement with a
-// comparison (four figure columns) turns landscape.
+// comparison (four figure columns) turns landscape, and one with a column per
+// month, entity or vendor gets a sheet as wide as its columns need, in the
+// same proportions, so it still prints to fit.
 
 export const INK = rgb(0.09, 0.11, 0.16);
 export const MUTED = rgb(0.42, 0.45, 0.52);
@@ -39,12 +41,6 @@ export function fit(font, size, text, width) {
   return `${t.trimEnd()}...`;
 }
 
-const cellText = (column, value) => {
-  if (column.type === 'date' || column.type === 'pct') return value || '';
-  if (column.type === 'variance') return Math.abs(value) < 0.005 ? '-' : money(value);
-  return money(value);
-};
-
 /**
  * statements: [{ title, result, entities }] - result from runReport().
  * cover: false leaves the cover out (one statement exported on its own).
@@ -68,11 +64,14 @@ export async function buildPackagePdf({ name, description = '', org = '', prepar
   statements.forEach(({ title, result, entities }) => {
     const { config, def, columns, rows } = result;
     const wide = columns.length > 3;
-    const size = wide ? [792, 612] : [612, 792];
+    const many = columns.length > 6;
+    const figW = (c) => (c.type === 'pct' ? 70 : c.type === 'date' ? 84 : many ? 88 : wide ? 104 : 112);
+    const figures = columns.reduce((s, c) => s + figW(c), 0);
+    // The account names keep at least 230 points; the sheet grows past that.
+    const need = MARGIN * 2 + 230 + figures;
+    const size = !wide ? [612, 792] : need <= 792 ? [792, 612] : [need, Math.round((need * 612) / 792)];
     const W = size[0];
     const H = size[1];
-    const figW = (c) => (c.type === 'pct' ? 70 : c.type === 'date' ? 84 : wide ? 104 : 112);
-    const figures = columns.reduce((s, c) => s + figW(c), 0);
     const labelW = W - MARGIN * 2 - figures;
     const sub = [entityText(config, entities), periodText(config), canPickBook(config) ? `${bookLabel(config.book)} basis` : ''].filter(Boolean);
     const filters = dimsText(config);
@@ -118,7 +117,7 @@ export async function buildPackagePdf({ name, description = '', org = '', prepar
       const heavy = r.kind !== 'account';
       // A section heading never sits alone at the foot of a page.
       room(r.kind === 'section' ? ROW * 2 + 4 : r.kind === 'account' ? 0 : 8);
-      if (r.kind === 'subtotal' || r.kind === 'grand') {
+      if (r.kind === 'subtotal' || r.kind === 'grand' || r.kind === 'margin') {
         y -= 3;
         page.drawLine({ start: { x: MARGIN, y: y + ROW - 3 }, end: { x: W - MARGIN, y: y + ROW - 3 }, thickness: 0.7, color: INK });
         if (r.kind === 'grand') page.drawLine({ start: { x: MARGIN, y: y + ROW - 5.5 }, end: { x: W - MARGIN, y: y + ROW - 5.5 }, thickness: 0.7, color: INK });
@@ -129,7 +128,7 @@ export async function buildPackagePdf({ name, description = '', org = '', prepar
         page.drawRectangle({ x: MARGIN, y: y - 4, width: W - MARGIN * 2, height: ROW, color: BAND });
       }
       const f = heavy ? bold : font;
-      const fs = 9.5;
+      const fs = many ? 8.5 : 9.5;
       if (r.kind === 'account') {
         const indent = r.section ? 12 : 0;
         let x = MARGIN + indent;
@@ -144,7 +143,7 @@ export async function buildPackagePdf({ name, description = '', org = '', prepar
       let x = MARGIN + labelW;
       columns.forEach((c, k) => {
         const w = figW(c);
-        const t = clean(cellText(c, r.values[k]));
+        const t = clean(cellText(r, c, r.values[k]));
         if (t) page.drawText(t, { x: x + w - f.widthOfTextAtSize(t, fs), y, size: fs, font: f, color: INK });
         x += w;
       });

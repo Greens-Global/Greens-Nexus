@@ -985,6 +985,11 @@ export const api = {
     req(`/accounting/reports/trial-balance?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}${book === "cash" ? "&book=cash" : ""}`),
   getAccountingCashPosition: (asof, location, locations) =>
     req(`/accounting/reports/cash-position?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}${locations?.length ? `&locations=${encodeURIComponent(locations.join(","))}` : ""}`),
+  // Sums per account per column (by month, quarter, year, entity, department,
+  // vendor ...) for the Columns dropdown on Reports. `from` left out = from
+  // the start of the books.
+  getAccountingBuckets: ({ from, to, by, book, location, dims } = {}) =>
+    req(`/accounting/reports/buckets?to=${to}&by=${encodeURIComponent(by || "total")}${from ? `&from=${from}` : ""}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}${book === "cash" ? "&book=cash" : ""}`),
   // Global search over the posted ledger, and the report drill-down (same call
   // with an `account`). Empty / null params are left out of the query string.
   searchAccountingLedger: (params = {}) => {

@@ -180,10 +180,13 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   useEffect(() => {
     if (!drill) return;
     setAccount({ code: drill.account, name: drill.accountName });
-    setParty(applied.party); setJournal(''); setBook(drill.book === 'cash' ? 'cash' : 'accrual'); setScope('period'); setTyped({});
+    // A vendor, customer or employee column drills into that party; a
+    // department column into that department (the Department filter box).
+    setParty(drill.party || applied.party); setJournal(''); setBook(drill.book === 'cash' ? 'cash' : 'accrual'); setScope('period');
+    setTyped(drill.department ? { department: drill.department } : {});
   }, [drill]); // eslint-disable-line react-hooks/exhaustive-deps
   // A single vendor / customer / employee on the report follows into the search.
-  useEffect(() => { setParty(applied.party); }, [applied.party?.kind, applied.party?.code]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setParty(drill?.party || applied.party); }, [applied.party?.kind, applied.party?.code]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const usePeriod = scope === 'period' && drill;
   const params = useMemo(() => ({

@@ -22,11 +22,17 @@ Branches, local only, nothing pushed:
 - Nexus `feature/charmi-neil-sep25` (off dev 6cd0263d)
 - Accounting `feature/nexus-reports-sep25` (off main e3cc9a7)
 
-Release order when it goes out (the accounting side first, Nexus needs it):
-1. Apply the two accounting migrations to the accounting database:
-   `20260928100000_lms_core_same_month_tail.sql`,
-   `20260928110000_nexus_reports_book_columns_entry.sql`.
-2. Push accounting `main` (Cloudflare deploys it).
+Release order (the accounting side first, Nexus needs it):
+1. Accounting database migrations:
+   - APPLIED to the production accounting database on 09/28:
+     `20260928100000_lms_core_same_month_tail.sql` (the September zeros fix,
+     live for the accounting app and Nexus as soon as it was applied) and
+     `20260928110000_nexus_reports_book_columns_entry.sql`.
+   - NOT applied yet: `20260929100000_nexus_report_columns.sql` (the Columns
+     layouts, B10). Apply it before the accounting app is pushed.
+2. Push accounting `main` (Cloudflare deploys it). Until this is live the new
+   Nexus screens have nothing to call: the cash book, the column filters, By
+   Month and the other column layouts, Leasing receipts.
 3. Push Nexus `dev`, then release to `main`. Nine new Nexus tables are
    created on boot with RLS on: `accounting_saved_reports`,
    `accounting_report_packages`, `accounting_user_prefs`, `pfs_profiles`,
@@ -40,11 +46,11 @@ Release order when it goes out (the accounting side first, Nexus needs it):
      and time-off requests now reach that person.
    - F3: set the eight named people to Exempt.
 
-Verified locally: 933 frontend tests, every backend test file, production
-build (9,786 KB of a 9,900 KB budget), and each screen opened in a browser
-against a local stand-in for the accounting service. NOT verified: anything
-against the real ledger - the migrations are not applied and nothing is
-deployed.
+Verified locally: 950 frontend tests, every backend test file this work
+touches, production build (9,803 KB of a 9,900 KB budget), and each screen
+opened in a browser against a local stand-in for the accounting service with
+made-up figures. NOT verified: the new screens against the real ledger -
+nothing is deployed.
 
 
 ## A. Bugs seen live on production
@@ -105,6 +111,41 @@ get to the report, half your screen is already gone."
 - 🔨 B8. Rename "Profit & Loss" to "Income Statement" everywhere (16:44).
 - 🔨 B9. Historical classes still show (00:56). Rule agreed on the call: a
   class with "(H)" in its name is historical - hide it.
+- 🔨 B10. The same filters as the accounting app's Reports page (Visesh,
+  09/29, from the call: "the reports are better there"). Built 09/29:
+  - Period stepper: the accounting app's named periods (This Month, Last
+    Month, Month-to-Date, This Quarter, Last Quarter, Quarter-to-Date, This
+    Year, Year-to-Date, Last Year, Trailing 12 Months, Custom Dates) with an
+    arrow on each side that moves a month, a quarter or a year at a time. A
+    balance sheet steps from month-end to month-end. NOTE: "This Month" used
+    to stop today; it is now the whole month, and what it used to mean is
+    "Month-to-Date". A report memorized under the old meaning opens as
+    Month-to-Date.
+  - Columns: Total Only, By Month, By Quarter, By Year, By Entity, By
+    Department, By Vendor, By Customer, By Employee, By Project-Job, By Item,
+    vs Prior Period, vs Prior Year. Balance Sheet: Total Only, By Entity, By
+    Department, Last 12 Month-Ends, Last 4 Quarter-Ends, vs Prior Month-End,
+    vs Same Date Last Year, vs Last Year-End. Period columns run latest
+    first with a Total at the end; more than 50 vendors (or customers ...)
+    keeps the 50 largest and folds the rest into "Other". Every amount drills
+    into its own column (that month, that entity, that vendor). The Compare
+    dropdown is gone - the comparisons are in Columns; a report memorized
+    with a comparison opens the same way.
+  - Departments and Accounts are their own dropdowns beside Entities;
+    Dimensions keeps vendor, customer, employee, Project-Job and item.
+  - Customize: row density and "Hide zero balances".
+  - Full screen button; the figures line above the statement (Revenue,
+    Expenses, Net Income, Net Margin, and Net Change on a comparison); a Net
+    Profit Margin % row under Net Income.
+  - CSV and PDF carry whatever columns are on screen; a PDF with many columns
+    gets a wider sheet in the same proportions.
+  - Not carried over from the accounting app: "P&L by Book (Tax vs Actual)"
+    (the Book dropdown's "Accrual and Cash" is the same view), number scale
+    (thousands / millions), and the reports Nexus does not have (Cash Flow,
+    Partners A/R and A/P, A/R Aging, Unbilled WIP, Revenue per Client, Client
+    Billing, Vendor Statement).
+  - Needs: accounting migration `20260929100000_nexus_report_columns.sql` and
+    the accounting app's new `/api/internal/reports/buckets` route.
 
 ## C. Drill-down and journal entry view
 

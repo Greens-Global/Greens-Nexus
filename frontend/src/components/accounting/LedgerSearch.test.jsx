@@ -76,6 +76,18 @@ describe('LedgerSearch grid', () => {
     expect(api.searchAccountingLedger.mock.calls.at(-1)[0].location).toBeUndefined();
   });
 
+  it('a drill-down from a vendor or a department column stays on that vendor or department', async () => {
+    const { unmount } = render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+      drill={{ account: '62101', accountName: 'Repairs', from: '2026-01-01', to: '2026-09-28', book: 'accrual', party: { kind: 'vendor', code: 'V00412', name: 'Home Depot' } }} />);
+    await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
+    expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toMatchObject({ account: '62101', party_kind: 'vendor', party: 'V00412' });
+    expect(screen.getByText('Vendor: Home Depot')).toBeTruthy();
+    unmount();
+    render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+      drill={{ account: '62101', accountName: 'Repairs', from: '2026-01-01', to: '2026-09-28', book: 'accrual', department: '9100' }} />);
+    await waitFor(() => expect(JSON.parse(api.searchAccountingLedger.mock.calls.at(-1)[0].cols || '{}')).toEqual({ department: '9100' }), { timeout: 2000 });
+  });
+
   it('opens the journal entry with every dimension as a column', async () => {
     render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'IA-1293173' }));

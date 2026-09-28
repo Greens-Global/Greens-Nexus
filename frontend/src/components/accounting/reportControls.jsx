@@ -1,14 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronRight, Search, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Layers, ListFilter, Search, Settings2, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
-import { DIM_KINDS, EMPTY_DIMS, countDims, isHistorical } from './reportModel';
+import { formatDate } from '../../lib/datetime';
+import { EMPTY_DIMS, POPOVER_DIMS, PRESETS, countDims, isHistorical, iso, presetRange, stepAsOf, stepRange } from './reportModel';
 
 // The Reports toolbar's controls (Neil and Charmi, Sep 25): everything is a
 // dropdown on ONE slim row, so the statement starts high on the page - no
 // chips, no second and third row of filters. Entities is a searchable
 // multi-select; Dimensions holds every other Intacct dimension behind one
 // button with a count; Saved Reports lists the memorized views.
+//
+// Sep 29 (Visesh): the row carries what the accounting app's Reports page
+// carries - the period stepper with its arrows, departments and accounts as
+// their own dropdowns, and Customize.
 
 export const control = {
   height: 30, padding: '0 9px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem',
@@ -47,7 +52,8 @@ export function usePopover() {
   return [open, setOpen, ref];
 }
 
-// A searchable list with a tick per row. `options`: [{ code, name, depth? }].
+// A searchable list with a tick per row. `options`: [{ code, name, depth?, group? }];
+// a heading is drawn wherever `group` changes.
 function OptionList({ options, value, onChange, placeholder, empty, loading, error, allLabel }) {
   const [q, setQ] = useState('');
   const chosen = useMemo(() => new Set(value), [value]);
@@ -82,14 +88,19 @@ function OptionList({ options, value, onChange, placeholder, empty, loading, err
             <span style={{ flex: 1, fontWeight: 600 }}>{allLabel}</span>
           </button>
         )}
-        {shown.map((o) => {
+        {shown.map((o, i) => {
           const on = chosen.has(o.code);
           return (
-            <button key={o.code} type="button" role="option" aria-selected={on} style={row(on)} onClick={() => toggle(o.code)}>
-              <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{on ? <Check size={14} /> : null}</span>
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: o.depth ? 14 : 0 }}>{o.name || o.code}</span>
-              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{o.name ? o.code : ''}</span>
-            </button>
+            <Fragment key={o.code}>
+              {o.group && o.group !== shown[i - 1]?.group && (
+                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', padding: '6px 8px 2px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{o.group}</div>
+              )}
+              <button type="button" role="option" aria-selected={on} style={row(on)} onClick={() => toggle(o.code)}>
+                <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{on ? <Check size={14} /> : null}</span>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: o.depth ? 14 : 0 }}>{o.name || o.code}</span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{o.name ? o.code : ''}</span>
+              </button>
+            </Fragment>
           );
         })}
         {!loading && !error && !shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>{options.length ? 'No match.' : empty}</div>}
@@ -140,12 +151,13 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, ali
   );
 }
 
-// Department, vendor, customer, employee, Project-Job and item behind one
-// button. The kinds are listed on the left with what is picked; the right
-// side is the searchable list of the kind that is open.
+// Vendor, customer, employee, Project-Job and item behind one button
+// (department has its own dropdown beside Entities). The kinds are listed on
+// the left with what is picked; the right side is the searchable list of the
+// kind that is open.
 export function DimensionsButton({ dims, onChange, align = 'left' }) {
   const [open, setOpen, ref] = usePopover();
-  const [kind, setKind] = useState(DIM_KINDS[0]);
+  const [kind, setKind] = useState(POPOVER_DIMS[0]);
   const [lists, setLists] = useState({});       // kind -> { values } | { error }
   const n = countDims(dims);
   useEffect(() => {
@@ -176,7 +188,7 @@ export function DimensionsButton({ dims, onChange, align = 'left' }) {
         <div role="dialog" aria-label="Dimensions" style={{ ...panel(560, align), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
           <div style={{ display: 'grid', gap: 1, alignContent: 'start' }}>
             <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', padding: '2px 8px 6px' }}>Filter this report by</div>
-            {DIM_KINDS.map((k) => {
+            {POPOVER_DIMS.map((k) => {
               const c = (dims[k.key] || []).length;
               return (
                 <button key={k.key} type="button" style={row(k.key === kind.key)} onClick={() => setKind(k)} aria-pressed={k.key === kind.key}>
@@ -185,7 +197,7 @@ export function DimensionsButton({ dims, onChange, align = 'left' }) {
                 </button>
               );
             })}
-            {n > 0 && <button type="button" style={{ ...link, textAlign: 'left', padding: '8px 8px 0' }} onClick={() => onChange({ ...EMPTY_DIMS })}>Clear all</button>}
+            {n > 0 && <button type="button" style={{ ...link, textAlign: 'left', padding: '8px 8px 0' }} onClick={() => onChange({ ...EMPTY_DIMS, departments: dims.departments || [] })}>Clear all</button>}
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -202,6 +214,173 @@ export function DimensionsButton({ dims, onChange, align = 'left' }) {
               Lines without a {kind.label.toLowerCase()} are left out when one is picked. Historical (H) entries are hidden.
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One department, several, or all of them - the same searchable dropdown as
+// Entities, listing the departments Intacct has.
+export function DepartmentsPicker({ value, onChange, align = 'left' }) {
+  const [open, setOpen, ref] = usePopover();
+  const [list, setList] = useState(null);       // { values } | { values: [], error }
+  useEffect(() => {
+    // The names are needed for the button as soon as something is picked.
+    if (list || (!open && !value.length)) return undefined;
+    let alive = true;
+    api.getAccountingDimensionValues('department')
+      .then((d) => { if (alive) setList({ values: d?.values || [] }); })
+      .catch((e) => { if (alive) setList({ values: [], error: e?.message || 'Could not load the departments.' }); });
+    return () => { alive = false; };
+  }, [open, value.length, list]);
+  const options = useMemo(() => {
+    const keep = new Set(value);
+    return (list?.values || [])
+      .filter((v) => !isHistorical(v.name) || keep.has(v.code))
+      .map((v) => ({ code: v.code, name: v.name || '', depth: 0 }))
+      .sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'en-US', { numeric: true }));
+  }, [list, value]);
+  const one = value.length === 1 ? options.find((o) => o.code === value[0]) : null;
+  const label = !value.length ? 'All departments' : value.length === 1 ? (one?.name ? `${one.name} (${value[0]})` : `Department ${value[0]}`) : `${value.length} departments`;
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label="Departments" title={label}>
+        <Layers size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+      </button>
+      {open && (
+        <div role="listbox" aria-label="Departments" aria-multiselectable="true" style={panel(360, align)}>
+          <OptionList options={options} value={value} onChange={onChange} allLabel="All departments" loading={!list} error={list?.error}
+            placeholder="Search department by name or code" empty="No departments on the ledger yet." />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Historical (H) departments are hidden.</span>
+            <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Which accounts the statement shows: every account it could show, by
+// section, with a tick per account. Nothing ticked = all of them.
+export function AccountsPicker({ accounts, value, onChange, align = 'left' }) {
+  const [open, setOpen, ref] = usePopover();
+  const options = useMemo(() => {
+    const known = new Set(accounts.map((a) => a.code));
+    const list = accounts.map((a) => ({ code: a.code, name: a.title, group: a.section }));
+    // A picked account with nothing in this period still shows, so it can be unticked.
+    value.forEach((code) => { if (!known.has(code)) list.push({ code, name: '', group: 'Not on this statement' }); });
+    return list;
+  }, [accounts, value]);
+  const label = !value.length ? 'All accounts' : value.length === 1 ? `Account ${value[0]}` : `${value.length} accounts`;
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label="Accounts" title={label}>
+        <ListFilter size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+      </button>
+      {open && (
+        <div role="listbox" aria-label="Accounts" aria-multiselectable="true" style={panel(400, align)}>
+          <OptionList options={options} value={value} onChange={onChange} allLabel="All accounts"
+            placeholder="Search account by name or GL code" empty="No accounts with activity for this selection." />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Totals add up the picked accounts only.</span>
+            <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The period, with an arrow on each side (the accounting app's stepper): the
+// dropdown names the period, the arrows move one month, quarter or year back
+// or forward. A statement as of a date steps from month-end to month-end.
+const arrow = { ...control, width: 26, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' };
+export function PeriodStepper({ config, period, onChange }) {
+  const group = { display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' };
+  if (period === 'asof') {
+    const to = (asof) => onChange({ asof, asofToday: asof === iso(new Date()) });
+    return (
+      <div role="group" aria-label="Report period" style={group}>
+        <button type="button" style={arrow} onClick={() => to(stepAsOf(config.asof, -1))} aria-label="Previous month-end" title="Previous month-end"><ChevronLeft size={14} /></button>
+        <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
+        <input type="date" value={config.asof} aria-label="As of" style={control} onChange={(e) => e.target.value && to(e.target.value)} />
+        <button type="button" style={arrow} onClick={() => to(stepAsOf(config.asof, 1))} aria-label="Next month-end" title="Next month-end"><ChevronRight size={14} /></button>
+      </div>
+    );
+  }
+  const step = (dir) => {
+    const [from, end] = stepRange(config.preset, config.from, config.to, dir);
+    onChange({ preset: 'custom', from, to: end });
+  };
+  return (
+    <div role="group" aria-label="Report period" style={group}>
+      <button type="button" style={arrow} onClick={() => step(-1)} aria-label="Previous period" title="Previous period"><ChevronLeft size={14} /></button>
+      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" style={{ ...control, maxWidth: 300 }}>
+        {PRESETS.map((p) => {
+          const r = p.key === 'custom' ? null : presetRange(p.key).map(iso);
+          return <option key={p.key} value={p.key}>{r ? `${p.label} · ${formatDate(r[0])} - ${formatDate(r[1])}` : 'Custom Dates'}</option>;
+        })}
+      </select>
+      {config.preset === 'custom' && (
+        <>
+          {/* No min / max on these: a calendar capped at the other date could not
+              move to a later month at all (Charmi, Sep 25). Picking a start after
+              the end moves the end with it. */}
+          <input type="date" value={config.from} aria-label="From" style={control}
+            onChange={(e) => e.target.value && onChange({ from: e.target.value, to: e.target.value > config.to ? e.target.value : config.to })} />
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>to</span>
+          <input type="date" value={config.to} aria-label="To" style={control}
+            onChange={(e) => e.target.value && onChange({ to: e.target.value, from: e.target.value < config.from ? e.target.value : config.from })} />
+        </>
+      )}
+      <button type="button" style={arrow} onClick={() => step(1)} aria-label="Next period" title="Next period"><ChevronRight size={14} /></button>
+    </div>
+  );
+}
+
+// Row density, the finance app's three steps.
+export const DENSITIES = [
+  { key: 'comfortable', label: 'Comfortable', py: '10px', title: 'Roomy rows' },
+  { key: 'compact', label: 'Compact', py: '5px', title: 'Tight rows, like Intacct' },
+  { key: 'condensed', label: 'Condensed', py: '2px', title: 'As many rows on screen as possible' },
+];
+
+// Customize: how the statement is drawn. The density is the person's own
+// (every accounting screen follows it); leaving out the accounts with nothing
+// in them belongs to the report and is memorized with it.
+export function CustomizeButton({ density, onDensity, suppressZero, onSuppressZero, align = 'right' }) {
+  const [open, setOpen, ref] = usePopover();
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" style={button(suppressZero)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
+        <Settings2 size={14} style={{ flexShrink: 0, color: suppressZero ? 'inherit' : 'var(--text-muted)' }} /> Customize
+      </button>
+      {open && (
+        <div role="dialog" aria-label="Customize" style={{ ...panel(300, align), display: 'grid', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Row density</div>
+            <div role="group" aria-label="Row density" style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+              {DENSITIES.map((d) => (
+                <button key={d.key} type="button" onClick={() => onDensity(d.key)} title={d.title} aria-pressed={density === d.key}
+                  style={{ border: 'none', borderRight: '1px solid var(--border-color)', background: density === d.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: density === d.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', font: 'inherit', fontSize: '0.74rem', fontWeight: 600, padding: '5px 10px', cursor: 'pointer' }}>
+                  {d.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={suppressZero} onChange={(e) => onSuppressZero(e.target.checked)} style={{ marginTop: 2 }} />
+            <span>
+              Hide zero balances
+              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>Accounts with 0.00 in every column are left off.</span>
+            </span>
+          </label>
         </div>
       )}
     </div>
@@ -240,7 +419,7 @@ export function MemorizeButton({ onSave, suggestion, align = 'right' }) {
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.78rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
             <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} /> Share with the accounting team
           </label>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Saves the report, period, book, entities and filters - not the figures. A name you already use is replaced.</div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Saves the report, period, columns, book, entities and filters - not the figures. A name you already use is replaced.</div>
           {error && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <button type="button" className="secondary-btn" style={{ fontSize: '0.75rem', padding: '4px 12px' }} onClick={() => setOpen(false)}>Cancel</button>
