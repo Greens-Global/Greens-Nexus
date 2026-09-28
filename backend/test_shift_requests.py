@@ -27,7 +27,9 @@ with database.engine.connect() as _c:
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
                  "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
                  "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
-                 "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''"):
+                 "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
+                 "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''"):
         try:
             _c.execute(_text(_sql)); _c.commit()
         except Exception:
@@ -235,6 +237,24 @@ class ShiftRequestTests(unittest.TestCase):
         self.assertEqual(self.client.post(f"/timeclock/shift-requests/{r['id']}/cancel").status_code, 403)
         self._as(A)
         self.assertEqual(self.client.post(f"/timeclock/shift-requests/{r['id']}/cancel").json()["status"], "cancelled")
+
+    def test_hiding_team_schedules_keeps_swaps_working(self):
+        y = self._shift(B, day=DAY2)
+        self._as(A)
+        self.assertEqual(len(self.client.get(f"/timeclock/my-schedule?start={DAY}&end={DAY2}").json()["teams"]), 1)
+        self._as(ADMIN)
+        self.client.put("/timeclock/shift-requests/settings", json={"teamSchedules": False})
+        self._as(A)
+        self.assertEqual(self.client.get(f"/timeclock/my-schedule?start={DAY}&end={DAY2}").json()["teams"], [])
+        mine = self.client.get(f"/timeclock/shift-requests/mine?start={DAY}&end={DAY2}").json()
+        self.assertEqual([s["id"] for s in mine["swapShifts"][B]], [y])     # only what a swap can target
+        self.assertNotIn(C, mine["swapShifts"])                              # never outside the team
+
+    def test_reminder_lead_time_is_checked(self):
+        self._as(ADMIN)
+        self.assertEqual(self.client.put("/timeclock/shift-requests/settings", json={"reminderLeadMinutes": 5}).status_code, 400)
+        r = self.client.put("/timeclock/shift-requests/settings", json={"reminders": False, "reminderLeadMinutes": 90}).json()
+        self.assertEqual((r["reminders"], r["reminderLeadMinutes"]), (False, 90))
 
     def test_staff_cannot_open_the_inbox_or_decide(self):
         r = self._ask(A, kind="open", shift_id=self._shift("", slots=1)).json()

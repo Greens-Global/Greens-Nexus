@@ -43,7 +43,7 @@ from sqlalchemy.orm import Session
 import models
 from auth import get_current_user
 from database import get_db
-from routers.timeclock import (require_team_write, _visible_emails, _team_alert_recipients,
+from routers.timeclock import (require_team_write, require_schedule_write, _visible_emails, _team_alert_recipients,
                                _require_unscoped_team, _sched_dict, _hm12)
 
 router = APIRouter(prefix="/timeclock/shift-requests", tags=["Shift Requests"])
@@ -51,7 +51,12 @@ router = APIRouter(prefix="/timeclock/shift-requests", tags=["Shift Requests"])
 KINDS = ("open", "swap", "offer")
 PENDING = ("pending_peer", "pending_manager")
 _SETTINGS_KEY = "shift_requests_config"
-_DEFAULTS = {"openShifts": True, "swaps": True, "offers": True}
+_DEFAULTS = {"openShifts": True, "swaps": True, "offers": True, "teamSchedules": True,
+             # Shift reminders (shift_notify.py): on/off and minutes before start.
+             "reminders": True, "reminderLeadMinutes": 60,
+             # Staff can request time off themselves (routers/timeclock.py).
+             "timeOffRequests": True}
+REMINDER_LEAD_MIN, REMINDER_LEAD_MAX = 15, 240
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers"}
 _EMPLOYEE_ACTION = {"view": "timeclock", "sub": "shifts"}
 _APPROVER_ACTION = {"view": "hr", "sub": "hr-time"}
@@ -88,7 +93,16 @@ def get_settings(db: Session) -> dict:
         try:
             saved = json.loads(row.value)
             if isinstance(saved, dict):
-                cfg.update({k: bool(saved[k]) for k in _DEFAULTS if k in saved})
+                for k in _DEFAULTS:
+                    if k not in saved:
+                        continue
+                    if k == "reminderLeadMinutes":
+                        try:
+                            cfg[k] = max(REMINDER_LEAD_MIN, min(REMINDER_LEAD_MAX, int(saved[k])))
+                        except (TypeError, ValueError):
+                            pass
+                    else:
+                        cfg[k] = bool(saved[k])
         except (TypeError, ValueError):
             pass
     return cfg
@@ -98,6 +112,10 @@ class SettingsIn(BaseModel):
     openShifts: Optional[bool] = None
     swaps: Optional[bool] = None
     offers: Optional[bool] = None
+    teamSchedules: Optional[bool] = None   # staff see teammates' shifts in My Shifts
+    reminders: Optional[bool] = None
+    reminderLeadMinutes: Optional[int] = None
+    timeOffRequests: Optional[bool] = None
 
 
 @router.get("/settings")
@@ -108,6 +126,9 @@ def read_settings(user: dict = Depends(get_current_user), db: Session = Depends(
 @router.put("/settings")
 def save_settings(body: SettingsIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
     _require_unscoped_team(user, db)   # company-wide switches, like shift groups
+    lead = body.reminderLeadMinutes
+    if lead is not None and not REMINDER_LEAD_MIN <= lead <= REMINDER_LEAD_MAX:
+        raise HTTPException(400, f"Remind between {REMINDER_LEAD_MIN} and {REMINDER_LEAD_MAX} minutes before a shift.")
     cfg = get_settings(db)
     cfg.update({k: v for k, v in body.model_dump().items() if v is not None})
     row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
@@ -218,9 +239,23 @@ def my_requests(start: str = "", end: str = "", user: dict = Depends(get_current
             d = _sched_dict(r, presets)
             d["requested"] = r.id in asked
             open_shifts.append(d)
+    # What the swap dialog can offer: teammates' published, upcoming shifts
+    # in the range - and nothing else, so it works even when admins hide the
+    # full team schedule ("teamSchedules" off).
+    swap_shifts = {}
+    mates = _teammates(db, me)
+    if cfg["swaps"] and start and end and mates:
+        presets = {s.id: s for s in db.query(models.Shift).all()}
+        for r in (db.query(models.ScheduledShift)
+                  .filter(models.ScheduledShift.employee_email.in_(list(mates)), models.ScheduledShift.published == 1,
+                          models.ScheduledShift.work_date >= max(start[:10], _today()),
+                          models.ScheduledShift.work_date <= end[:10])
+                  .order_by(models.ScheduledShift.work_date, models.ScheduledShift.start_hhmm).all()):
+            if not r.pending_delete:
+                swap_shifts.setdefault((r.employee_email or "").lower(), []).append(_sched_dict(r, presets))
     return {"mine": [_to_dict(r, names) for r in mine], "incoming": [_to_dict(r, names) for r in incoming],
-            "openShifts": open_shifts, "settings": cfg,
-            "teammates": sorted(({"email": e, "name": names.get(e, e)} for e in _teammates(db, me)),
+            "openShifts": open_shifts, "settings": cfg, "swapShifts": swap_shifts,
+            "teammates": sorted(({"email": e, "name": names.get(e, e)} for e in mates),
                                 key=lambda p: p["name"].lower())}
 
 
@@ -345,7 +380,7 @@ def _in_scope(r: models.ShiftRequest, scope) -> bool:
 
 
 @router.get("")
-def inbox(user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def inbox(user: dict = Depends(require_schedule_write), db: Session = Depends(get_db)):
     """Requests waiting on a manager, for people the caller manages, plus
     the last few decided ones for context."""
     scope = _visible_emails(db, user)
@@ -378,7 +413,7 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str) -> list:
             id=str(uuid.uuid4()), employee_email=r.requester_email, work_date=shift.work_date,
             shift_id=shift.shift_id, start_hhmm=shift.start_hhmm, end_hhmm=shift.end_hhmm, label=shift.label,
             note=shift.note, open_slots=0, break_min=int(shift.break_min or 0),
-            activities_json=shift.activities_json or "",
+            activities_json=shift.activities_json or "", color=shift.color or "",
             published=1,   # the manager just approved it - it is shared as of now
             created_by=actor, created_at=_now()))
         shift.open_slots = int(shift.open_slots or 1) - 1
@@ -399,7 +434,7 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str) -> list:
 
 
 @router.post("/{req_id}/decide")
-def decide(req_id: str, body: DecideIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def decide(req_id: str, body: DecideIn, user: dict = Depends(require_schedule_write), db: Session = Depends(get_db)):
     actor = user["email"].lower()
     r = _own(db, req_id)
     if not _in_scope(r, _visible_emails(db, user)):

@@ -2321,6 +2321,8 @@ class ScheduledShift(Base):
     # Named blocks inside the shift (Sep 29, Teams "activities"), e.g.
     # 12:00-13:00 Training. JSON list of {start, end, label}; '' = none.
     activities_json = Column(String, default="")
+    # This shift's own color (#rrggbb, Sep 29); '' = its preset's color.
+    color           = Column(String, default="")
 
 
 class ShiftGroup(Base):
@@ -2333,6 +2335,9 @@ class ShiftGroup(Base):
     teams_chat_name = Column(String, default="")
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
+    # People who may build THIS group's schedule without team-wide access
+    # (Sep 29, Teams "scheduling owner" per team). JSON list of emails.
+    scheduler_emails = Column(String, default="")
 
 
 class ShiftGroupMember(Base):
@@ -4519,3 +4524,20 @@ class ScheduleDayNote(Base):
     note       = Column(String, default="")
     updated_by = Column(String, default="")
     updated_at = Column(String, default="")
+
+
+class ShiftAvailability(Base):
+    """When a person can work, per day of the week (Sep 29, Teams
+    "availability"). No row for a weekday = available any time; `unavailable`
+    = not that day; `available` = only between start and end. Staff set their
+    own in My Workday > Shifts; the schedule grid warns when a shift breaks
+    it. New table - create_all builds it; RLS is enabled in main.py."""
+    __tablename__ = "shift_availability"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    weekday        = Column(Integer, nullable=False)     # 0 = Monday
+    kind           = Column(String, default="unavailable")   # unavailable | available
+    start_hhmm     = Column(String, default="")
+    end_hhmm       = Column(String, default="")
+    note           = Column(String, default="")
+    updated_at     = Column(String, default="")

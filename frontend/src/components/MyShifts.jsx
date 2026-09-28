@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, Users, StickyNote } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from './AsyncState';
 import { ShiftActions, RequestDialog, OpenShifts, ShiftRequestsList } from './ShiftSelfService';
 import { useShiftRequests } from './useShiftRequests';
+import MyAvailability from './MyAvailability';
+
+// A shift group's scheduler builds that group's schedule from here (Sep 29,
+// Teams "scheduling owner" per team) - loaded only when they open it.
+const ShiftSchedule = lazy(() => import('./ShiftSchedule'));
 
 // My Workday > Shifts (Neil, Sep 23): a read-only week of the signed-in
 // person's own shifts. Scheduling stays in People > Shifts; this only shows
@@ -74,6 +79,7 @@ export default function MyShifts() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
   const [teamId, setTeamId] = useState(''); // which group's grid shows, when in more than one
+  const [manage, setManage] = useState(false);   // a group scheduler's schedule grid
 
   const start = dateKey(weekStart), end = dateKey(addDays(weekStart, 6));
   const [reload, setReload] = useState(0);
@@ -163,9 +169,31 @@ export default function MyShifts() {
     });
   }, [team, teamRows, now, thisWeek]);
 
+  const schedulerOf = data?.schedulerOf || [];
+  const manageBtn = schedulerOf.length > 0 && (
+    <button type="button" className="secondary-btn" onClick={() => { setManage(m => !m); setFlash(''); }} style={{ fontSize: 12.5 }}>
+      {manage ? 'Back to My Shifts' : 'Manage Schedule'}
+    </button>
+  );
+  if (manage && schedulerOf.length) {
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+          {manageBtn}
+          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>You schedule {schedulerOf.map(g => g.name).join(', ')}.</span>
+        </div>
+        {flash && <div role="status" style={{ marginBottom: 12, fontSize: 12.5, fontWeight: 600 }}>{flash}</div>}
+        <Suspense fallback={<SkeletonBlocks count={4} height={60} />}>
+          <ShiftSchedule toastOk={setFlash} toastErr={setFlash} />
+        </Suspense>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+        {manageBtn}
         <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden', background: 'var(--card)' }}>
           <button type="button" onClick={() => setWeekStart(w => addDays(w, -7))} title="Previous Week" aria-label="Previous week"
             style={{ border: 'none', background: 'none', padding: '7px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><ChevronLeft size={16} /></button>
@@ -243,8 +271,7 @@ export default function MyShifts() {
       <OpenShifts reqs={reqs} onDone={done} />
       {ask && (
         <RequestDialog ask={ask} teammates={reqs?.teammates || []} todayKey={todayKey} onClose={() => setAsk(null)} onDone={done}
-          teamShifts={Object.fromEntries((data?.teams || []).flatMap(t => t.members).filter(m => !m.isMe)
-            .map(m => [m.email, (m.scheduled || []).map(s => ({ ...s, date: s.date }))]))} />
+          teamShifts={reqs?.swapShifts || {}} />
       )}
 
       {data && team && (
@@ -309,6 +336,8 @@ export default function MyShifts() {
           </div>
         </div>
       )}
+
+      <MyAvailability />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>
         <Info size={13} style={{ flexShrink: 0 }} />

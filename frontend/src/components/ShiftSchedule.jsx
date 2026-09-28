@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox, Download, Search, StickyNote } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox, Download, Search, StickyNote, Printer, Upload, CalendarOff } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import ShiftRequestsInbox from './ShiftRequestsInbox';
 import { exportExcel } from '../tasks/exporting';
+import { dialog } from '../ui/dialog';
+import { ShiftTypeWeek, ImportModal, TimeOffModal } from './ShiftScheduleExtras';
+import { printSchedule, availText } from './shiftScheduleLib';
 
 // ── Weekly schedule grid (Microsoft Teams "Shifts" style) ─────────────────────
 // Rows = employees (grouped by shift group), columns = the 7 days of the week.
@@ -63,6 +66,8 @@ const t12Full = (hhmm) => {
 const STATUS_TEXT = (s) => (s.pendingDelete ? 'Removal not published' : s.hasChanges ? 'Edited, not published'
   : s.published === false ? 'Draft' : 'Published');
 const VIEWS = [['day', 'Day'], ['week', 'Week'], ['month', 'Month']];
+// Same palette as a preset's (ShiftsPanel), for a shift's own color (Sep 29).
+const SHIFT_COLORS = ['#2563eb', '#16a34a', '#8b5cf6', '#f59e0b', '#ec4899', '#0891b2', '#dc2626', '#64748b'];
 
 // The dates a view covers: one day, the Monday-Sunday week, or the month.
 function viewDays(view, cursor) {
@@ -90,6 +95,10 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const [cursor, setCursor] = useState(() => new Date());
   const [query, setQuery] = useState('');          // name / email filter
   const [groupFilter, setGroupFilter] = useState('');
+  const [presetFilter, setPresetFilter] = useState('');   // one shift type (preset), '' = all
+  const [rowsBy, setRowsBy] = useState('people');   // week rows: people | shift types (Teams "view by shift")
+  const [importOpen, setImportOpen] = useState(false);
+  const [offCell, setOffCell] = useState(null);     // { email, date } - adding time off from the grid
   const [drag, setDrag] = useState(null);          // the shift being dragged
   const [dropKey, setDropKey] = useState('');      // "email|date" under the pointer
   const [noteEdit, setNoteEdit] = useState(null);  // { date, note } while editing a day note
@@ -119,14 +128,14 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   // are indexed by date on their own so they render in the Open shifts row.
   const byCell = useMemo(() => {
     const map = {};
-    (data?.scheduled || []).forEach(s => { if (s.email) (map[`${s.email}|${s.date}`] ||= []).push(s); });
+    (data?.scheduled || []).forEach(s => { if (s.email && (!presetFilter || s.shiftId === presetFilter)) (map[`${s.email}|${s.date}`] ||= []).push(s); });
     return map;
-  }, [data]);
+  }, [data, presetFilter]);
   const openByDate = useMemo(() => {
     const map = {};
-    (data?.scheduled || []).forEach(s => { if (!s.email) (map[s.date] ||= []).push(s); });
+    (data?.scheduled || []).forEach(s => { if (!s.email && (!presetFilter || s.shiftId === presetFilter)) (map[s.date] ||= []).push(s); });
     return map;
-  }, [data]);
+  }, [data, presetFilter]);
   const openCount = (data?.scheduled || []).reduce((a, s) => a + (!s.email ? (s.openSlots || 1) : 0), 0);
   const offOn = (email, ds) => (data?.timeoff || []).find(t => t.email === email && t.startDate <= ds && ds <= t.endDate);
   // Per-employee, not per-column (Pranshu, Sep 22: "fetch the holiday in
@@ -166,10 +175,12 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
       .filter(g => g.members.length);
   }, [data, query, groupFilter]);
   const visibleEmails = useMemo(() => new Set(groupsView.flatMap(g => g.members.map(m => m.email))), [groupsView]);
-  const filtering = !!(query.trim() || groupFilter);
+  const filtering = !!(query.trim() || groupFilter || presetFilter);
   // Open shifts belong to no group, so a group filter hides them.
-  const shown = useMemo(() => (data?.scheduled || []).filter(s => (s.email ? visibleEmails.has(s.email) : !groupFilter)),
-    [data, visibleEmails, groupFilter]);
+  const shown = useMemo(() => (data?.scheduled || [])
+    .filter(s => (s.email ? visibleEmails.has(s.email) : !groupFilter))
+    .filter(s => !presetFilter || s.shiftId === presetFilter),
+  [data, visibleEmails, groupFilter, presetFilter]);
   const notes = useMemo(() => Object.fromEntries((data?.dayNotes || []).filter(n => !n.groupId).map(n => [n.date, n.note])), [data]);
   const names = useMemo(() => Object.fromEntries((data?.employees || []).map(e => [e.email, e.name || e.email])), [data]);
 
@@ -187,15 +198,18 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   useEffect(() => {
     if (!managing) return undefined;
     let live = true;
-    api.shiftRequestsInbox().then((r) => { if (live) setRequestCount((r?.pending || []).length); }).catch(() => {});
+    Promise.all([api.shiftRequestsInbox().catch(() => null), api.timeOffList('pending').catch(() => null)])
+      .then(([r, t]) => { if (live) setRequestCount((r?.pending || []).length + (Array.isArray(t) ? t.length : 0)); });
     return () => { live = false; };
   }, [managing, inboxTick]);
   const unpublished = (data?.scheduled || []).filter(s => s.published === false).length;
 
-  async function publishWeek() {
+  const [publishAsk, setPublishAsk] = useState(false);
+  async function publishWeek(notify = 'changed') {
     setBusy(true);
     try {
-      const r = await api.timeSchedPublish({ start_date: start, end_date: end });
+      const r = await api.timeSchedPublish({ start_date: start, end_date: end, notify });
+      setPublishAsk(false);
       const bits = [];
       if (r.added) bits.push(`${r.added} new`);
       if (r.updated) bits.push(`${r.updated} changed`);
@@ -270,6 +284,48 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     } catch (e) { toastErr?.(e?.message || 'Could not move the shift.'); }
     setBusy(false);
   }
+  const unshared = (data?.scheduled || []).filter(s => s.hasChanges || s.pendingDelete).length;
+  async function discardAll() {
+    const ok = await dialog.confirm(
+      `Discard ${unshared} unpublished change${unshared === 1 ? '' : 's'} in this ${viewLabel.toLowerCase()}? `
+      + 'Edited and removed shifts go back to what the team sees now. New draft shifts stay.',
+      { title: 'Discard Changes', confirmText: 'Discard' });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const r = await api.timeSchedDiscardAll({ start_date: start, end_date: end });
+      toastOk?.(`Discarded ${r.discarded} unpublished change${r.discarded === 1 ? '' : 's'}.`);
+      load();
+    } catch (e) { toastErr?.(e?.message || 'Could not discard the changes.'); }
+    setBusy(false);
+  }
+  async function importRows(rows) {
+    setBusy(true);
+    try {
+      const r = await api.timeSchedImport({ rows });
+      toastOk?.(`Added ${r.created} shift${r.created === 1 ? '' : 's'} as drafts.${r.errorCount ? ` ${r.errorCount} row${r.errorCount === 1 ? '' : 's'} skipped.` : ''} Publish to share them.`);
+      load();
+      if (!r.errorCount) setImportOpen(false);
+      return r;
+    } catch (e) { toastErr?.(e?.message || 'Could not import the schedule.'); return null; }
+    finally { setBusy(false); }
+  }
+  async function saveTimeOff(payload, approve) {
+    setBusy(true);
+    try {
+      const r = await api.timeOffOnBehalf(payload);
+      if (approve) await api.timeOffDecide(r.id, { status: 'approved', note: '' });
+      const who = names[payload.employee_email] || payload.employee_email;
+      toastOk?.(approve ? `Time off added for ${who}.` : `Time-off request added for ${who} - decide it in Requests.`);
+      setOffCell(null); setInboxTick((t) => t + 1); load();
+    } catch (e) { toastErr?.(e?.message || 'Could not add the time off.'); }
+    setBusy(false);
+  }
+  function printView() {
+    const ok = printSchedule({ title: `Schedule ${formatDate(start)} - ${formatDate(end)}`, days, groups: groupsView,
+      byCell, openByDate: groupFilter ? {} : openByDate, offOn, holOn, notes });
+    if (!ok) toastErr?.('Allow pop-ups for this site to print the schedule.');
+  }
   async function saveDayNote(date, note) {
     setBusy(true);
     try {
@@ -279,6 +335,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     } catch (e) { toastErr?.(e?.message || 'Could not save the note.'); }
     setBusy(false);
   }
+  const presetName = (id) => { const p = (data?.shifts || []).find(x => x.id === id); return p ? (p.code || p.name) : ''; };
   async function exportSchedule() {
     const rows = [...shown].sort((a, b) => a.date.localeCompare(b.date) || (names[a.email] || '~').localeCompare(names[b.email] || '~') || a.start.localeCompare(b.start));
     try {
@@ -289,6 +346,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
           { header: 'Day', get: s => new Date(`${s.date}T00:00`).toLocaleDateString('en-US', { weekday: 'short' }), width: 6 },
           { header: 'Employee', get: s => (s.email ? names[s.email] || s.email : 'Open shift'), width: 24 },
           { header: 'Email', get: s => s.email, width: 28 },
+          { header: 'Shift Type', get: s => presetName(s.shiftId), width: 14 },
           { header: 'Start', get: s => t12Full(s.start), width: 10 },
           { header: 'End', get: s => t12Full(s.end), width: 10 },
           { header: 'Unpaid Break (min)', get: s => Number(s.breakMin) || 0, width: 12 },
@@ -337,7 +395,9 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
       if (r.replaced) bits.push(`replaced ${r.replaced}`);
       if (r.skipped) bits.push(`kept ${r.skipped} existing`);
       if (r.timeoffSkipped) bits.push(`skipped ${r.timeoffSkipped} on time off`);
+      if (r.timeoffCopied) bits.push(`${r.timeoffCopied} time-off request${r.timeoffCopied !== 1 ? 's' : ''} to approve in Requests`);
       toastOk?.(bits.join(' · ') + '. Publish to share them.');
+      if (r.timeoffCopied) setInboxTick((t) => t + 1);
       setCopyOpen(false); load();
     } catch (e) { toastErr?.(e?.message || 'Could not copy the schedule.'); }
     setBusy(false);
@@ -416,6 +476,10 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
               style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Trash2 size={14} /> Clear
             </button>
+            <button className="secondary-btn" onClick={() => setImportOpen(true)}
+              style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Upload size={14} /> Import
+            </button>
             <button className="secondary-btn" onClick={() => setInboxOpen(true)} aria-label={`Requests, ${requestCount} waiting`}
               style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Inbox size={14} /> Requests
@@ -423,8 +487,15 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
             </button>
           </>
         )}
+        {canManage && unshared > 0 && (
+          <button className="secondary-btn" onClick={discardAll} disabled={busy}
+            title="Undo edits and removals that are not published yet"
+            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <RotateCcw size={13} /> Discard Changes ({unshared})
+          </button>
+        )}
         {canManage && (
-          <button className={unpublished ? 'primary-btn' : 'secondary-btn'} onClick={publishWeek}
+          <button className={unpublished ? 'primary-btn' : 'secondary-btn'} onClick={() => setPublishAsk(true)}
             disabled={busy || !unpublished} title={unpublished ? 'Share these shifts with the team' : 'Everything in this week is already shared'}
             style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Send size={13} /> {unpublished ? `Publish ${unpublished}` : 'All shared'}
@@ -433,6 +504,10 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
         <button className="secondary-btn" onClick={exportSchedule} disabled={!data}
           style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Download size={14} /> Export
+        </button>
+        <button className="secondary-btn" onClick={printView} disabled={!data}
+          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Printer size={14} /> Print
         </button>
         <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{viewLabel}: {fmtHrs(weekMin)}</span>
       </div>
@@ -449,7 +524,21 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
           <option value="">All groups</option>
           {(data?.groups || []).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
         </select>
-        {filtering && <button type="button" className="secondary-btn" onClick={() => { setQuery(''); setGroupFilter(''); }} style={{ fontSize: 12 }}>Clear Filters</button>}
+        <select className="form-input" value={presetFilter} onChange={e => setPresetFilter(e.target.value)} aria-label="Filter by shift type"
+          style={{ width: 'auto', fontSize: 12.5, padding: '5px 10px' }}>
+          <option value="">All shift types</option>
+          {(data?.shifts || []).map(p => <option key={p.id} value={p.id}>{p.code ? `${p.code} · ` : ''}{p.name}</option>)}
+        </select>
+        {filtering && <button type="button" className="secondary-btn" onClick={() => { setQuery(''); setGroupFilter(''); setPresetFilter(''); }} style={{ fontSize: 12 }}>Clear Filters</button>}
+        {view === 'week' && (
+          <div role="group" aria-label="Rows" style={{ display: 'inline-flex', border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden' }}>
+            {[['people', 'People'], ['shifts', 'Shift Types']].map(([k, label]) => (
+              <button key={k} type="button" onClick={() => setRowsBy(k)} aria-pressed={rowsBy === k}
+                style={{ border: 'none', padding: '5px 11px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                  background: rowsBy === k ? 'hsla(var(--color-green),0.12)' : 'transparent', color: rowsBy === k ? 'hsl(var(--color-green))' : 'var(--muted)' }}>{label}</button>
+            ))}
+          </div>
+        )}
         {canManage && view !== 'month' && (
           <span style={{ fontSize: 11.5, color: 'var(--muted)', marginLeft: 'auto' }}>Drag a shift to move it · hold Ctrl to copy</span>
         )}
@@ -476,6 +565,9 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
           onEditNote={() => setNoteEdit({ date: start, note: notes[start] || '' })}
           onOpenShift={(s) => (s.email ? setCell({ email: s.email, date: start, existing: s }) : setOpenCell({ date: start, existing: s }))}
           onAdd={(email) => (email ? setCell({ email, date: start }) : setOpenCell({ date: start }))} />
+      ) : rowsBy === 'shifts' ? (
+        <ShiftTypeWeek days={days} shifts={shown} presets={data.shifts || []} names={names}
+          onOpen={(s) => (s.email ? setCell({ email: s.email, date: s.date, existing: s }) : setOpenCell({ date: s.date, existing: s }))} />
       ) : (
         <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 12 }}>
           <div style={{ minWidth: 900 }}>
@@ -577,6 +669,10 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                       <span style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.name || emp.email}</div>
                         <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{fmtHrs(empWeekMin(emp.email))}</div>
+                        {data.availability?.[emp.email]?.length > 0 && (
+                          <div title={`Availability: ${availText(data.availability[emp.email])}`}
+                            style={{ fontSize: 10, color: '#b45309', fontWeight: 600 }}>Limited availability</div>
+                        )}
                       </span>
                     </div>
                     {days.map((d, di) => {
@@ -646,7 +742,21 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
       {cell && (
         <CellModal cell={cell} shifts={data?.shifts || []} busy={busy}
           onSave={saveCell} onDelete={delCell} onDiscard={discardCell} onClose={() => setCell(null)}
-          onCopy={(s) => { setCopied(s); setCell(null); }} />
+          onCopy={(s) => { setCopied(s); setCell(null); }}
+          onTimeOff={data?.groupScheduler ? undefined : () => { setOffCell({ email: cell.email, date: cell.date }); setCell(null); }} />
+      )}
+
+      {offCell && (
+        <TimeOffModal email={offCell.email} name={names[offCell.email]} date={offCell.date} busy={busy}
+          onSave={saveTimeOff} onClose={() => setOffCell(null)} />
+      )}
+
+      {importOpen && (
+        <ImportModal employees={data?.employees || []} busy={busy} onImport={importRows} onClose={() => setImportOpen(false)} />
+      )}
+
+      {publishAsk && (
+        <PublishModal count={unpublished} busy={busy} onPublish={publishWeek} onClose={() => setPublishAsk(false)} />
       )}
 
       {noteEdit && (
@@ -655,7 +765,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
       )}
 
       {inboxOpen && (
-        <ShiftRequestsInbox toastOk={toastOk} toastErr={toastErr} onClose={() => setInboxOpen(false)}
+        <ShiftRequestsInbox toastOk={toastOk} toastErr={toastErr} onClose={() => setInboxOpen(false)} canConfigure={!data?.groupScheduler}
           onChanged={() => { setInboxTick((t) => t + 1); load(); }} />
       )}
 
@@ -682,6 +792,39 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
       )}
 
       <style>{`.sched-cell:hover .sched-add { opacity: 1 !important; }`}</style>
+    </div>
+  );
+}
+
+// Publish: who to tell (Sep 29, Teams parity). "Changed" = only people whose
+// shifts were added, changed or removed (bell + email each); "team" = those,
+// plus a short bell to everyone else on the schedule for these dates.
+function PublishModal({ count, busy, onPublish, onClose }) {
+  const [notify, setNotify] = useState('changed');
+  const opt = (value, title, hint) => (
+    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
+      border: `1px solid ${notify === value ? 'hsl(var(--color-green))' : 'var(--line)'}`, background: notify === value ? 'hsla(var(--color-green),0.06)' : 'transparent' }}>
+      <input type="radio" name="publish-notify" checked={notify === value} onChange={() => setNotify(value)} style={{ marginTop: 3 }} />
+      <span><div style={{ fontSize: 13, fontWeight: 700 }}>{title}</div><div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{hint}</div></span>
+    </label>
+  );
+  return (
+    <div style={MODAL_BACK} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-label="Publish Schedule" style={{ ...MODAL_CARD, maxWidth: 440 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Publish {count} Change{count === 1 ? '' : 's'}</span>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>The team sees these shifts once you publish. Who should hear about it?</div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {opt('changed', 'Only people whose shifts changed', 'Each gets a notification and an email listing their own changes.')}
+          {opt('team', 'The whole team', 'The same, plus a short notification to everyone else on the schedule for these dates.')}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="primary-btn" onClick={() => onPublish(notify)} disabled={busy}>{busy ? '…' : 'Publish'}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -864,6 +1007,7 @@ function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onClose })
   const [includeNotes, setIncludeNotes] = useState(true);
   const [skipOff, setSkipOff] = useState(true);
   const [overwrite, setOverwrite] = useState(false);
+  const [copyOff, setCopyOff] = useState(false);
   const span = from && to ? Math.round((new Date(to) - new Date(from)) / 86400000) + 1 : 0;
   const lastDay = span > 0 && target ? addDaysIso(target, span * copies - 1) : '';
   const overlaps = span > 0 && target && target <= to && lastDay >= from;
@@ -871,7 +1015,8 @@ function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onClose })
 
   function submit() {
     const payload = { source_start: from, source_end: to, target_start: target, weeks: Number(copies),
-                      include_open: includeOpen && !groupId, include_notes: includeNotes, skip_timeoff: skipOff, overwrite };
+                      include_open: includeOpen && !groupId, include_notes: includeNotes, skip_timeoff: skipOff, overwrite,
+                      include_timeoff: copyOff };
     if (groupId) payload.group_id = groupId;
     onApply(payload);
   }
@@ -906,6 +1051,7 @@ function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onClose })
           <label style={CHECK}><input type="checkbox" checked={includeNotes} onChange={e => setIncludeNotes(e.target.checked)} /> Include shift notes</label>
           <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={e => setSkipOff(e.target.checked)} /> Skip days a person has time off</label>
           <label style={CHECK}><input type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)</label>
+          <label style={CHECK}><input type="checkbox" checked={copyOff} onChange={e => setCopyOff(e.target.checked)} /> Copy approved time off too (as requests to approve)</label>
           <div style={{ fontSize: 11.5, color: overlaps || span > 31 ? '#b91c1c' : 'var(--muted)' }}>
             {span > 31 ? 'Copy at most 31 days at a time.'
               : overlaps ? 'The copy would land on the dates it copies from - pick a later start.'
@@ -1079,6 +1225,7 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
   const [slots, setSlots] = useState(ex?.openSlots || 1);
   const [label, setLabel] = useState(ex?.label || '');
   const [brk, setBrk] = useState(ex ? String(ex.breakMin ?? 0) : '');   // '' = the preset's
+  const [color, setColor] = useState(ex?.ownColor || '');
   const [assignee, setAssignee] = useState('');
   const preset = shifts.find(s => s.id === shiftId);
   const eff = (v, p) => v || p || '';
@@ -1089,14 +1236,14 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
     if (badTimes) return;
     onSave({ id: ex?.id, work_date: cell.date, shift_id: shiftId,
       start_hhmm: eff(start, preset?.start), end_hhmm: eff(end, preset?.end),
-      label, open_slots: Math.max(1, Number(slots) || 1), break_min: effBreak });
+      label, open_slots: Math.max(1, Number(slots) || 1), break_min: effBreak, color });
   }
 
   // ex is fixed for this modal instance's lifetime (a fresh OpenShiftModal
   // mounts per cell click), so the initial useState values ARE the baseline.
   const dirty = shiftId !== (ex?.shiftId || (shifts[0]?.id || '')) || start !== (ex?.start || '')
     || end !== (ex?.end || '') || String(slots) !== String(ex?.openSlots || 1) || label !== (ex?.label || '')
-    || brk !== (ex ? String(ex.breakMin ?? 0) : '');
+    || brk !== (ex ? String(ex.breakMin ?? 0) : '') || color !== (ex?.ownColor || '');
   const guard = useUnsavedGuard(dirty, onClose, submit);
 
   return (
@@ -1127,6 +1274,7 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
               <BreakField value={brk === '' ? String(preset?.breakMin || 0) : brk} onChange={setBrk} />
             </div>
             <input className="form-input" placeholder="Label (e.g. All Properties)" value={label} onChange={e => setLabel(e.target.value)} style={{ fontSize: 13 }} />
+            <ColorPick value={color} presetColor={preset?.color} onChange={setColor} />
 
             {ex && (
               <div style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
@@ -1158,6 +1306,29 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
       {guard.confirming && (
         <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={guard.saving || busy} />
       )}
+    </div>
+  );
+}
+
+// A shift's own color (Sep 29, Teams parity); "Preset" = its preset's color.
+function ColorPick({ value, presetColor, onChange }) {
+  const dot = (c, on, label, onClick) => (
+    <button key={label} type="button" onClick={onClick} aria-label={label} aria-pressed={on} title={label}
+      style={{ width: 22, height: 22, borderRadius: 6, cursor: 'pointer', background: c || 'transparent',
+        border: on ? '2px solid var(--ink)' : '2px solid transparent', boxShadow: '0 0 0 1px var(--line)' }} />
+  );
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Color</div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" onClick={() => onChange('')} aria-pressed={!value}
+          style={{ fontSize: 11.5, fontWeight: 700, padding: '3px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+            border: !value ? '2px solid var(--ink)' : '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)',
+            display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: presetColor || '#64748b' }} /> Preset
+        </button>
+        {SHIFT_COLORS.map(c => dot(c, value === c, `Color ${c}`, () => onChange(c)))}
+      </div>
     </div>
   );
 }
@@ -1195,7 +1366,7 @@ function DiscardButton({ ex, busy, onDiscard }) {
   );
 }
 
-function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, onCopy }) {
+function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, onCopy, onTimeOff }) {
   const ex = cell.existing;
   const [shiftId, setShiftId] = useState(ex?.shiftId || (shifts[0]?.id || ''));
   const [start, setStart] = useState(ex?.start || '');
@@ -1205,6 +1376,7 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
   const [brk, setBrk] = useState(ex ? String(ex.breakMin ?? 0) : '');   // '' = the preset's
   const [warnings, setWarnings] = useState(ex?.conflicts || []);
   const [acts, setActs] = useState(() => (ex?.activities || []).map(a => ({ ...a })));
+  const [color, setColor] = useState(ex?.ownColor || '');
   const preset = shifts.find(s => s.id === shiftId);
   const eff = (v, p) => v || p || '';
   const effStart = eff(start, preset?.start);
@@ -1232,6 +1404,7 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
       start_hhmm: effStart, end_hhmm: effEnd,
       label, note, break_min: effBreak,
       activities: acts.filter(a => a.start && a.end).map(a => ({ start: a.start, end: a.end, label: (a.label || '').trim() })),
+      color,
     });
   }
 
@@ -1240,7 +1413,8 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
   const dirty = shiftId !== (ex?.shiftId || (shifts[0]?.id || '')) || start !== (ex?.start || '')
     || end !== (ex?.end || '') || label !== (ex?.label || '') || note !== (ex?.note || '')
     || brk !== (ex ? String(ex.breakMin ?? 0) : '')
-    || JSON.stringify(acts) !== JSON.stringify(ex?.activities || []);
+    || JSON.stringify(acts) !== JSON.stringify(ex?.activities || [])
+    || color !== (ex?.ownColor || '');
   const guard = useUnsavedGuard(dirty, onClose, submit);
 
   return (
@@ -1271,6 +1445,7 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
             </div>
             <input className="form-input" placeholder="Label (e.g. All Properties)" value={label} onChange={e => setLabel(e.target.value)} style={{ fontSize: 13 }} />
             <input className="form-input" placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} style={{ fontSize: 13 }} />
+            <ColorPick value={color} presetColor={preset?.color} onChange={setColor} />
             {/* Activities (Sep 29, Teams parity): named blocks inside the shift. */}
             <div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Activities</div>
@@ -1307,6 +1482,7 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
         <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
           {ex && !ex.pendingDelete && <button onClick={() => onDelete(ex.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={13} /> Remove</button>}
           <DiscardButton ex={ex} busy={busy} onDiscard={onDiscard} />
+          {onTimeOff && <button onClick={onTimeOff} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }} title="Add time off for this person instead"><CalendarOff size={13} /> Add Time Off</button>}
           {ex && onCopy && <button onClick={() => onCopy(ex)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }} title="Copy this shift to place on another person or day"><Copy size={13} /> Copy</button>}
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={onClose}>Cancel</button>

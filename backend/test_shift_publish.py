@@ -26,7 +26,9 @@ with database.engine.connect() as _c:
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
                  "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
                  "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
-                 "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''"):
+                 "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
+                 "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''"):
         try:
             _c.execute(_text(_sql)); _c.commit()
         except Exception:
@@ -254,6 +256,44 @@ class ShiftPublishTests(unittest.TestCase):
             db.close()
         self.assertEqual(set(bells), {A})
         self.assertEqual(bells[A].title, "Your schedule was updated")
+
+    def _bells(self):
+        db = database.SessionLocal()
+        try:
+            return {(n.recipient, n.title) for n in db.query(models.NexusNotification)
+                    .filter(models.NexusNotification.recipient.like("pub.%")).all()}
+        finally:
+            db.close()
+
+    def test_notify_the_whole_team_on_publish(self):
+        self._published_shift()                      # A already has a published shift this day
+        db = database.SessionLocal()
+        try:
+            db.query(models.NexusNotification).filter(models.NexusNotification.recipient.like("pub.%")).delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+        self._as(ADMIN)
+        self.client.post("/timeclock/schedule", json={"employee_email": VIEWER, "work_date": DATE, "shift_id": SHIFT})
+        r = self.client.post("/timeclock/schedule/publish",
+                             json={"start_date": DATE, "end_date": DATE, "notify": "team"}).json()
+        self.assertEqual(r["notified"], 2)
+        # The person whose shift changed gets the detailed note; A (unchanged
+        # but on the schedule) gets the short one; the publisher gets nothing.
+        self.assertEqual(self._bells(), {(VIEWER, "Your schedule was updated"), (A, "Schedule published")})
+
+    def test_the_default_still_tells_only_changed_people(self):
+        self._published_shift()
+        db = database.SessionLocal()
+        try:
+            db.query(models.NexusNotification).filter(models.NexusNotification.recipient.like("pub.%")).delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+        self._as(ADMIN)
+        self.client.post("/timeclock/schedule", json={"employee_email": VIEWER, "work_date": DATE, "shift_id": SHIFT})
+        self.client.post("/timeclock/schedule/publish", json={"start_date": DATE, "end_date": DATE})
+        self.assertEqual(self._bells(), {(VIEWER, "Your schedule was updated")})
 
     def test_publish_is_idempotent(self):
         self._as(ADMIN)
