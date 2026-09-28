@@ -4451,3 +4451,37 @@ class NexusWeeklyDigestLog(Base):
     overdue_count  = Column(Integer, default=0)          # their own overdue tasks
     team_count     = Column(Integer, default=0)          # manager: direct reports with overdue work
     created_at     = Column(String, default="")
+
+
+class AccountingSavedReport(Base):
+    """A memorized report (Neil, Sep 25): the report, period, book, entities,
+    dimension filters and comparison of an Accounting > Reports view, under a
+    name, so the same statement is one click the next 50 times. Private to its
+    owner unless `shared`, when everyone with the Accounting grant sees it.
+    `config` holds the filters, never figures - a saved report always reads
+    the ledger as it is now. New table - create_all builds it; RLS is enabled
+    by the startup sweep and the line in main.py."""
+    __tablename__ = "accounting_saved_reports"
+    id          = Column(String, primary_key=True)   # uuid
+    owner_email = Column(String, default="", index=True)
+    name        = Column(String, nullable=False)
+    config      = Column(JSON, default=dict)          # {report, preset, from, to, asof, book, compare, entities, dims}
+    shared      = Column(Boolean, default=False)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class AccountingReportPackage(Base):
+    """A reporting package (Neil, Sep 25): an ordered set of memorized reports
+    sent to a lender as one PDF. `items` is a list of {reportId, title}; the
+    statements are produced fresh from the ledger each time the package is
+    built. New table - create_all builds it; RLS as above."""
+    __tablename__ = "accounting_report_packages"
+    id          = Column(String, primary_key=True)   # uuid
+    owner_email = Column(String, default="", index=True)
+    name        = Column(String, nullable=False)
+    description = Column(String, default="")
+    items       = Column(JSON, default=list)          # [{reportId, title}]
+    shared      = Column(Boolean, default=False)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")

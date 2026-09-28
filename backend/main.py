@@ -17,7 +17,7 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
@@ -1690,6 +1690,10 @@ def _run_migrations():
         "SELECT company || ':' || id, company, id, created_by, created_at "
         "FROM hr_work_sites WHERE company IS NOT NULL AND company <> '' "
         "ON CONFLICT (id) DO NOTHING",
+        # Accounting: memorized reports and reporting packages (Neil, Sep 25).
+        # New tables - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_saved_reports ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_report_packages ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2628,6 +2632,7 @@ app.include_router(assets.router)
 app.include_router(property_assets.router)
 app.include_router(accounting.router)
 app.include_router(accounting_dashboard.router)
+app.include_router(accounting_saved.router)   # Accounting: memorized reports, packages, entity access
 app.include_router(operations.router)
 app.include_router(unifi.router)
 app.include_router(dashboard.router)
