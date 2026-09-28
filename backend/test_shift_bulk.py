@@ -18,6 +18,20 @@ import main
 import models
 
 models.Base.metadata.create_all(bind=database.engine)
+from sqlalchemy import text as _text  # noqa: E402
+with database.engine.connect() as _c:
+    # A local sqlite file older than these columns (CI builds a fresh one).
+    for _sql in ("ALTER TABLE scheduled_shifts ADD COLUMN pending_json TEXT DEFAULT ''",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
+                 "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
+                 "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''"):
+        try:
+            _c.execute(_text(_sql)); _c.commit()
+        except Exception:
+            pass
 
 ADMIN = "shiftbulk.admin@greensglobal.com"
 A = "shiftbulk.a@greensglobal.com"

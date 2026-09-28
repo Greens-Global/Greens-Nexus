@@ -1411,12 +1411,38 @@ export const api = {
   timeMyChat:        ()          => req('/timeclock/my-chat'),
   timeSchedule:      (start, end) => req(`/timeclock/schedule?start=${start}&end=${end}`),
   timeMySchedule:    (start, end) => req(`/timeclock/my-schedule?start=${start}&end=${end}`),
+  // Shift self-service (Sep 29): open-shift requests, swaps, offers, manager inbox.
+  shiftRequestsMine:       (start = '', end = '') => req(`/timeclock/shift-requests/mine?start=${start}&end=${end}`),
+  shiftRequestCreate:      (data)      => req('/timeclock/shift-requests', { method: 'POST', body: JSON.stringify(data) }),
+  shiftRequestCancel:      (id)        => req(`/timeclock/shift-requests/${id}/cancel`, { method: 'POST' }),
+  shiftRequestRespond:     (id, data)  => req(`/timeclock/shift-requests/${id}/respond`, { method: 'POST', body: JSON.stringify(data) }),
+  shiftRequestsInbox:      ()          => req('/timeclock/shift-requests'),
+  shiftRequestDecide:      (id, data)  => req(`/timeclock/shift-requests/${id}/decide`, { method: 'POST', body: JSON.stringify(data) }),
+  shiftRequestSettingsSave: (data)     => req('/timeclock/shift-requests/settings', { method: 'PUT', body: JSON.stringify(data) }),
   timeSchedCreate:   (data)      => req('/timeclock/schedule', { method: 'POST', body: JSON.stringify(data) }),
   timeSchedBulk:     (data)      => req('/timeclock/schedule/bulk', { method: 'POST', body: JSON.stringify(data) }),
   timeSchedAssign:   (id, email) => req(`/timeclock/schedule/${id}/assign`, { method: 'POST', body: JSON.stringify({ employee_email: email }) }),
   timeSchedUpdate:   (id, data)  => req(`/timeclock/schedule/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
   timeSchedPublish:  (data)      => req('/timeclock/schedule/publish', { method: 'POST', body: JSON.stringify(data) }),
+  // Drop a published shift's unshared edit / pending removal (Sep 28).
+  timeSchedDiscard:  (id)        => req(`/timeclock/schedule/${id}/discard`, { method: 'POST' }),
+  // Warnings a shift WOULD have (overlap / time off / holiday) - never blocks a save.
+  timeSchedCheck:    (params)    => req(`/timeclock/schedule/check?${new URLSearchParams(params).toString()}`),
+  // Copy a range forward as drafts / clear a range (drafts deleted, published marked for removal).
+  timeSchedCopy:     (data)      => req('/timeclock/schedule/copy', { method: 'POST', body: JSON.stringify(data) }),
+  timeSchedClear:    (data)      => req('/timeclock/schedule/clear', { method: 'POST', body: JSON.stringify(data) }),
+  // Drag and drop (duplicate = Ctrl-drag copy) and team day notes (Sep 29).
+  timeSchedMove:     (id, data)  => req(`/timeclock/schedule/${id}/move`, { method: 'POST', body: JSON.stringify(data) }),
+  // Undo every unpublished edit/removal on published shifts in a range (Sep 29).
+  timeSchedDiscardAll: (data)    => req('/timeclock/schedule/discard-all', { method: 'POST', body: JSON.stringify(data) }),
+  // Shifts extras (Sep 29): spreadsheet import, staff availability, custom time-off reasons.
+  timeSchedImport:   (data)      => req('/timeclock/schedule/import', { method: 'POST', body: JSON.stringify(data) }),
+  availabilityMine:  ()          => req('/timeclock/availability/mine'),
+  availabilitySave:  (data)      => req('/timeclock/availability/mine', { method: 'PUT', body: JSON.stringify(data) }),
+  timeOffTypes:      ()          => req('/timeclock/timeoff/types'),
+  timeOffTypesSave:  (data)      => req('/timeclock/timeoff/types', { method: 'PUT', body: JSON.stringify(data) }),
+  timeSchedDayNote:  (data)      => req('/timeclock/schedule/day-note', { method: 'PUT', body: JSON.stringify(data) }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
   timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),
