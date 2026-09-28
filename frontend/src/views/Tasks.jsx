@@ -25,8 +25,10 @@ import { NX, FONT, btn as btnStyle } from '../tasks/theme';
 import ModuleTabs from '../components/ModuleTabs';
 import GuidedTour from '../components/GuidedTour';
 import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
+import TasksLoading from '../tasks/TasksLoading';
+import { useTasks } from '../tasks/TasksContext';
 import PersonView from '../tasks/PersonView';
-import { EMPTY_FILTER } from '../tasks/lib';
+import { EMPTY_FILTER, taskIdFromUrl } from '../tasks/lib';
 import { buildTaskTourSteps } from '../tasks/taskTourSteps';
 import { api } from '../api';
 
@@ -98,6 +100,9 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   const requested = ALL_SUBS.includes(activeSub) ? activeSub : DEFAULT_SUB;
   const sub = (requested === 'manage' && !canManage) ? DEFAULT_SUB : requested;
   const isMobile = useIsMobile();
+  // Until the first task data is in, every sub-view would render from an
+  // empty store ("0 Tasks", "No Tasks") - see TasksLoading.jsx.
+  const { loading } = useTasks();
   const [tour, setTour] = useState(false);
   const [projectId, setProjectId] = useState(null);
   const [searchTaskId, setSearchTaskId] = useState(null);   // task opened from header search
@@ -287,7 +292,12 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
       )}
 
       <div style={{ flex: 1, minHeight: 0 }} data-tour={`task-screen-${sub}`}>
-        {searchAll ? (
+        {loading ? (
+          /* Nothing below mounts until the data is in, so a ?task= link from
+             an email is still in the URL when My Tasks reads it and opens the
+             drawer - this just says that is what is happening. */
+          <TasksLoading opening={!!taskIdFromUrl()} />
+        ) : searchAll ? (
           <TasksWorkspace
             key={`search-${searchAll}`}
             title={`Search · "${searchAll}"`}
