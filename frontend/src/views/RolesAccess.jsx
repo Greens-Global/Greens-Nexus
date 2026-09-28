@@ -139,6 +139,89 @@ export function RoleOptions({ roles, companyName, label = r => r.name }) {
   ));
 }
 
+// A searchable role picker (Pranshu, Sep 28: "make it more UI friendly") -
+// replaces a plain <select> that dumped every role someone could hold (their
+// company's roles, then every shared one) into one flat native list. Same
+// shape as the Task module's ProjectPicker: a button that opens a small
+// panel with a search box and the choices grouped under plain-language
+// headings, closing on an outside click or Escape.
+function RoleMenu({ roles, companyName, placeholder, onPick, disabled = false }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const wrapRef = useRef(null);
+  const searchRef = useRef(null);
+
+  const { own, shared } = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const match = r => !needle || r.name.toLowerCase().includes(needle)
+      || (r.company_id && companyName(r.company_id).toLowerCase().includes(needle));
+    const byName = (a, b) => a.name.localeCompare(b.name);
+    const list = (roles || []).filter(match);
+    return {
+      own: list.filter(r => r.company_id).sort(byName),
+      shared: list.filter(r => !r.company_id).sort(byName),
+    };
+  }, [roles, q, companyName]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey, true);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey, true); };
+  }, [open]);
+  useEffect(() => { if (open) searchRef.current?.focus(); }, [open]);
+
+  const pick = r => { setOpen(false); setQ(''); onPick(r.id); };
+  const heading = { padding: '8px 10px 4px', fontSize: 10.5, fontWeight: 800, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' };
+  const row = r => (
+    <button key={r.id} type="button" className="hud-item" onClick={() => pick(r)}
+      style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', fontSize: 13 }}>
+      <Shield size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+      {r.company_id && <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>{companyName(r.company_id)}</span>}
+    </button>
+  );
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', display: 'inline-block' }}>
+      <button type="button" className="secondary-btn" disabled={disabled} onClick={() => setOpen(o => !o)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 12.5 }}>
+        {placeholder} <ChevronDown size={13} />
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 60, width: 300,
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+          boxShadow: 'var(--shadow-lg)', overflow: 'hidden',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
+            <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+            <input ref={searchRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search roles"
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const first = own[0] || shared[0]; if (first) pick(first); } }}
+              style={{ border: 'none', outline: 'none', background: 'transparent', flex: 1, fontSize: 13, color: 'var(--ink)', fontFamily: 'Inter,sans-serif' }} />
+          </div>
+          <div style={{ maxHeight: 280, overflowY: 'auto', padding: 4 }}>
+            {own.length === 0 && shared.length === 0 ? (
+              <div style={{ padding: '18px 12px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>
+                {q.trim() ? `No role matches "${q.trim()}".` : 'No roles available.'}
+              </div>
+            ) : (
+              <>
+                {own.length > 0 && <div style={heading}>This Company</div>}
+                {own.map(row)}
+                {shared.length > 0 && <div style={heading}>Shared Across Companies</div>}
+                {shared.map(row)}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Externals live INSIDE the People tab (Visesh, Aug 18) - no separate tab.
 // Embedded in Settings (Global Settings > Access) the Roles tab becomes
 // "Shared Roles": each company's own roles are managed in Company Settings, and
@@ -336,9 +419,17 @@ export default function RolesAccess({ embedded = false }) {
         <TierBadge tier={r.tier} />
       </div>
       {/* Neil (Aug 1): no bundle summary on the card - the people ARE the summary.
-          Faces only; the full bundle is one click away. */}
+          Faces only; the full bundle is one click away.
+          Embedded (Shared Roles, Pranshu, Sep 28): a plain count instead - a
+          role people at any company can hold shouldn't list identities in a
+          browsing list at a glance. Click into a role to see and manage who
+          has it. */}
       <div style={{ marginTop: 8, minHeight: 24, display: 'flex', alignItems: 'center' }}>
-        {(() => {
+        {embedded ? (
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>
+            {r.member_count ? `${r.member_count} ${r.member_count === 1 ? 'person' : 'people'}` : 'Nobody yet'}
+          </span>
+        ) : (() => {
           const mem = (r.members || []).filter(inFilter);
           return mem.length ? (
             <span title={`${mem.length} ${mem.length === 1 ? 'person' : 'people'}${filterOn ? ` in this filter (${r.member_count} total)` : ''}: ${mem.map(e => nameOf(e)).join(', ')}`}
@@ -860,10 +951,8 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
               {eff.job_role
                 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 13px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontSize: 12.5, fontWeight: 700 }}><Shield size={13} /> {eff.job_role.name}{eff.job_role.company_id ? ` · ${companyName(eff.job_role.company_id)}` : ''}</span>
                 : <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>No job role yet</span>}
-              <select value="" onChange={e => e.target.value && changeRole(e.target.value)} style={{ ...input, width: 'auto', padding: '6px 10px', fontSize: 12.5 }}>
-                <option value="">{eff.job_role ? 'Change role…' : 'Assign a role…'}</option>
-                <RoleOptions roles={roleChoices.filter(r => r.id !== eff.job_role?.id)} companyName={companyName} />
-              </select>
+              <RoleMenu roles={roleChoices.filter(r => r.id !== eff.job_role?.id)} companyName={companyName}
+                placeholder={eff.job_role ? 'Change role…' : 'Assign a role…'} onPick={changeRole} />
               <button className="secondary-btn" onClick={() => setPromoteOpen(true)} disabled={!roleChoices.length}
                 title="Pick the new role and see exactly what changes before committing"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5 }}>
@@ -1398,7 +1487,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
   }
 
   return (
-    <Modal onClose={onClose} title={role?.id ? 'Edit job role' : 'New job role'} wide isDirty={dirty} onSave={name.trim() ? save : undefined}>
+    <Modal onClose={onClose} title={role?.id ? 'Edit job role' : 'New job role'} size="lg" isDirty={dirty} onSave={name.trim() ? save : undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label style={fieldLabel}>Name
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Site Supervisor" style={input} /></label>
@@ -1639,7 +1728,12 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
 // to discard an in-progress edit with no warning - with isDirty set, those
 // three confirm first. A form's own Cancel button still discards straight
 // away, since that's a deliberate choice.
-function Modal({ title, children, onClose, wide, isDirty = false, onSave }) {
+// size="lg" (the job-role editor, Pranshu, Sep 28: "60% of screen" so the
+// module-bundle grid has room to breathe) scales with the viewport - min-width
+// keeps it from shrinking below the old `wide` size on a laptop, max-width
+// keeps it sane on an ultra-wide monitor, and on a phone it still falls back
+// to nearly full width exactly like `wide` always did.
+function Modal({ title, children, onClose, wide, size, isDirty = false, onSave }) {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const requestClose = () => { if (isDirty) setConfirming(true); else onClose(); };
@@ -1655,7 +1749,12 @@ function Modal({ title, children, onClose, wide, isDirty = false, onSave }) {
   };
   return (
     <div onClick={requestClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 1200, padding: 18 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: `min(${wide ? 560 : 440}px, 100%)`, maxHeight: '86vh', overflow: 'auto', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow-lg)',
+        width: size === 'lg' ? 'min(60vw, 1200px)' : `min(${wide ? 560 : 440}px, 100%)`,
+        minWidth: size === 'lg' ? 'min(560px, 100%)' : undefined,
+        maxHeight: '86vh', overflow: 'auto', padding: 20,
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
           <h3 style={{ fontSize: 16, fontWeight: 800, flex: 1 }}>{title}</h3>
           <button onClick={requestClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
