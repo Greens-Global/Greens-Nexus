@@ -4485,3 +4485,15 @@ class AccountingReportPackage(Base):
     shared      = Column(Boolean, default=False)
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
+
+
+class AccountingUserPref(Base):
+    """One person's own layout for the Accounting screens (Neil, Sep 25: "do
+    you want to see doc number? The answer is no - but don't take it out"):
+    which columns of the ledger lines show, how wide each is, row density.
+    Follows the person to any computer. New table - create_all builds it; RLS
+    is enabled by the startup sweep and the line in main.py."""
+    __tablename__ = "accounting_user_prefs"
+    email      = Column(String, primary_key=True)
+    prefs      = Column(JSON, default=dict)
+    updated_at = Column(String, default="")

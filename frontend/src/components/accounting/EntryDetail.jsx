@@ -1,15 +1,23 @@
 import { useEffect, useState } from 'react';
-import { ExternalLink, X } from 'lucide-react';
+import { ExternalLink, Maximize2, Minimize2, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
+import { useAccountingPrefs } from './prefs';
 
 // One journal entry, opened from the entry number on a search result or a
 // report drill-down (Charmi, Sep 24: "we should be able to click on the entry
-// after we pull the reports"). Shows the header, every line with its account,
-// entity and department, and the Intacct records behind it (batch, vendor,
-// customer, employee, Project-Job). "Open in Nexus Accounting" deep-links the
-// same entry in the accounting app through the one-time sign-in.
+// after we pull the reports").
+//
+// Sep 25 (Neil): what has value in an entry is the itemized list - account,
+// amount, department, location, memo, vendor, Project-Job, item, employee,
+// customer - "the fundamental Intacct and accounting system", so every one of
+// those is a column here even when the line leaves it blank. The entry
+// number, the Intacct batch and the posted date have no value to a reader and
+// sit in one quiet line under the title. The window takes most of the screen,
+// can fill it, and can be dragged larger from its corner.
+// "Open in Nexus Accounting" deep-links the same entry in the accounting app
+// through the one-time sign-in.
 
 const money = (n) => {
   const v = Number(n) || 0;
@@ -17,12 +25,29 @@ const money = (n) => {
   return Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 const BOOK_LABEL = { both: 'Both books', actual_only: 'Accrual only', tax_only: 'Cash only' };
-const partyOf = (g) => g.vendor_name || g.customer_name || g.employee_name || g.vendor_id || g.customer_id || g.employee_id || '';
+const named = (name, id) => name || id || '';
+
+// The columns, in the order Neil listed them.
+const COLUMNS = [
+  { key: 'account', label: 'Account', width: '17%' },
+  { key: 'debit', label: 'Debit', num: true, width: '7%' },
+  { key: 'credit', label: 'Credit', num: true, width: '7%' },
+  { key: 'department', label: 'Department', width: '9%' },
+  { key: 'location', label: 'Location', width: '10%' },
+  { key: 'memo', label: 'Memo', width: '15%' },
+  { key: 'vendor', label: 'Vendor', width: '9%' },
+  { key: 'project', label: 'Project-Job', width: '8%' },
+  { key: 'item', label: 'Item', width: '6%' },
+  { key: 'employee', label: 'Employee', width: '6%' },
+  { key: 'customer', label: 'Customer', width: '6%' },
+];
 
 export default function EntryDetail({ entryId, entryNo, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [opening, setOpening] = useState(false);
+  const [prefs, setPrefs] = useAccountingPrefs();
+  const full = !!prefs.entryFull;
 
   useEffect(() => {
     let alive = true;
@@ -58,92 +83,83 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
   const intacct = data?.intacct || [];
   const batch = intacct.find((g) => g.batch_no)?.batch_no || '';
   const journal = intacct.find((g) => g.journal)?.journal || '';
-  const hasDept = lines.some((l) => l.department);
-  const hasParty = intacct.some((g) => partyOf(g));
-  const hasJob = intacct.some((g) => g.class_id || g.project_id);
-  const th = { textAlign: 'left', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', padding: '6px 8px', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' };
-  const td = { padding: '7px 8px', borderBottom: '1px solid var(--border-color)', fontSize: '0.82rem', verticalAlign: 'top' };
-  const num = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
-  const meta = (label, value) => value ? (
-    <div style={{ minWidth: 120 }}>
-      <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>{label}</div>
-      <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', fontWeight: 600 }}>{value}</div>
-    </div>
-  ) : null;
+  const doc = intacct.find((g) => g.doc)?.doc || '';
+  const title = entry?.narration || intacct.find((g) => g.batch_title)?.batch_title || '';
+  const books = [...new Set(lines.map((l) => l.book_tag))];
+  const quiet = entry ? [
+    entry.entry_no ? `Entry ${entry.entry_no}` : '',
+    batch ? `Intacct batch ${batch}` : '',
+    doc ? `Document ${doc}` : '',
+    entry.posted_at ? `Posted ${formatDate(entry.posted_at)}` : '',
+    books.length === 1 ? BOOK_LABEL[books[0]] || '' : '',
+  ].filter(Boolean).join(' · ') : '';
+
+  const cell = (l, g, key) => {
+    switch (key) {
+      case 'account': return <><span className="acct-code">{l.gl_code}</span>{l.account_name}</>;
+      case 'debit': return money(l.debit);
+      case 'credit': return money(l.credit);
+      case 'department': return named(l.department_name, l.department);
+      case 'location': return named(l.location_name, l.location);
+      case 'memo': return l.description || g?.memo || '';
+      case 'vendor': return named(g?.vendor_name, g?.vendor_id);
+      case 'project': return named(g?.class_name, g?.class_id || g?.project_id);
+      case 'item': return named(g?.item_name, g?.item_id);
+      case 'employee': return named(g?.employee_name, g?.employee_id);
+      case 'customer': return named(g?.customer_name, g?.customer_id);
+      default: return '';
+    }
+  };
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label={`Journal entry ${entryNo || ''}`} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 'min(1100px, 96vw)' }}>
-        <div className="modal-header">
+    <div className="modal-overlay" onClick={onClose} role="presentation" style={full ? { padding: 0 } : { padding: 12 }}>
+      <div className="modal-content acct-entry" role="dialog" aria-modal="true" aria-label={`Journal entry ${entryNo || ''}`} onClick={(e) => e.stopPropagation()}
+        style={full ? { maxWidth: '100vw', width: '100vw', height: '100vh', maxHeight: '100vh', borderRadius: 0, resize: 'none' } : { maxWidth: '98vw', width: 'min(1720px, 96vw)', maxHeight: '94vh' }}>
+        <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
-            <h3 style={{ margin: 0 }}>Journal Entry {entry?.entry_no || entryNo || ''}</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-              {entry ? `${formatDate(entry.entry_date)}${journal ? ` · ${journal}` : ''}${batch ? ` · Intacct batch ${batch}` : ''}` : 'Loading the entry...'}
-            </div>
+            <h3 style={{ margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {entry ? `${formatDate(entry.entry_date)}${journal ? ` · ${journal}` : ''}${title ? ` · ${title}` : ''}` : `Journal Entry ${entryNo || ''}`}
+            </h3>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>{entry ? quiet : 'Loading the entry...'}</div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
             <button type="button" className="secondary-btn" onClick={openInApp} disabled={!data?.path || opening} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '5px 10px' }}>
               <ExternalLink size={14} /> {opening ? 'Opening...' : 'Open in Nexus Accounting'}
+            </button>
+            <button type="button" onClick={() => setPrefs({ entryFull: !full })} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 5 }}>
+              {full ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
             <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}>
               <X size={18} />
             </button>
           </div>
         </div>
-        <div style={{ padding: '16px 24px 20px' }}>
+        <div style={{ padding: '12px 18px 16px' }}>
           {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', marginBottom: 12 }}>{error}</div>}
           {!data && !error && <SkeletonBlocks count={3} />}
           {data && (
             <>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, marginBottom: 14 }}>
-                {meta('Entry no.', entry.entry_no)}
-                {meta('Date', formatDate(entry.entry_date))}
-                {meta('Journal', journal)}
-                {meta('Intacct batch', batch)}
-                {meta('Document', intacct.find((g) => g.doc)?.doc)}
-                {meta('Posted', entry.posted_at ? formatDate(entry.posted_at) : '')}
-              </div>
-              {(entry.narration || intacct.find((g) => g.batch_title)?.batch_title) && (
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: 12 }}>{entry.narration || intacct.find((g) => g.batch_title)?.batch_title}</div>
-              )}
-              <div className="req-table-wrapper">
-                <table className="req-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <div className="acct-lines-wrap" style={{ maxHeight: 'none' }}>
+                <table className="acct-lines acct-entry-lines" style={{ width: '100%', minWidth: 1180 }}>
+                  <colgroup>{COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
                   <thead>
-                    <tr>
-                      <th style={th}>Account</th>
-                      <th style={th}>Description</th>
-                      <th style={th}>Entity</th>
-                      {hasDept && <th style={th}>Department</th>}
-                      {hasParty && <th style={th}>Vendor / Customer</th>}
-                      {hasJob && <th style={th}>Project-Job</th>}
-                      <th style={th}>Book</th>
-                      <th style={{ ...th, textAlign: 'right' }}>Debit</th>
-                      <th style={{ ...th, textAlign: 'right' }}>Credit</th>
-                    </tr>
+                    <tr>{COLUMNS.map((c) => <th key={c.key} scope="col" className={c.num ? 'acct-num' : undefined}>{c.label}</th>)}</tr>
                   </thead>
                   <tbody>
                     {lines.map((l) => {
                       const g = intacct.find((x) => x.record_no && x.record_no === l.intacct_record_no);
                       return (
                         <tr key={l.id}>
-                          <td style={td}>
-                            <span style={{ fontFamily: 'monospace', fontSize: '0.76rem', marginRight: 6, color: 'var(--text-secondary)' }}>{l.gl_code}</span>{l.account_name}
-                          </td>
-                          <td style={{ ...td, maxWidth: 360 }}>{l.description || g?.memo || ''}</td>
-                          <td style={td}>{l.location_name || l.location || ''}</td>
-                          {hasDept && <td style={td}>{l.department_name || l.department || ''}</td>}
-                          {hasParty && <td style={td}>{g ? partyOf(g) : ''}</td>}
-                          {hasJob && <td style={td}>{g ? (g.class_name || g.class_id || g.project_id || '') : ''}</td>}
-                          <td style={{ ...td, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{BOOK_LABEL[l.book_tag] || l.book_tag}</td>
-                          <td style={num}>{money(l.debit)}</td>
-                          <td style={num}>{money(l.credit)}</td>
+                          {COLUMNS.map((c) => <td key={c.key} className={c.num ? 'acct-num' : undefined}>{cell(l, g, c.key)}</td>)}
                         </tr>
                       );
                     })}
-                    <tr style={{ fontWeight: 700 }}>
-                      <td style={td} colSpan={3 + (hasDept ? 1 : 0) + (hasParty ? 1 : 0) + (hasJob ? 1 : 0) + 1}>Total</td>
-                      <td style={num}>{money(data.totals.debit)}</td>
-                      <td style={num}>{money(data.totals.credit)}</td>
+                    <tr className="acct-grand">
+                      <td>Total</td>
+                      <td className="acct-num">{money(data.totals.debit)}</td>
+                      <td className="acct-num">{money(data.totals.credit)}</td>
+                      <td colSpan={COLUMNS.length - 3} />
                     </tr>
                   </tbody>
                 </table>
@@ -151,8 +167,13 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
               {Math.abs(data.totals.debit - data.totals.credit) >= 0.01 && (
                 <div style={{ marginTop: 8, fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>This entry is out of balance by {money(data.totals.debit - data.totals.credit)}.</div>
               )}
-              <div style={{ marginTop: 10, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                From the Nexus Accounting ledger{intacct.length ? ` · ${intacct.length} Intacct ${intacct.length === 1 ? 'record' : 'records'}` : ''}.
+              {books.length > 1 && (
+                <div style={{ marginTop: 8, fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                  Lines by book: {books.map((b) => `${BOOK_LABEL[b] || b} ${lines.filter((l) => l.book_tag === b).length}`).join(' · ')}
+                </div>
+              )}
+              <div style={{ marginTop: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                From the Nexus Accounting ledger{intacct.length ? ` · ${intacct.length} Intacct ${intacct.length === 1 ? 'record' : 'records'}` : ''}. Drag the corner of this window to resize it.
               </div>
             </>
           )}

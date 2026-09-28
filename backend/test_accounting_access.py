@@ -120,6 +120,7 @@ class AccountingAccessTests(unittest.TestCase):
             db.query(models.NexusAccessScope).filter(models.NexusAccessScope.email.in_(EVERYONE)).delete(synchronize_session=False)
             db.query(models.AccountingReportPackage).filter(models.AccountingReportPackage.owner_email.in_(EVERYONE)).delete(synchronize_session=False)
             db.query(models.AccountingSavedReport).filter(models.AccountingSavedReport.owner_email.in_(EVERYONE)).delete(synchronize_session=False)
+            db.query(models.AccountingUserPref).filter(models.AccountingUserPref.email.in_(EVERYONE)).delete(synchronize_session=False)
             db.query(models.AuditLog).filter(models.AuditLog.action == "accounting_entity_access_set", models.AuditLog.resource_id.in_(EVERYONE)).delete(synchronize_session=False)
             db.commit()
         finally:
@@ -308,6 +309,16 @@ class AccountingAccessTests(unittest.TestCase):
         _as(OPEN)
         self.assertEqual(self.client.put(f"/accounting/packages/{pid}", json={"name": "Renamed", "items": [{"reportId": r2}]}).json()["name"], "Renamed")
         self.assertEqual(self.client.delete(f"/accounting/packages/{pid}").status_code, 204)
+
+    def test_layout_is_each_persons_own(self):
+        _as(OPEN)
+        self.assertEqual(self.client.get("/accounting/prefs").json(), {"prefs": {}})
+        layout = {"lines": {"hidden": ["doc"], "widths": {"description": 520}}, "density": "condensed"}
+        self.assertEqual(self.client.put("/accounting/prefs", json={"prefs": layout}).json(), {"prefs": layout})
+        self.assertEqual(self.client.get("/accounting/prefs").json(), {"prefs": layout})
+        _as(LIMITED)
+        self.assertEqual(self.client.get("/accounting/prefs").json(), {"prefs": {}})
+        self.assertEqual(self.client.put("/accounting/prefs", json={"prefs": {"x": "y" * 7000}}).status_code, 400)
 
     def test_upstream_reason_reaches_the_screen(self):
         class R:

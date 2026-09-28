@@ -40,6 +40,7 @@ router = APIRouter(
 
 _REPORTS = ("pnl", "balance-sheet", "trial-balance", "cash-position")
 _CONFIG_MAX = 8000     # characters of JSON - filters, never figures
+_PREFS_MAX = 6000      # characters of JSON - one person's column layout
 _PACKAGE_MAX = 40      # statements in one package
 
 
@@ -52,6 +53,32 @@ def _name(v: str) -> str:
     if not name:
         raise HTTPException(status_code=400, detail="Give it a name.")
     return name[:120]
+
+
+# ── A person's own layout ────────────────────────────────────────────────────
+class PrefsBody(BaseModel):
+    prefs: dict[str, Any]
+
+
+@router.get("/prefs")
+def get_prefs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = db.query(models.AccountingUserPref).filter(models.AccountingUserPref.email == user["email"].lower()).first()
+    return {"prefs": row.prefs if row and isinstance(row.prefs, dict) else {}}
+
+
+@router.put("/prefs")
+def put_prefs(body: PrefsBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Replace the caller's layout. Only ever their own row."""
+    if len(json.dumps(body.prefs)) > _PREFS_MAX:
+        raise HTTPException(status_code=400, detail="That layout is too large to save.")
+    me = user["email"].lower()
+    row = db.query(models.AccountingUserPref).filter(models.AccountingUserPref.email == me).first()
+    if row:
+        row.prefs, row.updated_at = body.prefs, _now()
+    else:
+        db.add(models.AccountingUserPref(email=me, prefs=body.prefs, updated_at=_now()))
+    db.commit()
+    return {"prefs": body.prefs}
 
 
 # ── Memorized reports ────────────────────────────────────────────────────────

@@ -106,7 +106,16 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // headroom left - so the Tasks mobile fix (floating + on Home, New Task sheet
 // kept above the iPhone keyboard) tipped it with under 1 KB. Owner asked
 // (Sagar). The mammoth note above is still the real lever.
-const TOTAL_KB     = 9700;
+// Sep 28, 2026: 9700 -> 9900. Accounting, from the 09/25 call with Neil and
+// Charmi (Visesh): the Reports toolbar as dropdowns with the book selector,
+// memorized reports, the ledger grid with a filter per column and the
+// reader's own column layout, reporting packages built into a PDF, and who
+// may read which entities. dev was at 9700 of 9700; the Reports, Packages and
+// Access work measured 9708 locally (+8 KB - the old toolbar and chip row
+// came out as the new one went in). The rest of the headroom is for the
+// modules the same call asked for and this batch carries. pdf-lib was already
+// shipped (vendor-pdf), so the PDFs add no dependency.
+const TOTAL_KB     = 9900;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

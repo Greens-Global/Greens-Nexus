@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, X, ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Columns3, Download, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import EntryDetail from './EntryDetail';
+import { useAccountingPrefs } from './prefs';
+import { usePopover } from './reportControls';
+import { downloadCsv } from './reportModel';
 
 // Search results and report drill-downs for Accounting -> Reports.
 //
@@ -17,6 +20,15 @@ import EntryDetail from './EntryDetail';
 // the page), and one-click chips built from the matches themselves - the
 // vendors, customers, accounts and journals they involve. A drill-down from a
 // report is the same thing started from an account instead of a word.
+//
+// Sep 25 (Neil, Charmi) - the grid works like an Intacct list:
+//   - a filter box under every column, and they stack ("%amazon", then a date,
+//     then an amount that ends in .55); the server applies them to the whole
+//     result, so the totals and the page count follow;
+//   - every column can be dragged wider or narrower, shown or hidden, and the
+//     layout is the person's own (Doc No is off until someone turns it on);
+//   - one typeface, banded rows, and the hover fills the whole row so the eye
+//     can follow a line across a wide monitor to its amount.
 
 const PAGE = 100;
 const EXPORT_CAP = 10000;
@@ -31,11 +43,32 @@ const signed = (n) => {
   const s = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return v < 0 ? `(${s})` : s;
 };
+const named = (name, id) => name || id || '';
 const partyOf = (r) => r.vendor_name || r.customer_name || r.employee_name || r.vendor_id || r.customer_id || r.employee_id || '';
-const csvCell = (v) => {
-  const s = v == null ? '' : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
+
+// Every column the grid can show. `filter`: the server can narrow by it.
+// `off`: hidden until the person turns it on.
+export const LINE_COLUMNS = [
+  { key: 'date', label: 'Date', width: 96, filter: true, text: (r) => formatDate(r.entry_date) },
+  { key: 'entry', label: 'Entry', width: 108, filter: true, text: (r) => r.entry_no || '' },
+  { key: 'doc', label: 'Doc No', width: 120, filter: true, off: true, text: (r) => r.doc || '' },
+  { key: 'description', label: 'Description', width: 380, filter: true, text: (r) => r.description || '' },
+  { key: 'memo', label: 'Memo', width: 240, off: true, text: (r) => r.memo || '' },
+  { key: 'account', label: 'Account', width: 260, filter: true, text: (r) => `${r.gl_code} ${r.account_name}`.trim() },
+  { key: 'entity', label: 'Entity', width: 200, filter: true, text: (r) => r.location_name || r.location || '' },
+  { key: 'department', label: 'Department', width: 170, filter: true, off: true, text: (r) => named(r.department_name, r.department) },
+  { key: 'party', label: 'Vendor / Customer', width: 210, filter: true, text: partyOf },
+  { key: 'vendor', label: 'Vendor', width: 190, filter: true, off: true, text: (r) => named(r.vendor_name, r.vendor_id) },
+  { key: 'customer', label: 'Customer', width: 190, filter: true, off: true, text: (r) => named(r.customer_name, r.customer_id) },
+  { key: 'employee', label: 'Employee', width: 170, filter: true, off: true, text: (r) => named(r.employee_name, r.employee_id) },
+  { key: 'project', label: 'Project-Job', width: 180, off: true, text: (r) => named(r.project_name, r.project_id) },
+  { key: 'item', label: 'Item', width: 160, off: true, text: (r) => named(r.item_name, r.item_id) },
+  { key: 'journal', label: 'Journal', width: 88, filter: true, text: (r) => r.journal || '' },
+  { key: 'debit', label: 'Debit', width: 118, num: true, filter: true, text: (r) => money(r.debit) },
+  { key: 'credit', label: 'Credit', width: 118, num: true, filter: true, text: (r) => money(r.credit) },
+];
+const MIN_WIDTH = 60;
+const DENSITY_PY = { comfortable: '9px', compact: '5px', condensed: '2px' };
 
 const chip = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, fontSize: '0.75rem', cursor: 'pointer', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', maxWidth: 260, fontFamily: 'inherit' };
 const activeChip = { ...chip, cursor: 'default', border: '1px solid var(--wk-brand, #2b45e1)', background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)', fontWeight: 600 };
@@ -70,29 +103,27 @@ function FacetRow({ label, items, total, onPick, text }) {
   );
 }
 
-// The report's dimension filters (`dims`) narrow the search as far as line
-// search can: one entity, and one vendor / customer / employee become the
-// location and party filters. Anything else (several entities, departments,
+// The report's filters narrow the search as far as line search can: the
+// entities, and one vendor / customer / employee. Anything else (departments,
 // Project-Job, item, several parties) is named in the header as not applied,
 // so the total here is never mistaken for the filtered report figure.
 const PARTY_KINDS = ['vendor', 'customer', 'employee'];
-const DIM_NAMES = { locations: 'entities', departments: 'department', vendor: 'vendor', customer: 'customer', employee: 'employee', project: 'Project-Job', item: 'item' };
-function applyDims(dims, entity) {
-  if (!dims) return { location: entity || undefined, party: null, unapplied: [] };
+const DIM_NAMES = { departments: 'department', vendor: 'vendor', customer: 'customer', employee: 'employee', project: 'Project-Job', item: 'item' };
+function applyDims(dims, entities) {
+  const place = entities.length === 1 ? { location: entities[0] } : entities.length ? { locations: entities.join(',') } : {};
+  if (!dims) return { place, party: null, unapplied: [] };
   const unapplied = [];
-  let location = entity || undefined;
-  if (dims.locations?.length === 1) location = dims.locations[0];
-  else if (dims.locations?.length > 1) unapplied.push(`${dims.locations.length} entities`);
   let party = null;
   const partyKinds = PARTY_KINDS.filter((k) => dims[k]?.length);
   if (partyKinds.length === 1 && dims[partyKinds[0]].length === 1) party = { kind: partyKinds[0], code: dims[partyKinds[0]][0], name: dims[partyKinds[0]][0] };
   else partyKinds.forEach((k) => unapplied.push(`${dims[k].length} ${DIM_NAMES[k]}${dims[k].length > 1 ? 's' : ''}`));
   ['departments', 'project', 'item'].forEach((k) => { if (dims[k]?.length) unapplied.push(`${DIM_NAMES[k]} (${dims[k].length})`); });
-  return { location, party, unapplied };
+  return { place, party, unapplied };
 }
 
-export default function LedgerSearch({ term, entity, entityName, drill, onClearDrill, onClose, dims = null }) {
-  const applied = useMemo(() => applyDims(dims, entity), [dims, entity]);
+export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, dims = null }) {
+  const entitiesKey = entities.join(',');
+  const applied = useMemo(() => applyDims(dims, entities), [dims, entitiesKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // Narrowing picked from the chips. A drill-down arrives with its account set.
   const [party, setParty] = useState(null);       // { kind, code, name }
   const [account, setAccount] = useState(null);   // { code, name }
@@ -107,11 +138,32 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
   const [openEntry, setOpenEntry] = useState(null); // { id, no } - the entry number clicked
   const seq = useRef(0);
 
+  // The person's own layout: which columns show and how wide.
+  const [prefs, setPrefs] = useAccountingPrefs();
+  const layout = prefs.lines || {};
+  const visible = (c) => layout.visible?.[c.key] ?? !c.off;
+  const widthOf = (c) => Math.max(MIN_WIDTH, Number(layout.widths?.[c.key]) || c.width);
+  const columns = LINE_COLUMNS.filter(visible);
+  const setLayout = (p) => setPrefs({ lines: { ...layout, ...p } });
+  const tableWidth = columns.reduce((s, c) => s + widthOf(c), 0);
+
+  // The filter boxes. What is typed waits a moment before the ledger is asked.
+  const [typed, setTyped] = useState({});
+  const [cols, setCols] = useState('');
+  useEffect(() => {
+    const kept = {};
+    LINE_COLUMNS.forEach((c) => { const v = (typed[c.key] || '').trim(); if (c.filter && v) kept[c.key] = v; });
+    const next = Object.keys(kept).length ? JSON.stringify(kept) : '';
+    const t = setTimeout(() => setCols(next), 350);
+    return () => clearTimeout(t);
+  }, [typed]);
+  const filtering = Object.values(typed).some((v) => (v || '').trim());
+
   // A new drill-down replaces whatever was picked before it.
   useEffect(() => {
     if (!drill) return;
     setAccount({ code: drill.account, name: drill.accountName });
-    setParty(applied.party); setJournal(''); setBook('accrual'); setScope('period');
+    setParty(applied.party); setJournal(''); setBook(drill.book === 'cash' ? 'cash' : 'accrual'); setScope('period'); setTyped({});
   }, [drill]); // eslint-disable-line react-hooks/exhaustive-deps
   // A single vendor / customer / employee on the report follows into the search.
   useEffect(() => { setParty(applied.party); }, [applied.party?.kind, applied.party?.code]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -119,7 +171,7 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
   const usePeriod = scope === 'period' && drill;
   const params = useMemo(() => ({
     q: term || undefined,
-    location: applied.location,
+    ...applied.place,
     from: usePeriod ? drill.from : undefined,
     to: usePeriod ? drill.to : undefined,
     party_kind: party?.kind,
@@ -127,14 +179,15 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
     account: account?.code,
     journal: journal || undefined,
     book: book === 'all' ? undefined : book,
-  }), [term, applied.location, usePeriod, drill, party, account, journal, book]);
+    cols: cols || undefined,
+  }), [term, applied.place, usePeriod, drill, party, account, journal, book, cols]);
 
   const hasCriteria = (term || '').trim().length >= 2 || !!party || !!account || !!journal;
 
   useEffect(() => { setPage(0); }, [params]);
 
   useEffect(() => {
-    if (!hasCriteria) { setData(null); setError(''); return; }
+    if (!hasCriteria) { setData(null); setError(''); setLoading(false); return; }
     const mine = ++seq.current;
     setLoading(true);
     setError('');
@@ -143,6 +196,8 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
       .catch((e) => { if (mine === seq.current) { setData(null); setError(e?.message || 'Could not search the ledger.'); } })
       .finally(() => { if (mine === seq.current) setLoading(false); });
   }, [params, page, hasCriteria]);
+  // The toolbar's search box shows the spinner while this is working.
+  useEffect(() => { onBusy?.(loading); return () => onBusy?.(false); }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const total = data?.total || 0;
   const pages = Math.max(1, Math.ceil(total / PAGE));
@@ -159,18 +214,10 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
         const d = await api.searchAccountingLedger({ ...params, offset, limit: 1000 });
         all.push(...(d?.rows || []));
       }
-      const out = [['Date', 'Entry', 'Doc No', 'Description', 'Account', 'Title', 'Entity', 'Vendor / Customer', 'Journal', 'Debit', 'Credit']];
-      all.forEach((r) => out.push([formatDate(r.entry_date), r.entry_no, r.doc, r.description, r.gl_code, r.account_name, r.location_name || r.location, partyOf(r), r.journal, r.debit || '', r.credit || '']));
-      const text = out.map((r) => r.map(csvCell).join(',')).join('\r\n');
-      const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Ledger-Search_${(term || account?.code || party?.name || 'results').replace(/[^A-Za-z0-9]+/g, '-').slice(0, 40)}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      // The columns on screen, in their order; amounts as numbers.
+      const out = [columns.map((c) => c.label)];
+      all.forEach((r) => out.push(columns.map((c) => (c.num ? (r[c.key] || '') : c.text(r)))));
+      downloadCsv(`Ledger-Lines_${(term || account?.code || party?.name || 'results').replace(/[^A-Za-z0-9]+/g, '-').slice(0, 40)}.csv`, out);
     } catch (e) {
       setError(e?.message || 'Could not export the results.');
     } finally {
@@ -178,22 +225,36 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
     }
   };
 
-  const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 20, boxShadow: 'var(--shadow-sm)' };
-  const select = { padding: '5px 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)' };
+  // Drag a column's right edge to resize it; double-click puts it back.
+  const startResize = (c, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = widthOf(c);
+    const move = (ev) => setLayout({ widths: { ...(layout.widths || {}), [c.key]: Math.max(MIN_WIDTH, Math.round(startW + ev.clientX - startX)) } });
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const resetWidth = (c) => { const w = { ...(layout.widths || {}) }; delete w[c.key]; setLayout({ widths: w }); };
+
+  const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' };
+  const select = { height: 30, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)' };
 
   const heading = [term ? `"${term}"` : null, party?.name, account ? `${account.code} ${account.name || ''}`.trim() : null].filter(Boolean).join(' - ') || 'Ledger lines';
   const periodText = usePeriod ? `${drill.from ? formatDate(drill.from) : 'Start'} - ${formatDate(drill.to)}` : 'All dates';
+  const labelSpan = columns.filter((c) => !c.num).length;
 
   return (
     <div style={card}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <button type="button" className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '4px 10px' }}>
           <ArrowLeft size={14} /> Back to Report
         </button>
         <div style={{ minWidth: 0 }}>
-          <h3 style={{ fontSize: '1rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{heading}</h3>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            {entityName} · {periodText} · {book === 'all' ? 'all books' : book}{loading && data ? ' · refreshing' : ''}
+          <h3 style={{ fontSize: '0.98rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{heading}</h3>
+          <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+            {entityName} · {periodText} · {book === 'all' ? 'all books' : `${book} book`}{loading ? (data ? ' · updating' : ' · searching') : ''}
           </div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
@@ -208,23 +269,28 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
             <option value="accrual">Accrual Book</option>
             <option value="cash">Cash Book</option>
           </select>
-          <button type="button" className="primary-btn" onClick={exportCsv} disabled={!total || exporting} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem' }}>
+          <ColumnChooser layout={layout} visible={visible} onChange={setLayout} />
+          <button type="button" className="primary-btn" onClick={exportCsv} disabled={!total || exporting} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
             <Download size={14} /> {exporting ? 'Exporting...' : 'Export CSV'}
           </button>
         </div>
       </div>
 
-      {(party || account || journal) && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+      {(party || account || journal || filtering) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 8 }}>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Narrowed to</span>
-          {party && <ActiveChip label={`${party.kind === 'vendor' ? 'Vendor' : 'Customer'}: ${party.name}`} onClear={() => setParty(null)} />}
+          {party && <ActiveChip label={`${party.kind === 'vendor' ? 'Vendor' : party.kind === 'employee' ? 'Employee' : 'Customer'}: ${party.name}`} onClear={() => setParty(null)} />}
           {account && <ActiveChip label={`Account: ${account.code} ${account.name || ''}`.trim()} onClear={() => { setAccount(null); if (drill) onClearDrill(); }} />}
           {journal && <ActiveChip label={`Journal: ${journal}`} onClear={() => setJournal('')} />}
+          {LINE_COLUMNS.filter((c) => (typed[c.key] || '').trim()).map((c) => (
+            <ActiveChip key={c.key} label={`${c.label} contains ${typed[c.key].trim()}`} onClear={() => setTyped((t) => ({ ...t, [c.key]: '' }))} />
+          ))}
+          {filtering && <button type="button" onClick={() => setTyped({})} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline' }}>Clear column filters</button>}
         </div>
       )}
 
       {applied.unapplied.length > 0 && (
-        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 10 }}>
+        <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
           Report filters not applied to line search: {applied.unapplied.join(', ')}. These lines are the account's full activity for the entity and period.
         </div>
       )}
@@ -236,21 +302,20 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
           Type at least two characters - a vendor or customer name, an invoice number, or an amount like 1,500.00.
         </p>
       ) : loading && !data ? (
-        <SkeletonBlocks count={4} />
-      ) : data && total === 0 ? (
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', padding: '24px 0', textAlign: 'center', margin: 0 }}>
-          Nothing in the ledger contains all of that{entity ? ' for this entity' : ''}. Remove a word or a filter to widen the search.
-        </p>
+        <div role="status" aria-live="polite">
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 8 }}>Searching the ledger...</div>
+          <SkeletonBlocks count={4} />
+        </div>
       ) : data ? (
         <>
-          <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+          <div style={{ display: 'grid', gap: 6, marginBottom: 8 }}>
             {!party && <FacetRow label="Vendors" total={total} items={facets.vendors} onPick={(f) => setParty({ kind: 'vendor', code: f.code, name: f.name || f.code })} />}
             {!party && <FacetRow label="Customers" total={total} items={facets.customers} onPick={(f) => setParty({ kind: 'customer', code: f.code, name: f.name || f.code })} />}
             {!account && <FacetRow label="Accounts" total={total} items={facets.accounts} text={(f) => `${f.code} ${f.name || ''}`} onPick={(f) => setAccount({ code: f.code, name: f.name })} />}
             {!journal && <FacetRow label="Journals" total={total} items={facets.journals} onPick={(f) => setJournal(f.code)} />}
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: '0.8rem', marginBottom: 10, fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: '0.8rem', marginBottom: 8, fontVariantNumeric: 'tabular-nums' }}>
             <span><strong>{total.toLocaleString('en-US')}</strong> lines</span>
             <span>Debits <strong>{signed(data.debit)}</strong></span>
             <span>Credits <strong>{signed(data.credit)}</strong></span>
@@ -265,43 +330,58 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
             )}
           </div>
 
-          <div className="req-table-wrapper" style={{ opacity: loading ? 0.6 : 1 }}>
-            <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums', fontSize: '0.8rem' }}>
+          <div className="acct-lines-wrap" style={{ opacity: loading ? 0.6 : 1 }}>
+            <table className="acct-lines" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
+              <colgroup>{columns.map((c) => <col key={c.key} style={{ width: widthOf(c) }} />)}</colgroup>
               <thead>
                 <tr>
-                  <th>Date</th><th>Entry</th><th>Doc No</th><th>Description</th><th>Account</th><th>Entity</th><th>Vendor / Customer</th><th>Journal</th>
-                  <th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th>
+                  {columns.map((c) => (
+                    <th key={c.key} className={c.num ? 'acct-num' : undefined} scope="col">
+                      {c.label}
+                      <span role="separator" aria-orientation="vertical" aria-label={`Resize the ${c.label} column`} title="Drag to resize · double-click to reset"
+                        className="acct-resize" onPointerDown={(e) => startResize(c, e)} onDoubleClick={() => resetWidth(c)} />
+                    </th>
+                  ))}
+                </tr>
+                <tr className="acct-filter-row">
+                  {columns.map((c) => (
+                    <th key={c.key}>
+                      {c.filter ? (
+                        <input type="text" value={typed[c.key] || ''} onChange={(e) => setTyped((t) => ({ ...t, [c.key]: e.target.value }))}
+                          aria-label={`Filter ${c.label}`} placeholder={c.key === 'date' ? 'MM/DD/YYYY' : c.num ? '0.00' : 'contains'} className={c.num ? 'acct-num' : undefined} />
+                      ) : null}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.line_id}>
-                    <td style={{ whiteSpace: 'nowrap' }}>{formatDate(r.entry_date)}</td>
-                    <td style={{ whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '0.74rem' }}>
-                      {r.entry_id ? (
-                        <button type="button" onClick={() => setOpenEntry({ id: r.entry_id, no: r.entry_no })} title="Open this journal entry"
-                          style={{ border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3 }}>
-                          {r.entry_no || 'open'}
-                        </button>
-                      ) : r.entry_no}
-                    </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{r.doc}</td>
-                    <td style={{ maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.description}>{r.description}</td>
-                    <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${r.gl_code} ${r.account_name}`}>
-                      <span style={{ fontFamily: 'monospace', fontSize: '0.74rem', marginRight: 6, color: 'var(--text-secondary)' }}>{r.gl_code}</span>{r.account_name}
-                    </td>
-                    <td style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.location_name || r.location}>{r.location_name || r.location}</td>
-                    <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={partyOf(r)}>{partyOf(r)}</td>
-                    <td style={{ whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '0.74rem' }}>{r.journal}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(r.debit)}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{money(r.credit)}</td>
+                    {columns.map((c) => {
+                      const text = c.text(r);
+                      if (c.key === 'entry' && r.entry_id) {
+                        return (
+                          <td key={c.key} title={text}>
+                            <button type="button" className="acct-drill" onClick={() => setOpenEntry({ id: r.entry_id, no: r.entry_no })} title="Open this journal entry">{text || 'Open'}</button>
+                          </td>
+                        );
+                      }
+                      if (c.key === 'account') {
+                        return <td key={c.key} title={text}><span className="acct-code">{r.gl_code}</span>{r.account_name}</td>;
+                      }
+                      return <td key={c.key} className={c.num ? 'acct-num' : undefined} title={c.num ? undefined : text}>{text}</td>;
+                    })}
                   </tr>
                 ))}
-                {page + 1 >= pages && (
-                  <tr style={{ fontWeight: 800, borderTop: '2px solid var(--border-color)' }}>
-                    <td colSpan={8}>Totals - {total.toLocaleString('en-US')} lines</td>
-                    <td style={{ textAlign: 'right' }}>{signed(data.debit)}</td>
-                    <td style={{ textAlign: 'right' }}>{signed(data.credit)}</td>
+                {!rows.length && (
+                  <tr><td colSpan={columns.length} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '22px 10px', whiteSpace: 'normal' }}>
+                    Nothing in the ledger matches{filtering ? ' these filters' : ' all of that'}{entities.length ? ' for the entities picked' : ''}. {filtering ? 'Clear a column filter' : 'Remove a word or a filter'} to widen the search.
+                  </td></tr>
+                )}
+                {rows.length > 0 && page + 1 >= pages && (
+                  <tr className="acct-grand">
+                    {labelSpan > 0 && <td colSpan={labelSpan}>Totals - {total.toLocaleString('en-US')} lines</td>}
+                    {columns.filter((c) => c.num).map((c) => <td key={c.key} className="acct-num">{signed(data[c.key])}</td>)}
                   </tr>
                 )}
               </tbody>
@@ -315,6 +395,41 @@ export default function LedgerSearch({ term, entity, entityName, drill, onClearD
         </>
       ) : null}
       {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={() => setOpenEntry(null)} />}
+    </div>
+  );
+}
+
+// Which columns show. The choice is the person's own and follows them.
+function ColumnChooser({ layout, visible, onChange }) {
+  const [open, setOpen, ref] = usePopover();
+  const customized = Object.keys(layout.visible || {}).length > 0 || Object.keys(layout.widths || {}).length > 0;
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" className="secondary-btn" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
+        <Columns3 size={14} /> Columns
+      </button>
+      {open && (
+        <div role="dialog" aria-label="Columns" style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 40, width: 240, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10 }}>
+          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Show these columns</div>
+          <div style={{ display: 'grid', gap: 2, maxHeight: 320, overflowY: 'auto' }}>
+            {LINE_COLUMNS.map((c) => (
+              <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', padding: '3px 4px', cursor: 'pointer' }}>
+                <input type="checkbox" checked={visible(c)} onChange={(e) => onChange({ visible: { ...(layout.visible || {}), [c.key]: e.target.checked } })} />
+                {c.label}
+              </label>
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+            <button type="button" disabled={!customized} onClick={() => onChange({ visible: {}, widths: {} })}
+              style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: customized ? 'pointer' : 'default', textDecoration: 'underline', opacity: customized ? 1 : 0.5, padding: 0 }}>
+              Reset to default
+            </button>
+            <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
+          </div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>Your layout is saved for you on every computer.</div>
+        </div>
+      )}
     </div>
   );
 }

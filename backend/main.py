@@ -1694,6 +1694,7 @@ def _run_migrations():
         # New tables - RLS per CLAUDE.md.
         "ALTER TABLE accounting_saved_reports ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_report_packages ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_user_prefs ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
