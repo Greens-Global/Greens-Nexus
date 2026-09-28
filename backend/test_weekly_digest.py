@@ -200,6 +200,10 @@ class ScheduleTests(_Case):
         self._scan()
         self.assertEqual(self.sent[0]["to"], ["qa@greensglobal.com"])
         self.assertTrue(self.sent[0]["subject"].startswith(f"[TEST -> {AMY}]"))
+        # Links that act as Amy are not in a copy someone else reads.
+        self.assertNotIn("Extend Due Date", self.sent[0]["html"])
+        self.assertNotIn("mail-actions", self.sent[0]["html"])
+        self.assertIn("Open in Nexus", self.sent[0]["html"])
 
     def test_inactive_and_external_people_are_skipped(self):
         for who, kw in (("gone@greensglobal.com", {"status": "offboarded"}),
@@ -369,6 +373,54 @@ class ApiTests(_Case):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue(r.json()["sentNow"])
         self.assertEqual([s["to"] for s in self.sent], [[AMY]])
+
+
+class SendTestTests(_Case):
+    """Send Test Digest - POST /weekly-digest/test-send."""
+
+    def setUp(self):
+        super().setUp()
+        app = FastAPI()
+        app.include_router(digest_router.router)
+        from auth import require_administrator
+        app.dependency_overrides[require_administrator] = lambda: {
+            "email": "admin@greensglobal.com", "role": "administrator", "level": 4}
+        self.client = TestClient(app)
+        self._emp(AMY)
+        self._task("Old task", "2026-09-20")
+
+    def _send(self, **body):
+        return self.client.post("/weekly-digest/test-send", json={"employee_email": AMY, **body})
+
+    def test_sends_now_to_the_test_recipients_in_off_mode_and_logs_nothing(self):
+        weekly_digest.save_settings(self.db, {"test_recipients": ["qa@greensglobal.com"], "sendDay": 5}, "a@x.com")
+        r = self._send()
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["overdueCount"], 1)
+        self.assertEqual([s["to"] for s in self.sent], [["qa@greensglobal.com"]])
+        self.assertEqual(self.sent[0]["subject"], f"[TEST -> {AMY}] Your Weekly Digest - Week of 09/28/2026")
+        self.assertNotIn("Extend Due Date", self.sent[0]["html"])
+        self.assertEqual(self._logs(), [])   # the real weekly send is unaffected
+
+    def test_defaults_to_the_admin_when_there_are_no_test_recipients(self):
+        r = self._send()
+        self.assertEqual(r.json()["recipients"], ["admin@greensglobal.com"])
+
+    def test_your_own_digest_keeps_the_extend_button(self):
+        r = self._send(to=[AMY.upper()])
+        self.assertTrue(r.json()["sent"])
+        self.assertIn("Extend Due Date", self.sent[0]["html"])
+
+    def test_nothing_overdue_sends_nothing(self):
+        self._emp("bob@greensglobal.com")
+        r = self.client.post("/weekly-digest/test-send", json={"employee_email": "Bob@greensglobal.com"})
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.json()["sent"])
+        self.assertEqual(self.sent, [])
+
+    def test_unknown_employee_is_a_404(self):
+        r = self.client.post("/weekly-digest/test-send", json={"employee_email": "nobody@greensglobal.com"})
+        self.assertEqual(r.status_code, 404)
 
 
 if __name__ == "__main__":

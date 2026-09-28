@@ -83,3 +83,29 @@ def force_resend(log_id: str, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(500, f"Force resend failed for {email}: {type(e).__name__}: {e}")
     return {"ok": True, "sentNow": result["sent"], "mode": result["mode"], "hadContent": result["hadContent"]}
+
+
+class TestSendIn(BaseModel):
+    employee_email: str
+    to: Optional[list] = None      # default: the test recipients, else the admin themselves
+
+
+@router.post("/test-send")
+def test_send(body: TestSendIn, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Send Test Digest: builds one employee's real digest now and mails it
+    only to the test recipients (or to the admin), in any mode and on any day.
+    Logs nothing, so the person's real weekly send is unaffected."""
+    from sqlalchemy import func
+    import graph_mail
+    email = (body.employee_email or "").strip().lower()
+    emp = (db.query(models.NexusEmployee)
+           .filter(func.lower(models.NexusEmployee.work_email) == email).first()) if email else None
+    if not emp:
+        raise HTTPException(404, "No employee with that email.")
+    cfg = weekly_digest.get_settings(db)
+    to = [str(e).strip() for e in (body.to or cfg.get("test_recipients") or []) if str(e).strip()] or [user["email"]]
+    try:
+        result = weekly_digest.send_test(db, emp, cfg, to)
+    except graph_mail.GraphMailError as e:
+        raise HTTPException(502, f"The email could not be sent: {e}")
+    return {**result, "recipients": to, "employeeEmail": emp.work_email}

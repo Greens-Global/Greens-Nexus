@@ -6,7 +6,7 @@
 // every employee to tune. Same Global-Admin bar, off/test/live modes and
 // "confirm before going live" speed bump as DailyBriefingSettings.jsx.
 import { useEffect, useState } from 'react';
-import { CalendarDays, Save, AlertTriangle, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
+import { CalendarDays, Save, Send, AlertTriangle, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
@@ -212,7 +212,72 @@ export default function WeeklyDigestSettings() {
         </button>
         {saved && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved</span>}
       </div>
+
+      <SendTestDigest testRecipients={cfg.test_recipients || []} />
       </>
+      )}
+    </div>
+  );
+}
+
+// Send Test Digest (Sep 28): build any employee's real digest right now and
+// mail it to the test recipients (else the admin), in any mode and on any day,
+// without logging - so testing never stands in for their real weekly send.
+// A copy for someone else carries no act-as-them links (Extend, Comment...);
+// send your OWN digest to try Extend Due Date.
+function SendTestDigest({ testRecipients }) {
+  const [people, setPeople] = useState([]);
+  const [who, setWho] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);   // { ok, text }
+
+  useEffect(() => {
+    let alive = true;
+    // Curated Nexus People list (CLAUDE.md), never M365/GAL-derived.
+    api.getPeopleDirectory().then((rows) => {
+      if (!alive) return;
+      setPeople((rows || []).map((u) => ({ email: (u.email || '').toLowerCase(), name: u.name || u.display_name || u.email }))
+        .filter((p) => p.email));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const send = async () => {
+    const email = who.trim();
+    if (!email) return;
+    setBusy(true); setResult(null);
+    try {
+      const r = await api.sendTestWeeklyDigest(email);
+      const where = (r.recipients || []).join(', ');
+      if (!r.sent) setResult({ ok: true, text: `${r.employeeEmail} has nothing overdue right now, so there is nothing to send.` });
+      else setResult({ ok: true, text: `Sent ${r.employeeEmail}'s digest (${r.overdueCount} overdue${r.teamCount ? `, ${r.teamCount} team` : ''}) to ${where}.` });
+    } catch (e) { setResult({ ok: false, text: e.message || String(e) }); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${NX.border}` }}>
+      <label style={fieldLabel} htmlFor="weekly-digest-test-who">Send Test Digest</label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <input id="weekly-digest-test-who" list="weekly-digest-people" value={who} onChange={(e) => setWho(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
+          placeholder="Employee email" style={{ ...inputStyle, width: 280, maxWidth: '100%' }} />
+        <datalist id="weekly-digest-people">
+          {people.map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
+        </datalist>
+        <button style={{ ...btn('outline'), opacity: busy || !who.trim() ? 0.6 : 1 }} onClick={send} disabled={busy || !who.trim()}>
+          <Send size={14} /> {busy ? 'Sending…' : 'Send Test'}
+        </button>
+      </div>
+      <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+        Builds this person's real digest now and sends it to {testRecipients.length ? testRecipients.join(', ') : 'you'}, whatever
+        the mode or day. Nothing is logged and nobody else is emailed. Only a test of your own digest includes Extend Due Date and
+        the other task buttons, since those act as the person.
+      </div>
+      {result && (
+        <div role="status" style={{ fontSize: 12.5, marginTop: 8, fontWeight: 600, color: result.ok ? NX.green : NX.red }}>
+          {result.text}
+        </div>
       )}
     </div>
   );

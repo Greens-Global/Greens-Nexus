@@ -268,12 +268,52 @@ def render(first_name: str, today: date, sections: dict, greeting: str, logo_url
 
 # ── Send + scan ─────────────────────────────────────────────────────────
 
-def send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, today: date, local_now: datetime) -> dict:
-    """Builds, sends (per mode) and logs one person's digest. Commits."""
+def _without_actions(sections: dict) -> dict:
+    """The same rows minus Extend / Comment / React / Change Status / Mark
+    Complete - those links act AS the employee, so a copy read by someone else
+    (a test recipient) must not carry them. Open in Nexus stays. The Daily
+    Briefing applies the same rule to its Outlook card in test mode."""
+    drop = ("task_id", "task_open", "task_extend", "action_email")
+    return {k: [{f: v for f, v in r.items() if f not in drop} for r in rows] for k, rows in sections.items()}
+
+
+def _only_for(emp, to: list) -> bool:
+    return {(e or "").strip().lower() for e in to} == {(emp.work_email or "").lower()}
+
+
+def compose(db: Session, emp: "models.NexusEmployee", cfg: dict, today: date, local_now: datetime,
+            actions: bool = True) -> tuple:
+    """(sections, subject, html) - one person's digest as the scan would build
+    it; `actions=False` renders it without the act-as-them links."""
     sections = build_sections(db, emp.work_email, today)
+    if not actions:
+        sections = _without_actions(sections)
     subject, html = render((emp.first_name or "").strip(), today, sections,
                            daily._greeting(local_now), daily._logo_url(db), cfg)
+    return sections, subject, html
+
+
+def send_test(db: Session, emp: "models.NexusEmployee", cfg: dict, to: list) -> dict:
+    """Send Test Digest (Sep 28): builds this person's real digest right now
+    and mails it ONLY to `to`, whatever the mode, day or shift. Writes no log
+    row, so it never stands in for (or blocks) their real weekly send."""
+    local_now = daily._shift_local_now(daily._person_zone(db, emp.work_email, cfg))
+    sections, subject, html = compose(db, emp, cfg, local_now.date(), local_now, actions=_only_for(emp, to))
+    counts = {"overdueCount": len(sections.get(SECTION, [])), "teamCount": len(sections.get(TEAM_SECTION, []))}
+    if not sections:
+        return {"sent": False, **counts}
+    graph_mail.send_mail(from_email=graph_mail.DEFAULT_FROM_EMAIL, to=to, cc=None,
+                         subject=f"[TEST -> {emp.work_email}] {subject}", html=html)
+    return {"sent": True, **counts}
+
+
+def send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, today: date, local_now: datetime) -> dict:
+    """Builds, sends (per mode) and logs one person's digest. Commits."""
     mode = cfg.get("mode", "off")
+    # In test mode the copy goes to the test recipients, who must not get
+    # links that act as this person - unless the only recipient is them.
+    actions = mode != "test" or _only_for(emp, list(cfg.get("test_recipients") or []))
+    sections, subject, html = compose(db, emp, cfg, today, local_now, actions=actions)
     sent_at = ""
     if mode in ("test", "live") and sections:
         to = [emp.work_email] if mode == "live" else list(cfg.get("test_recipients") or [])

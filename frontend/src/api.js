@@ -612,6 +612,10 @@ export const api = {
   updateWeeklyDigestConfig: (patch) => req("/weekly-digest/config", { method: "PUT", body: JSON.stringify(patch) }),
   getWeeklyDigestLog: (params = {}) => req(`/weekly-digest/log?${new URLSearchParams(params).toString()}`),
   forceResendWeeklyDigest: (logId) => req(`/weekly-digest/log/${logId}`, { method: "DELETE" }),
+  // Builds one employee's real digest now and mails it only to the test
+  // recipients (else the caller), in any mode. Logs nothing.
+  sendTestWeeklyDigest: (employeeEmail) =>
+    req("/weekly-digest/test-send", { method: "POST", body: JSON.stringify({ employee_email: employeeEmail }) }),
   // Replies mailed back to a task notification (manager+). The drain normally
   // runs itself every minute on the deployed API; this triggers one pass now.
   getTaskInboundLog: (params = {}) => req(`/tasks/inbound/log?${new URLSearchParams(params).toString()}`),
