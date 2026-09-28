@@ -6,7 +6,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 // not listed, since those live in Company Settings.
 
 const roles = [
-  { id: 'r-shared', name: 'Tester', tier: 'employee', company_id: '', members: [], member_count: 0, allowed_modules: [] },
+  { id: 'r-shared', name: 'Tester', tier: 'employee', company_id: '', members: ['a@x.com', 'b@x.com'], member_count: 2, allowed_modules: [] },
   { id: 'r-acme', name: 'Acme Accountant', tier: 'employee', company_id: 'acme', members: [], member_count: 0, allowed_modules: [] },
 ];
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [] }) }));
@@ -38,6 +38,19 @@ describe('Access > Shared Roles', () => {
     expect(await screen.findByText('Tester')).toBeInTheDocument();
     expect(screen.queryByText('Acme Accountant')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /New Shared Role/ })).toBeInTheDocument();
+
+    // A count, never faces or names - this list is a browsing view, not a
+    // roster (Pranshu, Sep 28).
+    expect(screen.getByText('2 people')).toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.queryByText('a@x.com')).not.toBeInTheDocument();
+  });
+
+  it('opens the role editor at a generous width', async () => {
+    render(<RolesAccess embedded />);
+    fireEvent.click(screen.getByRole('button', { name: /Shared Roles/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /New Shared Role/ }));
+    expect(screen.getByRole('heading', { name: 'New job role' })).toBeInTheDocument();
   });
 
   it('opens straight on Shared Roles from the Company Settings link', async () => {
