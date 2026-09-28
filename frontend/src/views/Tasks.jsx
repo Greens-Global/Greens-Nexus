@@ -52,11 +52,14 @@ const TASK_SUBS = ['home', 'mine', 'projects', 'portfolios', 'templates', 'teams
 // part - the button is where your thumb already is when you're looking at the
 // list you want to add to (Sagar, Sept 1 2026). The full menu is always a
 // click away in the bar's "+ Create".
-// Home and Teams are deliberately absent (Sagar, Sept 2 2026): Home's bar
+// Home and Teams were deliberately absent (Sagar, Sept 2 2026): Home's bar
 // already carries Create next to Customize and Manage, and a team is made from
 // Manage, not from the browsing screen.
+// Home gained a "+" (Sagar, Sept 28 2026): at phone width that bar is down to
+// Manage alone (inlineCreate below), which left Home - the screen the module
+// opens on - with no way to create a task at all.
 const FAB_CREATES = {
-  mine: 'task', tasks: 'task',
+  home: 'task', mine: 'task', tasks: 'task',
   projects: 'project', portfolios: 'portfolio', templates: 'template',
   // Teams gained a "+" (Neil, Sept 9), reversing "a team is made from Manage"
   // (Sagar, Sept 2). What changed is that a team made HERE is personal - it is
