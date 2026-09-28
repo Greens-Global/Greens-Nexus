@@ -4497,3 +4497,69 @@ class AccountingUserPref(Base):
     email      = Column(String, primary_key=True)
     prefs      = Column(JSON, default=dict)
     updated_at = Column(String, default="")
+
+
+class PfsProfile(Base):
+    """One guarantor a lender asks about (Neil, Sep 25): a person, a couple
+    filing jointly, or a trust. Holds what a personal financial statement says
+    about WHO they are - contact details, the standard history questions
+    answered once, the executive profile - never a full Social Security number
+    (last four digits only). What they own and owe is in pfs_lines.
+    The most sensitive records in Nexus: read only through routers/pfs.py,
+    which admits owners and explicit "pfs" grant holders and nobody else.
+    New table - create_all builds it; RLS by the startup sweep and main.py."""
+    __tablename__ = "pfs_profiles"
+    id                = Column(String, primary_key=True)   # uuid
+    name              = Column(String, nullable=False)     # "Rajesh J. Kadakia", "RJK and DRK (Joint)", "Greens Global Family Trust"
+    kind              = Column(String, default="individual")  # individual | joint | trust
+    details           = Column(JSON, default=dict)          # address, phone, email, marital status, ssn_last4 ...
+    history           = Column(JSON, default=list)          # [{question, answer, note}]
+    executive_profile = Column(Text, default="")
+    photo             = Column(Text, default="")            # small JPEG as a data URL, shown on the cover
+    archived          = Column(Boolean, default=False)
+    created_by        = Column(String, default="")
+    created_at        = Column(String, default="")
+    updated_by        = Column(String, default="")
+    updated_at        = Column(String, default="")
+
+
+class PfsLine(Base):
+    """One thing a guarantor owns or owes. `source` says where the figure comes
+    from: 'ledger' = the balance of the listed GL accounts of one Intacct
+    entity as of the statement date (set up once, right every time after);
+    'manual' = a figure somebody keeps (a retirement account, jewelry).
+    ownership_pct turns the balance into the guarantor's share - a 7.5% owner
+    of a company counts 7.5% of its bank account. Real estate rows carry the
+    schedule columns in `details` and two figures: the value and the loan."""
+    __tablename__ = "pfs_lines"
+    id              = Column(String, primary_key=True)     # uuid
+    profile_id      = Column(String, index=True, nullable=False)
+    section         = Column(String, default="asset")       # asset | liability | real_estate
+    category        = Column(String, default="bank")
+    label           = Column(String, default="")
+    institution     = Column(String, default="")
+    account_ref     = Column(String, default="")            # last digits of the account, as printed
+    ownership_pct   = Column(Float, default=100)
+    source          = Column(String, default="manual")      # manual | ledger
+    ledger_entity   = Column(String, default="")
+    ledger_accounts = Column(JSON, default=list)             # GL codes
+    manual_value    = Column(Float, default=0)
+    manual_as_of    = Column(String, default="")
+    details         = Column(JSON, default=dict)
+    sort            = Column(Integer, default=0)
+    notes           = Column(String, default="")
+    updated_by      = Column(String, default="")
+    updated_at      = Column(String, default="")
+
+
+class PfsStatement(Base):
+    """A statement as it was produced: the figures of one guarantor as of one
+    date, kept so what was sent to a lender can be shown again exactly, even
+    after the ledger has moved on."""
+    __tablename__ = "pfs_statements"
+    id           = Column(String, primary_key=True)        # uuid
+    profile_id   = Column(String, index=True, nullable=False)
+    as_of        = Column(String, default="")
+    payload      = Column(JSON, default=dict)
+    generated_by = Column(String, default="")
+    generated_at = Column(String, default="")
