@@ -74,6 +74,7 @@ const Testing             = lazy(() => import("./views/Testing"));
 const CredentialVault     = lazy(() => import("./views/CredentialVault"));
 const Egnyte              = lazy(() => import("./views/Egnyte"));
 const EmployeeTracking    = lazy(() => import("./components/TimeTrackingAdmin"));
+const Shifts              = lazy(() => import("./views/Shifts"));
 const MyBriefing          = lazy(() => import("./views/MyBriefing"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
@@ -143,7 +144,14 @@ const VIEW_MIN_ROLES = {
   // can see regardless of the viewer's own Egnyte permissions. Gated at
   // supervisor for that reason - see the note in src/egnyte/EgnyteApp.jsx.
   'egnyte':             'supervisor',
+  // Shifts (Sep 29): its own module, opened by the People (hr) grant - see
+  // VIEW_GRANT below and the NAV entry's `grant` in Sidebar.jsx.
+  'shifts':             'supervisor',
 };
+
+// A view whose Access Group grant has another module's id. Shifts left People >
+// Time for its own module (Sep 29) but kept its audience: the People grant.
+const VIEW_GRANT = { shifts: 'hr' };
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
@@ -295,9 +303,10 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   // External (B2B guest) accounts: ONLY explicitly granted modules - the
   // baseline employee screens are internal-only. The backend enforces the
   // same boundary per request (auth.apply_external_policy).
+  const grantKey = VIEW_GRANT[activeView] || activeView;
   const hasAccess = isExternal
-    ? myGrantedModules.has(activeView)
-    : (!minRole || can('administrator') || (minRole !== 'administrator' && myGrantedModules.has(activeView)));
+    ? myGrantedModules.has(grantKey)
+    : (!minRole || can('administrator') || (minRole !== 'administrator' && myGrantedModules.has(grantKey)));
 
   // An external landing on a non-granted view (e.g. the default 'dashboard'
   // after login) is bounced to their first granted module instead of being
@@ -353,6 +362,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "credvault":          return <CredentialVault />;
     case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
     case "employee-tracking":  return <EmployeeTracking initialSub={activeSub} module />;
+    case "shifts":             return <Shifts activeSub={activeSub} onSubChange={onSubChange} />;
     case "privacy-policy":     return <PrivacyPolicy embedded />;
     case "terms-conditions":   return <TermsConditions embedded />;
     case "briefing":           return <MyBriefing />;
@@ -415,6 +425,7 @@ const DEFAULT_SUBS = {
   accounting:        "overview",
   egnyte:            "browse",
   "employee-tracking": "coverage",
+  shifts:            "schedule",
   // Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
   // id lands on its own natural tab so the URL is meaningful from the first
   // click, not just after switching tabs once (see TimeClock.jsx's own

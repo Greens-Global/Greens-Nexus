@@ -474,6 +474,16 @@ describe('Views, filter, export, drag and drop, day notes, activities', () => {
     await waitFor(() => expect(timeSchedMove).toHaveBeenCalledWith('s1', expect.objectContaining({ employee_email: 'bob@greensglobal.com', duplicate: false })));
   });
 
+  it('a save keeps the grid on screen even when the parent passes new toast functions', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    const { rerender } = render(<ShiftSchedule toastOk={() => {}} toastErr={() => {}} />);
+    await screen.findByText('GST');
+    timeSchedule.mockClear();
+    rerender(<ShiftSchedule toastOk={() => {}} toastErr={() => {}} />);   // what a toast in the parent does
+    expect(screen.getByText('GST')).toBeTruthy();                        // no loader in between
+    await waitFor(() => expect(screen.getByText('GST')).toBeTruthy());
+  });
+
   it('a press without moving is a click, and never starts a drag', async () => {
     timeSchedule.mockResolvedValue(data([shift()]));
     render(<ShiftSchedule toastOk={toastOk} />);
