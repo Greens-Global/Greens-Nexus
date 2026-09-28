@@ -2318,6 +2318,9 @@ class ScheduledShift(Base):
     # Unpaid break minutes for THIS placement - defaults to its preset's
     # break_min when placed, editable per shift (Sep 28).
     break_min      = Column(Integer, default=0)
+    # Named blocks inside the shift (Sep 29, Teams "activities"), e.g.
+    # 12:00-13:00 Training. JSON list of {start, end, label}; '' = none.
+    activities_json = Column(String, default="")
 
 
 class ShiftGroup(Base):
@@ -4501,3 +4504,18 @@ class ShiftRequest(Base):
     peer_decided_at = Column(String, default="")
     decided_at      = Column(String, default="")
     created_at      = Column(String, default="")
+
+
+class ScheduleDayNote(Base):
+    """A note on one day of the schedule for the whole team (Sep 29, Teams
+    "day notes"), e.g. "Inventory day - all hands". group_id '' = everyone;
+    a group id limits it to that shift group. Shown in the schedule grid's
+    day header and in staff's My Workday > Shifts. New table - create_all
+    builds it; RLS is enabled in main.py."""
+    __tablename__ = "schedule_day_notes"
+    id         = Column(String, primary_key=True)   # uuid
+    work_date  = Column(String, index=True, nullable=False)   # YYYY-MM-DD
+    group_id   = Column(String, default="", index=True)
+    note       = Column(String, default="")
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, Users, StickyNote } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from './AsyncState';
 import { ShiftActions, RequestDialog, OpenShifts, ShiftRequestsList } from './ShiftSelfService';
@@ -101,6 +101,9 @@ export default function MyShifts() {
     const off = data.timeoff || [];
     const hol = {};
     for (const h of data.holidays || []) if (h?.date) hol[h.date] = h.name || h.title || h.label || 'Company holiday';
+    // Day notes from the manager (Sep 29), e.g. "Inventory day".
+    const dayNote = {};
+    for (const n of data.dayNotes || []) dayNote[n.date] = dayNote[n.date] ? `${dayNote[n.date]} · ${n.note}` : n.note;
     return Array.from({ length: 7 }, (_, i) => {
       const d = addDays(weekStart, i);
       const key = dateKey(d);
@@ -108,7 +111,7 @@ export default function MyShifts() {
       const shifts = placed[key]
         || (preset && presetDays.has(iso) ? [{ id: `preset-${key}`, start: preset.start, end: preset.end, code: preset.code, label: preset.name, color: preset.color, fromPreset: true }] : []);
       const timeoff = off.filter(t => t.startDate <= key && t.endDate >= key);
-      return { date: d, key, shifts, timeoff, holiday: hol[key] || null, isToday: key === todayKey };
+      return { date: d, key, shifts, timeoff, holiday: hol[key] || null, note: dayNote[key] || '', isToday: key === todayKey };
     });
   }, [data, weekStart, todayKey]);
 
@@ -204,6 +207,9 @@ export default function MyShifts() {
               {d.holiday && (
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}><CalendarDays size={12} /> {d.holiday}</div>
               )}
+              {d.note && (
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#b45309', display: 'flex', alignItems: 'flex-start', gap: 6 }}><StickyNote size={12} style={{ flexShrink: 0, marginTop: 2 }} /> {d.note}</div>
+              )}
               {d.timeoff.map((t, i) => (
                 <div key={i} style={{ fontSize: 12, fontWeight: 600, textTransform: 'capitalize', color: t.status === 'approved' ? 'hsl(var(--color-green))' : '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <CalendarDays size={12} /> {t.type}{t.status === 'pending' ? ' (pending)' : ''}
@@ -219,6 +225,9 @@ export default function MyShifts() {
                   </div>
                   {(s.code || s.label) && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{s.label || s.code}</div>}
                   {s.note && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{s.note}</div>}
+                  {(s.activities || []).map((a, i) => (
+                    <div key={i} style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{hhmmTo12(a.start)} – {hhmmTo12(a.end)} · {a.label}</div>
+                  ))}
                   <ShiftActions shift={{ ...s, date: s.date || d.key }} todayKey={todayKey} reqs={reqs} onAsk={setAsk} />
                 </div>
               ))}

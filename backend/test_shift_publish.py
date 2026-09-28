@@ -25,7 +25,8 @@ with database.engine.connect() as _c:
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_json TEXT DEFAULT ''",
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
                  "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
-                 "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0"):
+                 "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''"):
         try:
             _c.execute(_text(_sql)); _c.commit()
         except Exception:

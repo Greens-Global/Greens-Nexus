@@ -1373,6 +1373,9 @@ export const api = {
   // Copy a range forward as drafts / clear a range (drafts deleted, published marked for removal).
   timeSchedCopy:     (data)      => req('/timeclock/schedule/copy', { method: 'POST', body: JSON.stringify(data) }),
   timeSchedClear:    (data)      => req('/timeclock/schedule/clear', { method: 'POST', body: JSON.stringify(data) }),
+  // Drag and drop (duplicate = Ctrl-drag copy) and team day notes (Sep 29).
+  timeSchedMove:     (id, data)  => req(`/timeclock/schedule/${id}/move`, { method: 'POST', body: JSON.stringify(data) }),
+  timeSchedDayNote:  (data)      => req('/timeclock/schedule/day-note', { method: 'PUT', body: JSON.stringify(data) }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
   timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),

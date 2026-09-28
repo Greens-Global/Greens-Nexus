@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, createEvent } from '@testing-library/react';
 
 // Shift schedule grid - unshared changes to PUBLISHED shifts (Sep 28, QA
 // D1/D2). An edit or removal waits for Publish while the team keeps the
@@ -15,12 +15,19 @@ const timeSchedCopy = vi.fn();
 const timeSchedClear = vi.fn();
 const shiftRequestsInbox = vi.fn();
 const shiftRequestDecide = vi.fn();
+const timeSchedMove = vi.fn();
+const timeSchedDayNote = vi.fn();
+const timeSchedUpdate = vi.fn();
+const exportExcel = vi.fn();
+vi.mock('../tasks/exporting', () => ({ exportExcel: (...a) => exportExcel(...a) }));
 vi.mock('../api', () => ({
   api: {
     timeSchedule: (...a) => timeSchedule(...a),
     timeSchedDelete: (...a) => timeSchedDelete(...a),
     timeSchedDiscard: (...a) => timeSchedDiscard(...a),
-    timeSchedPublish: (...a) => timeSchedPublish(...a), timeSchedCreate: vi.fn(), timeSchedUpdate: vi.fn(),
+    timeSchedPublish: (...a) => timeSchedPublish(...a), timeSchedCreate: vi.fn(), timeSchedUpdate: (...a) => timeSchedUpdate(...a),
+    timeSchedMove: (...a) => timeSchedMove(...a),
+    timeSchedDayNote: (...a) => timeSchedDayNote(...a),
     timeSchedCheck: (...a) => timeSchedCheck(...a),
     timeSchedCopy: (...a) => timeSchedCopy(...a),
     timeSchedClear: (...a) => timeSchedClear(...a),
@@ -39,6 +46,11 @@ const monday = (() => {
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 })();
+
+function formatUs(iso) {
+  const [y, m, d] = iso.split('-');
+  return `${m}/${d}/${y}`;
+}
 
 function plusDays(iso, n) {
   const [y, m, d] = iso.split('-').map(Number);
@@ -72,6 +84,90 @@ beforeEach(() => {
   timeSchedClear.mockReset().mockResolvedValue({ removed: 2, pending: 1 });
   shiftRequestsInbox.mockReset().mockResolvedValue({ pending: [], recent: [], settings: { openShifts: true, swaps: true, offers: true } });
   shiftRequestDecide.mockReset().mockResolvedValue({});
+  timeSchedMove.mockReset().mockResolvedValue({ moved: true, sourcePending: false });
+  timeSchedDayNote.mockReset().mockResolvedValue({});
+  timeSchedUpdate.mockReset().mockResolvedValue({});
+  exportExcel.mockReset().mockResolvedValue();
+});
+
+describe('Views, filter, export, drag and drop, day notes, activities', () => {
+  const firstOfMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; };
+  const lastOfMonth = () => {
+    const d = new Date(); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    return `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`;
+  };
+
+  it('switches to Month, then opens a day from it', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('GST');
+    fireEvent.click(screen.getByText('Month'));
+    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(firstOfMonth(), lastOfMonth()));
+    fireEvent.click(await screen.findByLabelText(`Open ${formatUs(monday)}`));
+    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(monday, monday));
+    expect(await screen.findByLabelText('Shift 9a to 5p')).toBeTruthy();
+  });
+
+  it('filters people by name, and the hours follow', async () => {
+    timeSchedule.mockResolvedValue(data([shift(), shift({ id: 's2', email: 'bob@greensglobal.com', code: 'BOB' })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    expect(await screen.findByText('Week: 16 Hrs')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Search people'), { target: { value: 'amy' } });
+    expect(screen.queryByText('BOB')).toBeNull();
+    expect(screen.getByText('Week: 8 Hrs')).toBeTruthy();
+  });
+
+  it('exports what is on screen to Excel', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ breakMin: 30, activities: [{ start: '12:00', end: '13:00', label: 'Training' }] })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('GST');
+    fireEvent.click(screen.getByText('Export'));
+    await waitFor(() => expect(exportExcel).toHaveBeenCalledTimes(1));
+    const { columns, rows } = exportExcel.mock.calls[0][0];
+    const row = Object.fromEntries(columns.map(c => [c.header, c.get(rows[0])]));
+    expect(row).toMatchObject({ Employee: 'Amy Adams', Start: '9:00 AM', End: '5:00 PM', 'Unpaid Break (min)': 30,
+      'Paid Hours': 7.5, Activities: '12:00 PM-1:00 PM Training', Status: 'Published' });
+  });
+
+  it('drags a shift to another person to move it, or copies with Ctrl', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    const { container } = render(<ShiftSchedule toastOk={toastOk} />);
+    const chip = await screen.findByText('GST');
+    const target = container.querySelector(`[data-cell="bob@greensglobal.com|${monday}"]`);
+    const dt = { setData() {}, effectAllowed: '', dropEffect: '' };
+    fireEvent.dragStart(chip, { dataTransfer: dt });
+    fireEvent.dragOver(target, { dataTransfer: dt });
+    fireEvent.drop(target, { dataTransfer: dt });
+    await waitFor(() => expect(timeSchedMove).toHaveBeenCalledWith('s1', { employee_email: 'bob@greensglobal.com', work_date: monday, duplicate: false }));
+    fireEvent.dragStart(await screen.findByText('GST'), { dataTransfer: dt });
+    // jsdom has no DragEvent, so the drop event cannot carry ctrlKey on its own.
+    const cell = container.querySelector(`[data-cell="bob@greensglobal.com|${monday}"]`);
+    const ctrlDrop = createEvent.drop(cell, { dataTransfer: dt });
+    Object.defineProperty(ctrlDrop, 'ctrlKey', { value: true });
+    fireEvent(cell, ctrlDrop);
+    await waitFor(() => expect(timeSchedMove).toHaveBeenLastCalledWith('s1', expect.objectContaining({ duplicate: true })));
+    expect(toastOk).toHaveBeenCalledWith('Shift copied here as a draft.');
+  });
+
+  it('adds a day note', async () => {
+    timeSchedule.mockResolvedValue(data([]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByLabelText(`Add a note for ${formatUs(monday)}`));
+    fireEvent.change(screen.getByLabelText('Day note'), { target: { value: 'Inventory day' } });
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(timeSchedDayNote).toHaveBeenCalledWith({ work_date: monday, note: 'Inventory day' }));
+  });
+
+  it('adds an activity to a shift', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('GST'));
+    fireEvent.click(screen.getByText('Add Activity'));
+    fireEvent.change(screen.getByLabelText('Activity 1 name'), { target: { value: 'Training' } });
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(timeSchedUpdate).toHaveBeenCalledWith('s1', expect.objectContaining({
+      activities: [{ start: '09:00', end: '17:00', label: 'Training' }] })));
+  });
 });
 
 describe('Shift requests inbox', () => {
@@ -161,6 +257,24 @@ describe('ShiftSchedule unshared changes', () => {
     fireEvent.click(screen.getByText('Discard Changes'));
     await waitFor(() => expect(timeSchedDiscard).toHaveBeenCalledWith('s1'));
     expect(toastOk).toHaveBeenCalledWith('Changes discarded.');
+  });
+
+  it('counts people, not open shifts, and every open spot in the hours (QA D3)', async () => {
+    timeSchedule.mockResolvedValue(data([shift(), shift({ id: 'o1', email: '', openSlots: 3, code: 'OPEN' })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    // Amy's 8 h + three open spots of 8 h each; one person on the day, not two.
+    expect(await screen.findByText('Week: 32 Hrs')).toBeTruthy();
+    expect(screen.getByText('1 · 32 Hrs')).toBeTruthy();
+  });
+
+  it('refuses a shift that starts and ends at the same time (QA D3)', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ start: '10:00', end: '10:00' }), shift({ id: 's2', email: 'bob@greensglobal.com', code: 'BOB' })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    // An old 10:00-10:00 row counts as 0 h, not 24 h.
+    expect(await screen.findByText('Week: 8 Hrs')).toBeTruthy();
+    fireEvent.click(screen.getByText('GST'));
+    expect(screen.getByRole('alert').textContent).toBe("Start and end can't be the same time.");
+    expect(screen.getByText('Save').closest('button').disabled).toBe(true);
   });
 
   it('counts paid hours - the unpaid break is taken out', async () => {

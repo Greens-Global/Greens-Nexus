@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox, Download, Search, StickyNote } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import ShiftRequestsInbox from './ShiftRequestsInbox';
+import { exportExcel } from '../tasks/exporting';
 
 // ── Weekly schedule grid (Microsoft Teams "Shifts" style) ─────────────────────
 // Rows = employees (grouped by shift group), columns = the 7 days of the week.
@@ -19,10 +20,18 @@ const TYPE_TINT = { vacation: '#dbeafe', sick: '#dcfce7', personal: '#ede9fe', u
 // 28th (found Sep 29 while adding Copy schedule). Same fix as MyShifts' dateKey.
 const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const toMin = (hhmm) => { const [h, m] = (hhmm || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
-const durMin = (s, e) => { let d = toMin(e) - toMin(s); if (d <= 0) d += 1440; return d; };
+// An end before the start runs past midnight; an end EQUAL to the start is
+// zero, not 24 h - it is a typo the server now refuses (QA D3), and any old
+// row like that must not add a phantom day to the totals.
+const durMin = (s, e) => { let d = toMin(e) - toMin(s); if (d < 0) d += 1440; return d; };
 const fmtHrs = (min) => `${(min / 60).toFixed(min % 60 ? 1 : 0)} Hrs`;
 // Scheduled hours are PAID hours: the shift's span minus its unpaid break.
 const paidMin = (s) => Math.max(0, durMin(s.start, s.end) - (Number(s.breakMin) || 0));
+// Hours a shift puts on the plan: an open shift needs every one of its spots
+// filled, so it counts once per spot (QA D3). A person's shift counts once.
+const planMin = (s) => paidMin(s) * (s.email ? 1 : Math.max(1, Number(s.openSlots) || 1));
+const sameTime = (a, b) => !!a && !!b && a.slice(0, 5) === b.slice(0, 5);
+const SAME_TIME_MSG = "Start and end can't be the same time.";
 // A PUBLISHED shift's unshared changes (Sep 28, QA D1/D2): an edit or a
 // removal waits for Publish while the team keeps seeing the published version,
 // so the scheduler's grid marks both - and a pending removal no longer counts
@@ -47,6 +56,27 @@ function addDaysIso(iso, n) {
   return isoDate(new Date(y, m - 1, d + n));
 }
 
+const t12Full = (hhmm) => {
+  const [h, m] = (hhmm || '0:0').split(':').map(Number);
+  return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+};
+const STATUS_TEXT = (s) => (s.pendingDelete ? 'Removal not published' : s.hasChanges ? 'Edited, not published'
+  : s.published === false ? 'Draft' : 'Published');
+const VIEWS = [['day', 'Day'], ['week', 'Week'], ['month', 'Month']];
+
+// The dates a view covers: one day, the Monday-Sunday week, or the month.
+function viewDays(view, cursor) {
+  const c = new Date(cursor); c.setHours(0, 0, 0, 0);
+  if (view === 'day') return [c];
+  if (view === 'month') {
+    const first = new Date(c.getFullYear(), c.getMonth(), 1);
+    const n = new Date(c.getFullYear(), c.getMonth() + 1, 0).getDate();
+    return Array.from({ length: n }, (_, i) => new Date(first.getFullYear(), first.getMonth(), i + 1));
+  }
+  const mon = mondayOf(c);
+  return Array.from({ length: 7 }, (_, i) => new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i));
+}
+
 function mondayOf(d) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -55,7 +85,14 @@ function mondayOf(d) {
 }
 
 export default function ShiftSchedule({ toastOk, toastErr }) {
-  const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
+  // Day / Week / Month (Sep 29, Teams parity) all hang off one date.
+  const [view, setView] = useState('week');
+  const [cursor, setCursor] = useState(() => new Date());
+  const [query, setQuery] = useState('');          // name / email filter
+  const [groupFilter, setGroupFilter] = useState('');
+  const [drag, setDrag] = useState(null);          // the shift being dragged
+  const [dropKey, setDropKey] = useState('');      // "email|date" under the pointer
+  const [noteEdit, setNoteEdit] = useState(null);  // { date, note } while editing a day note
   const [data, setData] = useState(null);
   const [cell, setCell] = useState(null);   // { email, date, existing? }
   const [openCell, setOpenCell] = useState(null);   // { date, existing? } - open-shift editor
@@ -68,11 +105,9 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(null);   // a shift on the "clipboard" to paste into a cell
 
-  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
-  }), [weekStart]);
+  const days = useMemo(() => viewDays(view, cursor), [view, cursor]);
   const start = isoDate(days[0]);
-  const end = isoDate(days[6]);
+  const end = isoDate(days[days.length - 1]);
 
   const load = useCallback(() => {
     setData(null);
@@ -121,17 +156,32 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     });
     const rest = emps.filter(e => !claimed.has(e.email));
     if (rest.length) out.push({ name: out.length ? 'Everyone else' : 'Team', members: rest });
-    return out;
-  }, [data]);
+    // Search and group filter (Sep 29): every view, the totals and the export
+    // follow what is left.
+    const q = query.trim().toLowerCase();
+    const picked = groupFilter ? (data.groups || []).find(g => g.id === groupFilter) : null;
+    return out
+      .filter(g => !picked || g.name === picked.name)
+      .map(g => ({ ...g, members: g.members.filter(m => !q || `${m.name || ''} ${m.email}`.toLowerCase().includes(q)) }))
+      .filter(g => g.members.length);
+  }, [data, query, groupFilter]);
+  const visibleEmails = useMemo(() => new Set(groupsView.flatMap(g => g.members.map(m => m.email))), [groupsView]);
+  const filtering = !!(query.trim() || groupFilter);
+  // Open shifts belong to no group, so a group filter hides them.
+  const shown = useMemo(() => (data?.scheduled || []).filter(s => (s.email ? visibleEmails.has(s.email) : !groupFilter)),
+    [data, visibleEmails, groupFilter]);
+  const notes = useMemo(() => Object.fromEntries((data?.dayNotes || []).filter(n => !n.groupId).map(n => [n.date, n.note])), [data]);
+  const names = useMemo(() => Object.fromEntries((data?.employees || []).map(e => [e.email, e.name || e.email])), [data]);
 
   const empWeekMin = (email) => days.reduce((sum, d) => sum + (byCell[`${email}|${isoDate(d)}`] || []).filter(counts).reduce((a, s) => a + paidMin(s), 0), 0);
   const dayStats = (d) => {
     const ds = isoDate(d);
     let min = 0; const people = new Set();
-    (data?.scheduled || []).forEach(s => { if (s.date === ds && counts(s)) { min += paidMin(s); people.add(s.email); } });
+    // People = real people only; an open shift has no email (QA D3).
+    shown.forEach(s => { if (s.date === ds && counts(s)) { min += planMin(s); if (s.email) people.add(s.email); } });
     return { min, people: people.size };
   };
-  const weekMin = (data?.scheduled || []).filter(counts).reduce((a, s) => a + paidMin(s), 0);
+  const weekMin = shown.filter(counts).reduce((a, s) => a + planMin(s), 0);
   const canManage = data?.canManage !== false;   // schedulers see/manage drafts
   const managing = !!data && canManage;
   useEffect(() => {
@@ -207,6 +257,78 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     catch (e) { toastErr?.(e?.message || 'Could not assign.'); }
     setBusy(false);
   }
+  // Drag and drop (Sep 29): drop = move, Ctrl/Alt-drop = copy. The server
+  // lands a draft at the target and applies the D2 rule to the original.
+  async function moveShift(s, email, date, duplicate) {
+    if (!duplicate && s.email === email && s.date === date) return;
+    setBusy(true);
+    try {
+      const r = await api.timeSchedMove(s.id, { employee_email: email, work_date: date, duplicate });
+      toastOk?.(duplicate ? 'Shift copied here as a draft.'
+        : r?.sourcePending ? 'Shift moved. The team keeps the original until you publish.' : 'Shift moved.');
+      load();
+    } catch (e) { toastErr?.(e?.message || 'Could not move the shift.'); }
+    setBusy(false);
+  }
+  async function saveDayNote(date, note) {
+    setBusy(true);
+    try {
+      await api.timeSchedDayNote({ work_date: date, note });
+      toastOk?.(note.trim() ? 'Day note saved.' : 'Day note removed.');
+      setNoteEdit(null); load();
+    } catch (e) { toastErr?.(e?.message || 'Could not save the note.'); }
+    setBusy(false);
+  }
+  async function exportSchedule() {
+    const rows = [...shown].sort((a, b) => a.date.localeCompare(b.date) || (names[a.email] || '~').localeCompare(names[b.email] || '~') || a.start.localeCompare(b.start));
+    try {
+      await exportExcel({
+        title: 'Schedule', filename: `schedule-${start}-to-${end}.xlsx`, rows,
+        columns: [
+          { header: 'Date', get: s => formatDate(s.date), width: 12 },
+          { header: 'Day', get: s => new Date(`${s.date}T00:00`).toLocaleDateString('en-US', { weekday: 'short' }), width: 6 },
+          { header: 'Employee', get: s => (s.email ? names[s.email] || s.email : 'Open shift'), width: 24 },
+          { header: 'Email', get: s => s.email, width: 28 },
+          { header: 'Start', get: s => t12Full(s.start), width: 10 },
+          { header: 'End', get: s => t12Full(s.end), width: 10 },
+          { header: 'Unpaid Break (min)', get: s => Number(s.breakMin) || 0, width: 12 },
+          { header: 'Paid Hours', get: s => Math.round(paidMin(s) / 6) / 10, width: 10 },
+          { header: 'Label', get: s => s.label, width: 18 },
+          { header: 'Note', get: s => s.note, width: 24 },
+          { header: 'Activities', get: s => (s.activities || []).map(a => `${t12Full(a.start)}-${t12Full(a.end)} ${a.label}`).join('; '), width: 30 },
+          { header: 'Open Spots', get: s => (s.email ? '' : s.openSlots || 1), width: 10 },
+          { header: 'Status', get: STATUS_TEXT, width: 20 },
+        ],
+      });
+    } catch (e) { toastErr?.(e?.message || 'Could not export the schedule.'); }
+  }
+  const chipTitle = (s, ps) => [ps.title,
+    ...(s.activities || []).map(a => `${t12Full(a.start)} - ${t12Full(a.end)}: ${a.label}`),
+    s.breakMin ? `${s.breakMin} min unpaid break` : ''].filter(Boolean).join('\n') || undefined;
+  const dragProps = (s) => (canManage && !s.pendingDelete ? {
+    draggable: true,
+    onDragStart: (e) => { if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'copyMove'; e.dataTransfer.setData('text/plain', s.id); } setDrag(s); },
+    onDragEnd: () => { setDrag(null); setDropKey(''); },
+  } : {});
+  // Open shifts only drop onto the open row; a person's shift onto a person.
+  const accepts = (email) => drag && !!drag.email === !!email;
+  const dropProps = (email, ds) => ({
+    onDragOver: (e) => {
+      if (!accepts(email)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = (e.ctrlKey || e.altKey) ? 'copy' : 'move';
+      if (dropKey !== `${email}|${ds}`) setDropKey(`${email}|${ds}`);
+    },
+    onDragLeave: () => setDropKey(''),
+    onDrop: (e) => {
+      if (!accepts(email)) return;
+      e.preventDefault();
+      const s = drag; setDrag(null); setDropKey('');
+      moveShift(s, email, ds, !!(e.ctrlKey || e.altKey));
+    },
+  });
+  const dropStyle = (email, ds) => (dropKey === `${email}|${ds}`
+    ? { outline: '2px dashed hsl(var(--color-green))', outlineOffset: -3, background: 'hsla(var(--color-green),0.06)' } : {});
   async function copySchedule(payload) {
     setBusy(true);
     try {
@@ -246,8 +368,18 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     setBusy(false);
   }
 
-  const shiftWeek = (n) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + n * 7); setWeekStart(d); };
-  const rangeLabel = `${formatDate(days[0])} – ${formatDate(days[6])}`;
+  const shiftRange = (n) => setCursor((c) => {
+    const d = new Date(c);
+    if (view === 'month') return new Date(d.getFullYear(), d.getMonth() + n, 1);
+    d.setDate(d.getDate() + n * (view === 'day' ? 1 : 7));
+    return d;
+  });
+  const rangeLabel = view === 'day'
+    ? `${days[0].toLocaleDateString('en-US', { weekday: 'long' })}, ${formatDate(days[0])}`
+    : view === 'month' ? days[0].toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : `${formatDate(days[0])} – ${formatDate(days[days.length - 1])}`;
+  const viewLabel = VIEWS.find(([k]) => k === view)?.[1] || 'Week';
+  const openDay = (ds) => { const [y, m, d] = ds.split('-').map(Number); setCursor(new Date(y, m - 1, d)); setView('day'); };
 
   const GRID = { display: 'grid', gridTemplateColumns: '190px repeat(7, minmax(120px, 1fr))' };
 
@@ -255,13 +387,20 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     <div style={{ fontFamily: 'Inter,sans-serif' }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-        <button className="secondary-btn" onClick={() => setWeekStart(mondayOf(new Date()))}
+        <button className="secondary-btn" onClick={() => setCursor(new Date())}
           style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><CalendarDays size={13} /> Today</button>
         <div style={{ display: 'flex', gap: 2 }}>
-          <button className="icon-btn" onClick={() => shiftWeek(-1)} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
-          <button className="icon-btn" onClick={() => shiftWeek(1)} style={{ padding: 6 }}><ChevronRight size={16} /></button>
+          <button className="icon-btn" onClick={() => shiftRange(-1)} aria-label={`Previous ${viewLabel.toLowerCase()}`} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
+          <button className="icon-btn" onClick={() => shiftRange(1)} aria-label={`Next ${viewLabel.toLowerCase()}`} style={{ padding: 6 }}><ChevronRight size={16} /></button>
         </div>
         <span style={{ fontSize: 14, fontWeight: 800 }}>{rangeLabel}</span>
+        <div role="group" aria-label="View" style={{ display: 'inline-flex', border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden' }}>
+          {VIEWS.map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setView(k)} aria-pressed={view === k}
+              style={{ border: 'none', padding: '5px 11px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                background: view === k ? 'hsla(var(--color-green),0.12)' : 'transparent', color: view === k ? 'hsl(var(--color-green))' : 'var(--muted)' }}>{label}</button>
+          ))}
+        </div>
         <div style={{ flex: 1 }} />
         <button className="secondary-btn" onClick={() => setBulkOpen(true)}
           style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -291,7 +430,29 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
             <Send size={13} /> {unpublished ? `Publish ${unpublished}` : 'All shared'}
           </button>
         )}
-        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Week: {fmtHrs(weekMin)}</span>
+        <button className="secondary-btn" onClick={exportSchedule} disabled={!data}
+          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Download size={14} /> Export
+        </button>
+        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{viewLabel}: {fmtHrs(weekMin)}</span>
+      </div>
+
+      {/* Filter (Sep 29): name/email search and a shift group. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 8, padding: '4px 10px', background: 'var(--card)', minWidth: 220 }}>
+          <Search size={13} color="var(--muted)" />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search people" aria-label="Search people"
+            style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
+        </label>
+        <select className="form-input" value={groupFilter} onChange={e => setGroupFilter(e.target.value)} aria-label="Filter by group"
+          style={{ width: 'auto', fontSize: 12.5, padding: '5px 10px' }}>
+          <option value="">All groups</option>
+          {(data?.groups || []).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+        </select>
+        {filtering && <button type="button" className="secondary-btn" onClick={() => { setQuery(''); setGroupFilter(''); }} style={{ fontSize: 12 }}>Clear Filters</button>}
+        {canManage && view !== 'month' && (
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', marginLeft: 'auto' }}>Drag a shift to move it · hold Ctrl to copy</span>
+        )}
       </div>
 
       {copied && (
@@ -307,6 +468,14 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
 
       {data === null ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>
+      ) : view === 'month' ? (
+        <MonthView days={days} shifts={shown} names={names} notes={notes} onPickDay={openDay} />
+      ) : view === 'day' ? (
+        <DayView date={start} groups={groupsView} shifts={shown} notes={notes} canManage={canManage}
+          offOn={offOn} holOn={holOn} chipTitle={chipTitle}
+          onEditNote={() => setNoteEdit({ date: start, note: notes[start] || '' })}
+          onOpenShift={(s) => (s.email ? setCell({ email: s.email, date: start, existing: s }) : setOpenCell({ date: start, existing: s }))}
+          onAdd={(email) => (email ? setCell({ email, date: start }) : setOpenCell({ date: start }))} />
       ) : (
         <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 12 }}>
           <div style={{ minWidth: 900 }}>
@@ -326,6 +495,19 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                     </div>
                     <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 1 }}>{st.people} · {fmtHrs(st.min)}</div>
                     {isHolDay && <div style={{ fontSize: 10, fontWeight: 700, color: '#2563eb', marginTop: 2 }}>Holiday</div>}
+                    {(notes[ds] || canManage) && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, minWidth: 0 }}>
+                        {notes[ds] && <span title={notes[ds]} style={{ fontSize: 10.5, fontWeight: 600, color: '#b45309', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{notes[ds]}</span>}
+                        {canManage && (
+                          <button type="button" onClick={() => setNoteEdit({ date: ds, note: notes[ds] || '' })}
+                            aria-label={notes[ds] ? `Edit the note for ${formatDate(ds)}` : `Add a note for ${formatDate(ds)}`}
+                            title={notes[ds] ? 'Edit day note' : 'Add a day note'}
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0, display: 'inline-flex', flexShrink: 0 }}>
+                            <StickyNote size={11} />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -346,12 +528,12 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                 const ds = isoDate(d);
                 const items = openByDate[ds] || [];
                 return (
-                  <div key={di} onClick={() => !items.length && setOpenCell({ date: ds })}
-                    style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 48, cursor: items.length ? 'default' : 'pointer', position: 'relative' }}
+                  <div key={di} onClick={() => !items.length && setOpenCell({ date: ds })} {...dropProps('', ds)}
+                    style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 48, cursor: items.length ? 'default' : 'pointer', position: 'relative', ...dropStyle('', ds) }}
                     className="sched-cell">
                     {items.map(s => { const ps = pendingState(s); return (
                       <div key={s.id} onClick={(e) => { e.stopPropagation(); setOpenCell({ date: ds, existing: s }); }}
-                        title={ps.title}
+                        title={chipTitle(s, ps)} {...dragProps(s)}
                         style={{ background: (s.color || '#16a34a') + '18', border: `1px dashed ${s.color || '#16a34a'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer', ...ps.style }}>
                         <div style={{ fontSize: 11, fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -404,7 +586,8 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                       const hol = !off ? holOn(emp.email, ds) : null;
                       return (
                         <div key={di} onClick={() => { if (!items.length) { copied ? pasteInto(emp.email, ds) : (!off && !hol && setCell({ email: emp.email, date: ds })); } }}
-                          style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 54, cursor: items.length ? 'default' : 'pointer', position: 'relative' }}
+                          {...dropProps(emp.email, ds)} data-cell={`${emp.email}|${ds}`}
+                          style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 54, cursor: items.length ? 'default' : 'pointer', position: 'relative', ...dropStyle(emp.email, ds) }}
                           className="sched-cell">
                           {off && !items.length && (
                             <div style={{ background: TYPE_TINT[off.type] || TYPE_TINT.other, borderRadius: 6, padding: '6px 8px', height: '100%' }}>
@@ -422,7 +605,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                           )}
                           {items.map(s => { const ps = pendingState(s); return (
                             <div key={s.id} onClick={(e) => { e.stopPropagation(); setCell({ email: emp.email, date: ds, existing: s }); }}
-                              title={ps.title}
+                              title={chipTitle(s, ps)} {...dragProps(s)}
                               style={{ background: (s.color || '#64748b') + '22', borderLeft: `3px solid ${s.color || '#64748b'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer',
                                 ...(s.published === false ? { outline: `1.5px dashed ${s.color || '#64748b'}`, outlineOffset: -2, opacity: 0.9 } : {}), ...ps.style }}>
                               <div style={{ fontSize: 11, fontWeight: 800, color: '#334155', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -437,6 +620,11 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                               </div>
                               <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={9} /> {t12(s.start)}–{t12(s.end)}</div>
                               {s.label && <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>}
+                              {s.activities?.length > 0 && (
+                                <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {s.activities.length === 1 ? `${t12(s.activities[0].start)} ${s.activities[0].label}` : `${s.activities.length} activities`}
+                                </div>
+                              )}
                             </div>
                           ); })}
                           {!items.length && !off && !hol && (
@@ -459,6 +647,11 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
         <CellModal cell={cell} shifts={data?.shifts || []} busy={busy}
           onSave={saveCell} onDelete={delCell} onDiscard={discardCell} onClose={() => setCell(null)}
           onCopy={(s) => { setCopied(s); setCell(null); }} />
+      )}
+
+      {noteEdit && (
+        <DayNoteModal date={noteEdit.date} note={noteEdit.note} busy={busy}
+          onSave={(text) => saveDayNote(noteEdit.date, text)} onClose={() => setNoteEdit(null)} />
       )}
 
       {inboxOpen && (
@@ -489,6 +682,155 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
       )}
 
       <style>{`.sched-cell:hover .sched-add { opacity: 1 !important; }`}</style>
+    </div>
+  );
+}
+
+// A team-wide note on one day (Sep 29, Teams "day notes").
+function DayNoteModal({ date, note, busy, onSave, onClose }) {
+  const [text, setText] = useState(note || '');
+  return (
+    <div style={MODAL_BACK} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-label="Day Note" style={{ ...MODAL_CARD, maxWidth: 420 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Day Note</span>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+          {new Date(`${date}T00:00`).toLocaleDateString('en-US', { weekday: 'long' })}, {formatDate(date)} · the whole team sees this on the schedule and in My Shifts.
+        </div>
+        <textarea className="form-input" rows={3} maxLength={200} value={text} onChange={e => setText(e.target.value)}
+          placeholder="e.g. Inventory day - all hands" aria-label="Day note" style={{ width: '100%', fontSize: 13, resize: 'vertical' }} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
+          {note && <button type="button" onClick={() => onSave('')} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>Remove</button>}
+          <div style={{ flex: 1 }} />
+          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="primary-btn" onClick={() => onSave(text)} disabled={busy || !text.trim()}
+            style={{ opacity: text.trim() ? 1 : 0.55 }}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Month (Sep 29): a calendar overview - per day the number of shifts, paid
+// hours, the first few people and any note. Click a day to open it.
+function MonthView({ days, shifts, names, notes, onPickDay }) {
+  const byDate = {};
+  shifts.forEach(s => { if (counts(s)) (byDate[s.date] ||= []).push(s); });
+  const lead = (days[0].getDay() + 6) % 7;   // Monday-first
+  const cells = [...Array(lead).fill(null), ...days];
+  const today = isoDate(new Date());
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', background: 'var(--bg)', borderBottom: '1px solid var(--line)' }}>
+        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
+          <div key={d} style={{ padding: '6px 8px', fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>{d}</div>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}>
+        {cells.map((d, i) => {
+          if (!d) return <div key={`b${i}`} style={{ borderRight: '1px solid var(--line)', borderBottom: '1px solid var(--line)', background: 'var(--bg)' }} />;
+          const ds = isoDate(d);
+          const list = (byDate[ds] || []).sort((a, b) => a.start.localeCompare(b.start));
+          const people = list.filter(s => s.email);
+          const open = list.filter(s => !s.email).reduce((a, s) => a + (s.openSlots || 1), 0);
+          return (
+            <button key={ds} type="button" onClick={() => onPickDay(ds)} aria-label={`Open ${formatDate(ds)}`}
+              style={{ textAlign: 'left', border: 'none', borderRight: '1px solid var(--line)', borderBottom: '1px solid var(--line)', background: ds === today ? 'hsla(var(--color-green),0.06)' : 'var(--card)',
+                padding: '6px 8px', minHeight: 96, cursor: 'pointer', fontFamily: 'inherit', minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 800, color: ds === today ? 'hsl(var(--color-green))' : 'var(--ink)' }}>{d.getDate()}</span>
+                {list.length > 0 && <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>{fmtHrs(list.reduce((a, s) => a + planMin(s), 0))}</span>}
+              </div>
+              {notes[ds] && <div title={notes[ds]} style={{ fontSize: 10.5, fontWeight: 600, color: '#b45309', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{notes[ds]}</div>}
+              {people.slice(0, 3).map(s => (
+                <div key={s.id} style={{ fontSize: 10.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderLeft: `2px solid ${s.color || '#64748b'}`, paddingLeft: 4, marginTop: 2 }}>
+                  {(names[s.email] || s.email).split(' ')[0]} {t12(s.start)}–{t12(s.end)}
+                </div>
+              ))}
+              {people.length > 3 && <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>+{people.length - 3} more</div>}
+              {open > 0 && <div style={{ fontSize: 10.5, color: '#166534', fontWeight: 700, marginTop: 2 }}>{open} open</div>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Day (Sep 29): a timeline of who works when. Bars sit on a 24-hour track;
+// an overnight shift runs to the right edge. Click a bar to edit it, or an
+// empty track to add a shift.
+function DayView({ date, groups, shifts, notes, canManage, offOn, holOn, chipTitle, onEditNote, onOpenShift, onAdd }) {
+  const byEmail = {};
+  shifts.forEach(s => { if (s.date === date) (byEmail[s.email || ''] ||= []).push(s); });
+  const HOURS = [0, 3, 6, 9, 12, 15, 18, 21];
+  const bar = (s) => {
+    const a = toMin(s.start);
+    const w = Math.min(durMin(s.start, s.end), 1440 - a);
+    const ps = pendingState(s);
+    return (
+      <button key={s.id} type="button" onClick={(e) => { e.stopPropagation(); onOpenShift(s); }} title={chipTitle(s, ps)}
+        aria-label={`${s.email ? 'Shift' : 'Open shift'} ${t12(s.start)} to ${t12(s.end)}`}
+        style={{ position: 'absolute', top: 5, bottom: 5, left: `${(a / 1440) * 100}%`, width: `${(w / 1440) * 100}%`, minWidth: 28,
+          background: (s.color || '#64748b') + '33', border: `1px ${s.email ? 'solid' : 'dashed'} ${s.color || '#64748b'}`, borderRadius: 6,
+          fontSize: 10.5, fontWeight: 700, color: '#334155', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', cursor: 'pointer',
+          padding: '0 6px', textAlign: 'left', fontFamily: 'inherit', ...ps.style }}>
+        {s.published === false && '★ '}{t12(s.start)}–{t12(s.end)}{s.label ? ` · ${s.label}` : ''}{s.email ? '' : ` · ${s.openSlots || 1} open`}
+      </button>
+    );
+  };
+  const track = (email, extra) => (
+    <div onClick={() => canManage && onAdd(email)} style={{ position: 'relative', height: 38, borderLeft: '1px solid var(--line)', cursor: canManage ? 'pointer' : 'default',
+      backgroundImage: 'repeating-linear-gradient(to right, transparent 0, transparent calc(12.5% - 1px), var(--line) calc(12.5% - 1px), var(--line) 12.5%)' }}>
+      {extra}
+      {(byEmail[email] || []).map(bar)}
+    </div>
+  );
+  const GRID = { display: 'grid', gridTemplateColumns: '190px minmax(560px, 1fr)' };
+  return (
+    <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 12 }}>
+      <div style={{ ...GRID, background: 'var(--bg)', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ padding: '8px 12px', fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>
+          Schedule
+          {(notes[date] || canManage) && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, textTransform: 'none', fontWeight: 600 }}>
+              {notes[date] && <span style={{ fontSize: 11, color: '#b45309' }}>{notes[date]}</span>}
+              {canManage && <button type="button" onClick={onEditNote} aria-label={notes[date] ? 'Edit the day note' : 'Add a day note'}
+                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0, display: 'inline-flex' }}><StickyNote size={11} /></button>}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', borderLeft: '1px solid var(--line)' }}>
+          {HOURS.map(h => <div key={h} style={{ padding: '8px 4px', fontSize: 10.5, color: 'var(--muted)', fontWeight: 700 }}>{t12(`${String(h).padStart(2, '0')}:00`)}</div>)}
+        </div>
+      </div>
+      <div style={{ ...GRID, borderBottom: '1px solid var(--line)', background: 'hsla(var(--color-green),0.03)' }}>
+        <div style={{ padding: '10px 12px', fontSize: 12.5, fontWeight: 800 }}>Open shifts</div>
+        {track('')}
+      </div>
+      {groups.map((g, gi) => (
+        <div key={gi}>
+          <div style={{ padding: '6px 12px', fontSize: 12, fontWeight: 800, background: 'var(--bg)', borderBottom: '1px solid var(--line)' }}>{g.name}</div>
+          {g.members.map(emp => {
+            const off = offOn(emp.email, date);
+            const hol = !off ? holOn(emp.email, date) : null;
+            const shade = off || hol ? (
+              <div style={{ position: 'absolute', inset: 0, background: off ? 'rgba(244,63,94,0.08)' : 'rgba(37,99,235,0.08)', display: 'flex', alignItems: 'center', paddingLeft: 8, fontSize: 11, fontWeight: 700, color: off ? '#9f1239' : '#2563eb' }}>
+                {off ? (off.status === 'approved' ? 'Off' : 'Requested off') : hol.name}
+              </div>
+            ) : null;
+            return (
+              <div key={emp.email} style={{ ...GRID, borderBottom: '1px solid var(--line)' }}>
+                <div style={{ padding: '10px 12px', fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.name || emp.email}</div>
+                {track(emp.email, shade)}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+      {groups.length === 0 && <div style={{ padding: 24, textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>Nobody matches the filter.</div>}
     </div>
   );
 }
@@ -741,8 +1083,10 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
   const preset = shifts.find(s => s.id === shiftId);
   const eff = (v, p) => v || p || '';
   const effBreak = brk === '' ? (preset?.breakMin || 0) : Math.max(0, Number(brk) || 0);
+  const badTimes = sameTime(eff(start, preset?.start), eff(end, preset?.end));
 
   function submit() {
+    if (badTimes) return;
     onSave({ id: ex?.id, work_date: cell.date, shift_id: shiftId,
       start_hhmm: eff(start, preset?.start), end_hhmm: eff(end, preset?.end),
       label, open_slots: Math.max(1, Number(slots) || 1), break_min: effBreak });
@@ -800,13 +1144,15 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
             )}
           </div>
         )}
+        {badTimes && <div role="alert" style={{ marginTop: 10, fontSize: 12, color: '#b91c1c' }}>{SAME_TIME_MSG}</div>}
         <PendingNotice ex={ex} />
         <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
           {ex && !ex.pendingDelete && <button onClick={() => onDelete(ex.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={13} /> Remove</button>}
           <DiscardButton ex={ex} busy={busy} onDiscard={onDiscard} />
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          {shifts.length > 0 && <button className="primary-btn" onClick={submit} disabled={busy}>{busy ? '…' : 'Save'}</button>}
+          {shifts.length > 0 && <button className="primary-btn" onClick={submit} disabled={busy || badTimes}
+            title={badTimes ? SAME_TIME_MSG : undefined} style={{ opacity: badTimes ? 0.55 : 1 }}>{busy ? '…' : 'Save'}</button>}
         </div>
       </div>
       {guard.confirming && (
@@ -858,11 +1204,13 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
   const [note, setNote] = useState(ex?.note || '');
   const [brk, setBrk] = useState(ex ? String(ex.breakMin ?? 0) : '');   // '' = the preset's
   const [warnings, setWarnings] = useState(ex?.conflicts || []);
+  const [acts, setActs] = useState(() => (ex?.activities || []).map(a => ({ ...a })));
   const preset = shifts.find(s => s.id === shiftId);
   const eff = (v, p) => v || p || '';
   const effStart = eff(start, preset?.start);
   const effEnd = eff(end, preset?.end);
   const effBreak = brk === '' ? (preset?.breakMin || 0) : Math.max(0, Number(brk) || 0);
+  const badTimes = sameTime(effStart, effEnd);
 
   // Live warnings as the day and times change (overlap, time off, holiday) -
   // the same check the grid's warning icon comes from. Never blocks Save.
@@ -878,10 +1226,12 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
   }, [cell.email, cell.date, effStart, effEnd, ex?.id]);
 
   function submit() {
+    if (badTimes) return;
     onSave({
       id: ex?.id, employee_email: cell.email, work_date: cell.date, shift_id: shiftId,
       start_hhmm: effStart, end_hhmm: effEnd,
       label, note, break_min: effBreak,
+      activities: acts.filter(a => a.start && a.end).map(a => ({ start: a.start, end: a.end, label: (a.label || '').trim() })),
     });
   }
 
@@ -889,7 +1239,8 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
   // per cell click), so the initial useState values ARE the baseline.
   const dirty = shiftId !== (ex?.shiftId || (shifts[0]?.id || '')) || start !== (ex?.start || '')
     || end !== (ex?.end || '') || label !== (ex?.label || '') || note !== (ex?.note || '')
-    || brk !== (ex ? String(ex.breakMin ?? 0) : '');
+    || brk !== (ex ? String(ex.breakMin ?? 0) : '')
+    || JSON.stringify(acts) !== JSON.stringify(ex?.activities || []);
   const guard = useUnsavedGuard(dirty, onClose, submit);
 
   return (
@@ -920,6 +1271,28 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
             </div>
             <input className="form-input" placeholder="Label (e.g. All Properties)" value={label} onChange={e => setLabel(e.target.value)} style={{ fontSize: 13 }} />
             <input className="form-input" placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} style={{ fontSize: 13 }} />
+            {/* Activities (Sep 29, Teams parity): named blocks inside the shift. */}
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Activities</div>
+              {acts.map((a, i) => (
+                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                  <input type="time" className="form-input" aria-label={`Activity ${i + 1} start`} value={a.start}
+                    onChange={e => setActs(xs => xs.map((x, j) => (j === i ? { ...x, start: e.target.value } : x)))} style={{ width: 110, fontSize: 13 }} />
+                  <input type="time" className="form-input" aria-label={`Activity ${i + 1} end`} value={a.end}
+                    onChange={e => setActs(xs => xs.map((x, j) => (j === i ? { ...x, end: e.target.value } : x)))} style={{ width: 110, fontSize: 13 }} />
+                  <input className="form-input" aria-label={`Activity ${i + 1} name`} placeholder="e.g. Training" maxLength={40} value={a.label}
+                    onChange={e => setActs(xs => xs.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} style={{ flex: 1, fontSize: 13 }} />
+                  <button type="button" onClick={() => setActs(xs => xs.filter((_, j) => j !== i))} aria-label={`Remove activity ${i + 1}`}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}><X size={14} /></button>
+                </div>
+              ))}
+              {acts.length < 12 && (
+                <button type="button" onClick={() => setActs(xs => [...xs, { start: effStart || '12:00', end: effEnd || '13:00', label: '' }])}
+                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'hsl(var(--color-green))', fontSize: 12.5, fontWeight: 700, padding: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Plus size={13} /> Add Activity
+                </button>
+              )}
+            </div>
           </div>
         )}
         {warnings.length > 0 && (
@@ -929,6 +1302,7 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
             <div style={{ marginTop: 4, color: '#b45309' }}>You can still save this shift.</div>
           </div>
         )}
+        {badTimes && <div role="alert" style={{ marginTop: 10, fontSize: 12, color: '#b91c1c' }}>{SAME_TIME_MSG}</div>}
         <PendingNotice ex={ex} />
         <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
           {ex && !ex.pendingDelete && <button onClick={() => onDelete(ex.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={13} /> Remove</button>}
@@ -936,7 +1310,8 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
           {ex && onCopy && <button onClick={() => onCopy(ex)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }} title="Copy this shift to place on another person or day"><Copy size={13} /> Copy</button>}
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          {shifts.length > 0 && <button className="primary-btn" onClick={submit} disabled={busy}>{busy ? '…' : 'Save'}</button>}
+          {shifts.length > 0 && <button className="primary-btn" onClick={submit} disabled={busy || badTimes}
+            title={badTimes ? SAME_TIME_MSG : undefined} style={{ opacity: badTimes ? 0.55 : 1 }}>{busy ? '…' : 'Save'}</button>}
         </div>
       </div>
       {guard.confirming && (

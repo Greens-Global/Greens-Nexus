@@ -378,6 +378,7 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str) -> list:
             id=str(uuid.uuid4()), employee_email=r.requester_email, work_date=shift.work_date,
             shift_id=shift.shift_id, start_hhmm=shift.start_hhmm, end_hhmm=shift.end_hhmm, label=shift.label,
             note=shift.note, open_slots=0, break_min=int(shift.break_min or 0),
+            activities_json=shift.activities_json or "",
             published=1,   # the manager just approved it - it is shared as of now
             created_by=actor, created_at=_now()))
         shift.open_slots = int(shift.open_slots or 1) - 1
