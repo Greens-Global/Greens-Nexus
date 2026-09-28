@@ -89,7 +89,7 @@ function FacetRow({ label, items, total, onPick, text }) {
   if (!items?.length || (items.length === 1 && items[0].lines >= total)) return null;
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-      <span style={{ width: 76, flexShrink: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{label}</span>
+      <span style={{ flexShrink: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{label}</span>
       {items.map((f) => {
         const name = text ? text(f) : (f.name || f.code);
         return (
@@ -143,9 +143,26 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const layout = prefs.lines || {};
   const visible = (c) => layout.visible?.[c.key] ?? !c.off;
   const widthOf = (c) => Math.max(MIN_WIDTH, Number(layout.widths?.[c.key]) || c.width);
-  const columns = LINE_COLUMNS.filter(visible);
+  const shownColumns = LINE_COLUMNS.filter(visible);
   const setLayout = (p) => setPrefs({ lines: { ...layout, ...p } });
-  const tableWidth = columns.reduce((s, c) => s + widthOf(c), 0);
+  // The grid uses the whole width it is given (Neil, Sep 25: "it should take up
+  // much more screen"): whatever is left over on a wide monitor goes to the
+  // description - the column that is always cut short - unless the reader has
+  // set that column's width themselves.
+  const [wrap, setWrap] = useState(null);   // the grid's scroll box, once it is on screen
+  const [room, setRoom] = useState(0);
+  useEffect(() => {
+    if (!wrap || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => setRoom(wrap.clientWidth));
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [wrap]);
+  const natural = shownColumns.reduce((s, c) => s + widthOf(c), 0);
+  const filler = shownColumns.find((c) => c.key === 'description' && !layout.widths?.description);
+  const spare = filler ? Math.max(0, room - natural - 2) : 0;
+  const columns = shownColumns;
+  const colWidth = (c) => widthOf(c) + (c === filler ? spare : 0);
+  const tableWidth = natural + spare;
 
   // The filter boxes. What is typed waits a moment before the ledger is asked.
   const [typed, setTyped] = useState({});
@@ -230,7 +247,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
-    const startW = widthOf(c);
+    const startW = colWidth(c);
     const move = (ev) => setLayout({ widths: { ...(layout.widths || {}), [c.key]: Math.max(MIN_WIDTH, Math.round(startW + ev.clientX - startX)) } });
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', move);
@@ -308,7 +325,8 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
         </div>
       ) : data ? (
         <>
-          <div style={{ display: 'grid', gap: 6, marginBottom: 8 }}>
+          {/* One line on a wide screen: the grid below is what the height is for. */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 18px', marginBottom: 8 }}>
             {!party && <FacetRow label="Vendors" total={total} items={facets.vendors} onPick={(f) => setParty({ kind: 'vendor', code: f.code, name: f.name || f.code })} />}
             {!party && <FacetRow label="Customers" total={total} items={facets.customers} onPick={(f) => setParty({ kind: 'customer', code: f.code, name: f.name || f.code })} />}
             {!account && <FacetRow label="Accounts" total={total} items={facets.accounts} text={(f) => `${f.code} ${f.name || ''}`} onPick={(f) => setAccount({ code: f.code, name: f.name })} />}
@@ -330,9 +348,9 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
             )}
           </div>
 
-          <div className="acct-lines-wrap" style={{ opacity: loading ? 0.6 : 1 }}>
+          <div className="acct-lines-wrap" ref={setWrap} style={{ opacity: loading ? 0.6 : 1 }}>
             <table className="acct-lines" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
-              <colgroup>{columns.map((c) => <col key={c.key} style={{ width: widthOf(c) }} />)}</colgroup>
+              <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}</colgroup>
               <thead>
                 <tr>
                   {columns.map((c) => (

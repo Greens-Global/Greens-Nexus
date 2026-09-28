@@ -29,17 +29,17 @@ const named = (name, id) => name || id || '';
 
 // The columns, in the order Neil listed them.
 const COLUMNS = [
-  { key: 'account', label: 'Account', width: '17%' },
+  { key: 'account', label: 'Account', width: '16%' },
   { key: 'debit', label: 'Debit', num: true, width: '7%' },
   { key: 'credit', label: 'Credit', num: true, width: '7%' },
   { key: 'department', label: 'Department', width: '9%' },
-  { key: 'location', label: 'Location', width: '10%' },
-  { key: 'memo', label: 'Memo', width: '15%' },
+  { key: 'location', label: 'Location', width: '11%' },
+  { key: 'memo', label: 'Memo', width: '13%' },
   { key: 'vendor', label: 'Vendor', width: '9%' },
   { key: 'project', label: 'Project-Job', width: '8%' },
-  { key: 'item', label: 'Item', width: '6%' },
+  { key: 'item', label: 'Item', width: '5%' },
   { key: 'employee', label: 'Employee', width: '6%' },
-  { key: 'customer', label: 'Customer', width: '6%' },
+  { key: 'customer', label: 'Customer', width: '9%' },
 ];
 
 export default function EntryDetail({ entryId, entryNo, onClose }) {

@@ -19,6 +19,7 @@ const BAND = rgb(0.955, 0.962, 0.978);
 const BRAND = rgb(0.169, 0.271, 0.882);
 const MARGIN = 54;
 const ROW = 15;
+const FLOOR = MARGIN + 8;
 
 // The standard PDF fonts hold Latin-1 only; anything else would throw. Dashes,
 // curly quotes, the ellipsis, the bullet and the no-break space become their
@@ -108,13 +109,15 @@ export async function buildPackagePdf({ name, description = '', org = '', prepar
       if (first) contents.push({ title: title || def.label, sub: sub.join('  ·  '), page: doc.getPageCount() });
       first = false;
     };
-    const room = (need) => { if (y - need < MARGIN + 24) head(); };
+    // A row may sit as low as FLOOR, just above the footer rule; `extra` is the
+    // space that has to be free under it (a section heading keeps two rows).
+    const room = (extra) => { if (y - extra < FLOOR) head(); };
 
     head();
     rows.forEach((r, i) => {
       const heavy = r.kind !== 'account';
       // A section heading never sits alone at the foot of a page.
-      room(r.kind === 'section' ? ROW * 3 : r.kind === 'account' ? ROW : ROW + 8);
+      room(r.kind === 'section' ? ROW * 2 + 4 : r.kind === 'account' ? 0 : 8);
       if (r.kind === 'subtotal' || r.kind === 'grand') {
         y -= 3;
         page.drawLine({ start: { x: MARGIN, y: y + ROW - 3 }, end: { x: W - MARGIN, y: y + ROW - 3 }, thickness: 0.7, color: INK });
@@ -142,7 +145,7 @@ export async function buildPackagePdf({ name, description = '', org = '', prepar
       columns.forEach((c, k) => {
         const w = figW(c);
         const t = clean(cellText(c, r.values[k]));
-        if (t) page.drawText(t, { x: x + w - f.widthOfTextAtSize(t, fs) - (r.kind === 'section' ? 4 : 0), y, size: fs, font: f, color: INK });
+        if (t) page.drawText(t, { x: x + w - f.widthOfTextAtSize(t, fs), y, size: fs, font: f, color: INK });
         x += w;
       });
       if (r.kind === 'account') page.drawLine({ start: { x: MARGIN, y: y - 4 }, end: { x: W - MARGIN, y: y - 4 }, thickness: 0.3, color: RULE });
@@ -194,11 +197,10 @@ export async function buildPackagePdf({ name, description = '', org = '', prepar
     if (cover && i === 0) return;
     const { width } = p.getSize();
     p.drawLine({ start: { x: MARGIN, y: MARGIN - 8 }, end: { x: width - MARGIN, y: MARGIN - 8 }, thickness: 0.4, color: RULE });
-    p.drawText(fit(font, 8, name, width / 2 - MARGIN), { x: MARGIN, y: MARGIN - 22, size: 8, font, color: MUTED });
-    const n = `Page ${i + 1} of ${total}`;
-    p.drawText(n, { x: width - MARGIN - font.widthOfTextAtSize(n, 8), y: MARGIN - 22, size: 8, font, color: MUTED });
-    const mid = `Prepared ${today}`;
-    p.drawText(mid, { x: (width - font.widthOfTextAtSize(mid, 8)) / 2, y: MARGIN - 22, size: 8, font, color: MUTED });
+    const n = `Prepared ${today}   ${String.fromCharCode(0xb7)}   Page ${i + 1} of ${total}`;
+    const nw = font.widthOfTextAtSize(n, 8);
+    p.drawText(n, { x: width - MARGIN - nw, y: MARGIN - 22, size: 8, font, color: MUTED });
+    p.drawText(fit(font, 8, name, width - MARGIN * 2 - nw - 24), { x: MARGIN, y: MARGIN - 22, size: 8, font, color: MUTED });
   });
   return doc.save();
 }
