@@ -9,7 +9,7 @@ import {
   ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, ChevronDown, ChevronRight,
   ChevronLeft, Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, CalendarDays, Maximize2, Minimize2,
-  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban,
+  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Loader2,
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
@@ -267,7 +267,28 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     [tasks, activeId, task],
   );
 
-  if (!task) return null;
+  if (!task) {
+    // Opened before the task list has arrived (a link from an email, header
+    // search, a ticket's linked task): show the drawer opening rather than
+    // nothing, so a click visibly did something. Once loading is done a
+    // missing task still renders nothing, exactly as before.
+    if (!store.loading) return null;
+    return createPortal(
+      <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
+        <aside role="status" aria-live="polite" aria-busy="true" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 14px', borderBottom: `1px solid ${NX.border}` }}>
+            <button onClick={onClose} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><X size={16} /></button>
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
+            <Loader2 size={30} aria-hidden="true" style={{ color: 'var(--wk-brand)', animation: 'spin 0.9s linear infinite' }} />
+            <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>Opening task…</div>
+            <div style={{ fontSize: 12.5, color: NX.faint }}>Getting the task details ready.</div>
+          </div>
+        </aside>
+      </div>,
+      document.body,
+    );
+  }
   // Shared the moment the task has a project or a collaborator - the same rule
   // My Tasks used for its Task Visibility column before that column was removed
   // in favor of this indicator.
