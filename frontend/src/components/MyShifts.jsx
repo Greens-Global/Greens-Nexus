@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, Users, StickyNote } from 'lucide-react';
 import { api } from '../api';
+import { formatDate } from '../lib/datetime';
 import { SkeletonBlocks } from './AsyncState';
 import { ShiftActions, RequestDialog, OpenShifts, ShiftRequestsList } from './ShiftSelfService';
 import { useShiftRequests } from './useShiftRequests';
@@ -30,7 +31,8 @@ const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function dateKey(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
-function startOfWeek(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return addDays(x, -x.getDay()); }
+// Monday-Sunday, the same week the schedule grid shows.
+function startOfWeek(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return addDays(x, -((x.getDay() + 6) % 7)); }
 function hhmmTo12(hhmm) {
   const [h, m] = (hhmm || '').split(':').map(Number);
   if (Number.isNaN(h)) return hhmm || '';
@@ -45,10 +47,9 @@ function covers(s, nowMin) {
   return a <= b ? nowMin >= a && nowMin < b : nowMin >= a || nowMin < b;
 }
 function fmtRange(a, b) {
-  const md = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return `${md(a)} – ${md(b)}`;
+  return `${formatDate(dateKey(a))} - ${formatDate(dateKey(b))}`;
 }
-// "9a–5:30p": the team grid has seven columns to fit, so the times shrink.
+// "9a-5:30p": the team grid has seven columns to fit, so the times shrink.
 function compact12(hhmm) {
   const [h, m] = (hhmm || '').split(':').map(Number);
   if (Number.isNaN(h)) return hhmm || '';
@@ -127,7 +128,7 @@ export default function MyShifts() {
     const nowMin = now.getHours() * 60 + now.getMinutes();
     const today = days.find(d => d.isToday);
     const on = today?.shifts.find(s => covers(s, nowMin));
-    if (on) return { on: true, text: `On shift now · ${hhmmTo12(on.start)} – ${hhmmTo12(on.end)}${on.label && !on.fromPreset ? ` · ${on.label}` : on.fromPreset && on.label ? ` · ${on.label}` : ''}` };
+    if (on) return { on: true, text: `On shift now · ${hhmmTo12(on.start)} - ${hhmmTo12(on.end)}${on.label && !on.fromPreset ? ` · ${on.label}` : on.fromPreset && on.label ? ` · ${on.label}` : ''}` };
     // next shift, this week, after now
     for (const d of days) {
       if (d.key < todayKey) continue;
@@ -249,12 +250,12 @@ export default function MyShifts() {
               {d.shifts.map(s => (
                 <div key={s.id} style={{ borderLeft: `3px solid ${s.color || 'var(--wk-brand)'}`, paddingLeft: 9 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Clock size={12} style={{ color: s.color || 'var(--wk-brand)', flexShrink: 0 }} />{hhmmTo12(s.start)} – {hhmmTo12(s.end)}
+                    <Clock size={12} style={{ color: s.color || 'var(--wk-brand)', flexShrink: 0 }} />{hhmmTo12(s.start)} - {hhmmTo12(s.end)}
                   </div>
                   {(s.code || s.label) && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{s.label || s.code}</div>}
                   {s.note && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{s.note}</div>}
                   {(s.activities || []).map((a, i) => (
-                    <div key={i} style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{hhmmTo12(a.start)} – {hhmmTo12(a.end)} · {a.label}</div>
+                    <div key={i} style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{hhmmTo12(a.start)} - {hhmmTo12(a.end)} · {a.label}</div>
                   ))}
                   <ShiftActions shift={{ ...s, date: s.date || d.key }} todayKey={todayKey} reqs={reqs} onAsk={setAsk} />
                 </div>
@@ -321,9 +322,9 @@ export default function MyShifts() {
                         ) : d.shifts.length === 0 ? (
                           <span style={{ fontSize: 12, color: 'var(--muted)' }}>Off</span>
                         ) : d.shifts.map(sh => (
-                          <div key={sh.id} title={`${hhmmTo12(sh.start)} – ${hhmmTo12(sh.end)}${sh.label ? ` · ${sh.label}` : ''}`}
+                          <div key={sh.id} title={`${hhmmTo12(sh.start)} - ${hhmmTo12(sh.end)}${sh.label ? ` · ${sh.label}` : ''}`}
                             style={{ borderLeft: `3px solid ${sh.color || 'var(--wk-brand)'}`, paddingLeft: 7, marginBottom: 4, lineHeight: 1.3 }}>
-                            <div style={{ fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{compact12(sh.start)}–{compact12(sh.end)}</div>
+                            <div style={{ fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{compact12(sh.start)}-{compact12(sh.end)}</div>
                             {(sh.code || sh.label) && <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>{sh.code || sh.label}</div>}
                           </div>
                         ))}

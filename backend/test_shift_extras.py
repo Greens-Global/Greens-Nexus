@@ -294,6 +294,53 @@ class TimeOffSettingsTests(_Base):
                                                                      "start_date": MON, "end_date": MON})
         self.assertEqual(obo.status_code, 200, obo.text)
 
+    def test_notifications_use_us_dates(self):
+        self.client.post("/timeclock/timeoff/on-behalf", json={"employee_email": A, "type": "vacation",
+                                                               "start_date": MON, "end_date": TUE})
+        db = database.SessionLocal()
+        try:
+            bodies = [n.body for n in db.query(models.NexusNotification)
+                      .filter(models.NexusNotification.recipient == A).all()]
+        finally:
+            db.close()
+        self.assertTrue(any("11/16/2026 - 11/17/2026" in b for b in bodies), bodies)
+        self.assertFalse(any("2026-11-16" in b or "→" in b for b in bodies), bodies)
+
+
+class GridRowsTests(_Base):
+    """Neil, Sep 29: photos, Teams names and locations on the rows; a shift
+    can be moved to Open Shifts."""
+
+    def test_rows_carry_photo_name_and_location(self):
+        db = database.SessionLocal()
+        try:
+            e = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == A).one()
+            e.photo_url, e.location, e.display_name = "https://x.supabase.co/p.png", " Escondido office ", "Amy Teams Name"
+            db.commit()
+        finally:
+            db.close()
+        row = {e["email"]: e for e in self._grid()["employees"]}[A]
+        self.assertEqual((row["photoUrl"], row["location"], row["name"]),
+                         ("https://x.supabase.co/p.png", "Escondido office", "Amy Teams Name"))
+
+    def test_a_shift_moves_to_open_shifts_but_not_back(self):
+        sid = self._place()["id"]
+        r = self.client.post(f"/timeclock/schedule/{sid}/move", json={"employee_email": "", "work_date": MON})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["shift"]["email"], r.json()["shift"]["openSlots"]), ("", 1))
+        back = self.client.post(f"/timeclock/schedule/{r.json()['shift']['id']}/move", json={"employee_email": A, "work_date": MON})
+        self.assertEqual(back.status_code, 400)
+
+    def test_time_off_notes_reach_the_grid(self):
+        db = database.SessionLocal()
+        try:
+            db.add(models.TimeOffRequest(id="to-xtra-note", employee_email=A, type="vacation", start_date=MON,
+                                         end_date=TUE, status="pending", note="Yard sale", created_at="2026-11-01T00:00:00"))
+            db.commit()
+        finally:
+            db.close()
+        self.assertEqual([t["note"] for t in self._grid()["timeoff"] if t["email"] == A], ["Yard sale"])
+
 
 if __name__ == "__main__":
     unittest.main()

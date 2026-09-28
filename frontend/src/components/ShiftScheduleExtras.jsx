@@ -3,7 +3,7 @@
 // adding time off straight from the grid. Kept out of ShiftSchedule.jsx,
 // which is big enough already.
 import { useEffect, useState } from 'react';
-import { X, Upload, Loader2, Clock, Star } from 'lucide-react';
+import { X, Upload, Loader2, Clock, Star, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { TIMEOFF_LABELS, timeOffLabel, parseScheduleSheet } from './shiftScheduleLib';
 
@@ -211,3 +211,98 @@ export function TimeOffModal({ email, name, date, busy, onSave, onClose }) {
     </div>
   );
 }
+
+// ── Row avatar ──────────────────────────────────────────────────────────
+// The person's profile photo (Neil, Sep 29), initials when there is none or
+// it fails to load.
+export function Avatar({ name, photoUrl, size = 26 }) {
+  const [broken, setBroken] = useState(false);
+  const base = { width: size, height: size, borderRadius: '50%', flexShrink: 0 };
+  if (photoUrl && !broken) {
+    return <img src={photoUrl} alt="" onError={() => setBroken(true)} style={{ ...base, objectFit: 'cover', border: '1px solid var(--line)' }} />;
+  }
+  return (
+    <span style={{ ...base, background: 'var(--bg)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.38, fontWeight: 800, color: 'var(--muted)' }}>
+      {(name || '').split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()}
+    </span>
+  );
+}
+
+// ── Shift menu (Teams parity) ───────────────────────────────────────────
+// Right-click a shift (or its ⋯ button), or an empty day: Edit Shift, Add
+// Shift, Add Time Off, Color, Move to Open Shifts, Copy, Paste, Delete.
+export function ShiftMenu({ menu, colors, canTimeOff, hasCopied, onAction, onClose }) {
+  const [colorsOpen, setColorsOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const s = menu.shift;
+  const item = (key, Icon, label, { hint, disabled, onClick } = {}) => (
+    <button key={key} type="button" role="menuitem" disabled={disabled}
+      onClick={onClick || (() => onAction(key))}
+      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', border: 'none', background: 'none', padding: '7px 12px',
+        fontSize: 12.5, fontFamily: 'inherit', color: disabled ? 'var(--muted)' : 'var(--ink)', cursor: disabled ? 'default' : 'pointer', textAlign: 'left', opacity: disabled ? 0.55 : 1 }}
+      className="shift-menu-item">
+      <Icon size={14} /> <span style={{ flex: 1 }}>{label}</span>
+      {hint && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{hint}</span>}
+    </button>
+  );
+  const left = Math.max(8, Math.min(menu.x, window.innerWidth - 232));
+  const top = Math.max(8, Math.min(menu.y, window.innerHeight - 340));
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1500 }} onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }}>
+      <div role="menu" aria-label={s ? 'Shift options' : 'Day options'} onClick={e => e.stopPropagation()}
+        style={{ position: 'fixed', left, top, width: 220, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
+          boxShadow: '0 10px 30px rgba(0,0,0,0.18)', padding: '4px 0', fontFamily: 'Inter,sans-serif' }}>
+        {s && item('edit', Pencil, 'Edit Shift')}
+        {item('add', Plus, 'Add Shift')}
+        {canTimeOff && menu.email && item('timeoff', CalendarOff, 'Add Time Off')}
+        {s && item('color', Palette, 'Color', { hint: colorsOpen ? '▾' : '▸', onClick: () => setColorsOpen(o => !o) })}
+        {s && colorsOpen && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '4px 12px 8px 35px' }}>
+            <button type="button" aria-label="Preset color" onClick={() => onAction('color', '')}
+              style={{ fontSize: 11, fontWeight: 700, border: '1px solid var(--line)', borderRadius: 6, background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', padding: '1px 6px', fontFamily: 'inherit' }}>Preset</button>
+            {colors.map(c => (
+              <button key={c} type="button" aria-label={`Color ${c}`} onClick={() => onAction('color', c)}
+                style={{ width: 18, height: 18, borderRadius: 5, background: c, cursor: 'pointer', border: s.ownColor === c ? '2px solid var(--ink)' : '2px solid transparent' }} />
+            ))}
+          </div>
+        )}
+        {s && s.email && item('toOpen', CalendarRange, 'Move to Open Shifts')}
+        <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
+        {s && item('copy', Copy, 'Copy', { hint: 'Ctrl+C' })}
+        {item('paste', ClipboardPaste, 'Paste', { hint: 'Ctrl+V', disabled: !hasCopied })}
+        {s && item('delete', Trash2, 'Delete')}
+      </div>
+    </div>
+  );
+}
+
+const short12 = (hhmm) => {
+  const [h, m] = (hhmm || '0:0').split(':').map(Number);
+  return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''}${h >= 12 ? 'p' : 'a'}`;
+};
+
+// ── Shift type palette ──────────────────────────────────────────────────
+// Neil, Sep 29: "GSM is a shift time... I'm picking up a GSM shift and I'm
+// giving it to Beth." Drag a shift type onto anyone's day to place it.
+export function ShiftPalette({ presets, onStart }) {
+  if (!presets?.length) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+      <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>Drag a shift onto someone's day:</span>
+      {presets.map(p => (
+        <span key={p.id} data-preset={p.code || p.name}
+          title={`${p.name}${p.start ? ` · ${hm12(p.start)} - ${hm12(p.end)}` : ''}`}
+          onMouseDown={(e) => onStart(e, p)}
+          style={{ cursor: 'grab', userSelect: 'none', fontSize: 11.5, fontWeight: 800, color: '#334155', padding: '4px 10px', borderRadius: 6,
+            background: (p.color || '#64748b') + '22', borderLeft: `3px solid ${p.color || '#64748b'}` }}>
+          {`${p.code || p.name} ${p.start ? `${short12(p.start)}-${short12(p.end)}` : ''}`.trim()}
+        </span>
+      ))}
+    </div>
+  );
+}
+

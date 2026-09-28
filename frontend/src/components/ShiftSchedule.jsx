@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox, Download, Search, StickyNote, Printer, Upload, CalendarOff } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
@@ -7,7 +7,7 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import ShiftRequestsInbox from './ShiftRequestsInbox';
 import { exportExcel } from '../tasks/exporting';
 import { dialog } from '../ui/dialog';
-import { ShiftTypeWeek, ImportModal, TimeOffModal } from './ShiftScheduleExtras';
+import { ShiftTypeWeek, ImportModal, TimeOffModal, Avatar, ShiftMenu, ShiftPalette } from './ShiftScheduleExtras';
 import { printSchedule, availText } from './shiftScheduleLib';
 
 // ── Weekly schedule grid (Microsoft Teams "Shifts" style) ─────────────────────
@@ -99,6 +99,11 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const [rowsBy, setRowsBy] = useState('people');   // week rows: people | shift types (Teams "view by shift")
   const [importOpen, setImportOpen] = useState(false);
   const [offCell, setOffCell] = useState(null);     // { email, date } - adding time off from the grid
+  const [groupBy, setGroupBy] = useState('group');  // row sections: shift groups | locations (Neil, Sep 29)
+  const [menu, setMenu] = useState(null);           // { x, y, email, date, shift? } - the right-click menu
+  const [ghost, setGhost] = useState(null);         // { x, y, label, copy } - what is being dragged
+  const suppressClick = useRef(false);
+  const hoverRef = useRef({ shift: null, cell: null });   // under the pointer, for Ctrl+C / Ctrl+V
   const [drag, setDrag] = useState(null);          // the shift being dragged
   const [dropKey, setDropKey] = useState('');      // "email|date" under the pointer
   const [noteEdit, setNoteEdit] = useState(null);  // { date, note } while editing a day note
@@ -118,11 +123,12 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const start = isoDate(days[0]);
   const end = isoDate(days[days.length - 1]);
 
+  // Refreshing after a save keeps the grid on screen (and the scroll where it
+  // was); only moving to another range shows the loader.
   const load = useCallback(() => {
-    setData(null);
     api.timeSchedule(start, end).then(setData).catch(e => { setData({ employees: [], shifts: [], groups: [], scheduled: [], timeoff: [] }); toastErr?.(e?.message || 'Could not load the schedule.'); });
   }, [start, end, toastErr]);
-  useEffect(load, [load]);
+  useEffect(() => { setData(null); load(); }, [load]);
 
   // index: "email|date" -> [shifts]; and time off lookup. Open shifts (email '')
   // are indexed by date on their own so they render in the Open shifts row.
@@ -157,23 +163,32 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     const emps = data.employees;
     const byEmail = Object.fromEntries(emps.map(e => [e.email, e]));
     const claimed = new Set();
-    const out = [];
-    (data.groups || []).forEach(g => {
-      const members = g.members.map(m => byEmail[m]).filter(Boolean);
-      members.forEach(m => claimed.add(m.email));
-      if (members.length) out.push({ name: g.name, members });
-    });
-    const rest = emps.filter(e => !claimed.has(e.email));
-    if (rest.length) out.push({ name: out.length ? 'Everyone else' : 'Team', members: rest });
+    let out = [];
+    if (groupBy === 'location') {
+      // By location (Neil, Sep 29: "see by locations also, not just by teams").
+      const byLoc = {};
+      emps.forEach(e => (byLoc[e.location || ''] ||= []).push(e));
+      out = Object.keys(byLoc).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b))
+        .map(k => ({ name: k || 'No location set', members: byLoc[k] }));
+    } else {
+      (data.groups || []).forEach(g => {
+        const members = g.members.map(m => byEmail[m]).filter(Boolean);
+        members.forEach(m => claimed.add(m.email));
+        if (members.length) out.push({ name: g.name, members });
+      });
+      const rest = emps.filter(e => !claimed.has(e.email));
+      if (rest.length) out.push({ name: out.length ? 'Everyone else' : 'Team', members: rest });
+    }
     // Search and group filter (Sep 29): every view, the totals and the export
     // follow what is left.
     const q = query.trim().toLowerCase();
     const picked = groupFilter ? (data.groups || []).find(g => g.id === groupFilter) : null;
     return out
-      .filter(g => !picked || g.name === picked.name)
-      .map(g => ({ ...g, members: g.members.filter(m => !q || `${m.name || ''} ${m.email}`.toLowerCase().includes(q)) }))
+      .filter(g => !picked || groupBy !== 'group' || g.name === picked.name)
+      .map(g => ({ ...g, members: g.members.filter(m => (!q || `${m.name || ''} ${m.email}`.toLowerCase().includes(q))
+        && (!picked || groupBy === 'group' || picked.members.includes(m.email))) }))
       .filter(g => g.members.length);
-  }, [data, query, groupFilter]);
+  }, [data, query, groupFilter, groupBy]);
   const visibleEmails = useMemo(() => new Set(groupsView.flatMap(g => g.members.map(m => m.email))), [groupsView]);
   const filtering = !!(query.trim() || groupFilter || presetFilter);
   // Open shifts belong to no group, so a group filter hides them.
@@ -226,7 +241,9 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     setBusy(true);
     try {
       await api.timeSchedCreate({ employee_email: email, work_date: date, shift_id: copied.shiftId,
-        start_hhmm: copied.start, end_hhmm: copied.end, label: copied.label, note: copied.note });
+        start_hhmm: copied.start, end_hhmm: copied.end, label: copied.label, note: copied.note,
+        break_min: copied.breakMin ?? 0, color: copied.ownColor || '', activities: copied.activities || [],
+        ...(email ? {} : { open_slots: 1 }) });
       toastOk?.('Shift copied here.'); load();
     } catch (e) { toastErr?.(e?.message || 'Could not paste the shift.'); }
     setBusy(false);
@@ -279,11 +296,75 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     try {
       const r = await api.timeSchedMove(s.id, { employee_email: email, work_date: date, duplicate });
       toastOk?.(duplicate ? 'Shift copied here as a draft.'
-        : r?.sourcePending ? 'Shift moved. The team keeps the original until you publish.' : 'Shift moved.');
+        : !email ? 'Moved to open shifts.'
+          : r?.sourcePending ? 'Shift moved. The team keeps the original until you publish.' : 'Shift moved.');
       load();
     } catch (e) { toastErr?.(e?.message || 'Could not move the shift.'); }
     setBusy(false);
   }
+  async function placePreset(p, email, date) {
+    setBusy(true);
+    try {
+      await api.timeSchedCreate({ employee_email: email, work_date: date, shift_id: p.id, ...(email ? {} : { open_slots: 1 }) });
+      toastOk?.(`${p.code || p.name} placed as a draft.`); load();
+    } catch (e) { toastErr?.(e?.message || 'Could not place the shift.'); }
+    setBusy(false);
+  }
+  async function recolor(s, color) {
+    setBusy(true);
+    try {
+      await api.timeSchedUpdate(s.id, { employee_email: s.email, work_date: s.date, shift_id: s.shiftId, start_hhmm: s.start,
+        end_hhmm: s.end, label: s.label, note: s.note, break_min: s.breakMin ?? 0, color,
+        ...(s.email ? {} : { open_slots: s.openSlots || 1 }) });
+      toastOk?.('Color changed.'); load();
+    } catch (e) { toastErr?.(e?.message || 'Could not change the color.'); }
+    setBusy(false);
+  }
+  const copyShift = (s) => { setCopied(s); toastOk?.('Shift copied. Right-click a day and Paste, press Ctrl+V over it, or click an empty day.'); };
+  function menuAction(action, arg) {
+    const m = menu; setMenu(null);
+    if (!m) return;
+    const s = m.shift;
+    if (action === 'edit') (s.email ? setCell({ email: s.email, date: s.date, existing: s }) : setOpenCell({ date: s.date, existing: s }));
+    else if (action === 'add') (m.email ? setCell({ email: m.email, date: m.date }) : setOpenCell({ date: m.date }));
+    else if (action === 'timeoff') setOffCell({ email: m.email, date: m.date });
+    else if (action === 'color') recolor(s, arg);
+    else if (action === 'toOpen') moveShift(s, '', s.date, false);
+    else if (action === 'copy') copyShift(s);
+    else if (action === 'paste') pasteInto(m.email, m.date);
+    else if (action === 'delete') delCell(s.id);
+  }
+  const openMenu = (e, email, date, shift) => {
+    if (!canManage) return;
+    e.preventDefault(); e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY, email, date, shift: shift && !shift.pendingDelete ? shift : null });
+  };
+  // Ctrl+C over a shift, Ctrl+V over a day (Teams keyboard parity).
+  const keysRef = useRef(null);
+  useEffect(() => { keysRef.current = { copied, canManage, copyShift, pasteInto }; });
+  useEffect(() => {
+    const onKey = (e) => {
+      const k = keysRef.current;
+      if (!k?.canManage || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+      if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (window.getSelection?.()?.toString()) return;   // let real text copy work
+      const key = (e.key || '').toLowerCase();
+      const { shift, cell: at } = hoverRef.current;
+      if (key === 'c' && shift && !shift.pendingDelete) { e.preventDefault(); k.copyShift(shift); }
+      else if (key === 'v' && at && k.copied) { e.preventDefault(); k.pasteInto(at.email, at.date); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const hoverCell = (email, date) => ({
+    onMouseEnter: () => { hoverRef.current.cell = { email, date }; },
+    onMouseLeave: () => { hoverRef.current.cell = null; },
+  });
+  const hoverShift = (s) => ({
+    onMouseEnter: () => { hoverRef.current.shift = s; },
+    onMouseLeave: () => { hoverRef.current.shift = null; },
+  });
+  const conflictShifts = shown.filter(s => s.conflicts?.length);
   const unshared = (data?.scheduled || []).filter(s => s.hasChanges || s.pendingDelete).length;
   async function discardAll() {
     const ok = await dialog.confirm(
@@ -363,28 +444,48 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const chipTitle = (s, ps) => [ps.title,
     ...(s.activities || []).map(a => `${t12Full(a.start)} - ${t12Full(a.end)}: ${a.label}`),
     s.breakMin ? `${s.breakMin} min unpaid break` : ''].filter(Boolean).join('\n') || undefined;
-  const dragProps = (s) => (canManage && !s.pendingDelete ? {
-    draggable: true,
-    onDragStart: (e) => { if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'copyMove'; e.dataTransfer.setData('text/plain', s.id); } setDrag(s); },
-    onDragEnd: () => { setDrag(null); setDropKey(''); },
-  } : {});
-  // Open shifts only drop onto the open row; a person's shift onto a person.
-  const accepts = (email) => drag && !!drag.email === !!email;
-  const dropProps = (email, ds) => ({
-    onDragOver: (e) => {
-      if (!accepts(email)) return;
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = (e.ctrlKey || e.altKey) ? 'copy' : 'move';
-      if (dropKey !== `${email}|${ds}`) setDropKey(`${email}|${ds}`);
-    },
-    onDragLeave: () => setDropKey(''),
-    onDrop: (e) => {
-      if (!accepts(email)) return;
-      e.preventDefault();
-      const s = drag; setDrag(null); setDropKey('');
-      moveShift(s, email, ds, !!(e.ctrlKey || e.altKey));
-    },
-  });
+  // Drag and drop by mouse (Sep 29). The browser's own HTML5 drag turned into
+  // a text selection when the press landed on a chip's text, so the grid
+  // moves shifts itself: press a shift (or a shift type in the palette), move
+  // a few pixels, release over a day. Hold Ctrl or Alt on release to copy.
+  // A person's shift can go to anyone or to Open Shifts; an open shift stays
+  // in the Open row (Assign gives it to a person); a shift type goes anywhere.
+  const accepts = (payload, email) => !!payload && (!!payload.preset || !!payload.email || !email);
+  const dropAt = (x, y) => document.elementFromPoint?.(x, y)?.closest?.('[data-drop]')?.getAttribute('data-drop') ?? null;
+  const beginDrag = (e, payload) => {
+    if (!canManage || e.button !== 0 || e.target.closest?.('button')) return;
+    e.preventDefault();   // never start a text selection
+    const from = { x: e.clientX, y: e.clientY };
+    let moved = false;
+    const label = payload.preset ? (payload.preset.code || payload.preset.name) : (payload.code || 'Shift');
+    const move = (ev) => {
+      if (!moved && Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < 5) return;
+      if (!moved) { moved = true; setDrag(payload); document.body.classList.add('sched-dragging'); }
+      setGhost({ x: ev.clientX, y: ev.clientY, label, copy: !payload.preset && (ev.ctrlKey || ev.altKey) });
+      const key = dropAt(ev.clientX, ev.clientY);
+      setDropKey(key != null && accepts(payload, key.split('|')[0]) ? key : '');
+    };
+    const up = (ev) => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      document.body.classList.remove('sched-dragging');
+      setGhost(null); setDrag(null); setDropKey('');
+      if (!moved) return;
+      suppressClick.current = true;           // the release is not a click on what is underneath
+      setTimeout(() => { suppressClick.current = false; }, 0);
+      const key = dropAt(ev.clientX, ev.clientY);
+      if (key == null) return;
+      const [email, ds] = key.split('|');
+      if (!accepts(payload, email)) return;
+      if (payload.preset) placePreset(payload.preset, email, ds);
+      else moveShift(payload, email, ds, !!(ev.ctrlKey || ev.altKey));
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+  const dragProps = (s) => (canManage && !s.pendingDelete ? { onMouseDown: (e) => beginDrag(e, s) } : {});
+  const dropProps = (email, ds) => ({ 'data-drop': `${email}|${ds}` });
+  const clickable = (fn) => (e) => { if (suppressClick.current) { e.stopPropagation(); return; } fn(e); };
   const dropStyle = (email, ds) => (dropKey === `${email}|${ds}`
     ? { outline: '2px dashed hsl(var(--color-green))', outlineOffset: -3, background: 'hsla(var(--color-green),0.06)' } : {});
   async function copySchedule(payload) {
@@ -437,7 +538,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const rangeLabel = view === 'day'
     ? `${days[0].toLocaleDateString('en-US', { weekday: 'long' })}, ${formatDate(days[0])}`
     : view === 'month' ? days[0].toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-      : `${formatDate(days[0])} – ${formatDate(days[days.length - 1])}`;
+      : `${formatDate(days[0])} - ${formatDate(days[days.length - 1])}`;
   const viewLabel = VIEWS.find(([k]) => k === view)?.[1] || 'Week';
   const openDay = (ds) => { const [y, m, d] = ds.split('-').map(Number); setCursor(new Date(y, m - 1, d)); setView('day'); };
 
@@ -509,6 +610,12 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
           style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Printer size={14} /> Print
         </button>
+        {canManage && data && (
+          <span title={conflictShifts.map(s => `${names[s.email] || 'Open'} ${formatDate(s.date)}: ${s.conflicts.join(' ')}`).join('\n') || 'No conflicts'}
+            style={{ fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4, color: conflictShifts.length ? '#d97706' : 'var(--muted)' }}>
+            <AlertTriangle size={13} /> {conflictShifts.length} Conflict{conflictShifts.length === 1 ? '' : 's'}
+          </span>
+        )}
         <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{viewLabel}: {fmtHrs(weekMin)}</span>
       </div>
 
@@ -520,12 +627,17 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
             style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
         </label>
         <select className="form-input" value={groupFilter} onChange={e => setGroupFilter(e.target.value)} aria-label="Filter by group"
-          style={{ width: 'auto', fontSize: 12.5, padding: '5px 10px' }}>
+          style={{ width: 'auto', fontSize: 12.5, padding: '5px 30px 5px 10px' }}>
           <option value="">All groups</option>
           {(data?.groups || []).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
         </select>
+        <select className="form-input" value={groupBy} onChange={e => setGroupBy(e.target.value)} aria-label="Group people by"
+          style={{ width: 'auto', fontSize: 12.5, padding: '5px 30px 5px 10px' }}>
+          <option value="group">By group</option>
+          <option value="location">By location</option>
+        </select>
         <select className="form-input" value={presetFilter} onChange={e => setPresetFilter(e.target.value)} aria-label="Filter by shift type"
-          style={{ width: 'auto', fontSize: 12.5, padding: '5px 10px' }}>
+          style={{ width: 'auto', fontSize: 12.5, padding: '5px 30px 5px 10px' }}>
           <option value="">All shift types</option>
           {(data?.shifts || []).map(p => <option key={p.id} value={p.id}>{p.code ? `${p.code} · ` : ''}{p.name}</option>)}
         </select>
@@ -548,7 +660,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '8px 12px',
           background: 'hsla(var(--color-green),0.08)', border: '1px dashed hsl(var(--color-green))', borderRadius: 10, fontSize: 12.5 }}>
           <Copy size={14} style={{ color: 'hsl(var(--color-green))' }} />
-          <span style={{ fontWeight: 700 }}>Copied {copied.code || 'shift'} ({t12(copied.start)}–{t12(copied.end)})</span>
+          <span style={{ fontWeight: 700 }}>Copied {copied.code || 'shift'} ({t12(copied.start)}-{t12(copied.end)})</span>
           <span style={{ color: 'var(--muted)' }}>- click any empty cell to place it.</span>
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={() => setCopied(null)} style={{ fontSize: 12 }}>Cancel</button>
@@ -569,6 +681,10 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
         <ShiftTypeWeek days={days} shifts={shown} presets={data.shifts || []} names={names}
           onOpen={(s) => (s.email ? setCell({ email: s.email, date: s.date, existing: s }) : setOpenCell({ date: s.date, existing: s }))} />
       ) : (
+        <div>
+        {canManage && (
+          <ShiftPalette presets={data.shifts || []} onStart={(e, p) => beginDrag(e, { preset: p })} />
+        )}
         <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 12 }}>
           <div style={{ minWidth: 900 }}>
             {/* Day header */}
@@ -583,7 +699,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                   <div key={i} style={{ padding: '8px 10px', borderLeft: '1px solid var(--line)', background: today ? 'hsla(var(--color-green),0.06)' : isHolDay ? 'rgba(37,99,235,0.06)' : 'transparent' }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
                       <span style={{ fontSize: 16, fontWeight: 800, color: today ? 'hsl(var(--color-green))' : 'var(--ink)' }}>{d.getDate()}</span>
-                      <span style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>{d.toLocaleDateString([], { weekday: 'short' })}</span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
                     </div>
                     <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 1 }}>{st.people} · {fmtHrs(st.min)}</div>
                     {isHolDay && <div style={{ fontSize: 10, fontWeight: 700, color: '#2563eb', marginTop: 2 }}>Holiday</div>}
@@ -620,13 +736,14 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                 const ds = isoDate(d);
                 const items = openByDate[ds] || [];
                 return (
-                  <div key={di} onClick={() => !items.length && setOpenCell({ date: ds })} {...dropProps('', ds)}
+                  <div key={di} onClick={clickable(() => !items.length && (copied ? pasteInto('', ds) : setOpenCell({ date: ds })))} {...dropProps('', ds)}
+                    {...hoverCell('', ds)} onContextMenu={(e) => openMenu(e, '', ds, null)}
                     style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 48, cursor: items.length ? 'default' : 'pointer', position: 'relative', ...dropStyle('', ds) }}
                     className="sched-cell">
                     {items.map(s => { const ps = pendingState(s); return (
-                      <div key={s.id} onClick={(e) => { e.stopPropagation(); setOpenCell({ date: ds, existing: s }); }}
-                        title={chipTitle(s, ps)} {...dragProps(s)}
-                        style={{ background: (s.color || '#16a34a') + '18', border: `1px dashed ${s.color || '#16a34a'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer', ...ps.style }}>
+                      <div key={s.id} onClick={clickable((e) => { e.stopPropagation(); setOpenCell({ date: ds, existing: s }); })}
+                        title={chipTitle(s, ps)} {...dragProps(s)} {...hoverShift(s)} onContextMenu={(e) => openMenu(e, '', ds, s)}
+                        style={{ background: (s.color || '#16a34a') + '18', border: `1px dashed ${s.color || '#16a34a'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: canManage ? 'grab' : 'pointer', userSelect: 'none', ...ps.style, ...(drag?.id === s.id ? { opacity: 0.4 } : {}) }}>
                         <div style={{ fontSize: 11, fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                             {s.published === false && <Star size={10} fill="#f59e0b" color="#f59e0b" style={{ flexShrink: 0 }} />}
@@ -635,7 +752,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                           </span>
                           {(s.openSlots || 1) > 1 && <span style={{ fontSize: 10, background: '#16a34a', color: '#fff', borderRadius: 10, padding: '0 6px' }}>×{s.openSlots}</span>}
                         </div>
-                        <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={9} /> {t12(s.start)}–{t12(s.end)}</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={9} /> {t12(s.start)}-{t12(s.end)}</div>
                         {s.label && <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>}
                       </div>
                     ); })}
@@ -657,15 +774,13 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
               <div key={gi}>
                 <div style={{ ...GRID, background: 'var(--bg)', borderBottom: '1px solid var(--line)', borderTop: gi ? '1px solid var(--line)' : 'none' }}>
                   <div style={{ padding: '6px 12px', gridColumn: '1 / -1', fontSize: 12, fontWeight: 800 }}>
-                    {g.name} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>· {g.members.length}</span>
+                    {g.name} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>· {fmtHrs(g.members.reduce((a, m) => a + empWeekMin(m.email), 0))} · {g.members.length} {g.members.length === 1 ? 'person' : 'people'}</span>
                   </div>
                 </div>
                 {g.members.map(emp => (
                   <div key={emp.email} style={{ ...GRID, borderBottom: '1px solid var(--line)' }}>
                     <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                      <span style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--bg)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: 'var(--muted)', flexShrink: 0 }}>
-                        {(emp.name || emp.email).split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
-                      </span>
+                      <Avatar name={emp.name || emp.email} photoUrl={emp.photoUrl} size={30} />
                       <span style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.name || emp.email}</div>
                         <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{fmtHrs(empWeekMin(emp.email))}</div>
@@ -681,14 +796,19 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                       const off = offOn(emp.email, ds);
                       const hol = !off ? holOn(emp.email, ds) : null;
                       return (
-                        <div key={di} onClick={() => { if (!items.length) { copied ? pasteInto(emp.email, ds) : (!off && !hol && setCell({ email: emp.email, date: ds })); } }}
+                        <div key={di} onClick={clickable(() => { if (!items.length) { copied ? pasteInto(emp.email, ds) : (!off && !hol && setCell({ email: emp.email, date: ds })); } })}
                           {...dropProps(emp.email, ds)} data-cell={`${emp.email}|${ds}`}
+                          {...hoverCell(emp.email, ds)} onContextMenu={(e) => openMenu(e, emp.email, ds, null)}
                           style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 54, cursor: items.length ? 'default' : 'pointer', position: 'relative', ...dropStyle(emp.email, ds) }}
                           className="sched-cell">
                           {off && !items.length && (
                             <div style={{ background: TYPE_TINT[off.type] || TYPE_TINT.other, borderRadius: 6, padding: '6px 8px', height: '100%' }}>
                               <div style={{ fontSize: 11, fontWeight: 700, color: '#9f1239' }}>{off.status === 'approved' ? 'Off' : 'Requested off'}</div>
-                              <div style={{ fontSize: 10, color: '#9f1239' }}>All Day</div>
+                              <div style={{ fontSize: 10, color: '#9f1239' }}>
+                                {off.startDate !== off.endDate ? `${formatDate(off.startDate)} - ${formatDate(off.endDate)}`
+                                  : off.startTime ? `${t12Full(off.startTime)} - ${t12Full(off.endTime)}` : 'All Day'}
+                              </div>
+                              {off.note && <div title={off.note} style={{ fontSize: 10, color: '#9f1239', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{off.note}</div>}
                             </div>
                           )}
                           {hol && !items.length && (
@@ -700,10 +820,11 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                             </div>
                           )}
                           {items.map(s => { const ps = pendingState(s); return (
-                            <div key={s.id} onClick={(e) => { e.stopPropagation(); setCell({ email: emp.email, date: ds, existing: s }); }}
-                              title={chipTitle(s, ps)} {...dragProps(s)}
-                              style={{ background: (s.color || '#64748b') + '22', borderLeft: `3px solid ${s.color || '#64748b'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer',
-                                ...(s.published === false ? { outline: `1.5px dashed ${s.color || '#64748b'}`, outlineOffset: -2, opacity: 0.9 } : {}), ...ps.style }}>
+                            <div key={s.id} onClick={clickable((e) => { e.stopPropagation(); setCell({ email: emp.email, date: ds, existing: s }); })}
+                              title={chipTitle(s, ps)} {...dragProps(s)} {...hoverShift(s)} className="sched-chip"
+                              onContextMenu={(e) => openMenu(e, emp.email, ds, s)}
+                              style={{ background: (s.color || '#64748b') + '22', borderLeft: `3px solid ${s.color || '#64748b'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: canManage ? 'grab' : 'pointer', userSelect: 'none',
+                                ...(s.published === false ? { outline: `1.5px dashed ${s.color || '#64748b'}`, outlineOffset: -2, opacity: 0.9 } : {}), ...ps.style, ...(drag?.id === s.id ? { opacity: 0.4 } : {}) }}>
                               <div style={{ fontSize: 11, fontWeight: 800, color: '#334155', display: 'flex', alignItems: 'center', gap: 4 }}>
                                 {s.published === false && <Star size={10} fill="#f59e0b" color="#f59e0b" style={{ flexShrink: 0 }} />}
                                 <span>{s.code || 'Shift'}</span>
@@ -713,8 +834,12 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                                     <AlertTriangle size={11} color="#d97706" />
                                   </span>
                                 )}
+                                {canManage && !s.pendingDelete && (
+                                  <button type="button" className="chip-more" aria-label="Shift options" onClick={(e) => openMenu(e, emp.email, ds, s)}
+                                    style={{ marginLeft: s.conflicts?.length ? 0 : 'auto', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '0 2px', fontSize: 13, lineHeight: 1, opacity: 0 }}>⋯</button>
+                                )}
                               </div>
-                              <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={9} /> {t12(s.start)}–{t12(s.end)}</div>
+                              <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={9} /> {t12(s.start)}-{t12(s.end)}</div>
                               {s.label && <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>}
                               {s.activities?.length > 0 && (
                                 <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -737,6 +862,19 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
             ))}
           </div>
         </div>
+        </div>
+      )}
+
+      {ghost && (
+        <div style={{ position: 'fixed', left: ghost.x + 12, top: ghost.y + 10, zIndex: 1600, pointerEvents: 'none', fontSize: 11.5, fontWeight: 800,
+          background: 'var(--card)', border: '1px solid hsl(var(--color-green))', borderRadius: 6, padding: '4px 9px', boxShadow: '0 6px 18px rgba(0,0,0,0.18)' }}>
+          {ghost.copy ? `Copy ${ghost.label}` : ghost.label}
+        </div>
+      )}
+
+      {menu && (
+        <ShiftMenu menu={menu} colors={SHIFT_COLORS} canTimeOff={!data?.groupScheduler} hasCopied={!!copied}
+          onAction={menuAction} onClose={() => setMenu(null)} />
       )}
 
       {cell && (
@@ -791,7 +929,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
           onSave={saveOpen} onAssign={assignOpen} onDelete={delCell} onDiscard={discardCell} onClose={() => setOpenCell(null)} />
       )}
 
-      <style>{`.sched-cell:hover .sched-add { opacity: 1 !important; }`}</style>
+      <style>{`.sched-cell:hover .sched-add { opacity: 1 !important; } .sched-chip:hover .chip-more, .chip-more:focus-visible { opacity: 1 !important; } .shift-menu-item:hover:not(:disabled) { background: var(--bg) !important; } body.sched-dragging, body.sched-dragging * { cursor: grabbing !important; user-select: none !important; }`}</style>
     </div>
   );
 }
@@ -889,7 +1027,7 @@ function MonthView({ days, shifts, names, notes, onPickDay }) {
               {notes[ds] && <div title={notes[ds]} style={{ fontSize: 10.5, fontWeight: 600, color: '#b45309', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{notes[ds]}</div>}
               {people.slice(0, 3).map(s => (
                 <div key={s.id} style={{ fontSize: 10.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderLeft: `2px solid ${s.color || '#64748b'}`, paddingLeft: 4, marginTop: 2 }}>
-                  {(names[s.email] || s.email).split(' ')[0]} {t12(s.start)}–{t12(s.end)}
+                  {(names[s.email] || s.email).split(' ')[0]} {t12(s.start)}-{t12(s.end)}
                 </div>
               ))}
               {people.length > 3 && <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>+{people.length - 3} more</div>}
@@ -920,7 +1058,7 @@ function DayView({ date, groups, shifts, notes, canManage, offOn, holOn, chipTit
           background: (s.color || '#64748b') + '33', border: `1px ${s.email ? 'solid' : 'dashed'} ${s.color || '#64748b'}`, borderRadius: 6,
           fontSize: 10.5, fontWeight: 700, color: '#334155', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', cursor: 'pointer',
           padding: '0 6px', textAlign: 'left', fontFamily: 'inherit', ...ps.style }}>
-        {s.published === false && '★ '}{t12(s.start)}–{t12(s.end)}{s.label ? ` · ${s.label}` : ''}{s.email ? '' : ` · ${s.openSlots || 1} open`}
+        {s.published === false && '★ '}{t12(s.start)}-{t12(s.end)}{s.label ? ` · ${s.label}` : ''}{s.email ? '' : ` · ${s.openSlots || 1} open`}
       </button>
     );
   };
@@ -1167,7 +1305,7 @@ function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd, busy, 
             <div>
               <div style={lbl}>Shift preset</div>
               <select className="form-input" value={shiftId} onChange={e => setShiftId(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
-                {shifts.map(s => <option key={s.id} value={s.id}>{s.code ? `${s.code} · ` : ''}{s.name} ({s.start}–{s.end})</option>)}
+                {shifts.map(s => <option key={s.id} value={s.id}>{s.code ? `${s.code} · ` : ''}{s.name} ({t12Full(s.start)} - {t12Full(s.end)})</option>)}
               </select>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -1196,7 +1334,7 @@ function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd, busy, 
               <input type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)
             </label>
             <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-              {targetCount} {targetCount === 1 ? 'person' : 'people'} · {preset ? `${preset.start}–${preset.end}` : 'preset'} · {dows.length} day{dows.length !== 1 ? 's' : ''}/week
+              {targetCount} {targetCount === 1 ? 'person' : 'people'} · {preset ? `${t12Full(preset.start)} - ${t12Full(preset.end)}` : 'preset'} · {dows.length} day{dows.length !== 1 ? 's' : ''}/week
             </div>
           </div>
         )}
@@ -1255,7 +1393,7 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-          {new Date(cell.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })} · an unassigned slot anyone on the team can be given
+          {new Date(cell.date + 'T00:00').toLocaleDateString('en-US', { weekday: 'long' })}, {formatDate(cell.date)} · an unassigned slot anyone on the team can be given
         </div>
         {shifts.length === 0 ? (
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift presets yet - create one under “Presets & groups” first.</div>
@@ -1264,7 +1402,7 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
             <div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Shift preset</div>
               <select className="form-input" value={shiftId} onChange={e => { setShiftId(e.target.value); setStart(''); setEnd(''); setBrk(''); }} style={{ width: '100%', fontSize: 13 }}>
-                {shifts.map(s => <option key={s.id} value={s.id}>{s.code ? `${s.code} · ` : ''}{s.name} ({s.start}–{s.end})</option>)}
+                {shifts.map(s => <option key={s.id} value={s.id}>{s.code ? `${s.code} · ` : ''}{s.name} ({t12Full(s.start)} - {t12Full(s.end)})</option>)}
               </select>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -1426,7 +1564,7 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-          {new Date(cell.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}
+          {new Date(cell.date + 'T00:00').toLocaleDateString('en-US', { weekday: 'long' })}, {formatDate(cell.date)}
         </div>
         {shifts.length === 0 ? (
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift presets yet - create one under “Presets & groups” first.</div>
@@ -1435,7 +1573,7 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
             <div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Shift preset</div>
               <select className="form-input" value={shiftId} onChange={e => { setShiftId(e.target.value); setStart(''); setEnd(''); setBrk(''); }} style={{ width: '100%', fontSize: 13 }}>
-                {shifts.map(s => <option key={s.id} value={s.id}>{s.code ? `${s.code} · ` : ''}{s.name} ({s.start}–{s.end})</option>)}
+                {shifts.map(s => <option key={s.id} value={s.id}>{s.code ? `${s.code} · ` : ''}{s.name} ({t12Full(s.start)} - {t12Full(s.end)})</option>)}
               </select>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>

@@ -68,7 +68,7 @@ export default function MyAvailability() {
             <div key={d.weekday} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
               <span style={{ width: 90, fontWeight: 700 }}>{DAYS[d.weekday]}</span>
               <select className="form-input" aria-label={`${DAYS[d.weekday]} availability`} value={d.kind} onChange={e => set(i, { kind: e.target.value })}
-                style={{ width: 'auto', fontSize: 12.5, padding: '4px 8px' }}>
+                style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px' }}>
                 <option value="any">Any time</option>
                 <option value="available">Available between</option>
                 <option value="unavailable">Unavailable</option>

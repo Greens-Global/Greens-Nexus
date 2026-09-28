@@ -156,7 +156,7 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
               </label>
               <select className="form-input" aria-label="Reminder lead time" disabled={cfg.reminders === false}
                 value={cfg.reminderLeadMinutes || 60} onChange={(e) => saveCfg({ ...cfg, reminderLeadMinutes: Number(e.target.value) })}
-                style={{ width: 'auto', fontSize: 12.5, padding: '3px 8px' }}>
+                style={{ width: 'auto', fontSize: 12.5, padding: '3px 30px 3px 8px' }}>
                 {[15, 30, 45, 60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} ${m === 60 ? 'hour' : 'hours'}`} before</option>)}
               </select>
             </div>

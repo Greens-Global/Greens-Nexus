@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, createEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, createEvent, within } from '@testing-library/react';
 
 // Shift schedule grid - unshared changes to PUBLISHED shifts (Sep 28, QA
 // D1/D2). An edit or removal waits for Publish while the team keeps the
@@ -25,6 +25,7 @@ const timeSchedDiscardAll = vi.fn();
 const shiftRequestSettingsSave = vi.fn();
 const confirmAsk = vi.fn();
 const timeSchedImport = vi.fn();
+const timeSchedCreate = vi.fn();
 const timeOffTypes = vi.fn();
 const timeOffTypesSave = vi.fn();
 const timeOffOnBehalf = vi.fn();
@@ -37,7 +38,7 @@ vi.mock('../api', () => ({
     timeSchedule: (...a) => timeSchedule(...a),
     timeSchedDelete: (...a) => timeSchedDelete(...a),
     timeSchedDiscard: (...a) => timeSchedDiscard(...a),
-    timeSchedPublish: (...a) => timeSchedPublish(...a), timeSchedCreate: vi.fn(), timeSchedUpdate: (...a) => timeSchedUpdate(...a),
+    timeSchedPublish: (...a) => timeSchedPublish(...a), timeSchedCreate: (...a) => timeSchedCreate(...a), timeSchedUpdate: (...a) => timeSchedUpdate(...a),
     timeSchedMove: (...a) => timeSchedMove(...a),
     timeOffList: (...a) => timeOffList(...a),
     timeOffDecide: (...a) => timeOffDecide(...a),
@@ -92,6 +93,16 @@ function data(scheduled) {
   };
 }
 
+// Drag by mouse (the grid's own drag, Sep 29): press, move, release over a
+// day. jsdom has no layout, so the day under the pointer is stubbed.
+function mouseDrag(from, to, keys = {}) {
+  document.elementFromPoint = () => to;
+  fireEvent.mouseDown(from, { button: 0, clientX: 10, clientY: 10 });
+  fireEvent.mouseMove(window, { clientX: 80, clientY: 40, ...keys });
+  fireEvent.mouseUp(window, { clientX: 80, clientY: 40, ...keys });
+  fireEvent.click(to);   // what the browser fires on release - must not open the day
+}
+
 const toastOk = vi.fn();
 beforeEach(() => {
   timeSchedule.mockReset();
@@ -114,9 +125,89 @@ beforeEach(() => {
   shiftRequestSettingsSave.mockReset().mockImplementation(async (c) => c);
   confirmAsk.mockReset().mockResolvedValue(true);
   timeSchedImport.mockReset().mockResolvedValue({ created: 2, errorCount: 0, errors: [] });
+  timeSchedCreate.mockReset().mockResolvedValue({});
   timeOffTypes.mockReset().mockResolvedValue({ builtIn: ['vacation', 'sick', 'personal', 'unpaid', 'other'], custom: ['Jury Duty'], requestsOn: true });
   timeOffTypesSave.mockReset().mockImplementation(async (b) => ({ builtIn: [], custom: b.custom, requestsOn: true }));
   timeOffOnBehalf.mockReset().mockResolvedValue({ id: 't9' });
+});
+
+describe('Teams-style grid (Neil, Sep 29): photos, locations, shift menu, palette, keyboard', () => {
+  const people = [{ email: 'amy@greensglobal.com', name: 'Amy Adams', photoUrl: 'https://x.supabase.co/amy.png', location: 'Escondido' },
+    { email: 'bob@greensglobal.com', name: 'Bob Brown', photoUrl: '', location: '' }];
+  const grid = (scheduled, over = {}) => ({ ...data(scheduled), employees: people, ...over });
+  const cellOf = (email, day = monday) => document.querySelector(`[data-cell="${email}|${day}"]`);
+
+  it('shows profile photos, with initials when there is none', async () => {
+    timeSchedule.mockResolvedValue(grid([]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    expect(document.querySelector('img[src="https://x.supabase.co/amy.png"]')).toBeTruthy();
+    expect(screen.getByText('BB')).toBeTruthy();
+  });
+
+  it('groups people by location', async () => {
+    timeSchedule.mockResolvedValue(grid([]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.change(screen.getByLabelText('Group people by'), { target: { value: 'location' } });
+    expect(screen.getByText('Escondido')).toBeTruthy();
+    expect(screen.getByText('No location set')).toBeTruthy();
+  });
+
+  it('right-click menu: color, move to open shifts, delete', async () => {
+    timeSchedule.mockResolvedValue(grid([shift()]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.contextMenu(await screen.findByText('GST'));
+    const menu = screen.getByRole('menu', { name: 'Shift options' });
+    expect([...menu.querySelectorAll('[role="menuitem"]')].map(b => b.textContent.replace(/Ctrl\+.|▸/g, '').trim()))
+      .toEqual(['Edit Shift', 'Add Shift', 'Add Time Off', 'Color', 'Move to Open Shifts', 'Copy', 'Paste', 'Delete']);
+    fireEvent.click(screen.getByText('Color'));
+    fireEvent.click(screen.getByLabelText('Color #16a34a'));
+    await waitFor(() => expect(timeSchedUpdate).toHaveBeenCalledWith('s1', expect.objectContaining({ color: '#16a34a', start_hhmm: '09:00' })));
+    fireEvent.contextMenu(screen.getByText('GST'));
+    fireEvent.click(screen.getByText('Move to Open Shifts'));
+    await waitFor(() => expect(timeSchedMove).toHaveBeenCalledWith('s1', { employee_email: '', work_date: monday, duplicate: false }));
+    fireEvent.contextMenu(screen.getByText('GST'));
+    fireEvent.click(screen.getByText('Delete'));
+    await waitFor(() => expect(timeSchedDelete).toHaveBeenCalledWith('s1'));
+  });
+
+  it('copies and pastes from the menu and with Ctrl+C / Ctrl+V', async () => {
+    timeSchedule.mockResolvedValue(grid([shift({ breakMin: 30 })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    const chip = await screen.findByText('GST');
+    fireEvent.mouseEnter(chip.closest('.sched-chip'));
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    expect(toastOk).toHaveBeenCalledWith(expect.stringMatching(/^Shift copied/));
+    fireEvent.mouseLeave(chip.closest('.sched-chip'));
+    fireEvent.mouseEnter(cellOf('bob@greensglobal.com'));
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    await waitFor(() => expect(timeSchedCreate).toHaveBeenCalledWith(expect.objectContaining({
+      employee_email: 'bob@greensglobal.com', work_date: monday, shift_id: 'p1', start_hhmm: '09:00', break_min: 30 })));
+    fireEvent.contextMenu(cellOf('bob@greensglobal.com', plusDays(monday, 1)));
+    const menu = screen.getByRole('menu', { name: 'Day options' });
+    fireEvent.click(within(menu).getByText('Paste'));
+    await waitFor(() => expect(timeSchedCreate).toHaveBeenLastCalledWith(expect.objectContaining({ work_date: plusDays(monday, 1) })));
+  });
+
+  it('places a shift type dragged from the palette', async () => {
+    timeSchedule.mockResolvedValue(grid([]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    mouseDrag(document.querySelector('[data-preset="NGT"]'), cellOf('bob@greensglobal.com'));
+    await waitFor(() => expect(timeSchedCreate).toHaveBeenCalledWith({ employee_email: 'bob@greensglobal.com', work_date: monday, shift_id: 'p2' }));
+    expect(toastOk).toHaveBeenCalledWith('NGT placed as a draft.');
+  });
+
+  it('counts conflicts, shows group hours and the time-off range and note', async () => {
+    timeSchedule.mockResolvedValue(grid([shift({ conflicts: ['Overlaps another shift.'] })], {
+      timeoff: [{ email: 'bob@greensglobal.com', startDate: monday, endDate: plusDays(monday, 1), type: 'vacation', status: 'pending', note: 'Yard sale' }] }));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    expect(await screen.findByText(/1 Conflict$/)).toBeTruthy();
+    expect(screen.getByText('· 8 Hrs · 2 people')).toBeTruthy();
+    expect(screen.getAllByText(`${formatUs(monday)} - ${formatUs(plusDays(monday, 1))}`).length).toBe(2);
+    expect(screen.getAllByText('Yard sale').length).toBe(2);
+  });
 });
 
 describe('Shift Types rows, print, import, time off from the grid, availability', () => {
@@ -343,19 +434,25 @@ describe('Views, filter, export, drag and drop, day notes, activities', () => {
     const { container } = render(<ShiftSchedule toastOk={toastOk} />);
     const chip = await screen.findByText('GST');
     const target = container.querySelector(`[data-cell="bob@greensglobal.com|${monday}"]`);
-    const dt = { setData() {}, effectAllowed: '', dropEffect: '' };
-    fireEvent.dragStart(chip, { dataTransfer: dt });
-    fireEvent.dragOver(target, { dataTransfer: dt });
-    fireEvent.drop(target, { dataTransfer: dt });
+    mouseDrag(chip, target);
     await waitFor(() => expect(timeSchedMove).toHaveBeenCalledWith('s1', { employee_email: 'bob@greensglobal.com', work_date: monday, duplicate: false }));
-    fireEvent.dragStart(await screen.findByText('GST'), { dataTransfer: dt });
-    // jsdom has no DragEvent, so the drop event cannot carry ctrlKey on its own.
-    const cell = container.querySelector(`[data-cell="bob@greensglobal.com|${monday}"]`);
-    const ctrlDrop = createEvent.drop(cell, { dataTransfer: dt });
-    Object.defineProperty(ctrlDrop, 'ctrlKey', { value: true });
-    fireEvent(cell, ctrlDrop);
+    expect(screen.queryByRole('dialog')).toBeNull();   // the release did not open the day under it
+    mouseDrag(await screen.findByText('GST'), target, { ctrlKey: true });
     await waitFor(() => expect(timeSchedMove).toHaveBeenLastCalledWith('s1', expect.objectContaining({ duplicate: true })));
     expect(toastOk).toHaveBeenCalledWith('Shift copied here as a draft.');
+  });
+
+  it('a press without moving is a click, and never starts a drag', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    const chip = await screen.findByText('GST');
+    const down = createEvent.mouseDown(chip, { button: 0, clientX: 10, clientY: 10 });
+    fireEvent(chip, down);
+    expect(down.defaultPrevented).toBe(true);           // no text selection starts
+    fireEvent.mouseUp(window, { clientX: 11, clientY: 10 });
+    fireEvent.click(chip);
+    expect(await screen.findByText('Edit Shift')).toBeTruthy();
+    expect(timeSchedMove).not.toHaveBeenCalled();
   });
 
   it('adds a day note', async () => {
