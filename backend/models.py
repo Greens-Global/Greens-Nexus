@@ -2277,6 +2277,10 @@ class Shift(Base):
     timezone   = Column(String, default="America/Los_Angeles")
     created_by = Column(String, default="")
     created_at = Column(String, default="")
+    # Unpaid break inside the shift, in minutes (Sep 28, Teams parity). Copied
+    # onto each placement (ScheduledShift.break_min), so scheduled hours on the
+    # grid are PAID hours. Pay itself still comes from real punches.
+    break_min  = Column(Integer, default=0)
 
 
 class ScheduledShift(Base):
@@ -2302,6 +2306,18 @@ class ScheduledShift(Base):
     open_slots     = Column(Integer, default=0)
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+    # UNSHARED CHANGES to a PUBLISHED shift (Sep 28, Teams parity). Editing or
+    # deleting a shift staff can already see used to flip it back to a draft,
+    # which hid it from them until the next publish. Now the published values
+    # above stay live and the change waits here until Publish applies it:
+    # pending_json = the edited fields (JSON: shiftId/start/end/label/note/
+    # openSlots), pending_delete = 1 for a removal. Both are '' / 0 on drafts,
+    # which are edited and deleted in place since nobody has seen them.
+    pending_json   = Column(String, default="")
+    pending_delete = Column(Integer, default=0)
+    # Unpaid break minutes for THIS placement - defaults to its preset's
+    # break_min when placed, editable per shift (Sep 28).
+    break_min      = Column(Integer, default=0)
 
 
 class ShiftGroup(Base):
@@ -4451,3 +4467,37 @@ class NexusWeeklyDigestLog(Base):
     overdue_count  = Column(Integer, default=0)          # their own overdue tasks
     team_count     = Column(Integer, default=0)          # manager: direct reports with overdue work
     created_at     = Column(String, default="")
+
+
+class ShiftRequest(Base):
+    """A self-service shift request (Sep 29 2026, Teams Shifts parity):
+      open  - an employee asks for a published OPEN shift
+      swap  - trade one of their shifts for a teammate's (target_shift_id)
+      offer - give one of their shifts to a teammate (target_email)
+    Status: pending_peer (swap/offer: waiting on the teammate) ->
+    pending_manager -> approved | declined, or cancelled by the requester or
+    because the shift changed underneath it. Nothing on the schedule moves
+    until a manager approves (routers/shift_requests.py). The shift's day and
+    times are copied on so the request still reads right after the shift
+    changes. New table - create_all builds it; RLS is enabled in main.py."""
+    __tablename__ = "shift_requests"
+    id              = Column(String, primary_key=True)   # uuid
+    kind            = Column(String, nullable=False)     # open | swap | offer
+    status          = Column(String, default="pending_manager", index=True)
+    requester_email = Column(String, index=True, nullable=False)
+    shift_id        = Column(String, index=True, default="")   # requester's shift, or the open shift
+    target_email    = Column(String, index=True, default="")   # swap/offer: the teammate
+    target_shift_id = Column(String, default="")               # swap: the teammate's shift
+    shift_date      = Column(String, default="")
+    shift_start     = Column(String, default="")
+    shift_end       = Column(String, default="")
+    target_date     = Column(String, default="")
+    target_start    = Column(String, default="")
+    target_end      = Column(String, default="")
+    note            = Column(String, default="")
+    peer_note       = Column(String, default="")
+    decision_note   = Column(String, default="")
+    decided_by      = Column(String, default="")
+    peer_decided_at = Column(String, default="")
+    decided_at      = Column(String, default="")
+    created_at      = Column(String, default="")

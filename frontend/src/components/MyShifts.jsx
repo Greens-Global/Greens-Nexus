@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, Users } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from './AsyncState';
+import { ShiftActions, RequestDialog, OpenShifts, ShiftRequestsList } from './ShiftSelfService';
+import { useShiftRequests } from './useShiftRequests';
 
 // My Workday > Shifts (Neil, Sep 23): a read-only week of the signed-in
 // person's own shifts. Scheduling stays in People > Shifts; this only shows
@@ -74,12 +76,18 @@ export default function MyShifts() {
   const [teamId, setTeamId] = useState(''); // which group's grid shows, when in more than one
 
   const start = dateKey(weekStart), end = dateKey(addDays(weekStart, 6));
+  const [reload, setReload] = useState(0);
   useEffect(() => {
     let live = true;
     setData(null); setError(false);
     api.timeMySchedule(start, end).then(r => { if (live) setData(r); }).catch(() => { if (live) setError(true); });
     return () => { live = false; };
-  }, [start, end]);
+  }, [start, end, reload]);
+  // Self-service (Sep 29): my requests, what waits on me, open shifts I could take.
+  const [reqs, reloadReqs] = useShiftRequests(start, end);
+  const [ask, setAsk] = useState(null);          // { kind, shift } while the swap/offer form is open
+  const [flash, setFlash] = useState('');
+  const done = (msg) => { setAsk(null); setFlash(msg); reloadReqs(); setReload(n => n + 1); };
 
   const todayKey = dateKey(now);
   // One entry per day: placed shifts win; otherwise the default preset on
@@ -211,11 +219,23 @@ export default function MyShifts() {
                   </div>
                   {(s.code || s.label) && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{s.label || s.code}</div>}
                   {s.note && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{s.note}</div>}
+                  <ShiftActions shift={{ ...s, date: s.date || d.key }} todayKey={todayKey} reqs={reqs} onAsk={setAsk} />
                 </div>
               ))}
             </div>
           ))}
         </div>
+      )}
+
+      {flash && (
+        <div role="status" style={{ marginTop: 12, fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>{flash}</div>
+      )}
+      <ShiftRequestsList reqs={reqs} onDone={done} />
+      <OpenShifts reqs={reqs} onDone={done} />
+      {ask && (
+        <RequestDialog ask={ask} teammates={reqs?.teammates || []} todayKey={todayKey} onClose={() => setAsk(null)} onDone={done}
+          teamShifts={Object.fromEntries((data?.teams || []).flatMap(t => t.members).filter(m => !m.isMe)
+            .map(m => [m.email, (m.scheduled || []).map(s => ({ ...s, date: s.date }))]))} />
       )}
 
       {data && team && (

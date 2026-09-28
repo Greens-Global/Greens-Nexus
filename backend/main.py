@@ -36,6 +36,7 @@ import act_as  # Act As: Manager/IT Admin/Global Admin can impersonate a lower-r
 from routers import branding  # Branding settings: login-screen accent color (Jul 2026)
 from routers import daily_briefing as daily_briefing_router  # Daily Briefing admin config (Aug 2026) - see daily_briefing.py
 from routers import weekly_digest as weekly_digest_router  # Weekly Digest admin config (Sep 2026) - see weekly_digest.py
+from routers import shift_requests as shift_requests_router  # Shift swap/offer/open-shift requests (Sep 2026)
 from routers import egnyte  # Egnyte module: browse/upload at the right folder level (Jul 2026)
 from routers import external_links  # External Links directory rebuild (Aug 2026) - own file, see its docstring
 from routers import link_layouts  # Per-user Links Module personalization overlay (Aug 13) - own file, see its docstring
@@ -794,6 +795,12 @@ def _run_migrations():
             "INSERT OR IGNORE INTO hr_company_work_sites (id, company_id, site_id, created_by, created_at) "
             "SELECT company || ':' || id, company, id, created_by, created_at "
             "FROM hr_work_sites WHERE company IS NOT NULL AND company != ''",
+            # Unshared changes to published shifts (Sep 28) - see the Postgres list.
+            "ALTER TABLE scheduled_shifts ADD COLUMN pending_json TEXT DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
+            # Unpaid breaks in shifts (Sep 28) - see the Postgres list.
+            "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
+            "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1690,6 +1697,17 @@ def _run_migrations():
         "SELECT company || ':' || id, company, id, created_by, created_at "
         "FROM hr_work_sites WHERE company IS NOT NULL AND company <> '' "
         "ON CONFLICT (id) DO NOTHING",
+        # Unshared changes to a PUBLISHED shift (Sep 28): an edit or removal
+        # waits here until Publish, so staff keep seeing the shift meanwhile
+        # instead of it vanishing (models.ScheduledShift).
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS pending_json TEXT DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS pending_delete INTEGER DEFAULT 0",
+        # Unpaid break minutes on shift presets and placed shifts (Sep 28), so
+        # the schedule's hour totals are paid hours (models.Shift.break_min).
+        "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS break_min INTEGER DEFAULT 0",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS break_min INTEGER DEFAULT 0",
+        # Shift self-service requests (Sep 29): new table, RLS per CLAUDE.md.
+        "ALTER TABLE shift_requests ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2239,6 +2257,11 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] weekly digest loop skipped: {e}")
         try:
+            from shift_notify import shift_reminder_loop
+            _tasks.append(_a.create_task(shift_reminder_loop()))
+        except Exception as e:
+            print(f"[startup] shift reminder loop skipped: {e}")
+        try:
             from accounting_sso import accounting_sso_sync_loop
             _tasks.append(_a.create_task(accounting_sso_sync_loop()))
         except Exception as e:
@@ -2668,6 +2691,7 @@ app.include_router(act_as.router)         # Act As: impersonate a lower-role emp
 app.include_router(branding.router)       # Branding settings: login-screen accent color
 app.include_router(daily_briefing_router.router)  # Daily Briefing admin config (mode/test recipients)
 app.include_router(weekly_digest_router.router)  # Weekly Digest admin config (mode/schedule/log)
+app.include_router(shift_requests_router.router)  # Shift swap/offer/open-shift requests + manager inbox
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
 from routers import client_errors          # noqa: E402
 app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs

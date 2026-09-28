@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import ShiftRequestsInbox from './ShiftRequestsInbox';
 
 // ── Weekly schedule grid (Microsoft Teams "Shifts" style) ─────────────────────
 // Rows = employees (grouped by shift group), columns = the 7 days of the week.
@@ -12,15 +13,39 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 // live off the placed shift durations.
 
 const TYPE_TINT = { vacation: '#dbeafe', sick: '#dcfce7', personal: '#ede9fe', unpaid: '#f3f4f6', other: '#fef3c7' };
-const isoDate = (d) => d.toISOString().slice(0, 10);
+// The LOCAL calendar date. toISOString() is UTC, so east of UTC (India,
+// +5:30) a local-midnight Monday came out as Sunday and every column of the
+// grid was keyed a day early - a shift placed under "Tue 29" was saved on the
+// 28th (found Sep 29 while adding Copy schedule). Same fix as MyShifts' dateKey.
+const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const toMin = (hhmm) => { const [h, m] = (hhmm || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
 const durMin = (s, e) => { let d = toMin(e) - toMin(s); if (d <= 0) d += 1440; return d; };
 const fmtHrs = (min) => `${(min / 60).toFixed(min % 60 ? 1 : 0)} Hrs`;
+// Scheduled hours are PAID hours: the shift's span minus its unpaid break.
+const paidMin = (s) => Math.max(0, durMin(s.start, s.end) - (Number(s.breakMin) || 0));
+// A PUBLISHED shift's unshared changes (Sep 28, QA D1/D2): an edit or a
+// removal waits for Publish while the team keeps seeing the published version,
+// so the scheduler's grid marks both - and a pending removal no longer counts
+// toward the hour totals.
+const counts = (s) => !s.pendingDelete;
+function pendingState(s) {
+  if (s.pendingDelete) return { tag: 'Removing', title: 'Removal not published yet - the team still sees this shift until you publish.',
+    style: { opacity: 0.55, textDecoration: 'line-through' } };
+  if (s.hasChanges) return { tag: 'Edited', title: 'Edited - the team sees the previous version until you publish.', style: {} };
+  if (s.published === false) return { tag: '', title: 'Draft - not shared with the team yet', style: {} };
+  return { tag: '', title: undefined, style: {} };
+}
 const t12 = (hhmm) => {
   const [h, m] = (hhmm || '0:0').split(':').map(Number);
   const ap = h >= 12 ? 'p' : 'a'; const hh = h % 12 || 12;
   return m ? `${hh}:${String(m).padStart(2, '0')}${ap}` : `${hh}${ap}`;
 };
+
+// YYYY-MM-DD plus n days, on the local calendar.
+function addDaysIso(iso, n) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return isoDate(new Date(y, m - 1, d + n));
+}
 
 function mondayOf(d) {
   const x = new Date(d);
@@ -35,6 +60,11 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const [cell, setCell] = useState(null);   // { email, date, existing? }
   const [openCell, setOpenCell] = useState(null);   // { date, existing? } - open-shift editor
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const [requestCount, setRequestCount] = useState(0);   // waiting on a manager
+  const [inboxTick, setInboxTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(null);   // a shift on the "clipboard" to paste into a cell
 
@@ -94,22 +124,34 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     return out;
   }, [data]);
 
-  const empWeekMin = (email) => days.reduce((sum, d) => sum + (byCell[`${email}|${isoDate(d)}`] || []).reduce((a, s) => a + durMin(s.start, s.end), 0), 0);
+  const empWeekMin = (email) => days.reduce((sum, d) => sum + (byCell[`${email}|${isoDate(d)}`] || []).filter(counts).reduce((a, s) => a + paidMin(s), 0), 0);
   const dayStats = (d) => {
     const ds = isoDate(d);
     let min = 0; const people = new Set();
-    (data?.scheduled || []).forEach(s => { if (s.date === ds) { min += durMin(s.start, s.end); people.add(s.email); } });
+    (data?.scheduled || []).forEach(s => { if (s.date === ds && counts(s)) { min += paidMin(s); people.add(s.email); } });
     return { min, people: people.size };
   };
-  const weekMin = (data?.scheduled || []).reduce((a, s) => a + durMin(s.start, s.end), 0);
+  const weekMin = (data?.scheduled || []).filter(counts).reduce((a, s) => a + paidMin(s), 0);
   const canManage = data?.canManage !== false;   // schedulers see/manage drafts
+  const managing = !!data && canManage;
+  useEffect(() => {
+    if (!managing) return undefined;
+    let live = true;
+    api.shiftRequestsInbox().then((r) => { if (live) setRequestCount((r?.pending || []).length); }).catch(() => {});
+    return () => { live = false; };
+  }, [managing, inboxTick]);
   const unpublished = (data?.scheduled || []).filter(s => s.published === false).length;
 
   async function publishWeek() {
     setBusy(true);
     try {
       const r = await api.timeSchedPublish({ start_date: start, end_date: end });
-      toastOk?.(r.published ? `Shared ${r.published} shift${r.published !== 1 ? 's' : ''} with the team.` : 'Nothing new to share.');
+      const bits = [];
+      if (r.added) bits.push(`${r.added} new`);
+      if (r.updated) bits.push(`${r.updated} changed`);
+      if (r.removed) bits.push(`${r.removed} removed`);
+      const told = r.notified ? ` ${r.notified} ${r.notified === 1 ? 'person' : 'people'} notified.` : '';
+      toastOk?.(r.published ? `Shared with the team: ${bits.length ? bits.join(', ') : `${r.published} shift${r.published !== 1 ? 's' : ''}`}.${told}` : 'Nothing new to share.');
       load();
     } catch (e) { toastErr?.(e?.message || 'Could not publish.'); }
     setBusy(false);
@@ -129,16 +171,25 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   async function saveCell(payload) {
     setBusy(true);
     try {
-      if (payload.id) await api.timeSchedUpdate(payload.id, payload);
-      else await api.timeSchedCreate(payload);
-      toastOk?.('Shift saved.'); setCell(null); load();
+      const r = payload.id ? await api.timeSchedUpdate(payload.id, payload) : await api.timeSchedCreate(payload);
+      toastOk?.(r?.hasChanges ? 'Change saved. The team sees it once you publish.' : 'Shift saved.'); setCell(null); load();
     } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
     setBusy(false);
   }
   async function delCell(id) {
     setBusy(true);
-    try { await api.timeSchedDelete(id); toastOk?.('Shift removed.'); setCell(null); load(); }
+    try {
+      const r = await api.timeSchedDelete(id);
+      toastOk?.(r?.pending ? 'Marked for removal. It stays on the team\'s schedule until you publish.' : 'Shift removed.');
+      setCell(null); setOpenCell(null); load();
+    }
     catch (e) { toastErr?.(e?.message || 'Could not remove.'); }
+    setBusy(false);
+  }
+  async function discardCell(id) {
+    setBusy(true);
+    try { await api.timeSchedDiscard(id); toastOk?.('Changes discarded.'); setCell(null); setOpenCell(null); load(); }
+    catch (e) { toastErr?.(e?.message || 'Could not discard the changes.'); }
     setBusy(false);
   }
   async function saveOpen(payload) {
@@ -154,6 +205,31 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     setBusy(true);
     try { await api.timeSchedAssign(id, email); toastOk?.('Shift assigned.'); setOpenCell(null); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not assign.'); }
+    setBusy(false);
+  }
+  async function copySchedule(payload) {
+    setBusy(true);
+    try {
+      const r = await api.timeSchedCopy(payload);
+      const bits = [`Copied ${r.created} shift${r.created !== 1 ? 's' : ''} to ${formatDate(r.targetStart)} - ${formatDate(r.targetEnd)} as drafts`];
+      if (r.replaced) bits.push(`replaced ${r.replaced}`);
+      if (r.skipped) bits.push(`kept ${r.skipped} existing`);
+      if (r.timeoffSkipped) bits.push(`skipped ${r.timeoffSkipped} on time off`);
+      toastOk?.(bits.join(' · ') + '. Publish to share them.');
+      setCopyOpen(false); load();
+    } catch (e) { toastErr?.(e?.message || 'Could not copy the schedule.'); }
+    setBusy(false);
+  }
+  async function clearSchedule(payload) {
+    setBusy(true);
+    try {
+      const r = await api.timeSchedClear(payload);
+      const bits = [];
+      if (r.removed) bits.push(`${r.removed} draft${r.removed !== 1 ? 's' : ''} removed`);
+      if (r.pending) bits.push(`${r.pending} published shift${r.pending !== 1 ? 's' : ''} marked for removal until you publish`);
+      toastOk?.(bits.length ? `${bits.join(' · ')}.` : 'There were no shifts to clear.');
+      setClearOpen(false); load();
+    } catch (e) { toastErr?.(e?.message || 'Could not clear the schedule.'); }
     setBusy(false);
   }
   async function bulkAssign(payload) {
@@ -191,6 +267,23 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
           style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <CalendarRange size={14} /> Fill schedule
         </button>
+        {canManage && (
+          <>
+            <button className="secondary-btn" onClick={() => setCopyOpen(true)}
+              style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Copy size={14} /> Copy Schedule
+            </button>
+            <button className="secondary-btn" onClick={() => setClearOpen(true)}
+              style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Trash2 size={14} /> Clear
+            </button>
+            <button className="secondary-btn" onClick={() => setInboxOpen(true)} aria-label={`Requests, ${requestCount} waiting`}
+              style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Inbox size={14} /> Requests
+              {requestCount > 0 && <span style={{ fontSize: 10.5, fontWeight: 800, background: '#b91c1c', color: '#fff', borderRadius: 10, padding: '0 6px' }}>{requestCount}</span>}
+            </button>
+          </>
+        )}
         {canManage && (
           <button className={unpublished ? 'primary-btn' : 'secondary-btn'} onClick={publishWeek}
             disabled={busy || !unpublished} title={unpublished ? 'Share these shifts with the team' : 'Everything in this week is already shared'}
@@ -256,20 +349,22 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                   <div key={di} onClick={() => !items.length && setOpenCell({ date: ds })}
                     style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 48, cursor: items.length ? 'default' : 'pointer', position: 'relative' }}
                     className="sched-cell">
-                    {items.map(s => (
+                    {items.map(s => { const ps = pendingState(s); return (
                       <div key={s.id} onClick={(e) => { e.stopPropagation(); setOpenCell({ date: ds, existing: s }); }}
-                        style={{ background: (s.color || '#16a34a') + '18', border: `1px dashed ${s.color || '#16a34a'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer' }}>
+                        title={ps.title}
+                        style={{ background: (s.color || '#16a34a') + '18', border: `1px dashed ${s.color || '#16a34a'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer', ...ps.style }}>
                         <div style={{ fontSize: 11, fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                             {s.published === false && <Star size={10} fill="#f59e0b" color="#f59e0b" style={{ flexShrink: 0 }} />}
                             {s.code || 'Open'}
+                            {ps.tag && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#b45309' }}>{ps.tag}</span>}
                           </span>
                           {(s.openSlots || 1) > 1 && <span style={{ fontSize: 10, background: '#16a34a', color: '#fff', borderRadius: 10, padding: '0 6px' }}>×{s.openSlots}</span>}
                         </div>
                         <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={9} /> {t12(s.start)}–{t12(s.end)}</div>
                         {s.label && <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>}
                       </div>
-                    ))}
+                    ); })}
                     {!items.length && (
                       <div className="sched-add" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--line)', opacity: 0 }}>
                         <Plus size={16} />
@@ -325,19 +420,25 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                               <div style={{ fontSize: 10, color: '#2563eb', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{hol.name}</div>
                             </div>
                           )}
-                          {items.map(s => (
+                          {items.map(s => { const ps = pendingState(s); return (
                             <div key={s.id} onClick={(e) => { e.stopPropagation(); setCell({ email: emp.email, date: ds, existing: s }); }}
-                              title={s.published === false ? 'Draft - not shared with the team yet' : undefined}
+                              title={ps.title}
                               style={{ background: (s.color || '#64748b') + '22', borderLeft: `3px solid ${s.color || '#64748b'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: 'pointer',
-                                ...(s.published === false ? { outline: `1.5px dashed ${s.color || '#64748b'}`, outlineOffset: -2, opacity: 0.9 } : {}) }}>
+                                ...(s.published === false ? { outline: `1.5px dashed ${s.color || '#64748b'}`, outlineOffset: -2, opacity: 0.9 } : {}), ...ps.style }}>
                               <div style={{ fontSize: 11, fontWeight: 800, color: '#334155', display: 'flex', alignItems: 'center', gap: 4 }}>
                                 {s.published === false && <Star size={10} fill="#f59e0b" color="#f59e0b" style={{ flexShrink: 0 }} />}
                                 <span>{s.code || 'Shift'}</span>
+                                {ps.tag && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#b45309' }}>{ps.tag}</span>}
+                                {s.conflicts?.length > 0 && (
+                                  <span title={s.conflicts.join('\n')} aria-label={`Warning: ${s.conflicts.join(' ')}`} style={{ marginLeft: 'auto', display: 'inline-flex' }}>
+                                    <AlertTriangle size={11} color="#d97706" />
+                                  </span>
+                                )}
                               </div>
                               <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={9} /> {t12(s.start)}–{t12(s.end)}</div>
                               {s.label && <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>}
                             </div>
-                          ))}
+                          ); })}
                           {!items.length && !off && !hol && (
                             <div className="sched-add" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--line)', opacity: 0 }}>
                               <Plus size={16} />
@@ -356,8 +457,23 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
 
       {cell && (
         <CellModal cell={cell} shifts={data?.shifts || []} busy={busy}
-          onSave={saveCell} onDelete={delCell} onClose={() => setCell(null)}
+          onSave={saveCell} onDelete={delCell} onDiscard={discardCell} onClose={() => setCell(null)}
           onCopy={(s) => { setCopied(s); setCell(null); }} />
+      )}
+
+      {inboxOpen && (
+        <ShiftRequestsInbox toastOk={toastOk} toastErr={toastErr} onClose={() => setInboxOpen(false)}
+          onChanged={() => { setInboxTick((t) => t + 1); load(); }} />
+      )}
+
+      {copyOpen && (
+        <CopyModal groups={data?.groups || []} defaultStart={start} defaultEnd={end} busy={busy}
+          onApply={copySchedule} onClose={() => setCopyOpen(false)} />
+      )}
+
+      {clearOpen && (
+        <ClearModal groups={data?.groups || []} defaultStart={start} defaultEnd={end} busy={busy}
+          onApply={clearSchedule} onClose={() => setClearOpen(false)} />
       )}
 
       {bulkOpen && (
@@ -369,10 +485,141 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
 
       {openCell && (
         <OpenShiftModal cell={openCell} shifts={data?.shifts || []} people={data?.employees || []} busy={busy}
-          onSave={saveOpen} onAssign={assignOpen} onDelete={delCell} onClose={() => setOpenCell(null)} />
+          onSave={saveOpen} onAssign={assignOpen} onDelete={delCell} onDiscard={discardCell} onClose={() => setOpenCell(null)} />
       )}
 
       <style>{`.sched-cell:hover .sched-add { opacity: 1 !important; }`}</style>
+    </div>
+  );
+}
+
+const MODAL_BACK = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' };
+const MODAL_CARD = { background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 460, padding: 20, maxHeight: '92dvh', overflowY: 'auto' };
+const LBL = { fontSize: 11, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 };
+const CHECK = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' };
+
+// "Everyone in view" sends no people at all - the server scopes to the
+// caller's team and, unlike a group, still includes open shifts.
+function GroupPick({ groups, value, onChange }) {
+  return (
+    <select className="form-input" value={value} onChange={e => onChange(e.target.value)} style={{ width: '100%', fontSize: 13 }} aria-label="Apply to">
+      <option value="">Everyone in view</option>
+      {groups.map(g => <option key={g.id} value={g.id}>{g.name} ({g.members?.length || 0})</option>)}
+    </select>
+  );
+}
+
+// Copy schedule (Sep 28, Teams parity): lay a date range - the week on screen
+// by default - down again starting on another date, as drafts, optionally
+// several times back to back.
+function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onClose }) {
+  const [from, setFrom] = useState(defaultStart);
+  const [to, setTo] = useState(defaultEnd);
+  const [target, setTarget] = useState(() => addDaysIso(defaultEnd, 1));
+  const [copies, setCopies] = useState(1);
+  const [groupId, setGroupId] = useState('');
+  const [includeOpen, setIncludeOpen] = useState(true);
+  const [includeNotes, setIncludeNotes] = useState(true);
+  const [skipOff, setSkipOff] = useState(true);
+  const [overwrite, setOverwrite] = useState(false);
+  const span = from && to ? Math.round((new Date(to) - new Date(from)) / 86400000) + 1 : 0;
+  const lastDay = span > 0 && target ? addDaysIso(target, span * copies - 1) : '';
+  const overlaps = span > 0 && target && target <= to && lastDay >= from;
+  const canApply = span > 0 && span <= 31 && target && !overlaps && !busy;
+
+  function submit() {
+    const payload = { source_start: from, source_end: to, target_start: target, weeks: Number(copies),
+                      include_open: includeOpen && !groupId, include_notes: includeNotes, skip_timeoff: skipOff, overwrite };
+    if (groupId) payload.group_id = groupId;
+    onApply(payload);
+  }
+
+  return (
+    <div style={MODAL_BACK} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-label="Copy Schedule" style={MODAL_CARD}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Copy Schedule</span>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+          Copy these dates forward as drafts. Nothing changes for the team until you publish.
+        </div>
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <label style={{ flex: 1 }}><div style={LBL}>Copy from</div><input type="date" className="form-input" value={from} onChange={e => setFrom(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+            <label style={{ flex: 1 }}><div style={LBL}>Through</div><input type="date" className="form-input" value={to} onChange={e => setTo(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <label style={{ flex: 1 }}><div style={LBL}>Paste starting</div><input type="date" className="form-input" value={target} onChange={e => setTarget(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+            <label style={{ width: 120 }}><div style={LBL}>Copies</div>
+              <select className="form-input" value={copies} onChange={e => setCopies(Number(e.target.value))} style={{ width: '100%', fontSize: 13 }}>
+                {[1, 2, 3, 4, 5, 6, 7, 8].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+          </div>
+          <div><div style={LBL}>Apply to</div><GroupPick groups={groups} value={groupId} onChange={setGroupId} /></div>
+          <label style={{ ...CHECK, opacity: groupId ? 0.5 : 1 }} title={groupId ? 'Open shifts belong to no group' : undefined}>
+            <input type="checkbox" checked={includeOpen && !groupId} disabled={!!groupId} onChange={e => setIncludeOpen(e.target.checked)} /> Include open shifts
+          </label>
+          <label style={CHECK}><input type="checkbox" checked={includeNotes} onChange={e => setIncludeNotes(e.target.checked)} /> Include shift notes</label>
+          <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={e => setSkipOff(e.target.checked)} /> Skip days a person has time off</label>
+          <label style={CHECK}><input type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)</label>
+          <div style={{ fontSize: 11.5, color: overlaps || span > 31 ? '#b91c1c' : 'var(--muted)' }}>
+            {span > 31 ? 'Copy at most 31 days at a time.'
+              : overlaps ? 'The copy would land on the dates it copies from - pick a later start.'
+              : lastDay ? `Lands on ${formatDate(target)} - ${formatDate(lastDay)}.` : ''}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" onClick={submit} disabled={!canApply} style={{ opacity: canApply ? 1 : 0.55 }}>{busy ? '…' : 'Copy Shifts'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Clear (Sep 28, Teams parity): every shift in a range at once. Same rule as
+// removing one - drafts go, published shifts wait for Publish.
+function ClearModal({ groups, defaultStart, defaultEnd, busy, onApply, onClose }) {
+  const [from, setFrom] = useState(defaultStart);
+  const [to, setTo] = useState(defaultEnd);
+  const [groupId, setGroupId] = useState('');
+  const [includeOpen, setIncludeOpen] = useState(true);
+  const canApply = from && to && to >= from && !busy;
+
+  function submit() {
+    const payload = { start_date: from, end_date: to, include_open: includeOpen && !groupId };
+    if (groupId) payload.group_id = groupId;
+    onApply(payload);
+  }
+
+  return (
+    <div style={MODAL_BACK} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-label="Clear Schedule" style={MODAL_CARD}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Clear Schedule</span>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+          Remove every shift in these dates. Drafts are deleted. Published shifts are marked for removal and stay on the team's schedule until you publish - Discard Changes brings them back.
+        </div>
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <label style={{ flex: 1 }}><div style={LBL}>From</div><input type="date" className="form-input" value={from} onChange={e => setFrom(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+            <label style={{ flex: 1 }}><div style={LBL}>To</div><input type="date" className="form-input" value={to} onChange={e => setTo(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+          </div>
+          <div><div style={LBL}>Apply to</div><GroupPick groups={groups} value={groupId} onChange={setGroupId} /></div>
+          <label style={{ ...CHECK, opacity: groupId ? 0.5 : 1 }}>
+            <input type="checkbox" checked={includeOpen && !groupId} disabled={!!groupId} onChange={e => setIncludeOpen(e.target.checked)} /> Include open shifts
+          </label>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" onClick={submit} disabled={!canApply}
+            style={{ opacity: canApply ? 1 : 0.55, background: '#b91c1c', borderColor: '#b91c1c' }}>{busy ? '…' : 'Clear Shifts'}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -482,27 +729,30 @@ function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd, busy, 
 // Open shift editor: create/edit an unassigned slot (preset + how many people
 // needed) and, for an existing one, ASSIGN it to a person - which spawns their
 // own shift and drops the open count (Teams "Assign open shifts").
-function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete, onClose }) {
+function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete, onDiscard, onClose }) {
   const ex = cell.existing;
   const [shiftId, setShiftId] = useState(ex?.shiftId || (shifts[0]?.id || ''));
   const [start, setStart] = useState(ex?.start || '');
   const [end, setEnd] = useState(ex?.end || '');
   const [slots, setSlots] = useState(ex?.openSlots || 1);
   const [label, setLabel] = useState(ex?.label || '');
+  const [brk, setBrk] = useState(ex ? String(ex.breakMin ?? 0) : '');   // '' = the preset's
   const [assignee, setAssignee] = useState('');
   const preset = shifts.find(s => s.id === shiftId);
   const eff = (v, p) => v || p || '';
+  const effBreak = brk === '' ? (preset?.breakMin || 0) : Math.max(0, Number(brk) || 0);
 
   function submit() {
     onSave({ id: ex?.id, work_date: cell.date, shift_id: shiftId,
       start_hhmm: eff(start, preset?.start), end_hhmm: eff(end, preset?.end),
-      label, open_slots: Math.max(1, Number(slots) || 1) });
+      label, open_slots: Math.max(1, Number(slots) || 1), break_min: effBreak });
   }
 
   // ex is fixed for this modal instance's lifetime (a fresh OpenShiftModal
   // mounts per cell click), so the initial useState values ARE the baseline.
   const dirty = shiftId !== (ex?.shiftId || (shifts[0]?.id || '')) || start !== (ex?.start || '')
-    || end !== (ex?.end || '') || String(slots) !== String(ex?.openSlots || 1) || label !== (ex?.label || '');
+    || end !== (ex?.end || '') || String(slots) !== String(ex?.openSlots || 1) || label !== (ex?.label || '')
+    || brk !== (ex ? String(ex.breakMin ?? 0) : '');
   const guard = useUnsavedGuard(dirty, onClose, submit);
 
   return (
@@ -522,7 +772,7 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
           <div style={{ display: 'grid', gap: 12 }}>
             <div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Shift preset</div>
-              <select className="form-input" value={shiftId} onChange={e => { setShiftId(e.target.value); setStart(''); setEnd(''); }} style={{ width: '100%', fontSize: 13 }}>
+              <select className="form-input" value={shiftId} onChange={e => { setShiftId(e.target.value); setStart(''); setEnd(''); setBrk(''); }} style={{ width: '100%', fontSize: 13 }}>
                 {shifts.map(s => <option key={s.id} value={s.id}>{s.code ? `${s.code} · ` : ''}{s.name} ({s.start}–{s.end})</option>)}
               </select>
             </div>
@@ -530,6 +780,7 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
               <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>Start<input type="time" className="form-input" value={eff(start, preset?.start)} onChange={e => setStart(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
               <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>End<input type="time" className="form-input" value={eff(end, preset?.end)} onChange={e => setEnd(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
               <label style={{ width: 80, fontSize: 11, color: 'var(--muted)' }}>People<input type="number" min={1} max={50} className="form-input" value={slots} onChange={e => setSlots(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+              <BreakField value={brk === '' ? String(preset?.breakMin || 0) : brk} onChange={setBrk} />
             </div>
             <input className="form-input" placeholder="Label (e.g. All Properties)" value={label} onChange={e => setLabel(e.target.value)} style={{ fontSize: 13 }} />
 
@@ -549,8 +800,10 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
             )}
           </div>
         )}
+        <PendingNotice ex={ex} />
         <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
-          {ex && <button onClick={() => onDelete(ex.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={13} /> Remove</button>}
+          {ex && !ex.pendingDelete && <button onClick={() => onDelete(ex.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={13} /> Remove</button>}
+          <DiscardButton ex={ex} busy={busy} onDiscard={onDiscard} />
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
           {shifts.length > 0 && <button className="primary-btn" onClick={submit} disabled={busy}>{busy ? '…' : 'Save'}</button>}
@@ -563,28 +816,80 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
   );
 }
 
-function CellModal({ cell, shifts, busy, onSave, onDelete, onClose, onCopy }) {
+// Unpaid break minutes for this shift - starts at the preset's, editable here.
+function BreakField({ value, onChange }) {
+  return (
+    <label style={{ width: 96, fontSize: 11, color: 'var(--muted)' }} title="Unpaid minutes inside the shift, e.g. a 30-minute lunch. Scheduled hours are shown without it.">
+      Unpaid break
+      <input type="number" min={0} max={480} step={5} className="form-input" value={value}
+        onChange={e => onChange(e.target.value)} style={{ width: '100%', fontSize: 13 }} aria-label="Unpaid break minutes" />
+    </label>
+  );
+}
+
+// What is waiting on Publish for this shift, said where the manager acts on it.
+function PendingNotice({ ex }) {
+  if (!ex?.pendingDelete && !ex?.hasChanges) return null;
+  return (
+    <div style={{ marginTop: 14, padding: '8px 12px', borderRadius: 8, fontSize: 12, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)', color: '#92400e' }}>
+      {ex.pendingDelete
+        ? 'This shift will be removed when you publish. Until then the team still sees it.'
+        : 'Unpublished changes. The team sees the previous version of this shift until you publish.'}
+    </div>
+  );
+}
+
+function DiscardButton({ ex, busy, onDiscard }) {
+  if (!onDiscard || !(ex?.pendingDelete || ex?.hasChanges)) return null;
+  return (
+    <button onClick={() => onDiscard(ex.id)} disabled={busy} title="Go back to the version the team sees"
+      style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+      <RotateCcw size={13} /> Discard Changes
+    </button>
+  );
+}
+
+function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, onCopy }) {
   const ex = cell.existing;
   const [shiftId, setShiftId] = useState(ex?.shiftId || (shifts[0]?.id || ''));
   const [start, setStart] = useState(ex?.start || '');
   const [end, setEnd] = useState(ex?.end || '');
   const [label, setLabel] = useState(ex?.label || '');
   const [note, setNote] = useState(ex?.note || '');
+  const [brk, setBrk] = useState(ex ? String(ex.breakMin ?? 0) : '');   // '' = the preset's
+  const [warnings, setWarnings] = useState(ex?.conflicts || []);
   const preset = shifts.find(s => s.id === shiftId);
   const eff = (v, p) => v || p || '';
+  const effStart = eff(start, preset?.start);
+  const effEnd = eff(end, preset?.end);
+  const effBreak = brk === '' ? (preset?.breakMin || 0) : Math.max(0, Number(brk) || 0);
+
+  // Live warnings as the day and times change (overlap, time off, holiday) -
+  // the same check the grid's warning icon comes from. Never blocks Save.
+  useEffect(() => {
+    if (!cell.email || !effStart || !effEnd) return undefined;
+    let live = true;
+    const t = setTimeout(() => {
+      api.timeSchedCheck({ email: cell.email, date: cell.date, start: effStart, end: effEnd, exclude_id: ex?.id || '' })
+        .then((r) => { if (live) setWarnings(r?.warnings || []); })
+        .catch(() => { if (live) setWarnings([]); });
+    }, 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [cell.email, cell.date, effStart, effEnd, ex?.id]);
 
   function submit() {
     onSave({
       id: ex?.id, employee_email: cell.email, work_date: cell.date, shift_id: shiftId,
-      start_hhmm: eff(start, preset?.start), end_hhmm: eff(end, preset?.end),
-      label, note,
+      start_hhmm: effStart, end_hhmm: effEnd,
+      label, note, break_min: effBreak,
     });
   }
 
   // ex is fixed for this modal instance's lifetime (a fresh CellModal mounts
   // per cell click), so the initial useState values ARE the baseline.
   const dirty = shiftId !== (ex?.shiftId || (shifts[0]?.id || '')) || start !== (ex?.start || '')
-    || end !== (ex?.end || '') || label !== (ex?.label || '') || note !== (ex?.note || '');
+    || end !== (ex?.end || '') || label !== (ex?.label || '') || note !== (ex?.note || '')
+    || brk !== (ex ? String(ex.breakMin ?? 0) : '');
   const guard = useUnsavedGuard(dirty, onClose, submit);
 
   return (
@@ -604,20 +909,30 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onClose, onCopy }) {
           <div style={{ display: 'grid', gap: 12 }}>
             <div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Shift preset</div>
-              <select className="form-input" value={shiftId} onChange={e => { setShiftId(e.target.value); setStart(''); setEnd(''); }} style={{ width: '100%', fontSize: 13 }}>
+              <select className="form-input" value={shiftId} onChange={e => { setShiftId(e.target.value); setStart(''); setEnd(''); setBrk(''); }} style={{ width: '100%', fontSize: 13 }}>
                 {shifts.map(s => <option key={s.id} value={s.id}>{s.code ? `${s.code} · ` : ''}{s.name} ({s.start}–{s.end})</option>)}
               </select>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>Start<input type="time" className="form-input" value={eff(start, preset?.start)} onChange={e => setStart(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
               <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>End<input type="time" className="form-input" value={eff(end, preset?.end)} onChange={e => setEnd(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+              <BreakField value={brk === '' ? String(preset?.breakMin || 0) : brk} onChange={setBrk} />
             </div>
             <input className="form-input" placeholder="Label (e.g. All Properties)" value={label} onChange={e => setLabel(e.target.value)} style={{ fontSize: 13 }} />
             <input className="form-input" placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} style={{ fontSize: 13 }} />
           </div>
         )}
+        {warnings.length > 0 && (
+          <div role="alert" style={{ marginTop: 14, padding: '8px 12px', borderRadius: 8, fontSize: 12, background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.35)', color: '#92400e' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, marginBottom: 2 }}><AlertTriangle size={13} /> Check before saving</div>
+            {warnings.map((w) => <div key={w}>{w}</div>)}
+            <div style={{ marginTop: 4, color: '#b45309' }}>You can still save this shift.</div>
+          </div>
+        )}
+        <PendingNotice ex={ex} />
         <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
-          {ex && <button onClick={() => onDelete(ex.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={13} /> Remove</button>}
+          {ex && !ex.pendingDelete && <button onClick={() => onDelete(ex.id)} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={13} /> Remove</button>}
+          <DiscardButton ex={ex} busy={busy} onDiscard={onDiscard} />
           {ex && onCopy && <button onClick={() => onCopy(ex)} disabled={busy} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }} title="Copy this shift to place on another person or day"><Copy size={13} /> Copy</button>}
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
