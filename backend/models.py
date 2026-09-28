@@ -4563,3 +4563,70 @@ class PfsStatement(Base):
     payload      = Column(JSON, default=dict)
     generated_by = Column(String, default="")
     generated_at = Column(String, default="")
+
+
+class Lease(Base):
+    """One tenant in one space (Neil and Charmi, Sep 25): the leasing and
+    monthly recurring income that accounting kept in a workbook. The tenant IS
+    an Intacct customer (customer_id); what Intacct cannot hold lives here -
+    the lease dates, the late-fee rule, the deposit, and in lease_rates the
+    rent as it changes over the years. A tenant who moves out is not
+    overwritten: their lease is ended and the next tenant gets a new row that
+    points back at it (replaces_id), so the history of the space stays.
+    New table - create_all builds it; RLS by the startup sweep and main.py."""
+    __tablename__ = "leases"
+    id               = Column(String, primary_key=True)   # uuid
+    property_name    = Column(String, nullable=False)     # "910 SECR - Ste 100, San Clemente"
+    region           = Column(String, default="")
+    tenancy          = Column(String, default="external")  # external | internal (a related company)
+    landlord         = Column(String, default="")          # legal owner the tenant pays
+    entity_code      = Column(String, default="", index=True)   # Intacct entity the income posts to
+    income_accounts  = Column(JSON, default=list)           # GL codes rent posts to, e.g. ["41101"]
+    customer_id      = Column(String, default="", index=True)   # Intacct customer
+    tenant_name      = Column(String, default="")
+    contact_name     = Column(String, default="")
+    phone            = Column(String, default="")
+    email            = Column(String, default="")
+    mailing_address  = Column(String, default="")
+    lease_start      = Column(String, default="")           # YYYY-MM-DD
+    lease_end        = Column(String, default="")           # '' = month to month
+    security_deposit = Column(Float, default=0)
+    lease_terms      = Column(String, default="")
+    late_fee         = Column(Float, default=0)
+    due_day          = Column(Integer, default=1)           # rent is due on this day of the month
+    grace_days       = Column(Integer, default=5)           # late after this many days past due
+    status           = Column(String, default="active")     # active | ended | vacant
+    notes            = Column(String, default="")
+    replaces_id      = Column(String, default="")           # the lease of the tenant before this one
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class LeaseRate(Base):
+    """The rent from a date on. A long-term tenant's rent changes at renewal
+    without the tenant changing; each change is one row, in force until the
+    next one starts."""
+    __tablename__ = "lease_rates"
+    id         = Column(String, primary_key=True)     # uuid
+    lease_id   = Column(String, index=True, nullable=False)
+    start_date = Column(String, default="")            # YYYY-MM-DD
+    rent       = Column(Float, default=0)
+    cam        = Column(Float, default=0)              # common area maintenance
+    other      = Column(Float, default=0)
+    note       = Column(String, default="")
+
+
+class LeaseMonth(Base):
+    """What is known about one month of one lease that the ledger cannot say:
+    an agreed deduction (the tenant paid for a repair and took it off the rent)
+    and the note that explains it."""
+    __tablename__ = "lease_months"
+    id         = Column(String, primary_key=True)      # "<lease_id>:<YYYY-MM>"
+    lease_id   = Column(String, index=True, nullable=False)
+    month      = Column(String, default="", index=True)   # YYYY-MM
+    adjustment = Column(Float, default=0)               # taken off what is expected
+    note       = Column(String, default="")
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")
