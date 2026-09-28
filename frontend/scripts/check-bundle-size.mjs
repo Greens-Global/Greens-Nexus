@@ -102,7 +102,11 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // net. Paid for most of it first: the legacy Nexus Access Manager screen
 // (views/Admin.jsx, 37 KB, a duplicate of Settings > Access) was deleted in
 // the same PR. The 50 KB bump covers the rest with a little headroom.
-const TOTAL_KB     = 9650;
+// Sep 28, 2026: 9650 -> 9700. dev itself measured 9650 KB on CI - zero
+// headroom left - so the Tasks mobile fix (floating + on Home, New Task sheet
+// kept above the iPhone keyboard) tipped it with under 1 KB. Owner asked
+// (Sagar). The mammoth note above is still the real lever.
+const TOTAL_KB     = 9700;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a
