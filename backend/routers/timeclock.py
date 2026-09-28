@@ -1199,7 +1199,7 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
             out[day] = {"id": row.id, "by": row.approved_by, "at": now,
                         "workedMin": worked, "stale": False}
         total = sum(v["workedMin"] for v in out.values())
-        label = days[0] if len(days) == 1 else f"{days[0]} → {days[-1]} ({len(days)} days)"
+        label = _us_day(days[0]) if len(days) == 1 else f"{_us_span(days[0], days[-1])} ({len(days)} days)"
         _hr_notify(db, email, "Timecard approved",
                    f"Your hours for {label} ({total // 60}h {total % 60:02d}m) were approved for payroll.",
                    action={"view": "timeclock", "sub": ""})
@@ -1232,7 +1232,7 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
                        note=(body.note or "").strip()[:300])
     db.add(row)
     _hr_notify(db, email, "Timecard approved",
-               f"Your hours for {body.start} → {body.end} ({worked // 60}h {worked % 60:02d}m) "
+               f"Your hours for {_us_span(body.start, body.end)} ({worked // 60}h {worked % 60:02d}m) "
                f"were approved for payroll.",
                ref_id=row.id, action={"view": "timeclock", "sub": ""})
     db.commit()
@@ -4536,7 +4536,7 @@ def _shift_conflicts(item: dict, others: list, timeoff: list, holidays: dict, av
 
 def _timeoff_dict(t) -> dict:
     return {"email": t.employee_email, "startDate": t.start_date, "endDate": t.end_date,
-            "type": t.type, "status": t.status,
+            "type": t.type, "status": t.status, "note": t.note or "",
             "startTime": getattr(t, "start_time", "") or "", "endTime": getattr(t, "end_time", "") or ""}
 
 
@@ -4568,7 +4568,13 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
         emails = list(names.keys())
     else:
         emails = sorted(scope)
-    employees = [{"email": em, "name": names.get(em, em)} for em in emails]
+    # Photos, Teams display names and location for the grid's rows (Neil,
+    # Sep 29: "get everyone's profile picture in", "see by locations also").
+    people = {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all() if e.work_email}
+    names.update({em: (e.display_name or "").strip() for em, e in people.items() if (e.display_name or "").strip()})
+    employees = [{"email": em, "name": names.get(em, em),
+                  "photoUrl": getattr(people.get(em), "photo_url", "") or "",
+                  "location": (getattr(people.get(em), "location", "") or "").strip()} for em in emails]
 
     presets = {s.id: s for s in db.query(Shift).all()}
     members = {}
@@ -5181,7 +5187,9 @@ def move_scheduled(sched_id: str, body: MoveIn, user: dict = Depends(require_sch
         raise HTTPException(400, "This shift is being removed - discard that change first.")
     src_em = (row.employee_email or "").lower()
     target = (body.employee_email or "").strip().lower()
-    if bool(src_em) != bool(target):
+    if not src_em and target:
+        # A person's shift CAN become open (Teams "Move to open shifts");
+        # an open one goes to a person through Assign, which keeps its slots.
         raise HTTPException(400, "Open shifts move between days in the Open shifts row; assign one to give it to a person.")
     scope = _visible_emails(db, user)
     for em in {src_em, target} - {""}:
@@ -5196,7 +5204,7 @@ def move_scheduled(sched_id: str, body: MoveIn, user: dict = Depends(require_sch
     new = ScheduledShift(
         id=str(uuid.uuid4()), employee_email=target, work_date=day, shift_id=eff["shiftId"],
         start_hhmm=eff["start"], end_hhmm=eff["end"], label=eff["label"], note=eff["note"],
-        open_slots=int(eff["openSlots"] or 0) if not target else 0, break_min=int(eff["breakMin"] or 0),
+        open_slots=max(1, int(eff["openSlots"] or 0)) if not target else 0, break_min=int(eff["breakMin"] or 0),
         activities_json=json.dumps(eff["activities"]) if eff["activities"] else "",
         color=eff.get("ownColor") or "",
         published=0, created_by=user["email"], created_at=_now_iso())
@@ -7223,6 +7231,19 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None) -> dict:
             "requestedByName": (names or {}).get(getattr(r, "requested_by", "") or "", "")}
 
 
+def _us_day(iso: str) -> str:
+    """'2026-10-03' -> '10/03/2026' (US dates in notifications, per CLAUDE.md)."""
+    try:
+        return datetime.strptime((iso or "")[:10], "%Y-%m-%d").strftime("%m/%d/%Y")
+    except ValueError:
+        return iso or ""
+
+
+def _us_span(a: str, b: str) -> str:
+    """'10/03/2026 - 10/06/2026', or one date when they are the same day."""
+    return _us_day(a) if (a or "")[:10] == (b or "")[:10] else f"{_us_day(a)} - {_us_day(b)}"
+
+
 def _hhmm12(v: str) -> str:
     """'14:30' -> '2:30 PM' (US 12-hour display per app-wide convention)."""
     try:
@@ -7292,7 +7313,7 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
     _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                        title="Time-off request",
                        body=f"{who} requested {body.type} "
-                            f"{body.start_date} → {body.end_date}{_timeoff_window(st, et)}.",
+                            f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
     return _ser_timeoff(row)
@@ -7338,13 +7359,13 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
     filer = _display_name(db, user["email"])
     if target != user["email"]:
         _hr_notify(db, target, "Time-off request filed for you",
-                   f"{filer} requested {body.type} time off {body.start_date} → {body.end_date}{_timeoff_window(st, et)} "
+                   f"{filer} requested {body.type} time off {_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)} "
                    "on your behalf - you'll hear once it's decided.",
                    ref_id=row.id, action={"view": "timeclock", "sub": ""})
     _notify_team_alert(db, employee_email=target, actor_email=user["email"],
                        title="Time-off request",
                        body=f"{filer} filed a {body.type} request for {emp.first_name} {emp.last_name}: "
-                            f"{body.start_date} → {body.end_date}{_timeoff_window(st, et)}.",
+                            f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
     return _ser_timeoff(row)
@@ -7395,7 +7416,7 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     row.decided_at = _now_iso()
     row.decide_note = (body.note or "").strip()[:400]
     _hr_notify(db, row.employee_email, f"Time off {body.status}",
-               f"Your {row.type} request {row.start_date} → {row.end_date}"
+               f"Your {row.type} request {_us_span(row.start_date, row.end_date)}"
                f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')} was {body.status}."
                + (f" Note: {row.decide_note}" if row.decide_note else ""),
                ref_id=row.id, action={"view": "timeclock", "sub": ""})
@@ -7423,7 +7444,7 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
         _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                            title="Time off cancelled",
                            body=f"{_display_name(db, user['email'])} cancelled their {row.type} request "
-                                f"{row.start_date} → {row.end_date}"
+                                f"{_us_span(row.start_date, row.end_date)}"
                                 f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}.",
                            ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
