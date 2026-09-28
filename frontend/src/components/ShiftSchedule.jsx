@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox, Download, Search, StickyNote, Printer, Upload, CalendarOff } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox, Download, Search, StickyNote, Printer, Upload, CalendarOff, MoreHorizontal } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -7,7 +7,7 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import ShiftRequestsInbox from './ShiftRequestsInbox';
 import { exportExcel } from '../tasks/exporting';
 import { dialog } from '../ui/dialog';
-import { ShiftTypeWeek, ImportModal, TimeOffModal, Avatar, ShiftMenu, ShiftPalette } from './ShiftScheduleExtras';
+import { ShiftTypeWeek, ImportModal, TimeOffModal, Avatar, ShiftMenu, ShiftPalette, ShiftDetails } from './ShiftScheduleExtras';
 import { printSchedule, availText } from './shiftScheduleLib';
 
 // ── Weekly schedule grid (Microsoft Teams "Shifts" style) ─────────────────────
@@ -66,6 +66,8 @@ const t12Full = (hhmm) => {
 const STATUS_TEXT = (s) => (s.pendingDelete ? 'Removal not published' : s.hasChanges ? 'Edited, not published'
   : s.published === false ? 'Draft' : 'Published');
 const VIEWS = [['day', 'Day'], ['week', 'Week'], ['month', 'Month']];
+const TOOL_BTN = { width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--line)',
+  borderRadius: 4, background: 'var(--card)', color: 'var(--muted)', cursor: 'pointer', padding: 0 };
 // Same palette as a preset's (ShiftsPanel), for a shift's own color (Sep 29).
 const SHIFT_COLORS = ['#2563eb', '#16a34a', '#8b5cf6', '#f59e0b', '#ec4899', '#0891b2', '#dc2626', '#64748b'];
 
@@ -102,6 +104,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const [groupBy, setGroupBy] = useState('group');  // row sections: shift groups | locations (Neil, Sep 29)
   const [menu, setMenu] = useState(null);           // { x, y, email, date, shift? } - the right-click menu
   const [ghost, setGhost] = useState(null);         // { x, y, label, copy } - what is being dragged
+  const [details, setDetails] = useState(null);     // { x, y, shift } - the magnifier's details card
   const suppressClick = useRef(false);
   const hoverRef = useRef({ shift: null, cell: null });   // under the pointer, for Ctrl+C / Ctrl+V
   const [drag, setDrag] = useState(null);          // the shift being dragged
@@ -453,7 +456,10 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const accepts = (payload, email) => !!payload && (!!payload.preset || !!payload.email || !email);
   const dropAt = (x, y) => document.elementFromPoint?.(x, y)?.closest?.('[data-drop]')?.getAttribute('data-drop') ?? null;
   const beginDrag = (e, payload) => {
-    if (!canManage || e.button !== 0 || e.target.closest?.('button')) return;
+    // A button INSIDE the shift (details, ⋯) is a click, not a drag; the shift
+    // itself may be a button (Day view).
+    const btn = e.target.closest?.('button');
+    if (!canManage || e.button !== 0 || (btn && btn !== e.currentTarget)) return;
     e.preventDefault();   // never start a text selection
     const from = { x: e.clientX, y: e.clientY };
     let moved = false;
@@ -486,6 +492,19 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const dragProps = (s) => (canManage && !s.pendingDelete ? { onMouseDown: (e) => beginDrag(e, s) } : {});
   const dropProps = (email, ds) => ({ 'data-drop': `${email}|${ds}` });
   const clickable = (fn) => (e) => { if (suppressClick.current) { e.stopPropagation(); return; } fn(e); };
+  // Teams' hover toolbar on a shift: a magnifier for its details and ⋯ for
+  // the menu (Neil, Sep 29).
+  const chipTools = (email, ds, s) => (canManage && !s.pendingDelete ? (
+    <span className="chip-tools" style={{ position: 'absolute', top: 3, right: 3, display: 'flex', flexDirection: 'column', gap: 2, opacity: 0 }}>
+      <button type="button" aria-label="Shift details" title="Details"
+        onClick={(e) => { e.stopPropagation(); setDetails({ x: e.clientX, y: e.clientY, shift: s }); }} style={TOOL_BTN}><Search size={11} /></button>
+      <button type="button" aria-label="Shift options" title="More options" onClick={(e) => openMenu(e, email, ds, s)} style={TOOL_BTN}><MoreHorizontal size={12} /></button>
+    </span>
+  ) : null);
+  // The grid never selects text or lets the browser drag its content (a press
+  // on a name or a time-off card used to select it and drag the selection).
+  const noSelect = { userSelect: 'none', WebkitUserSelect: 'none' };
+  const noNativeDrag = (e) => e.preventDefault();
   const dropStyle = (email, ds) => (dropKey === `${email}|${ds}`
     ? { outline: '2px dashed hsl(var(--color-green))', outlineOffset: -3, background: 'hsla(var(--color-green),0.06)' } : {});
   async function copySchedule(payload) {
@@ -672,11 +691,15 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
       ) : view === 'month' ? (
         <MonthView days={days} shifts={shown} names={names} notes={notes} onPickDay={openDay} />
       ) : view === 'day' ? (
+        <div style={noSelect} onDragStart={noNativeDrag}>
         <DayView date={start} groups={groupsView} shifts={shown} notes={notes} canManage={canManage}
           offOn={offOn} holOn={holOn} chipTitle={chipTitle}
+          dragProps={dragProps} dropProps={dropProps} dropStyle={dropStyle} clickable={clickable}
+          onMenu={(e, email, s) => openMenu(e, email, start, s)}
           onEditNote={() => setNoteEdit({ date: start, note: notes[start] || '' })}
           onOpenShift={(s) => (s.email ? setCell({ email: s.email, date: start, existing: s }) : setOpenCell({ date: start, existing: s }))}
           onAdd={(email) => (email ? setCell({ email, date: start }) : setOpenCell({ date: start }))} />
+        </div>
       ) : rowsBy === 'shifts' ? (
         <ShiftTypeWeek days={days} shifts={shown} presets={data.shifts || []} names={names}
           onOpen={(s) => (s.email ? setCell({ email: s.email, date: s.date, existing: s }) : setOpenCell({ date: s.date, existing: s }))} />
@@ -685,7 +708,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
         {canManage && (
           <ShiftPalette presets={data.shifts || []} onStart={(e, p) => beginDrag(e, { preset: p })} />
         )}
-        <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 12 }}>
+        <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 12, ...noSelect }} onDragStart={noNativeDrag}>
           <div style={{ minWidth: 900 }}>
             {/* Day header */}
             <div style={{ ...GRID, borderBottom: '1px solid var(--line)', background: 'var(--bg)' }}>
@@ -743,7 +766,9 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                     {items.map(s => { const ps = pendingState(s); return (
                       <div key={s.id} onClick={clickable((e) => { e.stopPropagation(); setOpenCell({ date: ds, existing: s }); })}
                         title={chipTitle(s, ps)} {...dragProps(s)} {...hoverShift(s)} onContextMenu={(e) => openMenu(e, '', ds, s)}
-                        style={{ background: (s.color || '#16a34a') + '18', border: `1px dashed ${s.color || '#16a34a'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: canManage ? 'grab' : 'pointer', userSelect: 'none', ...ps.style, ...(drag?.id === s.id ? { opacity: 0.4 } : {}) }}>
+                        className="sched-chip"
+                        style={{ position: 'relative', background: (s.color || '#16a34a') + '18', border: `1px dashed ${s.color || '#16a34a'}`, borderRadius: 6, padding: '5px 24px 5px 8px', marginBottom: 3, cursor: canManage ? 'grab' : 'pointer', userSelect: 'none', ...ps.style, ...(drag?.id === s.id ? { opacity: 0.4 } : {}) }}>
+                        {chipTools('', ds, s)}
                         <div style={{ fontSize: 11, fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                             {s.published === false && <Star size={10} fill="#f59e0b" color="#f59e0b" style={{ flexShrink: 0 }} />}
@@ -823,8 +848,9 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                             <div key={s.id} onClick={clickable((e) => { e.stopPropagation(); setCell({ email: emp.email, date: ds, existing: s }); })}
                               title={chipTitle(s, ps)} {...dragProps(s)} {...hoverShift(s)} className="sched-chip"
                               onContextMenu={(e) => openMenu(e, emp.email, ds, s)}
-                              style={{ background: (s.color || '#64748b') + '22', borderLeft: `3px solid ${s.color || '#64748b'}`, borderRadius: 6, padding: '5px 8px', marginBottom: 3, cursor: canManage ? 'grab' : 'pointer', userSelect: 'none',
+                              style={{ position: 'relative', background: (s.color || '#64748b') + '22', borderLeft: `3px solid ${s.color || '#64748b'}`, borderRadius: 6, padding: '5px 24px 5px 8px', marginBottom: 3, cursor: canManage ? 'grab' : 'pointer', userSelect: 'none',
                                 ...(s.published === false ? { outline: `1.5px dashed ${s.color || '#64748b'}`, outlineOffset: -2, opacity: 0.9 } : {}), ...ps.style, ...(drag?.id === s.id ? { opacity: 0.4 } : {}) }}>
+                              {chipTools(emp.email, ds, s)}
                               <div style={{ fontSize: 11, fontWeight: 800, color: '#334155', display: 'flex', alignItems: 'center', gap: 4 }}>
                                 {s.published === false && <Star size={10} fill="#f59e0b" color="#f59e0b" style={{ flexShrink: 0 }} />}
                                 <span>{s.code || 'Shift'}</span>
@@ -833,10 +859,6 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                                   <span title={s.conflicts.join('\n')} aria-label={`Warning: ${s.conflicts.join(' ')}`} style={{ marginLeft: 'auto', display: 'inline-flex' }}>
                                     <AlertTriangle size={11} color="#d97706" />
                                   </span>
-                                )}
-                                {canManage && !s.pendingDelete && (
-                                  <button type="button" className="chip-more" aria-label="Shift options" onClick={(e) => openMenu(e, emp.email, ds, s)}
-                                    style={{ marginLeft: s.conflicts?.length ? 0 : 'auto', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '0 2px', fontSize: 13, lineHeight: 1, opacity: 0 }}>⋯</button>
                                 )}
                               </div>
                               <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={9} /> {t12(s.start)}-{t12(s.end)}</div>
@@ -870,6 +892,12 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
           background: 'var(--card)', border: '1px solid hsl(var(--color-green))', borderRadius: 6, padding: '4px 9px', boxShadow: '0 6px 18px rgba(0,0,0,0.18)' }}>
           {ghost.copy ? `Copy ${ghost.label}` : ghost.label}
         </div>
+      )}
+
+      {details && (
+        <ShiftDetails at={details} shift={details.shift} name={details.shift.email ? (names[details.shift.email] || details.shift.email) : 'Open shift'}
+          status={STATUS_TEXT(details.shift)} onClose={() => setDetails(null)}
+          onEdit={() => { const s = details.shift; setDetails(null); (s.email ? setCell({ email: s.email, date: s.date, existing: s }) : setOpenCell({ date: s.date, existing: s })); }} />
       )}
 
       {menu && (
@@ -929,7 +957,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
           onSave={saveOpen} onAssign={assignOpen} onDelete={delCell} onDiscard={discardCell} onClose={() => setOpenCell(null)} />
       )}
 
-      <style>{`.sched-cell:hover .sched-add { opacity: 1 !important; } .sched-chip:hover .chip-more, .chip-more:focus-visible { opacity: 1 !important; } .shift-menu-item:hover:not(:disabled) { background: var(--bg) !important; } body.sched-dragging, body.sched-dragging * { cursor: grabbing !important; user-select: none !important; }`}</style>
+      <style>{`.sched-cell:hover .sched-add { opacity: 1 !important; } .sched-chip:hover .chip-tools, .chip-tools:focus-within { opacity: 1 !important; } .shift-menu-item:hover:not(:disabled) { background: var(--bg) !important; } body.sched-dragging, body.sched-dragging * { cursor: grabbing !important; user-select: none !important; }`}</style>
     </div>
   );
 }
@@ -1043,7 +1071,8 @@ function MonthView({ days, shifts, names, notes, onPickDay }) {
 // Day (Sep 29): a timeline of who works when. Bars sit on a 24-hour track;
 // an overnight shift runs to the right edge. Click a bar to edit it, or an
 // empty track to add a shift.
-function DayView({ date, groups, shifts, notes, canManage, offOn, holOn, chipTitle, onEditNote, onOpenShift, onAdd }) {
+function DayView({ date, groups, shifts, notes, canManage, offOn, holOn, chipTitle, onEditNote, onOpenShift, onAdd,
+  dragProps = () => ({}), dropProps = () => ({}), dropStyle = () => ({}), clickable = (fn) => fn, onMenu }) {
   const byEmail = {};
   shifts.forEach(s => { if (s.date === date) (byEmail[s.email || ''] ||= []).push(s); });
   const HOURS = [0, 3, 6, 9, 12, 15, 18, 21];
@@ -1052,18 +1081,20 @@ function DayView({ date, groups, shifts, notes, canManage, offOn, holOn, chipTit
     const w = Math.min(durMin(s.start, s.end), 1440 - a);
     const ps = pendingState(s);
     return (
-      <button key={s.id} type="button" onClick={(e) => { e.stopPropagation(); onOpenShift(s); }} title={chipTitle(s, ps)}
+      <button key={s.id} type="button" onClick={clickable((e) => { e.stopPropagation(); onOpenShift(s); })} title={chipTitle(s, ps)}
+        {...dragProps(s)} onContextMenu={(e) => onMenu?.(e, s.email, s)}
         aria-label={`${s.email ? 'Shift' : 'Open shift'} ${t12(s.start)} to ${t12(s.end)}`}
         style={{ position: 'absolute', top: 5, bottom: 5, left: `${(a / 1440) * 100}%`, width: `${(w / 1440) * 100}%`, minWidth: 28,
           background: (s.color || '#64748b') + '33', border: `1px ${s.email ? 'solid' : 'dashed'} ${s.color || '#64748b'}`, borderRadius: 6,
-          fontSize: 10.5, fontWeight: 700, color: '#334155', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', cursor: 'pointer',
+          fontSize: 10.5, fontWeight: 700, color: '#334155', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', cursor: canManage ? 'grab' : 'pointer',
           padding: '0 6px', textAlign: 'left', fontFamily: 'inherit', ...ps.style }}>
         {s.published === false && '★ '}{t12(s.start)}-{t12(s.end)}{s.label ? ` · ${s.label}` : ''}{s.email ? '' : ` · ${s.openSlots || 1} open`}
       </button>
     );
   };
   const track = (email, extra) => (
-    <div onClick={() => canManage && onAdd(email)} style={{ position: 'relative', height: 38, borderLeft: '1px solid var(--line)', cursor: canManage ? 'pointer' : 'default',
+    <div onClick={clickable(() => canManage && onAdd(email))} {...dropProps(email, date)} onContextMenu={(e) => onMenu?.(e, email, null)}
+      style={{ ...dropStyle(email, date), position: 'relative', height: 38, borderLeft: '1px solid var(--line)', cursor: canManage ? 'pointer' : 'default',
       backgroundImage: 'repeating-linear-gradient(to right, transparent 0, transparent calc(12.5% - 1px), var(--line) calc(12.5% - 1px), var(--line) 12.5%)' }}>
       {extra}
       {(byEmail[email] || []).map(bar)}
