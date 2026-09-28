@@ -1377,7 +1377,13 @@ def _team_alert_recipients(db: Session, employee_email: str, actor_email: str = 
     was on file, and a broadcast reaches EVERY manager-level account, so one
     team's leave and timecard edits landed on unrelated managers' home
     screens. Never the actor (they already know), never the employee
-    themself (their own copy, if any, is sent separately)."""
+    themself (their own copy, if any, is sent separately).
+
+    The HR contact of the employee's company hears too (Charmi, Sep 25: a punch
+    change or time-off request goes "to the appropriate manager of that person,
+    and HR" - the manager acts, HR steps in when the manager has not). That is
+    one named person per company (People -> Companies), not an HR broadcast."""
+    from models import HrEntity
     employee_email = (employee_email or "").strip().lower()
     actor_email = (actor_email or "").strip().lower()
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == employee_email).first()
@@ -1385,6 +1391,11 @@ def _team_alert_recipients(db: Session, employee_email: str, actor_email: str = 
     mgr = (emp.manager_email or "").strip().lower() if emp else ""
     if mgr:
         out.append(mgr)
+    company = (getattr(emp, "company", "") or "") if emp else ""
+    ent = db.query(HrEntity).filter(HrEntity.id == company).first() if company else None
+    hr = ((ent.hr_contact_email if ent else "") or "").strip().lower()
+    if hr and hr not in out:
+        out.append(hr)
     for r in db.query(NexusRole).filter(NexusRole.role == "owner").all():
         e = (r.email or "").strip().lower()
         if e and e not in out:
