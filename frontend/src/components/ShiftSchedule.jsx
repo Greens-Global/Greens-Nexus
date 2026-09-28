@@ -131,7 +131,11 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const load = useCallback(() => {
     api.timeSchedule(start, end).then(setData).catch(e => { setData({ employees: [], shifts: [], groups: [], scheduled: [], timeoff: [] }); toastErr?.(e?.message || 'Could not load the schedule.'); });
   }, [start, end, toastErr]);
-  useEffect(() => { setData(null); load(); }, [load]);
+  // Only a new range clears the grid. Clearing used to hang off `load`, which
+  // also changes when a parent passes new toast functions - so every toast
+  // blanked the grid to a loader and jumped the page to the top.
+  useEffect(() => { setData(null); }, [start, end]);
+  useEffect(() => { load(); }, [load]);
 
   // index: "email|date" -> [shifts]; and time off lookup. Open shifts (email '')
   // are indexed by date on their own so they render in the Open shifts row.

@@ -3,14 +3,12 @@ import { createPortal } from 'react-dom';
 import {
   Clock, ChevronDown, ChevronRight, ChevronLeft, MapPin, AlertTriangle, Download,
   Pencil, Plus, Loader2, X, CheckCircle, Ban, Camera, MoonStar,
-  CalendarDays, Activity, Inbox, CalendarClock, Banknote, CalendarOff,
+  CalendarDays, Activity, Inbox, Banknote, CalendarOff,
   Search,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import DayTimeline from './DayTimeline';
-import ShiftsPanel from './ShiftsPanel';
-import ShiftSchedule from './ShiftSchedule';
 import PayrollTimecard from './PayrollTimecard';
 import TimeInsights from './TimeInsights';
 import ImageLightbox from './ImageLightbox';
@@ -103,7 +101,7 @@ function weekRange(offset = 0) {
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
-export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
+export default function TimeAdmin({ toastOk, toastErr }) {
   const [view, setView] = useState('payroll');   // payroll (the timecard) | attendance | insights | requests | screenshots | shifts | timeoff
   // Live map tab removed Aug 4 - superseded by the top-level Locations map.
   const [payrollEmail, setPayrollEmail] = useState('');   // preselect a person in the Payroll view (from the "to review" badge)
@@ -181,7 +179,6 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     load(true);
   }
   const [person, setPerson] = useState(null);   // employee drill-down (their time portal)
-  const [shiftMode, setShiftMode] = useState('schedule'); // schedule | presets
 
   // Disclosed-monitoring: manager-scoped screenshot gallery (team-scoped API).
   const [shotDate, setShotDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -454,7 +451,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         {[['payroll', 'Payroll', Banknote], ['attendance', 'Attendance', CalendarDays],
           ['requests', 'Punch requests', Inbox, punchReqs.length],
           ['exceptions', 'Missing punches', AlertTriangle, exBlocking],
-          ['screenshots', 'Screenshots', Camera], ['shifts', 'Shifts', CalendarClock],
+          ['screenshots', 'Screenshots', Camera],
           ['billable', 'By location', MapPin],
           ['timeoff', 'Time off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
           const on = view === key;
@@ -748,27 +745,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           );
         })())}
 
-      {/* Shifts - weekly schedule grid + preset/group manager */}
-      {view === 'shifts' && (
-        <>
-          <div className="chip-row" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-            {[['schedule', 'Schedule'], ['presets', 'Presets & groups']].map(([key, label]) => (
-              <button key={key} onClick={() => setShiftMode(key)}
-                style={{ padding: '5px 13px', borderRadius: 999, border: `1px solid ${shiftMode === key ? 'transparent' : 'var(--wk-line2)'}`,
-                  background: shiftMode === key ? 'var(--wk-brand-tint)' : 'var(--card)',
-                  color: shiftMode === key ? 'var(--wk-brand)' : 'var(--muted)',
-                  fontWeight: shiftMode === key ? 700 : 600, fontSize: 12, cursor: 'pointer', fontFamily: 'var(--wk-font)' }}>
-                {label}
-              </button>
-            ))}
-          </div>
-          {shiftMode === 'schedule'
-            ? <ShiftSchedule toastOk={toastOk} toastErr={toastErr} />
-            : <ShiftsPanel
-                people={employees.length ? employees : (rows || []).map(r => ({ email: r.email, name: r.name }))}
-                toastOk={toastOk} toastErr={toastErr} />}
-        </>
-      )}
+      {/* Shifts moved out to its own module in My Desk (Sep 29) - views/Shifts.jsx. */}
 
       {/* Payroll - per-employee, per-pay-period editable timecard */}
       {view === 'payroll' && <PayrollTimecard toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail} />}
