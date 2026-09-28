@@ -803,6 +803,10 @@ def _run_migrations():
             "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
             # Shift activities (Sep 29) - see the Postgres list.
             "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''",
+            # Per-shift color (Sep 29) - see the Postgres list.
+            "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
+            # Group schedulers (Sep 29) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1714,6 +1718,12 @@ def _run_migrations():
         # table - RLS per CLAUDE.md.
         "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS activities_json TEXT DEFAULT ''",
         "ALTER TABLE schedule_day_notes ENABLE ROW LEVEL SECURITY",
+        # A shift's own color, overriding its preset's (Sep 29).
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS color TEXT DEFAULT ''",
+        # Group schedulers + staff availability (Sep 29). Availability is a
+        # new table - RLS per CLAUDE.md.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS scheduler_emails TEXT DEFAULT ''",
+        "ALTER TABLE shift_availability ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

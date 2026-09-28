@@ -19,6 +19,18 @@ const timeSchedMove = vi.fn();
 const timeSchedDayNote = vi.fn();
 const timeSchedUpdate = vi.fn();
 const exportExcel = vi.fn();
+const timeOffList = vi.fn();
+const timeOffDecide = vi.fn();
+const timeSchedDiscardAll = vi.fn();
+const shiftRequestSettingsSave = vi.fn();
+const confirmAsk = vi.fn();
+const timeSchedImport = vi.fn();
+const timeOffTypes = vi.fn();
+const timeOffTypesSave = vi.fn();
+const timeOffOnBehalf = vi.fn();
+const sheetRows = { current: [] };
+vi.mock('xlsx', () => ({ read: () => ({ SheetNames: ['S'], Sheets: { S: {} } }), utils: { sheet_to_json: () => sheetRows.current } }));
+vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmAsk(...a) } }));
 vi.mock('../tasks/exporting', () => ({ exportExcel: (...a) => exportExcel(...a) }));
 vi.mock('../api', () => ({
   api: {
@@ -27,13 +39,20 @@ vi.mock('../api', () => ({
     timeSchedDiscard: (...a) => timeSchedDiscard(...a),
     timeSchedPublish: (...a) => timeSchedPublish(...a), timeSchedCreate: vi.fn(), timeSchedUpdate: (...a) => timeSchedUpdate(...a),
     timeSchedMove: (...a) => timeSchedMove(...a),
+    timeOffList: (...a) => timeOffList(...a),
+    timeOffDecide: (...a) => timeOffDecide(...a),
     timeSchedDayNote: (...a) => timeSchedDayNote(...a),
     timeSchedCheck: (...a) => timeSchedCheck(...a),
     timeSchedCopy: (...a) => timeSchedCopy(...a),
     timeSchedClear: (...a) => timeSchedClear(...a),
     shiftRequestsInbox: (...a) => shiftRequestsInbox(...a),
     shiftRequestDecide: (...a) => shiftRequestDecide(...a),
-    shiftRequestSettingsSave: vi.fn(),
+    shiftRequestSettingsSave: (...a) => shiftRequestSettingsSave(...a),
+    timeSchedDiscardAll: (...a) => timeSchedDiscardAll(...a),
+    timeSchedImport: (...a) => timeSchedImport(...a),
+    timeOffTypes: (...a) => timeOffTypes(...a),
+    timeOffTypesSave: (...a) => timeOffTypesSave(...a),
+    timeOffOnBehalf: (...a) => timeOffOnBehalf(...a),
     timeSchedAssign: vi.fn(), timeSchedBulk: vi.fn(),
   },
 }));
@@ -67,7 +86,8 @@ const shift = (over) => ({
 function data(scheduled) {
   return {
     employees: [{ email: 'amy@greensglobal.com', name: 'Amy Adams' }, { email: 'bob@greensglobal.com', name: 'Bob Brown' }],
-    shifts: [{ id: 'p1', code: 'GST', name: 'Store', start: '09:00', end: '17:00' }],
+    shifts: [{ id: 'p1', code: 'GST', name: 'Store', start: '09:00', end: '17:00' },
+      { id: 'p2', code: 'NGT', name: 'Night', start: '21:00', end: '05:00' }],
     groups: [], scheduled, timeoff: [], holidays: {}, canManage: true,
   };
 }
@@ -88,6 +108,195 @@ beforeEach(() => {
   timeSchedDayNote.mockReset().mockResolvedValue({});
   timeSchedUpdate.mockReset().mockResolvedValue({});
   exportExcel.mockReset().mockResolvedValue();
+  timeOffList.mockReset().mockResolvedValue([]);
+  timeOffDecide.mockReset().mockResolvedValue({});
+  timeSchedDiscardAll.mockReset().mockResolvedValue({ discarded: 2 });
+  shiftRequestSettingsSave.mockReset().mockImplementation(async (c) => c);
+  confirmAsk.mockReset().mockResolvedValue(true);
+  timeSchedImport.mockReset().mockResolvedValue({ created: 2, errorCount: 0, errors: [] });
+  timeOffTypes.mockReset().mockResolvedValue({ builtIn: ['vacation', 'sick', 'personal', 'unpaid', 'other'], custom: ['Jury Duty'], requestsOn: true });
+  timeOffTypesSave.mockReset().mockImplementation(async (b) => ({ builtIn: [], custom: b.custom, requestsOn: true }));
+  timeOffOnBehalf.mockReset().mockResolvedValue({ id: 't9' });
+});
+
+describe('Shift Types rows, print, import, time off from the grid, availability', () => {
+  const toastErr = vi.fn();
+  beforeEach(() => toastErr.mockReset());
+
+  it('shows the week by shift type', async () => {
+    timeSchedule.mockResolvedValue(data([shift(), shift({ id: 's2', email: 'bob@greensglobal.com', shiftId: '', code: '' })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('GST');
+    fireEvent.click(screen.getByText('Shift Types'));
+    const store = document.querySelector('[data-type-row="Store"]');
+    expect(store.textContent).toContain('Amy Adams');
+    expect(document.querySelector('[data-type-row="Custom Times"]').textContent).toContain('Bob Brown');
+    expect(document.querySelector('[data-type-row="Night"]')).toBeNull();   // no shifts, no row
+  });
+
+  it('prints the week in a new window, or says pop-ups are blocked', async () => {
+    const doc = { write: vi.fn(), close: vi.fn() };
+    const win = { document: doc, focus: vi.fn(), print: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(win);
+    timeSchedule.mockResolvedValue(data([shift({ label: 'Front <desk>' })]));
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('GST');
+    fireEvent.click(screen.getByText('Print'));
+    const html = doc.write.mock.calls[0][0];
+    expect(html).toContain(`Schedule ${formatUs(monday)} - ${formatUs(plusDays(monday, 6))}`);
+    expect(html).toContain('Amy Adams');
+    expect(html).toContain('Front &lt;desk&gt;');
+    expect(win.print).toHaveBeenCalled();
+    open.mockReturnValue(null);
+    fireEvent.click(screen.getByText('Print'));
+    expect(toastErr).toHaveBeenCalledWith('Allow pop-ups for this site to print the schedule.');
+    open.mockRestore();
+  });
+
+  it('imports shifts from a spreadsheet and lists what was skipped', async () => {
+    sheetRows.current = [
+      ['Date', 'Employee', 'Email', 'Start', 'End', 'Shift Type'],
+      ['11/16/2026', 'Amy Adams', 'amy@greensglobal.com', '9:00 AM', '5:00 PM', 'GST'],
+      ['11/17/2026', 'Bob Brown', '', '', '', 'GST'],
+      ['someday', 'Amy Adams', '', '9:00 AM', '5:00 PM', ''],
+    ];
+    timeSchedImport.mockResolvedValue({ created: 1, errorCount: 1, errors: ['Row 3: that shift is already on the schedule.'] });
+    timeSchedule.mockResolvedValue(data([]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('Import'));
+    const file = new File(['x'], 'week.xlsx');
+    file.arrayBuffer = async () => new ArrayBuffer(1);
+    fireEvent.change(screen.getByLabelText('Schedule file'), { target: { files: [file] } });
+    expect(await screen.findByText(/2 shifts ready to import · 1 row can't be read/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Import Shifts'));
+    await waitFor(() => expect(timeSchedImport).toHaveBeenCalledWith({ rows: [
+      expect.objectContaining({ row: 2, email: 'amy@greensglobal.com', date: '2026-11-16', start: '09:00', end: '17:00', shift: 'GST' }),
+      expect.objectContaining({ row: 3, email: 'bob@greensglobal.com', date: '2026-11-17', start: '', end: '' }),
+    ] }));
+    expect(await screen.findByText('Row 3: that shift is already on the schedule.')).toBeTruthy();
+    expect(toastOk).toHaveBeenCalledWith('Added 1 shift as drafts. 1 row skipped. Publish to share them.');
+  });
+
+  it('adds time off for a person from the grid and approves it', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('GST'));
+    fireEvent.click(screen.getByText('Add Time Off'));
+    const dialog = await screen.findByRole('dialog', { name: 'Add Time Off' });
+    await waitFor(() => expect(dialog.querySelector('option[value="Jury Duty"]')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Time-off type'), { target: { value: 'Jury Duty' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Time Off' }));
+    await waitFor(() => expect(timeOffOnBehalf).toHaveBeenCalledWith({ employee_email: 'amy@greensglobal.com', type: 'Jury Duty',
+      start_date: monday, end_date: monday, start_time: '', end_time: '', note: '' }));
+    await waitFor(() => expect(timeOffDecide).toHaveBeenCalledWith('t9', { status: 'approved', note: '' }));
+    expect(toastOk).toHaveBeenCalledWith('Time off added for Amy Adams.');
+  });
+
+  it('marks people with limited availability', async () => {
+    timeSchedule.mockResolvedValue({ ...data([]), availability: { 'amy@greensglobal.com': [{ weekday: 0, kind: 'unavailable', start: '', end: '', note: '' },
+      { weekday: 1, kind: 'available', start: '08:00', end: '12:00', note: '' }] } });
+    render(<ShiftSchedule toastOk={toastOk} />);
+    const tag = await screen.findByText('Limited availability');
+    expect(tag.getAttribute('title')).toBe('Availability: Mon unavailable · Tue 8:00 AM - 12:00 PM');
+  });
+
+  it('a group scheduler gets no time off or company settings', async () => {
+    timeSchedule.mockResolvedValue({ ...data([shift()]), groupScheduler: true });
+    const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('GST'));
+    expect(screen.queryByText('Add Time Off')).toBeNull();
+    unmount();
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByLabelText(/^Requests/));
+    await screen.findByRole('dialog', { name: 'Shift Requests' });
+    expect(screen.queryByText('Settings')).toBeNull();
+  });
+
+  it('copies approved time off with the week when asked', async () => {
+    timeSchedCopy.mockResolvedValue({ created: 1, replaced: 0, skipped: 0, timeoffSkipped: 0, timeoffCopied: 2,
+      targetStart: plusDays(monday, 7), targetEnd: plusDays(monday, 13) });
+    timeSchedule.mockResolvedValue(data([shift()]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('Copy Schedule'));
+    fireEvent.click(screen.getByLabelText('Copy approved time off too (as requests to approve)'));
+    fireEvent.click(screen.getByText('Copy Shifts'));
+    await waitFor(() => expect(timeSchedCopy).toHaveBeenCalledWith(expect.objectContaining({ include_timeoff: true })));
+    await waitFor(() => expect(toastOk).toHaveBeenCalledWith(expect.stringContaining('2 time-off requests to approve in Requests')));
+  });
+
+  it('lets admins turn time-off requests off and add reasons', async () => {
+    shiftRequestsInbox.mockResolvedValue({ pending: [], recent: [], settings: { openShifts: true, swaps: true, offers: true, teamSchedules: true, timeOffRequests: true } });
+    timeSchedule.mockResolvedValue(data([]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByLabelText(/^Requests/));
+    fireEvent.click(await screen.findByLabelText('Staff can request time off'));
+    await waitFor(() => expect(shiftRequestSettingsSave).toHaveBeenCalledWith(expect.objectContaining({ timeOffRequests: false })));
+    expect(await screen.findByText('Jury Duty')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('New time-off reason'), { target: { value: 'Bereavement' } });
+    fireEvent.click(screen.getByText('Add Reason'));
+    await waitFor(() => expect(timeOffTypesSave).toHaveBeenCalledWith({ custom: ['Jury Duty', 'Bereavement'] }));
+    fireEvent.click(screen.getByLabelText('Remove Jury Duty'));
+    await waitFor(() => expect(timeOffTypesSave).toHaveBeenLastCalledWith({ custom: ['Bereavement'] }));
+  });
+});
+
+describe('Shift type filter, Discard Changes, shift color, reminder settings', () => {
+  it('filters the grid to one shift type', async () => {
+    timeSchedule.mockResolvedValue(data([shift(), shift({ id: 's2', email: 'bob@greensglobal.com', shiftId: 'p2', code: 'NGT' })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    expect(await screen.findByText('NGT')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Filter by shift type'), { target: { value: 'p1' } });
+    expect(screen.queryByText('NGT')).toBeNull();
+    expect(screen.getByText('GST')).toBeTruthy();
+    fireEvent.click(screen.getByText('Clear Filters'));
+    expect(screen.getByText('NGT')).toBeTruthy();
+  });
+
+  it('discards every unpublished change after confirming', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ hasChanges: true }), shift({ id: 's2', email: 'bob@greensglobal.com', pendingDelete: true })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('Discard Changes (2)'));
+    await waitFor(() => expect(timeSchedDiscardAll).toHaveBeenCalledWith({ start_date: monday, end_date: plusDays(monday, 6) }));
+    expect(confirmAsk).toHaveBeenCalledWith(expect.stringMatching(/^Discard 2 unpublished changes in this week\?/),
+      expect.objectContaining({ title: 'Discard Changes' }));
+    expect(toastOk).toHaveBeenCalledWith('Discarded 2 unpublished changes.');
+  });
+
+  it('does nothing when the discard is not confirmed, and hides with nothing to discard', async () => {
+    confirmAsk.mockResolvedValue(false);
+    timeSchedule.mockResolvedValue(data([shift({ hasChanges: true })]));
+    const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('Discard Changes (1)'));
+    await waitFor(() => expect(confirmAsk).toHaveBeenCalled());
+    expect(timeSchedDiscardAll).not.toHaveBeenCalled();
+    unmount();
+    timeSchedule.mockResolvedValue(data([shift()]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('GST');
+    expect(screen.queryByText(/^Discard Changes/)).toBeNull();
+  });
+
+  it('gives a shift its own color', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('GST'));
+    fireEvent.click(screen.getByLabelText('Color #dc2626'));
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(timeSchedUpdate).toHaveBeenCalledWith('s1', expect.objectContaining({ color: '#dc2626' })));
+  });
+
+  it('turns shift reminders off and changes the lead time', async () => {
+    shiftRequestsInbox.mockResolvedValue({ pending: [], recent: [],
+      settings: { openShifts: true, swaps: true, offers: true, teamSchedules: true, reminders: true, reminderLeadMinutes: 60 } });
+    timeSchedule.mockResolvedValue(data([]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByLabelText(/^Requests/));
+    fireEvent.change(await screen.findByLabelText('Reminder lead time'), { target: { value: '120' } });
+    await waitFor(() => expect(shiftRequestSettingsSave).toHaveBeenCalledWith(expect.objectContaining({ reminderLeadMinutes: 120 })));
+    fireEvent.click(screen.getByLabelText('Remind staff before a scheduled shift'));
+    await waitFor(() => expect(shiftRequestSettingsSave).toHaveBeenLastCalledWith(expect.objectContaining({ reminders: false })));
+    expect(screen.getByLabelText('Reminder lead time').disabled).toBe(true);
+  });
 });
 
 describe('Views, filter, export, drag and drop, day notes, activities', () => {
@@ -176,6 +385,18 @@ describe('Shift requests inbox', () => {
     requester: { email: 'amy@greensglobal.com', name: 'Amy Adams' }, target: { email: 'bob@greensglobal.com', name: 'Bob Brown' },
     note: 'Doctor visit', peerNote: '', createdAt: '2026-09-29T10:00:00' };
 
+  it('lists time off with the shift requests and decides it', async () => {
+    timeOffList.mockResolvedValue([{ id: 't1', email: 'amy@greensglobal.com', name: 'Amy Adams', type: 'vacation',
+      startDate: '2026-10-05', endDate: '2026-10-06', startTime: '', endTime: '', note: 'Family trip', status: 'pending' }]);
+    timeSchedule.mockResolvedValue(data([]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByLabelText('Requests, 1 waiting'));
+    expect(await screen.findByText('Amy Adams · 10/05/2026 - 10/06/2026')).toBeTruthy();
+    fireEvent.click(screen.getByText('Decline'));
+    await waitFor(() => expect(timeOffDecide).toHaveBeenCalledWith('t1', { status: 'rejected', note: '' }));
+    expect(toastOk).toHaveBeenCalledWith('Time off declined. They were told.');
+  });
+
   it('shows how many requests wait, and approves one with a note', async () => {
     shiftRequestsInbox.mockResolvedValue({ pending: [req], recent: [], settings: { openShifts: true, swaps: true, offers: true } });
     timeSchedule.mockResolvedValue(data([]));
@@ -208,7 +429,7 @@ describe('Copy and Clear schedule', () => {
     fireEvent.click(screen.getByText('Copy Shifts'));
     await waitFor(() => expect(timeSchedCopy).toHaveBeenCalledWith({
       source_start: monday, source_end: plusDays(monday, 6), target_start: plusDays(monday, 7), weeks: 1,
-      include_open: true, include_notes: true, skip_timeoff: true, overwrite: false,
+      include_open: true, include_notes: true, skip_timeoff: true, overwrite: false, include_timeoff: false,
     }));
     await waitFor(() => expect(toastOk).toHaveBeenCalledWith(expect.stringMatching(/^Copied 4 shifts to .* as drafts · kept 1 existing\. Publish to share them\.$/)));
   });
@@ -305,7 +526,19 @@ describe('ShiftSchedule unshared changes', () => {
     timeSchedPublish.mockResolvedValue({ published: 3, added: 2, updated: 0, removed: 1, notified: 2 });
     render(<ShiftSchedule toastOk={toastOk} />);
     fireEvent.click(await screen.findByText('Publish 1'));
+    fireEvent.click(screen.getByText('Publish'));
+    await waitFor(() => expect(timeSchedPublish).toHaveBeenCalledWith(expect.objectContaining({ notify: 'changed' })));
     await waitFor(() => expect(toastOk).toHaveBeenCalledWith('Shared with the team: 2 new, 1 removed. 2 people notified.'));
+  });
+
+  it('can tell the whole team when publishing', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ published: false })]));
+    timeSchedPublish.mockResolvedValue({ published: 1, added: 1, updated: 0, removed: 0, notified: 5 });
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('Publish 1'));
+    fireEvent.click(screen.getByText('The whole team'));
+    fireEvent.click(screen.getByText('Publish'));
+    await waitFor(() => expect(timeSchedPublish).toHaveBeenCalledWith(expect.objectContaining({ notify: 'team' })));
   });
 
   it('says a removed published shift stays with the team until publish', async () => {

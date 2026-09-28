@@ -1,20 +1,24 @@
 // Manager inbox for shift requests (Sep 29 2026, Teams Shifts parity):
 // open-shift requests, and swaps/offers the teammate already accepted, for
 // people this manager is responsible for (backend routers/shift_requests.py
-// scopes it). Approve or decline with an optional note; the on/off switches
-// for each request type live here too.
+// scopes it) - and pending TIME-OFF requests too, decided through the same
+// endpoint the time-off screen uses (PATCH /timeclock/timeoff/{id}), so its
+// rules and notifications are unchanged. Approve or decline with an optional
+// note; the on/off switches live here too.
 import { useEffect, useState } from 'react';
-import { X, CheckCircle2, XCircle, ArrowLeftRight, Send, Hand } from 'lucide-react';
+import { X, CheckCircle2, XCircle, ArrowLeftRight, Send, Hand, CalendarOff } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 
 const KIND = { open: ['Open shift', Hand], swap: ['Swap', ArrowLeftRight], offer: ['Offer', Send] };
+const hhmm12 = (v) => { const [h, m] = (v || '0:0').split(':').map(Number); return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
 
-export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastErr }) {
+export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastErr, canConfigure = true }) {
   const [data, setData] = useState(null);
   const [notes, setNotes] = useState({});
   const [busyId, setBusyId] = useState('');
   const [cfg, setCfg] = useState(null);
+  const [timeoff, setTimeoff] = useState(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -22,8 +26,21 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
     api.shiftRequestsInbox()
       .then((r) => { if (live) { setData(r); setCfg(r.settings); } })
       .catch((e) => { if (live) { setData({ pending: [], recent: [] }); toastErr?.(e.message || 'Could not load requests.'); } });
+    api.timeOffList('pending')
+      .then((r) => { if (live) setTimeoff(Array.isArray(r) ? r : []); })
+      .catch(() => { if (live) setTimeoff([]); });
     return () => { live = false; };
   }, [tick, toastErr]);
+
+  async function decideTimeOff(t, approve) {
+    setBusyId(t.id);
+    try {
+      await api.timeOffDecide(t.id, { status: approve ? 'approved' : 'rejected', note: notes[t.id] || '' });
+      toastOk?.(approve ? 'Time off approved. They were told.' : 'Time off declined. They were told.');
+      setTick((x) => x + 1); onChanged?.();
+    } catch (e) { toastErr?.(e.message || 'Could not save the decision.'); }
+    setBusyId('');
+  }
 
   async function decide(r, approve) {
     setBusyId(r.id);
@@ -56,7 +73,7 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
 
         {data === null ? (
           <div style={{ fontSize: 13, color: 'var(--muted)', padding: 16, textAlign: 'center' }}>Loading…</div>
-        ) : data.pending.length === 0 ? (
+        ) : data.pending.length === 0 && !(timeoff || []).length ? (
           <div style={{ fontSize: 13, color: 'var(--muted)', padding: 16, textAlign: 'center' }}>Nothing waiting on you.</div>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
@@ -82,6 +99,33 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
           </div>
         )}
 
+        {(timeoff || []).length > 0 && (
+          <div style={{ marginTop: data?.pending?.length ? 18 : 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Time Off</div>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {timeoff.map((t) => {
+                const when = t.startDate === t.endDate ? formatDate(t.startDate) : `${formatDate(t.startDate)} - ${formatDate(t.endDate)}`;
+                const hours = t.startTime && t.endTime ? `, ${hhmm12(t.startTime)} - ${hhmm12(t.endTime)}` : '';
+                return (
+                  <div key={t.id} style={row}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                      <CalendarOff size={12} /> Time off · {t.type}
+                    </div>
+                    <div style={{ fontSize: 13.5, color: 'var(--ink)', margin: '4px 0' }}>{t.name || t.email} · {when}{hours}</div>
+                    {t.note && <div style={{ fontSize: 12, color: 'var(--muted)' }}>“{t.note}”</div>}
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                      <input className="form-input" aria-label="Note to the employee" placeholder="Note (optional)" value={notes[t.id] || ''}
+                        onChange={(e) => setNotes((n) => ({ ...n, [t.id]: e.target.value }))} style={{ flex: 1, minWidth: 160, fontSize: 12.5 }} />
+                      <button type="button" className="primary-btn" disabled={busyId === t.id} onClick={() => decideTimeOff(t, true)} style={{ fontSize: 12.5 }}>Approve</button>
+                      <button type="button" className="secondary-btn" disabled={busyId === t.id} onClick={() => decideTimeOff(t, false)} style={{ fontSize: 12.5 }}>Decline</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {data?.recent?.length > 0 && (
           <div style={{ marginTop: 18 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Recently Decided</div>
@@ -95,17 +139,67 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
           </div>
         )}
 
-        {cfg && (
+        {cfg && canConfigure && (
           <div style={{ marginTop: 18, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Settings</div>
-            {[['openShifts', 'Staff can request open shifts'], ['swaps', 'Staff can swap shifts with teammates'], ['offers', 'Staff can offer their shifts to teammates']].map(([k, text]) => (
+            {[['openShifts', 'Staff can request open shifts'], ['swaps', 'Staff can swap shifts with teammates'], ['offers', 'Staff can offer their shifts to teammates'],
+              ['teamSchedules', 'Staff can see their teammates’ shifts in My Shifts'],
+              ['timeOffRequests', 'Staff can request time off']].map(([k, text]) => (
               <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer', padding: '3px 0' }}>
                 <input type="checkbox" checked={!!cfg[k]} onChange={(e) => saveCfg({ ...cfg, [k]: e.target.checked })} /> {text}
               </label>
             ))}
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Every request still needs a manager's approval. Turning one off stops new requests of that kind.</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '3px 0', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={cfg.reminders !== false} onChange={(e) => saveCfg({ ...cfg, reminders: e.target.checked })} />
+                Remind staff before a scheduled shift
+              </label>
+              <select className="form-input" aria-label="Reminder lead time" disabled={cfg.reminders === false}
+                value={cfg.reminderLeadMinutes || 60} onChange={(e) => saveCfg({ ...cfg, reminderLeadMinutes: Number(e.target.value) })}
+                style={{ width: 'auto', fontSize: 12.5, padding: '3px 8px' }}>
+                {[15, 30, 45, 60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} ${m === 60 ? 'hour' : 'hours'}`} before</option>)}
+              </select>
+            </div>
+            <TimeOffReasons toastOk={toastOk} toastErr={toastErr} />
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Every request still needs a manager's approval. Turning one off stops new requests of that kind. Hiding teammates’ shifts still lets staff pick a shift to swap for.</div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Custom time-off reasons (Sep 29, Teams parity), e.g. "Jury Duty", next to
+// the built-in Vacation / Sick / Personal / Unpaid / Other. Removing one
+// leaves existing requests of that type as they are.
+function TimeOffReasons({ toastOk, toastErr }) {
+  const [list, setList] = useState(null);
+  const [draft, setDraft] = useState('');
+  useEffect(() => {
+    let live = true;
+    api.timeOffTypes().then((r) => { if (live) setList(r.custom || []); }).catch(() => { if (live) setList([]); });
+    return () => { live = false; };
+  }, []);
+  async function save(next) {
+    try { const r = await api.timeOffTypesSave({ custom: next }); setList(r.custom); setDraft(''); toastOk?.('Time-off reasons saved.'); }
+    catch (e) { toastErr?.(e.message || 'Could not save the reasons.'); }
+  }
+  if (!list) return null;
+  const add = () => { const v = draft.trim(); if (v) save([...list, v]); };
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 12.5, marginBottom: 5 }}>Extra time-off reasons</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        {list.map((r) => (
+          <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, border: '1px solid var(--line)', borderRadius: 999, padding: '2px 4px 2px 10px' }}>
+            {r}
+            <button type="button" aria-label={`Remove ${r}`} onClick={() => save(list.filter((x) => x !== r))}
+              style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', padding: 2 }}><X size={12} /></button>
+          </span>
+        ))}
+        <input className="form-input" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="e.g. Jury Duty" aria-label="New time-off reason"
+          onKeyDown={(e) => { if (e.key === 'Enter') add(); }} style={{ width: 150, fontSize: 12.5, padding: '3px 8px' }} />
+        <button type="button" className="secondary-btn" onClick={add} disabled={!draft.trim()} style={{ fontSize: 12 }}>Add Reason</button>
       </div>
     </div>
   );

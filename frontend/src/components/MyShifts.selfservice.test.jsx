@@ -8,6 +8,9 @@ const timeMySchedule = vi.fn();
 const shiftRequestsMine = vi.fn();
 const shiftRequestCreate = vi.fn();
 const shiftRequestRespond = vi.fn();
+const availabilityMine = vi.fn();
+const availabilitySave = vi.fn();
+vi.mock('./ShiftSchedule', () => ({ default: () => <div>Schedule grid</div> }));
 vi.mock('../api', () => ({
   api: {
     timeMySchedule: (...a) => timeMySchedule(...a),
@@ -15,6 +18,8 @@ vi.mock('../api', () => ({
     shiftRequestCreate: (...a) => shiftRequestCreate(...a),
     shiftRequestRespond: (...a) => shiftRequestRespond(...a),
     shiftRequestCancel: vi.fn(),
+    availabilityMine: (...a) => availabilityMine(...a),
+    availabilitySave: (...a) => availabilitySave(...a),
   },
 }));
 
@@ -35,6 +40,7 @@ const sched = {
 };
 const reqs = (over = {}) => ({
   mine: [], incoming: [], openShifts: [], teammates: [{ email: 'bob@x.com', name: 'Bob Brown' }],
+  swapShifts: { 'bob@x.com': [{ id: 'bob1', email: 'bob@x.com', date: DAY, start: '12:00', end: '20:00', label: '' }] },
   settings: { openShifts: true, swaps: true, offers: true }, ...over,
 });
 
@@ -43,6 +49,40 @@ beforeEach(() => {
   shiftRequestsMine.mockReset().mockResolvedValue(reqs());
   shiftRequestCreate.mockReset().mockResolvedValue({});
   shiftRequestRespond.mockReset().mockResolvedValue({});
+  availabilityMine.mockReset().mockResolvedValue({ days: [] });
+  availabilitySave.mockReset().mockImplementation(async (b) => ({ days: b.days.filter(d => d.kind !== 'any') }));
+});
+
+describe('MyShifts availability and group scheduling', () => {
+  it('sets my availability for the week', async () => {
+    render(<MyShifts />);
+    fireEvent.click(await screen.findByText('Edit Availability'));
+    fireEvent.change(screen.getByLabelText('Monday availability'), { target: { value: 'unavailable' } });
+    fireEvent.change(screen.getByLabelText('Tuesday availability'), { target: { value: 'available' } });
+    fireEvent.change(screen.getByLabelText('Tuesday to'), { target: { value: '12:00' } });
+    fireEvent.click(screen.getByText('Save Availability'));
+    await waitFor(() => expect(availabilitySave).toHaveBeenCalled());
+    const days = availabilitySave.mock.calls[0][0].days;
+    expect(days[0]).toMatchObject({ weekday: 0, kind: 'unavailable' });
+    expect(days[1]).toMatchObject({ weekday: 1, kind: 'available', start: '09:00', end: '12:00' });
+    expect(await screen.findByText('9:00 AM - 12:00 PM')).toBeTruthy();
+  });
+
+  it('opens the schedule for the groups I schedule', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, schedulerOf: [{ id: 'g', name: 'Store' }] });
+    render(<MyShifts />);
+    fireEvent.click(await screen.findByText('Manage Schedule'));
+    expect(await screen.findByText('Schedule grid')).toBeTruthy();
+    expect(screen.getByText('You schedule Store.')).toBeTruthy();
+    fireEvent.click(screen.getByText('Back to My Shifts'));
+    expect(await screen.findByText('Front desk')).toBeTruthy();
+  });
+
+  it('shows no Manage Schedule button to everyone else', async () => {
+    render(<MyShifts />);
+    await screen.findByText('Front desk');
+    expect(screen.queryByText('Manage Schedule')).toBeNull();
+  });
 });
 
 describe('MyShifts self-service', () => {

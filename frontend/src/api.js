@@ -1375,6 +1375,14 @@ export const api = {
   timeSchedClear:    (data)      => req('/timeclock/schedule/clear', { method: 'POST', body: JSON.stringify(data) }),
   // Drag and drop (duplicate = Ctrl-drag copy) and team day notes (Sep 29).
   timeSchedMove:     (id, data)  => req(`/timeclock/schedule/${id}/move`, { method: 'POST', body: JSON.stringify(data) }),
+  // Undo every unpublished edit/removal on published shifts in a range (Sep 29).
+  timeSchedDiscardAll: (data)    => req('/timeclock/schedule/discard-all', { method: 'POST', body: JSON.stringify(data) }),
+  // Shifts extras (Sep 29): spreadsheet import, staff availability, custom time-off reasons.
+  timeSchedImport:   (data)      => req('/timeclock/schedule/import', { method: 'POST', body: JSON.stringify(data) }),
+  availabilityMine:  ()          => req('/timeclock/availability/mine'),
+  availabilitySave:  (data)      => req('/timeclock/availability/mine', { method: 'PUT', body: JSON.stringify(data) }),
+  timeOffTypes:      ()          => req('/timeclock/timeoff/types'),
+  timeOffTypesSave:  (data)      => req('/timeclock/timeoff/types', { method: 'PUT', body: JSON.stringify(data) }),
   timeSchedDayNote:  (data)      => req('/timeclock/schedule/day-note', { method: 'PUT', body: JSON.stringify(data) }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),

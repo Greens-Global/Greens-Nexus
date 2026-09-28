@@ -30,7 +30,7 @@ import models
 from app_url import app_url
 from database import SessionLocal
 
-REMINDER_LEAD_MIN = 60
+REMINDER_LEAD_MIN = 60   # default; admins change it in the Requests inbox settings
 REMINDER_SCAN_SEC = 5 * 60
 _DEFAULT_TZ = "America/Los_Angeles"
 MY_SHIFTS_ACTION = {"view": "timeclock", "sub": "shifts"}
@@ -184,6 +184,25 @@ def notify_published(db: Session, changes: list, actor_email: str, d0: str, d1: 
     return len(by_person)
 
 
+def notify_team(db: Session, emails: set, actor_email: str, d0: str, d1: str) -> int:
+    """Publish with "notify the whole team" (Sep 29, Teams parity): everyone
+    else with a shift in the published range gets one short bell - their own
+    schedule did not change, so no email. Commits; returns how many."""
+    actor = (actor_email or "").lower()
+    span = _us(d0) if d0 == d1 else f"{_us(d0)} - {_us(d1)}"
+    now = datetime.now(timezone.utc).isoformat()
+    n = 0
+    for em in sorted(e for e in emails if e and e != actor):
+        db.add(models.NexusNotification(
+            id=str(uuid.uuid4()), type="custom_alert", recipient=em,
+            title="Schedule published", body=f"The schedule for {span} was published. Open My Shifts to see yours.",
+            ref_id=f"schedule-publish-team:{d0}:{d1}", item_name="", requested_by=actor,
+            action='{"view": "timeclock", "sub": "shifts"}', actioned=False, read_by="", created_at=now))
+        n += 1
+    db.commit()
+    return n
+
+
 # ── Shift reminder ────────────────────────────────────────────────────────
 
 def _local_now(tz: str) -> datetime:
@@ -199,6 +218,11 @@ def reminder_scan_once(db: Session) -> int:
     """Bell every person whose placed, published shift starts within the next
     REMINDER_LEAD_MIN minutes in its own zone. Returns how many were sent."""
     from routers.timeclock import _clocked_in, _company_holidays_for_employee
+    from routers.shift_requests import get_settings as _settings
+    cfg = _settings(db)
+    if not cfg.get("reminders", True):
+        return 0
+    lead = int(cfg.get("reminderLeadMinutes") or REMINDER_LEAD_MIN)
     utc_today = datetime.now(timezone.utc).date()
     lo, hi = (utc_today - timedelta(days=1)).isoformat(), (utc_today + timedelta(days=1)).isoformat()
     rows = (db.query(models.ScheduledShift)
@@ -221,7 +245,7 @@ def reminder_scan_once(db: Session) -> int:
         except ValueError:
             continue
         now = _local_now(tz)
-        if not (start - timedelta(minutes=REMINDER_LEAD_MIN) <= now < start):
+        if not (start - timedelta(minutes=lead) <= now < start):
             continue
         key = _reminder_key(r)
         if db.query(models.NexusNotification.id).filter(models.NexusNotification.ref_id == key).first():

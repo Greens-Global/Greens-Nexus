@@ -56,7 +56,7 @@ class _Case(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         for m in (models.NexusNotification, models.ScheduledShift, models.Shift, models.NexusEmployee,
-                  models.TimeOffRequest, models.TimePunch):
+                  models.TimeOffRequest, models.TimePunch, models.NexusSetting):
             self.db.query(m).delete()
         for em, first in ((AMY, "Amy"), (BOB, "Bob"), (BOSS, "Pat")):
             self.db.add(models.NexusEmployee(id=gen_id(), first_name=first, last_name="Lee", work_email=em))
@@ -146,6 +146,22 @@ class ReminderTests(_Case):
         self.assertEqual(bell.title, "Your shift starts at 9:00 AM")
         self.assertEqual(bell.body, "Today, 09/28/2026 · 9:00 AM - 5:00 PM · Front desk.")
         self.assertEqual(self._scan(), 0)    # once per shift
+
+    def _settings(self, **cfg):
+        import json
+        self.db.add(models.NexusSetting(key="shift_requests_config", value=json.dumps(cfg)))
+        self.db.commit()
+
+    def test_reminders_can_be_turned_off(self):
+        self._placed("09:00")
+        self._settings(reminders=False)
+        self.assertEqual(self._scan(), 0)
+
+    def test_the_lead_time_is_a_setting(self):
+        self._placed("09:30")                # 80 minutes away: too early at 60...
+        self.assertEqual(self._scan(), 0)
+        self._settings(reminderLeadMinutes=90)
+        self.assertEqual(self._scan(), 1)    # ...on time at 90
 
     def test_not_too_early_and_not_after_the_start(self):
         self._placed("09:30")                # 80 minutes away

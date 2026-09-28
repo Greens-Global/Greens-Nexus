@@ -310,6 +310,13 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   // Manager+ files a time-off request FOR an employee (Neil, Aug 11) - the
   // sanctioned path, so nobody needs Act As (Global Admin only) for this.
   const [obo, setObo] = useState(null);   // {email, type, start, end, note} | null
+  // Admin-added time-off reasons (Sep 29), loaded when the form opens.
+  const [oboReasons, setOboReasons] = useState([]);
+  const oboOpen = !!obo;
+  useEffect(() => {
+    if (!oboOpen) return;
+    api.timeOffTypes().then(r => setOboReasons(r.custom || [])).catch(() => {});
+  }, [oboOpen]);
   const [oboBusy, setOboBusy] = useState(false);
   async function saveObo() {
     if (oboBusy) return;
@@ -1216,6 +1223,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               <div><label style={FL}>Type</label>
                 <select className="form-input" value={obo.type} onChange={e => setObo(p => ({ ...p, type: e.target.value }))} style={{ width: '100%' }}>
                   {['vacation', 'sick', 'personal', 'unpaid', 'other'].map(t => <option key={t} value={t}>{t[0].toUpperCase() + t.slice(1)}</option>)}
+                  {oboReasons.map(t => <option key={t} value={t}>{t}</option>)}
                 </select></div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div><label style={FL}>First day</label>

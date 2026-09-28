@@ -26,7 +26,9 @@ with database.engine.connect() as _c:
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
                  "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
                  "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
-                 "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''"):
+                 "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
+                 "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''"):
         try:
             _c.execute(_text(_sql)); _c.commit()
         except Exception:
@@ -184,6 +186,53 @@ class ShiftViewTests(unittest.TestCase):
         self._as(VIEWER)
         self.assertIn(self.client.post(f"/timeclock/schedule/{sid}/move",
                                        json={"employee_email": A, "work_date": TUE}).status_code, (401, 403))
+
+    # ── Per-shift color ───────────────────────────────────────────────────
+
+    def test_a_shift_can_have_its_own_color(self):
+        s = self._place(color="#DC2626")
+        self.assertEqual((s["color"], s["ownColor"]), ("#dc2626", "#dc2626"))
+        plain = self._place(day=TUE)
+        self.assertEqual(plain["ownColor"], "")
+        bad = self.client.post("/timeclock/schedule", json={"employee_email": A, "work_date": MON, "color": "red"})
+        self.assertEqual(bad.status_code, 400)
+
+    def test_a_color_change_on_a_published_shift_waits_for_publish(self):
+        sid = self._place()["id"]
+        self._publish()
+        self.client.patch(f"/timeclock/schedule/{sid}", json={"employee_email": A, "work_date": MON,
+                                                              "start_hhmm": "09:00", "end_hhmm": "17:00", "color": "#16a34a"})
+        self._as(VIEWER)
+        self.assertEqual(self._grid()[0]["ownColor"], "")
+        self._as(ADMIN)
+        self._publish()
+        self._as(VIEWER)
+        self.assertEqual(self._grid()[0]["color"], "#16a34a")
+
+    def test_copy_and_move_keep_the_color(self):
+        sid = self._place(color="#8b5cf6")["id"]
+        self.client.post("/timeclock/schedule/copy", json={"source_start": MON, "source_end": MON, "target_start": TUE})
+        self.client.post(f"/timeclock/schedule/{sid}/move", json={"employee_email": B, "work_date": MON})
+        self.assertEqual({s["ownColor"] for s in self._grid(A) + self._grid(B)}, {"#8b5cf6"})
+
+    # ── Discard all ───────────────────────────────────────────────────────
+
+    def test_discard_all_reverts_edits_and_removals_but_keeps_drafts(self):
+        edited, removed = self._place()["id"], self._place(email=B)["id"]
+        self._publish()
+        self.client.patch(f"/timeclock/schedule/{edited}", json={"employee_email": A, "work_date": MON,
+                                                                 "start_hhmm": "10:00", "end_hhmm": "18:00"})
+        self.client.delete(f"/timeclock/schedule/{removed}")
+        draft = self._place(day=TUE)["id"]
+        r = self.client.post("/timeclock/schedule/discard-all", json={"start_date": MON, "end_date": TUE})
+        self.assertEqual(r.json(), {"discarded": 2})
+        grid = {s["id"]: s for s in self._grid(A) + self._grid(B)}
+        self.assertEqual((grid[edited]["start"], grid[edited]["hasChanges"]), ("09:00", False))
+        self.assertFalse(grid[removed]["pendingDelete"])
+        self.assertIn(draft, grid)                                   # new drafts are left alone
+        self._as(VIEWER)
+        self.assertIn(self.client.post("/timeclock/schedule/discard-all",
+                                       json={"start_date": MON, "end_date": TUE}).status_code, (401, 403))
 
     # ── Day notes ─────────────────────────────────────────────────────────
 

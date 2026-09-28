@@ -84,7 +84,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
   async function saveGroup() {
     if (!groupForm.name.trim()) { toastErr('Name the group.'); return; }
     setBusy(true);
-    const payload = { name: groupForm.name, members: groupForm.members,
+    const payload = { name: groupForm.name, members: groupForm.members, schedulers: groupForm.schedulers || [],
       teams_chat_id: groupForm.teamsChatId || '', teams_chat_name: groupForm.teamsChatName || '' };
     try {
       if (groupForm.id) await api.timeShiftGroupSet(groupForm.id, payload);
@@ -164,7 +164,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
           <span className="wkc-chip"><Users size={14} /></span>
           <span style={{ fontSize: 13.5, fontWeight: 600 }}>Groups</span>
           <div style={{ flex: 1 }} />
-          <button className="secondary-btn" onClick={() => { setChatList(null); setGroupForm({ name: '', members: [], teamsChatId: '', teamsChatName: '' }); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <button className="secondary-btn" onClick={() => { setChatList(null); setGroupForm({ name: '', members: [], schedulers: [], teamsChatId: '', teamsChatName: '' }); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <Plus size={12} /> New group
           </button>
         </div>
@@ -175,7 +175,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
             <div key={g.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 <span style={{ fontSize: 13, fontWeight: 800, flex: 1 }}>{g.name}</span>
-                <button onClick={() => { setChatList(null); setGroupForm({ id: g.id, name: g.name, members: g.members, teamsChatId: g.chatId || '', teamsChatName: g.chatName || '' }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}>Edit</button>
+                <button onClick={() => { setChatList(null); setGroupForm({ id: g.id, name: g.name, members: g.members, schedulers: g.schedulers || [], teamsChatId: g.chatId || '', teamsChatName: g.chatName || '' }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}>Edit</button>
                 <button onClick={() => delGroup(g.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', display: 'flex' }}><Trash2 size={12} /></button>
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>
@@ -298,6 +298,24 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
                 const on = groupForm.members.includes(em);
                 return <button key={em} style={chip(on)} onClick={() => setGroupForm({ ...groupForm, members: on ? groupForm.members.filter(x => x !== em) : [...groupForm.members, em] })}>{nameOf(em)}</button>;
               })}
+            </div>
+
+            {/* Schedulers (Sep 29, Teams "scheduling owner" per team): people who
+                can build THIS group's schedule without being a manager. */}
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Schedulers - can build this group's schedule from My Workday &gt; Shifts, even without manager access</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                {(groupForm.schedulers || []).map(em => (
+                  <button key={em} style={chip(true)} aria-label={`Remove scheduler ${nameOf(em)}`}
+                    onClick={() => setGroupForm({ ...groupForm, schedulers: groupForm.schedulers.filter(x => x !== em) })}>{nameOf(em)} ×</button>
+                ))}
+                <select className="form-input" value="" aria-label="Add a scheduler" style={{ width: 'auto', fontSize: 12.5 }}
+                  onChange={e => { const em = e.target.value; if (em) setGroupForm({ ...groupForm, schedulers: [...(groupForm.schedulers || []), em] }); }}>
+                  <option value="">Add a scheduler…</option>
+                  {people.map(p => emailOf(p)).filter(em => em && !(groupForm.schedulers || []).includes(em))
+                    .map(em => <option key={em} value={em}>{nameOf(em)}</option>)}
+                </select>
+              </div>
             </div>
 
             {/* Bind the Teams group chat where this group's BOD/EOD/Break messages go */}
