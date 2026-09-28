@@ -4,29 +4,22 @@
 // value is: saved here > the server's env var > the built-in default, inside
 // hard bounds the server enforces (the ranges shown here are informational;
 // the server is the boundary). Administrators can read; only a Global Admin
-// (owner) can save. Turning step-up enforcement or MFA-required off asks for
-// an explicit confirm, and a switch the server config forces on is locked.
+// (owner) can save. A switch the server config forces on is locked.
+//
+// The "Re-Authentication for Sensitive Actions" group (step-up sign-in
+// before vault/pay/HR screens, and its MFA/unlock-duration/freshness knobs)
+// was removed from here on request (Pranshu, Sep 28 - "not really helpful"
+// as an admin-facing control). Those settings still exist and still work
+// exactly as before (security_config.py, stepupEnforce/stepupRequireMfa/
+// stepupTtlSec/stepupMaxAgeSec) - they are just no longer editable from this
+// screen, the same as before this page existed. Only Sessions and Guest
+// Sign-In are shown.
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RotateCcw, Lock } from 'lucide-react';
 import { api } from '../api';
-import { dialog } from '../ui/dialog';
 import { SkeletonBlocks } from '../components/AsyncState';
 
 const GROUPS = [
-  {
-    title: 'Re-Authentication for Sensitive Actions',
-    desc: 'Before showing vault secrets, other people\'s pay and confidential HR records, Nexus can ask the person to sign in to Microsoft again.',
-    fields: [
-      { key: 'stepupEnforce', label: 'Require Re-Authentication',
-        desc: 'When on, sensitive screens ask for a fresh Microsoft sign-in first. Turning it off removes that check for everyone.' },
-      { key: 'stepupRequireMfa', label: 'Require Multi-Factor Verification',
-        desc: 'When on, the fresh sign-in must include a second factor (Authenticator, text message). Turn it on only once MFA is enabled for every account, or people will be blocked.' },
-      { key: 'stepupTtlSec', label: 'Unlock Duration',
-        desc: 'How long one re-authentication unlocks sensitive screens. Longer means fewer prompts but a longer window if a signed-in computer is left unattended.' },
-      { key: 'stepupMaxAgeSec', label: 'Sign-In Freshness',
-        desc: 'How recent the Microsoft sign-in must be to count. Shorter is stricter; too short can reject people on slow connections.' },
-    ],
-  },
   {
     title: 'Sessions',
     desc: 'How long people stay signed in and how long temporary access lasts.',
@@ -60,7 +53,6 @@ const GROUPS = [
 ];
 
 const SOURCE_LABEL = { saved: 'Saved', env: 'Set by server config', default: 'Default' };
-const LABELS = Object.fromEntries(GROUPS.flatMap(g => g.fields.map(f => [f.key, f.label])));
 
 function friendly(value, unit) {
   if (unit === 'seconds') {
@@ -142,18 +134,12 @@ export default function SecuritySettings({ toastOk, toastErr }) {
   };
 
   async function save() {
-    // A switch that is on today and would be off after Save weakens sign-in.
-    const weakened = Object.keys(changes).filter(k => settings[k].type === 'bool' && settings[k].value === true
-      && (changes[k] === false || (changes[k] === null && !(settings[k].hasEnv ? settings[k].envValue : settings[k].default))));
-    if (weakened.length) {
-      const ok = await dialog.confirm(
-        `Turning off ${weakened.map(k => `"${LABELS[k]}"`).join(' and ')} weakens sign-in security for everyone. Sensitive screens will open without the extra check. Continue?`,
-        { title: 'Weaken Sign-In Security?', confirmText: 'Turn Off', danger: true });
-      if (!ok) return;
-    }
+    // No boolean toggle is shown on this page any more (the safety-toggle
+    // group was removed), so nothing here can weaken sign-in - the "are you
+    // sure" confirm that used to guard turning one off is gone with it.
     setBusy(true);
     try {
-      const d = await api.updateSecuritySettings(changes, weakened.length > 0);
+      const d = await api.updateSecuritySettings(changes, false);
       setData(d); setDraft({});
       toastOk?.('Security settings saved.');
     } catch (e) {

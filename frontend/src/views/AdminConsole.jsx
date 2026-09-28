@@ -172,8 +172,8 @@ const GLOBAL_SECTIONS = [
     sub: 'The item types and extra fields available to everyone when adding or editing items.',
     keywords: 'inventory equipment catalog fields types' },
   { id: 'sign-in-sessions', category: 'security', icon: ShieldCheck, title: 'Sign-In & Sessions',
-    sub: 'Re-authentication for sensitive screens, how long web, Act As and Credential Vault sessions last, and guest sign-in codes.',
-    keywords: 'step-up reauthentication mfa multi-factor session timeout idle act as vault unlock guest partner code lockout invite security' },
+    sub: 'How long web, Act As and Credential Vault sessions last, and guest sign-in codes.',
+    keywords: 'session timeout idle act as vault unlock guest partner code lockout invite security' },
   { id: 'brand-color', category: 'branding', icon: Palette, title: 'Brand Color',
     sub: 'The accent color used across Nexus and on the sign-in screen.',
     keywords: 'accent theme green blue login color' },
@@ -982,13 +982,14 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'hr-reminders':         return <HrRemindersSection key={key} defaultOpen={single} />;
       case 'equipment-reminders':  return <LazyPanelSection key={key} id={id} Panel={EquipmentReminderSettings} defaultOpen={single} />;
       case 'item-types':           return <ItemSettingsSection key={key} defaultOpen={single} toast={toast} />;
+      // No accordion wrapper (Pranshu, Sep 28): Security has exactly one
+      // section, so a collapsible "Sign-In & Sessions" card underneath the
+      // category's own header just repeated it - same treatment as 'access'.
       case 'sign-in-sessions':
         return (
-          <Section key={key} icon={ShieldCheck} title={SECTION_META[id].title} sub={SECTION_META[id].sub} defaultOpen={single}>
-            <Suspense fallback={<SectionFallback />}>
-              <SecuritySettings toastOk={toastOk} toastErr={toastErr} />
-            </Suspense>
-          </Section>
+          <Suspense key={key} fallback={<SkeletonBlocks count={4} height={56} borderRadius={10} />}>
+            <SecuritySettings toastOk={toastOk} toastErr={toastErr} />
+          </Suspense>
         );
       case 'brand-color':          return <LazyPanelSection key={key} id={id} Panel={BrandColorPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'email-appearance':     return <LazyPanelSection key={key} id={id} Panel={EmailAppearancePanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
