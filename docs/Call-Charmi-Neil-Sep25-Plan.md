@@ -18,39 +18,66 @@ any site yet), ✅ live on PRODUCTION.
 
 ## Status - 09/29/2026
 
-Branches, local only, nothing pushed:
-- Nexus `feature/charmi-neil-sep25` (off dev 6cd0263d)
-- Accounting `feature/nexus-reports-sep25` (off main e3cc9a7)
+Nothing is live on a site yet except the database fix for the September
+zeros (A3), which took effect when its migration was applied on 09/28.
 
-Release order (the accounting side first, Nexus needs it):
-1. Accounting database migrations:
-   - APPLIED to the production accounting database on 09/28:
-     `20260928100000_lms_core_same_month_tail.sql` (the September zeros fix,
-     live for the accounting app and Nexus as soon as it was applied) and
-     `20260928110000_nexus_reports_book_columns_entry.sql`.
-   - NOT applied yet: `20260929100000_nexus_report_columns.sql` (the Columns
-     layouts, B10). Apply it before the accounting app is pushed.
-2. Push accounting `main` (Cloudflare deploys it). Until this is live the new
-   Nexus screens have nothing to call: the cash book, the column filters, By
-   Month and the other column layouts, Leasing receipts.
-3. Push Nexus `dev`, then release to `main`. Nine new Nexus tables are
-   created on boot with RLS on: `accounting_saved_reports`,
-   `accounting_report_packages`, `accounting_user_prefs`, `pfs_profiles`,
-   `pfs_lines`, `pfs_statements`, `leases`, `lease_rates`, `lease_months`.
-   Run `get_advisors` on dev and prod after each.
+Where everything is:
+- Accounting database (production): all three migrations APPLIED -
+  `20260928100000_lms_core_same_month_tail.sql`,
+  `20260928110000_nexus_reports_book_columns_entry.sql`,
+  `20260929100000_nexus_report_columns.sql`.
+- Accounting repo: branch `feature/nexus-reports-sep25` (3 commits on main
+  e3cc9a7) is PUSHED to GitHub as a branch. `main` is untouched, so nothing
+  is deployed.
+- Nexus repo, local only, not pushed:
+  - `feature/charmi-neil-sep25` - the whole batch, with dev (e078df92)
+    merged in. This is what goes to `dev`.
+  - `release/charmi-neil-sep25` - the batch cherry-picked onto production
+    `main` (508347c6), nothing of anyone else's unreleased dev work in it.
+    This is what goes to `main`.
+
+To release, in this order (the accounting app first, Nexus calls it):
+1. Accounting: merge `feature/nexus-reports-sep25` into `main` and push
+   (Cloudflare deploys it). Until this is live the new Nexus screens have
+   nothing to call, and the Cash book would show accrual figures.
+2. Nexus dev: `git push origin feature/charmi-neil-sep25:dev` (a fast
+   forward). Run `get_advisors` on dev.
+3. Nexus production: push `release/charmi-neil-sep25` and merge it into
+   `main`. Run `get_advisors` on prod. Nine new tables are created on boot
+   with RLS on: `accounting_saved_reports`, `accounting_report_packages`,
+   `accounting_user_prefs`, `pfs_profiles`, `pfs_lines`, `pfs_statements`,
+   `leases`, `lease_rates`, `lease_months`.
 4. After release, on production:
    - Roles & Access: grant "Personal Financial Statements" to whoever builds
      the statements with Charmi (nobody has it by default; administrators are
      not let in by role, Global Admins are).
-   - People - Companies: check each company has its HR contact, since punch
-     and time-off requests now reach that person.
+   - People - Companies: check each company has its HR contact (needed once
+     F-item "HR hears requests" is released, see below).
    - F3: set the eight named people to Exempt.
 
-Verified locally: 950 frontend tests, every backend test file this work
-touches, production build (9,803 KB of a 9,900 KB budget), and each screen
-opened in a browser against a local stand-in for the accounting service with
-made-up figures. NOT verified: the new screens against the real ledger -
-nothing is deployed.
+Held back from production: "the company's HR contact hears punch and time-off
+requests". It builds on the team alert recipients Pranshu added on dev on
+09/26, which are not on `main` yet, so it goes out with the next dev -> main
+release. It IS in the dev branch. The screen half of the same commit (alerts
+off the Time screen, header switches behind Options) is in the release.
+
+Bundle budget: the release build measures 9,483 KB against production's cap
+of 9,600, so `main` needs no change. On dev the Shifts work and this batch
+together measure 9,900 KB, so the dev branch raises the cap to 10,000 - that
+needs the owner's nod like the earlier bumps.
+
+Verified locally:
+- dev branch: 1,007 frontend tests, production build, the batch's backend
+  tests (52). Of the 118 backend test files, 111 pass; the 7 that fail
+  (e-sign paper return, roles and upload fields, external auth and users,
+  policy config, task batch mail) fail the same way on dev without this
+  batch.
+- release branch: 786 frontend tests, production build, the batch's backend
+  tests (45), the app starts.
+- Every screen opened in a browser against a local stand-in for the
+  accounting service with made-up figures; the PDF with a column per month
+  opened and read.
+NOT verified: the new screens against the real ledger - nothing is deployed.
 
 
 ## A. Bugs seen live on production
