@@ -106,7 +106,12 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // headroom left - so the Tasks mobile fix (floating + on Home, New Task sheet
 // kept above the iPhone keyboard) tipped it with under 1 KB. Owner asked
 // (Sagar). The mammoth note above is still the real lever.
-const TOTAL_KB     = 9700;
+// Sep 29, 2026: 9700 -> 9800. Shifts QA gap list item 6 (Day and Month
+// views, filter, Excel export, drag and drop, day notes, shift activities)
+// plus D3 measured 9717 KB on CI - 17 KB over. Owner asked (Sagar). Splitting
+// the Shifts screen into lazy chunks would not move this number (the budget
+// sums every shipped .js file); only dropping a dependency does.
+const TOTAL_KB     = 9800;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

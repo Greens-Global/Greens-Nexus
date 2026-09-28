@@ -35,7 +35,8 @@ with database.engine.connect() as _c:
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_json TEXT DEFAULT ''",
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
                  "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
-                 "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0"):
+                 "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
+                 "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''"):
         try:
             _c.execute(_text(_sql)); _c.commit()
         except Exception:
@@ -81,6 +82,13 @@ class ConflictRuleTests(unittest.TestCase):
         off[0]["startTime"] = "12:00"
         self.assertEqual(_shift_conflicts(me, [], off, {}),
                          ["Overlaps approved time off (personal, 12:00 PM - 4:00 PM)."])
+
+    def test_a_zero_length_shift_overlaps_nothing(self):
+        # QA D3: start == end used to be read as 24 hours and clash with the day.
+        self.assertEqual(_shift_conflicts(_s("2026-09-28", "09:00", "17:00"),
+                                          [_s("2026-09-28", "10:00", "10:00", "o")], [], {}), [])
+        self.assertEqual(_shift_conflicts(_s("2026-09-28", "10:00", "10:00"),
+                                          [_s("2026-09-28", "09:00", "17:00", "o")], [], {}), [])
 
     def test_company_holiday(self):
         w = _shift_conflicts(_s("2026-09-28", "09:00", "17:00"), [], [],
@@ -191,6 +199,21 @@ class ConflictAndBreakApiTests(unittest.TestCase):
         q = f"/timeclock/schedule/check?email={A}&date={DATE}&start=12:00&end=18:00"
         self.assertEqual(len(self.client.get(q).json()["warnings"]), 1)
         self.assertEqual(self.client.get(q + f"&exclude_id={sid}").json()["warnings"], [])
+
+    def test_start_and_end_at_the_same_time_is_refused(self):
+        # QA D3: not a 24-hour shift - a typo.
+        same = {"start_hhmm": "09:00", "end_hhmm": "09:00"}
+        r = self.client.post("/timeclock/schedule", json={"employee_email": A, "work_date": DATE, **same})
+        self.assertEqual((r.status_code, r.json()["detail"]), (400, "Start and end can't be the same time."))
+        sid = self._place()["id"]
+        r = self.client.patch(f"/timeclock/schedule/{sid}", json={"employee_email": A, "work_date": DATE, "shift_id": SHIFT, **same})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post("/timeclock/schedule/bulk", json={"emails": [A], "start_date": DATE, "end_date": DATE, **same})
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post("/timeclock/shifts", json={"name": "Bad", **same})
+        self.assertEqual(r.status_code, 400)
+        # Overnight is still fine.
+        self.assertEqual(self._place(start_hhmm="22:00", end_hhmm="06:00")["end"], "06:00")
 
     def test_saving_is_never_blocked_by_a_warning(self):
         self._place()
