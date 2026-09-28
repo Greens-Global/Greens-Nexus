@@ -35,6 +35,7 @@ from routers import stepup  # Step-up MFA for sensitive data (vault/payroll/HR) 
 import act_as  # Act As: Manager/IT Admin/Global Admin can impersonate a lower-role employee (Jul 2026)
 from routers import branding  # Branding settings: login-screen accent color (Jul 2026)
 from routers import daily_briefing as daily_briefing_router  # Daily Briefing admin config (Aug 2026) - see daily_briefing.py
+from routers import weekly_digest as weekly_digest_router  # Weekly Digest admin config (Sep 2026) - see weekly_digest.py
 from routers import egnyte  # Egnyte module: browse/upload at the right folder level (Jul 2026)
 from routers import external_links  # External Links directory rebuild (Aug 2026) - own file, see its docstring
 from routers import link_layouts  # Per-user Links Module personalization overlay (Aug 13) - own file, see its docstring
@@ -2233,6 +2234,11 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] daily briefing loop skipped: {e}")
         try:
+            from weekly_digest import weekly_digest_loop
+            _tasks.append(_a.create_task(weekly_digest_loop()))
+        except Exception as e:
+            print(f"[startup] weekly digest loop skipped: {e}")
+        try:
             from accounting_sso import accounting_sso_sync_loop
             _tasks.append(_a.create_task(accounting_sso_sync_loop()))
         except Exception as e:
@@ -2661,6 +2667,7 @@ app.include_router(stepup.router)         # Step-up MFA for sensitive data (vaul
 app.include_router(act_as.router)         # Act As: impersonate a lower-role employee's account
 app.include_router(branding.router)       # Branding settings: login-screen accent color
 app.include_router(daily_briefing_router.router)  # Daily Briefing admin config (mode/test recipients)
+app.include_router(weekly_digest_router.router)  # Weekly Digest admin config (mode/schedule/log)
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
 from routers import client_errors          # noqa: E402
 app.include_router(client_errors.router)  # Client-side error intake -> audit trail + logs

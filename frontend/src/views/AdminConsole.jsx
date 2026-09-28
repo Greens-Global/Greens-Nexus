@@ -68,6 +68,7 @@ import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
 import DailyBriefingSettings from '../components/DailyBriefingSettings';
+import WeeklyDigestSettings from '../components/WeeklyDigestSettings';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
 // admin actually opens that section.
@@ -124,7 +125,7 @@ const GLOBAL_CATEGORIES = [
   { key: 'organization',   label: 'Organization',   Icon: Building2,
     desc: 'Email signatures and the work sites employees punch in at.' },
   { key: 'notifications',  label: 'Notifications & Communications', Icon: Bell,
-    desc: 'Where tickets go and who hears about them, how task emails are sent and batched, the daily briefing, when HR is reminded about expiring documents, and equipment reminders.' },
+    desc: 'Where tickets go and who hears about them, how task emails are sent and batched, the daily briefing and weekly digest, when HR is reminded about expiring documents, and equipment reminders.' },
   { key: 'access',         label: 'Access',         Icon: Shield, adminOnly: true,
     desc: 'Who can open which module: each person\'s access, access groups, and the full access matrix. Job roles are set per company, under Company Settings.' },
   { key: 'items',          label: 'Items',          Icon: Package,
@@ -154,6 +155,9 @@ const GLOBAL_SECTIONS = [
   { id: 'daily-briefing', category: 'notifications', icon: Mail, title: 'Daily Briefing',
     sub: 'A daily summary email for each employee. Send it to everyone, or to a few test recipients first.',
     keywords: 'digest summary email morning test recipients' },
+  { id: 'weekly-digest', category: 'notifications', icon: Mail, title: 'Weekly Digest',
+    sub: "A Monday email listing each employee's overdue tasks with their due dates, sent before their shift. Send it to everyone, or to a few test recipients first.",
+    keywords: 'weekly digest summary email overdue tasks due dates extend monday shift test recipients' },
   { id: 'hr-reminders', category: 'notifications', icon: CalendarClock, title: 'HR & Compliance Reminders',
     sub: 'Choose how many days ahead HR is warned about visa and right-to-work expiry, contract ends, new starters, expiring documents and unsigned signature requests.',
     keywords: 'hr people visa right to work immigration expiry expiring contract end new starter onboarding document compliance e-sign signature chase nudge reminder days before alerts timing bell' },
@@ -324,6 +328,16 @@ function DailyBriefingSection({ defaultOpen }) {
   return (
     <Section {...SECTION_META['daily-briefing']} defaultOpen={defaultOpen}>
       <DailyBriefingSettings />
+    </Section>
+  );
+}
+
+// ── Weekly Digest ──────────────────────────────────────────────────────────
+// Global-Admin only, like the Daily Briefing (WeeklyDigestSettings.jsx).
+function WeeklyDigestSection({ defaultOpen }) {
+  return (
+    <Section {...SECTION_META['weekly-digest']} defaultOpen={defaultOpen}>
+      <WeeklyDigestSettings />
     </Section>
   );
 }
@@ -964,6 +978,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'service-desk':         return <ServiceDeskSection key={key} defaultOpen={single} />;
       case 'task-notifications':   return <TaskNotificationsSection key={key} defaultOpen={single} />;
       case 'daily-briefing':       return <DailyBriefingSection key={key} defaultOpen={single} />;
+      case 'weekly-digest':        return <WeeklyDigestSection key={key} defaultOpen={single} />;
       case 'hr-reminders':         return <HrRemindersSection key={key} defaultOpen={single} />;
       case 'equipment-reminders':  return <LazyPanelSection key={key} id={id} Panel={EquipmentReminderSettings} defaultOpen={single} />;
       case 'item-types':           return <ItemSettingsSection key={key} defaultOpen={single} toast={toast} />;
