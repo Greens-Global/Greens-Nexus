@@ -76,14 +76,26 @@ export function geocode(query) {
  * to a real address string in one round trip rather than a second reverse-geocode call.
  * Shares the same cache + rate-limited queue as geocode() (same fair-use constraint).
  */
-export function geocodeSearch(query) {
-  const cacheKey = `full:${query}`;
-  const cache = readGeocodeCache();
-  if (cacheKey in cache) {
-    return Promise.resolve(cache[cacheKey] === 'null' ? null : cache[cacheKey]);
-  }
+const ADDRESS_ABBREVIATIONS = [
+  [/\bhwy\b\.?/gi, 'Highway'], [/\bblvd\b\.?/gi, 'Boulevard'], [/\bpkwy\b\.?/gi, 'Parkway'],
+  [/\bave\b\.?/gi, 'Avenue'], [/\bst\b\.?(?=\s*,|$)/gi, 'Street'], [/\brd\b\.?/gi, 'Road'],
+  [/\bdr\b\.?/gi, 'Drive'], [/\bln\b\.?/gi, 'Lane'], [/\bct\b\.?/gi, 'Court'],
+];
 
-  const request = geocodeQueueTail
+// OpenStreetMap often spells the street out ("Highway", not "Hwy") and files a
+// rural address under a hamlet rather than the mailing city (469 Bohemian Hwy,
+// "Sebastopol" is "Freestone" in OSM), so one exact string can return nothing
+// while a slightly looser one hits. Try the query as typed, then with street
+// suffixes expanded, then with the city dropped (street + state/ZIP only).
+function searchVariants(query) {
+  const expanded = ADDRESS_ABBREVIATIONS.reduce((s, [re, full]) => s.replace(re, full), query);
+  const parts = expanded.split(',').map((p) => p.trim()).filter(Boolean);
+  const noCity = parts.length >= 3 ? [parts[0], ...parts.slice(2)].join(', ') : '';
+  return [...new Set([query, expanded, noCity].filter(Boolean))];
+}
+
+function nominatimSearchOnce(query) {
+  return geocodeQueueTail
     .then(() => new Promise((resolve) => setTimeout(resolve, GEOCODE_REQUEST_DELAY_MS)))
     .then(() =>
       fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(query), {
@@ -92,14 +104,30 @@ export function geocodeSearch(query) {
         .then((r) => r.json())
         .then((results) => {
           const hit = results && results[0];
-          const result = hit ? { coord: [+hit.lat, +hit.lon], address: hit.display_name } : null;
-          writeGeocodeCacheEntry(cacheKey, result);
-          return result;
+          return hit ? { coord: [+hit.lat, +hit.lon], address: hit.display_name } : null;
         })
-        .catch(() => null)
     );
+}
 
-  geocodeQueueTail = request.catch(() => {});
+export function geocodeSearch(query) {
+  const cacheKey = `full2:${query}`;   // full2: skips misses cached before the fallback variants existed
+  const cache = readGeocodeCache();
+  if (cacheKey in cache) {
+    return Promise.resolve(cache[cacheKey] === 'null' ? null : cache[cacheKey]);
+  }
+
+  // Sequential on the shared queue (Nominatim fair use), stopping at the first hit.
+  const request = (async () => {
+    for (const variant of searchVariants(query)) {
+      const step = nominatimSearchOnce(variant);
+      geocodeQueueTail = step.catch(() => {});
+      let result = null;
+      try { result = await step; } catch { return null; }   // network error: don't cache a miss
+      if (result) { writeGeocodeCacheEntry(cacheKey, result); return result; }
+    }
+    writeGeocodeCacheEntry(cacheKey, null);
+    return null;
+  })();
   return request;
 }
 
