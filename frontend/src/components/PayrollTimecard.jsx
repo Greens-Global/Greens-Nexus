@@ -148,7 +148,7 @@ const distText = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
 function outOfLocationHint(site, dist) {
   return site ? `Not at any of their work sites. Nearest: ${site}, ${distText(dist || 0)} away.` : 'Not at any of their work sites.';
 }
-function LocCell({ seg }) {
+export function LocCell({ seg }) {
   if (!seg) return <span style={{ color: 'var(--muted)' }}>-</span>;
   const geo = seg.geo || '';
   const site = seg.workSite || '';
@@ -157,8 +157,8 @@ function LocCell({ seg }) {
   const outDiffers = !!seg.out && geoOut && (geoOut !== geo || (seg.workSiteOut || '') !== site);
   const outTail = outDiffers ? (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: geoOut === 'out_of_fence' ? '#b45309' : geoOut === 'no_location' ? '#b91c1c' : 'var(--muted)' }}
-      title={geoOut === 'out_of_fence' ? `Out punch: ${outOfLocationHint(seg.workSiteOut, seg.distanceOut)}` : geoOut === 'no_location' ? 'Out punch: no location shared' : geoOut === 'no_site' ? 'Out punch: none of their work sites is on the map yet' : `Out punch: ${seg.workSiteOut || geoOut}`}>
-      <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out of Location' : geoOut === 'no_location' ? 'Out: location off' : geoOut === 'no_site' ? 'Out: no site mapped' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
+      title={geoOut === 'out_of_fence' ? `Out punch: ${outOfLocationHint(seg.workSiteOut, seg.distanceOut)}` : geoOut === 'no_location' ? 'Out punch: no location shared' : geoOut === 'no_site' ? 'Out punch: none of their work sites is on the map yet' : geoOut === 'low_accuracy' ? 'Out punch: only a rough location (no GPS) - too rough to tell which site' : `Out punch: ${seg.workSiteOut || geoOut}`}>
+      <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out of Location' : geoOut === 'no_location' ? 'Out: location off' : geoOut === 'no_site' ? 'Out: no site mapped' : geoOut === 'low_accuracy' ? 'Out: approx.' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
     </span>
   ) : null;
   if (geo === 'no_location') return (
@@ -177,6 +177,16 @@ function LocCell({ seg }) {
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--muted)' }}
       title="Location was shared, but none of their work sites is on the map yet. Map it under Settings - Companies - Work Sites.">
       <MapPin size={12} style={{ flexShrink: 0 }} /> No Site Mapped{outTail}
+    </span>
+  );
+  // A rough location (no GPS - a desktop's IP/Wi-Fi fix, worse than ±500 m) is
+  // too coarse to put the punch at any site. It used to print the NEAREST site's
+  // name here with a grey pin, which read as "she was at Menifee" when she was in
+  // Temecula (Charmi, Sep 29). Say what it is; the nearest site is a hint only.
+  if (geo === 'low_accuracy') return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--muted)' }}
+      title={`This punch came with only a rough location (no GPS on the device), too rough to tell which work site it was at.${site ? ` Nearest work site to that rough point: ${site}.` : ''} Punching from a phone gives a precise location.`}>
+      <MapPin size={12} style={{ flexShrink: 0 }} /> Approx. Location{outTail}
     </span>
   );
   if (!site) return outTail || <span style={{ color: 'var(--muted)' }}>-</span>;
@@ -1527,7 +1537,7 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEm
   // Clicking the location dot opens the Geofence Punch view for this person and
   // period (SwipeClock-style map + punch table, Charmi Sep 25).
   const openMap = (e) => { e.stopPropagation(); if (!locateEmail) return; onLocate?.(); };
-  const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Out of Location${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'no_site' ? 'No work site mapped' : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : 'GPS only');
+  const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Out of Location${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'no_site' ? 'No work site mapped' : geo === 'low_accuracy' ? 'Approx. location - no GPS, too rough to tell which site' : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : 'GPS only');
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {geo && (locateEmail

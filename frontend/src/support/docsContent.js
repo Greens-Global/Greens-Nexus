@@ -231,7 +231,7 @@ export const DOCS = [
       { name: 'Clock', desc: 'Punch In, Start Break, End Break and Punch Out, with today\'s punches and location tags.' },
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick and vacation hours show on their own lines.' },
       { name: 'Time Off', desc: 'Request time off and see what is coming up. Approved, Pending, Rejected and Cancelled requests are all listed.' },
-      { name: 'Location Tag', desc: 'Each punch shows the work site you were at when you punched, even if you move between several sites in a day. A punch away from all of your work sites shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded.' },
+      { name: 'Location Tag', desc: 'Each punch shows the work site you were at when you punched, even if you move between several sites in a day. A punch away from all of your work sites shows Out of Location. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. Remote staff can punch from anywhere, and their location is still recorded.' },
     ],
     manager: {
       title: 'Managers & Admins',
