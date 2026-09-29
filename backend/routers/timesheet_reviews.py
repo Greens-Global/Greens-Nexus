@@ -48,6 +48,14 @@ def _as_reviewer(db: Session, user: dict, r: TimesheetReview) -> str:
     return me
 
 
+@router.get("/waiting")
+def waiting(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Timesheets submitted to the caller for review - the list at the top of
+    People > Time (Sep 29). Empty for anyone nobody reports to."""
+    me = (user.get("email") or "").lower()
+    return {"reviews": [tsr.queue_row(db, r) for r in tsr.waiting_on(db, me)]}
+
+
 @router.post("/submit")
 def submit(body: SubmitIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     r = tsr.submit(db, user["email"], (body.start or "").strip(), body.note)

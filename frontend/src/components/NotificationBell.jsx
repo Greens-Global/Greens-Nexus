@@ -490,6 +490,17 @@ export default function NotificationBell({ onNavigate }) {
     return (view === 'tickets' && !can('administrator') && !myGrantedModules.has('tickets')) ? 'support' : view;
   }
 
+  // Timesheet review bells name the employee + period (timesheet_review._notify,
+  // Sep 29): open THAT timecard in People > Time, same two-halves handoff as
+  // tasks and tickets (lib/pendingOpen.js).
+  function openTimecardFor(n) {
+    const email = n.action?.timecard;
+    if (!email) return;
+    const detail = { email, start: n.action.start || '', payType: n.action.payType || '' };
+    setPendingOpen('timecard', detail);
+    setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-timecard', { detail })), 0);
+  }
+
   function handleUpdateClick(n) {
     markRead(n.id);
     let dest = destinationFor(n);
@@ -527,6 +538,7 @@ export default function NotificationBell({ onNavigate }) {
         setPendingOpen('ticket', ticketId);
         setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } })), 0);
       }
+      openTimecardFor(n);
     }
   }
 
@@ -916,6 +928,7 @@ export default function NotificationBell({ onNavigate }) {
                               setPendingOpen('ticket', ticketId);
                               setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } })), 0);
                             }
+                            openTimecardFor(n);
                           }}
                           style={{ marginTop: 8, background: 'none', border: 'none', padding: 0, fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-blue))', cursor: 'pointer', fontFamily: 'Inter, sans-serif', letterSpacing: '.01em' }}>
                           {n.action.label}

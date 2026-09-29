@@ -556,9 +556,32 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
                     } for r in reqs],
                 })
     rows.extend(_timecard_rows(db, email))
+    rows.extend(_timesheet_review_rows(db, email))
     rows.extend(_item_action_rows(db, email, bool(my_reports)))
     rows.extend(_ticket_action_rows(db, email))
     rows.extend(_esign_action_rows(db, email))
+    return rows
+
+
+def _timesheet_review_rows(db: Session, email: str) -> list:
+    """Timesheets submitted to this person for review (Sep 29) - one row each,
+    opening that employee's card for that period in People > Time. Send Back
+    needs a note and Agree may be refused for a still-open period, so these are
+    "Open in Nexus" rather than one-click actions."""
+    import timesheet_review as tsr
+    from urllib.parse import quote
+    rows = []
+    for r in tsr.waiting_on(db, email):
+        q = tsr.queue_row(db, r)
+        hours = f"{q['workedMin'] // 60}h {q['workedMin'] % 60:02d}m"
+        rows.append({
+            "title": f"Review {q['name']}'s timesheet",
+            "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - {hours}"
+                      + (" - resubmitted" if q["resubmitted"] else ""),
+            "url": (f"{app_url()}/hr/hr-time?timecard={quote(r.employee_email)}"
+                    f"&start={r.period_start}&type={r.pay_type}"),
+            "module": "timecard",
+        })
     return rows
 
 
@@ -860,6 +883,7 @@ _SECTION_META = {
     # Weekly Digest (weekly_digest.py, Sep 28) - rendered by the same code.
     "overdue":         ("Overdue Tasks",                       "#b91c1c", "Overdue"),
     "team_overdue":    ("Your Team's Overdue Work",            "#b45309", "Team members behind"),
+    "pending":         ("Still to Do",                         "#b45309", "Still to do"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
 # Each section's tables carry that section's color (Pranshu, Sep 26): a light
@@ -872,6 +896,7 @@ _TONE = {
     "completed":       ("#f3fbf5", "#dff3e6", "#bfe3cb"),
     "overdue":         ("#fef5f5", "#fce4e4", "#f1c7c7"),
     "team_overdue":    ("#fffaf0", "#fdefd5", "#f0d6a8"),
+    "pending":         ("#fffaf0", "#fdefd5", "#f0d6a8"),
 }
 
 _MODULE_META = {
@@ -1001,7 +1026,9 @@ def _sub_actions_html(row: dict, tone: tuple) -> str:
     lines = "".join(
         f"<tr><td style='padding:6px 0;font-size:12.5px;color:{_BODY};border-top:1px solid {tone[2]}'>{escape(s['detail'])}</td>"
         f"<td align='right' style='padding:6px 0 2px;border-top:1px solid {tone[2]};white-space:nowrap'>"
-        f"{_decision_buttons(s['action_kind'], s['action_id'], s['action_email'])}</td></tr>"
+        # A copy for someone else (the Weekly Digest's test mode) carries the
+        # dates without the act-as-them buttons.
+        f"{_decision_buttons(s['action_kind'], s['action_id'], s['action_email']) if s.get('action_kind') else ''}</td></tr>"
         for s in subs)
     return f"<table width='100%' cellpadding='0' cellspacing='0' style='margin-top:8px;border-collapse:collapse'>{lines}</table>"
 

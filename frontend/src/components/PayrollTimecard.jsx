@@ -185,14 +185,26 @@ function LocCell({ seg }) {
 const _timecardCache = new Map();
 const _tcKey = (self, email, start, end) => self ? `self:${start}` : (email ? `${email}:${start}:${end}` : '');
 
-export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '' }) {
+// The period anchor for a review's period start (Sep 29): a salaried month
+// anchors mid-month (the same UTC-drift-safe day the month snap uses), an
+// hourly one on its bi-weekly period.
+function anchorForStart(startIso, payType) {
+  const [y, m, d] = (startIso || '').split('-').map(Number);
+  if (!y) return null;
+  return payType === 'fixed' ? new Date(y, m - 1, 15) : periodStartFor(new Date(y, m - 1, d));
+}
+
+export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '', initialStart = '', initialPayType = '' }) {
   const self = selfMode;   // employee viewing their OWN timecard (from /my-payroll)
   const [people, setPeople] = useState([]);
   const [email, setEmail] = useState(initialEmail);
   // Jump to a specific employee when the caller changes initialEmail (e.g. the
   // "N to review" badge in TimeAdmin opens that person's card).
   useEffect(() => { if (initialEmail) setEmail(initialEmail); }, [initialEmail]);
-  const [pStart, setPStart] = useState(() => periodStartFor(new Date()));
+  // Opened on a specific period (Timesheets to Review, the bell, the briefing
+  // link): start there, and don't let the first-load snaps move it.
+  const seeded = useRef(!selfMode && !!anchorForStart(initialStart, initialPayType));
+  const [pStart, setPStart] = useState(() => (!selfMode && anchorForStart(initialStart, initialPayType)) || periodStartFor(new Date()));
   // Seed from the module cache so a reopen renders the last card immediately (no loader).
   const [data, setData] = useState(() => {
     const s = isoDate(pStart), e = isoDate(pStart.getTime() + 13 * DAY);
@@ -291,7 +303,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // Fixed employees are paid by MONTH, but the default period anchor is the
   // bi-weekly Sunday (which can fall in the previous month). On the first fixed
   // load, snap to the CURRENT month so they don't open on last month by default.
-  const fixedSnapped = useRef(false);
+  const fixedSnapped = useRef(seeded.current);
   useEffect(() => {
     if (!data || data.payType !== 'fixed' || fixedSnapped.current) return;
     fixedSnapped.current = true;
@@ -308,6 +320,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // employee's grid off its Sunday anchor and break SwipeClock parity for the session.
   useEffect(() => {
     if (self) return;
+    if (seeded.current) { seeded.current = false; return; }   // keep the period we were opened on
     fixedSnapped.current = false;
     setPStart(periodStartFor(new Date()));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -668,9 +681,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                         </span>
                       );
                     })}
-                    {self && !fin && (
+                    {!fin && (
                       <button onClick={() => setBreakFix({ date: r.ds, breaks: r.breaks })}
-                        title="Ask your approver to add a break punch that didn't record"
+                        title={self ? "Ask your approver to add a break punch that didn't record" : 'Add the missing break punch'}
                         style={{ background: 'none', border: 'none', padding: 0, marginLeft: 2, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
                         Fix a Break Punch
                       </button>
@@ -919,7 +932,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           toastOk={toastOk} toastErr={toastErr} self={self} />
       )}
       {breakFix && (
-        <BreakFixModal day={breakFix} busy={busy} setBusy={setBusy}
+        <BreakFixModal day={breakFix} email={email} self={self} busy={busy} setBusy={setBusy}
           onDone={() => { setBreakFix(null); load(); }} onClose={() => setBreakFix(null)}
           toastOk={toastOk} toastErr={toastErr} />
       )}
@@ -974,6 +987,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   const mgrAp = data.approval;
   const [openPunches, setOpenPunches] = useState({});   // date -> show every punch pair
   const [openBreaks, setOpenBreaks] = useState({});     // date -> show each break window
+  const [breakFix, setBreakFix] = useState(null);       // { date, breaks } - fixing a break punch
   const byDate = Object.fromEntries((data.days || []).map(d => [d.date, d]));
   const fixedDays = data.fixedDays || [];
   const monthLabel = data.periodStart ? new Date(data.periodStart + 'T00:00').toLocaleDateString([], { month: 'long', year: 'numeric' }) : '';
@@ -1094,6 +1108,11 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 }
               }
               const dayBreak = (d?.breakMin || 0) + breaks.reduce((a, b) => a + b.min, 0);
+              // The day's Start Break / End Break windows (d.breakMin above). A
+              // break the clock-out closed (implicit) never ended - it blocks
+              // sign-off, so it is flagged and fixable here (Sep 29).
+              const formal = segs.flatMap(s => s.breaks || []);
+              const unendedBreak = formal.some(b => b.implicit);
               const overBreak = dayBreak > 60;             // 60 min/day allowance
               const breakFg = dayBreak <= 0 ? 'var(--muted)' : overBreak ? '#b91c1c' : 'hsl(var(--color-green))';
 
@@ -1229,10 +1248,21 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               }
 
               // ── Expanded: each break window (clock-out -> next clock-in + duration) ──
-              if (breaksOpen && dayBreak > 0) rows.push(
+              if ((breaksOpen || unendedBreak) && dayBreak > 0) rows.push(
                 <tr key={fd.date + '-br'} style={{ background: 'var(--wk-hover)' }}>
                   <td colSpan={8} style={{ ...td, whiteSpace: 'normal', fontSize: 12 }}>
                     <span style={{ fontWeight: 700, color: breakFg, marginRight: 10 }}>Breaks - {hhmm(dayBreak)} {overBreak ? '(over the 60 min allowance)' : '(within 60 min)'}</span>
+                    {formal.map((b, i) => (
+                      <span key={'f' + i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: b.implicit ? 'rgba(185,28,28,0.07)' : 'var(--card)', border: `1px solid ${b.implicit ? 'rgba(185,28,28,0.4)' : 'var(--line)'}`, borderRadius: 999, padding: '2px 9px', margin: '2px 6px 2px 0', fontSize: 11.5 }}>
+                        {t12(b.start)} <ArrowRight size={10} style={{ opacity: 0.6 }} /> {t12(b.end)}
+                        <span style={{ fontWeight: 700, marginLeft: 3 }}>({hhmm(b.min)})</span>
+                        {b.implicit && (
+                          <span title="This break was never ended - the day's clock-out closed it, so all of this time counts as unpaid break." style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#b91c1c', fontWeight: 700 }}>
+                            <AlertTriangle size={10} /> never ended
+                          </span>
+                        )}
+                      </span>
+                    ))}
                     {breaks.map((b, i) => (
                       <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '2px 9px', margin: '2px 6px 2px 0', fontSize: 11.5 }}>
                         {t12(b.start)} <ArrowRight size={10} style={{ opacity: 0.6 }} /> {t12(b.end)}
@@ -1240,6 +1270,13 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                       </span>
                     ))}
                     {offClockGaps > 0 && <span style={{ color: 'var(--muted)', fontStyle: 'italic', marginLeft: 4 }}>· {offClockGaps} longer gap{offClockGaps === 1 ? '' : 's'} off the clock (not counted as break)</span>}
+                    {!fin && (
+                      <button onClick={() => setBreakFix({ date: fd.date, breaks: formal })}
+                        title={self ? "Ask your approver to add a break punch that didn't record" : 'Add the missing break punch'}
+                        style={{ background: 'none', border: 'none', padding: 0, marginLeft: 6, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: unendedBreak ? '#b91c1c' : 'var(--wk-brand)' }}>
+                        {unendedBreak ? 'Fix the Break End' : 'Fix a Break Punch'}
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
@@ -1343,6 +1380,11 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           onDone={() => { setEditDay(null); load(); }} onClose={() => setEditDay(null)}
           toastOk={toastOk} toastErr={toastErr} self={self} />
       )}
+      {breakFix && (
+        <BreakFixModal day={breakFix} email={email} self={self} busy={busy} setBusy={setBusy}
+          onDone={() => { setBreakFix(null); load(); }} onClose={() => setBreakFix(null)}
+          toastOk={toastOk} toastErr={toastErr} />
+      )}
       {geoMap && (
         <GeofencePunchModal email={geoMap} name={data?.name || nameFor?.(geoMap) || geoMap} start={data?.periodStart || ''} end={data?.periodEnd || ''} onClose={() => setGeoMap('')} />
       )}
@@ -1445,7 +1487,12 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEm
 // day they could see was wrong and no way to say so - which is exactly what got
 // reported. Same gated route as every other fix: a PunchRequest, nothing moves
 // on pay until it is approved.
-function BreakFixModal({ day, busy, setBusy, onDone, onClose, toastOk, toastErr }) {
+// Sep 29: a manager (self = false) fixes the break straight on the card - the
+// same POST /timeclock/punches their "+ add" uses, so the employee is told and
+// the change is on record. An employee (self) still sends a request for their
+// approver, as before. Before this a break that never ended could not be fixed
+// by a manager at all, and it blocks sign-off.
+export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onDone, onClose, toastOk, toastErr }) {
   // A break the day's clock-out closed (implicit) is one whose END never landed -
   // by far the common case, so open on it with its start time already known.
   const unended = (day.breaks || []).find(b => b.implicit);
@@ -1459,7 +1506,7 @@ function BreakFixModal({ day, busy, setBusy, onDone, onClose, toastOk, toastErr 
   const label = kind === 'break_end' ? 'End Break' : 'Start Break';
 
   async function save() {
-    if (!reason.trim()) { toastErr?.('Add a reason so your approver can confirm it.'); return; }
+    if (!reason.trim()) { toastErr?.(self ? 'Add a reason so your approver can confirm it.' : 'Add a reason - it is kept on record.'); return; }
     // An end that isn't after its start can't be approved (the server re-checks
     // the sequence), so catch it here rather than after a round trip.
     if (kind === 'break_end' && unended?.start && new Date(at) <= new Date(utcToInput(unended.start))) {
@@ -1467,8 +1514,13 @@ function BreakFixModal({ day, busy, setBusy, onDone, onClose, toastOk, toastErr 
     }
     setBusy(true);
     try {
-      await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tz, reason: reason.trim() });
-      toastOk?.('Request sent to your approver - nothing changes on your timecard until they approve it.');
+      if (self) {
+        await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tz, reason: reason.trim() });
+        toastOk?.('Request sent to your approver - nothing changes on your timecard until they approve it.');
+      } else {
+        await api.timeAddPunch({ employee_email: email, kind, at: inputToUtc(at), tz_offset_min: tz, note: reason.trim() });
+        toastOk?.(kind === 'break_end' ? 'Break end added - the timecard is updated.' : 'Break start added - the timecard is updated.');
+      }
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
       onDone();
     } catch (e) { toastErr?.(e?.message || 'Could not send the request.'); }
@@ -1481,37 +1533,37 @@ function BreakFixModal({ day, busy, setBusy, onDone, onClose, toastOk, toastErr 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div role="dialog" aria-modal="true" aria-label="Request a missing break punch"
+      <div role="dialog" aria-modal="true" aria-label={self ? 'Request a missing break punch' : 'Fix a break punch'}
         style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 'clamp(400px, 50vw, 560px)', padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>Request a Missing Break Punch</span>
+          <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{self ? 'Request a Missing Break Punch' : 'Fix a Break Punch'}</span>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{new Date(day.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
         {unended && (
           <div style={{ fontSize: 12, lineHeight: 1.55, color: '#b45309', background: 'rgba(180,83,9,0.09)', border: '1px solid rgba(180,83,9,0.25)', borderRadius: 10, padding: '9px 12px', marginBottom: 12 }}>
-            Your break started at {t12(unended.start)} and was never ended, so the clock-out closed it
-            and all {hhmm(unended.min)} of it counts as unpaid break. Set the time you actually came back.
+            {self ? 'Your' : 'The'} break started at {t12(unended.start)} and was never ended, so the clock-out closed it
+            and all {hhmm(unended.min)} of it counts as unpaid break. Set the time {self ? 'you' : 'they'} actually came back.
           </div>
         )}
         <div style={{ display: 'grid', gap: 12 }}>
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>Which punch is missing
             <select className="form-input" value={kind} onChange={e => setKind(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
-              <option value="break_end">End Break - I came back and it didn&apos;t record</option>
-              <option value="break_start">Start Break - my break start didn&apos;t record</option>
+              <option value="break_end">{self ? 'End Break - I came back and it didn\'t record' : 'End Break - the break end is missing'}</option>
+              <option value="break_start">{self ? 'Start Break - my break start didn\'t record' : 'Start Break - the break start is missing'}</option>
             </select>
           </label>
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>{label} time
             <input autoFocus type="datetime-local" className="form-input" value={at} onChange={e => setAt(e.target.value)} style={{ width: '100%', fontSize: 13 }} />
           </label>
-          <label style={{ fontSize: 11, color: 'var(--muted)' }}>Reason (sent to your approver - not the time)
+          <label style={{ fontSize: 11, color: 'var(--muted)' }}>{self ? 'Reason (sent to your approver - not the time)' : 'Reason (kept on record and shown to the employee)'}
             <input className="form-input" value={reason} onChange={e => setReason(e.target.value)}
-              placeholder="Why it's missing - e.g. ended my break on my phone and it didn't record" style={{ width: '100%', fontSize: 13 }} />
+              placeholder={self ? "Why it's missing - e.g. ended my break on my phone and it didn't record" : 'Why - e.g. confirmed with them they were back at 1:00 PM'} style={{ width: '100%', fontSize: 13 }} />
           </label>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy}>{busy ? '…' : 'Send Request'}</button>
+          <button className="primary-btn" onClick={save} disabled={busy}>{busy ? '…' : self ? 'Send Request' : 'Save Break'}</button>
         </div>
       </div>
       {guard.confirming && (

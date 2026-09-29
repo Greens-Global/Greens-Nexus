@@ -48,6 +48,13 @@ describe('TimesheetReviewPanel', () => {
     expect(screen.getByText('Resubmit')).toBeInTheDocument();
   });
 
+  it('tells the manager up front why Agree is not available yet (Sep 29)', () => {
+    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'with_manager', canAgree: true, canSendBack: true,
+      agreeBlocker: 'This period runs to 09/30/2026. You can agree to it after that day, once every day is in.' }} />);
+    expect(screen.getByRole('note')).toHaveTextContent('This period runs to 09/30/2026');
+    expect(screen.getByText(/Agree & Send for Signature/).closest('button')).toBeDisabled();
+  });
+
   it('shows who has signed and opens Nexus Sign for my turn', () => {
     render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'signing', turn: 'manager', myPartyId: 'p-mgr',
       agreedBy: 'mgr@x.com', agreedAt: '2026-09-20T10:00:00Z',

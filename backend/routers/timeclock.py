@@ -1100,14 +1100,42 @@ def _blocking_exceptions(db: Session, email: str, start: str, end: str) -> list:
     return [e for e in _period_exceptions(db, email, start, end) if e["blocking"]]
 
 
-def _exceptions_409(exc: list):
+# What each blocking exception is, in words a person can act on (Sep 29: the
+# old message called every one a "missing clock-out", so a break that never
+# ended sent people looking for a clock-out that was there all along).
+_EXCEPTION_FIX = {
+    "missing_out":       "no clock-out - add the out time",
+    "out_without_in":    "a clock-out with no clock-in - add the in time or remove the out",
+    "missing_break_end": "a break that never ended - click its Break time to set when it ended",
+}
+
+
+def _exception_summary(exc: list) -> str:
+    """'08/05/2026: a break that never ended - ...; 08/12/2026: no clock-out - ...'"""
+    def us(d):
+        try:
+            return datetime.strptime(d, "%Y-%m-%d").strftime("%m/%d/%Y")
+        except (TypeError, ValueError):
+            return d or ""
+    seen, parts = set(), []
+    for e in sorted(exc, key=lambda x: (x["date"], x["type"])):
+        key = (e["date"], e["type"])
+        if key not in seen:
+            seen.add(key)
+            parts.append(f"{us(e['date'])}: {_EXCEPTION_FIX.get(e['type'], e.get('label') or e['type'])}")
+    return "; ".join(parts)
+
+
+def _exceptions_409(exc: list, can_override: bool = True):
+    """`can_override`: the caller has an override (approve / finalize take
+    allow_exceptions); agreeing to a timesheet review does not."""
     n = len(exc)
-    days = ", ".join(sorted({e["date"] for e in exc}))
     raise HTTPException(409, {
         "code": "unresolved_exceptions",
-        "message": (f"{n} unresolved punch exception{'s' if n != 1 else ''} "
-                    f"({days}) must be fixed before sign-off. Add the missing "
-                    f"clock-out(s) on the timesheet, or override to sign off anyway."),
+        "message": (f"Fix {'this' if n == 1 else f'these {n} problems'} on the timesheet before sign-off - "
+                    f"{_exception_summary(exc)}."
+                    + (" Or override to sign off anyway." if can_override
+                       else " Or send it back to the employee to fix.")),
         "exceptions": exc})
 
 
