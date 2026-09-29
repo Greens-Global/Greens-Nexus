@@ -35,6 +35,10 @@ const ASK_TYPES = [
   ['question', 'Question for HR'], ['other', 'Something else'],
 ];
 
+// Same labels as the HR module's EMP_TYPES (HR.jsx) - not imported, that
+// chunk is far too big to pull into My HR. Raw "full_time" read "full time".
+const EMP_TYPE_LABEL = { full_time: 'Full-Time', part_time: 'Part-Time', contractor: 'Contractor', intern: 'Intern' };
+
 const fmtD = (iso) => formatDateLong(iso, '-');
 const hm = (min) => `${Math.floor((min || 0) / 60)}h ${String((min || 0) % 60).padStart(2, '0')}m`;
 const fmtT = (v) => !v ? '-' : (String(v).includes('T') ? formatTime(v, '-') : v);
@@ -438,7 +442,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                 <Row Icon={CalendarDays} label="Start date" value={fmtD(profile.startDate)} />
                 <Row Icon={Network} label="Reports to" value={profile.manager} />
                 <Row Icon={MapPin} label="Location" value={profile.location} />
-                <Row Icon={Building2} label="Employment" value={(profile.employmentType || '').replace('_', ' ')} />
+                <Row Icon={Building2} label="Employment" value={EMP_TYPE_LABEL[profile.employmentType] || (profile.employmentType || '').replace(/_/g, ' ')} />
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0 2px' }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>Contact & emergency</span>
