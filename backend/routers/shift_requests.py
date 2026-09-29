@@ -32,8 +32,9 @@ time-off and timecard alerts use (_team_alert_recipients).
 """
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -44,7 +45,7 @@ import models
 from auth import get_current_user
 from database import get_db
 from routers.timeclock import (require_schedule_write, require_shift_manage, SHIFT_MANAGE_LEVEL, _visible_emails,
-                               _team_alert_recipients, _require_unscoped_team, _sched_dict, _hm12)
+                               _team_alert_recipients, _require_unscoped_team, _sched_dict, _hm12, _shift_local_now)
 
 router = APIRouter(prefix="/timeclock/shift-requests", tags=["Shift Requests"])
 
@@ -55,7 +56,15 @@ _DEFAULTS = {"openShifts": True, "swaps": True, "offers": True, "teamSchedules":
              # Shift reminders (shift_notify.py): on/off and minutes before start.
              "reminders": True, "reminderLeadMinutes": 60,
              # Staff can request time off themselves (routers/timeclock.py).
-             "timeOffRequests": True}
+             "timeOffRequests": True,
+             # What staff see of their TEAMMATES in My Shifts (Teams "Visibility").
+             # Reasons stay hidden unless turned on, and a confidential request
+             # never shows its reason to a teammate either way.
+             "teamTimeOffReasons": False, "teamShiftDetails": True,
+             # The zone a shift with no preset runs on, and a new preset starts
+             # with (Teams "Team time zone"). A preset keeps its own zone.
+             "timeZone": "America/Los_Angeles"}
+_TEXT_SETTINGS = ("timeZone",)
 REMINDER_LEAD_MIN, REMINDER_LEAD_MAX = 15, 240
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
@@ -67,10 +76,31 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def _today() -> str:
-    # UTC date; a shift "today or later" anywhere in the world is still
-    # askable, and yesterday's cannot be.
-    return (datetime.now(timezone.utc)).date().isoformat()
+def _earliest_today() -> str:
+    """The calendar date in the zone furthest behind UTC - the lower bound a
+    query can use before each shift is judged in its own zone (_upcoming)."""
+    return (datetime.now(timezone.utc) - timedelta(hours=12)).date().isoformat()
+
+
+def _zone_ok(tz) -> bool:
+    try:
+        ZoneInfo(str(tz or ""))
+        return bool(tz)
+    except (ZoneInfoNotFoundError, ValueError):
+        return False
+
+
+def shift_zone(row, presets: dict, cfg: dict) -> str:
+    """The zone a placed shift runs on: its preset's, else the team's."""
+    p = presets.get(row.shift_id)
+    return (p.timezone if p is not None and p.timezone else "") or cfg.get("timeZone") or _DEFAULTS["timeZone"]
+
+
+def _upcoming(row, presets: dict, cfg: dict) -> bool:
+    """Today or later IN THE SHIFT'S OWN ZONE. The UTC date used to decide
+    this, so after 5:00 PM Pacific the rest of today's shifts could not be
+    swapped, offered or asked for."""
+    return (row.work_date or "") >= _shift_local_now(shift_zone(row, presets, cfg)).date().isoformat()
 
 
 def _us(iso: str) -> str:
@@ -101,6 +131,9 @@ def get_settings(db: Session) -> dict:
                             cfg[k] = max(REMINDER_LEAD_MIN, min(REMINDER_LEAD_MAX, int(saved[k])))
                         except (TypeError, ValueError):
                             pass
+                    elif k in _TEXT_SETTINGS:
+                        if _zone_ok(saved[k]):
+                            cfg[k] = str(saved[k])
                     else:
                         cfg[k] = bool(saved[k])
         except (TypeError, ValueError):
@@ -116,6 +149,9 @@ class SettingsIn(BaseModel):
     reminders: Optional[bool] = None
     reminderLeadMinutes: Optional[int] = None
     timeOffRequests: Optional[bool] = None
+    teamTimeOffReasons: Optional[bool] = None   # staff see why a teammate is off
+    teamShiftDetails: Optional[bool] = None     # staff see teammates' notes, activities and breaks
+    timeZone: Optional[str] = None
 
 
 @router.get("/settings")
@@ -125,7 +161,9 @@ def read_settings(user: dict = Depends(get_current_user), db: Session = Depends(
 
 @router.put("/settings")
 def save_settings(body: SettingsIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
-    _require_unscoped_team(user, db)   # company-wide switches, like shift groups
+    _require_unscoped_team(user, db, "Changing shift settings")   # company-wide switches, like shift groups
+    if body.timeZone is not None and not _zone_ok(body.timeZone):
+        raise HTTPException(400, "Pick a time zone from the list.")
     lead = body.reminderLeadMinutes
     if lead is not None and not REMINDER_LEAD_MIN <= lead <= REMINDER_LEAD_MAX:
         raise HTTPException(400, f"Remind between {REMINDER_LEAD_MIN} and {REMINDER_LEAD_MAX} minutes before a shift.")
@@ -161,7 +199,10 @@ def _names(db: Session) -> dict:
 def _live_shift(db: Session, shift_id: str):
     """A published, not-being-removed shift today or later, else None."""
     r = db.query(models.ScheduledShift).filter(models.ScheduledShift.id == shift_id).first()
-    if not r or not r.published or r.pending_delete or (r.work_date or "") < _today():
+    if not r or not r.published or r.pending_delete:
+        return None
+    preset = db.query(models.Shift).filter(models.Shift.id == r.shift_id).first() if r.shift_id else None
+    if not _upcoming(r, {preset.id: preset} if preset else {}, get_settings(db)):
         return None
     return r
 
@@ -231,14 +272,14 @@ def my_requests(start: str = "", end: str = "", user: dict = Depends(get_current
     cfg = get_settings(db)
     open_shifts = []
     if cfg["openShifts"] and start and end:
-        lo = max(start[:10], _today())
+        lo = max(start[:10], _earliest_today())
         presets = {s.id: s for s in db.query(models.Shift).all()}
         asked = {r.shift_id for r in mine if r.kind == "open" and r.status in PENDING}
         for r in (db.query(models.ScheduledShift)
                   .filter(models.ScheduledShift.employee_email == "", models.ScheduledShift.published == 1,
                           models.ScheduledShift.work_date >= lo, models.ScheduledShift.work_date <= end[:10])
                   .order_by(models.ScheduledShift.work_date, models.ScheduledShift.start_hhmm).all()):
-            if r.pending_delete or int(r.open_slots or 0) < 1:
+            if r.pending_delete or int(r.open_slots or 0) < 1 or not _upcoming(r, presets, cfg):
                 continue
             d = _sched_dict(r, presets)
             d["requested"] = r.id in asked
@@ -252,10 +293,10 @@ def my_requests(start: str = "", end: str = "", user: dict = Depends(get_current
         presets = {s.id: s for s in db.query(models.Shift).all()}
         for r in (db.query(models.ScheduledShift)
                   .filter(models.ScheduledShift.employee_email.in_(list(mates)), models.ScheduledShift.published == 1,
-                          models.ScheduledShift.work_date >= max(start[:10], _today()),
+                          models.ScheduledShift.work_date >= max(start[:10], _earliest_today()),
                           models.ScheduledShift.work_date <= end[:10])
                   .order_by(models.ScheduledShift.work_date, models.ScheduledShift.start_hhmm).all()):
-            if not r.pending_delete:
+            if not r.pending_delete and _upcoming(r, presets, cfg):
                 swap_shifts.setdefault((r.employee_email or "").lower(), []).append(_sched_dict(r, presets))
     return {"mine": [_to_dict(r, names) for r in mine], "incoming": [_to_dict(r, names) for r in incoming],
             "openShifts": open_shifts, "settings": cfg, "swapShifts": swap_shifts,

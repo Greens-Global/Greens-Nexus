@@ -962,7 +962,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   {timeoffLabel(r)}{r.confidential && <ConfidentialMark />}
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note || undefined}>
-                  {r.startDate} → {r.endDate}{partial ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : ''}{r.note ? ' · “' + r.note + '”' : ''}
+                  {r.startDate} → {r.endDate}{partial ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : ''}{r.note ? ` · Reason: ${r.note}` : r.redacted ? '' : ' · No reason given'}
                   {r.requestedBy && r.requestedBy !== r.email && (
                     <span style={{ fontStyle: 'italic' }}> · filed by {r.requestedByName || r.requestedBy.split('@')[0].replace(/\./g, ' ')}</span>
                   )}
@@ -1151,7 +1151,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     <span style={{ fontWeight: 700, textTransform: t.redacted ? 'none' : 'capitalize', width: 80, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                       {timeoffLabel(t)}{t.confidential && <ConfidentialMark />}
                     </span>
-                    <span style={{ color: 'var(--muted)', flex: 1 }}>{t.startDate} → {t.endDate}{t.note ? ` · “${t.note}”` : ''}</span>
+                    <span style={{ color: 'var(--muted)', flex: 1 }}>{t.startDate} → {t.endDate}{t.note ? ` · Reason: ${t.note}` : ''}</span>
                     <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'capitalize', padding: '2px 10px', borderRadius: 999,
                       background: t.status === 'approved' ? 'hsla(var(--color-green),0.1)' : t.status === 'rejected' ? 'rgba(185,28,28,0.08)' : 'rgba(180,83,9,0.1)',
                       color: t.status === 'approved' ? 'hsl(var(--color-green))' : t.status === 'rejected' ? '#b91c1c' : '#b45309' }}>{t.status}</span>
@@ -1235,15 +1235,15 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 <div><label style={FL}>Last day</label>
                   <input className="form-input" type="date" value={obo.end} onChange={e => setObo(p => ({ ...p, end: e.target.value }))} style={{ width: '100%' }} /></div>
               </div>
-              <div><label style={FL}>Note</label>
-                <input className="form-input" placeholder="e.g. called in sick this morning" value={obo.note}
+              <div><label style={FL}>Reason</label>
+                <input className="form-input" aria-label="Reason" placeholder="Why they are off, e.g. called in sick this morning" value={obo.note}
                   onChange={e => setObo(p => ({ ...p, note: e.target.value }))} style={{ width: '100%' }} /></div>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
                 <input type="checkbox" checked={!!obo.confidential} onChange={e => setObo(p => ({ ...p, confidential: e.target.checked }))} style={{ marginTop: 2 }} />
                 <span>
                   <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Keep this confidential</span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                    Others see only that they're out. The type and note are visible only to them and their approver.
+                    Others see only that they're out. The type and reason are visible only to them and their approver.
                   </span>
                 </span>
               </label>

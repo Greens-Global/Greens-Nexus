@@ -278,7 +278,7 @@ describe('Shift Types rows, print, import, time off from the grid, availability'
     fireEvent.change(screen.getByLabelText('Time-off type'), { target: { value: 'Jury Duty' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add Time Off' }));
     await waitFor(() => expect(timeOffOnBehalf).toHaveBeenCalledWith({ employee_email: 'amy@greensglobal.com', type: 'Jury Duty',
-      start_date: monday, end_date: monday, start_time: '', end_time: '', note: '' }));
+      start_date: monday, end_date: monday, start_time: '', end_time: '', note: '', confidential: false }));
     await waitFor(() => expect(timeOffDecide).toHaveBeenCalledWith('t9', { status: 'approved', note: '' }));
     expect(toastOk).toHaveBeenCalledWith('Time off added for Amy Adams.');
   });
@@ -560,6 +560,70 @@ describe('ShiftSchedule week dates', () => {
   });
 });
 
+describe('Audit fixes (Sep 29): usual hours, company-wide settings, confidential time off', () => {
+  it('shows usual hours faintly on a day with nothing placed, and never counts them', async () => {
+    const d = data([shift()]);   // Amy has a shift on Monday only
+    d.shifts[0].days = '1,2,3,4,5';
+    timeSchedule.mockResolvedValue({ ...d, usual: { 'amy@greensglobal.com': 'p1' } });
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('GST');
+    const tuesday = document.querySelector(`[data-cell="amy@greensglobal.com|${plusDays(monday, 1)}"]`);
+    expect(tuesday.textContent).toContain('Usual 9a-5p');
+    expect(document.querySelector(`[data-cell="amy@greensglobal.com|${monday}"]`).textContent).not.toContain('Usual');
+    expect(document.querySelector(`[data-cell="amy@greensglobal.com|${plusDays(monday, 5)}"]`).textContent).not.toContain('Usual');   // Saturday
+    expect(document.querySelector(`[data-cell="bob@greensglobal.com|${plusDays(monday, 1)}"]`).textContent).not.toContain('Usual');
+    expect(screen.getByText('Week: 8 Hrs')).toBeTruthy();   // the one placed shift
+  });
+
+  it('offers the settings only to someone who can save them', async () => {
+    shiftRequestsInbox.mockResolvedValue({ pending: [], recent: [], settings: { openShifts: true, swaps: true, offers: true } });
+    timeSchedule.mockResolvedValue({ ...data([shift()]), canConfigure: false });
+    const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByLabelText(/^Requests/));
+    await screen.findByRole('dialog', { name: 'Shift Requests' });
+    expect(screen.queryByText('Settings')).toBeNull();
+    unmount();
+    timeSchedule.mockResolvedValue({ ...data([shift()]), canConfigure: true });
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByLabelText(/^Requests/));
+    expect(await screen.findByText('Settings')).toBeTruthy();
+  });
+
+  it('saves the visibility switches and the team time zone', async () => {
+    shiftRequestsInbox.mockResolvedValue({ pending: [], recent: [], settings: { openShifts: true, swaps: true, offers: true,
+      teamSchedules: true, teamShiftDetails: true, teamTimeOffReasons: false, timeZone: 'America/Los_Angeles' } });
+    timeSchedule.mockResolvedValue(data([]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByLabelText(/^Requests/));
+    fireEvent.click(await screen.findByLabelText('Staff can see why a teammate is off, and their note'));
+    await waitFor(() => expect(shiftRequestSettingsSave).toHaveBeenCalledWith(expect.objectContaining({ teamTimeOffReasons: true })));
+    const zone = screen.getByLabelText('Team time zone');
+    const other = [...zone.options].map(o => o.value).find(v => v.startsWith('Asia/'));
+    fireEvent.change(zone, { target: { value: other } });
+    await waitFor(() => expect(shiftRequestSettingsSave).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: other })));
+  });
+
+  it('adds confidential time off from the grid', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('GST'));
+    fireEvent.click(screen.getByText('Add Time Off'));
+    await screen.findByRole('dialog', { name: 'Add Time Off' });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Keep this confidential/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add Time Off' }));
+    await waitFor(() => expect(timeOffOnBehalf).toHaveBeenCalledWith(expect.objectContaining({ confidential: true })));
+  });
+
+  it('can leave the activities out of a copy', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('Copy Schedule'));
+    fireEvent.click(screen.getByLabelText('Include shift activities'));
+    fireEvent.click(screen.getByText('Copy Shifts'));
+    await waitFor(() => expect(timeSchedCopy).toHaveBeenCalledWith(expect.objectContaining({ include_activities: false })));
+  });
+});
+
 describe('Copy and Clear schedule', () => {
   it('copies the week on screen to the next week as drafts', async () => {
     timeSchedule.mockResolvedValue(data([shift()]));
@@ -568,7 +632,7 @@ describe('Copy and Clear schedule', () => {
     fireEvent.click(screen.getByText('Copy Shifts'));
     await waitFor(() => expect(timeSchedCopy).toHaveBeenCalledWith({
       source_start: monday, source_end: plusDays(monday, 6), target_start: plusDays(monday, 7), weeks: 1,
-      include_open: true, include_notes: true, skip_timeoff: true, overwrite: false, include_timeoff: false,
+      include_open: true, include_notes: true, include_activities: true, skip_timeoff: true, overwrite: false, include_timeoff: false,
     }));
     await waitFor(() => expect(toastOk).toHaveBeenCalledWith(expect.stringMatching(/^Copied 4 shifts to .* as drafts · kept 1 existing\. Publish to share them\.$/)));
   });

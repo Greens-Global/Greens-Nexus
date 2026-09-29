@@ -42,7 +42,7 @@ describe('manager inbox', () => {
     expect(screen.getAllByText('Confidential').length).toBe(1);
     // The plain request keeps its type, note and buttons.
     expect(screen.getByText('Time off · vacation')).toBeTruthy();
-    expect(screen.getByText('“Beach week”')).toBeTruthy();
+    expect(screen.getByText('Beach week')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Approve' }).length).toBe(1);
   });
 });
@@ -56,8 +56,13 @@ describe('request form', () => {
     const dates = document.querySelectorAll('input[type="date"]');
     fireEvent.change(dates[0], { target: { value: '2026-11-16' } });
     fireEvent.change(dates[1], { target: { value: '2026-11-16' } });
+    // Every request says why (Sep 29): without a reason nothing is sent.
+    fireEvent.click(screen.getByRole('button', { name: /^Request$/ }));
+    await waitFor(() => expect(screen.getByText('Add the reason for this time off.')).toBeTruthy());
+    expect(calls.timeOffCreate).toBeUndefined();
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: '  Surgery follow-up ' } });
     fireEvent.click(screen.getByRole('button', { name: /^Request$/ }));
     await waitFor(() => expect(calls.timeOffCreate?.length).toBe(1));
-    expect(calls.timeOffCreate[0][0]).toMatchObject({ confidential: true, start_date: '2026-11-16' });
+    expect(calls.timeOffCreate[0][0]).toMatchObject({ confidential: true, start_date: '2026-11-16', note: 'Surgery follow-up' });
   });
 });

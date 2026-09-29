@@ -3,7 +3,7 @@
 // adding time off straight from the grid. Kept out of ShiftSchedule.jsx,
 // which is big enough already.
 import { useEffect, useState } from 'react';
-import { X, Upload, Loader2, Clock, Star, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2 } from 'lucide-react';
+import { X, Upload, Loader2, Clock, Star, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Lock } from 'lucide-react';
 import { api } from '../api';
 import { TIMEOFF_LABELS, timeOffLabel, parseScheduleSheet } from './shiftScheduleLib';
 import { formatDate } from '../lib/datetime';
@@ -159,7 +159,7 @@ export function TimeOffModal({ email, name, date, busy, onSave, onClose }) {
       .catch(() => { if (live) setTypes({ builtIn: Object.keys(TIMEOFF_LABELS), custom: [] }); });
     return () => { live = false; };
   }, []);
-  const [f, setF] = useState({ type: 'vacation', start: date, end: date, allDay: true, startTime: '09:00', endTime: '13:00', note: '', approve: true });
+  const [f, setF] = useState({ type: 'vacation', start: date, end: date, allDay: true, startTime: '09:00', endTime: '13:00', note: '', approve: true, confidential: false });
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const partial = !f.allDay;
   const problem = !f.start || !f.end ? 'Pick the days.'
@@ -170,7 +170,8 @@ export function TimeOffModal({ email, name, date, busy, onSave, onClose }) {
   function submit() {
     if (problem) return;
     onSave({ employee_email: email, type: f.type, start_date: f.start, end_date: f.end,
-      start_time: partial ? f.startTime : '', end_time: partial ? f.endTime : '', note: f.note.trim() }, f.approve);
+      start_time: partial ? f.startTime : '', end_time: partial ? f.endTime : '', note: f.note.trim(),
+      confidential: f.confidential }, f.approve);
   }
   const opts = types ? [...types.builtIn.map(t => [t, timeOffLabel(t)]), ...types.custom.map(t => [t, t])] : [];
   return (
@@ -200,7 +201,17 @@ export function TimeOffModal({ email, name, date, busy, onSave, onClose }) {
               <label style={{ flex: 1 }}><div style={LBL}>To</div><input type="time" className="form-input" aria-label="To" value={f.endTime} onChange={e => set('endTime', e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
             </div>
           )}
-          <input className="form-input" placeholder="Note (optional)" aria-label="Note" value={f.note} onChange={e => set('note', e.target.value)} style={{ fontSize: 13 }} />
+          <label><div style={LBL}>Reason</div>
+            <input className="form-input" placeholder="Why they are off" aria-label="Reason" value={f.note} maxLength={400}
+              onChange={e => set('note', e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+          {/* The same switch the Time Off screens have (Neil, Sep 29). */}
+          <label style={{ ...CHECK, alignItems: 'flex-start' }}>
+            <input type="checkbox" checked={f.confidential} onChange={e => set('confidential', e.target.checked)} style={{ marginTop: 2 }} />
+            <span>
+              <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Keep this confidential</span>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Only they and their approver see the type and reason. Everyone else sees plain time off.</div>
+            </span>
+          </label>
           <label style={CHECK}><input type="checkbox" checked={f.approve} onChange={e => set('approve', e.target.checked)} /> Approve it now</label>
           {problem && <div style={{ fontSize: 11.5, color: '#b91c1c' }}>{problem}</div>}
         </div>

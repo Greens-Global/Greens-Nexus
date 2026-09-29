@@ -221,6 +221,13 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   [data, visibleEmails, groupFilter, presetFilter]);
   const notes = useMemo(() => Object.fromEntries((data?.dayNotes || []).filter(n => !n.groupId).map(n => [n.date, n.note])), [data]);
   const names = useMemo(() => Object.fromEntries((data?.employees || []).map(e => [e.email, e.name || e.email])), [data]);
+  // A person's usual hours on a day (their default preset, on its weekdays).
+  // Not a shift: nothing is on the schedule until one is placed, so it is
+  // shown faintly and never counted - the same as on their own My Shifts.
+  const usualOn = (email, d) => {
+    const p = (data?.shifts || []).find(x => x.id === data?.usual?.[email]);
+    return p && (p.days || '').split(',').includes(String(d.getDay() || 7)) ? p : null;
+  };
 
   const empWeekMin = (email) => days.reduce((sum, d) => sum + (byCell[`${email}|${isoDate(d)}`] || []).filter(counts).reduce((a, s) => a + paidMin(s), 0), 0);
   const dayStats = (d) => {
@@ -602,12 +609,12 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
           ))}
         </div>
         <div style={{ flex: 1 }} />
-        <button className="secondary-btn" onClick={() => setBulkOpen(true)}
-          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <CalendarRange size={14} /> Fill schedule
-        </button>
         {canManage && (
           <>
+            <button className="secondary-btn" onClick={() => setBulkOpen(true)}
+              style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <CalendarRange size={14} /> Fill Schedule
+            </button>
             <button className="secondary-btn" onClick={() => setCopyOpen(true)}
               style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Copy size={14} /> Copy Schedule
@@ -771,7 +778,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                   <CalendarRange size={13} />
                 </span>
                 <span>
-                  <div style={{ fontSize: 12.5, fontWeight: 800 }}>Open shifts</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 800 }}>Open Shifts</div>
                   <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{openCount} open</div>
                 </span>
               </div>
@@ -902,6 +909,12 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                               )}
                             </div>
                           ); })}
+                          {!items.length && !off && !hol && usualOn(emp.email, d) && (
+                            <div title="Usual hours (their default preset). Nothing is on the schedule for this day until a shift is placed."
+                              style={{ fontSize: 10.5, color: 'var(--muted)', padding: '4px 6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              Usual {t12(usualOn(emp.email, d).start)}-{t12(usualOn(emp.email, d).end)}
+                            </div>
+                          )}
                           {!items.length && !off && !hol && (
                             <div className="sched-add" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--line)', opacity: 0 }}>
                               <Plus size={16} />
@@ -963,7 +976,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
       )}
 
       {inboxOpen && (
-        <ShiftRequestsInbox toastOk={toastOk} toastErr={toastErr} onClose={() => setInboxOpen(false)} canConfigure={!data?.groupScheduler}
+        <ShiftRequestsInbox toastOk={toastOk} toastErr={toastErr} onClose={() => setInboxOpen(false)} canConfigure={data?.canConfigure ?? !data?.groupScheduler}
           onChanged={() => { setInboxTick((t) => t + 1); load(); }} />
       )}
 
@@ -1151,7 +1164,7 @@ function DayView({ date, groups, shifts, notes, canManage, offOn, holOn, chipTit
         </div>
       </div>
       <div style={{ ...GRID, borderBottom: '1px solid var(--line)', background: 'hsla(var(--color-green),0.03)' }}>
-        <div style={{ padding: '10px 12px', fontSize: 12.5, fontWeight: 800 }}>Open shifts</div>
+        <div style={{ padding: '10px 12px', fontSize: 12.5, fontWeight: 800 }}>Open Shifts</div>
         {track('')}
       </div>
       {groups.map((g, gi) => (
@@ -1206,6 +1219,7 @@ function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onClose })
   const [groupId, setGroupId] = useState('');
   const [includeOpen, setIncludeOpen] = useState(true);
   const [includeNotes, setIncludeNotes] = useState(true);
+  const [includeActs, setIncludeActs] = useState(true);
   const [skipOff, setSkipOff] = useState(true);
   const [overwrite, setOverwrite] = useState(false);
   const [copyOff, setCopyOff] = useState(false);
@@ -1216,8 +1230,8 @@ function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onClose })
 
   function submit() {
     const payload = { source_start: from, source_end: to, target_start: target, weeks: Number(copies),
-                      include_open: includeOpen && !groupId, include_notes: includeNotes, skip_timeoff: skipOff, overwrite,
-                      include_timeoff: copyOff };
+                      include_open: includeOpen && !groupId, include_notes: includeNotes, include_activities: includeActs,
+                      skip_timeoff: skipOff, overwrite, include_timeoff: copyOff };
     if (groupId) payload.group_id = groupId;
     onApply(payload);
   }
@@ -1250,6 +1264,7 @@ function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onClose })
             <input type="checkbox" checked={includeOpen && !groupId} disabled={!!groupId} onChange={e => setIncludeOpen(e.target.checked)} /> Include open shifts
           </label>
           <label style={CHECK}><input type="checkbox" checked={includeNotes} onChange={e => setIncludeNotes(e.target.checked)} /> Include shift notes</label>
+          <label style={CHECK}><input type="checkbox" checked={includeActs} onChange={e => setIncludeActs(e.target.checked)} /> Include shift activities</label>
           <label style={CHECK}><input type="checkbox" checked={skipOff} onChange={e => setSkipOff(e.target.checked)} /> Skip days a person has time off</label>
           <label style={CHECK}><input type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)</label>
           <label style={CHECK}><input type="checkbox" checked={copyOff} onChange={e => setCopyOff(e.target.checked)} /> Copy approved time off too (as requests to approve)</label>
@@ -1348,14 +1363,14 @@ function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd, busy, 
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 460, padding: 20, maxHeight: '92dvh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Fill schedule</span>
+          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Fill Schedule</span>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
           Apply a shift to a whole group across a date range in one go - no more adding it per person per day.
         </div>
         {shifts.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift presets yet - create one under “Presets & groups” first.</div>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift presets yet - create one under “Presets & Groups” first.</div>
         ) : (
           <div style={{ display: 'grid', gap: 14 }}>
             <div>
@@ -1404,7 +1419,7 @@ function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd, busy, 
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
           {shifts.length > 0 && <button className="primary-btn" onClick={submit} disabled={!canApply}
-            style={{ opacity: canApply ? 1 : 0.55 }}>{busy ? '…' : 'Fill schedule'}</button>}
+            style={{ opacity: canApply ? 1 : 0.55 }}>{busy ? '…' : 'Fill Schedule'}</button>}
         </div>
       </div>
       {guard.confirming && (
@@ -1452,14 +1467,14 @@ function OpenShiftModal({ cell, shifts, people, busy, onSave, onAssign, onDelete
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 430, padding: 20, maxHeight: '92dvh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{ex ? 'Open shift' : 'Add open shift'}</span>
+          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{ex ? 'Open Shift' : 'Add Open Shift'}</span>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
           {new Date(cell.date + 'T00:00').toLocaleDateString('en-US', { weekday: 'long' })}, {formatDate(cell.date)} · an unassigned slot anyone on the team can be given
         </div>
         {shifts.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift presets yet - create one under “Presets & groups” first.</div>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift presets yet - create one under “Presets & Groups” first.</div>
         ) : (
           <div style={{ display: 'grid', gap: 12 }}>
             <div>
@@ -1630,7 +1645,7 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onDiscard, onClose, o
           {new Date(cell.date + 'T00:00').toLocaleDateString('en-US', { weekday: 'long' })}, {formatDate(cell.date)}
         </div>
         {shifts.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift presets yet - create one under “Presets & groups” first.</div>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>No shift presets yet - create one under “Presets & Groups” first.</div>
         ) : (
           <div style={{ display: 'grid', gap: 12 }}>
             <div>

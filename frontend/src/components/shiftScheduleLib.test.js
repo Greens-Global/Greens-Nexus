@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseScheduleSheet, sheetDate, sheetTime, availText } from './shiftScheduleLib';
+import { parseScheduleSheet, sheetDate, sheetTime, availText, shiftPhase } from './shiftScheduleLib';
+import { zoneClock } from '../lib/datetime';
 
 // Spreadsheet import parsing (Sep 29): the columns Export writes come back in.
 
@@ -53,5 +54,35 @@ describe('parseScheduleSheet', () => {
 describe('availText', () => {
   it('summarizes the week', () => {
     expect(availText([{ weekday: 6, kind: 'available', start: '10:00', end: '14:30' }])).toBe('Sun 10:00 AM - 2:30 PM');
+  });
+});
+
+// On shift now, judged on the SHIFT's clock (Sep 29 audit): the viewer's own
+// clock used to decide it, so a shift kept in another zone read wrong.
+describe('shiftPhase / zoneClock', () => {
+  const day = { start: '09:00', end: '17:00' };
+  const night = { start: '18:30', end: '02:30' };
+
+  it('places a day shift before, during and after', () => {
+    expect(shiftPhase(day, '2026-09-30', { date: '2026-09-30', minutes: 8 * 60 })).toBe('ahead');
+    expect(shiftPhase(day, '2026-09-30', { date: '2026-09-30', minutes: 9 * 60 })).toBe('on');
+    expect(shiftPhase(day, '2026-09-30', { date: '2026-09-30', minutes: 17 * 60 })).toBe('over');
+    expect(shiftPhase(day, '2026-10-01', { date: '2026-09-30', minutes: 12 * 60 })).toBe('ahead');
+    expect(shiftPhase(day, '2026-09-29', { date: '2026-09-30', minutes: 12 * 60 })).toBe('over');
+  });
+
+  it('keeps an overnight shift on until it ends the next morning', () => {
+    expect(shiftPhase(night, '2026-09-30', { date: '2026-09-30', minutes: 60 })).toBe('ahead');       // 1:00 AM, before tonight's
+    expect(shiftPhase(night, '2026-09-30', { date: '2026-09-30', minutes: 23 * 60 })).toBe('on');
+    expect(shiftPhase(night, '2026-09-30', { date: '2026-10-01', minutes: 60 })).toBe('on');          // 1:00 AM the morning after
+    expect(shiftPhase(night, '2026-09-30', { date: '2026-10-01', minutes: 3 * 60 })).toBe('over');
+    expect(shiftPhase(night, '2026-09-30', { date: '2026-10-02', minutes: 60 })).toBe('over');
+  });
+
+  it('reads the clock in the zone it is given', () => {
+    const at = new Date('2026-09-30T00:35:00Z');
+    expect(zoneClock('Asia/Kolkata', at)).toEqual({ date: '2026-09-30', minutes: 6 * 60 + 5 });
+    expect(zoneClock('America/Los_Angeles', at)).toEqual({ date: '2026-09-29', minutes: 17 * 60 + 35 });
+    expect(zoneClock('UTC', new Date('2026-09-30T00:00:00Z'))).toEqual({ date: '2026-09-30', minutes: 0 });
   });
 });

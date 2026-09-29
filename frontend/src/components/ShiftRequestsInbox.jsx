@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { X, CheckCircle2, XCircle, ArrowLeftRight, Send, Hand, CalendarOff, Lock } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
+import { ZONE_GROUPS, zoneOptionLabel } from '../lib/worldClockZones';
 
 const KIND = { open: ['Open shift', Hand], swap: ['Swap', ArrowLeftRight], offer: ['Offer', Send] };
 const hhmm12 = (v) => { const [h, m] = (v || '0:0').split(':').map(Number); return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
@@ -111,14 +112,20 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
                       <CalendarOff size={12} /> {t.redacted ? 'Time off' : `Time off · ${t.type}`}
                       {t.confidential && (
-                        <span title="Confidential - the type and note are visible only to the employee and their approver"
+                        <span title="Confidential - the type and reason are visible only to the employee and their approver"
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4, textTransform: 'none', letterSpacing: 0 }}>
                           <Lock size={11} /> Confidential
                         </span>
                       )}
                     </div>
                     <div style={{ fontSize: 13.5, color: 'var(--ink)', margin: '4px 0' }}>{t.name || t.email} · {when}{hours}</div>
-                    {t.note && <div style={{ fontSize: 12, color: 'var(--muted)' }}>“{t.note}”</div>}
+                    {/* Why they are off - what the approver decides on. A redacted
+                        (confidential, not yours to decide) request shows neither. */}
+                    {!t.redacted && (
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        <span style={{ fontWeight: 700 }}>Reason:</span> {t.note || 'None given'}
+                      </div>
+                    )}
                     {t.canDecide === false ? (
                       // Confidential and not yours to decide, or your own request.
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
@@ -157,6 +164,8 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Settings</div>
             {[['openShifts', 'Staff can request open shifts'], ['swaps', 'Staff can swap shifts with teammates'], ['offers', 'Staff can offer their shifts to teammates'],
               ['teamSchedules', 'Staff can see their teammates’ shifts in My Shifts'],
+              ['teamShiftDetails', 'Staff can see the notes, activities and breaks on teammates’ shifts'],
+              ['teamTimeOffReasons', 'Staff can see why a teammate is off, and their note'],
               ['timeOffRequests', 'Staff can request time off']].map(([k, text]) => (
               <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer', padding: '3px 0' }}>
                 <input type="checkbox" checked={!!cfg[k]} onChange={(e) => saveCfg({ ...cfg, [k]: e.target.checked })} /> {text}
@@ -173,8 +182,19 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
                 {[15, 30, 45, 60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} ${m === 60 ? 'hour' : 'hours'}`} before</option>)}
               </select>
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '3px 0', flexWrap: 'wrap' }}>
+              Team time zone
+              <select className="form-input" aria-label="Team time zone" value={cfg.timeZone || 'America/Los_Angeles'}
+                onChange={(e) => saveCfg({ ...cfg, timeZone: e.target.value })} style={{ width: 'auto', fontSize: 12.5, padding: '3px 30px 3px 8px' }}>
+                {Object.entries(ZONE_GROUPS).map(([region, zones]) => (
+                  <optgroup key={region} label={region}>
+                    {zones.map((tz) => <option key={tz} value={tz}>{zoneOptionLabel(tz)}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
             <TimeOffReasons toastOk={toastOk} toastErr={toastErr} />
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Every request still needs a manager's approval. Turning one off stops new requests of that kind. Hiding teammates’ shifts still lets staff pick a shift to swap for.</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Every request still needs a manager's approval. Turning one off stops new requests of that kind. Hiding teammates’ shifts still lets staff pick a shift to swap for. A confidential time-off reason is never shown to teammates. The team time zone is what a shift with no preset runs on, and what a new preset starts with.</div>
           </div>
         )}
       </div>

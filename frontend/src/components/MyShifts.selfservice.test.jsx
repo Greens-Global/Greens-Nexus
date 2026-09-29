@@ -99,6 +99,55 @@ describe('MyShifts availability and group scheduling', () => {
   });
 });
 
+describe('MyShifts shows only what is published (Sep 29 audit)', () => {
+  const preset = { id: 'p', name: 'Day Shift', code: 'DAY', start: '08:30', end: '17:30', days: '1,2,3,4,5,6,7', breakMin: 0, color: '#2563eb' };
+
+  it('shows the default preset as usual hours, never as a shift', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, shift: preset });
+    render(<MyShifts />);
+    await screen.findByText('Front desk');
+    // Six days have nothing published: usual hours, not shifts.
+    expect(screen.getAllByText('Usual hours')).toHaveLength(6);
+    expect(screen.getAllByText('8:30 AM - 5:30 PM')).toHaveLength(6);
+    // The week is the one published shift - the usual hours add nothing.
+    expect(screen.getByText('8 hrs')).toBeTruthy();
+    expect(screen.getByText(/1 shift · paid time/)).toBeTruthy();
+    expect(screen.getByText(/Usual hours are your regular schedule/)).toBeTruthy();
+  });
+
+  it('says nothing is published when there are only usual hours', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, shift: preset, scheduled: [] });
+    render(<MyShifts />);
+    expect(await screen.findByText('None this week')).toBeTruthy();
+    expect(screen.getByText('0 hrs')).toBeTruthy();
+    expect(screen.getAllByText('Usual hours')).toHaveLength(7);
+    expect(screen.queryByText('Swap')).toBeNull();   // nothing to swap: usual hours are not a shift
+  });
+
+  it('shows a teammate the reason and details the settings share', async () => {
+    const team = (bob) => ({ ...sched, teams: [{ id: 'g', name: 'Store', members: [sched.teams[0].members[0], { ...sched.teams[0].members[1], ...bob }] }] });
+    timeMySchedule.mockResolvedValue(team({ scheduled: [], timeoff: [{ startDate: DAY, endDate: DAY, type: 'vacation', note: 'Back Monday' }] }));
+    const { unmount } = render(<MyShifts />);
+    const reason = await screen.findByText('Vacation');
+    expect(reason.closest('span').getAttribute('title')).toBe('Back Monday');
+    unmount();
+    // Withheld by the settings (or confidential): plain "Time off".
+    timeMySchedule.mockResolvedValue(team({ scheduled: [], timeoff: [{ startDate: DAY, endDate: DAY }] }));
+    render(<MyShifts />);
+    const row = (await screen.findByText('Bob Brown')).closest('tr');
+    expect(row.textContent).toContain('Time off');
+    expect(row.textContent).not.toContain('Vacation');
+  });
+
+  it('shows the note on a teammate shift when it is shared', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, teams: [{ id: 'g', name: 'Store', members: [sched.teams[0].members[0],
+      { ...sched.teams[0].members[1], scheduled: [{ ...sched.teams[0].members[1].scheduled[0], note: 'Bring keys', breakMin: 30 }] }] }] });
+    render(<MyShifts />);
+    const row = (await screen.findByText('Bob Brown')).closest('tr');
+    expect(row.textContent).toContain('Bring keys +1');
+  });
+});
+
 describe('MyShifts self-service', () => {
   it('offers my upcoming shift to a teammate', async () => {
     render(<MyShifts />);
