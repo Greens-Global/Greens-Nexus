@@ -232,7 +232,7 @@ export const DOCS = [
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick and vacation hours show on their own lines.' },
       { name: 'Shifts', desc: 'When you are scheduled to work, week by week. Team Shifts shows who else is on.' },
       { name: 'Time Off', desc: 'Request time off and see what is coming up. Approved, Pending, Rejected and Cancelled requests are all listed.' },
-      { name: 'Location Tag', desc: 'Each punch records whether it was on site or off site. Remote staff can punch from anywhere, and their location is still recorded.' },
+      { name: 'Location Tag', desc: 'Each punch shows the work site you were at when you punched, even if you move between several sites in a day. A punch away from all of your work sites shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded.' },
     ],
     manager: {
       title: 'Managers & Admins',
@@ -278,7 +278,7 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Coverage', desc: 'Live list of who is Working, On Break or Not Clocked In, with On Site and Off Site tags.' },
+      { name: 'Coverage', desc: 'Live list of who is Working, On Break or Not Clocked In, with On Site and Out of Location tags.' },
       { name: 'Activity', desc: 'Time and activity per person across the day.' },
       { name: 'Locations', desc: 'A map of where each person last punched from.' },
       { name: 'Computers', desc: 'Company computers with the desktop agent. Copy the install or uninstall command here.' },
@@ -963,6 +963,7 @@ export const DOCS = [
       { name: 'Leave', desc: 'Time-off requests, approvals and the holiday calendar.' },
       { name: 'Time', desc: 'Team punches, time cards and payroll hours.' },
       { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Work Sites (the clock geofences), Holiday Calendar and Workforce Analytics Policy.' },
+      { name: 'Work Mode', desc: 'On an employee profile: Remote (punch from anywhere) or On-Site. For On-Site, click the work sites they may punch at - any number of them. None picked means any of the company sites.' },
     ],
     manager: {
       title: 'HR & Admins',
@@ -970,6 +971,7 @@ export const DOCS = [
         'Compensation (salary, pay type, bank accounts, benefits and deductions) is only visible with the People - Compensation grant.',
         'Offboarding: hand over their tasks, set mailbox handling, then mark them Left.',
         'Changing a status asks for a reason, and every change is kept in history.',
+        'Punch locations are judged punch by punch: the timecard shows the allowed site the person punched at, or Out of Location when they were at none of them. Mapping a new site later also corrects earlier punches made there.',
       ],
     },
     tips: ['People pickers across Nexus use this directory, so keep names and emails correct here.'],

@@ -139,6 +139,15 @@ function periodStartFor(date) {
 // Location cell - the punch's work site + an at-site/off-site pin (SwipeClock "Loc").
 // A punch made with location sharing OFF is called out explicitly (the red
 // slashed pin Charmi showed from SwipeClock, Aug 21) - not folded into "-".
+//
+// Every punch is judged on its own coordinates against the sites the person is
+// allowed at (Charmi, Sep 29): inside one -> that site's name; inside none ->
+// "Out of Location". The nearest allowed site is only a hint in the tooltip -
+// showing it as the location read as "she was at Menifee" when she was not.
+const distText = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
+function outOfLocationHint(site, dist) {
+  return site ? `Not at any of their work sites. Nearest: ${site}, ${distText(dist || 0)} away.` : 'Not at any of their work sites.';
+}
 function LocCell({ seg }) {
   if (!seg) return <span style={{ color: 'var(--muted)' }}>-</span>;
   const geo = seg.geo || '';
@@ -148,8 +157,8 @@ function LocCell({ seg }) {
   const outDiffers = !!seg.out && geoOut && (geoOut !== geo || (seg.workSiteOut || '') !== site);
   const outTail = outDiffers ? (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: geoOut === 'out_of_fence' ? '#b45309' : geoOut === 'no_location' ? '#b91c1c' : 'var(--muted)' }}
-      title={geoOut === 'out_of_fence' ? `Out punch: ${seg.workSiteOut || 'nearest site'} - off-site` : geoOut === 'no_location' ? 'Out punch: no location shared' : `Out punch: ${seg.workSiteOut || geoOut}`}>
-      <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out off-site' : geoOut === 'no_location' ? 'Out: location off' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
+      title={geoOut === 'out_of_fence' ? `Out punch: ${outOfLocationHint(seg.workSiteOut, seg.distanceOut)}` : geoOut === 'no_location' ? 'Out punch: no location shared' : geoOut === 'no_site' ? 'Out punch: none of their work sites is on the map yet' : `Out punch: ${seg.workSiteOut || geoOut}`}>
+      <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out of Location' : geoOut === 'no_location' ? 'Out: location off' : geoOut === 'no_site' ? 'Out: no site mapped' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
     </span>
   ) : null;
   if (geo === 'no_location') return (
@@ -158,15 +167,25 @@ function LocCell({ seg }) {
       <MapPinOff size={12} style={{ flexShrink: 0 }} /> Location off{outTail}
     </span>
   );
-  if (!site && geo !== 'out_of_fence') return outTail || <span style={{ color: 'var(--muted)' }}>-</span>;
-  const color = geo === 'in_fence' ? 'hsl(var(--color-green))'
-    : geo === 'out_of_fence' ? '#b45309' : 'var(--muted)';
+  if (geo === 'out_of_fence') return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#b45309', fontWeight: 700 }}
+      title={outOfLocationHint(site, seg.distance)}>
+      <MapPin size={12} style={{ flexShrink: 0 }} /> Out of Location{outTail}
+    </span>
+  );
+  if (geo === 'no_site') return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--muted)' }}
+      title="Location was shared, but none of their work sites is on the map yet. Map it under Settings - Companies - Work Sites.">
+      <MapPin size={12} style={{ flexShrink: 0 }} /> No Site Mapped{outTail}
+    </span>
+  );
+  if (!site) return outTail || <span style={{ color: 'var(--muted)' }}>-</span>;
+  const color = geo === 'in_fence' ? 'hsl(var(--color-green))' : 'var(--muted)';
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}
-      title={geo === 'out_of_fence' ? `${site || 'nearest site'} - off-site when punched` : site}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }} title={site}>
       <MapPin size={12} style={{ color, flexShrink: 0 }} />
       <span style={{ color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
-        {site || 'Off-site'}{geo === 'out_of_fence' && site ? ' ⚠' : ''}
+        {site}
       </span>
       {outTail}
     </span>
@@ -1437,7 +1456,7 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEm
   // Clicking the location dot opens the Geofence Punch view for this person and
   // period (SwipeClock-style map + punch table, Charmi Sep 25).
   const openMap = (e) => { e.stopPropagation(); if (!locateEmail) return; onLocate?.(); };
-  const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Outside geofence${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : 'GPS only');
+  const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Out of Location${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'no_site' ? 'No work site mapped' : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : 'GPS only');
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {geo && (locateEmail

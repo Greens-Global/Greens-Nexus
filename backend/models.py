@@ -846,6 +846,10 @@ class NexusEmployee(Base):
     # company work site (the default for everyone); an HrWorkSite.id = punches
     # are judged against that one site's fence only.
     work_site_id      = Column(String, default="")
+    # Allowed work sites (Charmi, Sep 29): JSON list of HrWorkSite ids the
+    # person may punch at - ANY of them is on-site. '' = every company site.
+    # Supersedes work_site_id, which is still read as a one-site list.
+    work_site_ids     = Column(String, default="")
     # Email signature overrides (Sep 16, Neil): name/role/company email are NOT
     # editable here - they stay pulled live from the directory fields above so
     # the signature can't drift from who someone actually is ("keeps everybody
@@ -2048,6 +2052,9 @@ class TimePunch(Base):
     category       = Column(String, default="")         # job-costing / cost-code tag on the in-punch (SwipeClock "Category")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+    # A manager put this punch at a site by hand (Sep 29): the timecard keeps
+    # the stamped site instead of re-judging the punch's GPS.
+    site_set_by    = Column(String, default="")
     # Employee self-edit of a punch time, pending approver review. Shows on the
     # timesheet immediately (transparency) but has NO effect on pay: worked-minutes
     # and payroll keep using `at` until approved. On approve, `at` becomes

@@ -16,8 +16,8 @@ import { formatTimeTz, useDisplayTz } from '../lib/displayTz';
 // shows the street address (looked up once, from OpenStreetMap) with the
 // nearest site and distance.
 
-const COLORS = { in_fence: '#15803d', out_of_fence: '#dc2626', remote: '#6b7280', low_accuracy: '#6b7280', gps_only: '#6b7280', no_location: '#9ca3af' };
-const LABEL = { in_fence: 'Inside geofence', out_of_fence: 'Outside geofence', remote: 'Remote', low_accuracy: 'Low accuracy', no_location: 'No GPS captured' };
+const COLORS = { in_fence: '#15803d', out_of_fence: '#dc2626', remote: '#6b7280', low_accuracy: '#6b7280', gps_only: '#6b7280', no_location: '#9ca3af', no_site: '#6b7280' };
+const LABEL = { in_fence: 'Inside geofence', out_of_fence: 'Out of Location', remote: 'Remote', low_accuracy: 'Low accuracy', no_location: 'No GPS captured', no_site: 'No site mapped' };
 
 function pinSvg(color, slashed) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="36" viewBox="0 0 26 36"><path d="M13 1C6.4 1 1 6.4 1 13c0 9 12 22 12 22s12-13 12-22C25 6.4 19.6 1 13 1z" fill="${color}" stroke="#fff" stroke-width="2"/><circle cx="13" cy="13" r="4.5" fill="#fff"/>${slashed ? '<path d="M4 4L22 22" stroke="#dc2626" stroke-width="3"/>' : ''}</svg>`;
@@ -117,8 +117,8 @@ export default function GeofencePunchModal({ email, name, start, end, onClose })
       const lat = Number(p.lat), lng = Number(p.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
       const m = L.marker([lat, lng], { icon: iconFor(p.geoStatus) }).addTo(group);
-      const status = p.geoStatus === 'in_fence' ? 'In Fence' : p.geoStatus === 'out_of_fence' ? 'Out of Fence' : LABEL[p.geoStatus] || p.geoStatus;
-      m.bindPopup(`<div style="font:12px/1.5 Inter,system-ui"><b>Employee:</b> ${data.name}<br/><b>${p.workSiteName || 'Nearest site'}:</b> ${status}${p.distanceM ? ` (${p.distanceM.toLocaleString('en-US')} m)` : ''}<br/><b>Time:</b> ${formatDate(p.localDate)} ${KIND[p.kind] || p.kind} @ ${formatTimeTz(p.at)}<br/><b>GPS:</b> ${p.lat}, ${p.lng}<br/><b>Accuracy:</b> <span style="color:#2563eb;font-weight:700">${p.accuracyM} m</span></div>`);
+      const status = p.geoStatus === 'in_fence' ? 'In Fence' : p.geoStatus === 'out_of_fence' ? 'Out of Location' : LABEL[p.geoStatus] || p.geoStatus;
+      m.bindPopup(`<div style="font:12px/1.5 Inter,system-ui"><b>Employee:</b> ${data.name}<br/>${p.geoStatus === 'out_of_fence' ? `<b>Status:</b> ${status}${p.workSiteName ? ` - nearest ${p.workSiteName} (${(p.distanceM || 0).toLocaleString('en-US')} m)` : ''}` : `<b>${p.workSiteName || 'Site'}:</b> ${status}`}<br/><b>Time:</b> ${formatDate(p.localDate)} ${KIND[p.kind] || p.kind} @ ${formatTimeTz(p.at)}<br/><b>GPS:</b> ${p.lat}, ${p.lng}<br/><b>Accuracy:</b> <span style="color:#2563eb;font-weight:700">${p.accuracyM} m</span></div>`);
       if (p.accuracyM > 0) L.circle([lat, lng], { radius: p.accuracyM, color: COLORS[p.geoStatus] || '#6b7280', weight: 1, fillOpacity: 0.08 }).addTo(group);
       if (!siteId) bounds.push([lat, lng]);
     }

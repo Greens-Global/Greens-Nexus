@@ -27,7 +27,8 @@ const fmtAcc = (m) => m >= 1000 ? `±${(m / 1000).toFixed(m >= 10000 ? 0 : 1)}km
 // no geofenced site to compare against, even with a pin-perfect phone GPS fix.
 function locStatus(p) {
   if (p.geoStatus === 'in_fence') return { color: '#16a34a', label: `On Site${p.workSiteName ? ` · ${p.workSiteName}` : ''}` };
-  if (p.geoStatus === 'out_of_fence') return { color: '#d97706', label: `Off Site${p.workSiteName ? ` · ${p.workSiteName}` : ''}` };
+  // Not at any of their allowed sites (Sep 29) - never a site's name.
+  if (p.geoStatus === 'out_of_fence') return { color: '#d97706', label: 'Out of Location' };
   // Tagged remote in People - Work Mode: anywhere is fine, nothing to flag (Neil, Sep 19).
   if (p.geoStatus === 'remote') return { color: '#2563eb', label: 'Remote' };
   const a = p.accuracyM || 0;
@@ -379,7 +380,7 @@ export default function Locations({ toastErr, embedded = false }) {
         <select aria-label="Site Status" value={f.geo} onChange={e => setF(s => ({ ...s, geo: e.target.value }))} style={selStyle}>
           <option value="">Any Site Status</option>
           <option value="on">On Site</option>
-          <option value="off">Off Site</option>
+          <option value="off">Out of Location</option>
         </select>
         {activeFilters ? <button className="secondary-btn" onClick={clearFilters} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}><X size={12} /> Clear</button> : null}
         <div style={{ flex: 1 }} />
