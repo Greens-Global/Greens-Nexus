@@ -73,8 +73,8 @@ export const KPI_CATALOG = {
   open_tickets:         { label: 'Open Tickets',            color: 'red',    Icon: TicketIcon,    hint: 'Across the team',      nav: { view: 'tickets' } },
   // Manager Dashboard folded into the one Dashboard (Sep 3) - these KPI tiles
   // used to go Home (a no-op from the dashboard); they now open the screen where the work happens.
-  clocked_in_now:       { label: 'Clocked In Now',          color: 'green',  Icon: Users,         hint: 'On the clock now',     nav: { view: 'hr', sub: 'hr-time' } },
-  time_off_pending:     { label: 'Time Off to Review',      color: 'orange', Icon: CalendarClock, hint: 'Awaiting your review',  nav: { view: 'hr', sub: 'hr-time' } },
+  clocked_in_now:       { label: 'Clocked In Now',          color: 'green',  Icon: Users,         hint: 'On the clock now',     nav: { view: 'hr', sub: 'hr-time-attendance' } },
+  time_off_pending:     { label: 'Time Off to Review',      color: 'orange', Icon: CalendarClock, hint: 'Awaiting your review',  nav: { view: 'hr', sub: 'hr-time-off' } },
 };
 
 // Curated shortcut destinations for the picker (module + optional sub-screen).
