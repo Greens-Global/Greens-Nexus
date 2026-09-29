@@ -318,10 +318,14 @@ export function PeriodStepper({ config, period, onChange }) {
     const [from, end] = stepRange(config.preset, config.from, config.to, dir);
     onChange({ preset: 'custom', from, to: end });
   };
+  // A preset keeps arrow - period - arrow on one row: on a phone the long
+  // "Year-to-Date · dates" option narrows instead of pushing each arrow onto
+  // a line of its own (QA, Sep 23). Custom dates still wrap.
+  const custom = config.preset === 'custom';
   return (
-    <div role="group" aria-label="Report period" style={group}>
-      <button type="button" style={arrow} onClick={() => step(-1)} aria-label="Previous period" title="Previous period"><ChevronLeft size={14} /></button>
-      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" style={{ ...control, maxWidth: 300 }}>
+    <div role="group" aria-label="Report period" style={custom ? group : { ...group, flexWrap: 'nowrap', minWidth: 0, maxWidth: '100%' }}>
+      <button type="button" style={{ ...arrow, flexShrink: 0 }} onClick={() => step(-1)} aria-label="Previous period" title="Previous period"><ChevronLeft size={14} /></button>
+      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" style={{ ...control, maxWidth: 300, minWidth: 0 }}>
         {PRESETS.map((p) => {
           const r = p.key === 'custom' ? null : presetRange(p.key).map(iso);
           return <option key={p.key} value={p.key}>{r ? `${p.label} · ${formatDate(r[0])} - ${formatDate(r[1])}` : 'Custom Dates'}</option>;
@@ -339,7 +343,7 @@ export function PeriodStepper({ config, period, onChange }) {
             onChange={(e) => e.target.value && onChange({ to: e.target.value, from: e.target.value < config.from ? e.target.value : config.from })} />
         </>
       )}
-      <button type="button" style={arrow} onClick={() => step(1)} aria-label="Next period" title="Next period"><ChevronRight size={14} /></button>
+      <button type="button" style={{ ...arrow, flexShrink: 0 }} onClick={() => step(1)} aria-label="Next period" title="Next period"><ChevronRight size={14} /></button>
     </div>
   );
 }
