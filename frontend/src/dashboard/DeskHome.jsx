@@ -145,6 +145,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             className={`dk-session-chip${clockedIn ? ' dk-session-chip--on' : ''}`}
             onClick={() => navTo('timeclock')}
             title="Open time clock"
+            style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
           >
             <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
             {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : <>Clocked out<span className="dk-session-long"> · Open time clock</span></>}

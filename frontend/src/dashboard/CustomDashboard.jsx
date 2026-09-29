@@ -266,7 +266,7 @@ export default function CustomDashboard() {
         // its own distinct button at the row's right corner - not merged
         // with the chip (Pranshu, Sep 15 2nd follow-up).
         const viewMenu = (
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative', flexShrink: 0 }}>
             <button className="secondary-btn" style={{ ...btn, padding: '6px 9px', flexShrink: 0 }} onClick={() => setMenu(m => !m)} title="View options" aria-label="View options"><MoreHorizontal size={15} /></button>
             {menu && (
               <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 220 }}>
