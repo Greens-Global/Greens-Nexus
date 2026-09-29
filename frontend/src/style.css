@@ -2263,7 +2263,7 @@ html { overflow-x: hidden; }
 .acct-report td.acct-indent { padding-left: 30px; }
 .acct-report .acct-num { text-align: right; }
 .acct-report tbody tr:hover td { background: var(--bg-secondary); }
-.acct-report .acct-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.86em; color: var(--text-muted); margin-right: 8px; }
+.acct-report .acct-code { color: var(--text-muted); margin-right: 8px; }
 .acct-report .acct-section td { background: var(--bg-secondary); font-weight: 700; cursor: pointer; }
 .acct-report .acct-section td.acct-label { padding-left: 6px; }
 .acct-report .acct-fold { border: none; background: none; padding: 0 4px 0 0; margin: 0; cursor: pointer; color: var(--text-muted); display: inline-flex; vertical-align: middle; }
@@ -2275,6 +2275,43 @@ html { overflow-x: hidden; }
 .acct-report .acct-resize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; touch-action: none; }
 .acct-report .acct-resize:hover { background: var(--wk-brand, #2b45e1); opacity: .35; }
 .acct-report th.acct-head { overflow: visible; }
+
+/* ── Accounting -> ledger lines and the journal entry (Neil, Charmi, Sep 25) ──
+   An Intacct-style list: fixed column widths the reader drags, a filter box
+   under every heading, ONE typeface, banded rows, and a hover that fills the
+   whole row so a line can be followed across a 48-inch monitor. */
+.acct-lines-wrap { overflow: auto; max-height: 72vh; border: 1px solid var(--border-color); border-radius: 10px; }
+.acct-lines { table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 12.5px; font-family: inherit; font-variant-numeric: tabular-nums; --acct-row-py: 5px; }
+.acct-lines th {
+  position: sticky; top: 0; z-index: 3; background: var(--bg-secondary); color: var(--text-secondary);
+  font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; text-align: left;
+  padding: 6px 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.acct-lines thead tr:first-child th { overflow: visible; }
+.acct-lines .acct-filter-row th { top: 27px; z-index: 2; padding: 3px 4px 4px; background: var(--bg-card); text-transform: none; letter-spacing: 0; }
+.acct-lines .acct-filter-row input {
+  width: 100%; box-sizing: border-box; height: 24px; padding: 0 6px; border: 1px solid var(--border-color); border-radius: 6px;
+  font: inherit; font-size: 12px; font-weight: 400; background: var(--bg-card); color: var(--text-primary);
+}
+.acct-lines .acct-filter-row input::placeholder { color: var(--text-muted); opacity: .7; }
+.acct-lines .acct-filter-row input:not(:placeholder-shown) { border-color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
+.acct-lines td { padding: var(--acct-row-py) 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; line-height: 1.35; background: var(--bg-card); }
+.acct-lines tbody tr:nth-child(even) td { background: var(--bg-secondary); }
+.acct-lines tbody tr:hover td { background: var(--wk-brand-tint, #e8ecfd); }
+.acct-lines .acct-num { text-align: right; }
+.acct-lines .acct-code { color: var(--text-muted); margin-right: 8px; }
+.acct-lines .acct-grand td { font-weight: 800; border-top: 3px double var(--border-color); border-bottom: none; background: var(--bg-secondary); position: sticky; bottom: 0; }
+.acct-lines .acct-drill { border: none; background: none; padding: 0; margin: 0; font: inherit; color: var(--wk-brand, #2b45e1); cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-color); text-underline-offset: 3px; }
+.acct-lines .acct-drill:hover { text-decoration-color: var(--wk-brand, #2b45e1); }
+.acct-lines .acct-resize { position: absolute; top: 0; right: 0; width: 7px; height: 100%; cursor: col-resize; touch-action: none; }
+.acct-lines .acct-resize:hover { background: var(--wk-brand, #2b45e1); opacity: .35; }
+/* The entry window: most of the screen, and the reader can drag it larger. */
+.modal-content.acct-entry { resize: both; overflow: auto; min-width: min(720px, 96vw); min-height: 240px; }
+.acct-entry-lines td { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; }
+.acct-entry-lines .acct-grand td { position: static; }
+/* The statement takes the same banding and whole-row hover. */
+.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td { background: var(--bg-secondary); }
+.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td { background: var(--wk-brand-tint, #e8ecfd); }
 
 /* Phone: wide data tables (.req-table - PropertyAsset sections, requisition
    logs) scroll sideways inside their card instead of being cut off. */

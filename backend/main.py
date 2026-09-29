@@ -17,7 +17,7 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews, outlook_addin, accounting_dashboard, accounting_saved, pfs, leasing
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
@@ -1724,6 +1724,21 @@ def _run_migrations():
         # new table - RLS per CLAUDE.md.
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS scheduler_emails TEXT DEFAULT ''",
         "ALTER TABLE shift_availability ENABLE ROW LEVEL SECURITY",
+        # Accounting: memorized reports and reporting packages (Neil, Sep 25).
+        # New tables - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_saved_reports ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_report_packages ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_user_prefs ENABLE ROW LEVEL SECURITY",
+        # Personal Financial Statements (Neil, Sep 25). New tables - RLS per
+        # CLAUDE.md; these hold the most sensitive records in Nexus.
+        "ALTER TABLE pfs_profiles ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_lines ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_statements ENABLE ROW LEVEL SECURITY",
+        # Leasing and monthly recurring income (Neil and Charmi, Sep 25). New
+        # tables - RLS per CLAUDE.md.
+        "ALTER TABLE leases ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE lease_rates ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE lease_months ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2667,6 +2682,9 @@ app.include_router(assets.router)
 app.include_router(property_assets.router)
 app.include_router(accounting.router)
 app.include_router(accounting_dashboard.router)
+app.include_router(accounting_saved.router)   # Accounting: memorized reports, packages, entity access
+app.include_router(pfs.router)                # Personal Financial Statements (owners + explicit grant only)
+app.include_router(leasing.router)            # Leasing: tenants, rent over time, expected vs received
 app.include_router(operations.router)
 app.include_router(unifi.router)
 app.include_router(dashboard.router)

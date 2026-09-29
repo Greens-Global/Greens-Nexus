@@ -972,18 +972,24 @@ export const api = {
   // ledger) through the grant-gated backend proxy. Dates are YYYY-MM-DD.
   // `dims` (optional): { locations, departments, vendor, customer, employee,
   // project, item } - each an array of codes; every Intacct dimension is a
-  // report filter (Charmi, Sep 23). Empty arrays are left out.
-  getAccountingPnl: (from, to, location, dims) =>
-    req(`/accounting/reports/pnl?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}`),
+  // report filter (Charmi, Sep 23). Empty arrays are left out. `book`
+  // (optional): "accrual" (default) or "cash" (Neil, Sep 25).
+  getAccountingPnl: (from, to, location, dims, book) =>
+    req(`/accounting/reports/pnl?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}${book === "cash" ? "&book=cash" : ""}`),
   getAccountingLocations: () => req("/accounting/reports/locations"),
   // Values one dimension can be filtered by (vendor, customer, employee, project, item, department).
   getAccountingDimensionValues: (kind) => req(`/accounting/reports/dimensions?kind=${encodeURIComponent(kind)}`),
-  getAccountingBalanceSheet: (asof, location, dims) =>
-    req(`/accounting/reports/balance-sheet?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}`),
-  getAccountingTrialBalance: (from, to, location, dims) =>
-    req(`/accounting/reports/trial-balance?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}`),
-  getAccountingCashPosition: (asof, location) =>
-    req(`/accounting/reports/cash-position?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}`),
+  getAccountingBalanceSheet: (asof, location, dims, book) =>
+    req(`/accounting/reports/balance-sheet?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}${book === "cash" ? "&book=cash" : ""}`),
+  getAccountingTrialBalance: (from, to, location, dims, book) =>
+    req(`/accounting/reports/trial-balance?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}${book === "cash" ? "&book=cash" : ""}`),
+  getAccountingCashPosition: (asof, location, locations) =>
+    req(`/accounting/reports/cash-position?asof=${asof}${location ? `&location=${encodeURIComponent(location)}` : ""}${locations?.length ? `&locations=${encodeURIComponent(locations.join(","))}` : ""}`),
+  // Sums per account per column (by month, quarter, year, entity, department,
+  // vendor ...) for the Columns dropdown on Reports. `from` left out = from
+  // the start of the books.
+  getAccountingBuckets: ({ from, to, by, book, location, dims } = {}) =>
+    req(`/accounting/reports/buckets?to=${to}&by=${encodeURIComponent(by || "total")}${from ? `&from=${from}` : ""}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}${book === "cash" ? "&book=cash" : ""}`),
   // Global search over the posted ledger, and the report drill-down (same call
   // with an `account`). Empty / null params are left out of the query string.
   searchAccountingLedger: (params = {}) => {
@@ -997,6 +1003,59 @@ export const api = {
   // One-time sign-in URL for accounting.greensglobal.com - Nexus is the only
   // way in there (no passwords). Open the returned url immediately.
   launchAccounting: (next) => req(`/accounting/launch${next ? `?next=${encodeURIComponent(next)}` : ""}`, { method: "POST" }),
+  // Whether my accounting access is limited to certain entities, and which.
+  getMyAccountingAccess: () => req("/accounting/access/me"),
+  // The accounting team and each person's entity limit (Full level on Accounting).
+  getAccountingAccess: () => req("/accounting/access"),
+  setAccountingAccess: (email, entities) =>
+    req(`/accounting/access/${encodeURIComponent(email)}`, { method: "PUT", body: JSON.stringify({ entities }) }),
+  // My own layout of the accounting screens: columns shown, widths, density.
+  getAccountingPrefs: () => req("/accounting/prefs"),
+  saveAccountingPrefs: (prefs) => req("/accounting/prefs", { method: "PUT", body: JSON.stringify({ prefs }) }),
+  // Memorized reports (a Reports view saved under a name) and reporting
+  // packages (an ordered set of them, sent out as one PDF).
+  getAccountingSavedReports: () => req("/accounting/saved-reports"),
+  saveAccountingReport: (body) => req("/accounting/saved-reports", { method: "POST", body: JSON.stringify(body) }),
+  updateAccountingSavedReport: (id, body) =>
+    req(`/accounting/saved-reports/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteAccountingSavedReport: (id) => req(`/accounting/saved-reports/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  getAccountingPackages: () => req("/accounting/packages"),
+  createAccountingPackage: (body) => req("/accounting/packages", { method: "POST", body: JSON.stringify(body) }),
+  updateAccountingPackage: (id, body) =>
+    req(`/accounting/packages/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteAccountingPackage: (id) => req(`/accounting/packages/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  // Personal Financial Statements: guarantor profiles, the lines they own and
+  // owe (read from the ledger or kept by hand), and the statement for a date.
+  // Owners and explicit "pfs" grants only.
+  getPfsMeta: () => req("/pfs/meta"),
+  getPfsProfiles: () => req("/pfs/profiles"),
+  getPfsProfile: (id) => req(`/pfs/profiles/${encodeURIComponent(id)}`),
+  createPfsProfile: (body) => req("/pfs/profiles", { method: "POST", body: JSON.stringify(body) }),
+  updatePfsProfile: (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
+  deletePfsProfile: (id) => req(`/pfs/profiles/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  addPfsLine: (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/lines`, { method: "POST", body: JSON.stringify(body) }),
+  updatePfsLine: (id, lineId, body) =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "PUT", body: JSON.stringify(body) }),
+  deletePfsLine: (id, lineId) =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "DELETE" }),
+  getPfsStatement: (id, asof) => req(`/pfs/profiles/${encodeURIComponent(id)}/statement?asof=${asof}`),
+  producePfsStatement: (id, asof) =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/statements`, { method: "POST", body: JSON.stringify({ asof }) }),
+  getPfsStatements: (id) => req(`/pfs/profiles/${encodeURIComponent(id)}/statements`),
+  getPfsSavedStatement: (statementId) => req(`/pfs/statements/${encodeURIComponent(statementId)}`),
+  getPfsLedgerEntities: () => req("/pfs/ledger/entities"),
+  getPfsLedgerAccounts: (entity, asof) => req(`/pfs/ledger/accounts?entity=${encodeURIComponent(entity)}&asof=${asof}`),
+  // Leasing: tenants, the rent as it changes, and each month's expected
+  // against what the ledger received.
+  getLeasingRentRoll: (year) => req(`/leasing/rent-roll?year=${year}`),
+  getLeasingLeases: () => req("/leasing/leases"),
+  getLeasingCustomers: () => req("/leasing/customers"),
+  createLeasingLease: (body) => req("/leasing/leases", { method: "POST", body: JSON.stringify(body) }),
+  updateLeasingLease: (id, body) => req(`/leasing/leases/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
+  replaceLeasingTenant: (id, body) => req(`/leasing/leases/${encodeURIComponent(id)}/replace`, { method: "POST", body: JSON.stringify(body) }),
+  deleteLeasingLease: (id) => req(`/leasing/leases/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setLeasingMonth: (id, month, body) =>
+    req(`/leasing/leases/${encodeURIComponent(id)}/months/${month}`, { method: "PUT", body: JSON.stringify(body) }),
   // Finance Dashboard (Overview / Cash / Performance / Close) - the same
   // aggregates and shared tables the accounting app's own dashboard uses,
   // proxied by backend/routers/accounting_dashboard.py.

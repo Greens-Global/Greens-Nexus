@@ -24,11 +24,14 @@ from sqlalchemy.orm import Session
 import models
 from auth import get_current_user, require_module_grant
 from database import get_db
+from routers.accounting import require_unlimited
 
 router = APIRouter(
     prefix="/accounting/dashboard",
     tags=["Accounting"],
-    dependencies=[Depends(require_module_grant("accounting", "viewer"))],
+    # Every figure here is consolidated or spans entities, so a person limited
+    # to certain entities (Neil, Sep 25) cannot open these tabs - Reports only.
+    dependencies=[Depends(require_module_grant("accounting", "viewer")), Depends(require_unlimited)],
 )
 
 _BASE = os.environ.get("ACCOUNTING_BASE_URL", "").rstrip("/")

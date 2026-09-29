@@ -1,525 +1,317 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, RefreshCw, Building2, Search, X, Plus, Check, ChevronDown, ChevronRight } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Download, FileDown, Loader2, Maximize2, Minimize2, Search, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
+import { useNameResolver } from '../../lib/useNameResolver';
 import LedgerSearch from './LedgerSearch';
 import { takePendingDrill } from './drill';
+import { useAccountingPrefs } from './prefs';
+import {
+  AccountsPicker, ClearButton, CustomizeButton, DENSITIES, DepartmentsPicker, DimensionsButton, EntitiesPicker, MemorizeButton, PeriodStepper,
+  SavedReportsMenu, control,
+} from './reportControls';
+import {
+  BOOKS, REPORTS, activeColumns, bookLabel, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, csvFileName, csvRows,
+  defaultConfig, dimsText, downloadBlob, downloadCsv, entityText, iso, periodText, presetLabel, reportDef, resolveConfig, runReport,
+} from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
-// ledger without opening Nexus Accounting: Profit & Loss, Balance Sheet,
-// Trial Balance, filtered by Intacct location (entity) and period. Read-only,
-// served by the accounting app's internal API through the backend proxy (the
-// Accounting grant is the gate). Export writes a CSV of the table shown.
+// ledger without opening Nexus Accounting: Income Statement, Balance Sheet,
+// Trial Balance, Cash Position. Read-only, served by the accounting app's
+// internal API through the backend proxy (the Accounting grant is the gate,
+// and a person limited to certain entities only ever reads those).
 //
-// The search box on top is the global search (Neil, Sep 17): type a vendor, a
-// customer, an invoice number or an amount and every posted line containing it
-// replaces the report, inside the entity picked here. Every account amount on
-// a report is a drill-down into the same view - the lines behind that number,
-// for the report's period and entity - so nobody has to open Intacct to see
-// what an amount is made of.
+// Sep 25 (Neil, Charmi): the screen works like the accounting app's Reports
+// page and like Intacct. ONE slim row of dropdowns - report, period,
+// comparison, book (accrual, cash, or both side by side), entities
+// (searchable, several at once), every other dimension behind "Dimensions",
+// the memorized reports - so the statement starts high on the page. Nothing
+// to refresh by hand: the report follows the controls. "Memorize" keeps the
+// view under a name.
 //
-// Sep 23-24 (Charmi, Priyanka): every Intacct dimension is a filter (several
-// entities, department, employee, vendor, customer, Project-Job, item); the
-// period is ONE control that reads "Year to Date · 01/01/2026 - 09/23/2026";
-// and a statement can stand beside its prior year or prior period with $ and
-// % variance columns.
+// Sep 29 (Visesh, from the same call: "the reports are better there"): the
+// row now carries every filter the accounting app's Reports page has - the
+// period stepper with its arrows, Columns (Total Only, By Month, By Quarter,
+// By Entity, By Vendor ... vs Prior Year), departments and accounts as their
+// own dropdowns, Customize, full screen - and the figures line above the
+// statement (Revenue, Expenses, Net Income, Net Margin).
+//
+// The search box is the global search (Neil, Sep 17): type a vendor, a
+// customer, an invoice number or an amount and every posted line containing
+// it replaces the report. Every account amount on a report is a drill-down
+// into the same view - the lines behind that number, for that column's
+// period, book and entity.
 
-const REPORTS = [
-  { key: 'pnl', label: 'Profit & Loss', period: 'range' },
-  { key: 'balance-sheet', label: 'Balance Sheet', period: 'asof' },
-  { key: 'trial-balance', label: 'Trial Balance', period: 'range' },
-  { key: 'cash-position', label: 'Cash Position', period: 'asof' },
-];
-
-const PRESETS = [
-  { key: 'month', label: 'This Month' },
-  { key: 'last-month', label: 'Last Month' },
-  { key: 'quarter', label: 'This Quarter' },
-  { key: 'ytd', label: 'Year to Date' },
-  { key: 'last-year', label: 'Last Year' },
-  { key: 'custom', label: 'Custom' },
-];
-
-// What a statement can be compared against. A P&L range compares to the same
-// dates a year earlier or to the run of equal length just before it; a
-// balance sheet compares to the same date a year earlier or to the previous
-// month end.
-const COMPARE = {
-  range: [
-    { key: 'none', label: 'No Comparison' },
-    { key: 'prior-year', label: 'vs Prior Year' },
-    { key: 'prior-period', label: 'vs Prior Period' },
-  ],
-  asof: [
-    { key: 'none', label: 'No Comparison' },
-    { key: 'prior-year', label: 'vs Prior Year' },
-    { key: 'prior-month', label: 'vs Prior Month End' },
-  ],
-};
-
-// The dimensions a report can be narrowed by, in the order Charmi listed them.
-// Entities come from the locations endpoint (with parents); the rest list the
-// codes that actually appear on the ledger.
-const DIM_KINDS = [
-  { key: 'departments', kind: 'department', label: 'Department' },
-  { key: 'locations', kind: 'location', label: 'Entities' },
-  { key: 'employee', kind: 'employee', label: 'Employee' },
-  { key: 'vendor', kind: 'vendor', label: 'Vendor' },
-  { key: 'customer', kind: 'customer', label: 'Customer' },
-  { key: 'project', kind: 'project', label: 'Project-Job' },
-  { key: 'item', kind: 'item', label: 'Item' },
-];
-const EMPTY_DIMS = { locations: [], departments: [], vendor: [], customer: [], employee: [], project: [], item: [] };
-const hasDims = (d) => DIM_KINDS.some((k) => d[k.key].length > 0);
-
-const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const parse = (s) => new Date(`${s}T00:00:00`);
-const money = (n) => {
-  const v = Number(n) || 0;
-  const s = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return v < 0 ? `(${s})` : s;
-};
-const pct = (cur, prev) => {
-  if (Math.abs(prev) < 0.005) return '';
-  const p = ((cur - prev) / Math.abs(prev)) * 100;
-  return `${p < 0 ? '(' : ''}${Math.abs(p).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%${p < 0 ? ')' : ''}`;
-};
-
-function presetRange(key) {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  switch (key) {
-    case 'month': return [new Date(y, m, 1), now];
-    case 'last-month': return [new Date(y, m - 1, 1), new Date(y, m, 0)];
-    case 'quarter': return [new Date(y, Math.floor(m / 3) * 3, 1), now];
-    case 'last-year': return [new Date(y - 1, 0, 1), new Date(y - 1, 11, 31)];
-    default: return [new Date(y, 0, 1), now];
-  }
-}
-
-const isMonthStart = (s) => s.slice(8, 10) === '01';
-const isMonthEnd = (s) => { const d = parse(s); return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() === d.getDate(); };
-const endOfMonth = (y, m) => new Date(y, m + 1, 0);
-// Same calendar dates a year back; a month end stays a month end (02/29 -> 02/28).
-function yearBack(s) {
-  const d = parse(s);
-  if (isMonthEnd(s)) return iso(endOfMonth(d.getFullYear() - 1, d.getMonth()));
-  return iso(new Date(d.getFullYear() - 1, d.getMonth(), Math.min(d.getDate(), endOfMonth(d.getFullYear() - 1, d.getMonth()).getDate())));
-}
-// The run of months (or days) of the same length just before [from, to].
-function priorPeriod(from, to) {
-  const f = parse(from);
-  const t = parse(to);
-  if (isMonthStart(from) && isMonthEnd(to)) {
-    const months = (t.getFullYear() - f.getFullYear()) * 12 + (t.getMonth() - f.getMonth()) + 1;
-    return [iso(new Date(f.getFullYear(), f.getMonth() - months, 1)), iso(endOfMonth(f.getFullYear(), f.getMonth() - 1))];
-  }
-  const days = Math.max(1, Math.round((t - f) / 86_400_000) + 1);
-  const pt = new Date(f.getTime() - 86_400_000);
-  return [iso(new Date(pt.getTime() - (days - 1) * 86_400_000)), iso(pt)];
-}
-const priorMonthEnd = (s) => { const d = parse(s); return iso(endOfMonth(d.getFullYear(), d.getMonth() - 1)); };
-
-const csvCell = (v) => {
-  const s = v == null ? '' : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-
-function downloadCsv(name, rows) {
-  const text = rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
-  const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
+// What a memorized report keeps: the controls, never the figures. A named
+// period is kept by name so it moves with the calendar.
+const storable = (c) => ({
+  report: c.report, preset: c.preset, ...(c.preset === 'custom' ? { from: c.from, to: c.to } : {}),
+  ...(c.asofToday === false ? { asof: c.asof, asofToday: false } : {}),
+  book: c.book, cols: c.cols, entities: c.entities, dims: c.dims,
+  ...(c.accounts?.length ? { accounts: c.accounts } : {}), ...(c.suppressZero ? { suppressZero: true } : {}),
+});
+const sameView = (a, b) => JSON.stringify(storable(a)) === JSON.stringify(storable(b));
 
 export default function ReportsTab() {
-  const [report, setReport] = useState('pnl');
-  const [preset, setPreset] = useState('ytd');
-  const [[from, to], setRange] = useState(() => presetRange('ytd').map(iso));
-  const [asof, setAsof] = useState(() => iso(new Date()));
-  const [entity, setEntity] = useState('');
+  const [config, setConfig] = useState(() => defaultConfig());
   const [entities, setEntities] = useState([]);
-  const [dims, setDims] = useState(EMPTY_DIMS);
-  const [compare, setCompare] = useState('none');
-  const [data, setData] = useState(null);
-  const [prior, setPrior] = useState(null);   // the comparison statement, same shape as `data`
+  const [limited, setLimited] = useState(false);
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  // Report layout (Neil, Sep 25: tighter, like Intacct / the finance app).
-  // Sections fold on click; density and the Account column width are the
-  // reader's own and stick across visits.
   const [collapsed, setCollapsed] = useState(() => new Set());
-  const [density, setDensity] = useState(() => { try { return localStorage.getItem('acct-report-density') || 'compact'; } catch { return 'compact'; } });
-  const [colW, setColW] = useState(() => { try { return Number(localStorage.getItem('acct-report-colw')) || 0; } catch { return 0; } });   // 0 = size to content
+  const [prefs, setPrefs] = useAccountingPrefs();
+  const nameOf = useNameResolver();
+  const density = DENSITIES.some((d) => d.key === prefs.density) ? prefs.density : 'compact';
+  // Full screen: the toolbar and the statement take the whole window.
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    if (!full) return undefined;
+    const onKey = (e) => {
+      // Escape closes whatever is open on top first (a dropdown, an entry).
+      if (e.key === 'Escape' && !document.querySelector('.modal-overlay, [role="listbox"], [role="dialog"], [role="menu"]')) setFull(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [full]);
+  const colW = Number(prefs.accountWidth) || 0;   // 0 = size to content
+  const patch = useCallback((p) => setConfig((c) => resolveConfig({ ...c, ...p })), []);
   const toggleSection = (key) => setCollapsed((c) => { const n = new Set(c); if (n.has(key)) n.delete(key); else n.add(key); return n; });
-  const pickDensity = (d) => { setDensity(d); try { localStorage.setItem('acct-report-density', d); } catch { /* private mode */ } };
-  const saveColW = (w) => { setColW(w); try { if (w) localStorage.setItem('acct-report-colw', String(w)); else localStorage.removeItem('acct-report-colw'); } catch { /* private mode */ } };
+
   // Global search + drill-down. `searchText` is what is typed; `term` follows it
   // after a pause so the ledger is not queried on every keystroke.
   const [searchText, setSearchText] = useState('');
   const [term, setTerm] = useState('');
-  const [drill, setDrill] = useState(null);   // { account, accountName, from, to }
+  const [drill, setDrill] = useState(null);   // { account, accountName, from, to, book, entity?, department?, party? }
+  const [searchBusy, setSearchBusy] = useState(false);
   useEffect(() => {
-    const t = setTimeout(() => setTerm(searchText.trim()), 300);
+    // Every search that starts runs to its end on the ledger, even when the
+    // next keystroke has already replaced it. Two or three characters match a
+    // large part of the ledger ("in" is on 619,000 lines), so a short word
+    // waits longer for the rest of it to be typed (Sep 29).
+    const typed = searchText.trim();
+    const t = setTimeout(() => setTerm(typed), typed.length < 4 ? 700 : 350);
     return () => clearTimeout(t);
   }, [searchText]);
   const searching = term.length >= 2 || !!drill;
+  // From the first keystroke until the lines are on screen (Charmi, Sep 25:
+  // with nothing moving, nobody could tell whether to press Enter).
+  const waiting = (searchText.trim().length >= 2 && searchText.trim() !== term) || (searching && searchBusy);
   const closeSearch = () => { setSearchText(''); setTerm(''); setDrill(null); };
+  const toTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+
   // A drill-down asked for from another tab (see drill.js) lands here.
   useEffect(() => {
     const take = (d) => {
       if (!d || !d.account) return;
-      if (d.entity !== undefined) { setEntity(d.entity || ''); setDims(EMPTY_DIMS); }
-      setDrill({ account: d.account, accountName: d.accountName || '', from: d.from || '', to: d.to || iso(new Date()) });
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (d.entity !== undefined) patch({ entities: d.entity ? [d.entity] : [] });
+      setDrill({ account: d.account, accountName: d.accountName || '', from: d.from || '', to: d.to || iso(new Date()), book: d.book || 'accrual' });
+      toTop();
     };
     take(takePendingDrill());
     const onEvent = (e) => { takePendingDrill(); take(e.detail); };
     window.addEventListener('nexus:accounting-drill', onEvent);
     return () => window.removeEventListener('nexus:accounting-drill', onEvent);
-  }, []);
-  // The lines behind one account's amount, for what the report is showing.
-  // Balance-type reports (as of a date) drill from the beginning of the books.
-  const drillInto = (accountNo, title) => {
-    if (!accountNo) return;
-    setDrill({ account: accountNo, accountName: title || '', from: def.period === 'asof' ? '' : from, to: def.period === 'asof' ? asof : to });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [patch]);
+  // The lines behind one amount: the account, in that column's window and book.
+  const drillInto = (row, column) => {
+    if (!row.code || !column.drill) return;
+    setDrill({ account: row.code, accountName: row.title || '', ...column.drill });
+    toTop();
   };
-  // The comparison column drills into ITS window, not the current one.
-  const drillPrior = (accountNo, title) => {
-    if (!accountNo || !priorRange) return;
-    setDrill({ account: accountNo, accountName: title || '', from: priorRange.asof ? '' : priorRange.from, to: priorRange.asof || priorRange.to });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const def = REPORTS.find((r) => r.key === report);
-  const compareOptions = COMPARE[def.period];
-  const canCompare = report === 'pnl' || report === 'balance-sheet';
-  const canDims = report !== 'cash-position';
-  const activeCompare = canCompare && compare !== 'none' ? compare : 'none';
-  // Several entities picked in the Entities filter replace the single picker.
-  const effectiveEntity = dims.locations.length ? '' : entity;
-  const dimsSent = canDims && hasDims(dims) ? dims : null;
 
   useEffect(() => {
-    api.getAccountingLocations().then((d) => setEntities(d?.entities || [])).catch(() => setEntities([]));
+    api.getAccountingLocations().then((d) => { setEntities(d?.entities || []); setLimited(!!d?.limited); }).catch(() => setEntities([]));
   }, []);
 
-  useEffect(() => {
-    if (preset !== 'custom') setRange(presetRange(preset).map(iso));
-  }, [preset]);
-
-  // Where the comparison column reads from.
-  const priorRange = useMemo(() => {
-    if (activeCompare === 'none') return null;
-    if (def.period === 'asof') return { asof: activeCompare === 'prior-year' ? yearBack(asof) : priorMonthEnd(asof) };
-    if (activeCompare === 'prior-year') return { from: yearBack(from), to: yearBack(to) };
-    const [pf, pt] = priorPeriod(from, to);
-    return { from: pf, to: pt };
-  }, [activeCompare, def.period, from, to, asof]);
-
-  const fetchReport = (range) => {
-    const loc = effectiveEntity || undefined;
-    if (report === 'pnl') return api.getAccountingPnl(range.from, range.to, loc, dimsSent);
-    if (report === 'balance-sheet') return api.getAccountingBalanceSheet(range.asof, loc, dimsSent);
-    if (report === 'cash-position') return api.getAccountingCashPosition(range.asof, loc);
-    return api.getAccountingTrialBalance(range.from, range.to, loc, dimsSent);
-  };
-
+  // Run on every control change so the tab always shows what the controls say.
   const seq = useRef(0);
-  const run = () => {
+  const key = JSON.stringify(storable(config)) + config.from + config.to + config.asof;
+  const started = useRef(false);
+  useEffect(() => {
     const mine = ++seq.current;
     setLoading(true);
     setError('');
-    const current = def.period === 'asof' ? { asof } : { from, to };
-    Promise.all([fetchReport(current), priorRange ? fetchReport(priorRange) : Promise.resolve(null)])
-      .then(([d, p]) => { if (mine !== seq.current) return; setData({ report, ...d }); setPrior(p ? { report, ...p } : null); })
-      .catch((e) => { if (mine !== seq.current) return; setData(null); setPrior(null); setError(e?.message || 'Could not load the report.'); })
+    const run = () => runReport(api, config)
+      .then((r) => { if (mine === seq.current) setResult(r); })
+      .catch((e) => { if (mine === seq.current) { setResult(null); setError(e?.message || 'Could not load the report.'); } })
       .finally(() => { if (mine === seq.current) setLoading(false); });
-  };
+    // The first report loads at once. After that a change waits a moment:
+    // two controls changed one after the other are one report, not two heavy
+    // reads of the ledger side by side.
+    if (!started.current) { started.current = true; run(); return undefined; }
+    const t = setTimeout(run, 250);
+    return () => clearTimeout(t);
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Run on every control change so the tab always shows what the filters say.
-  const dimsKey = JSON.stringify(dimsSent);
-  useEffect(() => { run(); }, [report, from, to, asof, effectiveEntity, dimsKey, activeCompare]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Memorized reports.
+  const [saved, setSaved] = useState([]);
+  const [savedState, setSavedState] = useState({ loading: true, error: '' });
+  const loadSaved = useCallback(() => api.getAccountingSavedReports()
+    .then((list) => { setSaved(list || []); setSavedState({ loading: false, error: '' }); })
+    .catch((e) => setSavedState({ loading: false, error: e?.message || 'Could not load the saved reports.' })), []);
+  useEffect(() => { loadSaved(); }, [loadSaved]);
+  const activeSaved = useMemo(() => saved.find((r) => sameView(resolveConfig(r.config), config)), [saved, config]);
+  const memorize = (name, shared) => api.saveAccountingReport({ name, config: storable(config), shared }).then(loadSaved);
+  const openSaved = (r) => { closeSearch(); setCollapsed(new Set()); setConfig(resolveConfig(r.config)); };
+  const deleteSaved = (r) => api.deleteAccountingSavedReport(r.id).then(loadSaved).catch((e) => setSavedState({ loading: false, error: e?.message || 'Could not delete the report.' }));
+  const shareSaved = (r, shared) => api.updateAccountingSavedReport(r.id, { shared }).then(loadSaved).catch((e) => setSavedState({ loading: false, error: e?.message || 'Could not change sharing.' }));
 
-  const entityName = (code) => {
-    if (!code) return 'All entities';
-    const e = entities.find((x) => x.code === code);
-    return e?.name ? `${e.name} (${code})` : code;
-  };
-
-
-  const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 20, boxShadow: 'var(--shadow-sm)' };
-  const input = { padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.8rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)' };
-  const pill = (active) => ({
-    padding: '6px 12px', borderRadius: 999, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-    border: `1px solid ${active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`,
-    background: active ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)',
-    color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)',
-  });
-  const presetLabel = PRESETS.find((p) => p.key === preset)?.label || 'Custom';
-  const rangeText = `${formatDate(from)} - ${formatDate(to)}`;
-  // One control, one line: "Year to Date · 01/01/2026 - 09/23/2026" (Priyanka, Sep 23).
-  const periodLabel = def.period === 'asof' ? `As of ${formatDate(asof)}` : `${presetLabel} · ${rangeText}`;
-  const priorLabel = !priorRange ? '' : priorRange.asof ? `As of ${formatDate(priorRange.asof)}` : `${formatDate(priorRange.from)} - ${formatDate(priorRange.to)}`;
-  const currentLabel = def.period === 'asof' ? `As of ${formatDate(asof)}` : preset === 'ytd' ? 'YTD Actual' : rangeText;
-  const comparing = !!prior && activeCompare !== 'none';
-  const hasSections = !!data && data.report !== 'trial-balance' && data.report !== 'cash-position';
-  const dimsText = DIM_KINDS.filter((k) => dims[k.key].length).map((k) => (dims[k.key].length === 1 ? `${k.label} ${dims[k.key][0]}` : `${dims[k.key].length} ${k.label.toLowerCase()}${k.key === 'locations' ? '' : 's'}`));
-
-  // The comparison figure for one account / total, looked up in the prior statement.
-  const priorAmounts = useMemo(() => {
-    const m = new Map();
-    if (!prior) return m;
-    (prior.sections || []).forEach((s) => (s.accounts || []).forEach((a) => m.set(a.account_no || a.title, a.amount)));
-    return m;
-  }, [prior]);
-  const priorSectionTotal = (key) => (prior?.sections || []).find((s) => s.key === key)?.total ?? 0;
-  const priorTotal = (name) => prior?.totals?.[name] ?? 0;
-
-  const exportCsv = () => {
-    if (!data) return;
-    const rows = [];
-    const stamp = def.period === 'asof' ? asof : `${from}_${to}`;
-    const cmp = (cur, prev) => (comparing ? [prev, Math.round((cur - prev) * 100) / 100, pct(cur, prev)] : []);
-    const cmpHead = comparing ? [priorLabel, '$ Variance', '% Variance'] : [];
-    if (data.report === 'pnl') {
-      rows.push(['Section', 'Account', 'Title', currentLabel, ...cmpHead]);
-      data.sections.forEach((s) => {
-        s.accounts.forEach((a) => rows.push([s.label, a.account_no, a.title, a.amount, ...cmp(a.amount, priorAmounts.get(a.account_no || a.title) ?? 0)]));
-        rows.push([`Total ${s.label}`, '', '', s.total, ...cmp(s.total, priorSectionTotal(s.key))]);
-      });
-      rows.push(['Gross Profit', '', '', data.totals.gross_profit, ...cmp(data.totals.gross_profit, priorTotal('gross_profit'))]);
-      rows.push(['Operating Income', '', '', data.totals.operating_income, ...cmp(data.totals.operating_income, priorTotal('operating_income'))]);
-      rows.push(['Net Income', '', '', data.totals.net_income, ...cmp(data.totals.net_income, priorTotal('net_income'))]);
-    } else if (data.report === 'balance-sheet') {
-      rows.push(['Section', 'Account', 'Title', currentLabel, ...cmpHead]);
-      data.sections.forEach((s) => {
-        s.accounts.forEach((a) => rows.push([s.label, a.account_no, a.title, a.amount, ...cmp(a.amount, priorAmounts.get(a.account_no || a.title) ?? 0)]));
-        rows.push([`Total ${s.label}`, '', '', s.total, ...cmp(s.total, priorSectionTotal(s.key))]);
-      });
-      rows.push(['Total Liabilities and Equity', '', '', data.totals.liabilities_and_equity, ...cmp(data.totals.liabilities_and_equity, priorTotal('liabilities_and_equity'))]);
-    } else if (data.report === 'cash-position') {
-      rows.push(['Account', 'Title', 'Balance', 'Last Activity']);
-      data.accounts.forEach((a) => rows.push([a.gl_code, a.account_name, a.balance, a.last_activity ? formatDate(a.last_activity) : '']));
-      rows.push(['Total Cash', '', data.total, '']);
-    } else {
-      rows.push(['Account', 'Title', 'Type', 'Opening', 'Debit', 'Credit', 'Closing']);
-      data.rows.forEach((r) => rows.push([r.account_no, r.title, r.type, r.opening, r.debit, r.credit, r.closing]));
-      rows.push(['Total', '', '', data.totals.opening, data.totals.debit, data.totals.credit, data.totals.closing]);
+  // The statement on screen as a PDF, laid out like a page of a package.
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const exportPdf = async (r) => {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      // pdf-lib is large; it loads only when a PDF is asked for.
+      const { buildPackagePdf } = await import('./reportPdf');
+      const title = activeSaved?.name || r.def.label;
+      const bytes = await buildPackagePdf({ name: title, statements: [{ title: r.def.label, result: r, entities }], cover: false });
+      downloadBlob(csvFileName(r).replace(/\.csv$/, '.pdf'), new Blob([bytes], { type: 'application/pdf' }));
+    } catch (e) {
+      setError(e?.message || 'Could not build the PDF.');
+    } finally {
+      setPdfBusy(false);
     }
-    if (dimsText.length) rows.push([], ['Filters', dimsText.join('; ')]);
-    downloadCsv(`${def.label.replace(/[^A-Za-z]+/g, '-')}_${effectiveEntity || (dims.locations.length ? 'entities' : 'all-entities')}_${stamp}.csv`, rows);
   };
 
-  const cmpHeader = comparing ? (
-    <>
-      <th className="acct-num">{priorLabel}</th>
-      <th className="acct-num">$ Variance</th>
-      <th className="acct-num">% Variance</th>
-    </>
-  ) : null;
+  const def = reportDef(config.report);
+  const cols = activeColumns(config);
+  const modes = columnModes(config.report);
+  const showColumns = modes.length > 1 && config.book !== 'both';
+  const filters = dimsText(config);
+  const entityLabel = entityText(config, entities);
+  // A column of one entity drills into that entity, whatever the report covers.
+  const drillEntities = drill?.entity ? [drill.entity] : config.entities;
+  const drillEntityLabel = drill?.entity ? entityText({ entities: [drill.entity] }, entities) : entityLabel;
+  const sections = (result?.rows || []).filter((r) => r.kind === 'section');
+  const shown = result && result.config.report === config.report ? result : null;
+
+  const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
+  const select = (active) => ({ ...control, fontWeight: active ? 600 : 400, color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', borderColor: active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)', maxWidth: 300 });
+
+  const shell = full
+    ? { position: 'fixed', inset: 0, zIndex: 400, overflow: 'auto', padding: 12, background: 'var(--bg-primary)', display: 'grid', gap: 10, alignContent: 'start' }
+    : { display: 'grid', gap: 10 };
 
   return (
-    <div style={{ display: 'grid', gap: 20 }}>
-      {/* Controls */}
-      <div style={{ ...card, display: 'grid', gap: 12 }}>
-        <div style={{ position: 'relative' }}>
-          <Search size={16} style={{ position: 'absolute', left: 12, top: 11, color: 'var(--text-muted)' }} />
+    <div style={shell}>
+      {/* One slim row: search, then every control as a dropdown. */}
+      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200, maxWidth: 460 }}>
+          {waiting
+            ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
+            : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
           <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} aria-label="Search the ledger"
-            placeholder="Search everything - vendor, customer, invoice number, amount, memo..."
-            style={{ ...input, width: '100%', padding: '9px 36px 9px 36px', fontSize: '0.9rem', boxSizing: 'border-box' }} />
-          {searchText && (
-            <button type="button" onClick={() => setSearchText('')} aria-label="Clear search"
-              style={{ position: 'absolute', right: 10, top: 9, border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}>
-              <X size={16} />
-            </button>
-          )}
+            placeholder="Search vendor, customer, invoice, amount, memo..."
+            style={{ ...control, width: '100%', paddingLeft: 28, paddingRight: 26 }} />
+          {searchText && <ClearButton onClick={() => setSearchText('')} label="Clear search" />}
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
-          <div className="scroll-tabs" style={{ display: 'flex', gap: 6 }}>
-            {REPORTS.map((r) => (
-              <button key={r.key} type="button" style={pill(report === r.key)} onClick={() => { setReport(r.key); closeSearch(); }}>{r.label}</button>
-            ))}
-          </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button type="button" className="secondary-btn" onClick={run} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem' }}>
-              <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
-            </button>
-            <button type="button" className="primary-btn" onClick={exportCsv} disabled={!data} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem' }}>
-              <Download size={14} /> Export CSV
-            </button>
-          </div>
+
+        <select value={config.report} onChange={(e) => { closeSearch(); setCollapsed(new Set()); patch({ report: e.target.value, accounts: [] }); }} aria-label="Report" style={{ ...select(false), fontWeight: 600 }}>
+          {REPORTS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+        </select>
+
+        <PeriodStepper config={config} period={def.period} onChange={patch} />
+
+        {showColumns && (
+          <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" style={select(cols !== 'total')}>
+            {modes.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+          </select>
+        )}
+
+        {canPickBook(config) && (
+          <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={select(config.book !== 'accrual')}>
+            {BOOKS.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
+          </select>
+        )}
+
+        <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} />
+        {canUseDims(config) && <DepartmentsPicker value={config.dims.departments} onChange={(departments) => patch({ dims: { ...config.dims, departments } })} />}
+        {canUseDims(config) && <DimensionsButton dims={config.dims} onChange={(dims) => patch({ dims })} />}
+        {canPickAccounts(config) && <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} />}
+
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <SavedReportsMenu reports={saved} loading={savedState.loading} error={savedState.error} activeId={activeSaved?.id}
+            onOpen={openSaved} onDelete={deleteSaved} onShare={shareSaved} nameOf={nameOf} />
+          <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${def.period === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
+          <CustomizeButton density={density} onDensity={(d) => setPrefs({ density: d })} suppressZero={config.suppressZero} onSuppressZero={(v) => patch({ suppressZero: v })} />
+          <button type="button" className="primary-btn" onClick={() => shown && downloadCsv(csvFileName(shown), csvRows(shown, entities))} disabled={!shown || searching}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+            <Download size={14} /> Export CSV
+          </button>
+          <button type="button" className="secondary-btn" onClick={() => shown && exportPdf(shown)} disabled={!shown || searching || pdfBusy}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+            {pdfBusy ? <Loader2 size={14} className="spin" /> : <FileDown size={14} />} Export PDF
+          </button>
+          <button type="button" onClick={() => setFull((v) => !v)} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
+            style={{ ...control, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+            {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
-          {def.period === 'range' ? (
-            <>
-              <select value={preset} onChange={(e) => setPreset(e.target.value)} aria-label="Period" style={{ ...input, fontWeight: 600, maxWidth: 340 }}>
-                {PRESETS.map((p) => {
-                  const r = p.key === 'custom' ? null : presetRange(p.key).map(iso);
-                  return <option key={p.key} value={p.key}>{r ? `${p.label} · ${formatDate(r[0])} - ${formatDate(r[1])}` : 'Custom dates...'}</option>;
-                })}
-              </select>
-              {preset === 'custom' && (
-                <>
-                  <input type="date" value={from} max={to} onChange={(e) => setRange([e.target.value, to])} style={input} aria-label="From" />
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>to</span>
-                  <input type="date" value={to} min={from} onChange={(e) => setRange([from, e.target.value])} style={input} aria-label="To" />
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>As of</span>
-              <input type="date" value={asof} onChange={(e) => setAsof(e.target.value)} style={input} aria-label="As of" />
-            </>
-          )}
-          {canCompare && (
-            <select value={activeCompare} onChange={(e) => setCompare(e.target.value)} aria-label="Compare" style={{ ...input, color: activeCompare !== 'none' ? 'var(--wk-brand, #2b45e1)' : undefined, fontWeight: activeCompare !== 'none' ? 600 : undefined }}>
-              {compareOptions.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-            </select>
-          )}
-          <div style={{ marginLeft: 'auto' }}>
-            <EntityPicker entities={entities} value={effectiveEntity} onChange={setEntity} disabled={dims.locations.length > 0}
-              disabledLabel={dims.locations.length ? `${dims.locations.length} entities (see filter)` : ''} />
-          </div>
-        </div>
-        {canDims && <DimensionBar dims={dims} onChange={setDims} entities={entities} />}
       </div>
 
       {searching && (
-        <LedgerSearch term={term.length >= 2 ? term : ''} entity={effectiveEntity} entityName={dims.locations.length ? `${dims.locations.length} entities` : entityName(effectiveEntity)}
-          dims={dimsSent} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} />
+        <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel}
+          dims={canUseDims(config) ? config.dims : null} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} />
       )}
 
-      {!searching && error && <div style={{ ...card, borderColor: 'var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', fontSize: '0.9rem' }}>{error}</div>}
-      {!searching && loading && !data && <SkeletonBlocks count={4} />}
+      {!searching && error && <div style={{ ...card, padding: 14, borderColor: 'var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', fontSize: '0.88rem' }}>{error}</div>}
+      {!searching && loading && !shown && <SkeletonBlocks count={4} />}
 
-      {!searching && data && (
-        <div style={{ ...card, padding: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-            <div>
-              <h3 style={{ fontSize: '1rem', margin: 0 }}>{def.label}</h3>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                {data.org} · {dims.locations.length ? `${dims.locations.length} entities` : entityName(effectiveEntity)} · {periodLabel}{comparing ? ` · vs ${priorLabel}` : ''} · accrual{loading ? ' · refreshing' : ''}
-              </div>
-              {dimsText.length > 0 && <div style={{ fontSize: '0.76rem', color: 'var(--wk-brand, #2b45e1)', marginTop: 2 }}>Filtered by {dimsText.join(' · ')}</div>}
+      {!searching && shown && (
+        <div style={{ ...card, padding: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
+              <h3 style={{ fontSize: '0.98rem', margin: 0 }}>{def.label}</h3>
+              <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : '', canPickBook(config) ? bookLabel(config.book) : ''].filter(Boolean).join(' · ')}
+                {loading ? ' · updating' : ''}
+              </span>
+              {filters.length > 0 && <span style={{ fontSize: '0.76rem', color: 'var(--wk-brand, #2b45e1)' }}>Filtered by {filters.join(' · ')}</span>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <div role="group" aria-label="Row density" style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-                {DENSITIES.map((d) => (
-                  <button key={d.key} type="button" onClick={() => pickDensity(d.key)} title={d.title} aria-pressed={density === d.key}
-                    style={{ border: 'none', borderRight: '1px solid var(--border-color)', background: density === d.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: density === d.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', font: 'inherit', fontSize: '0.72rem', fontWeight: 600, padding: '4px 9px', cursor: 'pointer' }}>
-                    {d.label}
-                  </button>
-                ))}
-              </div>
-              {hasSections && (
+              {sections.length > 0 && (
                 <button type="button" className="secondary-btn" style={{ fontSize: '0.75rem', padding: '4px 10px' }}
-                  onClick={() => setCollapsed(collapsed.size ? new Set() : new Set(data.sections.map((x) => x.key)))}>
+                  onClick={() => setCollapsed(collapsed.size ? new Set() : new Set(sections.map((x) => x.section)))}>
                   {collapsed.size ? 'Expand All' : 'Collapse All'}
                 </button>
               )}
             </div>
           </div>
 
-          <div className="acct-report-wrap">
+          {shown.summary.length > 0 && (
+            <div aria-label="Summary" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 22px', margin: '0 2px 8px', fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums' }}>
+              {shown.summary.map((f) => (
+                <span key={f.label} style={{ color: 'var(--text-secondary)' }}>
+                  {f.label} <strong style={{ color: f.tone === 'good' ? 'var(--ok-fg, #15803d)' : f.tone === 'bad' ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}>{f.value}</strong>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }}>
             <table className="acct-report" style={{ '--acct-row-py': DENSITIES.find((d) => d.key === density)?.py || '5px' }}>
               <colgroup><col style={colW ? { width: colW, minWidth: colW } : undefined} /></colgroup>
-              {data.report === 'cash-position' ? (
-                <>
-                  <thead>
-                    <tr>
-                      <ResizableHead width={colW} onResize={saveColW}>Account</ResizableHead>
-                      <th className="acct-num">Balance</th>
-                      <th>Last Activity</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.accounts.map((a) => (
-                      <tr key={a.gl_code}>
-                        <td className="acct-label" style={colW ? { maxWidth: colW } : undefined}><AccountLabel code={a.gl_code} title={a.account_name} /></td>
-                        <td className="acct-num" style={{ color: a.balance < 0 ? 'var(--bad-fg, #dc2626)' : undefined }}><DrillAmount onClick={() => drillInto(a.gl_code, a.account_name)}>{money(a.balance)}</DrillAmount></td>
-                        <td style={{ color: 'var(--text-secondary)' }}>{a.last_activity ? formatDate(a.last_activity) : '-'}</td>
-                      </tr>
-                    ))}
-                    <tr className="acct-grand">
-                      <td className="acct-label">Total Cash as of {formatDate(asof)}</td>
-                      <td className="acct-num" style={{ color: data.total >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' }}>{money(data.total)}</td>
-                      <td />
-                    </tr>
-                  </tbody>
-                </>
-              ) : data.report === 'trial-balance' ? (
-                <>
-                  <thead>
-                    <tr>
-                      <ResizableHead width={colW} onResize={saveColW}>Account</ResizableHead>
-                      <th className="acct-num">Opening</th><th className="acct-num">Debit</th><th className="acct-num">Credit</th><th className="acct-num">Closing</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.rows.map((r) => (
-                      <tr key={r.account_no}>
-                        <td className="acct-label" style={colW ? { maxWidth: colW } : undefined}><AccountLabel code={r.account_no} title={r.title} /></td>
-                        <td className="acct-num"><DrillAmount onClick={() => drillInto(r.account_no, r.title)}>{money(r.opening)}</DrillAmount></td>
-                        <td className="acct-num"><DrillAmount onClick={() => drillInto(r.account_no, r.title)}>{money(r.debit)}</DrillAmount></td>
-                        <td className="acct-num"><DrillAmount onClick={() => drillInto(r.account_no, r.title)}>{money(r.credit)}</DrillAmount></td>
-                        <td className="acct-num"><DrillAmount onClick={() => drillInto(r.account_no, r.title)}>{money(r.closing)}</DrillAmount></td>
-                      </tr>
-                    ))}
-                    <tr className="acct-grand">
-                      <td className="acct-label">Total</td>
-                      <td className="acct-num">{money(data.totals.opening)}</td>
-                      <td className="acct-num">{money(data.totals.debit)}</td>
-                      <td className="acct-num">{money(data.totals.credit)}</td>
-                      <td className="acct-num">{money(data.totals.closing)}</td>
-                    </tr>
-                  </tbody>
-                </>
-              ) : (
-                <>
-                  <thead>
-                    <tr>
-                      <ResizableHead width={colW} onResize={saveColW}>Account</ResizableHead>
-                      <th className="acct-num">{currentLabel}</th>
-                      {cmpHeader}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.sections.map((sec) => (
-                      <SectionRows key={sec.key} section={sec} open={!collapsed.has(sec.key)} onToggle={() => toggleSection(sec.key)} onDrill={drillInto} onDrillPrior={drillPrior} colW={colW}
-                        compare={comparing ? { amounts: priorAmounts, total: priorSectionTotal(sec.key) } : null} />
-                    ))}
-                    {data.report === 'pnl' ? (
-                      <>
-                        <TotalRow label="Gross Profit" value={data.totals.gross_profit} prior={comparing ? priorTotal('gross_profit') : null} className="acct-subtotal" />
-                        <TotalRow label="Operating Income" value={data.totals.operating_income} prior={comparing ? priorTotal('operating_income') : null} className="acct-subtotal" />
-                        <TotalRow label="Net Income" value={data.totals.net_income} prior={comparing ? priorTotal('net_income') : null} className="acct-grand" tone />
-                      </>
-                    ) : (
-                      <>
-                        <TotalRow label="Total Liabilities and Equity" value={data.totals.liabilities_and_equity} prior={comparing ? priorTotal('liabilities_and_equity') : null} className="acct-grand" />
-                        {Math.abs(data.totals.difference) >= 0.01 && (
-                          <tr style={{ color: 'var(--bad-fg, #dc2626)' }}><td className="acct-label">Out of balance by</td><td className="acct-num">{money(data.totals.difference)}</td>{comparing && <td colSpan={3} />}</tr>
-                        )}
-                      </>
-                    )}
-                  </tbody>
-                </>
-              )}
+              <thead>
+                <tr>
+                  <ResizableHead width={colW} onResize={(w) => setPrefs({ accountWidth: w })}>Account</ResizableHead>
+                  {shown.columns.map((c) => <th key={c.key} className={c.type === 'date' ? undefined : 'acct-num'} style={c.emphasis ? EMPHASIS : undefined}>{c.label}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {shown.rows.map((r, i) => {
+                  if (r.kind === 'account' && r.section && collapsed.has(r.section)) return null;
+                  const open = r.kind === 'section' && !collapsed.has(r.section);
+                  return <StatementRow key={`${r.kind}-${r.section || ''}-${r.code || r.label}-${i}`} row={r} columns={shown.columns} open={open} colW={colW}
+                    onToggle={() => toggleSection(r.section)} onDrill={drillInto} />;
+                })}
+              </tbody>
             </table>
           </div>
-          <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-            Generated {formatDate(data.generated_at)} from the Nexus Accounting ledger. Figures refresh every 5 minutes. Click any amount for the lines behind it; click a section to fold it; drag the edge of the Account heading to change its width (double-click resets).
+          <div style={{ marginTop: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+            Generated {formatDate(shown.generatedAt)} from the Nexus Accounting ledger. Click any underlined amount for the lines behind it; click a section to fold it; drag the edge of the Account heading to change its width (double-click resets).
           </div>
         </div>
       )}
@@ -527,20 +319,62 @@ export default function ReportsTab() {
   );
 }
 
-// Row density, the finance app's three steps.
-const DENSITIES = [
-  { key: 'comfortable', label: 'Comfortable', py: '10px', title: 'Roomy rows' },
-  { key: 'compact', label: 'Compact', py: '5px', title: 'Tight rows, like Intacct' },
-  { key: 'condensed', label: 'Condensed', py: '2px', title: 'As many rows on screen as possible' },
-];
+// The Total column beside a run of period or entity columns.
+const EMPHASIS = { fontWeight: 700, borderLeft: '2px solid var(--border-color)' };
 
-// GL code and name on ONE line, code first in the muted mono face (Neil, Sep 25).
-function AccountLabel({ code, title }) {
+const tint = (v) => (v < 0 ? 'var(--bad-fg, #dc2626)' : v > 0 ? 'var(--ok-fg, #15803d)' : undefined);
+
+// One line of a statement: a fold-able section heading with its total, an
+// account (code and name on one line, every amount a drill-down), or a total.
+function StatementRow({ row, columns, open, colW, onToggle, onDrill }) {
+  const Chevron = open ? ChevronDown : ChevronRight;
+  const variance = columns.findIndex((c) => c.type === 'variance');
+  const cells = columns.map((c, i) => {
+    const v = row.values[i];
+    if (c.type === 'date') return <td key={c.key} style={{ color: 'var(--text-secondary)' }}>{v || (row.kind === 'account' ? '-' : '')}</td>;
+    if (c.type === 'pct') return <td key={c.key} className="acct-num" style={{ color: tint(row.values[variance]) }}>{v || '-'}</td>;
+    if (row.kind === 'margin') return <td key={c.key} className="acct-num" style={{ ...(c.emphasis ? EMPHASIS : {}), color: tint(v) }}>{cellText(row, c, v) || '-'}</td>;
+    if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ color: tint(v) }}>{cellText(row, c, v)}</td>;
+    const money = (x) => cellText(row, c, x);
+    const look = row.tone ? { color: v >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' } : c.key === 'other' && columns.length > 2 ? { color: 'var(--text-secondary)' } : row.kind === 'account' && v < 0 && columns.length === 2 && columns[1].type === 'date' ? { color: 'var(--bad-fg, #dc2626)' } : undefined;
+    const style = c.emphasis ? { ...EMPHASIS, ...look } : look;
+    return (
+      <td key={c.key} className="acct-num" style={style}>
+        {row.kind === 'account' && row.code && c.drill
+          ? <button type="button" className="acct-drill" title="See the lines behind this amount" onClick={() => onDrill(row, c)}>{money(v)}</button>
+          : money(v)}
+      </td>
+    );
+  });
+  if (row.kind === 'section') {
+    return (
+      <tr className="acct-section" onClick={onToggle} title={open ? 'Click to fold this section' : 'Click to open this section'}>
+        <td className="acct-label">
+          <button type="button" className="acct-fold" aria-expanded={open} aria-label={`${open ? 'Fold' : 'Open'} ${row.label}`} onClick={(e) => { e.stopPropagation(); onToggle(); }}>
+            <Chevron size={13} />
+          </button>
+          {row.label}{!open ? <span className="acct-count">{row.count}</span> : null}
+        </td>
+        {cells}
+      </tr>
+    );
+  }
+  if (row.kind === 'account') {
+    return (
+      <tr>
+        <td className={`acct-label${row.section ? ' acct-indent' : ''}`} style={colW ? { maxWidth: colW } : undefined} title={`${row.code ? `${row.code} ` : ''}${row.title}`}>
+          {row.code ? <span className="acct-code">{row.code}</span> : null}
+          <span>{row.title}</span>
+        </td>
+        {cells}
+      </tr>
+    );
+  }
   return (
-    <>
-      {code ? <span className="acct-code">{code}</span> : null}
-      <span>{title}</span>
-    </>
+    <tr className={row.kind === 'grand' ? 'acct-grand' : row.kind === 'subtotal' || row.kind === 'margin' ? 'acct-subtotal' : undefined} style={row.kind === 'warn' ? { color: 'var(--bad-fg, #dc2626)' } : undefined}>
+      <td className="acct-label">{row.label}</td>
+      {cells}
+    </tr>
   );
 }
 
@@ -563,263 +397,5 @@ function ResizableHead({ width, onResize, children }) {
       <span role="separator" aria-orientation="vertical" aria-label="Resize the Account column" title="Drag to resize · double-click to fit"
         onPointerDown={onPointerDown} onDoubleClick={() => onResize(0)} className="acct-resize" />
     </th>
-  );
-}
-
-// An account's amount, clickable: opens the ledger lines that add up to it.
-function DrillAmount({ onClick, children }) {
-  return (
-    <button type="button" onClick={onClick} title="See the lines behind this amount" className="acct-drill">
-      {children}
-    </button>
-  );
-}
-
-// The three comparison cells: prior figure (drillable into its own window), $ variance, % variance.
-function CompareCells({ value, prior, onDrillPrior }) {
-  if (prior == null) return null;
-  const diff = value - prior;
-  const color = diff < 0 ? 'var(--bad-fg, #dc2626)' : diff > 0 ? 'var(--ok-fg, #15803d)' : undefined;
-  return (
-    <>
-      <td className="acct-num" style={{ color: 'var(--text-secondary)' }}>{onDrillPrior ? <DrillAmount onClick={onDrillPrior}>{money(prior)}</DrillAmount> : money(prior)}</td>
-      <td className="acct-num" style={{ color }}>{Math.abs(diff) < 0.005 ? '-' : money(diff)}</td>
-      <td className="acct-num" style={{ color }}>{pct(value, prior) || '-'}</td>
-    </>
-  );
-}
-
-function TotalRow({ label, value, prior, className, tone }) {
-  return (
-    <tr className={className}>
-      <td className="acct-label">{label}</td>
-      <td className="acct-num" style={{ color: tone ? (value >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)') : undefined }}>{money(value)}</td>
-      <CompareCells value={value} prior={prior} />
-    </tr>
-  );
-}
-
-// One statement section: a fold-able heading row with the section total, then
-// one dense line per account (code + name, amount, comparison).
-function SectionRows({ section, open, onToggle, onDrill, onDrillPrior, compare, colW }) {
-  if (!section.accounts.length && !section.total) return null;
-  const Chevron = open ? ChevronDown : ChevronRight;
-  return (
-    <>
-      <tr className="acct-section" onClick={onToggle} title={open ? 'Click to fold this section' : 'Click to open this section'}>
-        <td className="acct-label">
-          <button type="button" className="acct-fold" aria-expanded={open} aria-label={`${open ? 'Fold' : 'Open'} ${section.label}`} onClick={(e) => { e.stopPropagation(); onToggle(); }}>
-            <Chevron size={13} />
-          </button>
-          {section.label}{!open ? <span className="acct-count">{section.accounts.length}</span> : null}
-        </td>
-        <td className="acct-num">{money(section.total)}</td>
-        {compare && <CompareCells value={section.total} prior={compare.total} />}
-      </tr>
-      {open && section.accounts.map((a, i) => (
-        <tr key={`${a.account_no}-${i}`}>
-          <td className="acct-label acct-indent" style={colW ? { maxWidth: colW } : undefined}><AccountLabel code={a.account_no} title={a.title} /></td>
-          <td className="acct-num">
-            {a.account_no && onDrill ? <DrillAmount onClick={() => onDrill(a.account_no, a.title)}>{money(a.amount)}</DrillAmount> : money(a.amount)}
-          </td>
-          {compare && <CompareCells value={a.amount} prior={compare.amounts.get(a.account_no || a.title) ?? 0} onDrillPrior={a.account_no && onDrillPrior ? () => onDrillPrior(a.account_no, a.title) : null} />}
-        </tr>
-      ))}
-    </>
-  );
-}
-
-// One entity, searchable (Visesh, Sep 25: typing a code in the old "Find
-// entity" box only narrowed the native dropdown, so the match never showed
-// until the list was opened). Type a code or a name and the matches appear
-// under the box; Enter takes the first one, Escape closes. Top-level entities
-// first with their sub-locations indented, the same order as before.
-function EntityPicker({ entities, value, onChange, disabled, disabledLabel }) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState('');
-  const box = useRef(null);
-  const inputRef = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    setQ('');
-    setTimeout(() => inputRef.current?.focus(), 0);
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    const onDown = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown);
-    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
-  }, [open]);
-  const grouped = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    const list = s ? entities.filter((e) => e.code.toLowerCase().includes(s) || (e.name || '').toLowerCase().includes(s)) : entities;
-    const roots = list.filter((e) => !e.parent_code || !entities.some((p) => p.code === e.parent_code));
-    const kids = (code) => list.filter((e) => e.parent_code === code);
-    const out = [];
-    roots.forEach((r) => { out.push({ ...r, depth: 0 }); kids(r.code).forEach((k) => out.push({ ...k, depth: 1 })); });
-    // Children whose parent was filtered out still need to appear.
-    list.forEach((e) => { if (!out.some((o) => o.code === e.code)) out.push({ ...e, depth: 1 }); });
-    return out;
-  }, [entities, q]);
-  const current = entities.find((e) => e.code === value);
-  const label = disabled ? disabledLabel : value ? `${current?.name || 'Unnamed'} (${value})` : 'All entities (consolidated)';
-  const pick = (code) => { onChange(code); setOpen(false); };
-  const onKeyDown = (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); if (q.trim()) { if (grouped[0]) pick(grouped[0].code); } else pick(''); }
-  };
-  const inputStyle = { padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.8rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)', width: '100%', boxSizing: 'border-box' };
-  const row = (on) => ({ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '6px 8px', borderRadius: 6, font: 'inherit', fontSize: '0.8rem', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', cursor: 'pointer' });
-  return (
-    <div ref={box} style={{ position: 'relative' }}>
-      <button type="button" onClick={() => !disabled && setOpen((v) => !v)} disabled={disabled} aria-haspopup="listbox" aria-expanded={open}
-        title={disabled ? 'Several entities are picked in the Entities filter below.' : 'Pick an entity'}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: 340, padding: '6px 10px', borderRadius: 8, border: `1px solid ${value && !disabled ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: 'var(--bg-card)', color: value && !disabled ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', font: 'inherit', fontSize: '0.8rem', fontWeight: value ? 600 : 400, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.7 : 1 }}>
-        <Building2 size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-        <ChevronDown size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-      </button>
-      {open && (
-        <div role="listbox" aria-label="Entity" style={{ position: 'absolute', top: '110%', right: 0, zIndex: 30, width: 360, maxWidth: '92vw', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10 }}>
-          <div style={{ position: 'relative' }}>
-            <Search size={12} style={{ position: 'absolute', left: 8, top: 10, color: 'var(--text-muted)' }} />
-            <input ref={inputRef} type="text" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKeyDown} placeholder="Type an entity code or name" style={{ ...inputStyle, paddingLeft: 26 }} aria-label="Find entity" />
-          </div>
-          <div style={{ maxHeight: 300, overflowY: 'auto', marginTop: 8, display: 'grid', gap: 2 }}>
-            {!q.trim() && (
-              <button type="button" onClick={() => pick('')} style={row(!value)}>
-                <span style={{ width: 14, display: 'inline-flex' }}>{!value ? <Check size={14} /> : null}</span>
-                <span style={{ flex: 1, fontWeight: 600 }}>All entities</span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>consolidated</span>
-              </button>
-            )}
-            {grouped.map((e) => {
-              const on = e.code === value;
-              return (
-                <button key={e.code} type="button" onClick={() => pick(e.code)} style={row(on)}>
-                  <span style={{ width: 14, display: 'inline-flex' }}>{on ? <Check size={14} /> : null}</span>
-                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: e.depth ? 14 : 0 }}>{e.name || 'Unnamed'}</span>
-                  <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{e.code}</span>
-                </button>
-              );
-            })}
-            {q.trim() && !grouped.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>No entity matches "{q.trim()}".</div>}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// The dimension filter row: one chip per active dimension (click to edit,
-// x to clear) and "Add Filter" to pick another. Values load when a picker
-// opens - vendors alone are hundreds of codes.
-function DimensionBar({ dims, onChange, entities }) {
-  const [open, setOpen] = useState(null);      // the DIM_KINDS entry being edited
-  const [menu, setMenu] = useState(false);
-  const active = DIM_KINDS.filter((k) => dims[k.key].length);
-  const inactive = DIM_KINDS.filter((k) => !dims[k.key].length);
-  const chip = (on) => ({
-    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'inherit',
-    border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)',
-  });
-  const set = (key, codes) => onChange({ ...dims, [key]: codes });
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, position: 'relative' }}>
-      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginRight: 2 }}>Filters</span>
-      {active.map((k) => (
-        <span key={k.key} style={chip(true)}>
-          <button type="button" onClick={() => setOpen(k)} style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
-            {k.label}: {dims[k.key].length === 1 ? dims[k.key][0] : `${dims[k.key].length} selected`}
-          </button>
-          <button type="button" onClick={() => set(k.key, [])} aria-label={`Clear ${k.label} filter`} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'inherit', display: 'inline-flex' }}><X size={12} /></button>
-        </span>
-      ))}
-      {inactive.length > 0 && (
-        <span style={{ position: 'relative' }}>
-          <button type="button" style={chip(false)} onClick={() => setMenu((v) => !v)} aria-haspopup="menu" aria-expanded={menu}>
-            <Plus size={12} /> Add Filter <ChevronDown size={12} />
-          </button>
-          {menu && (
-            <div role="menu" style={{ position: 'absolute', top: '110%', left: 0, zIndex: 20, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 6, minWidth: 170 }}>
-              {inactive.map((k) => (
-                <button key={k.key} type="button" role="menuitem" onClick={() => { setMenu(false); setOpen(k); }}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'none', padding: '7px 10px', borderRadius: 6, font: 'inherit', fontSize: '0.8rem', color: 'var(--text-primary)', cursor: 'pointer' }}>
-                  {k.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </span>
-      )}
-      {active.length > 1 && (
-        <button type="button" onClick={() => onChange(EMPTY_DIMS)} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline' }}>Clear all</button>
-      )}
-      {open && <DimPicker def={open} value={dims[open.key]} entities={entities} onChange={(codes) => set(open.key, codes)} onClose={() => setOpen(null)} />}
-    </div>
-  );
-}
-
-// A searchable multi-select for one dimension. Entities come from the
-// locations list already loaded; other kinds are fetched on first open.
-function DimPicker({ def, value, entities, onChange, onClose }) {
-  const [values, setValues] = useState(def.kind === 'location' ? entities.map((e) => ({ code: e.code, name: e.name || '', parent_code: e.parent_code })) : null);
-  const [q, setQ] = useState('');
-  const [error, setError] = useState('');
-  const box = useRef(null);
-  useEffect(() => {
-    if (def.kind === 'location') return undefined;
-    let alive = true;
-    api.getAccountingDimensionValues(def.kind)
-      .then((d) => { if (alive) setValues(d?.values || []); })
-      .catch((e) => { if (alive) { setValues([]); setError(e?.message || 'Could not load the list.'); } });
-    return () => { alive = false; };
-  }, [def.kind]);
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    const onDown = (e) => { if (box.current && !box.current.contains(e.target)) onClose(); };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown);
-    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
-  }, [onClose]);
-  const chosen = new Set(value);
-  const toggle = (code) => {
-    const next = new Set(chosen);
-    if (next.has(code)) next.delete(code); else next.add(code);
-    onChange([...next]);
-  };
-  const shown = useMemo(() => {
-    const list = values || [];
-    const s = q.trim().toLowerCase();
-    const filtered = s ? list.filter((v) => v.code.toLowerCase().includes(s) || (v.name || '').toLowerCase().includes(s)) : list;
-    // Chosen first, then by name.
-    return [...filtered].sort((a, b) => (chosen.has(b.code) - chosen.has(a.code)) || (a.name || a.code).localeCompare(b.name || b.code, 'en-US', { numeric: true })).slice(0, 400);
-  }, [values, q, value]); // eslint-disable-line react-hooks/exhaustive-deps
-  const input = { padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.8rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)', width: '100%', boxSizing: 'border-box' };
-  return (
-    <div ref={box} role="dialog" aria-label={`${def.label} filter`} style={{ position: 'absolute', top: '110%', left: 0, zIndex: 30, width: 340, maxWidth: '92vw', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <strong style={{ fontSize: '0.82rem' }}>{def.label}{value.length ? ` · ${value.length} selected` : ''}</strong>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {value.length > 0 && <button type="button" onClick={() => onChange([])} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline' }}>Clear</button>}
-          <button type="button" className="primary-btn" onClick={onClose} style={{ fontSize: '0.75rem', padding: '3px 10px' }}>Done</button>
-        </div>
-      </div>
-      <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${def.label.toLowerCase()} by name or code`} style={input} autoFocus />
-      <div style={{ maxHeight: 260, overflowY: 'auto', marginTop: 8, display: 'grid', gap: 2 }}>
-        {error && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)', padding: 6 }}>{error}</div>}
-        {!values && !error && <SkeletonBlocks count={3} />}
-        {values && !shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>{values.length ? 'No match.' : `No ${def.label.toLowerCase()} on the ledger yet.`}</div>}
-        {shown.map((v) => {
-          const on = chosen.has(v.code);
-          return (
-            <button key={v.code} type="button" onClick={() => toggle(v.code)} aria-pressed={on}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '6px 8px', borderRadius: 6, font: 'inherit', fontSize: '0.8rem', color: 'var(--text-primary)', cursor: 'pointer' }}>
-              <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{on ? <Check size={14} /> : null}</span>
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: v.parent_code && def.kind === 'location' ? 12 : 0 }}>{v.name || v.code}</span>
-              <span style={{ fontFamily: 'monospace', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{v.name ? v.code : (v.lines ? `${v.lines.toLocaleString('en-US')} lines` : '')}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
   );
 }

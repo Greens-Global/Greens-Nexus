@@ -13,6 +13,7 @@ import PayrollTimecard from './PayrollTimecard';
 import TimeInsights from './TimeInsights';
 import ImageLightbox from './ImageLightbox';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { MonitoringAlertsLine } from './MonitoringAlerts';
 import { ErrorBanner } from './AsyncState';
 import { formatDate } from '../lib/datetime';
 import { takePendingOpen } from '../lib/pendingOpen';
@@ -103,8 +104,8 @@ function weekRange(offset = 0) {
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
-export default function TimeAdmin({ toastOk, toastErr }) {
-  const [view, setView] = useState('payroll');   // payroll (the timecard) | attendance | insights | requests | screenshots | shifts | timeoff
+export default function TimeAdmin({ toastOk, toastErr, initialView }) {
+  const [view, setView] = useState(initialView || 'payroll');   // payroll (the timecard) | attendance | insights | requests | screenshots | shifts | timeoff
   // Live map tab removed Aug 4 - superseded by the top-level Locations map.
   // A specific employee + period to open (Sep 29): Timesheets to Review, the
   // "Timesheet to review" bell, and the Daily Briefing / Weekly Digest link.
@@ -229,20 +230,6 @@ export default function TimeAdmin({ toastOk, toastErr }) {
     api.timeTeamShots(shotDate, shotWho.email).then(r => setShotFrames(r.shots || [])).catch(() => setShotFrames([]));
   }, [shotWho, shotDate]);
 
-
-  // Disclosed-monitoring tamper/coverage alerts - surfaces employees who are
-  // clocked in while their agent has gone quiet (killed/uninstalled/offline), so
-  // evasion is a visible, attributable event rather than a silent success. Polled.
-  const [monAlerts, setMonAlerts] = useState([]);
-  useEffect(() => {
-    let live = true;
-    const loadAlerts = () => api.timeMonitoringAlerts()
-      .then(r => { if (live) setMonAlerts(Array.isArray(r?.alerts) ? r.alerts : []); })
-      .catch(() => {});
-    loadAlerts();
-    const stop = pollWhileVisible(loadAlerts, 60000);
-    return () => { live = false; stop(); };
-  }, []);
 
   // Punch-fix requests (employee add/remove) awaiting this approver's decision.
   const [punchReqs, setPunchReqs] = useState([]);
@@ -456,29 +443,10 @@ export default function TimeAdmin({ toastOk, toastErr }) {
       <TimesheetsToReview toastOk={toastOk} toastErr={toastErr}
         onOpen={(r) => openTimecard(r.employeeEmail, r.periodStart, r.payType)} />
 
-      {/* Monitoring tamper/coverage alerts - clocked in but agent quiet. */}
-      {monAlerts.length > 0 && (
-        <div style={{ marginBottom: 16, border: '1px solid hsla(var(--color-red),0.4)', background: 'hsla(var(--color-red),0.06)', borderRadius: 12, padding: '12px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <AlertTriangle size={15} style={{ color: 'hsl(var(--color-red))' }} />
-            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Monitoring Alerts</span>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-              {monAlerts.length} clocked in with a quiet agent
-            </span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {monAlerts.map(a => (
-              <div key={a.email} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                  background: a.severity === 'high' ? 'hsl(var(--color-red))' : '#b45309' }} />
-                <strong>{a.name}</strong>
-                <span style={{ fontWeight: 700, color: a.severity === 'high' ? 'hsl(var(--color-red))' : '#b45309' }}>{a.reason}</span>
-                {a.detail && <span style={{ color: 'var(--muted)' }}>{a.detail}</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Monitoring alerts live on Workforce Analytics now (Charmi, Sep 25: the
+          block listing every person took half this screen). One line stays
+          here: how many, and the way to the list. */}
+      <MonitoringAlertsLine />
 
       {/* Sub-screen nav - these are PAGES of a complex module, so they get the
           Documents-style underline tab band (icons, brand underline, hairline

@@ -20,6 +20,15 @@ role for testing. `NEXUS_SKIP_AUTH` is refused on Azure — it can never deploy.
 
 Verify frontend changes compile with `npm run build` before committing.
 
+Before pushing, run what CI runs: `ruff check backend/` and, in `frontend/`,
+`npm run lint` and `npx vitest run`. Backend tests run ONE FILE PER PROCESS
+(`python -m pytest test_x.py` or `python -m unittest test_x`): most files bind
+`database` to their own throwaway SQLite when they are imported, so in a run
+of several files the later ones work on the first one's database - a file
+that empties tables would empty the wrong ones (Sep 29: a multi-file run
+cleared people and roles in a local `greens_nexus.db`). `backend/conftest.py`
+turns the request rate limiter off for pytest runs; its own tests switch it on.
+
 ## Git workflow (non-negotiable)
 
 - `main` = production. `dev` = integration; every merge auto-deploys
@@ -177,6 +186,26 @@ keep the diff minimal.
   repo's `src/lib/finance/dashboard/*.ts` - change them THERE, then re-emit
   with tsc (see the accounting repo's CLAUDE.md), never edit the .js by hand.
   Writes carry the caller's name; each tab shows one section at a time.
+
+- Accounting entity access (Neil, Sep 25): the Accounting grant opens the
+  screen; WHICH entities a person reads is `nexus_access_scopes` rows with
+  module `accounting` (Accounting > Access tab, Full level). No rows = every
+  entity; an entity brings its sub-entities. Every new accounting read MUST
+  take `Depends(entity_scope)` and pass its entities through `_limit` (or
+  check them against `_with_children`) - `routers/accounting.py` is the
+  reference. One entity always travels as `location`: the accounting app reads
+  `locations` only when there are several. Anything that only exists
+  consolidated (the dashboard tabs, the accounting app) takes
+  `require_unlimited`.
+- Personal financial statements (`routers/pfs.py`, Sep 2026) are the most
+  sensitive records in Nexus: owners and the explicit `pfs` grant only
+  (`bypass_level="owner"` - an administrator's role does NOT open them). Never
+  store a full Social Security number, never log a figure, keep the audit rows.
+- Leasing (`routers/leasing.py`, Sep 2026): a tenant is an Intacct customer;
+  rent received is what posted to the lease's income accounts for that
+  customer in that month - never key a payment into Nexus. A tenant who leaves
+  is ENDED (`/replace`), never overwritten. Nothing is emailed to a tenant
+  automatically.
 
 ## Asana — removed (Sep 2026)
 

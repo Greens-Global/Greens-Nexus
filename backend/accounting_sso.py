@@ -36,6 +36,11 @@ def qualifying_emails() -> list[str]:
             .all()
         )
         emails.update(e.lower() for (e,) in rows if e)
+        # Anyone limited to certain entities stays out (Neil, Sep 25): the
+        # accounting app shows every entity to everyone it lets in, so their
+        # way to the ledger is Reports in Nexus, where the limit is enforced.
+        limited = db.query(models.NexusAccessScope.email).filter(models.NexusAccessScope.module_id == "accounting").all()
+        emails.difference_update(e.lower() for (e,) in limited if e)
         admin_roles = [name for name, lvl in _LEVELS.items() if lvl >= _LEVELS["administrator"]]
         rows = db.query(models.NexusRole.email).filter(models.NexusRole.role.in_(admin_roles)).all()
         emails.update(e.lower() for (e,) in rows if e)
