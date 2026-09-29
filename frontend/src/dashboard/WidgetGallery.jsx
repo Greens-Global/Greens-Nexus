@@ -4,6 +4,7 @@ import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS, QUICK_ACTIONS, DEFAULT_QUICK_AC
 import { api } from '../api';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+import { useIsMobile } from '../lib/useIsMobile';
 
 // `onClose` here is expected to already be the guarded `requestClose` when
 // the caller has editable state to protect (see ConfigModal / the picking
@@ -16,7 +17,10 @@ const Overlay = ({ children, onClose }) => (
 );
 
 const Shell = ({ title, sub, onClose, children }) => (
-  <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 560, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+  // min(85vh, 100%): on a phone 85vh counts the height hidden behind the
+  // browser's toolbars, so the sheet's bottom rows could sit off-screen;
+  // 100% of the fixed overlay is the space actually visible.
+  <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 560, maxHeight: 'min(85vh, 100%)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
     <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ flex: 1 }}>
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>{title}</h3>
@@ -24,7 +28,7 @@ const Shell = ({ title, sub, onClose, children }) => (
       </div>
       <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
     </div>
-    <div style={{ padding: 18, overflow: 'auto' }}>{children}</div>
+    <div style={{ padding: 18, overflow: 'auto', minHeight: 0, overscrollBehavior: 'contain' }}>{children}</div>
   </div>
 );
 
@@ -147,6 +151,7 @@ export function configValid(type, config) {
 
 export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
   const [picking, setPicking] = useState(null);   // { type, config, initial }
+  const touch = useIsMobile('(pointer: coarse)');
 
   const entries = Object.entries(WIDGETS).filter(([, def]) => canSee(def) && !def.hidden);
   const cats = [...new Set(entries.map(([, d]) => d.cat))];
@@ -188,7 +193,7 @@ export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
 
   return (
     <Overlay onClose={onClose}>
-      <Shell title="Add a Widget" sub="Click to add - you can move and resize it after" onClose={onClose}>
+      <Shell title="Add a Widget" sub={touch ? 'Tap to add - you can reorder it after' : 'Click to add - you can move and resize it after'} onClose={onClose}>
         {cats.map(cat => (
           <div key={cat} style={{ marginBottom: 18 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{cat}</div>
@@ -211,12 +216,17 @@ export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
                     onMouseEnter={e => e.currentTarget.style.borderColor = 'hsl(var(--color-blue))'}
                     onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--line)'}>
                     <div style={{ width: 32, height: 32, borderRadius: 9, background: 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon size={16} /></div>
-                    <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0 }}>{def.title}</span>
-                    {added && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: 'var(--wk-green, #00a25b)', background: 'var(--wk-green-bg, rgba(0,162,91,.1))', borderRadius: 999, padding: '2px 7px', flexShrink: 0 }}>
-                        <Check size={10} /> Added
-                      </span>
-                    )}
+                    {/* Name over badge, not beside it: side by side, a two-column
+                        phone grid left "Notifications" ~60px and the badge
+                        painted over it ("Notif", Sep 28). */}
+                    <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, overflowWrap: 'anywhere' }}>{def.title}</span>
+                      {added && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: 'var(--wk-green, #00a25b)', background: 'var(--wk-green-bg, rgba(0,162,91,.1))', borderRadius: 999, padding: '2px 7px' }}>
+                          <Check size={10} /> Added
+                        </span>
+                      )}
+                    </span>
                   </button>
                 );
               })}
