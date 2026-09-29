@@ -8,6 +8,13 @@ it, and one company's HR contact never hears about another company's people.
 Throwaway sqlite. No network.
 
 Run with: python -m unittest test_team_alert_hr_contact -v
+
+This file EMPTIES the people, roles, companies and notifications tables before
+each test, so it only ever runs against its own throwaway database. When it is
+collected after another test file in the same process, `database` is already
+bound to that file's database (the local greens_nexus.db); the tests then skip
+instead of clearing it. That happened once (09/29) and cost the local
+database its people and roles.
 """
 import os
 import tempfile
@@ -49,6 +56,9 @@ OTHER_CO = "co-sc-medi-test"
 
 class HrContactTests(unittest.TestCase):
     def setUp(self):
+        bound = os.path.normcase(os.path.abspath(database.engine.url.database or ""))
+        if bound != os.path.normcase(os.path.abspath(_tmp.name)):
+            self.skipTest("not bound to this file's throwaway database - run this file on its own")
         self.db = database.SessionLocal()
         self.addCleanup(self.db.close)
         for m in (models.NexusNotification, models.NexusEmployee, models.NexusRole, models.HrEntity):

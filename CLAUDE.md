@@ -20,6 +20,15 @@ role for testing. `NEXUS_SKIP_AUTH` is refused on Azure — it can never deploy.
 
 Verify frontend changes compile with `npm run build` before committing.
 
+Before pushing, run what CI runs: `ruff check backend/` and, in `frontend/`,
+`npm run lint` and `npx vitest run`. Backend tests run ONE FILE PER PROCESS
+(`python -m pytest test_x.py` or `python -m unittest test_x`): most files bind
+`database` to their own throwaway SQLite when they are imported, so in a run
+of several files the later ones work on the first one's database - a file
+that empties tables would empty the wrong ones (Sep 29: a multi-file run
+cleared people and roles in a local `greens_nexus.db`). `backend/conftest.py`
+turns the request rate limiter off for pytest runs; its own tests switch it on.
+
 ## Git workflow (non-negotiable)
 
 - `main` = production. `dev` = integration; every merge auto-deploys
