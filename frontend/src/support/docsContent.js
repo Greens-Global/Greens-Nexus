@@ -1066,7 +1066,7 @@ export const DOCS = [
       { name: 'Org Chart', desc: 'Reporting lines by department. Drag to move someone.' },
       { name: 'Leave', desc: 'Time-off requests, approvals and the holiday calendar.' },
       { name: 'Time', desc: 'Team punches, time cards and payroll hours. The time card has a Notes column for managers and HR: click a day\'s cell to write a note (the employee does not see it).' },
-      { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Work Sites (the clock geofences), Holiday Calendar and Workforce Analytics Policy.' },
+      { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Work Sites (the clock geofences), Holiday Calendar and Workforce Analytics Policy. A work site is placed by searching its street address and picking the right match - the map only shows the site and its geofence circle. A site marked Verify Address was placed with the old map pin: edit it and search its address once.' },
       { name: 'Work Mode', desc: 'On an employee profile: Remote (punch from anywhere) or On-Site. For On-Site, click the work sites they may punch at - any number of them. None picked means any of the company sites.' },
     ],
     manager: {
