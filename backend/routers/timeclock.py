@@ -48,7 +48,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification, HrCompanyHoliday, NexusRole, ScheduleDayNote,
                     ShiftAvailability)
-from routers.hr import company_sites, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
+from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
 
@@ -218,60 +218,121 @@ def _soft_gate(d: float, radius: int, accuracy_m: int, base: dict) -> dict:
     return {**base, "geo_status": "in_fence" if effective <= radius else "out_of_fence"}
 
 
-def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "") -> dict:
-    """Soft-gate verdict for a punch (Neil, Sep 19). Nobody is tied to ONE place:
-    a person is on site when they are inside ANY company work site's fence, and
-    a person tagged remote is fine wherever they are - that is a contractual
-    arrangement, not a location. ("You're either remote or you're coming into
-    any of our offices.") The per-person geofence this replaces judged someone
-    against a single assigned location.
-
-    A remote person standing at a work site still resolves to that site, so
-    billable-time-per-location keeps attributing their hours to the property.
-    Anywhere else they get geo_status="remote": recorded with its coordinates
-    (still reviewable on the map), never flagged, never escalated."""
+def _has_fence(site) -> bool:
+    """A work site that is on the map (both coordinates parse)."""
     try:
-        plat, plng = float(lat), float(lng)
+        float(site.latitude), float(site.longitude)
+        return True
     except (TypeError, ValueError):
-        return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
-    # An assigned work site (Visesh, Sep 25) narrows "any company site" to that
-    # one; the default (no assignment) is every site on the person's company's
-    # list (Neil, Sep 25: a Sacred Natural punch must not resolve to a Greens
-    # office) - company_sites falls back to all sites for an unconfigured company.
-    sites = None
+        return False
+
+
+_NO_LOCATION = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
+
+
+def _geo_context(db: Session, email: str = "") -> dict:
+    """What this person's punches are judged against, loaded ONCE per request
+    (a timecard judges every punch in the period): the mapped sites they are
+    allowed at, and whether they work remote.
+
+    Allowed = the sites HR picked for them; none picked = every site on their
+    company's list (Neil, Sep 25: a Sacred Natural punch must not resolve to a
+    Greens office - company_sites falls back to all sites for an unconfigured
+    company). Only MAPPED sites can be judged; a picked site with no
+    coordinates is skipped, never a reason to call a GPS punch "Location off"."""
+    emp = None
     if email:
         emp = (db.query(NexusEmployee)
                .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
-        if emp and (emp.work_site_id or "").strip():
-            site = db.query(HrWorkSite).filter(HrWorkSite.id == emp.work_site_id.strip()).first()
-            if site:
-                sites = [site]
-        if sites is None and emp:
-            sites = company_sites(db, emp.company or "")
-    verdict = _geofence_site(db, plat, plng, accuracy_m, sites=sites)
-    if verdict["geo_status"] != "in_fence" and email and _is_remote(db, email):
+    if emp is None:
+        sites = db.query(HrWorkSite).all()
+    else:
+        ids = _allowed_site_ids(emp)
+        sites = (db.query(HrWorkSite).filter(HrWorkSite.id.in_(ids)).all() if ids
+                 else company_sites(db, emp.company or ""))
+    return {"sites": [s for s in sites if _has_fence(s)],
+            "remote": bool(emp and (emp.work_remote or 0))}
+
+
+def _judge(plat: float, plng: float, accuracy_m: int, ctx: dict) -> dict:
+    """Where ONE punch was, judged on its own coordinates (Charmi, Sep 29).
+
+    - Inside any allowed site's fence -> in_fence AT THAT SITE (the closest one
+      when fences overlap). Someone allowed at five sites shows whichever of the
+      five they actually punched at, punch by punch.
+    - Inside none -> out_of_fence: "Out of Location". The nearest allowed site
+      and its distance ride along for the reviewer, never as the location.
+    - Remote people are fine anywhere (Neil, Sep 19); at a site they still
+      resolve to it, so billable time per property keeps working.
+    - Coordinates but no mapped allowed site -> no_site, not "Location off":
+      the browser DID share where it was.
+    GPS accuracy gets the same credit (capped at 150 m) as before; a fix worse
+    than 500 m is too rough to judge (low_accuracy)."""
+    remote = ctx.get("remote")
+    acc = max(0, int(accuracy_m or 0))
+    nearest = None      # (distance, site)
+    inside = None       # (distance, site)
+    for s in ctx.get("sites") or []:
+        d = _haversine_m(plat, plng, float(s.latitude), float(s.longitude))
+        if nearest is None or d < nearest[0]:
+            nearest = (d, s)
+        if acc <= 500 and max(0.0, d - min(acc, 150)) <= max(25, int(s.radius_m or 150)):
+            if inside is None or d < inside[0]:
+                inside = (d, s)
+    if inside:
+        d, s = inside
+        return {"geo_status": "in_fence", "work_site_id": s.id, "work_site_name": s.name or "", "distance_m": int(round(d))}
+    if remote:
         return {"geo_status": "remote", "work_site_id": "", "work_site_name": "Remote", "distance_m": 0}
-    return verdict
+    if nearest is None:
+        return {"geo_status": "no_site", "work_site_id": "", "work_site_name": "", "distance_m": 0}
+    d, s = nearest
+    return {"geo_status": "low_accuracy" if acc > 500 else "out_of_fence",
+            "work_site_id": s.id, "work_site_name": s.name or "", "distance_m": int(round(d))}
 
 
-def _healed_geo(db: Session, email: str, punches: list) -> dict:
-    """Read-time re-check of punches stamped "no_location" that DID carry
-    coordinates (Charmi, Sep 26). The verdict is stamped at punch time, so a
-    punch made before its company had any geofenced work site came out as
-    "Location off" forever, even though the browser shared its position.
-    Judged against today's sites exactly like a live punch (_geofence); the
-    stored row is never touched. Punches with no coordinates stay no_location.
-    Returns {punch_id: geo dict} for the rows that now resolve."""
-    todo = [p for p in punches if (p.geo_status or "no_location") == "no_location"
-            and (p.lat or "").strip() and (p.lng or "").strip()]
+def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "", ctx: dict = None) -> dict:
+    """Soft-gate verdict for a punch (see _judge). Pass `ctx` (_geo_context)
+    when judging many punches for one person."""
+    try:
+        plat, plng = float(lat), float(lng)
+    except (TypeError, ValueError):
+        return dict(_NO_LOCATION)
+    return _judge(plat, plng, accuracy_m, ctx if ctx is not None else _geo_context(db, email))
+
+
+def _manager_set_site(p) -> bool:
+    """A manager put this punch at a site by hand - keep it as stamped. Rows
+    from before site_set_by existed are recognized by the stamp that edit
+    wrote (adjusted, in_fence at exactly 0 m)."""
+    if (getattr(p, "site_set_by", "") or "").strip():
+        return True
+    return bool((p.adjusted_by or "").strip() and p.geo_status == "in_fence"
+                and (p.work_site_id or "").strip() and int(p.distance_m or 0) == 0)
+
+
+def _live_geo(db: Session, email: str, punches: list) -> dict:
+    """Every located punch judged NOW, from its own coordinates, against the
+    person's allowed sites as they stand today (Charmi, Sep 29).
+
+    The verdict used to be stamped once, at punch time, against whatever sites
+    were mapped that day - so a week punched before Temecula was on the map
+    read "Menifee" forever, and a punch made before any site existed read
+    "Location off" forever. The coordinates are the truth; the stored stamp is
+    only a fallback for punches with none. Manager-set sites are kept. The
+    stored rows are never touched.
+    Returns {punch_id: geo dict} for the punches it judged."""
+    todo = [p for p in punches if (p.lat or "").strip() and (p.lng or "").strip() and not _manager_set_site(p)]
     if not todo:
         return {}
+    ctx = _geo_context(db, email)
     out = {}
     for p in todo:
-        g = _geofence(db, p.lat, p.lng, int(p.accuracy_m or 0), email=email)
+        g = _geofence(db, p.lat, p.lng, int(p.accuracy_m or 0), ctx=ctx)
         if g["geo_status"] != "no_location":
             out[p.id] = g
     return out
+
 
 
 def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
@@ -418,8 +479,9 @@ def _is_stray_out(db: Session, punch) -> bool:
     return (b - a).total_seconds() > _MAX_SHIFT_MIN * 60
 
 
-def _serialize(p: TimePunch) -> dict:
-    return {
+def _serialize(p: TimePunch, geo: dict = None) -> dict:
+    """`geo` = this punch's live verdict (_live_geo), when the caller has one."""
+    out = {
         "id": p.id, "email": p.employee_email, "kind": p.kind, "at": p.at,
         "originalAt": p.original_at or "", "localDate": p.local_date,
         "tzOffsetMin": p.tz_offset_min or 0,
@@ -436,6 +498,10 @@ def _serialize(p: TimePunch) -> dict:
         "editReason": p.edit_reason or "", "editedBy": p.edited_by or "",
         "editedAt": p.edited_at or "", "editReviewedBy": p.edit_reviewed_by or "",
     }
+    if geo:
+        out.update({"geoStatus": geo["geo_status"], "workSiteId": geo.get("work_site_id") or "",
+                    "workSiteName": geo.get("work_site_name") or "", "distanceM": int(geo.get("distance_m") or 0)})
+    return out
 
 
 def _live_punches(db: Session, email: str, start: str = "", end: str = ""):
@@ -447,7 +513,7 @@ def _live_punches(db: Session, email: str, start: str = "", end: str = ""):
     return q.order_by(TimePunch.at).all()
 
 
-def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None) -> dict:
+def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None, geo: dict = None) -> dict:
     """local_date -> {workedMin, breakMin, paidBreakMin, firstIn, lastOut, flags, punches}.
     When round_min>0 each punch is rounded to the nearest round_min minutes before
     the worked-minute math, so approve / finalize / timesheet totals match the
@@ -484,7 +550,8 @@ def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None) ->
         if round_min:
             t = _round_punch(t, round_min)
         d = p.local_date
-        if p.geo_status == "out_of_fence":
+        # geo = live verdicts (_live_geo) when the caller judged the punches.
+        if ((geo or {}).get(p.id) or {}).get("geo_status", p.geo_status) == "out_of_fence":
             flag(d, "out_of_fence")
         if p.source in ("manual", "self_manual"):
             flag(d, "manual")
@@ -577,7 +644,7 @@ def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None) ->
             "paidBreakMin": paid,
             "firstIn": first_in.get(d, ""), "lastOut": last_out.get(d, ""),
             "flags": sorted(flags.get(d, set())),
-            "punches": [_serialize(p) for p in plist],
+            "punches": [_serialize(p, (geo or {}).get(p.id)) for p in plist],
         }
     return out
 
@@ -860,8 +927,9 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
 def my_timesheet(start: str = "", end: str = "",
                  user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     _rr = db.query(PayrollRate).filter(PayrollRate.employee_email == user["email"]).first()
-    return {"days": _day_summaries(_live_punches(db, user["email"], start, end), _round_min(db),
-                                   break_cfg=_break_cfg_for(db, user["email"])),
+    _mine = _live_punches(db, user["email"], start, end)
+    return {"days": _day_summaries(_mine, _round_min(db), break_cfg=_break_cfg_for(db, user["email"]),
+                                   geo=_live_geo(db, user["email"], _mine)),
             # My HR hides its hours widgets for salaried/exempt people (Charmi, Aug 21)
             "timeTrackingExempt": bool(getattr(_rr, "time_tracking_exempt", 0) or 0) if _rr else False}
 
@@ -922,7 +990,8 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
     for email in sorted(set(by_emp) | roster):
         plist = by_emp.get(email, [])
         days = _day_summaries(plist, rmin,
-                              break_cfg={**_bp, "enabled": _bp["enabled"] and _rules.get(email, "ca") == "ca"}) if plist else {}
+                              break_cfg={**_bp, "enabled": _bp["enabled"] and _rules.get(email, "ca") == "ca"},
+                              geo=_live_geo(db, email, plist)) if plist else {}
         rows.append({
             "email": email,
             "name": names.get(email) or email.split("@")[0].replace(".", " ").title(),
@@ -1560,6 +1629,8 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     if body.work_site_id is not None:
         # Reassign the punch's location to a curated work site (manager correction).
         wsid = body.work_site_id.strip()
+        # site_set_by: the timecard keeps this instead of re-judging the GPS.
+        row.site_set_by = user["email"]
         if not wsid:
             row.work_site_id, row.work_site_name, row.geo_status = "", "", "no_location"
         else:
@@ -4072,31 +4143,39 @@ def geofence_punches(email: str = "", start: str = "", end: str = "",
         q = q.filter(TimePunch.local_date <= end[:10])
     punches = q.order_by(TimePunch.at.asc()).all()
     emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == target).first()
-    assigned = (emp.work_site_id or "").strip() if emp else ""
+    # The sites this person may punch at are marked `assigned` (several now,
+    # Sep 29); the rest of their company's sites still draw on the map.
+    allowed = set(_allowed_site_ids(emp)) if emp else set()
+    assigned = next(iter(allowed)) if len(allowed) == 1 else ""
     sites = []
     pool = list(company_sites(db, (emp.company or "") if emp else ""))
-    if assigned and all(st.id != assigned for st in pool):
-        pool += db.query(HrWorkSite).filter(HrWorkSite.id == assigned).all()
+    missing = [i for i in allowed if all(st.id != i for st in pool)]
+    if missing:
+        pool += db.query(HrWorkSite).filter(HrWorkSite.id.in_(missing)).all()
+    live = _live_geo(db, target, punches)
     for st in pool:
         try:
             lat, lng = float(st.latitude), float(st.longitude)
         except (TypeError, ValueError):
             continue
         sites.append({"id": st.id, "name": st.name or "", "lat": lat, "lng": lng, "radiusM": max(25, int(st.radius_m or 150)),
-                      "address": st.address or "", "assigned": st.id == assigned})
+                      "address": st.address or "", "assigned": st.id in allowed})
     rows = []
     for p in punches:
         if p.kind not in ("in", "out"):
             continue
+        g = live.get(p.id) or {"geo_status": p.geo_status or "no_location", "work_site_id": p.work_site_id or "",
+                               "work_site_name": p.work_site_name or "", "distance_m": p.distance_m or 0}
         rows.append({
             "id": p.id, "at": p.at, "localDate": p.local_date, "tzOffsetMin": p.tz_offset_min or 0,
             "kind": p.kind, "lat": (p.lat or ""), "lng": (p.lng or ""), "accuracyM": int(p.accuracy_m or 0),
-            "geoStatus": p.geo_status or "no_location", "workSiteId": p.work_site_id or "",
-            "workSiteName": p.work_site_name or "", "distanceM": int(p.distance_m or 0),
+            "geoStatus": g["geo_status"], "workSiteId": g.get("work_site_id") or "",
+            "workSiteName": g.get("work_site_name") or "", "distanceM": int(g.get("distance_m") or 0),
             "source": p.source or "", "note": p.note or "",
         })
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else target
     return {"email": target, "name": name, "remote": bool(emp and (emp.work_remote or 0)), "assignedSiteId": assigned,
+            "allowedSiteIds": sorted(allowed),
             "start": start, "end": end, "sites": sites, "punches": rows,
             "outOfFence": sum(1 for r in rows if r["geoStatus"] == "out_of_fence")}
 
@@ -4138,6 +4217,9 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
         ua = (loc.user_agent or "").lower()
         device = "mobile" if any(k in ua for k in ("mobi", "android", "iphone", "ipad", "ipod")) else "desktop"
         ent = ents.get(em.company or "")
+        # Judged now against today's allowed sites, like the timecard (Sep 29).
+        g = _live_geo(db, email, [loc]).get(loc.id) or {"geo_status": loc.geo_status or "no_location",
+                                                          "work_site_name": loc.work_site_name or ""}
         people.append({
             "email": email,
             "name": f"{em.first_name} {em.last_name}".strip() or email,
@@ -4148,8 +4230,8 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
             "companyName": (ent.name if ent else ""),
             "country": (ent.country if ent else ""),
             "lat": loc.lat, "lng": loc.lng, "accuracyM": loc.accuracy_m or 0,
-            "geoStatus": loc.geo_status or "no_location",
-            "workSiteName": loc.work_site_name or "",
+            "geoStatus": g["geo_status"],
+            "workSiteName": g.get("work_site_name") or "",
             "at": loc.at,
             "clockedIn": status != "off",
             "status": status,
@@ -6362,13 +6444,23 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # the module-level `date` name across this whole function scope)
     _end_fetch = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d") if end else end
     punches = _live_punches(db, em, start, _end_fetch)
-    _geo_fix = _healed_geo(db, em, punches)
+    _geo_fix = _live_geo(db, em, punches)
 
     def _geo_of(p):
         g = _geo_fix.get(p.id)
         if g:
             return g["geo_status"], g.get("work_site_name") or "", g.get("work_site_id") or ""
         return (p.geo_status or ""), (p.work_site_name or ""), (p.work_site_id or "")
+    _punch_by_id = {p.id: p for p in punches}
+
+    def _dist_of(pid):
+        """Metres to the site named on the punch - for an Out of Location
+        punch, how far the nearest allowed site was."""
+        g = _geo_fix.get(pid)
+        if g:
+            return int(g.get("distance_m") or 0)
+        q = _punch_by_id.get(pid)
+        return int(q.distance_m or 0) if q else 0
     # SwipeClock-parity rounding: rounded times drive ALL math below; the raw
     # punch strings are still emitted per segment so the UI can offer a
     # "show unrounded times" view, mirroring SwipeClock exactly.
@@ -6430,7 +6522,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
              "breaks": list(seg_breaks),
              "note": open_in_note,
              "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or "",
-             "geoOut": "", "workSiteOut": "", "workSiteOutId": "",
+             "geoOut": "", "workSiteOut": "", "workSiteOutId": "", "distance": _dist_of(open_in_id), "distanceOut": 0,
              "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
              "outPendingAt": "", "outEditStatus": "", "outEditReason": "",
              "inAdjustNote": open_in_adjnote, "outAdjustNote": ""})
@@ -6493,7 +6585,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "note": (p.note or "").strip(),
                          "workSite": open_in_site or "", "workSiteId": open_in_site_id or "",
                          "geo": open_in_geo or "", "category": open_in_cat or "",
-                         "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2],
+                         "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2], "distance": _dist_of(open_in_id), "distanceOut": _dist_of(p.id),
                          "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
                          "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
                          "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})
@@ -6526,7 +6618,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                      "breaks": list(seg_breaks),
                      "note": _notes,
                      "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or "",
-                     "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2],
+                     "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2], "distance": _dist_of(open_in_id), "distanceOut": _dist_of(p.id),
                      "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
                      "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
                      "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})

@@ -809,6 +809,10 @@ def _run_migrations():
             "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''",
             # Confidential time off (Neil, Sep 29) - see the Postgres list.
             "ALTER TABLE time_off_requests ADD COLUMN confidential INTEGER DEFAULT 0",
+            # Several allowed work sites per person + manager-set punch sites
+            # (Charmi, Sep 29) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN work_site_ids TEXT DEFAULT ''",
+            "ALTER TABLE time_punches ADD COLUMN site_set_by TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1744,6 +1748,13 @@ def _run_migrations():
         # Confidential time off (Neil, Sep 29): the type, reason and decision
         # note show only to the requester and their approver.
         "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS confidential INTEGER DEFAULT 0",
+        # Allowed work sites (Charmi, Sep 29): a person may punch at ANY of
+        # several sites (JSON list of HrWorkSite ids; '' = every company site).
+        # The old single work_site_id is still read as a one-site list.
+        # site_set_by = a manager put this punch at a site by hand, so the
+        # timecard keeps it instead of re-judging the punch's GPS.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_site_ids TEXT DEFAULT ''",
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS site_set_by TEXT DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

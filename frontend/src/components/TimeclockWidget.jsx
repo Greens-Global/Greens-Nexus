@@ -5,6 +5,7 @@ import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
+import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
 import { replayPendingBods } from '../lib/bodQueue';
 
 // Whether a desktop agent covers THIS machine is detected per-machine by asking
@@ -184,6 +185,9 @@ export default function TimeclockWidget() {
     wasClockedIn.current = clockedIn;
   }, [clockedIn, capturing]);
   useEffect(() => { if (!canCapture && capturing) stopCapture(); }, [canCapture, capturing]);
+  // A recent location on hand for the clock-out (Amy, Sep 29): a desktop's
+  // fix is often slower than the out-punch's short wait.
+  useEffect(() => (clockedIn ? keepPositionWarm() : undefined), [clockedIn]);
 
   // Expose the engine globally so the punch-in button (in the Time Clock view)
   // can start capture from within its own click - the browser only grants screen
@@ -329,7 +333,10 @@ export default function TimeclockWidget() {
   async function quickBreak(kind) {
     if (busy || breakBusy) return;
     setBreakBusy(true);
-    const res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset() });
+    // With a position, like the Time Clock page - without one every break
+    // from here read "Location off" on the timecard (Charmi, Sep 29).
+    const pos = await punchPosition(kind);
+    const res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos });
     if (res.ok) {
       setLostOut(false);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
@@ -359,7 +366,8 @@ export default function TimeclockWidget() {
     // Durable: a dropped punch-out used to be swallowed here entirely, leaving
     // the shift open with nobody told. Now it retries, parks for replay, and -
     // since this capsule is the only surface the person is looking at - says so.
-    const res = await punchDurable({ kind: 'out', tzOffsetMin: new Date().getTimezoneOffset() });
+    const pos = await punchPosition('out');   // short budget: the punch landing comes first
+    const res = await punchDurable({ kind: 'out', tzOffsetMin: new Date().getTimezoneOffset(), pos });
     if (res.ok) {
       setLostOut(false);
       stopCapture();

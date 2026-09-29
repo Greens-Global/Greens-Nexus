@@ -13,6 +13,7 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods } from '../lib/bodQueue';
 import { formatTime } from '../lib/datetime';
+import { getPosition, punchPosition } from '../lib/geoPosition';
 import { useIsMobile } from '../lib/useIsMobile';
 import { MyHROverview } from './MyHR';
 
@@ -227,24 +228,6 @@ function AllDayToggle({ on, onChange }) {
   );
 }
 
-// One-shot position with a hard timeout: never keep the user waiting on GPS.
-// `maxMs` caps how long the punch waits on geolocation before firing without it.
-// Clock-OUT passes a short budget: a lost out-punch (tab closed during the wait)
-// is the whole "logout not recorded" bug, and location matters far less when
-// someone is leaving than the punch actually landing. Clock-IN keeps the full
-// budget for an accurate geofence check.
-const getPosition = (maxMs = 9000) => new Promise((resolve) => {
-  if (!navigator.geolocation) { resolve(null); return; }
-  const done = (v) => { clearTimeout(timer); resolve(v); };
-  const timer = setTimeout(() => resolve(null), maxMs);
-  navigator.geolocation.getCurrentPosition(
-    (pos) => done({ lat: String(pos.coords.latitude), lng: String(pos.coords.longitude),
-                    accuracy_m: Math.round(pos.coords.accuracy || 0) }),
-    () => done(null),
-    { enableHighAccuracy: true, timeout: Math.max(1000, maxMs - 1000), maximumAge: 30000 },
-  );
-});
-
 // Shared-PC binding: mint a nonce and hand it to the LOCAL Nexus agent over
 // localhost, so the agent claims this PC's device identity with its own token
 // (the browser never sends a device_id). Returns the nonce to send with clock-in,
@@ -276,8 +259,8 @@ function GeoChip({ p }) {
     </span>);
   if (p.geoStatus === 'out_of_fence') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#b45309' }}
-      title="Recorded and flagged for review - this never blocks your punch.">
-      <AlertTriangle size={12} /> {p.distanceM}m from {p.workSiteName || 'nearest site'} - flagged
+      title={`Not at any of your work sites${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${p.distanceM}m away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
+      <AlertTriangle size={12} /> Out of Location - flagged
     </span>);
   // Tagged remote by HR: any location is accepted and nothing is flagged.
   if (p.geoStatus === 'remote') return (
@@ -618,7 +601,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     // IN, pair with the local agent concurrently (shared-PC device binding) so it
     // adds no latency over the geolocation wait.
     const [pos, pairNonce] = await Promise.all([
-      getPosition(kind === 'out' ? 2500 : 9000),
+      kind === 'out' ? punchPosition('out') : getPosition(9000),   // out: a recent fix if a fresh one is slow
       kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
     ]);
     // punchDurable retries and, if the server still can't be reached, parks the
@@ -633,7 +616,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       gateClickRef.current = '';
       const p = res.punch;
       const where = p.geoStatus === 'in_fence' ? ` at ${p.workSiteName}`
-        : p.geoStatus === 'out_of_fence' ? ` - ${p.distanceM}m from ${p.workSiteName || 'the nearest site'}, flagged for review`
+        : p.geoStatus === 'out_of_fence' ? ' - Out of Location, flagged for review'
         : p.geoStatus === 'remote' ? ' - remote'
         : p.geoStatus === 'low_accuracy' ? ' - location too approximate to judge (no GPS on this device)'
         : pos ? '' : ' - location unavailable, recorded without it';

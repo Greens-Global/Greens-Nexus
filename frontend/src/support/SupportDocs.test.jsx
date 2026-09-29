@@ -50,10 +50,10 @@ describe('Support documentation', () => {
     as({});
     const { container } = render(<SupportDocs />);
     const names = indexButtons(container).map((b) => b.textContent);
-    for (const n of ['Getting Started', 'Dashboard', 'Workday', 'Knowledge Base', 'Item Management', 'Construction', 'Support']) {
+    for (const n of ['Getting Started', 'Dashboard', 'Workday', 'Shifts', 'Knowledge Base', 'Item Management', 'Construction', 'Support']) {
       expect(names).toContain(n);
     }
-    for (const n of ['Tasks', 'Tickets', 'People', 'Accounting', 'Investor Relations', 'Credential Vault', 'Settings', 'Workforce Analytics', 'Shifts']) {
+    for (const n of ['Tasks', 'Tickets', 'People', 'Accounting', 'Investor Relations', 'Credential Vault', 'Settings', 'Workforce Analytics']) {
       expect(names).not.toContain(n);
     }
     // Search cannot reach a hidden module either.
@@ -68,14 +68,6 @@ describe('Support documentation', () => {
     const names = indexButtons(container).map((b) => b.textContent);
     expect(names).toContain('Tasks');
     expect(names).not.toContain('Tickets');
-  });
-
-  it('a module that opens on another grant follows the left menu (Shifts on People)', () => {
-    as({ grants: new Set(['hr']) });
-    const { container } = render(<SupportDocs />);
-    const names = indexButtons(container).map((b) => b.textContent);
-    expect(names).toContain('Shifts');
-    expect(names).toContain('People');
   });
 
   it('external guests see only what they were granted', () => {
