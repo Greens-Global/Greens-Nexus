@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  MAX_DIM_COLUMNS, activeColumns, columnModes, csvRows, defaultConfig, isHistorical, presetRange, iso, resolveConfig, runReport, stepAsOf, stepRange,
+  MAX_DIM_COLUMNS, activeColumns, balanceAsOf, columnModes, csvRows, defaultConfig, isHistorical, presetRange, iso, resolveConfig, runReport, stepAsOf, stepRange,
 } from './reportModel';
 
 // The logic behind Accounting -> Reports (Neil and Charmi, Sep 25): what a
@@ -274,14 +274,77 @@ describe('columns', () => {
     expect(r.rows.some((x) => x.kind === 'warn')).toBe(false);
   });
 
-  it('a balance sheet over the last month-ends asks for each date', async () => {
-    const api = fakeApi({ bs: ({ asof }) => ({ org: 'Greens Global', sections: [{ key: 'asset', accounts: [{ account_no: '11000', title: 'Operating Cash', amount: Number(asof.slice(5, 7)) }] }] }) });
-    const r = await runReport(api, resolveConfig({ report: 'balance-sheet', cols: 'quarter' }, NOW));
-    expect(api.getAccountingBalanceSheet.mock.calls.map((c) => c[0])).toEqual(['2026-09-28', '2026-06-30', '2026-03-31', '2025-12-31']);
+  // What each account did, month by month, since the books began.
+  const history = [
+    line('11000', 'Operating Cash', 'asset', '2025-11-01', 5000, 0), line('11000', 'Operating Cash', 'asset', '2026-01-01', 0, 400),
+    line('11000', 'Operating Cash', 'asset', '2026-02-01', 800, 300), line('11000', 'Operating Cash', 'asset', '2026-05-01', 400, 0),
+    line('11000', 'Operating Cash', 'asset', '2026-09-01', 0, 200),
+    line('12000', 'Deposit Paid', 'asset', '2026-01-01', 400, 0), line('12000', 'Deposit Paid', 'asset', '2026-05-01', 0, 400),   // back to nothing in May
+    line('21000', 'Accounts Payable', 'liability', '2026-03-01', 0, 250),
+    line('31000', 'Members Capital', 'equity', '2025-11-01', 0, 4000),
+    line('39000', 'Retained Earnings', 'equity', '2025-12-01', 0, 100),
+    line('41000', 'Rental Income', 'revenue', '2025-11-01', 0, 1000), line('41000', 'Rental Income', 'revenue', '2026-02-01', 0, 500),
+    line('41000', 'Rental Income', 'revenue', '2026-09-01', 0, 50),
+    line('61000', 'Repairs', 'expense', '2025-12-01', 100, 0), line('61000', 'Repairs', 'expense', '2026-03-01', 250, 0),
+    line('61000', 'Repairs', 'expense', '2026-09-01', 250, 0),
+  ];
+
+  it('a balance sheet on a date, worked out from the months: it balances, and carries the earnings the way the ledger does', () => {
+    const at = (asof) => Object.fromEntries(balanceAsOf(history, asof).map((s) => [s.key, s.accounts.map((a) => [a.account_no || a.title, a.amount])]));
+    // 12/31/2025: the year's profit (1,000 - 100) is this year's earnings; nothing from before.
+    expect(at('2025-12-31')).toEqual({
+      asset: [['11000', 5000]], liability: [],
+      equity: [['31000', 4000], ['39000', 100], ['Current year earnings (2025)', 900]],
+    });
+    // 03/31/2026: 2025's profit has moved onto Retained Earnings; 2026 earned 500 and spent 250.
+    expect(at('2026-03-31')).toEqual({
+      asset: [['11000', 5100], ['12000', 400]], liability: [['21000', 250]],
+      equity: [['31000', 4000], ['39000', 1000], ['Current year earnings (2026)', 250]],
+    });
+    // 06/30/2026: the deposit is back to nothing and leaves the statement.
+    expect(at('2026-06-30').asset).toEqual([['11000', 5500]]);
+    ['2025-11-30', '2025-12-31', '2026-01-31', '2026-03-31', '2026-06-30', '2026-09-28'].forEach((d) => {
+      const sum = (key) => balanceAsOf(history, d).find((s) => s.key === key).accounts.reduce((t, a) => t + a.amount, 0);
+      expect([d, sum('asset')]).toEqual([d, sum('liability') + sum('equity')]);
+    });
+  });
+
+  it('a ledger with no Retained Earnings account gets a line for the earlier years', () => {
+    const rows = history.filter((r) => r.account_no !== '39000');
+    expect(balanceAsOf(rows, '2026-03-31').find((s) => s.key === 'equity').accounts.map((a) => [a.title, a.amount]))
+      .toEqual([['Members Capital', 4000], ['Retained earnings (prior years)', 900], ['Current year earnings (2026)', 250]]);
+  });
+
+  it('a balance sheet over the last quarter-ends is ONE read of the ledger', async () => {
+    const api = fakeApi({ buckets: () => ({ org: 'Greens Global', generated_at: '2026-09-28', labels: {}, rows: history }) });
+    const r = await runReport(api, resolveConfig({ report: 'balance-sheet', cols: 'quarter', entities: ['15000'], dims: { vendor: ['V1'] } }, NOW));
+    expect(api.getAccountingBalanceSheet).not.toHaveBeenCalled();
+    expect(api.getAccountingBuckets).toHaveBeenCalledTimes(1);
+    // The entity and the filters of the report go with it.
+    expect(api.getAccountingBuckets.mock.calls[0][0]).toMatchObject({ from: undefined, to: '2026-09-28', by: 'month', book: 'accrual' });
+    expect(api.getAccountingBuckets.mock.calls[0][0].dims.vendor).toEqual(['V1']);
+    expect(api.getAccountingBuckets.mock.calls[0][0].dims.locations).toBeUndefined();
+    expect(api.getAccountingBuckets.mock.calls[0][0].location).toBe('15000');
     expect(r.columns.map((c) => c.label)).toEqual(['09/28/2026', '06/30/2026', '03/31/2026', '12/31/2025']);
+    expect(r.columns[1].drill).toEqual({ from: '', to: '2026-06-30', book: 'accrual' });
     // Dates are not added together.
     expect(r.columns.some((c) => c.key === 'total')).toBe(false);
-    expect(r.rows.find((x) => x.code === '11000').values).toEqual([9, 6, 3, 12]);
+    const row = (code) => r.rows.find((x) => x.code === code || x.title === code || x.label === code).values;
+    expect(row('11000')).toEqual([5300, 5500, 5100, 5000]);
+    expect(row('12000')).toEqual([0, 0, 400, 0]);
+    expect(row('39000')).toEqual([1000, 1000, 1000, 100]);
+    expect(row('Current year earnings (2026)')).toEqual([50, 250, 250, 0]);
+    expect(row('Current year earnings (2025)')).toEqual([0, 0, 0, 900]);
+    expect(row('Assets')).toEqual(row('Total Liabilities and Equity'));
+    expect(r.rows.some((x) => x.kind === 'warn')).toBe(false);
+  });
+
+  it('twelve month-ends are still one read', async () => {
+    const api = fakeApi({ buckets: () => ({ labels: {}, rows: history }) });
+    const r = await runReport(api, resolveConfig({ report: 'balance-sheet', cols: 'month' }, NOW));
+    expect(api.getAccountingBuckets).toHaveBeenCalledTimes(1);
+    expect(r.columns).toHaveLength(12);
+    expect(r.columns.map((c) => c.label).slice(0, 3)).toEqual(['09/28/2026', '08/31/2026', '07/31/2026']);
   });
 
   it('compares a balance sheet with the last year-end', async () => {

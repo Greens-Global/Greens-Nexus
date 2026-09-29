@@ -86,7 +86,12 @@ export default function ReportsTab() {
   const [drill, setDrill] = useState(null);   // { account, accountName, from, to, book, entity?, department?, party? }
   const [searchBusy, setSearchBusy] = useState(false);
   useEffect(() => {
-    const t = setTimeout(() => setTerm(searchText.trim()), 300);
+    // Every search that starts runs to its end on the ledger, even when the
+    // next keystroke has already replaced it. Two or three characters match a
+    // large part of the ledger ("in" is on 619,000 lines), so a short word
+    // waits longer for the rest of it to be typed (Sep 29).
+    const typed = searchText.trim();
+    const t = setTimeout(() => setTerm(typed), typed.length < 4 ? 700 : 350);
     return () => clearTimeout(t);
   }, [searchText]);
   const searching = term.length >= 2 || !!drill;
@@ -123,14 +128,21 @@ export default function ReportsTab() {
   // Run on every control change so the tab always shows what the controls say.
   const seq = useRef(0);
   const key = JSON.stringify(storable(config)) + config.from + config.to + config.asof;
+  const started = useRef(false);
   useEffect(() => {
     const mine = ++seq.current;
     setLoading(true);
     setError('');
-    runReport(api, config)
+    const run = () => runReport(api, config)
       .then((r) => { if (mine === seq.current) setResult(r); })
       .catch((e) => { if (mine === seq.current) { setResult(null); setError(e?.message || 'Could not load the report.'); } })
       .finally(() => { if (mine === seq.current) setLoading(false); });
+    // The first report loads at once. After that a change waits a moment:
+    // two controls changed one after the other are one report, not two heavy
+    // reads of the ledger side by side.
+    if (!started.current) { started.current = true; run(); return undefined; }
+    const t = setTimeout(run, 250);
+    return () => clearTimeout(t);
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Memorized reports.

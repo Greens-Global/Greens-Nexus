@@ -274,6 +274,20 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     fireEvent.change(screen.getByLabelText('Search the ledger'), { target: { value: '500' } });
     expect(screen.getByLabelText('Searching')).toBeTruthy();
-    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('search:500'));
+    // A short word waits a little longer for the rest of it before the ledger is asked.
+    expect(screen.queryByTestId('ledger-search')).toBeNull();
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('search:500'), { timeout: 2500 });
+  });
+
+  it('asks the ledger once when two controls change one after the other', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    const before = api.getAccountingPnl.mock.calls.length;
+    fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'last-year' } });
+    fireEvent.change(screen.getByLabelText('Book'), { target: { value: 'cash' } });
+    await waitFor(() => expect(api.getAccountingPnl.mock.calls.length).toBeGreaterThan(before), { timeout: 2500 });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(api.getAccountingPnl.mock.calls.length).toBe(before + 1);
+    expect(api.getAccountingPnl.mock.calls.at(-1)[4]).toBe('cash');
   });
 });
