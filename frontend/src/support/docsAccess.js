@@ -12,8 +12,8 @@ import { DOCS } from './docsContent';
 export function canReadDoc(doc, { can, myGrantedModules, isExternal }) {
   if (!doc) return false;
   if (!doc.view) return true;
-  // A menu item may open on another module's grant (Shifts opens on the
-  // People `hr` grant) - read it the same way the left menu does.
+  // A menu item may open on another module's grant (its `grant` field) -
+  // read it the same way the left menu does.
   const item = NAV.find((n) => n.view === doc.view);
   const grant = item?.grant || doc.view;
   if (isExternal) return !!myGrantedModules?.has(grant);
