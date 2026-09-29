@@ -37,6 +37,7 @@ import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
 import { COUNTRIES, countryName } from '../lib/countries';
 import LocationPickerMap from '../components/LocationPickerMap';
 import AnchoredMenu from '../components/AnchoredMenu';
+import PersonSearchSelect from '../components/PersonSearchSelect';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -3512,18 +3513,13 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                       ))}
                     </div>
                   )}
-                  <select className="form-input" style={{ width: '100%' }} value=""
-                    onChange={e => { const v = e.target.value; if (v && !f.manager_emails.includes(v)) set('manager_emails', [...f.manager_emails, v]); }}>
-                    <option value="">+ add a manager</option>
-                    <optgroup label="Nexus People">
-                      {people.filter(p => !f.manager_emails.includes(p.email)).map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
-                    </optgroup>
-                    {externals.some(p => !f.manager_emails.includes(p.email)) && (
-                      <optgroup label="External Users">
-                        {externals.filter(p => !f.manager_emails.includes(p.email)).map(p => <option key={p.email} value={p.email}>{p.name} ({p.email}) - External</option>)}
-                      </optgroup>
-                    )}
-                  </select>
+                  {/* Searchable (Sep 29): type a name or email, or open the list. */}
+                  <PersonSearchSelect placeholder="+ add a manager - type a name or email"
+                    groups={[
+                      { label: 'Nexus People', people: people.filter(p => !f.manager_emails.includes(p.email)) },
+                      { label: 'External Users', people: externals.filter(p => !f.manager_emails.includes(p.email)) },
+                    ]}
+                    onPick={v => { if (v && !f.manager_emails.includes(v)) set('manager_emails', [...f.manager_emails, v]); }} />
                 </div>
                 {/* Signs every employee's timesheet last and finalizes it for
                     payroll (timesheet review + Nexus Sign, Sep 2026). */}
