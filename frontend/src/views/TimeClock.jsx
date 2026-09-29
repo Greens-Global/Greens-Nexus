@@ -1104,12 +1104,18 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                   all the backend accepts a start/end time on. */}
               {!toForm.allDay && (
                 <div style={{ ...cell('hours'), display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Start time</span>
-                  <input className="form-input" type="time" value={toForm.startTime}
-                    onChange={e => setToForm(f => ({ ...f, startTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
-                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>End time</span>
-                  <input className="form-input" type="time" value={toForm.endTime}
-                    onChange={e => setToForm(f => ({ ...f, endTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
+                  {/* Label + input pairs, so a phone wraps between the pairs,
+                      never between a label and its field. */}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, minWidth: 58 }}>Start time</span>
+                    <input className="form-input" type="time" value={toForm.startTime}
+                      onChange={e => setToForm(f => ({ ...f, startTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, minWidth: 58 }}>End time</span>
+                    <input className="form-input" type="time" value={toForm.endTime}
+                      onChange={e => setToForm(f => ({ ...f, endTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
+                  </span>
                 </div>
               )}
 
