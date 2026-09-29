@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { MapPin, Users, Search, X, Smartphone, Monitor } from 'lucide-react';
 import { api } from '../api.js';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { useIsMobile } from '../lib/useIsMobile';
 
 // Company-wide map of where each person LAST punched from. Pins are the person's
 // profile photo, ringed green when they're clocked in. Filter by company /
@@ -71,6 +72,9 @@ export default function Locations({ toastErr, embedded = false }) {
   const [sel, setSel] = useState(null);       // focused email
   const [updated, setUpdated] = useState('');
   const [f, setF] = useState({ company: '', department: '', country: '', geo: '', clockedIn: false, q: '' });
+  // Phones/tablets: map full width with the list underneath - a fixed 280px
+  // list column left the map a ~70px strip at 390px (QA, Sep 23).
+  const narrow = useIsMobile('(max-width: 760px)');
 
   // Create the Leaflet map once.
   useEffect(() => {
@@ -87,7 +91,12 @@ export default function Locations({ toastErr, embedded = false }) {
     markersRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     setTimeout(() => { try { map.invalidateSize(); } catch { /* torn down */ } }, 120);
-    return () => { try { map.remove(); } catch { /* gone */ } mapRef.current = null; };
+    // Re-measure when the container changes size (layout switch, rotation) so
+    // tiles fill it instead of leaving grey gaps.
+    const ro = typeof ResizeObserver === 'undefined' ? null
+      : new ResizeObserver(() => { try { map.invalidateSize(); } catch { /* torn down */ } });
+    ro?.observe(mapElRef.current);
+    return () => { ro?.disconnect(); try { map.remove(); } catch { /* gone */ } mapRef.current = null; };
   }, []);
 
   const load = useCallback(() => {
@@ -217,13 +226,13 @@ export default function Locations({ toastErr, embedded = false }) {
         </span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 280px', gap: 12, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: narrow ? 'minmax(0,1fr)' : 'minmax(0,1fr) 280px', gap: 12, alignItems: 'start' }}>
         {/* position:relative + z-index:0 contains Leaflet's GPU-composited tiles in
             their own stacking context, so they can't paint over modals (e.g. the
             profile-menu Screenshots viewer at z-1450) opened above the map. */}
-        <div ref={mapElRef} style={{ width: '100%', height: 'clamp(460px, calc(100dvh - 205px), 1100px)', borderRadius: 12, border: '1px solid var(--line)', overflow: 'hidden', background: 'var(--card)', position: 'relative', zIndex: 0 }} />
+        <div ref={mapElRef} style={{ width: '100%', height: narrow ? 'clamp(320px, 55dvh, 520px)' : 'clamp(460px, calc(100dvh - 205px), 1100px)', borderRadius: 12, border: '1px solid var(--line)', overflow: 'hidden', background: 'var(--card)', position: 'relative', zIndex: 0 }} />
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'clamp(460px, calc(100dvh - 205px), 1100px)', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: narrow ? 'none' : 'clamp(460px, calc(100dvh - 205px), 1100px)', overflowY: 'auto' }}>
           {people === null ? (
             <div style={{ color: 'var(--muted)', fontSize: 13, padding: 8 }}>Loading…</div>
           ) : shown.length === 0 ? (
@@ -244,7 +253,7 @@ export default function Locations({ toastErr, embedded = false }) {
                 <span style={{ minWidth: 0, flex: 1 }}>
                   <span style={{ display: 'block', fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                   <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {[p.department, p.companyName].filter(Boolean).join(' · ') || '—'}
+                    {[p.department, p.companyName].filter(Boolean).join(' · ') || '-'}
                   </span>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, marginTop: 1, flexWrap: 'wrap' }}>
                     <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.color }} />
