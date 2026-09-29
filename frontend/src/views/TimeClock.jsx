@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
-  CheckCircle, Loader2, Plus, X, CalendarDays, Monitor, User,
+  CheckCircle, Loader2, Plus, X, CalendarDays, Monitor, User, Lock,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
@@ -459,7 +459,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // calendar day(s), no time fields; off = a specific window, which the
   // backend only accepts on a single day, so start/end date stay locked
   // together while it's off.
-  const [toForm, setToForm] = useState({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '' });
+  const [toForm, setToForm] = useState({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
   const [toBusy, setToBusy] = useState(false);
   const [toCancelling, setToCancelling] = useState(null);
   useEffect(() => { api.timeOffMine().then(setTimeoff).catch(() => setTimeoff([])); }, []);
@@ -493,9 +493,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     setToBusy(true);
     try {
       await api.timeOffCreate({ type: toForm.type, start_date: toForm.start, end_date: toForm.end,
-        start_time: st, end_time: et, note: toForm.note });
+        start_time: st, end_time: et, note: toForm.note, confidential: !!toForm.confidential });
       toast(true, 'Time-off request sent - your manager gets a notification.');
-      setToForm({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '' });
+      setToForm({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
       api.timeOffMine().then(setTimeoff).catch(() => {});
     } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
     setToBusy(false);
@@ -1102,6 +1102,18 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               <textarea className="form-input" placeholder="Note (optional)" value={toForm.note} rows={2}
                 onChange={e => setToForm(f => ({ ...f, note: e.target.value }))}
                 style={{ gridColumn: '1 / 5', gridRow: noteRow, fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit' }} />
+              {/* Confidential (Neil, Sep 29): the team still sees that you're
+                  out; the type and note stay between you and your approver. */}
+              <label style={{ gridColumn: '1 / 8', gridRow: noteRow + 1, display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
+                <input type="checkbox" checked={!!toForm.confidential} onChange={e => setToForm(f => ({ ...f, confidential: e.target.checked }))}
+                  style={{ marginTop: 2 }} />
+                <span>
+                  <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Keep this confidential</span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                    Your team sees only that you're out. The type and note are visible only to you and your approver (your manager).
+                  </span>
+                </span>
+              </label>
               {/* Total: a live read of what this request will count as, using
                   the same day-fraction math as the year-at-a-glance tally
                   below, so the two numbers never disagree (Pranshu, Sep 16) -
@@ -1127,6 +1139,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         {(timeoff || []).map(r => (
           <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12.5, fontWeight: 800, width: 90 }}>{TIMEOFF_TYPES[r.type] || r.type}</span>
+            {r.confidential && <ConfidentialBadge />}
             <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{r.startDate} → {r.endDate}{toWindow(r)}</span>
             {r.note && <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>“{r.note}”</span>}
             <div style={{ flex: 1 }} />
@@ -1288,5 +1301,16 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         </div>
       )}
     </div>
+  );
+}
+
+// Lock + "Confidential" chip on a confidential time-off row (Sep 29).
+function ConfidentialBadge() {
+  return (
+    <span title="Confidential - only you and your approver see the type and note"
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)',
+        background: 'var(--mist)', borderRadius: 999, padding: '2px 8px' }}>
+      <Lock size={10} /> Confidential
+    </span>
   );
 }

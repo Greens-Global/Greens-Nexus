@@ -4545,10 +4545,17 @@ def _shift_conflicts(item: dict, others: list, timeoff: list, holidays: dict, av
     return out
 
 
-def _timeoff_dict(t) -> dict:
-    return {"email": t.employee_email, "startDate": t.start_date, "endDate": t.end_date,
-            "type": t.type, "status": t.status, "note": t.note or "",
-            "startTime": getattr(t, "start_time", "") or "", "endTime": getattr(t, "end_time", "") or ""}
+def _timeoff_dict(t, priv: "_TimeoffPrivacy" = None) -> dict:
+    """Time off as the schedule grid carries it. A confidential request shows
+    only to its viewers (_TimeoffPrivacy); everyone else gets "time off" with
+    no note - and the conflict warnings built from it say only that too."""
+    out = {"email": t.employee_email, "startDate": t.start_date, "endDate": t.end_date,
+           "type": t.type, "status": t.status, "note": t.note or "",
+           "startTime": getattr(t, "start_time", "") or "", "endTime": getattr(t, "end_time", "") or "",
+           "confidential": _is_confidential(t), "redacted": False}
+    if priv is not None and not priv.can_see(t):
+        out.update(type=REDACTED_TYPE, note="", redacted=True)
+    return out
 
 
 def _can_write_schedule(user: dict, db: Session) -> bool:
@@ -4613,7 +4620,8 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
                   TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start))
     if scope is not None:
         tq = tq.filter(TimeOffRequest.employee_email.in_(list(scope)))
-    timeoff = [_timeoff_dict(t) for t in tq.all()]
+    _priv = _TimeoffPrivacy(db, user.get("email"))
+    timeoff = [_timeoff_dict(t, _priv) for t in tq.all()]
 
     # Company holidays, per visible employee (Pranshu, Sep 22: "fetch the
     # holiday in shifts so that HR is aware of the holiday through shifts
@@ -4672,7 +4680,8 @@ def check_scheduled(email: str, date: str, start: str, end: str, exclude_id: str
               db.query(ScheduledShift).filter(ScheduledShift.employee_email == em,
                                               ScheduledShift.work_date >= lo, ScheduledShift.work_date <= hi).all()
               if r.id != exclude_id]
-    off = [_timeoff_dict(t) for t in db.query(TimeOffRequest)
+    _priv = _TimeoffPrivacy(db, user.get("email"))
+    off = [_timeoff_dict(t, _priv) for t in db.query(TimeOffRequest)
            .filter(TimeOffRequest.employee_email == em, TimeOffRequest.status.in_(["approved", "pending"]),
                    TimeOffRequest.start_date <= date[:10], TimeOffRequest.end_date >= date[:10]).all()]
     item = {"id": exclude_id or "", "date": date[:10], "start": start[:5], "end": end[:5]}
@@ -5047,7 +5056,8 @@ def _copy_timeoff(db: Session, user: dict, body, s0: date, s1: date, span: int, 
             db.add(TimeOffRequest(id=str(uuid.uuid4()), employee_email=t.employee_email, type=t.type,
                                   start_date=a, end_date=b, start_time=getattr(t, "start_time", "") or "",
                                   end_time=getattr(t, "end_time", "") or "", note=t.note or "",
-                                  status="pending", created_at=now, requested_by=user["email"]))
+                                  status="pending", created_at=now, requested_by=user["email"],
+                                  confidential=1 if _is_confidential(t) else 0))
             held.setdefault(t.employee_email, []).append((a, b))
             n += 1
     return n
@@ -7229,17 +7239,110 @@ def save_timeoff_types(body: TimeOffTypesIn, user: dict = Depends(require_team_w
     return {"builtIn": list(TIMEOFF_TYPES), "custom": out, "requestsOn": _timeoff_requests_on(db)}
 
 
-def _ser_timeoff(r: TimeOffRequest, names: dict = None) -> dict:
-    return {"id": r.id, "email": r.employee_email,
-            "name": (names or {}).get(r.employee_email, ""),
-            "type": r.type, "startDate": r.start_date, "endDate": r.end_date,
-            "startTime": getattr(r, "start_time", "") or "",
-            "endTime": getattr(r, "end_time", "") or "",
-            "note": r.note or "", "status": r.status, "approver": r.approver or "",
-            "decidedAt": r.decided_at or "", "decideNote": r.decide_note or "",
-            "createdAt": r.created_at,
-            "requestedBy": getattr(r, "requested_by", "") or "",
-            "requestedByName": (names or {}).get(getattr(r, "requested_by", "") or "", "")}
+# ── Confidential time off (Neil, Sep 29) ─────────────────────────────────────
+# "make a personal leave confidential where it doesn't show the reason
+# publicly, but it would show to the manager or the approver only." Any type
+# can be confidential - a custom type IS a reason ("Jury Duty"), and so is
+# "sick" - so confidential hides the type as well as the note and the decision
+# note. Everyone else still sees that the person is out, and when: plain
+# "Time off" with the dates, status and part-day times.
+REDACTED_TYPE = "time off"
+
+
+def _is_confidential(r) -> bool:
+    return bool(getattr(r, "confidential", 0))
+
+
+class _TimeoffPrivacy:
+    """Who may read a confidential request, for ONE caller - built once per
+    request so a 300-row list costs one employee load, not 300.
+
+    Viewers: the requester; the request's approvers; and whoever recorded the
+    decision (`approver`). Approvers: the employee's direct manager; with no
+    manager on file, their company's HR contact (People -> Companies, the same
+    person _team_alert_recipients names); with neither, the administrators.
+    Only approvers may decide a confidential request, and nobody decides their
+    own. Filing on someone's behalf or copying a schedule does NOT make you a
+    viewer - that would leak it to every scheduler who copies a week."""
+
+    def __init__(self, db: Session, viewer_email: str):
+        self.db = db
+        self.viewer = (viewer_email or "").strip().lower()
+        self._emps = None
+        self._approvers = {}
+
+    def _emp(self, email: str):
+        if self._emps is None:
+            self._emps = {(e.work_email or "").strip().lower(): e
+                          for e in self.db.query(NexusEmployee).all() if e.work_email}
+        return self._emps.get(email)
+
+    def approvers(self, employee_email: str) -> list:
+        em = (employee_email or "").strip().lower()
+        if em in self._approvers:
+            return self._approvers[em]
+        from models import HrEntity
+        emp = self._emp(em)
+        mgr = ((emp.manager_email if emp else "") or "").strip().lower()
+        out = []
+        if mgr and mgr != em:
+            out = [mgr]
+        else:
+            company = ((getattr(emp, "company", "") if emp else "") or "")
+            ent = self.db.query(HrEntity).filter(HrEntity.id == company).first() if company else None
+            hr = ((ent.hr_contact_email if ent else "") or "").strip().lower()
+            if hr and hr != em:
+                out = [hr]
+            else:
+                out = sorted({(r.email or "").strip().lower() for r in self.db.query(NexusRole)
+                              .filter(NexusRole.role.in_(["administrator", "owner"])).all()
+                              if r.email and (r.email or "").strip().lower() != em})
+        self._approvers[em] = out
+        return out
+
+    def can_see(self, r) -> bool:
+        if not _is_confidential(r):
+            return True
+        em = (r.employee_email or "").strip().lower()
+        return bool(self.viewer) and (self.viewer == em
+                                      or self.viewer in self.approvers(em)
+                                      or self.viewer == (r.approver or "").strip().lower())
+
+    def can_decide(self, r) -> bool:
+        em = (r.employee_email or "").strip().lower()
+        if not self.viewer or self.viewer == em:
+            return False
+        return not _is_confidential(r) or self.viewer in self.approvers(em)
+
+    def reviewer_names(self, r) -> str:
+        """Who decides it, for the "only X can decide this" line."""
+        names = []
+        for e in self.approvers(r.employee_email):
+            emp = self._emp(e)
+            n = f"{emp.first_name or ''} {emp.last_name or ''}".strip() if emp else ""
+            names.append(n or e.split("@")[0].replace(".", " ").title())
+        return ", ".join(names[:3]) + (" and others" if len(names) > 3 else "")
+
+
+def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" = None) -> dict:
+    out = {"id": r.id, "email": r.employee_email,
+           "name": (names or {}).get(r.employee_email, ""),
+           "type": r.type, "startDate": r.start_date, "endDate": r.end_date,
+           "startTime": getattr(r, "start_time", "") or "",
+           "endTime": getattr(r, "end_time", "") or "",
+           "note": r.note or "", "status": r.status, "approver": r.approver or "",
+           "decidedAt": r.decided_at or "", "decideNote": r.decide_note or "",
+           "createdAt": r.created_at,
+           "requestedBy": getattr(r, "requested_by", "") or "",
+           "requestedByName": (names or {}).get(getattr(r, "requested_by", "") or "", ""),
+           "confidential": _is_confidential(r), "redacted": False}
+    if priv is not None:
+        out["canDecide"] = priv.can_decide(r)
+        if _is_confidential(r):
+            out["reviewer"] = priv.reviewer_names(r)
+        if not priv.can_see(r):
+            out.update(type=REDACTED_TYPE, note="", decideNote="", redacted=True)
+    return out
 
 
 def _us_day(iso: str) -> str:
@@ -7289,6 +7392,14 @@ def _timeoff_window(st: str, et: str) -> str:
     return f" ({_hhmm12(st)} - {_hhmm12(et)})" if st and et else ""
 
 
+def _bell_kind(r) -> str:
+    """The request's type as a shared bell names it: "vacation" - or, for a
+    confidential request, "confidential time off" (never the type)."""
+    if _is_confidential(r):
+        return "confidential time off"
+    return r.type or "time off"
+
+
 class TimeOffIn(BaseModel):
     type: str
     start_date: str
@@ -7296,6 +7407,7 @@ class TimeOffIn(BaseModel):
     note: Optional[str] = ""
     start_time: Optional[str] = ""   # HH:MM - partial day; both empty = full day
     end_time: Optional[str] = ""
+    confidential: Optional[bool] = False   # type + note shown only to the requester and approver
 
 
 @router.post("/timeoff")
@@ -7318,16 +7430,19 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
     row = TimeOffRequest(id=str(uuid.uuid4()), employee_email=user["email"], type=body.type,
                          start_date=body.start_date, end_date=body.end_date,
                          start_time=st, end_time=et,
-                         note=(body.note or "").strip()[:400], created_at=now)
+                         note=(body.note or "").strip()[:400], created_at=now,
+                         confidential=1 if body.confidential else 0)
     db.add(row)
     who = _display_name(db, user["email"])
+    # A bell's text reaches every recipient alike (manager, HR contact, Global
+    # Admins), so a confidential request never names its type there.
     _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                        title="Time-off request",
-                       body=f"{who} requested {body.type} "
+                       body=f"{who} requested {_bell_kind(row)} "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
-    return _ser_timeoff(row)
+    return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 
 
 class TimeOffOnBehalfIn(TimeOffIn):
@@ -7365,28 +7480,30 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
                          start_date=body.start_date, end_date=body.end_date,
                          start_time=st, end_time=et,
                          note=(body.note or "").strip()[:400], created_at=now,
-                         requested_by=user["email"])
+                         requested_by=user["email"], confidential=1 if body.confidential else 0)
     db.add(row)
     filer = _display_name(db, user["email"])
     if target != user["email"]:
+        # The employee's own copy may name the type - it is theirs.
         _hr_notify(db, target, "Time-off request filed for you",
                    f"{filer} requested {body.type} time off {_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)} "
-                   "on your behalf - you'll hear once it's decided.",
+                   "on your behalf" + (" (confidential)" if row.confidential else "") + " - you'll hear once it's decided.",
                    ref_id=row.id, action={"view": "timeclock", "sub": ""})
     _notify_team_alert(db, employee_email=target, actor_email=user["email"],
                        title="Time-off request",
-                       body=f"{filer} filed a {body.type} request for {emp.first_name} {emp.last_name}: "
+                       body=f"{filer} filed a {_bell_kind(row)} request for {emp.first_name} {emp.last_name}: "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
-    return _ser_timeoff(row)
+    return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 
 
 @router.get("/timeoff/mine")
 def my_timeoff(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = (db.query(TimeOffRequest).filter(TimeOffRequest.employee_email == user["email"])
             .order_by(TimeOffRequest.created_at.desc()).limit(50).all())
-    return [_ser_timeoff(r) for r in rows]
+    priv = _TimeoffPrivacy(db, user["email"])
+    return [_ser_timeoff(r, priv=priv) for r in rows]
 
 
 @router.get("/timeoff")
@@ -7401,7 +7518,8 @@ def list_timeoff(status: str = "", user: dict = Depends(require_team_read),
     rows = q.order_by(TimeOffRequest.created_at.desc()).limit(300).all()
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
-    return [_ser_timeoff(r, names) for r in rows]
+    priv = _TimeoffPrivacy(db, user["email"])
+    return [_ser_timeoff(r, names, priv) for r in rows]
 
 
 class TimeOffDecision(BaseModel):
@@ -7420,6 +7538,13 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     scope = _visible_emails(db, user)
     if scope is not None and row.employee_email not in scope:
         raise HTTPException(403, "You can only decide your own team's requests.")
+    # Nobody decides their own time off (a manager's scope includes themself),
+    # and a confidential request is decided only by its approvers.
+    priv = _TimeoffPrivacy(db, user["email"])
+    if (row.employee_email or "").strip().lower() == (user.get("email") or "").strip().lower():
+        raise HTTPException(403, "You can't approve or reject your own time off - your manager or HR decides it.")
+    if not priv.can_decide(row):
+        raise HTTPException(403, f"This request is confidential - only {priv.reviewer_names(row) or 'the approver'} can decide it.")
     if row.status != "pending":
         raise HTTPException(409, f"Already {row.status}")
     row.status = body.status
@@ -7432,7 +7557,7 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
                + (f" Note: {row.decide_note}" if row.decide_note else ""),
                ref_id=row.id, action={"view": "timeclock", "sub": ""})
     db.commit()
-    return _ser_timeoff(row)
+    return _ser_timeoff(row, priv=priv)
 
 
 @router.post("/timeoff/{req_id}/cancel")
@@ -7454,9 +7579,9 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     if was_approved:
         _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                            title="Time off cancelled",
-                           body=f"{_display_name(db, user['email'])} cancelled their {row.type} request "
+                           body=f"{_display_name(db, user['email'])} cancelled their {_bell_kind(row)} request "
                                 f"{_us_span(row.start_date, row.end_date)}"
                                 f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}.",
                            ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
-    return _ser_timeoff(row)
+    return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
