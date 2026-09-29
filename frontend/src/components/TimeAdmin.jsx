@@ -102,8 +102,8 @@ function weekRange(offset = 0) {
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
-export default function TimeAdmin({ toastOk, toastErr }) {
-  const [view, setView] = useState('payroll');   // payroll (the timecard) | attendance | insights | requests | screenshots | shifts | timeoff
+export default function TimeAdmin({ toastOk, toastErr, initialView }) {
+  const [view, setView] = useState(initialView || 'payroll');   // payroll (the timecard) | attendance | insights | requests | screenshots | shifts | timeoff
   // Live map tab removed Aug 4 - superseded by the top-level Locations map.
   const [payrollEmail, setPayrollEmail] = useState('');   // preselect a person in the Payroll view (from the "to review" badge)
   const [[start, end], setRange] = useState(() => weekRange(0));
