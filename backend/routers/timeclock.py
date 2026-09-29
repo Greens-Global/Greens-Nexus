@@ -6878,6 +6878,8 @@ def payroll_timecard(email: str, start: str, end: str,
         card = _fixed_card(db, em, start or _employee_today(db, em))
         card.update(_signoff_state(db, em, card["periodStart"], card["periodEnd"]))
         card["review"] = _review_state(db, em, card["periodStart"], user, team=True)
+        # The Notes column is on the monthly card too (Sep 29).
+        card["notes"] = _timecard_notes(db, em, card["periodStart"], card["periodEnd"])
         return card
     card = _compute_timecard(db, em, start, end)
     card.update(_signoff_state(db, em, start, end))

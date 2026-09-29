@@ -556,7 +556,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)}
         onFinalize={finalize} onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
-        setWorkLogDay={setWorkLogDay} />
+        setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} />
     );
     return (
       <>
@@ -1053,7 +1053,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay }) {
+function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote }) {
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
   const T = data.totals || {};
@@ -1153,6 +1153,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
             <tr style={{ background: 'var(--wk-hover)' }}>
               <th style={th}>Date</th><th style={th}>Day</th><th style={th}>In</th><th style={th}>Out</th>
               <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Break</th><th style={{ ...th, textAlign: 'right' }}>Effect on pay</th>
+              {!self && <th title="Notes on the day - seen by managers and HR, not the employee" style={th}>Notes</th>}
               {/* Far right, like the hourly card (Sep 29). */}
               <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
             </tr>
@@ -1264,6 +1265,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   <td style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   {breakCell}
                   <td style={{ ...td, textAlign: 'right' }}>{effect(fd)}</td>
+                  {!self && (
+                    <td style={td}><NoteCell date={fd.date} note={dayNotes[fd.date]} onSave={saveNote} /></td>
+                  )}
                   <td style={{ ...td, textAlign: 'center' }}>
                     <WorkLogButton onClick={() => setWorkLogDay(fd.date)} title={`View the Work Log for ${dow(fd.date)}`} />
                   </td>
@@ -1274,7 +1278,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               //    hourly card gets, so 'Absent'/0 hours never reads as unexplained ──
               if (segs.some(s => (s.flags || []).includes('auto_clock_out'))) rows.push(
                 <tr key={fd.date + '-auto'} style={{ background: rowBg }}>
-                  <td colSpan={8} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={self ? 8 : 9} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
                     Auto-closed at end of day - no clock-out was recorded. The day is held until the real Out time is set{self ? ' - tap the Out time to propose the real end of your shift.' : '.'}
                   </td>
@@ -1301,13 +1305,14 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                       <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{hhmm(seg.workedMin)}</td>
                       <td style={td}></td>
                       <td style={td}></td>
+                      {!self && <td style={td}></td>}
                       <td style={td}></td>
                     </tr>
                   );
                   if (edited) rows.push(
                     <tr key={fd.date + '-pr' + si} style={{ background: rBg }}>
                       <td style={td}></td><td style={td}></td>
-                      <td colSpan={6} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
+                      <td colSpan={self ? 6 : 7} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
                         <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{reasons.join('  ·  ')}
                       </td>
                     </tr>
@@ -1318,6 +1323,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     <td style={td}></td><td style={td}></td>
                     <td style={td} colSpan={2}>{addBtn}</td>
                     <td style={td}></td><td style={td}></td><td style={td}></td><td style={td}></td>
+                    {!self && <td style={td}></td>}
                   </tr>
                 );
               }
@@ -1325,7 +1331,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               // ── Expanded: each break window (clock-out -> next clock-in + duration) ──
               if ((breaksOpen || unendedBreak) && dayBreak > 0) rows.push(
                 <tr key={fd.date + '-br'} style={{ background: 'var(--wk-hover)' }}>
-                  <td colSpan={8} style={{ ...td, whiteSpace: 'normal', fontSize: 12 }}>
+                  <td colSpan={self ? 8 : 9} style={{ ...td, whiteSpace: 'normal', fontSize: 12 }}>
                     <span style={{ fontWeight: 700, color: breakFg, marginRight: 10 }}>Breaks - {hhmm(dayBreak)} {overBreak ? '(over the 60 min allowance)' : '(within 60 min)'}</span>
                     {formal.map((b, i) => (
                       <span key={'f' + i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: b.implicit ? 'rgba(185,28,28,0.07)' : 'var(--card)', border: `1px solid ${b.implicit ? 'rgba(185,28,28,0.4)' : 'var(--line)'}`, borderRadius: 999, padding: '2px 9px', margin: '2px 6px 2px 0', fontSize: 11.5 }}>
@@ -1360,7 +1366,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               //    each edited punch shows its own reason inline above instead. ──
               if (notes.length && !(multi && punchesOpen)) rows.push(
                 <tr key={fd.date + '-notes'} style={{ background: rowBg }}>
-                  <td colSpan={8} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={self ? 8 : 9} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
                     <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{notes.join('  ·  ')}
                   </td>
                 </tr>
@@ -1395,7 +1401,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 );
                 rows.push(
                   <tr key={fd.date + '-reqr-' + r.id} style={{ background: 'rgba(180,83,9,0.07)' }}>
-                    <td colSpan={8} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontSize: 11.5, whiteSpace: 'normal' }}>
+                    <td colSpan={self ? 8 : 9} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontSize: 11.5, whiteSpace: 'normal' }}>
                       <span style={{ fontWeight: 700 }}>{kindLabel}</span>{r.reason ? <span style={{ fontStyle: 'italic' }}> · {r.employeeName || 'Employee'}: “{r.reason}”</span> : ''}
                     </td>
                   </tr>
