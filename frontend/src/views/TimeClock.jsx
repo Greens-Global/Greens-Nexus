@@ -13,7 +13,7 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods } from '../lib/bodQueue';
 import { formatTime } from '../lib/datetime';
-import { getPosition } from '../lib/geoPosition';
+import { getPosition, punchPosition } from '../lib/geoPosition';
 import { MyHROverview } from './MyHR';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
@@ -597,7 +597,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     // IN, pair with the local agent concurrently (shared-PC device binding) so it
     // adds no latency over the geolocation wait.
     const [pos, pairNonce] = await Promise.all([
-      getPosition(kind === 'out' ? 2500 : 9000),
+      kind === 'out' ? punchPosition('out') : getPosition(9000),   // out: a recent fix if a fresh one is slow
       kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
     ]);
     // punchDurable retries and, if the server still can't be reached, parks the

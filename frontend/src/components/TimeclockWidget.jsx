@@ -5,7 +5,7 @@ import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
-import { punchPosition } from '../lib/geoPosition';
+import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
 import { replayPendingBods } from '../lib/bodQueue';
 
 // Whether a desktop agent covers THIS machine is detected per-machine by asking
@@ -185,6 +185,9 @@ export default function TimeclockWidget() {
     wasClockedIn.current = clockedIn;
   }, [clockedIn, capturing]);
   useEffect(() => { if (!canCapture && capturing) stopCapture(); }, [canCapture, capturing]);
+  // A recent location on hand for the clock-out (Amy, Sep 29): a desktop's
+  // fix is often slower than the out-punch's short wait.
+  useEffect(() => (clockedIn ? keepPositionWarm() : undefined), [clockedIn]);
 
   // Expose the engine globally so the punch-in button (in the Time Clock view)
   // can start capture from within its own click - the browser only grants screen
