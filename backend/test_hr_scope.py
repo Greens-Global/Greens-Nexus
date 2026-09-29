@@ -250,12 +250,13 @@ class HrScopeTests(unittest.TestCase):
         _as(SCOPED)
         self.assertEqual(self.client.patch(f"/timeclock/approvals/{APPR_B}").status_code, 404)
 
-    def test_shift_assign_skips_out_of_scope(self):
+    def test_shift_assign_needs_a_manager(self):
+        # An HR editor below manager no longer changes shifts at all (Sep 29,
+        # Neil: managers and above only) - scope never comes into it.
         _as(SCOPED)
         r = self.client.post("/timeclock/shift-assign",
                              json={"shift_id": "", "emails": ["ben.beta.hrscope@greensglobal.com"]})
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json().get("assigned"), 0)   # out-of-scope email skipped
+        self.assertEqual(r.status_code, 403)
 
     def test_shift_group_create_forbidden_for_scoped(self):
         _as(SCOPED)

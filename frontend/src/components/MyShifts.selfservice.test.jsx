@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-// My Workday > Shifts self-service (Sep 29): Swap / Offer on my own upcoming
+// Shifts > My Shifts self-service (Sep 29; was My Workday > Shifts): Swap / Offer on my own upcoming
 // placed shifts, the teammate's Accept / Decline, and requesting open shifts.
 
 const timeMySchedule = vi.fn();
@@ -68,20 +68,34 @@ describe('MyShifts availability and group scheduling', () => {
     expect(await screen.findByText('9:00 AM - 12:00 PM')).toBeTruthy();
   });
 
-  it('opens the schedule for the groups I schedule', async () => {
+  it('never offers editing - managing lives in the Shifts module now', async () => {
+    // Even for someone who schedules a group (Sep 29: Manage is the module's,
+    // managers and above only; My Shifts is read-only for everyone).
     timeMySchedule.mockResolvedValue({ ...sched, schedulerOf: [{ id: 'g', name: 'Store' }] });
-    render(<MyShifts />);
-    fireEvent.click(await screen.findByText('Manage Schedule'));
-    expect(await screen.findByText('Schedule grid')).toBeTruthy();
-    expect(screen.getByText('You schedule Store.')).toBeTruthy();
-    fireEvent.click(screen.getByText('Back to My Shifts'));
-    expect(await screen.findByText('Front desk')).toBeTruthy();
-  });
-
-  it('shows no Manage Schedule button to everyone else', async () => {
     render(<MyShifts />);
     await screen.findByText('Front desk');
     expect(screen.queryByText('Manage Schedule')).toBeNull();
+    expect(screen.queryByText('Schedule grid')).toBeNull();
+  });
+
+  it('pins me first in Team Shifts and marks my row', async () => {
+    render(<MyShifts />);
+    const mine = await screen.findByText('Me Here');
+    const row = mine.closest('tr');
+    expect(row.getAttribute('aria-current')).toBe('true');
+    expect(row.textContent).toContain('YOU');
+    const rows = row.parentElement.querySelectorAll('tr');
+    expect(rows[0]).toBe(row);                                   // first, above Bob
+    expect(rows[1].textContent).toContain('Bob Brown');
+    expect(rows[1].getAttribute('aria-current')).toBeNull();
+  });
+
+  it('sums my week at a glance in paid hours', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched,
+      scheduled: [{ ...sched.scheduled[0], breakMin: 30 }] });  // 9-5 with a 30 min break
+    render(<MyShifts />);
+    expect(await screen.findByText('7.5 hrs')).toBeTruthy();
+    expect(screen.getByText(/1 shift · paid time/)).toBeTruthy();
   });
 });
 

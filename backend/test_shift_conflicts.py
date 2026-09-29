@@ -119,12 +119,16 @@ class ConflictAndBreakApiTests(unittest.TestCase):
                                             work_email=em, status="active", deleted_at=""))
             db.add(models.NexusGroup(id=G_ED, name="ed", allowed_modules="hr:editor"))
             db.add(models.NexusGroupMember(group_id=G_ED, email=ADMIN))
+            # Changing shifts needs a manager (Sep 29); the hr:editor grant
+            # keeps the company-wide scope these tests exercise.
+            db.add(models.NexusRole(email=ADMIN, role="manager", assigned_by="test"))
             db.add(models.Shift(id=SHIFT, code="GST", name="Store", start_hhmm="09:00", end_hhmm="17:00",
                                 color="#3b82f6", break_min=30))
             db.commit()
         finally:
             db.close()
         cache.module_grants.invalidate()
+        auth.invalidate_role_cache()
         os.environ["NEXUS_DEV_EMAIL"] = ADMIN
 
     def tearDown(self):
@@ -135,10 +139,12 @@ class ConflictAndBreakApiTests(unittest.TestCase):
         else:
             os.environ["NEXUS_DEV_EMAIL"] = self._email
         cache.module_grants.invalidate()
+        auth.invalidate_role_cache()
 
     def _cleanup(self):
         db = database.SessionLocal()
         try:
+            db.query(models.NexusRole).filter(models.NexusRole.email == ADMIN).delete(synchronize_session=False)
             (db.query(models.NexusEmployee).execution_options(include_deleted=True)
                .filter(models.NexusEmployee.work_email.like("conf.%")).delete(synchronize_session=False))
             db.query(models.NexusGroup).filter(models.NexusGroup.id == G_ED).delete(synchronize_session=False)
