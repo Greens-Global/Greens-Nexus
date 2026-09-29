@@ -115,7 +115,7 @@ function Reputation() {
   const [replyText, setReplyText] = useState({});
 
   function submitReply(i) {
-    if (!replyText[i]) return;
+    if (!(replyText[i] || "").trim()) return;
     setReviews(r => r.map((rev, idx) => idx === i ? { ...rev, replied: true } : rev));
   }
 
@@ -167,7 +167,8 @@ function Reputation() {
                 ? <span style={{ color: "var(--ok-fg)", fontSize: 12, fontWeight: 600 }}>✓ Replied</span>
                 : <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                     <input className="form-input" style={{ flex: 1 }} placeholder="Write a reply…" value={replyText[i] || ""} onChange={e => setReplyText(p => ({ ...p, [i]: e.target.value }))} />
-                    <button className="primary-btn" onClick={() => submitReply(i)}>Reply</button>
+                    <button className="primary-btn" onClick={() => submitReply(i)} disabled={!(replyText[i] || "").trim()}
+                      title={(replyText[i] || "").trim() ? undefined : "Write a reply first"}>Reply</button>
                   </div>
               }
             </div>

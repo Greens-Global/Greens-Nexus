@@ -13,12 +13,15 @@ const OPERATIONAL_TABS = [
 
 export default function MarketingTabs({ active, onChange }) {
   const [hovered, setHovered] = useState(null)
+  // The baseline is an inset shadow, not a border the tabs overlap with a -1px
+  // margin: the strip scrolls now, and that overlap would scroll it vertically.
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 24, borderBottom: '1px solid ' + C.gray200 }}>
+    <div className="scroll-tabs mktg-tabbar-tabs" style={{ display: 'flex', alignItems: 'center', gap: 24, boxShadow: 'inset 0 -1px 0 ' + C.gray200 }}>
       {OPERATIONAL_TABS.map((t) => {
         const Icon = t.icon
         const isActive = active === t.key
-        const color = isActive ? C.gray900 : hovered === t.key ? C.gray600 : C.gray400
+        // gray500, not gray400: inactive labels measured 2.3:1 on white (QA, Sep 23).
+        const color = isActive ? C.gray900 : hovered === t.key ? C.gray700 : C.gray500
         return (
           <button
             key={t.key}
@@ -37,7 +40,6 @@ export default function MarketingTabs({ active, onChange }) {
               background: 'none',
               border: 'none',
               borderBottom: '2px solid ' + (isActive ? C.gray900 : 'transparent'),
-              marginBottom: -1,
               transition: 'all .15s',
               whiteSpace: 'nowrap',
               color,

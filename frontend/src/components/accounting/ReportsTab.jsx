@@ -191,15 +191,17 @@ export default function ReportsTab() {
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
   const select = (active) => ({ ...control, fontWeight: active ? 600 : 400, color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', borderColor: active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)', maxWidth: 300 });
 
+  // minmax(0,1fr): an unsized grid track grows to its widest content, which
+  // pushed the controls past a phone's edge (QA, Sep 23).
   const shell = full
-    ? { position: 'fixed', inset: 0, zIndex: 400, overflow: 'auto', padding: 12, background: 'var(--bg-primary)', display: 'grid', gap: 10, alignContent: 'start' }
-    : { display: 'grid', gap: 10 };
+    ? { position: 'fixed', inset: 0, zIndex: 400, overflow: 'auto', padding: 12, background: 'var(--bg-primary)', display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 10, alignContent: 'start' }
+    : { display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 10 };
 
   return (
     <div style={shell}>
       {/* One slim row: search, then every control as a dropdown. */}
       <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200, maxWidth: 460 }}>
+        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0, maxWidth: 460 }}>
           {waiting
             ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
             : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
