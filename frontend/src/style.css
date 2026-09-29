@@ -3893,7 +3893,7 @@ button, [role="button"], select { touch-action: manipulation; }
   .dk-toolbar .secondary-btn, .dk-toolbar .primary-btn { padding: 7px 11px; }
   .dk-toolbar select.form-input { padding-right: 26px !important; padding-left: 10px !important; }
   .dk-zones { display: none; }
-  .dk-sub-local { display: inline; }
+  .dk-sub-local { display: inline; white-space: nowrap; }  /* "California 6:21 PM PDT" never splits */
 }
 
 /* ── PDF Editor module: full-bleed workspace below the header ────────────── */

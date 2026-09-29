@@ -289,16 +289,16 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             <Globe2 size={11} /> World Clock
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
-            Your local time always shows first. Pick up to {MAX_ZONES} more to show alongside it on your Dashboard greeting.
+            Your local time always shows first, with California time beside it when yours is different. Pick up to {MAX_ZONES} more to show alongside them on your Dashboard greeting.
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--wk-hover, rgba(0,0,0,.03))', color: 'var(--muted)', fontSize: 13 }}>
-              Local — {zoneOptionLabel(LOCAL_TZ)}
+              Local - {zoneOptionLabel(LOCAL_TZ)}
             </div>
             {zoneSlots.map((val, i) => (
               <select key={i} value={val} onChange={(e) => setSlot(i, e.target.value)}
                 style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'inherit' }}>
-                <option value="">— None —</option>
+                <option value="">None</option>
                 {Object.entries(ZONE_GROUPS).map(([region, tzs]) => (
                   <optgroup key={region} label={region.replace(/_/g, ' ')}>
                     {tzs.filter((tz) => tz !== LOCAL_TZ).map((tz) => <option key={tz} value={tz}>{zoneOptionLabel(tz)}</option>)}
