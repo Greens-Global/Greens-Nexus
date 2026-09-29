@@ -854,8 +854,14 @@ export default function ExternalLinks() {
           ) : (
             <button className="secondary-btn" onClick={() => setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
           )}
-          {section === 'company' && canManage && (
-            <button className="primary-btn" onClick={() => setShowManage(true)}>
+          {/* One Manage, same spot on both tabs (Neil, Sep 29): Personal's
+              used to sit down in its filter row, so switching tabs moved it
+              ~150px and slid Customize over - the header jumped. It opens
+              what that tab manages: all links, or the personal taxonomy. */}
+          {canManage && (
+            <button className="primary-btn"
+              onClick={() => (section === 'company' ? setShowManage(true) : setShowPersonalTaxonomy(true))}
+              title={section === 'company' ? 'Manage company links' : 'Manage departments and categories for your links'}>
               <Settings2 size={14} /> Manage
             </button>
           )}
@@ -910,16 +916,14 @@ export default function ExternalLinks() {
             <option value="">All Categories</option>
             {personalCategoriesAvailable.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          {canManage && (
-            <button className="primary-btn" onClick={() => setShowPersonalTaxonomy(true)}>
-              <Settings2 size={14} /> Manage
-            </button>
-          )}
+          {/* Same tile/list toggle as Company, so the row keeps its shape
+              across the tab switch instead of the search box resizing. */}
+          {!editing && <ViewToggle view={gridView} onChange={setGridView} />}
         </div>
         <PersonalLinksSection
           layout={layout} itemsById={personalItemsById} actionCtx={actionCtx}
           mutate={seededPersonalMutate} immediateMutate={seededPersonalMutateNow} allLinks={personalLinks || []}
-          onAdd={openAddPersonal} editable={editing} onRequestEdit={() => setEditing(true)}
+          onAdd={openAddPersonal} editable={editing} onRequestEdit={() => setEditing(true)} view={gridView}
         />
         {showPersonalTaxonomy && (
           <TaxonomyModal taxonomy={taxonomy} onAdd={addTaxonomy} onRename={renameTaxonomy} onDelete={deleteTaxonomy}
@@ -1175,7 +1179,7 @@ const PERSONAL_COLOR = { fg: 'hsl(var(--color-purple))', bg: 'hsla(var(--color-p
 // reuse the exact same LinksLayoutSection Company Links already uses, just
 // pointed at item_type: "personal" - see that component's own docstring for
 // how one layout document stays split cleanly between the two tabs.
-function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, onAdd, editable, onRequestEdit }) {
+function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, immediateMutate, allLinks, onAdd, editable, onRequestEdit, view }) {
   return (
     <div style={{ marginBottom: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -1189,7 +1193,7 @@ function PersonalLinksSection({ layout, itemsById, actionCtx, mutate, immediateM
       <LinksLayoutSection
         sourceType="personal" layout={layout} itemsById={itemsById} actionCtx={actionCtx}
         mutate={mutate} immediateMutate={immediateMutate} allLinks={allLinks} editable={editable}
-        extraAddTile={{ label: 'Add Link', onClick: onAdd }} onRequestEdit={onRequestEdit}
+        extraAddTile={{ label: 'Add Link', onClick: onAdd }} onRequestEdit={onRequestEdit} view={view}
       />
     </div>
   );
@@ -1888,6 +1892,10 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
                 name={a.link.name} sub={listCategory(a.link)} onOpen={a.onOpen} />
             );
           })}
+          {extraAddTile && (
+            <LinksListRow icon={<Plus size={17} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+              name={extraAddTile.label} onOpen={extraAddTile.onClick} />
+          )}
         </div>
         {folderPanel}
       </>
