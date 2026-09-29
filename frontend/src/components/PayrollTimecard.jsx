@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, Coffee } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, Coffee, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz } from '../lib/displayTz';
@@ -51,6 +51,63 @@ function TzSwitch() {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// One switch inside the Options panel: the label, what it does, and the tick.
+function OptionSwitch({ checked, label, hint, onChange }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', padding: '5px 0' }}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ marginTop: 2 }} />
+      <span>
+        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{label}</span>
+        {hint && <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.4 }}>{hint}</span>}
+      </span>
+    </label>
+  );
+}
+
+// Display choices and pay rules behind one button. `children` are the
+// company-wide pay rules (admins only); the display choices are everyone's.
+function TimecardOptions({ self, showRaw, setShowRaw, children }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    const onDown = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onDown);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
+  }, [open]);
+  const rules = [].concat(children || []).filter(Boolean);
+  return (
+    <div ref={box} style={{ position: 'relative' }}>
+      <button type="button" data-tour="pr-rounding" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
+        title="Timezone, unrounded times and pay rules"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
+        <SlidersHorizontal size={14} /> Options
+      </button>
+      {open && (
+        <div role="dialog" aria-label="Timecard options" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 40, width: 320, maxWidth: '92vw', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '12px 14px' }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>Display</div>
+          {!self && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '5px 0' }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Times Shown In</span>
+              <TzSwitch />
+            </div>
+          )}
+          <OptionSwitch checked={showRaw} onChange={setShowRaw} label="Show unrounded times"
+            hint="See the raw punch times. Totals stay computed from the rounded times." />
+          {rules.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', margin: '10px 0 4px', paddingTop: 10, borderTop: '1px solid var(--wk-line2)' }}>Pay Rules</div>
+              {rules}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -481,47 +538,37 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         </button>
         )}
         <div style={{ flex: 1 }} />
-        {/* The California / India toggle is a payroll reviewer's tool; an
-            employee's own timesheet shows one timezone (Neil, Sep 23). */}
-        {!self && <TzSwitch />}
-        <label data-tour="pr-rounding" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
-          title="SwipeClock shows rounded times (nearest 5 min) and computes pay from them. Tick to see the raw punch times instead - totals stay computed from rounded.">
-          <input type="checkbox" checked={showRaw} onChange={e => setShowRaw(e.target.checked)} />
-          Show unrounded times
-        </label>
-        {isAdmin && data?.rounding && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
-            title={`Round every punch to the nearest ${data.rounding.nearestMin || 5} minutes before computing hours - matches SwipeClock (site setting: nearest 5). Keep ON during the parallel run.`}>
-            <input type="checkbox" checked={!!data.rounding.enabled}
-              onChange={async e => {
-                try { await api.timeRoundingSet({ enabled: e.target.checked, nearestMin: data.rounding.nearestMin || 5 }); toastOk?.(`Punch rounding ${e.target.checked ? 'on' : 'off'}.`); load(); }
+        {/* The header used to carry a row of switches - California / India,
+            unrounded times, rounding, auto-lunch, CA paid breaks - that nobody
+            touches day to day (Neil, Sep 25: "we talked about turning this all
+            off"). They sit behind one Options button now; nothing about how
+            pay is computed changed by moving them. */}
+        <TimecardOptions self={self} showRaw={showRaw} setShowRaw={setShowRaw}>
+          {isAdmin && data?.rounding && (
+            <OptionSwitch checked={!!data.rounding.enabled} label={`Round to ${data.rounding.nearestMin || 5} min`}
+              hint={`Round every punch to the nearest ${data.rounding.nearestMin || 5} minutes before computing hours - matches SwipeClock. Applies to everyone.`}
+              onChange={async (on) => {
+                try { await api.timeRoundingSet({ enabled: on, nearestMin: data.rounding.nearestMin || 5 }); toastOk?.(`Punch rounding ${on ? 'on' : 'off'}.`); load(); }
                 catch (err) { toastErr?.(err?.message || 'Could not update rounding.'); }
               }} />
-            Round to {data.rounding.nearestMin || 5} min
-          </label>
-        )}
-        {isAdmin && data?.autoLunch && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
-            title={`Auto-deduct ${data.autoLunch.deductMin}m lunch from any segment over ${Math.round(data.autoLunch.afterMin / 60)}h with no recorded break. Applies to everyone.`}>
-            <input type="checkbox" checked={!!data.autoLunch.enabled}
-              onChange={async e => {
-                try { await api.timeAutoLunchSet({ enabled: e.target.checked, afterMin: data.autoLunch.afterMin, deductMin: data.autoLunch.deductMin }); toastOk?.(`Auto-lunch ${e.target.checked ? 'enabled' : 'disabled'}.`); load(); }
+          )}
+          {isAdmin && data?.autoLunch && (
+            <OptionSwitch checked={!!data.autoLunch.enabled} label="Auto-lunch"
+              hint={`Deduct ${data.autoLunch.deductMin}m lunch from any segment over ${Math.round(data.autoLunch.afterMin / 60)}h with no recorded break. Applies to everyone.`}
+              onChange={async (on) => {
+                try { await api.timeAutoLunchSet({ enabled: on, afterMin: data.autoLunch.afterMin, deductMin: data.autoLunch.deductMin }); toastOk?.(`Auto-lunch ${on ? 'enabled' : 'disabled'}.`); load(); }
                 catch (err) { toastErr?.(err?.message || 'Could not update auto-lunch.'); }
               }} />
-            Auto-lunch
-          </label>
-        )}
-        {isAdmin && data?.breakPolicy && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
-            title={`California rest breaks: pay the first ${data.breakPolicy.paidBreakMin}m of each short break (up to ${data.breakPolicy.restMaxMin}m long), following the CA daily allowance from hours worked. Meal-length breaks stay unpaid. Applies to CA-rule employees only.`}>
-            <input type="checkbox" checked={!!data.breakPolicy.enabled}
-              onChange={async e => {
-                try { await api.timeBreakPolicySet({ ...data.breakPolicy, enabled: e.target.checked }); toastOk?.(`CA paid breaks ${e.target.checked ? 'on' : 'off'}.`); load(); }
+          )}
+          {isAdmin && data?.breakPolicy && (
+            <OptionSwitch checked={!!data.breakPolicy.enabled} label="CA paid breaks"
+              hint={`Pay the first ${data.breakPolicy.paidBreakMin}m of each short break (up to ${data.breakPolicy.restMaxMin}m long). Meal-length breaks stay unpaid. California-rule employees only.`}
+              onChange={async (on) => {
+                try { await api.timeBreakPolicySet({ ...data.breakPolicy, enabled: on }); toastOk?.(`CA paid breaks ${on ? 'on' : 'off'}.`); load(); }
                 catch (err) { toastErr?.(err?.message || 'Could not update the break policy.'); }
               }} />
-            CA paid breaks
-          </label>
-        )}
+          )}
+        </TimecardOptions>
         {!self && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>OT rule</span>
@@ -886,8 +933,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           body: 'Bi-weekly, Sunday to Saturday - the SAME calendar as SwipeClock (current period 7/26–8/8), so the two cards always cover identical days. Arrows move one period.' },
         { target: 'pr-table', title: 'The time card - same columns as SwipeClock',
           body: 'Date, In, Out, Deducted time, Category, Hours, Hrs/day, then the California split: Non-OT, OT (1.5×), OT 2×, and Wage. Times are rounded to the nearest 5 minutes exactly like SwipeClock; weekly total rows appear after each week.' },
-        { target: 'pr-rounding', title: 'Rounded vs raw times',
-          body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Tick this to peek at raw times. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
+        { target: 'pr-rounding', title: 'Options: rounded vs raw times',
+          body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times, switch the timezone, or change a pay rule. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
         { target: 'pr-edit', title: 'Fix punches here',
           body: 'The pencil on any row edits that punch (or adds one on an empty day) - set the real in/out, location, and job category. Originals stay on record with who changed what, like SwipeClock\'s audit log.' },
         { target: 'pr-summary', title: 'Totals, in both formats',

@@ -4541,3 +4541,182 @@ class ShiftAvailability(Base):
     end_hhmm       = Column(String, default="")
     note           = Column(String, default="")
     updated_at     = Column(String, default="")
+
+
+class AccountingSavedReport(Base):
+    """A memorized report (Neil, Sep 25): the report, period, book, entities,
+    dimension filters and comparison of an Accounting > Reports view, under a
+    name, so the same statement is one click the next 50 times. Private to its
+    owner unless `shared`, when everyone with the Accounting grant sees it.
+    `config` holds the filters, never figures - a saved report always reads
+    the ledger as it is now. New table - create_all builds it; RLS is enabled
+    by the startup sweep and the line in main.py."""
+    __tablename__ = "accounting_saved_reports"
+    id          = Column(String, primary_key=True)   # uuid
+    owner_email = Column(String, default="", index=True)
+    name        = Column(String, nullable=False)
+    config      = Column(JSON, default=dict)          # {report, preset, from, to, asof, book, compare, entities, dims}
+    shared      = Column(Boolean, default=False)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class AccountingReportPackage(Base):
+    """A reporting package (Neil, Sep 25): an ordered set of memorized reports
+    sent to a lender as one PDF. `items` is a list of {reportId, title}; the
+    statements are produced fresh from the ledger each time the package is
+    built. New table - create_all builds it; RLS as above."""
+    __tablename__ = "accounting_report_packages"
+    id          = Column(String, primary_key=True)   # uuid
+    owner_email = Column(String, default="", index=True)
+    name        = Column(String, nullable=False)
+    description = Column(String, default="")
+    items       = Column(JSON, default=list)          # [{reportId, title}]
+    shared      = Column(Boolean, default=False)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class AccountingUserPref(Base):
+    """One person's own layout for the Accounting screens (Neil, Sep 25: "do
+    you want to see doc number? The answer is no - but don't take it out"):
+    which columns of the ledger lines show, how wide each is, row density.
+    Follows the person to any computer. New table - create_all builds it; RLS
+    is enabled by the startup sweep and the line in main.py."""
+    __tablename__ = "accounting_user_prefs"
+    email      = Column(String, primary_key=True)
+    prefs      = Column(JSON, default=dict)
+    updated_at = Column(String, default="")
+
+
+class PfsProfile(Base):
+    """One guarantor a lender asks about (Neil, Sep 25): a person, a couple
+    filing jointly, or a trust. Holds what a personal financial statement says
+    about WHO they are - contact details, the standard history questions
+    answered once, the executive profile - never a full Social Security number
+    (last four digits only). What they own and owe is in pfs_lines.
+    The most sensitive records in Nexus: read only through routers/pfs.py,
+    which admits owners and explicit "pfs" grant holders and nobody else.
+    New table - create_all builds it; RLS by the startup sweep and main.py."""
+    __tablename__ = "pfs_profiles"
+    id                = Column(String, primary_key=True)   # uuid
+    name              = Column(String, nullable=False)     # "Rajesh J. Kadakia", "RJK and DRK (Joint)", "Greens Global Family Trust"
+    kind              = Column(String, default="individual")  # individual | joint | trust
+    details           = Column(JSON, default=dict)          # address, phone, email, marital status, ssn_last4 ...
+    history           = Column(JSON, default=list)          # [{question, answer, note}]
+    executive_profile = Column(Text, default="")
+    photo             = Column(Text, default="")            # small JPEG as a data URL, shown on the cover
+    archived          = Column(Boolean, default=False)
+    created_by        = Column(String, default="")
+    created_at        = Column(String, default="")
+    updated_by        = Column(String, default="")
+    updated_at        = Column(String, default="")
+
+
+class PfsLine(Base):
+    """One thing a guarantor owns or owes. `source` says where the figure comes
+    from: 'ledger' = the balance of the listed GL accounts of one Intacct
+    entity as of the statement date (set up once, right every time after);
+    'manual' = a figure somebody keeps (a retirement account, jewelry).
+    ownership_pct turns the balance into the guarantor's share - a 7.5% owner
+    of a company counts 7.5% of its bank account. Real estate rows carry the
+    schedule columns in `details` and two figures: the value and the loan."""
+    __tablename__ = "pfs_lines"
+    id              = Column(String, primary_key=True)     # uuid
+    profile_id      = Column(String, index=True, nullable=False)
+    section         = Column(String, default="asset")       # asset | liability | real_estate
+    category        = Column(String, default="bank")
+    label           = Column(String, default="")
+    institution     = Column(String, default="")
+    account_ref     = Column(String, default="")            # last digits of the account, as printed
+    ownership_pct   = Column(Float, default=100)
+    source          = Column(String, default="manual")      # manual | ledger
+    ledger_entity   = Column(String, default="")
+    ledger_accounts = Column(JSON, default=list)             # GL codes
+    manual_value    = Column(Float, default=0)
+    manual_as_of    = Column(String, default="")
+    details         = Column(JSON, default=dict)
+    sort            = Column(Integer, default=0)
+    notes           = Column(String, default="")
+    updated_by      = Column(String, default="")
+    updated_at      = Column(String, default="")
+
+
+class PfsStatement(Base):
+    """A statement as it was produced: the figures of one guarantor as of one
+    date, kept so what was sent to a lender can be shown again exactly, even
+    after the ledger has moved on."""
+    __tablename__ = "pfs_statements"
+    id           = Column(String, primary_key=True)        # uuid
+    profile_id   = Column(String, index=True, nullable=False)
+    as_of        = Column(String, default="")
+    payload      = Column(JSON, default=dict)
+    generated_by = Column(String, default="")
+    generated_at = Column(String, default="")
+
+
+class Lease(Base):
+    """One tenant in one space (Neil and Charmi, Sep 25): the leasing and
+    monthly recurring income that accounting kept in a workbook. The tenant IS
+    an Intacct customer (customer_id); what Intacct cannot hold lives here -
+    the lease dates, the late-fee rule, the deposit, and in lease_rates the
+    rent as it changes over the years. A tenant who moves out is not
+    overwritten: their lease is ended and the next tenant gets a new row that
+    points back at it (replaces_id), so the history of the space stays.
+    New table - create_all builds it; RLS by the startup sweep and main.py."""
+    __tablename__ = "leases"
+    id               = Column(String, primary_key=True)   # uuid
+    property_name    = Column(String, nullable=False)     # "910 SECR - Ste 100, San Clemente"
+    region           = Column(String, default="")
+    tenancy          = Column(String, default="external")  # external | internal (a related company)
+    landlord         = Column(String, default="")          # legal owner the tenant pays
+    entity_code      = Column(String, default="", index=True)   # Intacct entity the income posts to
+    income_accounts  = Column(JSON, default=list)           # GL codes rent posts to, e.g. ["41101"]
+    customer_id      = Column(String, default="", index=True)   # Intacct customer
+    tenant_name      = Column(String, default="")
+    contact_name     = Column(String, default="")
+    phone            = Column(String, default="")
+    email            = Column(String, default="")
+    mailing_address  = Column(String, default="")
+    lease_start      = Column(String, default="")           # YYYY-MM-DD
+    lease_end        = Column(String, default="")           # '' = month to month
+    security_deposit = Column(Float, default=0)
+    lease_terms      = Column(String, default="")
+    late_fee         = Column(Float, default=0)
+    due_day          = Column(Integer, default=1)           # rent is due on this day of the month
+    grace_days       = Column(Integer, default=5)           # late after this many days past due
+    status           = Column(String, default="active")     # active | ended | vacant
+    notes            = Column(String, default="")
+    replaces_id      = Column(String, default="")           # the lease of the tenant before this one
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class LeaseRate(Base):
+    """The rent from a date on. A long-term tenant's rent changes at renewal
+    without the tenant changing; each change is one row, in force until the
+    next one starts."""
+    __tablename__ = "lease_rates"
+    id         = Column(String, primary_key=True)     # uuid
+    lease_id   = Column(String, index=True, nullable=False)
+    start_date = Column(String, default="")            # YYYY-MM-DD
+    rent       = Column(Float, default=0)
+    cam        = Column(Float, default=0)              # common area maintenance
+    other      = Column(Float, default=0)
+    note       = Column(String, default="")
+
+
+class LeaseMonth(Base):
+    """What is known about one month of one lease that the ledger cannot say:
+    an agreed deduction (the tenant paid for a repair and took it off the rent)
+    and the note that explains it."""
+    __tablename__ = "lease_months"
+    id         = Column(String, primary_key=True)      # "<lease_id>:<YYYY-MM>"
+    lease_id   = Column(String, index=True, nullable=False)
+    month      = Column(String, default="", index=True)   # YYYY-MM
+    adjustment = Column(Float, default=0)               # taken off what is expected
+    note       = Column(String, default="")
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")

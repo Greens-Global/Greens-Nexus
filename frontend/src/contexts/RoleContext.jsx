@@ -29,6 +29,7 @@ export const MODULES = [
   { id: 'property-asset',      label: 'Asset Management' },
   { id: 'accounting',          label: 'Accounting' },
   { id: 'accounting-app',      label: 'Nexus Accounting App' },
+  { id: 'pfs',                 label: 'Personal Financial Statements' },
   { id: 'investor-relations',  label: 'Investor Relations' },
   { id: 'hr',                  label: 'People' },
   { id: 'hr_comp',             label: 'People - Compensation (salary/bank)' },

@@ -5,6 +5,7 @@ import { api } from '../api';
 import { Avatar } from '../tasks/components';
 import ScreenshotsAdmin from './ScreenshotsAdmin';
 import TimeInsights from './TimeInsights';
+import { MonitoringAlertsPanel } from './MonitoringAlerts';
 import LiveView from './LiveView';
 import Locations from '../views/Locations';
 
@@ -633,6 +634,7 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
         ))}
       </div>
 
+      {sub === 'coverage' && <MonitoringAlertsPanel />}
       {sub === 'coverage' && <LiveCoverage onOpenPerson={(email) => { setShotReq({ email, date: new Date().toISOString().slice(0, 10) }); setSub('screenshots'); }} />}
 
       {sub === 'activity' && <ActivityInsights />}
