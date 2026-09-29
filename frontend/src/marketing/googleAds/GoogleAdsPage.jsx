@@ -214,14 +214,14 @@ export default function GoogleAdsPage({
         onSelectMetric={(key, label, format) => setSelectedMetric({ key, label, format })}
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, marginBottom: 16, alignItems: 'stretch' }}>
-        <div style={{ gridColumn: 'span 4' }}>
+      <div className="mktg-grid12" style={{ marginBottom: 16 }}>
+        <div className="mktg-span-4">
           <PerformanceChart rows={rows} prevRows={prevRows} />
         </div>
-        <div style={{ gridColumn: 'span 5' }}>
+        <div className="mktg-span-5">
           <TopCampaignsCard campaigns={scopedCampaigns} onToggleStatus={toggleStatus} />
         </div>
-        <div style={{ gridColumn: 'span 3' }}>
+        <div className="mktg-span-3">
           <DonutCard
             title="Campaign Status"
             data={statusData}
@@ -231,11 +231,11 @@ export default function GoogleAdsPage({
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, alignItems: 'stretch' }}>
-        <div style={{ gridColumn: 'span 6' }}>
+      <div className="mktg-grid12">
+        <div className="mktg-span-6">
           <GeoPerformanceCard rows={scopedGeoRows} />
         </div>
-        <div style={{ gridColumn: 'span 6' }}>
+        <div className="mktg-span-6">
           <KeywordPerformanceCard rows={activeKeywordRows} />
         </div>
       </div>

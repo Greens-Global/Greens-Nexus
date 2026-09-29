@@ -75,7 +75,7 @@ export default function GoogleAdsHeader({
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <div className="mktg-header-actions">
           <button
             onClick={onDownload}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, fontWeight: 500, color: C.gray600, background: C.white }}
