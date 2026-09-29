@@ -155,7 +155,7 @@ function EntityLimit({ person, entities, onClose, onSaved }) {
           </label>
           <label style={choice(mode === 'some')}>
             <input type="radio" name="acct-limit" checked={mode === 'some'} onChange={() => setMode('some')} style={{ marginTop: 3 }} />
-            <span><strong style={{ fontSize: '0.86rem' }}>Only the entities picked below</strong><br /><span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Reports and Packages only. The dashboard tabs and the accounting app close for this person.</span></span>
+            <span><strong style={{ fontSize: '0.86rem' }}>Only the entities picked below</strong><br /><span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Reports, Packages and Leasing only. The dashboard tabs and the accounting app close for this person.</span></span>
           </label>
           {mode === 'some' && (
             <div>

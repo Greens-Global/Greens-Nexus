@@ -32,8 +32,8 @@ import DataTab from '../components/accounting/dashboard/DataTab';
 //
 // Sep 25 (Neil): Packages builds a set of memorized reports into one PDF for
 // a lender; Access (Full level on Accounting) sets which entities each person
-// may read. A person limited to certain entities gets Reports and Packages
-// only - every other tab shows consolidated figures, and the backend refuses
+// may read. A person limited to certain entities gets Reports, Packages and
+// Leasing only - every other tab shows consolidated figures, and the backend refuses
 // them for that person whatever the screen shows.
 
 const TABS = [
