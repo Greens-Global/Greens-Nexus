@@ -1189,7 +1189,7 @@ export const DOCS = [
     ],
     features: [
       { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Notifications & Communications: Ticket Manager (ticket routing and escalation, ticket email, and SLA & Ticket Types), Task Notifications and the Daily Briefing. Access: who can open which module. Items: Item Types & Custom Fields.' },
-      { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
+      { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers (Nexus People or external users) and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
       { name: 'Company Roles', desc: 'Each company\'s job roles, grouped by its departments: the baseline set of modules, seniority tier and default approver. Roles shared across companies are listed there too, and can be moved into a company when everyone holding them works there.' },
       { name: 'Access', desc: 'In Global Settings: each person\'s effective access, Access Groups (extras on top of a job role), per-person overrides and the full access matrix.' },
       { name: 'Tools', desc: 'Actions rather than settings: Act As (search or page through the people you can act as) and the Microsoft 365 directory sync.' },
